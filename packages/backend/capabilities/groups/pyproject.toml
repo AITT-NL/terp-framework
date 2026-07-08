@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-groups"
+version = "0.1.0"
+description = "Terp groups capability — admin-managed user groups that bundle access-grant permissions."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+    "terp-cap-access==0.1.0",
+    "terp-cap-identity==0.1.0",
+]
+
+# Self-registering: the kernel discovers this ModuleSpec via the entry point,
+# mounting the admin `groups` management router at /api/v1/groups without any
+# composition-root edit. Importing the package also registers the access
+# subject expander, so permissions granted to a group apply to its members.
+[project.entry-points."terp.capabilities"]
+groups = "terp.capabilities.groups:module"
+
+# Owns the `user_group` / `user_group_member` tables, so it ships an independent,
+# linear Alembic history (its own `alembic_version_groups` table), discovered by
+# `terp migrate` via the `terp.migrations` group (ADR 0027).
+[project.entry-points."terp.migrations"]
+groups = "terp.capabilities.groups"
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.groups`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/groups"]

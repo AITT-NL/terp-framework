@@ -1,0 +1,94 @@
+# {{ project_name }} — the production profile (ADR 0062).
+#
+#   SECRET_KEY=… POSTGRES_PASSWORD=… docker compose -f docker-compose.prod.yml up -d --wait
+#
+# Topology (same shape as the dev workbench, hardened): Postgres -> one-shot `migrate` ->
+# the API (uvicorn, ENVIRONMENT=production, fail-fast config guardrails) + `web` (nginx
+# serving the built SPA and proxying /api same-origin). Differences from the workbench:
+#
+#   - ENVIRONMENT=production: the app REFUSES to boot on a weak SECRET_KEY, DEBUG,
+#     SQLite, permissive CORS, or an insecure refresh cookie (terp.core.config).
+#   - Secrets come from the environment only — there is NO dev fallback; compose fails
+#     fast when SECRET_KEY / POSTGRES_PASSWORD are unset.
+#   - No `seed` service: seed data is dev/demo only (`terp seed` refuses production).
+#     Bootstrap the first administrator instead with:
+#       docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \
+#         terp user create admin@your-domain.example --role admin
+#   - No --reload, no source watch: images are immutable (Dockerfile.prod).
+#   - Restart policies + healthchecks on the long-running services.
+name: {{ project_slug }}-prod
+
+x-backend: &backend
+  image: {{ project_slug }}-backend-prod
+  environment: &backend-env
+    DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/app
+    SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}
+    ENVIRONMENT: production
+    BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-[]}'
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: app
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: bring every package's schema up to head before the API serves. The API's
+  # own fail-closed boot guard (PendingMigrationsError) backs this up at runtime.
+  migrate:
+    <<: *backend
+    command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *backend
+    # Only the api declares the build: one builder produces the shared tag
+    # (concurrent builds of one tag race in the exporter), migrate reuses it.
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.prod
+    image: {{ project_slug }}-frontend-prod
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  db-data:

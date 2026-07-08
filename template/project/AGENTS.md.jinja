@@ -1,0 +1,136 @@
+# AGENTS.md
+
+This app is built on **Terp** — a secure-by-default platform. The architecture gate
+enforces auth, authorization, audit, optimistic concurrency, pagination, input caps and
+row scoping for you, with precise, fixable messages.
+
+## This project's selections
+
+{% if layout == 'hub' -%}
+- **Layout: hub landing** — `frontend/src/modules/home` owns `/` (a `HubPage` of cards);
+  each module mounts at its own path. Add a `HubCard` when you add a module.
+{%- elif layout == 'blank' -%}
+- **Layout: blank shell** — no starter module; `frontend/src/modules/home` renders a
+  welcome page at `/`. Build the first real module with `uv run terp new module <name>`
+  and replace the welcome page (or point `/` at your first real screen).
+{%- else -%}
+- **Layout: single-list app** — the `{{ module_name }}` module's list is the landing page (`/`).
+{%- endif %}
+{%- if use_files %}
+- **File uploads** (`terp-cap-files`): auto-discovered admin surface at `/api/v1/files`;
+  streamed storage, local `var/files` profile by default — `uv run terp guide files`.
+{%- endif %}
+{%- if use_sso %}
+- **Single sign-on** (`terp-cap-oidc`): wired in `app/auth.py`, mounts once the `OIDC_*`
+  variables are set (see `.env.example`); JIT-provisions viewer-ranked SSO accounts.
+{%- endif %}
+{%- if use_events %}
+- **Domain events** (`terp-cap-eventbus`): `dispatch_in_process` is wired in `app/main.py`;
+  declare `EventDefinition`s in the control plane's catalog — `uv run terp guide events`.
+{%- endif %}
+{%- if not use_files and not use_sso and not use_events %}
+- No optional capabilities selected — the base profile (auth, identity, users, access,
+  audit) only. Add capabilities later by adding the dependency + its composition-root
+  wiring (`uv run terp guide capability`).
+{%- endif %}
+
+## Start here
+
+Run every backend command through **uv** (`uv run …`): the `terp` CLI and the
+project's Python live in the local `.venv`, not on the global PATH — a bare `terp`
+or `python` will not resolve.
+
+- **`uv run terp guide`** / **`uv run terp guide <topic>`** — the authoring guide
+  (module, service, policy, ownership, tenancy, events, capability, migrations, rules,
+  frontend, dataview, forms).
+- **`uv run terp check`** / **`uv run pytest`** — the gate is the source of truth.
+  Green means compliant; red names the fix. `uv run terp check --format json` emits
+  structured violations (rule, file, line, message, and the `uv run terp guide` fix
+  recipe) for tools and agents.
+- **`uv run terp dev`** — run the API (:8000) and frontend (:5173) together, with an
+  OpenAPI preflight so the typed client stays current.
+- **`uv run terp new module <name>`** — scaffold the five slots.
+  **`uv run terp inspect control-plane`** — your roles, permissions, and per-module
+  authority map.
+
+## Definition of done
+
+A change is done only when the whole gate is green — never claim success before
+running **all four** (exactly what CI runs), backend *and* frontend:
+
+```bash
+uv run pytest                         # backend gate (architecture, migrations, mounted modules)
+npm --prefix frontend run typecheck   # frontend types (tsc)
+npm --prefix frontend run lint        # frontend boundary lint + budget
+npm --prefix frontend run build       # the production build CI ships
+```
+
+A frontend module that fails typecheck breaks the app at runtime (a blank page —
+Vite refuses the module graph), so a red typecheck means the app does not work,
+even if the backend gate passes. Import only what a package really exports:
+check the catalog in `node_modules/@terp/react-core/README.md` instead of
+guessing component names or props.
+
+## Golden rules
+
+1. Table models inherit `BaseTable`; never redeclare id/created_at/updated_at/version.
+2. Services subclass `BaseService`; add read filters via `business_filters()` — it
+   returns a *sequence of SQLAlchemy conditions* that are ANDed into every read
+   (e.g. `return (Model.archived == False,)`), never a dict or keyword map; never
+   override `base_query`.
+3. Every write goes through the service; never call `session.add`/`commit` yourself.
+4. Each module declares a `ModuleSpec` with a `Policy` (deny-by-default).
+5. Routes set `response_model` to a Read DTO (never the table model); paginate with `Page[T]`.
+6. Cap every input string with `Field(max_length=...)`.
+7. Import only the `terp.core` public surface + declared capabilities.
+8. Added or changed a database model? Generate its migration in the same change:
+   `uv run terp migrate make <module_name>` (the app refuses to boot behind on
+   migrations, and the test gate fails when migrations drift from the models).
+
+## Frontend golden rules
+
+Screens compose the **`@terp/react-core` component surface** — catalog in
+`node_modules/@terp/react-core/README.md`; data collections via `DataView`
+(`node_modules/@terp/react-core/src/dataview/README.md`); in-terminal recipes via
+`uv run terp guide frontend` / `uv run terp guide dataview` / `uv run terp guide forms`.
+The boundary lint enforces:
+token-styled primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/
+`<table>`/`<dialog>`/`<form>`), the generated typed client only (no raw `fetch` /
+`XMLHttpRequest` / `WebSocket` / `EventSource` / `sendBeacon`),
+design-token styling with no `style={}` / `className` / module stylesheets (layout via
+`Stack` / the page archetypes), in-app links via the router (no raw `<a href="/...">`),
+and no deep `@terp/*` imports. Every routed view renders a page archetype (`Page` /
+`OverviewPage` / `DetailPage` / `HubPage`) — the router refuses an unframed view.
+This app also opts into the **`standard` layout contract** (ADR 0079,
+`frontend/layout-contract.json` + `layoutContract` in `main.tsx` — keep the two in
+sync): each archetype's body slot accepts only the contract's components (hub bodies:
+`HubCard`; overview bodies: `DataView` / `ResourceList` + framework states; detail
+bodies: `DetailList` / `Stack` / `Tabs` + framework states), checked at lint time
+*and* at runtime — the plain `Page` stays free for bespoke screens, and every failure
+message states the fix (`uv run terp guide layouts`).
+Security defaults are refused too: `dangerouslySetInnerHTML` and DOM HTML-injection
+sinks (render text, or `Markdown` for rich text), `eval()` / `new Function()`,
+`javascript:` URLs, and a static `target="_blank"` without `rel="noopener"`.
+
+No lint modes — every violation is an error. The governed opt-out is a justified
+`// terp-allow-<rule>: <reason>` marker, counted exactly against
+`frontend/escape-hatch-budget.json` (`npm run lint` runs the ratchet).
+
+## Theming, language & the user menu (already wired)
+
+- **Dark/light theme** — the token stylesheet ships both palettes; the sidebar user
+  menu's theme toggle (light / dark / system) switches `<html data-theme>`. Because all
+  styling is token-driven, modules never need theme-specific code. Re-theme the app by
+  overriding the token values, never with inline colours.
+- **Languages** — `frontend/src/main.tsx` declares the `locales` catalogs. Add a
+  language by adding one entry (`{ label, strings }` overriding the framework strings);
+  the user menu then shows a persisted language picker. Keep user-facing text in module
+  code as `UiText` props so it follows the switch.
+- **User menu** — every app gets the avatar menu (email, role, theme, language,
+  sign-out) pinned to the sidebar bottom automatically; there is nothing to wire.
+
+Add a module: `uv run terp new module <name>` → fill the slots → **mount it in
+`app/main.py`** (import its `module`, add it to the `modules` list — unmounted
+modules serve no routes) → `uv run terp migrate make <name>` →
+`uv run terp openapi && npm --prefix frontend run generate` (typed client) →
+`uv run terp check`.

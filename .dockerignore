@@ -1,0 +1,15 @@
+# Build-context excludes for the example workbench images (context is the repo root).
+# Keeps the context small and avoids copying host-only or generated trees into the build.
+**/node_modules
+**/.venv
+.git
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/dist
+**/*.db
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage
+apps/example/_frontend_tpl_check

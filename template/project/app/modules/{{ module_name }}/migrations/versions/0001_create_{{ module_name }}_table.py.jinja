@@ -1,0 +1,42 @@
+{% set singular = module_name[:-1] if module_name.endswith('s') else module_name -%}
+"""create the {{ singular }} table
+
+The module's first migration: a deployed app builds its schema from migrations (never
+create_all), so every table model ships a committed revision — the `tables_have_migrations`
+rule and the pending-migrations boot guard enforce it (ADR 0027 / 0028). Evolve the schema
+with `terp migrate make {{ module_name }} -m "..."`.
+"""
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+import sqlmodel
+from alembic import op
+
+# revision identifiers, used by Alembic.
+revision: str = "0001_{{ module_name }}"
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "{{ singular }}",
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(length=200), nullable=False),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_{{ singular }}")),
+    )
+    with op.batch_alter_table("{{ singular }}", schema=None) as batch_op:
+        batch_op.create_index(batch_op.f("ix_{{ singular }}_name"), ["name"], unique=False)
+
+
+def downgrade() -> None:
+    with op.batch_alter_table("{{ singular }}", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_{{ singular }}_name"))
+
+    op.drop_table("{{ singular }}")

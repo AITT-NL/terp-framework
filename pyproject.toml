@@ -1,0 +1,165 @@
+# Terp — Trusted Enterprise Reinforced Platform
+# uv workspace root (VIRTUAL: the root itself is not a package).
+
+[tool.uv.workspace]
+members = [
+    "packages/backend/core",
+    "packages/backend/arch",
+    "packages/backend/cli",
+    "packages/backend/migrations",
+    "packages/backend/capabilities/auth",
+    "packages/backend/capabilities/identity",
+    "packages/backend/capabilities/tenancy",
+    "packages/backend/capabilities/access",
+    "packages/backend/capabilities/audit",
+    "packages/backend/capabilities/eventbus",
+    "packages/backend/capabilities/files",
+    "packages/backend/capabilities/groups",
+    "packages/backend/capabilities/users",
+    "packages/backend/capabilities/outbox",
+    "packages/backend/capabilities/jobs_celery",
+    "packages/backend/capabilities/redis",
+    "packages/backend/capabilities/oidc",
+    "packages/backend/capabilities/scheduler_apscheduler",
+    "packages/backend/capabilities/scheduler_celery_beat",
+    "packages/backend/capabilities/webhooks",
+    "packages/backend/capabilities/sync",
+]
+
+# Internal distributions resolve from the workspace itself (not PyPI). uv requires
+# each intra-workspace dependency to be pinned to its workspace member explicitly;
+# declared once at the root, these sources are inherited by every member.
+[tool.uv.sources]
+terp-core = { workspace = true }
+terp-arch = { workspace = true }
+terp-cli = { workspace = true }
+terp-migrations = { workspace = true }
+terp-cap-access = { workspace = true }
+terp-cap-audit = { workspace = true }
+terp-cap-auth = { workspace = true }
+terp-cap-eventbus = { workspace = true }
+terp-cap-files = { workspace = true }
+terp-cap-groups = { workspace = true }
+terp-cap-identity = { workspace = true }
+terp-cap-jobs-celery = { workspace = true }
+terp-cap-oidc = { workspace = true }
+terp-cap-outbox = { workspace = true }
+terp-cap-redis = { workspace = true }
+terp-cap-scheduler-apscheduler = { workspace = true }
+terp-cap-scheduler-celery-beat = { workspace = true }
+terp-cap-sync = { workspace = true }
+terp-cap-tenancy = { workspace = true }
+terp-cap-users = { workspace = true }
+terp-cap-webhooks = { workspace = true }
+# The Terp Standard (ADR 0082): its own repository, pinned by release tag —
+# the split turned the workspace source into this git pin, zero code edits.
+terp-spec = { git = "https://github.com/AITT-NL/terp-spec", tag = "v0.3.0" }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "pytest-cov>=5.0",
+    # The PostgreSQL conformance lane (ADR 0069): tests skip without a server, so the
+    # driver is harmless locally and required in CI.
+    "psycopg[binary]>=3.2",
+    # Parses the Compose workbench file in test_compose_workbench.py (structure guard).
+    "pyyaml>=6.0",
+    # Exercises the terp-core[secrets] sealing cipher (terp.core.secrets, design §5.4).
+    "cryptography>=48.0.1",
+    # The Terp Standard (ADR 0082): the certification tests locate the
+    # catalog/corpus through terp_spec.spec_dir(), never a repo path.
+    "terp-spec",
+]
+# CI-only generic backstops (NOT part of the `pytest --cov=terp` gate; they
+# complement terp-arch, never replace it). Installed in CI; optional locally.
+lint = [
+    "ruff>=0.6",
+    "pip-audit>=2.7",
+    "deptry>=0.20",
+    "import-linter>=2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "apps/example/tests"]
+pythonpath = ["apps/example"]
+addopts = "-q"
+
+# Coverage gate: the full suite must hold 100% line coverage of the framework
+# (`terp.*`). Run it with `pytest --cov=terp` (CI does); `fail_under` then trips
+# the build if any framework line is unexercised. A plain `pytest` (no --cov)
+# stays fast for subset/dev runs. Genuinely-unreachable lines opt out with an
+# explicit, greppable `# pragma: no cover`.
+[tool.coverage.run]
+source_pkgs = ["terp"]
+# Generated Alembic artifacts are not framework logic: the shared env/script
+# template and every package's revision scripts (DDL) are exercised end-to-end by
+# the migration conformance test but excluded from the line-coverage gate, mirroring
+# the arch harness's `migrations` skip. The orchestration/guard/runtime logic in
+# `terp.migrations` IS measured.
+omit = [
+    "*/terp/migrations/_alembic/*",
+    "*/migrations/versions/*",
+    # Read-only agent-visibility mirror of terp.core (§10 / ADR 0034); never imported,
+    # so never measured. Omitted so a refresh can't perturb the 100% gate.
+    "*/vendor/terp-core/*",
+    # Engine adapters (ADR 0046+) wrap a heavy engine (a broker / scheduler) whose delivery
+    # paths only exercise against real infrastructure; they ship their own test suites (run
+    # against the engine's test / eager mode for correctness) and are not held to the core
+    # `--cov=terp` 100% gate, like the broker adapters the design's §16 places in their own
+    # packages.
+    "*/terp/capabilities/jobs_celery/*",
+    "*/terp/capabilities/scheduler_apscheduler/*",
+    "*/terp/capabilities/scheduler_celery_beat/*",
+]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
+
+
+[tool.ruff]
+# terp-arch (the gate) keeps full authority over terp-specific rules; vendored
+# core is byte-checked elsewhere and generated Alembic DDL is not framework logic.
+extend-exclude = [".venv", "vendor", "**/migrations/versions"]
+
+[tool.ruff.lint]
+# Generic security backstop = bandit (`S`) layered ON TOP of terp-arch. The
+# `S101`/`S105`/`S106` heuristics are name-based and noisy (assert in tests,
+# field names like SECRET_KEY / token_type), so they are excused; the high-signal
+# rules (exec/eval/weak-hash/SQL-injection/bind-all/unsafe-deserialize/shell) stay on.
+select = ["S"]
+ignore = ["S101", "S105", "S106"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately spawn known subprocesses and use non-crypto randomness.
+"**/tests/**" = ["S603", "S607", "S311"]
+"tests/**" = ["S603", "S607", "S311"]
+
+[tool.mypy]
+exclude = ["\\.venv/"]
+
+# deptry: per-package dependency hygiene (CI-only, advisory). `terp.*` is one PEP
+# 420 namespace across distributions, so an intra-namespace import is first-party,
+# and pydantic re-exports through sqlmodel/pydantic-settings — neither is a missing dep.
+[tool.deptry]
+known_first_party = ["terp"]
+
+[tool.deptry.per_rule_ignores]
+DEP003 = ["terp", "pydantic"]
+
+# import-linter: mirrors the test_core_boundary layer-0 keystone generically — a
+# second, tool-independent expression of "terp.core imports nothing above itself".
+[tool.importlinter]
+root_package = "terp"
+
+[[tool.importlinter.contracts]]
+name = "terp.core is layer-0 (imports nothing above; mirrors test_core_boundary)"
+type = "forbidden"
+source_modules = ["terp.core"]
+forbidden_modules = ["terp.capabilities", "terp.arch", "terp.cli", "terp.migrations"]

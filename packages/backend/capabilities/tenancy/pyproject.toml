@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-tenancy"
+version = "0.1.0"
+description = "Terp tenancy capability — tenant isolation by construction (session-level filter + insert stamp)."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+    "starlette>=0.37",
+]
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.tenancy`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/tenancy"]

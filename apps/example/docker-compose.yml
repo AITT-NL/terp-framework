@@ -1,0 +1,112 @@
+# Terp example — the full-stack dev workbench.
+#
+#   cp .env.example .env         # optional: set a strong SECRET_KEY
+#   docker compose watch         # build, migrate, seed, then run api + web with live sync
+#
+# Topology: Postgres (prod-parity DB) -> one-shot `migrate` -> one-shot `seed` -> the API
+# (uvicorn) and the frontend (Vite). Editing app / package source live-syncs into the running
+# containers (uvicorn --reload + Vite HMR).
+name: terp-example
+
+# Shared backend definition — migrate / seed / api run the same image. Only the `api`
+# service declares the build: one builder produces the tag (concurrent builds of a shared
+# tag race in the exporter: "already exists"), the one-shots reuse it.
+x-backend: &backend
+  image: terp-example-backend
+  environment: &backend-env
+    DATABASE_URL: postgresql+psycopg://terp:terp@db:5432/terp
+    SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me-please-0123456789ab}
+    ENVIRONMENT: local
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: terp
+      POSTGRES_PASSWORD: terp
+      POSTGRES_DB: terp
+    # Not published to the host: the API reaches it over the Compose network (db:5432), so the
+    # workbench never collides with a Postgres already running on the host's 5432. Add a
+    # `ports: ["5433:5432"]` here if you want to connect a database client from the host.
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U terp -d terp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: bring every package's schema up to head before the API serves.
+  migrate:
+    <<: *backend
+    command: ["terp", "migrate", "upgrade", "--app-root", "/workspace/app"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # One-shot: seed a usable admin (admin@acme.test) + demo content. Idempotent, dev-only.
+  seed:
+    <<: *backend
+    command: ["terp", "seed"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    <<: *backend
+    build:
+      context: ../..
+      dockerfile: apps/example/Dockerfile
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    develop:
+      watch:
+        - action: sync
+          path: app
+          target: /workspace/app
+        - action: sync
+          path: control_plane
+          target: /workspace/control_plane
+        - action: sync
+          path: ../../packages/backend
+          target: /workspace/packages/backend
+        - action: rebuild
+          path: Dockerfile
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/example/frontend/Dockerfile
+    image: terp-example-frontend
+    command: ["npm", "run", "-w", "@terp-example/frontend", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    environment:
+      TERP_API_PROXY: http://api:8000
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    depends_on:
+      - api
+    develop:
+      watch:
+        - action: sync
+          path: frontend/src
+          target: /workspace/apps/example/frontend/src
+        - action: sync
+          path: ../../packages/frontend
+          target: /workspace/packages/frontend
+        - action: rebuild
+          path: frontend/package.json
+
+volumes:
+  db-data:

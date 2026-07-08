@@ -1,0 +1,38 @@
+// The design-token CSS variables the react-core primitives style against — both the
+// light and dark palettes; the shell header's theme toggle (light/dark/system)
+// switches them via <html data-theme> with no per-module changes.
+import "@terp/contract/tokens.css";
+import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terp/react-core";
+
+// The whole app: discover the modules and mount. baseUrl defaults to same-origin so the
+// Vite dev proxy forwards /api to the backend (uvicorn on :8000). Drop a module.tsx under
+// modules/<name>/ (or run `uv run terp new module <name>`) and it is wired with no registration.
+renderTerpApp({
+  title: "{{ project_name }}",
+  modules: import.meta.glob("./modules/*/module.tsx", { eager: true }),
+  // The slot-typed layout contract (runtime half; the lint half is layout-contract.json —
+  // keep the two in sync). Every archetype's body slot then accepts only the contract's
+  // components; a failing check tells you exactly how to build the screen
+  // (`terp guide layouts`). Remove both to fall back to archetype-only enforcement.
+  layoutContract: "standard",
+  // The app's languages — English and Dutch out of the box (both catalogs ship complete).
+  // Every react-core string (and every UiText prop) follows the header's picker; adding
+  // another language is one more entry overriding the framework strings for that locale.
+  locales: {
+    en: LOCALE_EN,
+    nl: LOCALE_NL,
+  },
+  // The sidebar shows a placeholder mark until the app supplies its own logo here, e.g.
+  // logo: <img src="/logo.svg" alt="" width={28} height={28} />,
+{%- if use_sso %}
+  // The SSO button on the sign-in screen. The backend mounts the OIDC module once the
+  // OIDC_* variables are set (see .env.example + app/auth.py); until then, clicking it
+  // fails closed with a normal API error instead of silently hiding the configured path.
+  ssoProviders: [{ name: "sso", label: "Single sign-on" }],
+{%- endif %}
+  // One-click fill of the seeded dev sign-in (app/seed.py). import.meta.env.DEV is
+  // statically false in production builds, so the credentials never ship in a bundle.
+  devCredentials: import.meta.env.DEV
+    ? { email: "admin@example.test", password: "correct horse battery staple" }
+    : undefined,
+});

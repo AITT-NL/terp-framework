@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-core"
+version = "0.1.0"
+description = "Terp platform kernel — base classes, ModuleSpec, errors, pagination, DB session seam, secure-by-default config."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "fastapi>=0.115",
+    "sqlmodel>=0.0.22",
+    "pydantic-settings>=2.4",
+]
+
+# Config sealing (design §5.4, terp.core.secrets) loads its cipher lazily from the
+# `cryptography` package; an app that never seals config never needs this extra.
+[project.optional-dependencies]
+secrets = ["cryptography>=48.0.1"]
+
+# PEP 420 namespace package: `terp` is shared across distributions, so there is
+# NO src/terp/__init__.py. This distribution owns only `terp.core`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/core"]

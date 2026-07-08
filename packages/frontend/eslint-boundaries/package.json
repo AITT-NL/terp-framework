@@ -1,0 +1,39 @@
+{
+  "name": "@terp/eslint-boundaries",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Terp frontend boundary rules (as data) + the ESLint adapter: no cross-module imports, no package internals, design-token-only styling (no style/className/module stylesheets), token-styled components for raw HTML tags, router-only in-app links, generated-client-only, and browser XSS/navigation sink bans. Strict-only (no modes); governed opt-outs via terp-allow markers + the escape-hatch budget ratchet (terp-boundaries-budget).",
+  "main": "./src/index.js",
+  "bin": {
+    "terp-boundaries-budget": "./src/budget.js"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./spec": "./src/spec.js",
+    "./layouts": "./src/layouts.js",
+    "./budget": "./src/budget.js"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "eslint": ">=9"
+  },
+  "dependencies": {
+    "typescript-eslint": "^8.20.0"
+  },
+  "devDependencies": {
+    "@terp/spec": "github:AITT-NL/terp-spec#v0.3.0",
+    "eslint": "^9.18.0",
+    "vitest": "^3.0.0"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AITT-NL/TERP.git",
+    "directory": "packages/frontend/eslint-boundaries"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

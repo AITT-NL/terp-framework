@@ -1,0 +1,35 @@
+{
+  "name": "@terp/contract",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Terp frontend contract \u2014 the OpenAPI-generated TypeScript client, design tokens, and the stack-agnostic module/route/nav + auth types.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.d.ts",
+    "./openapi.json": "./openapi.json",
+    "./tokens.css": "./src/tokens.css"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "generate": "openapi-typescript ./openapi.json --output ./src/schema.d.ts",
+    "tokens": "node scripts/build-tokens.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0",
+    "style-dictionary": "^5.5.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.17.0"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AITT-NL/TERP.git",
+    "directory": "packages/frontend/contract"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

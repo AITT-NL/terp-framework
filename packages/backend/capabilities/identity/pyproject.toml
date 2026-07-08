@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-identity"
+version = "0.1.0"
+description = "Terp identity capability — persisted user store + the authentication backing."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+    "terp-cap-auth==0.1.0",
+]
+
+# A library capability: it ships no router (user administration lives in
+# terp-cap-users), so it declares no `terp.capabilities` entry point and is
+# imported directly. Its User model + authenticate back the auth login flow.
+
+# It does own the `identity_user` table, so it ships an independent, linear Alembic
+# history (its own `alembic_version_identity` table). The dedicated `terp.migrations`
+# group lets even a library cap (no router) participate in `terp migrate` (ADR 0027).
+[project.entry-points."terp.migrations"]
+identity = "terp.capabilities.identity"
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.identity`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/identity"]

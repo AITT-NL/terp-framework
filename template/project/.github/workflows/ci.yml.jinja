@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      # The architecture gate is the source of truth (== `terp check`).
+      - run: uv run pytest
+      # Keep the generated API reference in lockstep with the installed kernel: regenerate
+      # it and fail if a committed copy drifted (a no-op until you commit docs/).
+      - run: uv run terp api-docs --out docs
+      - run: git diff --exit-code -- docs
+
+  # The React frontend type-checks and builds against @terp/react-core + @terp/contract.
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+      - run: npm run typecheck
+      # The boundary lint + escape-hatch budget: the frontend half of the gate. A violation
+      # fails CI; a governed opt-out is a justified `terp-allow-*` marker counted in
+      # escape-hatch-budget.json.
+      - run: npm run lint
+      - run: npm run build
+
+  # End-to-end conformance: boot the Docker workbench (db -> migrate -> seed -> api + web) and drive
+  # real browser auth flows with Playwright (the base-profile suite from @terp/conformance). Grow it
+  # with your own module specs.
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+        working-directory: conformance
+      - name: Install Playwright (Chromium + OS deps)
+        run: npx playwright install --with-deps chromium
+        working-directory: conformance
+      - name: Start the workbench
+        run: docker compose up -d --wait api web seed
+      - name: Run the conformance suite
+        env:
+          TERP_E2E_BASE_URL: http://localhost:5173
+        working-directory: conformance
+        run: npm test
+      - name: Upload the Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: conformance/playwright-report/
+          retention-days: 7
+      - name: Stop the workbench
+        if: always()
+        run: docker compose down -v

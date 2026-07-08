@@ -1,0 +1,49 @@
+# Production backend image (ADR 0062). Multi-stage: stage 1 builds the app wheel with
+# uv; stage 2 is a clean runtime that installs ONLY the wheel (+ its published terp-*
+# dependencies), the ASGI server, and the Postgres driver — no editable installs, no
+# source tree, no build tooling. The same image backs the one-shot `migrate` job and the
+# `api` server; bootstrap the first admin with `terp user create` (never `terp seed`,
+# which refuses ENVIRONMENT=production). The dev workbench keeps its own Dockerfile.
+
+# --- Stage 1: build the app wheel ----------------------------------------------------
+FROM python:3.13-slim AS wheels
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+WORKDIR /build
+COPY . .
+# The app wheel, plus any vendored pre-release terp-* wheels (.terp-dist/, staged by
+# Terp Studio before the packages are published) so stage 2 resolves them offline.
+RUN uv build --wheel --out-dir /build/dist . \
+    && if [ -d .terp-dist/wheels ]; then cp .terp-dist/wheels/*.whl /build/dist/; fi
+
+# --- Stage 2: minimal runtime --------------------------------------------------------
+FROM python:3.13-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /srv
+
+# Install the built wheel (terp-* dependencies resolve from the package index) + the
+# ASGI server + the Postgres driver.
+COPY --from=wheels /build/dist /wheels
+RUN uv pip install --system --no-cache --find-links /wheels \
+        /wheels/*.whl uvicorn "psycopg[binary]" \
+    && rm -rf /wheels
+
+# `terp migrate --app-root` and the app ref resolve the app package from /srv.
+COPY app app
+COPY control_plane control_plane
+
+# Drop privileges; the runtime never writes to the image filesystem (read-only-FS safe).
+RUN useradd --create-home --uid 10001 appuser
+USER appuser
+
+EXPOSE 8000
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=10s \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+# No --reload: production serves immutable code.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

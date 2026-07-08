@@ -1,0 +1,71 @@
+name: frontend
+
+# Frontend-contract checks: the generated TypeScript client type-checks and has not
+# drifted from the committed OpenAPI contract. Complements the Python `gate` workflow,
+# which keeps `openapi.json` itself in lockstep with the backend (test_openapi_contract).
+# Together they form the full chain: backend -> openapi.json -> generated TS client.
+
+# Path-filtered: docs-only changes cannot affect the frontend contract chain.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md"]
+  pull_request:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check the generated client
+        run: npm run -w @terp/contract typecheck
+
+      - name: Regenerate the client and fail on drift from openapi.json
+        run: |
+          npm run -w @terp/contract generate
+          git diff --exit-code -- packages/frontend/contract/src/schema.d.ts
+
+      - name: Rebuild design tokens and fail on drift from tokens.json
+        run: |
+          npm run -w @terp/contract tokens
+          git diff --exit-code -- packages/frontend/contract/src/tokens.css
+
+      - name: Type-check @terp/react-core
+        run: npm run -w @terp/react-core typecheck
+
+      - name: Test @terp/react-core
+        run: npm run -w @terp/react-core test
+
+      - name: Test @terp/eslint-boundaries (the boundary rules fire)
+        run: npm run -w @terp/eslint-boundaries test
+
+      - name: Regenerate the example client and fail on drift from openapi.json
+        run: |
+          npm run -w @terp-example/frontend generate
+          git diff --exit-code -- apps/example/frontend/src/api/schema.d.ts
+
+      - name: Type-check the example frontend
+        run: npm run -w @terp-example/frontend typecheck
+
+      - name: Lint the example frontend (module boundary rules)
+        run: npm run -w @terp-example/frontend lint
+
+      - name: Build the example frontend
+        run: npm run -w @terp-example/frontend build

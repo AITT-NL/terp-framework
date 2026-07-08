@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-arch"
+version = "0.1.0"
+description = "Terp enforcement harness — secure-by-default fitness rules, shipped as a dependency clients run but cannot edit."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = []
+
+# PEP 420 namespace package: this distribution owns only `terp.arch`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/arch"]

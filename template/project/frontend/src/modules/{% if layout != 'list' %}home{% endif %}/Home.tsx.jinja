@@ -1,0 +1,35 @@
+{% if layout == 'hub' -%}
+// The hub landing: a card per area (each can carry a live `stat`, making the hub a
+// lightweight dashboard). Add a card here when you add a module.
+import { HubCard, HubPage } from "@terp/react-core";
+import { Link } from "@tanstack/react-router";
+
+export function Home() {
+  return (
+    <HubPage title="{{ project_name }}">
+      <HubCard
+        to="/{{ module_name }}"
+        title="{{ module_pascal }}"
+        description="Browse and manage {{ module_name }}."
+        renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
+      />
+    </HubPage>
+  );
+}
+{%- else -%}
+// The blank-shell landing — replace it with your first real screen. Add modules with
+// `uv run terp new module <name>` (or ask the agent); each drops in a routed, nav-linked slot.
+import { Page } from "@terp/react-core";
+
+export function Home() {
+  return (
+    <Page title="{{ project_name }}">
+      <p>
+        Your app is running: sign-in, admin and audit are already wired. Add your first
+        module with <code>uv run terp new module &lt;name&gt;</code> — it appears in the
+        navigation automatically.
+      </p>
+    </Page>
+  );
+}
+{%- endif %}

@@ -1,0 +1,185 @@
+name: gate
+
+# The enforced suite: tests + architecture rules + 100% framework line coverage.
+# Runs on every push and pull request so enforcement never depends on a
+# developer remembering to run it locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Supersede stale runs: a force-push to a PR cancels the previous full run instead
+# of stacking a duplicate. Pushes to main are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Run the gate (tests + arch rules + 100% coverage)
+        run: uv run pytest --cov=terp
+
+  # The PostgreSQL conformance lane (ADR 0069): the migration subsystem must hold on
+  # the verified production dialect, not only the SQLite dev/test engine — SQLite
+  # masks real differences (VARCHAR length enforcement, timezone-aware datetimes,
+  # native ALTER vs batch mode). Runs the migrations-conformance suite against a real
+  # PostgreSQL service; each test creates its own scratch database.
+  postgres-lane:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: terp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Run the migrations conformance suite against PostgreSQL
+        env:
+          TERP_TEST_POSTGRES_URL: postgresql+psycopg://postgres:terp@localhost:5432/postgres
+        run: uv run pytest tests/architecture/test_migrations_conformance.py -q
+
+  # Generic, tool-independent backstops layered ON TOP of the gate — they never
+  # replace terp-arch. Blocking: ruff bandit (`S`) + the import-linter layer-0
+  # contract (mirrors test_core_boundary). Advisory (continue-on-error): a missing
+  # advisory wheel or a fresh CVE shouldn't break the gate green-ness.
+  generic-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: ruff — security backstop (bandit `S`), repo-wide
+        run: uv run --group lint ruff check .
+
+      - name: import-linter — terp.core layer-0 contract
+        run: uv run --group lint lint-imports
+
+      - name: pip-audit — dependency CVEs (advisory)
+        continue-on-error: true
+        run: uv run --group lint pip-audit
+
+      - name: deptry — per-package dependency hygiene (advisory)
+        continue-on-error: true
+        run: |
+          for pkg in packages/backend/core packages/backend/arch packages/backend/cli \
+                     packages/backend/migrations packages/backend/capabilities/*/; do
+            echo "::group::deptry $pkg"
+            (cd "$pkg" && uv run --project "$GITHUB_WORKSPACE" --group lint deptry . --known-first-party terp --per-rule-ignores 'DEP003=terp|pydantic') || true
+            echo "::endgroup::"
+          done
+
+  # Template acceptance (ADR 0063): a generated client repo must work OUTSIDE the
+  # monorepo. Render the copier template, stage local wheels for every terp
+  # distribution (standing in for the published index), and run the generated
+  # project's own gate against them; then build its frontend against packed npm
+  # tarballs. Converts "the template deploys" from an opinion into a failing test.
+  # The matrix proves each create-wizard preset: the default single-list render,
+  # the hub layout with every capability toggle on, and the blank shell.
+  template-acceptance:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: default
+            copier-args: ""
+          - variant: hub-all-capabilities
+            copier-args: >-
+              --data layout=hub --data use_files=true --data use_sso=true
+              --data use_events=true
+          - variant: blank
+            copier-args: "--data layout=blank"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Stage local wheels for every terp distribution
+        run: |
+          set -eux
+          for pkg in packages/backend/core packages/backend/arch packages/backend/migrations \
+                     packages/backend/cli packages/backend/capabilities/*/; do
+            uv build --wheel --out-dir /tmp/terp-wheels "$pkg"
+          done
+
+      - name: Render the template (${{ matrix.variant }})
+        run: |
+          uvx copier copy --defaults --trust ${{ matrix.copier-args }} template /tmp/acceptance-app
+
+      - name: Run the generated project's gate against the staged wheels
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: |
+          uv sync
+          uv run pytest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Stage packed npm tarballs for the @terp packages
+        run: |
+          set -eux
+          npm ci
+          mkdir -p /tmp/terp-npm
+          for ws in @terp/contract @terp/eslint-boundaries @terp/react-core @terp/conformance; do
+            npm pack -w "$ws" --pack-destination /tmp/terp-npm
+          done
+
+      - name: Build the generated frontend against the packed tarballs
+        working-directory: /tmp/acceptance-app/frontend
+        run: |
+          set -eux
+          npm install /tmp/terp-npm/*.tgz
+          npm install
+          npm run typecheck
+          npm run build
+

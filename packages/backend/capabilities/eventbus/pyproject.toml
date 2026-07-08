@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-eventbus"
+version = "0.1.0"
+description = "Terp event-bus capability — the in-process dispatcher + handler registry for the core event seam."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+]
+
+# A *library* capability: no `terp.capabilities` entry point (nothing to mount)
+# and no tables. The dispatcher is installed explicitly via
+# create_app(event_dispatcher=dispatch_in_process); handlers register via the
+# `subscribe` decorator at import time.
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.eventbus`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/eventbus"]

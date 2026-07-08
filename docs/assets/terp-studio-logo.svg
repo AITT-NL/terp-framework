@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 256" role="img" aria-labelledby="terp-studio-logo-title">
+  <title id="terp-studio-logo-title">Terp Studio — the agent-driven Terp workbench</title>
+  <defs>
+    <linearGradient id="studio-spark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fcd34d"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <clipPath id="studio-mound">
+      <path d="M24 192 C24 118 66 74 128 74 C190 74 232 118 232 192 Z"/>
+    </clipPath>
+  </defs>
+  <!-- The terp: an engineered dwelling mound, raised in layers above the floodwater -->
+  <path d="M24 192 C24 118 66 74 128 74 C190 74 232 118 232 192 Z" fill="#22c55e"/>
+  <path d="M24 146 Q128 130 232 146 V192 H24 Z" fill="#16a34a" clip-path="url(#studio-mound)"/>
+  <path d="M24 172 Q128 158 232 172 V192 H24 Z" fill="#15803d" clip-path="url(#studio-mound)"/>
+  <!-- The dwelling, safe on high ground -->
+  <path d="M106 82 V52 L128 30 L150 52 V82 Z" fill="#f59e0b"/>
+  <rect x="121" y="58" width="14" height="24" rx="3" fill="#ffffff"/>
+  <!-- The floodwater the terp rises above -->
+  <path d="M8 196 Q32 184 56 196 T104 196 T152 196 T200 196 T248 196"
+        fill="none" stroke="#3b82f6" stroke-width="11" stroke-linecap="round"/>
+  <path d="M32 222 Q56 210 80 222 T128 222 T176 222 T224 222"
+        fill="none" stroke="#2563eb" stroke-width="11" stroke-linecap="round"/>
+  <!-- Agent spark over the mound -->
+  <path d="M206 16 Q213 45 242 52 Q213 59 206 88 Q199 59 170 52 Q199 45 206 16 Z"
+        fill="url(#studio-spark)"/>
+  <!-- Wordmark -->
+  <text x="296" y="168" font-family="'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif"
+        font-size="116" font-weight="700" letter-spacing="1" fill="#2563eb">Terp <tspan
+        fill="#64748b" font-weight="600">Studio</tspan></text>
+</svg>

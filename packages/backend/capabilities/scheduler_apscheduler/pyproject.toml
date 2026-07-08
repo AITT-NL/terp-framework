@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-scheduler-apscheduler"
+version = "0.1.0"
+description = "Terp APScheduler adapter — fire catalog schedules on their cron in-process, through the jobs seam."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+    "apscheduler>=3.10,<4",
+]
+
+# A LIBRARY (scheduler-engine-adapter) capability: it provides an in-process Scheduler
+# backed by APScheduler — not an HTTP surface — so it declares NO `terp.capabilities`
+# ModuleSpec entry point (nothing is auto-mounted) and owns no tables. A scheduler process
+# (or a single-instance web process) opts in by building the app (to configure the live
+# ScheduleCatalog), then ApschedulerScheduler(session_factory).register_all(...) + .start().
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.scheduler_apscheduler`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/scheduler_apscheduler"]

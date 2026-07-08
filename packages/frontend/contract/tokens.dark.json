@@ -1,0 +1,34 @@
+{
+  "color": {
+    "brand": {
+      "primary": { "value": "#3b82f6" },
+      "primaryContrast": { "value": "#ffffff" },
+      "primaryHover": { "value": "#60a5fa" },
+      "primarySoft": { "value": "#1e3a5f" }
+    },
+    "neutral": {
+      "0": { "value": "#1e293b" },
+      "50": { "value": "#0f172a" },
+      "100": { "value": "#263449" },
+      "200": { "value": "#334155" },
+      "300": { "value": "#475569" },
+      "400": { "value": "#64748b" },
+      "500": { "value": "#94a3b8" },
+      "600": { "value": "#b4c0d0" },
+      "700": { "value": "#e2e8f0" },
+      "800": { "value": "#f1f5f9" },
+      "900": { "value": "#f1f5f9" }
+    },
+    "status": {
+      "success": { "value": "#4ade80" },
+      "successSoft": { "value": "#132f21" },
+      "warning": { "value": "#fbbf24" },
+      "warningSoft": { "value": "#332711" },
+      "danger": { "value": "#f87171" },
+      "dangerSoft": { "value": "#3b1a1a" },
+      "info": { "value": "#38bdf8" },
+      "infoSoft": { "value": "#12303f" }
+    },
+    "focusRing": { "value": "rgba(96,165,250,0.45)" }
+  }
+}

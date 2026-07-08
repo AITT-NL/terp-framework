@@ -1,0 +1,75 @@
+# Terp example — production backend image (ADR 0062).
+#
+# Built from the REPOSITORY ROOT (docker-compose.prod.yml sets `context: ../..`).
+# Multi-stage: stage 1 builds wheels for every framework package with uv; stage 2 is a
+# clean python:3.13-slim runtime that installs ONLY the wheels + the app — no editable
+# installs, no source tree, no build tooling. The same image backs the one-shot
+# `migrate` job and the `api` server; production bootstraps its first admin with
+# `terp user create` (never `terp seed`, which refuses ENVIRONMENT=production).
+#
+# The dev workbench keeps its own Dockerfile (editable installs + --reload live sync).
+
+# --- Stage 1: build wheels for all terp distributions -------------------------------
+FROM python:3.13-slim AS wheels
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+WORKDIR /build
+COPY packages/ packages/
+
+# Build every backend distribution into /build/dist (sdist skipped: wheels only).
+RUN set -eux; \
+    for pkg in \
+        packages/backend/core \
+        packages/backend/arch \
+        packages/backend/migrations \
+        packages/backend/capabilities/auth \
+        packages/backend/capabilities/identity \
+        packages/backend/capabilities/tenancy \
+        packages/backend/capabilities/access \
+        packages/backend/capabilities/audit \
+        packages/backend/capabilities/eventbus \
+        packages/backend/capabilities/files \
+        packages/backend/capabilities/groups \
+        packages/backend/capabilities/users \
+        packages/backend/capabilities/outbox \
+        packages/backend/capabilities/oidc \
+        packages/backend/capabilities/webhooks \
+        packages/backend/cli \
+    ; do uv build --wheel --out-dir /build/dist "$pkg"; done
+
+# --- Stage 2: minimal runtime --------------------------------------------------------
+FROM python:3.13-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/srv
+
+WORKDIR /srv
+
+# Install the built wheels (immutable, no source tree) + the ASGI server + the
+# Postgres driver. `--find-links` resolves the intra-terp dependencies from /wheels.
+COPY --from=wheels /build/dist /wheels
+RUN uv pip install --system --no-cache --find-links /wheels \
+        terp-core terp-arch terp-migrations terp-cli \
+        terp-cap-auth terp-cap-identity terp-cap-tenancy terp-cap-access \
+        terp-cap-audit terp-cap-eventbus terp-cap-files terp-cap-users \
+        terp-cap-outbox terp-cap-oidc terp-cap-webhooks \
+        uvicorn "psycopg[binary]" \
+    && rm -rf /wheels
+
+# The app code runs on PYTHONPATH (mirrors the dev image / pytest layout).
+COPY apps/example/app app
+COPY apps/example/control_plane control_plane
+
+# Drop privileges; the runtime never writes to the image filesystem (read-only-FS safe).
+RUN useradd --create-home --uid 10001 terp
+USER terp
+
+EXPOSE 8000
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=10s \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+# No --reload: production serves immutable code.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

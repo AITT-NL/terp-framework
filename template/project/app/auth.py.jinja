@@ -1,0 +1,98 @@
+"""Login wiring — the auth capability backed by the identity user store.
+
+``principal_provider`` is the revocable seam (re-checks ``is_active`` + the token epoch
+every request), so ``create_app(require_token_revocation=True)`` accepts it and the
+secure path is the default. ``terp guide capability`` covers tenancy / events wiring.
+"""
+
+from __future__ import annotations
+
+{% if use_sso -%}
+import os
+
+from sqlmodel import Session
+
+from terp.capabilities.auth import build_login_module, build_me_module
+from terp.capabilities.identity import (
+    FederatedIdentityService,
+    IdentityService,
+    RefreshTokenService,
+)
+from terp.capabilities.oidc import OIDCClaims, OIDCProviderConfig, build_oidc_module
+from terp.capabilities.users import UsersService
+from terp.core import Principal
+{%- else -%}
+from terp.capabilities.auth import build_login_module, build_me_module
+from terp.capabilities.identity import IdentityService, RefreshTokenService
+from terp.capabilities.users import UsersService
+{%- endif %}
+
+from control_plane import control_plane
+
+_identity = IdentityService(control_plane.permissions)
+_refresh = RefreshTokenService()
+_users = UsersService(refresh_revoker=_refresh.revoke_all_for_user)
+
+principal_provider = _identity.principal_provider()
+login_module = build_login_module(
+    _identity.authenticate,
+    token_version_resolver=_identity.token_version_for,
+    revoke_sessions=_users.revoke_sessions,
+    refresh_issuer=_refresh.issue,
+    refresh_rotator=_refresh.rotate,
+    principal_resolver=_identity.principal_for_id,
+    require_refresh=True,
+)
+# GET /api/v1/me — the authenticated caller's own identity (ADR 0044).
+me_module = build_me_module(_identity.current_user)
+{% if use_sso %}
+
+# --------------------------------------------------------------------------- #
+# SSO via OIDC (ADR 0058) — enabled by configuration, off until then.
+# --------------------------------------------------------------------------- #
+# Set OIDC_ISSUER / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET / OIDC_REDIRECT_URI (see
+# .env.example) and the SSO module mounts; unset, the app boots with SSO off.
+# Identity resolution rides the federated store: a validated (issuer, subject)
+# pair resolves to a linked user, and JIT provisioning creates a viewer-ranked,
+# SSO-only account on a first login with a verified email.
+_federated = FederatedIdentityService(allow_provisioning=True)
+
+
+def _resolve_sso_principal(session: Session, claims: OIDCClaims) -> Principal | None:
+    """The OIDC identity seam: validated claims -> a principal, via the federated store."""
+    user = _federated.resolve_or_provision(
+        session,
+        issuer=claims.issuer,
+        subject=claims.subject,
+        email=claims.email,
+        email_verified=claims.email_verified,
+    )
+    if user is None:
+        return None
+    return _identity.principal_for_user(session, user)
+
+
+_OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "")
+
+# The provider config validates fail-fast at boot (https required in production);
+# the SSO session is minted through the exact seams /login uses (token epoch +
+# refresh cookie), so both auth paths share one session/revocation story.
+oidc_module = (
+    build_oidc_module(
+        [
+            OIDCProviderConfig(
+                name="sso",
+                issuer=_OIDC_ISSUER,
+                client_id=os.environ.get("OIDC_CLIENT_ID", ""),
+                client_secret=os.environ.get("OIDC_CLIENT_SECRET", ""),
+                redirect_uri=os.environ.get("OIDC_REDIRECT_URI", ""),
+            )
+        ],
+        _resolve_sso_principal,
+        token_version_resolver=_identity.token_version_for,
+        refresh_issuer=_refresh.issue,
+    )
+    if _OIDC_ISSUER
+    else None
+)
+{% endif -%}

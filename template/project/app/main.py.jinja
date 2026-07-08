@@ -1,0 +1,47 @@
+"""{{ project_name }} composition root — wire the platform once.
+
+``create_app`` mounts the app's modules behind the deny-by-default guard;
+installed capabilities are discovered by entry point. App modules are mounted
+**explicitly**: after ``uv run terp new module <name>``, import its
+``module`` here and add it to the ``modules`` list below — a module that is
+not listed serves no routes (the gate's mounted-modules test fails until it
+is listed).
+"""
+
+from __future__ import annotations
+
+from terp.capabilities.audit import persist_audit
+{%- if use_events %}
+from terp.capabilities.eventbus import dispatch_in_process
+{%- endif %}
+from terp.core import create_app
+
+from app.auth import login_module, me_module, principal_provider{% if use_sso %}, oidc_module{% endif %}
+from control_plane import control_plane
+{%- if module_name %}
+from app.modules.{{ module_name }}.module import module as {{ module_name }}_module
+{%- endif %}
+
+
+def build():
+    modules = [login_module, me_module{% if module_name %}, {{ module_name }}_module{% endif %}]
+{%- if use_sso %}
+    # SSO mounts only when an OIDC provider is configured (see app/auth.py).
+    if oidc_module is not None:
+        modules.append(oidc_module)
+{%- endif %}
+    return create_app(
+        modules,
+        title="{{ project_name }}",
+        principal_provider=principal_provider,
+        discover_capabilities=True,
+        control_plane=control_plane,
+        audit_sink=persist_audit,
+{%- if use_events %}
+        event_dispatcher=dispatch_in_process,
+{%- endif %}
+        require_token_revocation=True,
+    )
+
+
+app = build()

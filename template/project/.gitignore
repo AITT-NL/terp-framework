@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.db
+*.sqlite3
+
+# Node / frontend build output
+node_modules/
+frontend/dist/
+
+# Generated: the app's OpenAPI document and the typed client generated from it
+# (`uv run terp openapi` + `npm --prefix frontend run generate`). Regenerated, never hand-edited.
+/openapi.json
+frontend/src/api/

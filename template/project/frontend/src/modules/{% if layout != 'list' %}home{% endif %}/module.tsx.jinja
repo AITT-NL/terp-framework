@@ -1,0 +1,12 @@
+import { defineModuleManifest } from "@terp/contract";
+
+import { Home } from "./Home";
+
+// The landing module ("/" belongs to it) — auto-discovered like every module slot.
+export const manifest = defineModuleManifest({
+  name: "home",
+  routes: [{ path: "/", view: "Home" }],
+  nav: [{ label: "Home", to: "/", icon: "home" }],
+});
+
+export const views = { Home };

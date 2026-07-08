@@ -1,0 +1,67 @@
+name: conformance
+
+# End-to-end concept coverage: boot the Dockerized Terp stack (Postgres + seeded API + web) and
+# drive real browser flows (auth gating + CRUD through the typed client) with Playwright. This is
+# the behavioural complement to the frontend type/build checks and the Python architecture gate.
+
+# Path-filtered: this lane boots the full Docker stack and runs Playwright — the most
+# expensive minutes in the repo — so docs-only changes skip it.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md"]
+  pull_request:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright (Chromium + OS deps)
+        run: npx playwright install --with-deps chromium
+
+      # Build + start the workbench and wait for it: db -> migrate -> seed -> api + web. No .env is
+      # present on a fresh checkout, so the API and web bind the default host ports (8000 / 5173).
+      - name: Start the workbench
+        run: docker compose -f apps/example/docker-compose.yml up -d --wait api web seed
+
+      - name: Run the base-profile conformance suite (app-agnostic)
+        env:
+          TERP_E2E_BASE_URL: http://localhost:5173
+        run: npm run -w @terp/conformance test
+
+      - name: Run the example app's own e2e flows (its modules)
+        env:
+          TERP_E2E_BASE_URL: http://localhost:5173
+        run: npm run -w @terp-example/frontend test:e2e
+
+      - name: Upload the Playwright reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            packages/frontend/conformance/playwright-report/
+            apps/example/frontend/playwright-report/
+          retention-days: 7
+
+      - name: Stop the workbench
+        if: always()
+        run: docker compose -f apps/example/docker-compose.yml down -v

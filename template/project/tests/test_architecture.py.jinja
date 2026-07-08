@@ -1,0 +1,51 @@
+"""The architecture gate — the same rules CI enforces, runnable locally.
+
+A green run means the app is secure-by-default compliant. The example module ships its
+first migration, so a fresh checkout passes clean.
+"""
+
+from __future__ import annotations
+
+import importlib
+import pathlib
+
+from terp.arch import assert_app_clean
+from terp.migrations import assert_migrations_match_models, upgrade
+
+_APP_ROOT = pathlib.Path(__file__).resolve().parents[1] / "app"
+
+
+def test_architecture() -> None:
+    assert_app_clean("app", budget_path="escape-hatch-budget.json")
+
+
+def test_every_module_is_mounted() -> None:
+    # App modules are mounted explicitly in app/main.py. A scaffolded module that
+    # never gets added to the `modules` list ships zero routes — every request
+    # 404s and the module is absent from the OpenAPI contract — while the rest of
+    # the gate stays green. Fail closed instead: every app/modules/<name> package
+    # that declares a ModuleSpec must be reachable in the built app.
+    manifests = sorted((_APP_ROOT / "modules").glob("*/module.py"))
+    if not manifests:
+        return  # nothing scaffolded yet (blank layout)
+    from app.main import build
+
+    paths = build().openapi()["paths"]
+    for manifest in manifests:
+        package = manifest.parent.name
+        spec = importlib.import_module(f"app.modules.{package}.module").module
+        prefix = f"/api/v1/{spec.name}"
+        assert any(p == prefix or p.startswith(prefix + "/") for p in paths), (
+            f"app/modules/{package} declares module {spec.name!r} but no {prefix} route is "
+            "mounted — import it in app/main.py and add it to the `modules` list."
+        )
+
+
+def test_migrations_match_models(tmp_path: pathlib.Path) -> None:
+    # The drift half of the migration control: upgrade a scratch database to head, then
+    # assert autogenerate finds nothing left over. A model changed without
+    # `terp migrate make <module>` fails here, in CI — not in production against a stale
+    # schema (the boot guard only catches *pending* revisions, not a missing one).
+    db_url = f"sqlite:///{tmp_path / 'drift-check.db'}"
+    upgrade(db_url, _APP_ROOT, package="app")
+    assert_migrations_match_models(db_url, _APP_ROOT, package="app")

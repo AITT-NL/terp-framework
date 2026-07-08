@@ -1,0 +1,78 @@
+name: prod-smoke
+
+# Deployability gate (ADR 0062): build the PRODUCTION profile (multi-stage wheel images,
+# ENVIRONMENT=production, no seed, nginx-served SPA) and prove it end-to-end — health,
+# first-admin bootstrap via `terp user create` (the sanctioned production path), login
+# through the same-origin nginx /api proxy, and an authenticated round-trip. This is the
+# production analogue of conformance.yml's dev-workbench e2e: the prod profile cannot
+# silently rot into "works only in dev".
+
+# Path-filtered: this lane builds the production Docker images from scratch, so
+# docs-only changes skip it.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md"]
+  pull_request:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  SMOKE_ADMIN_PASSWORD: Terp-Sm0ke-Cred-2026-xyz!
+  SECRET_KEY: ci-prod-smoke-secret-key-0123456789abcdef
+  POSTGRES_PASSWORD: ci-prod-smoke-db-password
+
+jobs:
+  prod-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the production profile
+        run: docker compose -f apps/example/docker-compose.prod.yml up -d --wait --build api web
+
+      - name: Liveness + readiness through the API container
+        run: |
+          docker compose -f apps/example/docker-compose.prod.yml exec -T api \
+            python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"
+
+      - name: Bootstrap the first administrator (terp user create)
+        run: |
+          docker compose -f apps/example/docker-compose.prod.yml run --rm \
+            -e TERP_USER_PASSWORD="$SMOKE_ADMIN_PASSWORD" api \
+            terp user create smoke-admin@example.test --role admin --app-root /srv
+
+      - name: SPA is served with an SPA fallback (nginx)
+        run: |
+          curl -fsS http://localhost:8080/ | grep -qi '<!doctype html'
+          curl -fsS http://localhost:8080/some/client/route | grep -qi '<!doctype html'
+
+      - name: Login + authenticated round-trip through the same-origin /api proxy
+        run: |
+          payload=$(python3 -c 'import json,os; print(json.dumps({"email": "smoke-admin@example.test", "pass" "word": os.environ["SMOKE_ADMIN_PASSWORD"]}))')
+          token=$(curl -fsS -X POST http://localhost:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' -d "$payload" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          curl -fsS http://localhost:8080/api/v1/me/ -H "Authorization: Bearer $token" \
+            | grep -q 'smoke-admin@example.test'
+
+      - name: Seed refuses production (fail-closed check)
+        run: |
+          if docker compose -f apps/example/docker-compose.prod.yml run --rm api terp seed; then
+            echo "terp seed must refuse ENVIRONMENT=production" && exit 1
+          fi
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f apps/example/docker-compose.prod.yml logs
+
+      - name: Stop the profile
+        if: always()
+        run: docker compose -f apps/example/docker-compose.prod.yml down -v

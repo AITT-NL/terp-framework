@@ -1,0 +1,122 @@
+# {{ project_name }} — the full-stack dev workbench.
+#
+#   cp .env.example .env         # optional: set a strong SECRET_KEY
+#   terp docker dev              # (or: docker compose watch) build, migrate, seed, then run
+#
+# Topology: Postgres (prod-parity DB) -> one-shot migrate -> one-shot seed -> the API
+# (uvicorn) and the frontend (Vite). Editing app / frontend source live-syncs into the
+# running containers (uvicorn --reload + Vite HMR).
+name: {{ project_slug }}
+
+# Shared backend definition — migrate / seed / api run the same image. Only the `api`
+# service declares the build: one builder produces the tag (concurrent builds of a shared
+# tag race in the exporter: "already exists"), the one-shots reuse it.
+x-backend: &backend
+  image: {{ project_slug }}-backend
+  environment: &backend-env
+    DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+    SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me-please-0123456789ab}
+    ENVIRONMENT: local
+{%- if use_sso %}
+    # SSO (app/auth.py): forwarded from .env; the OIDC module mounts once set.
+    OIDC_ISSUER: ${OIDC_ISSUER:-}
+    OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+    OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+    OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+{%- endif %}
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    # Not published to the host: the API reaches it over the Compose network (db:5432), so the
+    # workbench never collides with a Postgres already running on the host. Add a
+    # `ports: ["5433:5432"]` here to connect a database client from the host.
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: bring every package's schema up to head before the API serves.
+  migrate:
+    <<: *backend
+    command: ["terp", "migrate", "upgrade", "--app-root", "/app/app"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # One-shot: seed a usable admin (admin@example.test) + demo content. Idempotent, dev-only.
+  seed:
+    <<: *backend
+    command: ["terp", "seed"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    <<: *backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "${API_PORT:-8000}:8000"
+{%- if use_files %}
+    volumes:
+      # Uploaded blobs (terp-cap-files' default local profile stores under ./var/files):
+      # a named volume so uploads survive container rebuilds.
+      - files-data:/app/var/files
+{%- endif %}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    develop:
+      watch:
+        - action: sync
+          path: app
+          target: /app/app
+        - action: sync
+          path: control_plane
+          target: /app/control_plane
+        - action: rebuild
+          path: pyproject.toml
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: {{ project_slug }}-frontend
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    environment:
+      TERP_API_PROXY: http://api:8000
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    depends_on:
+      - api
+    develop:
+      watch:
+        - action: sync
+          path: frontend/src
+          target: /app/frontend/src
+        - action: rebuild
+          path: frontend/package.json
+
+volumes:
+  db-data:
+{%- if use_files %}
+  files-data:
+{%- endif %}

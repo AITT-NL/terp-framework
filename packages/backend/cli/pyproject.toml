@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cli"
+version = "0.1.0"
+description = "Terp command-line tool — inspect, scaffolding, migrations, checks, api-docs."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+    # `terp migrate` delegates to terp-migrations (lazily imported), keeping Alembic
+    # off the path for `terp inspect` / `terp guide` while making migrations work.
+    "terp-migrations==0.1.0",
+    # `terp guide rules` projects the live rule registry; terp-arch is imported lazily
+    # (only when that topic is rendered), so it stays off the common `terp guide` path.
+    "terp-arch==0.1.0",
+    # `terp jobs worker` drives the durable outbox's leased worker; terp-cap-outbox is
+    # imported lazily (only when the worker runs), so it stays off the common CLI path.
+    "terp-cap-outbox==0.1.0",
+]
+
+[project.scripts]
+terp = "terp.cli:main"
+
+# PEP 420 namespace package: this distribution owns only `terp.cli`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/cli"]

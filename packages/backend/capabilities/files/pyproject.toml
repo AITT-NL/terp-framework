@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-files"
+version = "0.1.0"
+description = "Terp files capability — owner-scoped file objects with metadata in the platform database and bytes behind a pluggable storage backend."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+    # FastAPI parses the multipart upload body through this (UploadFile); the byte
+    # stream never touches app code — it flows metadata->DB, bytes->StorageBackend.
+    "python-multipart>=0.0.30",
+]
+
+# Self-registering: the kernel discovers this ModuleSpec via the entry point, mounting the
+# admin files router at `/api/v1/files` without any composition-root edit.
+[project.entry-points."terp.capabilities"]
+files = "terp.capabilities.files:module"
+
+# Owns the `file_object` metadata table, so it ships an independent, linear Alembic
+# history (its own `alembic_version_files` table). `terp migrate` discovers this via
+# the `terp.migrations` group (ADR 0027).
+[project.entry-points."terp.migrations"]
+files = "terp.capabilities.files"
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.files`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/files"]

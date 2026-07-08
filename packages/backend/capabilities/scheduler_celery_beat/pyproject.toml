@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-scheduler-celery-beat"
+version = "0.1.0"
+description = "Terp Celery-beat adapter — drive catalog schedules from Celery beat, through the jobs seam."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+    "celery>=5.3",
+]
+
+# A LIBRARY (scheduler-engine-adapter) capability: it builds a Celery `beat_schedule` from the
+# ScheduleCatalog and a per-schedule tick task — not an HTTP surface — so it declares NO
+# `terp.capabilities` ModuleSpec entry point and owns no tables. A composition root opts in by
+# CeleryBeatScheduler(celery_app, session_factory).register_all(...).install(), then runs
+# `celery -A your.celery_app beat` (and a worker to run the enqueued jobs).
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.scheduler_celery_beat`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/scheduler_celery_beat"]

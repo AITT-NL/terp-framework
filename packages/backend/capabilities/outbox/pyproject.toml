@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-outbox"
+version = "0.1.0"
+description = "Terp durable outbox — transactional, leased, retrying post-commit delivery for jobs and events."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+]
+
+# A LIBRARY capability: it owns the durable delivery mechanism (a table, a durable
+# JobQueue / EventDispatcher, and the leased worker), not an HTTP surface — so it
+# declares NO `terp.capabilities` ModuleSpec entry point (nothing is auto-mounted).
+# A composition root opts in by wiring create_app(job_queue=OutboxJobQueue(),
+# event_dispatcher=outbox_event_dispatcher) and running `terp jobs worker`.
+
+# Owns the append-only `outbox_message` table, so it ships an independent, linear
+# Alembic history (its own `alembic_version_outbox` table). `terp migrate` discovers
+# this via the `terp.migrations` group (ADR 0027).
+[project.entry-points."terp.migrations"]
+outbox = "terp.capabilities.outbox"
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.outbox`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/outbox"]

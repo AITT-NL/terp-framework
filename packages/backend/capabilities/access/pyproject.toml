@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-access"
+version = "0.1.0"
+description = "Terp access capability — RBAC permission grants + a fail-closed require_permission dependency."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+]
+
+# Self-registering: the kernel discovers this ModuleSpec via the entry point,
+# mounting the admin `access` (grants) router without any composition-root edit.
+[project.entry-points."terp.capabilities"]
+access = "terp.capabilities.access:module"
+
+# Owns the `access_grant` table, so it ships an independent, linear Alembic history
+# (its own `alembic_version_access` table), discovered by `terp migrate` via the
+# `terp.migrations` group (ADR 0027).
+[project.entry-points."terp.migrations"]
+access = "terp.capabilities.access"
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.access`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/access"]

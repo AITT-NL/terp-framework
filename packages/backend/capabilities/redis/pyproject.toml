@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-redis"
+version = "0.1.0"
+description = "Terp Redis store adapters — shared idempotency, throttling, and cache state for multi-replica deployments."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+    "redis>=5",
+]
+
+# A LIBRARY (store-adapter) capability: it provides Redis-backed implementations of
+# Terp's per-process store seams — IdempotencyStore, ThrottleStore, and CacheStore —
+# and declares NO `terp.capabilities` ModuleSpec entry point (nothing is auto-mounted)
+# and NO `terp.migrations` entry point (Redis owns no SQL tables). A composition root
+# opts in by wiring create_app(..., idempotency_store=..., throttle_store=...,
+# cache_store=..., require_shared_*=settings.is_production).
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.redis`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/redis"]

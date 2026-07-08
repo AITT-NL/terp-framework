@@ -1,0 +1,113 @@
+name: release
+
+# Release pipeline (ADR 0063). Terp releases in LOCKSTEP: one tag `v<version>` publishes
+# every backend distribution (PyPI, trusted publishing), every frontend package (npm,
+# public scoped), and the production images (GHCR, with provenance). The gate's
+# version-consistency test (tests/architecture/test_release_versions.py) refuses a
+# partial release at build time; this workflow additionally checks the tag matches.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # The tag only releases what the gate has already proven.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - name: Tag matches the lockstep version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "^version = \"$version\"" packages/backend/core/pyproject.toml \
+            || { echo "tag $GITHUB_REF_NAME != package version"; exit 1; }
+      - name: Run the gate
+        run: uv run pytest --cov=terp
+
+  publish-pypi:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build wheels + sdists for every backend distribution
+        run: |
+          set -eux
+          for pkg in packages/backend/core packages/backend/arch packages/backend/migrations \
+                     packages/backend/cli packages/backend/capabilities/*/; do
+            uv build --out-dir dist "$pkg"
+          done
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+  publish-npm:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - name: Publish the frontend packages (public, with provenance)
+        run: |
+          set -eux
+          for ws in @terp/contract @terp/eslint-boundaries @terp/react-core @terp/conformance; do
+            npm publish -w "$ws" --access public --provenance
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-images:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push the production backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/example/Dockerfile.prod
+          push: true
+          provenance: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/terp-example-backend:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/terp-example-backend:latest
+      - name: Build and push the production frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/example/frontend/Dockerfile.prod
+          push: true
+          provenance: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/terp-example-frontend:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/terp-example-frontend:latest

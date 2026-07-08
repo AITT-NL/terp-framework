@@ -1,0 +1,9 @@
+"""{{ module_name }} manifest — Policy.default() = authenticated; read VIEWER, write EDITOR."""
+
+from __future__ import annotations
+
+from terp.core import ModuleSpec, Policy
+
+from app.modules.{{ module_name }}.router import router
+
+module = ModuleSpec(name="{{ module_name }}", router=router, policy=Policy.default())

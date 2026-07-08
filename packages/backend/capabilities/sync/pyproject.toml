@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-sync"
+version = "0.1.0"
+description = "Terp sync capability — reconcile a local entity against an external system on the jobs/scheduler seam."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+]
+
+# A LIBRARY capability (like terp-cap-identity): it owns tables + a mountable read router +
+# the reconcile engine, but declares NO `terp.capabilities` auto-discovery entry point. A
+# sync does nothing until an app registers a concrete SyncSource, so the app opts in
+# explicitly — it includes the exported `module` in its create_app(specs=[...]) and calls
+# register_sync_source(...). Auto-mounting it in an app with no SyncSource would only expose
+# hollow endpoints, so discovery is deliberately explicit.
+
+# Owns the `sync_mapping` / `sync_run` / append-only `sync_record_log` tables, so it ships an
+# independent, linear Alembic history (its own `alembic_version_sync` table). `terp migrate`
+# discovers this via the `terp.migrations` group (ADR 0027).
+[project.entry-points."terp.migrations"]
+sync = "terp.capabilities.sync"
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.sync`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/sync"]

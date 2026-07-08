@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-jobs-celery"
+version = "0.1.0"
+description = "Terp Celery JobQueue adapter — run catalog jobs on a Celery broker with zero domain change."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+    "celery>=5.3",
+]
+
+# A LIBRARY (engine-adapter) capability: it provides a JobQueue backed by Celery plus a
+# worker-side task registrar — not an HTTP surface — so it declares NO `terp.capabilities`
+# ModuleSpec entry point (nothing is auto-mounted) and owns no tables (no `terp.migrations`
+# entry point either). A composition root opts in by wiring
+# create_app(job_queue=CeleryJobQueue(celery_app)) in the producer process and calling
+# register_terp_worker(celery_app) in the Celery worker process.
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.jobs_celery`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/jobs_celery"]

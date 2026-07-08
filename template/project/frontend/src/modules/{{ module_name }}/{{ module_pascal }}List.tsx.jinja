@@ -1,0 +1,31 @@
+// The `{{ module_name }}` module view — a starting point you own (real React, no hidden DSL). It
+// composes the shared <ResourceList> so every module lists + creates the same way, with the
+// write-gate applied for you. Wire it to YOUR endpoint once you've generated the typed client:
+//
+//   uv run terp openapi && npm --prefix frontend run generate   // -> src/api/schema.d.ts
+//
+//   import { unwrap, useResource, useTerpClient } from "@terp/react-core";
+//   import type { paths, components } from "../../api/schema";
+//   type {{ module_pascal }} = components["schemas"]["{{ module_pascal }}Read"];
+//   const client = useTerpClient<paths>();
+//   const {{ module_name }} = useResource<{{ module_pascal }}, string>({
+//     list: async () => unwrap(await client.GET("/api/v1/{{ module_name }}/", {})).items,
+//     create: async (name) => { unwrap(await client.POST("/api/v1/{{ module_name }}/", { body: { name } })); },
+//   });
+//   // ...then pass createPlaceholder="New {{ module_name }}" to <ResourceList> so writers can add rows.
+//
+import { OverviewPage, ResourceList, useResource } from "@terp/react-core";
+
+export function {{ module_pascal }}List() {
+  // Placeholder until you wire the typed client above: an empty, read-only list (compiles pre-codegen).
+  const {{ module_name }} = useResource<{ id: string; name: string }, string>({ list: async () => [] });
+  return (
+    <OverviewPage title="{{ module_pascal }}">
+      <ResourceList
+        resource={ {{ module_name }} }
+        emptyMessage="Generate the typed client and wire this list to /api/v1/{{ module_name }}/ to show seeded rows."
+        renderItem={(item) => <strong>{item.name}</strong>}
+      />
+    </OverviewPage>
+  );
+}

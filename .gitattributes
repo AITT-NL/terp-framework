@@ -1,0 +1,22 @@
+# Frontend sources and generated artifacts are written with LF; enforce it on checkout
+# so cross-platform diffs stay clean and the generated-client drift check is reliable.
+packages/frontend/** text eol=lf
+package-lock.json text eol=lf
+
+# The example app's frontend dogfoods the same codegen; its generated schema must be
+# LF so the drift check is byte-stable cross-platform.
+apps/example/frontend/** text eol=lf
+# The example's own exported OpenAPI spec (its codegen source) is written LF by `terp openapi`.
+apps/example/openapi.json text eol=lf
+
+# The copier template's frontend slot renders to the same LF web sources.
+template/project/frontend/** text eol=lf
+template/project/conformance/** text eol=lf
+
+# Docker + Compose files run in Linux containers (and the template renders them for a
+# generated repo): keep them LF so they are byte-stable and shell-safe cross-platform.
+**/Dockerfile text eol=lf
+**/docker-compose.yml text eol=lf
+**/docker-compose.yml.jinja text eol=lf
+**/.dockerignore text eol=lf
+**/.env.example text eol=lf

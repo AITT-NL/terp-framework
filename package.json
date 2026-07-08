@@ -1,0 +1,11 @@
+{
+  "name": "@terp/monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Terp — Trusted Enterprise Reinforced Platform (JS workspace root).",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "packages/frontend/*",
+    "apps/example/frontend"
+  ]
+}

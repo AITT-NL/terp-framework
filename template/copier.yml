@@ -1,0 +1,70 @@
+# copier.yml — Terp client-app template (design §13 Phase 5).
+# Render a runnable, secure-by-default repo:  copier copy gh:AITT-NL/TERP/template ./my-app
+_subdirectory: project
+_templates_suffix: .jinja
+
+project_name:
+  type: str
+  help: Human-readable application name
+  default: My Terp App
+
+project_slug:
+  type: str
+  help: Distribution name (lowercase, dashes)
+  default: my-terp-app
+
+# ---------------------------------------------------------------------------
+# Layout preset — the shape the app starts in. All three render a runnable,
+# loginnable app; they differ only in what greets a signed-in user.
+#   list  — the starter module's list IS the landing page (single-area app).
+#   hub   — a HubPage landing at "/" with cards into each area; the starter
+#           module mounts at its own path.
+#   blank — no starter module at all: sign-in + admin surface + a welcome
+#           page; modules are built afterwards (terp new module / the agent).
+# ---------------------------------------------------------------------------
+layout:
+  type: str
+  help: Starting layout
+  default: list
+  choices:
+    "Single-list app — the first module's list is the landing page": list
+    "Hub landing — a dashboard of cards into each area": hub
+    "Blank shell — sign-in and admin only; add modules later": blank
+
+# The starter module. Not asked for the blank layout: it renders empty there,
+# and a path segment that renders empty makes copier skip the whole tree — so
+# a blank app ships no starter module at all.
+module_name:
+  type: str
+  help: First module (lowercase plural identifier, e.g. records)
+  default: "{% if layout == 'blank' %}{% else %}records{% endif %}"
+  when: "{{ layout != 'blank' }}"
+
+# ---------------------------------------------------------------------------
+# Capability toggles — each adds the dependency AND its composition-root
+# wiring, so a toggled capability works out of the box (nothing half-mounted).
+# Deliberately small: capabilities that need domain decisions (webhooks,
+# background jobs, multi-tenancy) are wired per-app afterwards instead.
+# ---------------------------------------------------------------------------
+use_files:
+  type: bool
+  help: File uploads (terp-cap-files) — streamed storage + admin surface
+  default: false
+
+use_sso:
+  type: bool
+  help: Single sign-on via OIDC (terp-cap-oidc) — enabled by OIDC_* settings
+  default: false
+
+use_events:
+  type: bool
+  help: Domain events (terp-cap-eventbus) — typed catalog + in-process dispatch
+  default: false
+
+# Derived (not prompted): the PascalCase identifier for the module's React view and nav,
+# e.g. invoices -> Invoices. Mirrors the CLI scaffolder's _pascal so a template module and
+# a `terp new module` module look identical.
+module_pascal:
+  type: str
+  default: "{% if module_name %}{{ module_name[0] | upper }}{{ module_name[1:] }}{% endif %}"
+  when: false

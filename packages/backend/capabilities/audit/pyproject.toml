@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-audit"
+version = "0.1.0"
+description = "Terp audit capability — the durable, append-only sink for the core audit seam."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+]
+
+# Self-registering: the kernel discovers this ModuleSpec via the entry point,
+# mounting the admin (read-only) `audit` log router without any composition-root
+# edit. The durable sink is installed by create_app(audit_sink=persist_audit).
+[project.entry-points."terp.capabilities"]
+audit = "terp.capabilities.audit:module"
+
+# Owns the append-only `audit_event` table, so it ships an independent, linear
+# Alembic history (its own `alembic_version_audit` table). `terp migrate` discovers
+# this via the `terp.migrations` group (ADR 0027).
+[project.entry-points."terp.migrations"]
+audit = "terp.capabilities.audit"
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.audit`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/audit"]

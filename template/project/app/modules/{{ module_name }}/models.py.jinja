@@ -1,0 +1,15 @@
+{% set singular = module_name[:-1] if module_name.endswith('s') else module_name -%}
+{% set model = singular[0]|upper ~ singular[1:] -%}
+"""{{ module_name }} table model — composes BaseTable (UUID + timestamps + OCC)."""
+
+from __future__ import annotations
+
+from sqlmodel import Field
+
+from terp.core import BaseTable
+
+
+class {{ model }}(BaseTable, table=True):
+    __tablename__ = "{{ singular }}"
+
+    name: str = Field(max_length=200, index=True)

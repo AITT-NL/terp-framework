@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-oidc"
+version = "0.1.0"
+description = "Terp OIDC capability — pluggable SSO via the OpenID Connect code flow with PKCE."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.1.0",
+    "terp-cap-auth==0.1.0",
+    # The token-endpoint exchange + discovery/JWKS fetches (like the webhooks delivery
+    # client, the outbound HTTP client lives only inside the capability).
+    "httpx>=0.27",
+    # ID-token signature validation against the provider JWKS (asymmetric algorithms
+    # need the crypto extra).
+    "pyjwt[crypto]>=2.8",
+]
+
+# A library capability: the app builds its module explicitly (build_oidc_module) with
+# its provider registry + identity seam, so there is no self-registering entry point.
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.oidc`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/oidc"]

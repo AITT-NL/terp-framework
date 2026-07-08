@@ -1,0 +1,4 @@
+{
+  "arch-allow-mutations-emit-audit": 1,
+  "arch-allow-table-models-use-base-table": 1
+}

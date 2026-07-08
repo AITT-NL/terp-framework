@@ -1,0 +1,16 @@
+{
+  "name": "{{ project_slug }}-conformance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "{{ project_name }} — Playwright end-to-end conformance over a running stack.",
+  "scripts": {
+    "test": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "@terp/conformance": "^0.1.0",
+    "@types/node": "^22.10.0"
+  }
+}

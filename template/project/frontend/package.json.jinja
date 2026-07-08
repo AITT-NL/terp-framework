@@ -1,0 +1,31 @@
+{
+  "name": "{{ project_slug }}-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "{{ project_name }} — React frontend on @terp/react-core + @terp/contract.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/typecheck.tsbuildinfo",
+    "lint": "eslint . --cache --cache-location node_modules/.cache/eslint/ && terp-boundaries-budget",
+    "generate": "openapi-typescript ../openapi.json --output ./src/api/schema.d.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "^1.170.16",
+    "@terp/contract": "^0.1.0",
+    "@terp/react-core": "^0.1.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@terp/eslint-boundaries": "^0.1.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "eslint": "^9.18.0",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.0"
+  }
+}
