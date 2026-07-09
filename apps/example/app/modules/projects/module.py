@@ -11,9 +11,11 @@ from __future__ import annotations
 from terp.core import ModuleSpec, Policy
 
 from app.modules.projects.router import router
+from app.modules.projects.service import ProjectService
 
 module = ModuleSpec(
     name="projects",
     router=router,
+    services=(ProjectService,),
     policy=Policy.default(),
 )

@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 
 from terp.core import ControlPlane, CorsPolicy, ModuleSpec
 
+from terp.cli.access import render_access
 from terp.cli.apidocs import api_docs
 from terp.cli.dev import dev_plan, run_dev_command
 from terp.cli.docker import run_docker_dev_command
@@ -628,6 +629,23 @@ def _load_module_spec(dotted: str) -> ModuleSpec:
     return candidate
 
 
+def inspect_access(
+    dotted: str = "control_plane:control_plane",
+    *,
+    modules: Sequence[str] = (),
+    fmt: str = "text",
+) -> str:
+    """Return the access graph for *dotted* control plane + *modules* (text or json).
+
+    The three-layer view — module policy, per-endpoint requirement, and the data
+    layer's row-visibility / write-authority traits — combined into one report
+    (JSON-first for Studio; ``terp inspect access --format json``).
+    """
+    plane = _load_control_plane(dotted)
+    specs = [_load_module_spec(module) for module in modules]
+    return render_access(plane, specs, fmt=fmt)
+
+
 def inspect_control_plane(
     dotted: str = "control_plane:control_plane",
     *,
@@ -898,6 +916,27 @@ def _build_parser() -> argparse.ArgumentParser:
         default="control_plane:control_plane",
         help="Dotted ControlPlane to inspect (default: control_plane:control_plane)",
     )
+    access_parser = inspect_subcommands.add_parser(
+        "access",
+        help="The access graph: module policies, per-endpoint requirements, data traits",
+    )
+    access_parser.add_argument(
+        "--object",
+        default="control_plane:control_plane",
+        help="Dotted object to inspect (default: control_plane:control_plane)",
+    )
+    access_parser.add_argument(
+        "--module",
+        action="append",
+        default=[],
+        help="Dotted ModuleSpec to include (may be repeated)",
+    )
+    access_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (human) or json (structured, for Studio; default: text)",
+    )
 
     guide_parser = subcommands.add_parser(
         "guide", help="Print the Terp authoring guide (or a recipe for a topic)"
@@ -1139,6 +1178,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "inspect" and args.inspect_command == "jobs":
         print(render_jobs(args.object))
         return
+    if args.command == "inspect" and args.inspect_command == "access":
+        print(inspect_access(args.object, modules=args.module, fmt=args.format))
+        return
     if args.command == "guide":
         print(guide(args.topic))
         return
@@ -1241,6 +1283,7 @@ __all__ = [
     "export_openapi",
     "guide",
     "guide_topics",
+    "inspect_access",
     "inspect_control_plane",
     "main",
     "new_module",

@@ -10,11 +10,13 @@ from __future__ import annotations
 from terp.core import ModuleSpec, Policy
 
 from app.modules.notes.router import router
+from app.modules.notes.service import NoteService
 from control_plane.events import NOTE_CREATED
 
 module = ModuleSpec(
     name="notes",
     router=router,
+    services=(NoteService,),
     policy=Policy.default(),
     emits=[NOTE_CREATED],
 )

@@ -12,9 +12,11 @@ from __future__ import annotations
 from terp.core import ModuleSpec, Policy
 
 from app.modules.journals.router import router
+from app.modules.journals.service import JournalService
 
 module = ModuleSpec(
     name="journals",
     router=router,
+    services=(JournalService,),
     policy=Policy.default(),
 )

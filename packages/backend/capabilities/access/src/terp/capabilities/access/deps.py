@@ -56,6 +56,9 @@ def require_permission(permission: str | Permission) -> Callable[..., None]:
         if not _service.has_permission(session, principal.id, permission_name):
             raise PermissionDeniedError()
 
+    # Introspection marker (never a control): `terp inspect access` reads this to
+    # surface route-level permission requirements in the access graph.
+    dependency.__terp_required_permission__ = permission_name  # type: ignore[attr-defined]
     return dependency
 
 
