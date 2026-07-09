@@ -117,6 +117,34 @@ Authorization (Policy)
 - Route-level extra check: dependencies=[Depends(require_permission("invoices.approve"))].
 - Authority is always a typed object (Role / Permission), never a bare string.
 """,
+    "access": """\
+The access model (three layers) — profiles + the access graph
+
+- Effective access is exactly three composable layers, each an existing primitive:
+      1. module access    ModuleSpec.policy — may this principal enter the module?
+      2. endpoint access  the route's read/write requirement (mutating verb => write),
+                          plus route-level require_permission(...) dependencies
+      3. data visibility  model traits — which rows are readable / mutable?
+                          OwnedMixin (write gate), TenantScopedMixin (read filter +
+                          stamped writes), register_scope_predicate / object-authz
+- Pick a PERMISSION PROFILE instead of hand-assembling the layers:
+      terp new module invoices --profile <name>
+      shared          read VIEWER, write EDITOR (Policy.default())
+      role-gated      read VIEWER, write ADMIN
+      owner-private   + OwnedMixin: only a row's owner may update/delete
+      tenant-private  + TenantScopedMixin + TenantScopedService: rows isolated per tenant
+      tenant-owner    tenant isolation + the per-row owner write gate
+  A profile is a preset, never a mechanism: it only decides which primitives the
+  scaffold composes, so the output is ordinary gate-checked Terp code you own.
+- SEE the whole graph — who can reach which module, endpoint, and rows:
+      uv run terp inspect access --object app.main:control_plane \\
+          --module app.modules.invoices.module:module --format json
+  One document: roles, permissions, every endpoint's method/path/requirement, each
+  declared service's model traits (owned / tenant-scoped / soft-delete), read scope,
+  write authority, and warnings (e.g. OwnedMixin gates writes only). `--format json`
+  is the stable Studio contract; declare services=(InvoiceService,) on the ModuleSpec
+  so the data layer is visualizable — an undeclared data layer is a warning.
+""",
     "ownership": """\
 Object-level (per-row) authorization (OwnedMixin)
 
@@ -513,6 +541,7 @@ Golden rules (the gate enforces these — follow them and it stays green):
 More:  terp guide <topic>   (topics: {_TOPIC_NAMES})
        terp guide rules             (every architecture rule the gate enforces, generated)
        terp inspect control-plane   (your roles / permissions / module authority map)
+       terp inspect access          (the full access graph: modules, endpoints, data traits)
        terp check                   (run the full architecture gate locally)
 """
 
