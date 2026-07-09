@@ -22,6 +22,7 @@ from terp.cli.jobs import (
     run_worker_command,
 )
 from terp.cli.openapi import export_openapi
+from terp.cli.profiles import DEFAULT_PROFILE, profile_names
 from terp.cli.scaffold import new_module, new_module_message
 from terp.cli.seed import run_seed_command
 from terp.cli.users import create_user_command
@@ -1039,6 +1040,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the frontend slot even when a frontend app is present",
     )
+    module_parser.add_argument(
+        "--profile",
+        default=DEFAULT_PROFILE,
+        choices=profile_names(),
+        help="Permission profile the slots compile to (default: %(default)s; "
+        "see 'terp guide access')",
+    )
 
     apidocs_parser = subcommands.add_parser(
         "api-docs", help="Generate the public-API reference + .pyi from the live kernel"
@@ -1215,9 +1223,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "new" and args.new_command == "module":
         paths = new_module(
-            args.name, root=args.root, package=args.package, frontend=not args.no_frontend
+            args.name,
+            root=args.root,
+            package=args.package,
+            frontend=not args.no_frontend,
+            profile=args.profile,
         )
-        print(new_module_message(args.name, paths))
+        print(new_module_message(args.name, paths, profile=args.profile))
         return
     if args.command == "api-docs":
         for path in api_docs(args.out):
