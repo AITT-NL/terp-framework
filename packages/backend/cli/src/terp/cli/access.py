@@ -31,6 +31,7 @@ from collections.abc import Sequence
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
+from starlette.routing import Mount, Route
 
 from terp.core import (
     ActorStampedMixin,
@@ -267,6 +268,38 @@ def _served_routes(app: FastAPI) -> dict[str, frozenset[str]]:
     }
 
 
+def _schema_hidden_routes(app: FastAPI) -> list[dict[str, object]]:
+    """Reachable top-level routes ``app.openapi()`` does NOT list — still reported.
+
+    FastAPI's own docs/schema endpoints (``/openapi.json`` / ``/docs`` / ``/redoc``,
+    plain starlette ``Route``s with ``include_in_schema=False``) and any ``app.mount()``
+    sub-application are reachable surface: a complete permission audit must show them,
+    so they join ``kernel_routes`` instead of hiding outside the OpenAPI ground truth.
+    """
+    hidden: list[dict[str, object]] = []
+    for route in app.routes:
+        if isinstance(route, APIRoute):
+            continue  # schema-visible; reconciled via app.openapi()
+        if isinstance(route, Mount):
+            hidden.append(
+                {
+                    "path": f"{route.path}/*",
+                    "methods": ["*"],
+                    "note": "mounted sub-application — its own routes are not "
+                    "policy-guarded by any ModuleSpec",
+                }
+            )
+        elif isinstance(route, Route) and not route.include_in_schema:
+            hidden.append(
+                {
+                    "path": route.path,
+                    "methods": sorted(route.methods or ()),
+                    "note": "framework route outside the OpenAPI schema (docs/schema)",
+                }
+            )
+    return hidden
+
+
 def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
     """The access graph for a fully composed app — the WHOLE guarded surface.
 
@@ -276,8 +309,9 @@ def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
     reconciles the graph against ``app.openapi()`` (the ground truth): every served
     ``/api/v1`` method must map to a module endpoint — any that does not is reported
     under ``omitted_routes`` (fail-visible, so a mounted route can never hide) — and the
-    served routes outside ``/api/v1`` (the unauthenticated kernel health routes) are
-    listed under ``kernel_routes``.
+    served routes outside ``/api/v1`` (the unauthenticated kernel health routes), the
+    schema-hidden framework routes (``/docs`` / ``/openapi.json`` / ``/redoc``), and any
+    ``app.mount()`` sub-application are listed under ``kernel_routes``.
     """
     specs = getattr(app.state, "terp_module_specs", None)
     plane = getattr(app.state, "terp_control_plane", None)
@@ -296,6 +330,7 @@ def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
         for path, methods in sorted(served.items())
         if not path.startswith(_API_PREFIX)
     ]
+    kernel_routes.extend(_schema_hidden_routes(app))
     graph = build_access_graph(plane, specs, kernel_routes=kernel_routes)
     covered: dict[str, set[str]] = {}
     modules: list = graph["modules"]  # type: ignore[assignment]

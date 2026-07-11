@@ -317,11 +317,11 @@ def test_access_graph_for_app_covers_the_whole_composed_surface() -> None:
     assert {"auth", "me", "notes", "tasks", "projects", "journals"} <= names
     # Fail-closed reconciliation against app.openapi(): nothing mounted is missing.
     assert graph["omitted_routes"] == []
-    # The unauthenticated kernel routes are surfaced, never silently dropped.
-    assert {r["path"] for r in graph["kernel_routes"]} == {
-        "/health/live",
-        "/health/ready",
-    }
+    # Every reachable non-module surface is surfaced, never silently dropped:
+    # the kernel health routes AND the schema-hidden FastAPI docs routes.
+    kernel_paths = {r["path"] for r in graph["kernel_routes"]}
+    assert {"/health/live", "/health/ready"} <= kernel_paths
+    assert {"/openapi.json", "/docs", "/redoc"} <= kernel_paths
     # A discovered capability's endpoint carries its real per-endpoint requirement.
     groups = next(m for m in graph["modules"] if m["name"] == "groups")
     listing = next(e for e in groups["endpoints"] if e["path"] == "/api/v1/groups/")
@@ -397,6 +397,71 @@ def test_access_graph_flags_a_mounted_route_absent_from_the_graph() -> None:
     text = render_access_graph(graph, fmt="text")
     assert "OMITTED served routes" in text
     assert "/api/v1/ghost/" in text
+
+
+def test_access_graph_flags_nested_router_routes_instead_of_dropping_them() -> None:
+    # A route on a NESTED included router is served (it is in app.openapi()) but the
+    # spec-level endpoint extraction is flat — it must surface as an omitted-route
+    # alarm, never silently vanish from the permission report.
+    from fastapi import APIRouter, FastAPI
+
+    from terp.cli.access import build_access_graph_for_app
+    from terp.core import ControlPlane, ModuleSpec, PermissionModel, Policy
+
+    nested = APIRouter()
+
+    @nested.get("/nested")
+    def deep() -> dict:  # pragma: no cover - never called
+        return {}
+
+    parent = APIRouter()
+
+    @parent.get("/")
+    def top() -> dict:  # pragma: no cover - never called
+        return {}
+
+    parent.include_router(nested, prefix="/deep")
+    app = FastAPI()
+    app.include_router(parent, prefix="/api/v1/widgets")
+    app.state.terp_module_specs = (
+        ModuleSpec(name="widgets", router=parent, policy=Policy.default()),
+    )
+    app.state.terp_control_plane = ControlPlane(permissions=PermissionModel())
+
+    graph = build_access_graph_for_app(app)
+    (module,) = graph["modules"]
+    assert [e["path"] for e in module["endpoints"]] == ["/api/v1/widgets/"]
+    assert graph["omitted_routes"] == [
+        {"path": "/api/v1/widgets/deep/nested", "methods": ["GET"]}
+    ]
+
+
+def test_access_graph_reports_mounted_sub_applications() -> None:
+    # app.mount() bypasses the ModuleSpec policy guard entirely — the graph must
+    # show the mount as reachable-but-unguarded surface, never omit it.
+    from fastapi import FastAPI
+
+    from terp.cli.access import build_access_graph_for_app
+    from terp.core import ControlPlane, PermissionModel
+
+    app = FastAPI()
+    app.mount("/static", FastAPI())
+
+    @app.get("/ping")
+    def ping() -> dict:  # pragma: no cover - never called
+        return {}
+
+    app.state.terp_module_specs = ()
+    app.state.terp_control_plane = ControlPlane(permissions=PermissionModel())
+
+    graph = build_access_graph_for_app(app)
+    mounts = [r for r in graph["kernel_routes"] if r["path"] == "/static/*"]
+    assert len(mounts) == 1
+    assert "not policy-guarded" in mounts[0]["note"]
+    # The schema-hidden docs routes are reported alongside it, and a direct
+    # (top-level APIRoute) endpoint surfaces through the OpenAPI reconciliation.
+    kernel_paths = {r["path"] for r in graph["kernel_routes"]}
+    assert kernel_paths >= {"/openapi.json", "/docs", "/ping"}
 
 
 def test_inspect_access_app_mode_inserts_a_fresh_app_root(tmp_path) -> None:
