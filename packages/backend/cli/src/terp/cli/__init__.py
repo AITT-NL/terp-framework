@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import pathlib
 import re
 import sys
 from collections.abc import Callable, Sequence
@@ -24,6 +25,12 @@ from terp.cli.jobs import (
 from terp.cli.openapi import export_openapi
 from terp.cli.profiles import DEFAULT_PROFILE, profile_names
 from terp.cli.scaffold import new_module, new_module_message
+from terp.cli.schema import (
+    build_schema_graph,
+    import_declared_models,
+    render_schema_graph,
+    scan_declared_table_models,
+)
 from terp.cli.seed import run_seed_command
 from terp.cli.users import create_user_command
 
@@ -676,6 +683,35 @@ def inspect_access(
     return render_access(plane, specs, fmt=fmt)
 
 
+def inspect_schema(
+    *,
+    app_root: str = ".",
+    package: str = "app",
+    fmt: str = "text",
+) -> str:
+    """Return the schema graph for the app at *app_root* (text or json).
+
+    Loads every declared migration tree's models module (exactly how ``terp
+    migrate`` discovers models), projects the shared metadata as attributed
+    tables + kernel traits, and reconciles it against an AST source scan so a
+    model can never be silently skipped: unowned / non-canonical / unmapped /
+    unimported entries are alarmed, never dropped (JSON-first for Studio).
+    """
+    root = str(pathlib.Path(app_root).resolve())
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    # Migration-tree discovery expects the app PACKAGE directory (it scans
+    # <package>/modules/<name>), mirroring how `terp migrate` is invoked.
+    package_dir = pathlib.Path(app_root) / package
+    trees = import_declared_models(
+        package_dir if package_dir.is_dir() else None, package=package
+    )
+    graph = build_schema_graph(
+        trees, source_models=scan_declared_table_models(app_root, package=package)
+    )
+    return render_schema_graph(graph, fmt)
+
+
 def inspect_control_plane(
     dotted: str = "control_plane:control_plane",
     *,
@@ -967,6 +1003,28 @@ def _build_parser() -> argparse.ArgumentParser:
         default="text",
         help="Output format: text (human) or json (structured, for Studio; default: text)",
     )
+    schema_parser = inspect_subcommands.add_parser(
+        "schema",
+        help="The schema graph: every table with ownership, traits, and fail-visible "
+        "alarms for models the framework cannot account for",
+    )
+    schema_parser.add_argument(
+        "--app-root",
+        default=".",
+        help="Project root put first on sys.path; its modules' migration trees load "
+        "(default: .)",
+    )
+    schema_parser.add_argument(
+        "--package",
+        default="app",
+        help="The app package owning app/modules/<name> trees (default: app)",
+    )
+    schema_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (human) or json (structured, for Studio; default: text)",
+    )
 
     guide_parser = subcommands.add_parser(
         "guide", help="Print the Terp authoring guide (or a recipe for a topic)"
@@ -1217,6 +1275,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "inspect" and args.inspect_command == "access":
         print(inspect_access(args.object, modules=args.module, fmt=args.format))
+        return
+    if args.command == "inspect" and args.inspect_command == "schema":
+        print(inspect_schema(app_root=args.app_root, package=args.package, fmt=args.format))
         return
     if args.command == "guide":
         print(guide(args.topic))
