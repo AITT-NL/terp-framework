@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 
 from terp.core import ControlPlane, CorsPolicy, ModuleSpec
 
+from terp.cli.access import render_access
 from terp.cli.apidocs import api_docs
 from terp.cli.dev import dev_plan, run_dev_command
 from terp.cli.docker import run_docker_dev_command
@@ -21,6 +22,7 @@ from terp.cli.jobs import (
     run_worker_command,
 )
 from terp.cli.openapi import export_openapi
+from terp.cli.profiles import DEFAULT_PROFILE, profile_names
 from terp.cli.scaffold import new_module, new_module_message
 from terp.cli.seed import run_seed_command
 from terp.cli.users import create_user_command
@@ -114,6 +116,34 @@ Authorization (Policy)
   min_role floor AND hold the grant.
 - Route-level extra check: dependencies=[Depends(require_permission("invoices.approve"))].
 - Authority is always a typed object (Role / Permission), never a bare string.
+""",
+    "access": """\
+The access model (three layers) — profiles + the access graph
+
+- Effective access is exactly three composable layers, each an existing primitive:
+      1. module access    ModuleSpec.policy — may this principal enter the module?
+      2. endpoint access  the route's read/write requirement (mutating verb => write),
+                          plus route-level require_permission(...) dependencies
+      3. data visibility  model traits — which rows are readable / mutable?
+                          OwnedMixin (write gate), TenantScopedMixin (read filter +
+                          stamped writes), register_scope_predicate / object-authz
+- Pick a PERMISSION PROFILE instead of hand-assembling the layers:
+      terp new module invoices --profile <name>
+      shared          read VIEWER, write EDITOR (Policy.default())
+      role-gated      read VIEWER, write ADMIN
+      owner-private   + OwnedMixin: only a row's owner may update/delete
+      tenant-private  + TenantScopedMixin + TenantScopedService: rows isolated per tenant
+      tenant-owner    tenant isolation + the per-row owner write gate
+  A profile is a preset, never a mechanism: it only decides which primitives the
+  scaffold composes, so the output is ordinary gate-checked Terp code you own.
+- SEE the whole graph — who can reach which module, endpoint, and rows:
+      uv run terp inspect access --object app.main:control_plane \\
+          --module app.modules.invoices.module:module --format json
+  One document: roles, permissions, every endpoint's method/path/requirement, each
+  declared service's model traits (owned / tenant-scoped / soft-delete), read scope,
+  write authority, and warnings (e.g. OwnedMixin gates writes only). `--format json`
+  is the stable Studio contract; declare services=(InvoiceService,) on the ModuleSpec
+  so the data layer is visualizable — an undeclared data layer is a warning.
 """,
     "ownership": """\
 Object-level (per-row) authorization (OwnedMixin)
@@ -511,6 +541,7 @@ Golden rules (the gate enforces these — follow them and it stays green):
 More:  terp guide <topic>   (topics: {_TOPIC_NAMES})
        terp guide rules             (every architecture rule the gate enforces, generated)
        terp inspect control-plane   (your roles / permissions / module authority map)
+       terp inspect access          (the full access graph: modules, endpoints, data traits)
        terp check                   (run the full architecture gate locally)
 """
 
@@ -626,6 +657,23 @@ def _load_module_spec(dotted: str) -> ModuleSpec:
     if not isinstance(candidate, ModuleSpec):
         raise SystemExit(f"{dotted!r} did not resolve to a terp.core.ModuleSpec instance")
     return candidate
+
+
+def inspect_access(
+    dotted: str = "control_plane:control_plane",
+    *,
+    modules: Sequence[str] = (),
+    fmt: str = "text",
+) -> str:
+    """Return the access graph for *dotted* control plane + *modules* (text or json).
+
+    The three-layer view — module policy, per-endpoint requirement, and the data
+    layer's row-visibility / write-authority traits — combined into one report
+    (JSON-first for Studio; ``terp inspect access --format json``).
+    """
+    plane = _load_control_plane(dotted)
+    specs = [_load_module_spec(module) for module in modules]
+    return render_access(plane, specs, fmt=fmt)
 
 
 def inspect_control_plane(
@@ -898,6 +946,27 @@ def _build_parser() -> argparse.ArgumentParser:
         default="control_plane:control_plane",
         help="Dotted ControlPlane to inspect (default: control_plane:control_plane)",
     )
+    access_parser = inspect_subcommands.add_parser(
+        "access",
+        help="The access graph: module policies, per-endpoint requirements, data traits",
+    )
+    access_parser.add_argument(
+        "--object",
+        default="control_plane:control_plane",
+        help="Dotted object to inspect (default: control_plane:control_plane)",
+    )
+    access_parser.add_argument(
+        "--module",
+        action="append",
+        default=[],
+        help="Dotted ModuleSpec to include (may be repeated)",
+    )
+    access_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (human) or json (structured, for Studio; default: text)",
+    )
 
     guide_parser = subcommands.add_parser(
         "guide", help="Print the Terp authoring guide (or a recipe for a topic)"
@@ -999,6 +1068,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--no-frontend",
         action="store_true",
         help="Skip the frontend slot even when a frontend app is present",
+    )
+    module_parser.add_argument(
+        "--profile",
+        default=DEFAULT_PROFILE,
+        choices=profile_names(),
+        help="Permission profile the slots compile to (default: %(default)s; "
+        "see 'terp guide access')",
     )
 
     apidocs_parser = subcommands.add_parser(
@@ -1139,6 +1215,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "inspect" and args.inspect_command == "jobs":
         print(render_jobs(args.object))
         return
+    if args.command == "inspect" and args.inspect_command == "access":
+        print(inspect_access(args.object, modules=args.module, fmt=args.format))
+        return
     if args.command == "guide":
         print(guide(args.topic))
         return
@@ -1173,9 +1252,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "new" and args.new_command == "module":
         paths = new_module(
-            args.name, root=args.root, package=args.package, frontend=not args.no_frontend
+            args.name,
+            root=args.root,
+            package=args.package,
+            frontend=not args.no_frontend,
+            profile=args.profile,
         )
-        print(new_module_message(args.name, paths))
+        print(new_module_message(args.name, paths, profile=args.profile))
         return
     if args.command == "api-docs":
         for path in api_docs(args.out):
@@ -1241,6 +1324,7 @@ __all__ = [
     "export_openapi",
     "guide",
     "guide_topics",
+    "inspect_access",
     "inspect_control_plane",
     "main",
     "new_module",

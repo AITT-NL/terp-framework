@@ -9,6 +9,10 @@ box, so the only remaining step before a green gate is the model's first migrati
 The generated code is yours to edit (Level-1 sugar, never a runtime black box):
 inherit ``BaseTable``, declare DTOs, set ``model`` on a ``BaseService``, keep the
 router thin. There is no magic to remove.
+
+``--profile`` picks a :mod:`permission profile <terp.cli.profiles>` — a preset that
+only decides which existing primitives the slots compose (``Policy``, model traits,
+service base); the output stays canonical and gate-checked either way.
 """
 
 from __future__ import annotations
@@ -16,6 +20,8 @@ from __future__ import annotations
 import keyword
 import pathlib
 from collections.abc import Sequence
+
+from terp.cli.profiles import DEFAULT_PROFILE, ModuleProfile, get_profile
 
 
 def _singular(name: str) -> str:
@@ -44,7 +50,10 @@ def _validate_name(name: str) -> str:
     return name
 
 
-def _models_py(model: str, name: str) -> str:
+def _models_py(model: str, name: str, profile: ModuleProfile) -> str:
+    core_imports = ", ".join(("BaseTable", *sorted(profile.core_model_mixins)))
+    extra_imports = "".join(f"{line}\n" for line in profile.model_import_lines)
+    bases = ", ".join(("BaseTable", *profile.model_mixins))
     return f'''\
 """``{name}`` table model — composes the kernel ``BaseTable`` (UUID + timestamps + OCC)."""
 
@@ -52,10 +61,10 @@ from __future__ import annotations
 
 from sqlmodel import Field
 
-from terp.core import BaseTable
+{extra_imports}from terp.core import {core_imports}
 
 
-class {model}(BaseTable, table=True):
+class {model}({bases}, table=True):
     """``id`` / ``created_at`` / ``updated_at`` / ``version`` are inherited — never redeclared."""
 
     __tablename__ = "{_singular(name)}"
@@ -96,19 +105,20 @@ class {model}Read(BaseSchema):
 '''
 
 
-def _service_py(model: str, name: str, package: str) -> str:
+def _service_py(model: str, name: str, package: str, profile: ModuleProfile) -> str:
+    base = profile.service_base
     return f'''\
-"""``{name}`` service — CRUD is inherited from ``BaseService`` (audited, OCC, scoped)."""
+"""``{name}`` service — CRUD is inherited from ``{base}`` (audited, OCC, scoped)."""
 
 from __future__ import annotations
 
-from terp.core import BaseService
+{profile.service_import_line}
 
 from {package}.modules.{name}.models import {model}
 from {package}.modules.{name}.schemas import {model}Create, {model}Update
 
 
-class {model}Service(BaseService[{model}, {model}Create, {model}Update]):
+class {model}Service({base}[{model}, {model}Create, {model}Update]):
     model = {model}
 '''
 
@@ -163,29 +173,37 @@ def delete_{model.lower()}(item_id: uuid.UUID, session: SessionDep) -> None:
 '''
 
 
-def _module_py(name: str, package: str) -> str:
+def _module_py(name: str, package: str, profile: ModuleProfile) -> str:
+    model = _model_name(name)
+    core_imports = ", ".join(sorted(profile.policy_imports))
     return f'''\
-"""``{name}`` manifest — the entire public surface; ``Policy.default()`` is secure-by-default."""
+"""``{name}`` manifest — the entire public surface; profile ``{profile.name}``."""
 
 from __future__ import annotations
 
-from terp.core import ModuleSpec, Policy
+from terp.core import {core_imports}
 
 from {package}.modules.{name}.router import router
+from {package}.modules.{name}.service import {model}Service
 
-module = ModuleSpec(name="{name}", router=router, policy=Policy.default())
+module = ModuleSpec(
+    name="{name}",
+    router=router,
+    policy={profile.policy_expr},
+    services=({model}Service,),
+)
 '''
 
 
-def _files(name: str, package: str) -> dict[str, str]:
+def _files(name: str, package: str, profile: ModuleProfile) -> dict[str, str]:
     model = _model_name(name)
     return {
         "__init__.py": "",
-        "models.py": _models_py(model, name),
+        "models.py": _models_py(model, name, profile),
         "schemas.py": _schemas_py(model),
-        "service.py": _service_py(model, name, package),
+        "service.py": _service_py(model, name, package, profile),
         "router.py": _router_py(model, name, package),
-        "module.py": _module_py(name, package),
+        "module.py": _module_py(name, package, profile),
     }
 
 
@@ -253,6 +271,7 @@ def new_module(
     root: str | pathlib.Path = ".",
     package: str = "app",
     frontend: bool = True,
+    profile: str = DEFAULT_PROFILE,
 ) -> list[pathlib.Path]:
     """Scaffold the canonical ``<package>/modules/<name>/`` module under *root*.
 
@@ -265,6 +284,7 @@ def new_module(
     an existing destination, so a partial overwrite never happens.
     """
     name = _validate_name(name)
+    module_profile = get_profile(profile)
     root_path = pathlib.Path(root)
     destination = root_path / package / "modules" / name
     if destination.exists():
@@ -280,7 +300,7 @@ def new_module(
 
     destination.mkdir(parents=True)
     created: list[pathlib.Path] = []
-    for filename, content in _files(name, package).items():
+    for filename, content in _files(name, package, module_profile).items():
         path = destination / filename
         path.write_text(content, encoding="utf-8")
         created.append(path)
@@ -295,8 +315,11 @@ def new_module(
     return created
 
 
-def new_module_message(name: str, paths: Sequence[pathlib.Path]) -> str:
+def new_module_message(
+    name: str, paths: Sequence[pathlib.Path], *, profile: str = DEFAULT_PROFILE
+) -> str:
     """The human/agent-facing next-steps note after scaffolding *name*."""
+    module_profile = get_profile(profile)
     listing = "\n".join(f"  {path}" for path in paths)
     has_frontend = any(path.suffix == ".tsx" for path in paths)
     steps = [
@@ -312,7 +335,9 @@ def new_module_message(name: str, paths: Sequence[pathlib.Path]) -> str:
             "  npm --prefix frontend run generate   # openapi.json -> frontend/src/api/schema.d.ts (typed client)"
         )
     steps.append("  uv run terp check                 # run the architecture gate locally")
+    notes = "".join(f"\nNote: {note}" for note in module_profile.notes)
     return (
-        f"Scaffolded module {name!r} ({len(paths)} files):\n{listing}\n\n"
-        "Next:\n" + "\n".join(steps)
+        f"Scaffolded module {name!r} ({len(paths)} files, profile {module_profile.name!r}):\n"
+        f"{listing}\n\n"
+        "Next:\n" + "\n".join(steps) + notes
     )

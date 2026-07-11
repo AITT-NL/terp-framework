@@ -21,6 +21,7 @@ sys.path.insert(0, str(_CLI_SRC))
 from terp.arch import check_app  # noqa: E402
 from terp.cli import api_docs, main, new_module  # noqa: E402
 from terp.cli.apidocs import _kind, _summary  # noqa: E402
+from terp.cli.profiles import profile_names  # noqa: E402
 from terp.cli.scaffold import _model_name, _singular, new_module_message  # noqa: E402
 
 _SLOTS = {"__init__.py", "models.py", "schemas.py", "service.py", "router.py", "module.py"}
@@ -120,6 +121,72 @@ def test_new_module_refuses_overwrite(tmp_path: pathlib.Path) -> None:
     new_module("invoices", root=tmp_path)
     with pytest.raises(SystemExit):
         new_module("invoices", root=tmp_path)
+
+
+@pytest.mark.parametrize("profile", profile_names())
+def test_every_profile_scaffold_passes_the_gate(
+    tmp_path: pathlib.Path, profile: str
+) -> None:
+    # A profile is a preset over existing primitives: whichever the user picks,
+    # the output stays canonical — only the first migration remains outstanding.
+    new_module("invoices", root=tmp_path, profile=profile)
+    violations = check_app(tmp_path, package="app")
+    assert {v.rule for v in violations} <= {"tables_have_migrations"}
+
+
+@pytest.mark.parametrize(
+    ("profile", "mixins", "service_base"),
+    [
+        ("shared", set(), "BaseService"),
+        ("role-gated", set(), "BaseService"),
+        ("owner-private", {"OwnedMixin"}, "BaseService"),
+        ("tenant-private", {"TenantScopedMixin"}, "TenantScopedService"),
+        ("tenant-owner", {"OwnedMixin", "TenantScopedMixin"}, "TenantScopedService"),
+    ],
+)
+def test_profile_scaffolds_compile_to_the_declared_primitives(
+    tmp_path: pathlib.Path, profile: str, mixins: set[str], service_base: str
+) -> None:
+    # Each profile MUST compile to enforced primitives (traits + service base),
+    # and mount under create_app — the profile is UX, the primitives the contract.
+    # Unique package/module names avoid clashes on sys.path and in table metadata.
+    suffix = profile.replace("-", "")
+    package, name = f"genapp_{suffix}", f"widgets{suffix}"
+    new_module(name, root=tmp_path, package=package, profile=profile)
+    sys.path.insert(0, str(tmp_path))
+    try:
+        from terp.core import create_app
+
+        spec = importlib.import_module(f"{package}.modules.{name}.module").module
+        assert create_app([spec]) is not None
+        (service,) = spec.services
+        model_mro = {klass.__name__ for klass in service.model.__mro__}
+        assert model_mro & {"OwnedMixin", "TenantScopedMixin"} == mixins
+        assert service_base in {klass.__name__ for klass in service.__mro__}
+    finally:
+        sys.path.remove(str(tmp_path))
+        for module_name in [m for m in sys.modules if m.startswith(package)]:
+            del sys.modules[module_name]
+
+
+def test_role_gated_profile_writes_the_admin_policy(tmp_path: pathlib.Path) -> None:
+    new_module("invoices", root=tmp_path, profile="role-gated")
+    module_py = (tmp_path / "app" / "modules" / "invoices" / "module.py").read_text()
+    assert "Policy(read=VIEWER, write=ADMIN)" in module_py
+
+
+def test_tenant_profile_message_teaches_the_tenancy_wiring(
+    tmp_path: pathlib.Path,
+) -> None:
+    paths = new_module("invoices", root=tmp_path, profile="tenant-private")
+    message = new_module_message("invoices", paths, profile="tenant-private")
+    assert "TenantMiddleware" in message
+    assert "terp guide tenancy" in message
+
+
+def test_unknown_profile_fails_closed(tmp_path: pathlib.Path) -> None:
+    with pytest.raises(SystemExit):
+        new_module("invoices", root=tmp_path, profile="wide-open")
 
 
 def test_new_module_rejects_bad_name(tmp_path: pathlib.Path) -> None:
