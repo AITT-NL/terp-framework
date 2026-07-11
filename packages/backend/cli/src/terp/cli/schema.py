@@ -2,8 +2,8 @@
 
 The database schema has one sanctioned source of truth: the shared SQLModel
 metadata, populated by importing every declared **migration tree**'s models
-module (exactly how ``terp migrate`` discovers models) plus the composed app.
-This module projects that metadata into one structured report — JSON-first so
+module (exactly how ``terp migrate`` discovers models). This module projects
+that metadata into one structured report — JSON-first so
 external tooling (Terp Studio) can visualize the data model without importing
 ``terp.*`` — and reconciles it fail-visibly, mirroring the access graph:
 
@@ -127,15 +127,18 @@ def _traits_json(model: type) -> dict[str, bool]:
 
 def scan_declared_table_models(
     app_root: str | pathlib.Path, *, package: str = "app"
-) -> dict[str, tuple[str, int]]:
+) -> dict[tuple[str, str], tuple[str, int]]:
     """Source-scan ground truth: every ``table=True`` class in the app tree.
 
-    Maps class name -> (relative file, line). AST-only (nothing is imported), so a
-    model defined anywhere in the tree is found even when no sanctioned import path
-    reaches it — the reconciliation that makes "never skip a model" checkable.
+    Maps ``(class name, dotted module derived from the file path)`` ->
+    ``(relative file, line)``. AST-only (nothing is imported), so a model defined
+    anywhere in the tree is found even when no sanctioned import path reaches it —
+    the reconciliation that makes "never skip a model" checkable. Keying by the
+    (class, module) pair means a stray app model cannot hide behind an
+    already-mapped capability class of the same name.
     """
     root = pathlib.Path(app_root)
-    found: dict[str, tuple[str, int]] = {}
+    found: dict[tuple[str, str], tuple[str, int]] = {}
     skip = {"__pycache__", "tests", ".venv", "node_modules", "migrations"}
     for path in sorted(root.rglob("*.py")):
         if any(part in skip for part in path.parts):
@@ -144,6 +147,12 @@ def scan_declared_table_models(
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:  # pragma: no cover - unparseable files are the gate's job
             continue
+        relative = path.relative_to(root).as_posix()
+        # app/modules/x/models.py -> app.modules.x.models (app_root sits on sys.path,
+        # so this is the module name the class would carry once imported).
+        dotted = relative[: -len(".py")].replace("/", ".")
+        if dotted.endswith(".__init__"):  # pragma: no cover - models never live there
+            dotted = dotted[: -len(".__init__")]
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
@@ -154,7 +163,7 @@ def scan_declared_table_models(
                 for keyword in node.keywords
             )
             if table_kw:
-                found[node.name] = (path.relative_to(root).as_posix(), node.lineno)
+                found[(node.name, dotted)] = (relative, node.lineno)
     return found
 
 
@@ -163,7 +172,7 @@ def build_schema_graph(
     *,
     mappers: Iterable[object] | None = None,
     metadata_tables: Iterable[object] | None = None,
-    source_models: dict[str, tuple[str, int]] | None = None,
+    source_models: dict[tuple[str, str], tuple[str, int]] | None = None,
 ) -> dict[str, object]:
     """The Schema Graph as plain data: tables -> ownership -> traits -> alarms.
 
@@ -185,7 +194,7 @@ def build_schema_graph(
     unowned: list[dict[str, object]] = []
     non_canonical: list[dict[str, object]] = []
     mapped_table_names: set[str] = set()
-    mapped_class_names: set[str] = set()
+    mapped_models: set[tuple[str, str]] = set()
     for mapper in sorted(
         live_mappers, key=lambda item: item.local_table.name if item.local_table is not None else ""
     ):
@@ -194,7 +203,7 @@ def build_schema_graph(
         if table is None:  # pragma: no cover - non-table mappers only
             continue
         mapped_table_names.add(table.name)
-        mapped_class_names.add(model.__name__)
+        mapped_models.add((model.__name__, model.__module__))
         tree = _owning_tree(model.__module__, trees)
         entry = {
             **_table_json(table),
@@ -251,8 +260,8 @@ def build_schema_graph(
             "shared metadata -- invisible to migrations AND to this schema view "
             "until its module is imported from a models.py the app reaches",
         }
-        for name, location in sorted((source_models or {}).items())
-        if name not in mapped_class_names
+        for (name, module), location in sorted((source_models or {}).items())
+        if (name, module) not in mapped_models
     ]
     return {
         "tables": tables,

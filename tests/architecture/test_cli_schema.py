@@ -154,7 +154,14 @@ def test_schema_graph_alarms_every_unaccountable_shape() -> None:
             _mapper(_FakeTable("audit_event"), cap_primitive),
         ],
         metadata_tables=[_FakeTable("note"), _FakeTable("stray"), _FakeTable("hand_rolled")],
-        source_models={"Ghost": ("app/modules/ghost/models.py", 7)},
+        source_models={
+            ("Ghost", "app.modules.ghost.models"): ("app/modules/ghost/models.py", 7),
+            # Same CLASS NAME as a mapped capability model, different module: the
+            # (class, module) pair keeps it alarmed instead of masked.
+            ("AuditEvent", "app.copycat.models"): ("app/copycat/models.py", 3),
+            # Actually-imported pair: never alarmed.
+            ("Note", "app.modules.notes.models"): ("app/modules/notes/models.py", 10),
+        },
     )
     assert [t["name"] for t in graph["tables"]] == ["audit_event", "note", "stray"]
     # Unowned: no migration tree reaches the stray's module — migrations skip it.
@@ -169,9 +176,12 @@ def test_schema_graph_alarms_every_unaccountable_shape() -> None:
     # Raw Table with no mapped model: reported, never dropped.
     (unmapped,) = graph["unmapped_tables"]
     assert unmapped["table"] == "hand_rolled"
-    # Declared in source but never imported: the "skipped model" alarm.
-    (unimported,) = graph["unimported_models"]
-    assert (unimported["model"], unimported["line"]) == ("Ghost", 7)
+    # Declared in source but never imported: the "skipped model" alarm — including
+    # the copycat that shares a mapped class's name.
+    assert [(u["model"], u["line"]) for u in graph["unimported_models"]] == [
+        ("AuditEvent", 3),
+        ("Ghost", 7),
+    ]
     # The text rendering surfaces every alarm channel.
     text = render_schema_graph(graph, fmt="text")
     for marker in ("UNOWNED", "NON-CANONICAL", "UNMAPPED", "UNIMPORTED"):
@@ -194,8 +204,8 @@ def test_scan_finds_table_models_anywhere_in_the_tree(tmp_path: pathlib.Path) ->
         "class TestOnly(SQLModel, table=True):\n    pass\n", encoding="utf-8"
     )
     found = scan_declared_table_models(tmp_path)
-    assert set(found) == {"Hidden"}
-    assert found["Hidden"] == ("app/weird/stash.py", 1)
+    assert set(found) == {("Hidden", "app.weird.stash")}
+    assert found[("Hidden", "app.weird.stash")] == ("app/weird/stash.py", 1)
 
 
 def test_import_declared_models_skips_route_only_trees_and_raises_on_real_errors(
