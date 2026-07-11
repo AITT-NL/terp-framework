@@ -663,6 +663,48 @@ def test_create_app_refuses_unset_cors_in_production(monkeypatch: pytest.MonkeyP
         create_app([ModuleSpec(name="ok", policy=Policy.default())], control_plane=plane)
 
 
+def _docs_paths(app) -> set[str]:
+    return {getattr(route, "path", "") for route in app.routes} & {
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+    }
+
+
+def test_production_hides_the_docs_endpoints_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Secure by default: a production API's full schema is not public information.
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    plane = ControlPlane(
+        security=SecurityConfig(cors=CorsPolicy.disabled(reason="api only")),
+        audit=AuditPolicy.disabled(reason="not required here"),
+    )
+    app = create_app([ModuleSpec(name="ok", policy=Policy.default())], control_plane=plane)
+    assert _docs_paths(app) == set()
+    # The document itself stays exportable (terp openapi / the access graph).
+    assert app.openapi()["info"]["title"] == "Terp app"
+
+
+def test_production_serves_docs_only_with_explicit_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    plane = ControlPlane(
+        security=SecurityConfig(
+            cors=CorsPolicy.disabled(reason="api only"), expose_api_docs=True
+        ),
+        audit=AuditPolicy.disabled(reason="not required here"),
+    )
+    app = create_app([ModuleSpec(name="ok", policy=Policy.default())], control_plane=plane)
+    assert _docs_paths(app) == {"/docs", "/redoc", "/openapi.json"}
+
+
+def test_development_always_serves_the_docs_endpoints() -> None:
+    app = create_app([ModuleSpec(name="ok", policy=Policy.default())])
+    assert _docs_paths(app) == {"/docs", "/redoc", "/openapi.json"}
+
+
 def test_create_app_boots_in_production_with_explicit_security(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

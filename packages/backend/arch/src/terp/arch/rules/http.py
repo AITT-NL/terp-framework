@@ -541,6 +541,207 @@ def check_no_adhoc_middleware(
     return violations
 
 
+# App-level registration APIs with no legitimate app-code use: each one puts HTTP
+# surface on the app OUTSIDE the per-module deny-by-default guard `create_app`
+# injects at mount time (a mounted sub-app or raw route is served unguarded).
+_RAW_APP_SURFACE_ATTRS = frozenset(
+    {"mount", "include_router", "add_route", "add_websocket_route"}
+)
+
+# Route registrations that are legitimate on a module's APIRouter but never on the
+# composed app object: verb decorators plus the generic/imperative spellings, and
+# the lifecycle hooks (ungated executable registration on the app).
+_APP_ROUTE_ATTRS = _HTTP_METHODS | frozenset(
+    {
+        "head",
+        "options",
+        "trace",
+        "route",
+        "api_route",
+        "add_api_route",
+        "websocket",
+        "websocket_route",
+        "on_event",
+        "add_event_handler",
+    }
+)
+
+
+def _create_app_names(tree: ast.Module) -> set[str]:
+    """Names in *tree* that resolve to ``terp.core.create_app``."""
+    names = {"create_app"}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.module not in {"terp.core", "terp.core.app"}:
+            continue
+        for alias in node.names:
+            if alias.name == "create_app":
+                names.add(alias.asname or alias.name)
+    return names
+
+
+def _call_is_create_app(call: ast.Call, names: set[str]) -> bool:
+    """True when *call* invokes a known spelling of ``create_app``."""
+    callee = base_name(call.func)
+    return callee == "create_app" or (callee is not None and callee in names)
+
+
+def _assign_targets(node: ast.Assign | ast.AnnAssign) -> tuple[ast.expr, ...]:
+    return tuple(node.targets) if isinstance(node, ast.Assign) else (node.target,)
+
+
+def _assigned_names_from_create_app(
+    nodes: list[ast.stmt], create_names: set[str]
+) -> set[str]:
+    """Local names assigned from ``create_app(...)`` within a block."""
+    names: set[str] = set()
+    for node in ast.walk(ast.Module(body=nodes, type_ignores=[])):
+        if not isinstance(node, ast.Assign | ast.AnnAssign):
+            continue
+        value = node.value
+        if not isinstance(value, ast.Call) or not _call_is_create_app(value, create_names):
+            continue
+        for target in _assign_targets(node):
+            if isinstance(target, ast.Name):
+                names.add(target.id)
+    return names
+
+
+def _composed_app_names(tree: ast.Module) -> set[str]:
+    """Names in *tree* bound to a composed app.
+
+    Two spellings cover the canonical composition root: a name assigned straight
+    from ``create_app(...)``, and a name assigned from calling a local zero-arg
+    factory whose body returns ``create_app(...)`` (``app = build()``).
+    """
+    create_names = _create_app_names(tree)
+    factories: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            local_app_names = _assigned_names_from_create_app(node.body, create_names)
+            for inner in ast.walk(node):
+                if (
+                    isinstance(inner, ast.Return)
+                    and isinstance(inner.value, ast.Call)
+                    and _call_is_create_app(inner.value, create_names)
+                ):
+                    factories.add(node.name)
+                elif (
+                    isinstance(inner, ast.Return)
+                    and isinstance(inner.value, ast.Name)
+                    and inner.value.id in local_app_names
+                ):
+                    factories.add(node.name)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign | ast.AnnAssign):
+            continue
+        value = node.value
+        if not isinstance(value, ast.Call):
+            continue
+        callee = base_name(value.func)
+        if _call_is_create_app(value, create_names) or callee in factories:
+            for target in _assign_targets(node):
+                if isinstance(target, ast.Name):
+                    names.add(target.id)
+    return names
+
+
+def _receiver_root_name(node: ast.expr) -> str | None:
+    """The root name of a receiver chain (``app.router`` -> ``app``)."""
+    current = node
+    while isinstance(current, ast.Attribute):
+        current = current.value
+    return current.id if isinstance(current, ast.Name) else None
+
+
+def check_no_raw_app_routes(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """App code never registers HTTP surface on the composed app object.
+
+    ``create_app`` mounts every module router behind the deny-by-default policy
+    guard; a route registered on the app itself bypasses that guard (served with
+    no authentication or role check) and is invisible to the module permission
+    model (``terp inspect access`` can only alarm on it, not attribute it). Two
+    shapes are caught: the app-level registration APIs that have no legitimate
+    app-code use at all (``mount`` / ``include_router`` / ``add_route`` /
+    ``add_websocket_route`` — modules declare ONE flat router; composition mounts
+    it), and any route registration (``@app.get`` / ``app.add_api_route`` / …)
+    whose receiver is bound from ``create_app(...)`` or from a local factory
+    returning it (``app = build()``).
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        tree = parse(path)
+        rel = _rel(path, root)
+        app_names = _composed_app_names(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            attr = node.func.attr
+            if attr in _RAW_APP_SURFACE_ATTRS:
+                violations.append(
+                    ArchViolation(
+                        "no_raw_app_routes",
+                        rel,
+                        node.lineno,
+                        f"app code calls .{attr}(...); HTTP surface belongs on a module's "
+                        "single flat router, mounted by create_app behind the deny-by-default "
+                        "guard -- surface registered on the app itself is served unguarded",
+                    )
+                )
+            elif (
+                attr in _APP_ROUTE_ATTRS
+                and _receiver_root_name(node.func.value) in app_names
+            ):
+                receiver = _receiver_root_name(node.func.value) or "app"
+                violations.append(
+                    ArchViolation(
+                        "no_raw_app_routes",
+                        rel,
+                        node.lineno,
+                        f"route registered on the composed app ({receiver}.{attr}); "
+                        "it bypasses the module policy guard (no authentication, no role "
+                        "check) -- declare it on a module router instead",
+                    )
+                )
+    return violations
+
+
+def check_no_dependency_overrides(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """App code never touches ``dependency_overrides``.
+
+    ``create_app`` binds the authentication and session seams once, at composition.
+    Rebinding ``app.dependency_overrides`` in app code (e.g. replacing the principal
+    provider) silently disables authentication or swaps the session outside every
+    guard. Overrides are a TEST-ONLY seam (the arch scan skips ``tests/``); app code
+    has no legitimate use.
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        tree = parse(path)
+        rel = _rel(path, root)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "dependency_overrides":
+                violations.append(
+                    ArchViolation(
+                        "no_dependency_overrides",
+                        rel,
+                        node.lineno,
+                        "app code touches dependency_overrides; the principal/session "
+                        "seams are bound once by create_app (overrides are test-only "
+                        "-- rebinding them here silently bypasses authentication)",
+                    )
+                )
+    return violations
+
+
 def check_no_adhoc_logging_config(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
