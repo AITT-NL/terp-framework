@@ -267,6 +267,59 @@ def register_error_handlers(app: FastAPI) -> None:
         )
 
 
+_APP_ROUTE_MUTATORS = frozenset(
+    {
+        "mount",
+        "include_router",
+        "add_route",
+        "add_api_route",
+        "add_websocket_route",
+        "add_api_websocket_route",
+        "route",
+        "api_route",
+        "websocket",
+        "websocket_route",
+        "get",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "options",
+        "head",
+        "trace",
+        # Lifecycle hooks are executable registration on the composed app — the
+        # same guard-bypass surface as a raw route (nothing gates what they run).
+        "on_event",
+        "add_event_handler",
+    }
+)
+
+
+def _refuse_route_mutation(name: str) -> Callable[..., None]:
+    def refused(*_args: object, **_kwargs: object) -> None:
+        raise BootError(
+            f"registration via {name}(...) after create_app() composition is refused; "
+            "declare routes on a module APIRouter (ModuleSpec.router) and lifecycle "
+            "work through the sanctioned seams"
+        )
+
+    return refused
+
+
+def _freeze_app_route_registration(app: FastAPI) -> None:
+    """Runtime half of ``no_raw_app_routes``: no post-composition surface.
+
+    ``create_app`` is the only code path allowed to mount routers because it injects
+    the module policy guard at mount time. Once the app is composed, route mutation on
+    the app or its underlying router is a guard bypass, so every registration spelling
+    fails closed.
+    """
+    for target_name, target in (("app", app), ("app.router", app.router)):
+        for method in _APP_ROUTE_MUTATORS:
+            if hasattr(target, method):
+                setattr(target, method, _refuse_route_mutation(f"{target_name}.{method}"))
+
+
 def _validate_requires(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed if any spec's declared ``requires`` are not present (design §4.3)."""
     available = {spec.name for spec in specs}
@@ -856,6 +909,7 @@ def create_app(
                 ],
             )
     app.include_router(build_health_router(), prefix="/health")
+    _freeze_app_route_registration(app)
     return app
 
 

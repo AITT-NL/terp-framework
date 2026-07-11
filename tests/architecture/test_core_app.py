@@ -41,6 +41,24 @@ def test_create_app_builds_with_policy() -> None:
     assert app.title == "Terp app"
 
 
+def test_create_app_refuses_route_registration_after_composition() -> None:
+    app = create_app([])
+
+    def endpoint() -> dict:  # pragma: no cover - never called
+        return {}
+
+    for action in (
+        lambda: app.add_api_route("/raw", endpoint),
+        lambda: app.get("/raw")(endpoint),
+        lambda: app.mount("/static", create_app([])),
+        lambda: app.router.add_api_route("/raw", endpoint),
+        lambda: app.on_event("startup")(endpoint),
+        lambda: app.router.add_event_handler("startup", endpoint),
+    ):
+        with pytest.raises(BootError, match="after create_app"):
+            action()
+
+
 def test_page_of_builds_envelope() -> None:
     page = Page[int].of([1, 2, 3], total=3, pagination=PaginationParams(skip=0, limit=10))
     assert page.model_dump() == {"items": [1, 2, 3], "total": 3, "skip": 0, "limit": 10}
