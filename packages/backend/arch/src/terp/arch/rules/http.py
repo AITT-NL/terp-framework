@@ -551,8 +551,58 @@ _RAW_APP_SURFACE_ATTRS = frozenset(
 # Route registrations that are legitimate on a module's APIRouter but never on the
 # composed app object: verb decorators plus the generic/imperative spellings.
 _APP_ROUTE_ATTRS = _HTTP_METHODS | frozenset(
-    {"head", "options", "trace", "api_route", "add_api_route", "websocket"}
+    {
+        "head",
+        "options",
+        "trace",
+        "route",
+        "api_route",
+        "add_api_route",
+        "websocket",
+        "websocket_route",
+    }
 )
+
+
+def _create_app_names(tree: ast.Module) -> set[str]:
+    """Names in *tree* that resolve to ``terp.core.create_app``."""
+    names = {"create_app"}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.module not in {"terp.core", "terp.core.app"}:
+            continue
+        for alias in node.names:
+            if alias.name == "create_app":
+                names.add(alias.asname or alias.name)
+    return names
+
+
+def _call_is_create_app(call: ast.Call, names: set[str]) -> bool:
+    """True when *call* invokes a known spelling of ``create_app``."""
+    callee = base_name(call.func)
+    return callee == "create_app" or (callee is not None and callee in names)
+
+
+def _assign_targets(node: ast.Assign | ast.AnnAssign) -> tuple[ast.expr, ...]:
+    return tuple(node.targets) if isinstance(node, ast.Assign) else (node.target,)
+
+
+def _assigned_names_from_create_app(
+    nodes: list[ast.stmt], create_names: set[str]
+) -> set[str]:
+    """Local names assigned from ``create_app(...)`` within a block."""
+    names: set[str] = set()
+    for node in ast.walk(ast.Module(body=nodes, type_ignores=[])):
+        if not isinstance(node, ast.Assign | ast.AnnAssign):
+            continue
+        value = node.value
+        if not isinstance(value, ast.Call) or not _call_is_create_app(value, create_names):
+            continue
+        for target in _assign_targets(node):
+            if isinstance(target, ast.Name):
+                names.add(target.id)
+    return names
 
 
 def _composed_app_names(tree: ast.Module) -> set[str]:
@@ -562,26 +612,45 @@ def _composed_app_names(tree: ast.Module) -> set[str]:
     from ``create_app(...)``, and a name assigned from calling a local zero-arg
     factory whose body returns ``create_app(...)`` (``app = build()``).
     """
+    create_names = _create_app_names(tree)
     factories: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            local_app_names = _assigned_names_from_create_app(node.body, create_names)
             for inner in ast.walk(node):
                 if (
                     isinstance(inner, ast.Return)
                     and isinstance(inner.value, ast.Call)
-                    and base_name(inner.value.func) == "create_app"
+                    and _call_is_create_app(inner.value, create_names)
+                ):
+                    factories.add(node.name)
+                elif (
+                    isinstance(inner, ast.Return)
+                    and isinstance(inner.value, ast.Name)
+                    and inner.value.id in local_app_names
                 ):
                     factories.add(node.name)
     names: set[str] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+        if not isinstance(node, ast.Assign | ast.AnnAssign):
             continue
-        callee = base_name(node.value.func)
-        if callee == "create_app" or callee in factories:
-            for target in node.targets:
+        value = node.value
+        if not isinstance(value, ast.Call):
+            continue
+        callee = base_name(value.func)
+        if _call_is_create_app(value, create_names) or callee in factories:
+            for target in _assign_targets(node):
                 if isinstance(target, ast.Name):
                     names.add(target.id)
     return names
+
+
+def _receiver_root_name(node: ast.expr) -> str | None:
+    """The root name of a receiver chain (``app.router`` -> ``app``)."""
+    current = node
+    while isinstance(current, ast.Attribute):
+        current = current.value
+    return current.id if isinstance(current, ast.Name) else None
 
 
 def check_no_raw_app_routes(
@@ -623,15 +692,15 @@ def check_no_raw_app_routes(
                 )
             elif (
                 attr in _APP_ROUTE_ATTRS
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id in app_names
+                and _receiver_root_name(node.func.value) in app_names
             ):
+                receiver = _receiver_root_name(node.func.value) or "app"
                 violations.append(
                     ArchViolation(
                         "no_raw_app_routes",
                         rel,
                         node.lineno,
-                        f"route registered on the composed app ({node.func.value.id}.{attr}); "
+                        f"route registered on the composed app ({receiver}.{attr}); "
                         "it bypasses the module policy guard (no authentication, no role "
                         "check) -- declare it on a module router instead",
                     )

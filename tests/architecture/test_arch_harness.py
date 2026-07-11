@@ -584,6 +584,31 @@ def test_no_raw_app_routes(tmp_path: pathlib.Path) -> None:
     )
     assert _rule_names(check_no_raw_app_routes(app)) == {"no_raw_app_routes"}
 
+    # Equivalent create_app bindings must not dodge the app-receiver check.
+    for source in (
+        "from fastapi import FastAPI\n"
+        "from terp.core import create_app\n"
+        "app: FastAPI = create_app([])\n"
+        "@app.get('/api/v1/hacks/')\n"
+        "def hacks() -> dict:\n"
+        "    return {}\n",
+        "from terp.core import create_app as make_app\n"
+        "app = make_app([])\n"
+        "@app.route('/api/v1/hacks/')\n"
+        "def hacks(request):\n"
+        "    return {}\n",
+        "from terp.core import create_app\n"
+        "def build():\n"
+        "    app = create_app([])\n"
+        "    return app\n"
+        "app = build()\n"
+        "@app.websocket_route('/ws')\n"
+        "async def ws(websocket):\n"
+        "    ...\n",
+    ):
+        _write(app, "main.py", source)
+        assert _rule_names(check_no_raw_app_routes(app)) == {"no_raw_app_routes"}
+
     # ... and the same through the canonical factory spelling (app = build()).
     _write(
         app,
@@ -593,6 +618,16 @@ def test_no_raw_app_routes(tmp_path: pathlib.Path) -> None:
         "    return create_app([])\n"
         "app = build()\n"
         "app.add_api_route('/api/v1/hacks/', hacks, methods=['POST'])\n",
+    )
+    assert _rule_names(check_no_raw_app_routes(app)) == {"no_raw_app_routes"}
+
+    # Reaching through FastAPI's underlying router is the same app-level bypass.
+    _write(
+        app,
+        "main.py",
+        "from terp.core import create_app\n"
+        "app = create_app([])\n"
+        "app.router.add_api_route('/api/v1/hacks/', hacks, methods=['GET'])\n",
     )
     assert _rule_names(check_no_raw_app_routes(app)) == {"no_raw_app_routes"}
 
