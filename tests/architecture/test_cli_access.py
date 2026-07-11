@@ -63,6 +63,7 @@ def test_access_graph_json_contract_top_level() -> None:
         "object_authz_predicates",
         "kernel_routes",
         "omitted_routes",
+        "undeclared_subscribers",
     }
     assert [role["name"] for role in graph["roles"]] == ["viewer", "editor", "admin"]
     assert [role["rank"] for role in graph["roles"]] == [10, 20, 30]
@@ -317,6 +318,9 @@ def test_access_graph_for_app_covers_the_whole_composed_surface() -> None:
     assert {"auth", "me", "notes", "tasks", "projects", "journals"} <= names
     # Fail-closed reconciliation against app.openapi(): nothing mounted is missing.
     assert graph["omitted_routes"] == []
+    # Every registered event handler's event is declared by SOME module
+    # (tasks declares NOTE_CREATED, covering the app-level webhook fan-out too).
+    assert graph["undeclared_subscribers"] == []
     # Every reachable non-module surface is surfaced, never silently dropped:
     # the kernel health routes AND the schema-hidden FastAPI docs routes.
     kernel_paths = {r["path"] for r in graph["kernel_routes"]}
@@ -469,3 +473,30 @@ def test_inspect_access_app_mode_inserts_a_fresh_app_root(tmp_path) -> None:
     # app reference then fails closed after the insert (mirrors terp openapi).
     with pytest.raises(SystemExit):
         inspect_access(app=":app", app_root=str(tmp_path))
+
+
+def test_access_graph_alarms_undeclared_event_subscribers(monkeypatch) -> None:
+    # A registered handler for an event NO module declares subscribing to is
+    # executable drift — alarmed in the graph and the text rendering.
+    from fastapi import FastAPI
+
+    from terp.capabilities.eventbus import registry
+    from terp.cli.access import build_access_graph_for_app, render_access_graph
+    from terp.core import ControlPlane, PermissionModel
+
+    def _ghost_handler(envelope) -> None:  # pragma: no cover - never invoked
+        ...
+
+    monkeypatch.setattr(
+        registry, "registered_handlers", lambda: {"notes.created": [_ghost_handler]}
+    )
+    app = FastAPI()
+    app.state.terp_module_specs = ()  # nothing declares subscribes
+    app.state.terp_control_plane = ControlPlane(permissions=PermissionModel())
+
+    graph = build_access_graph_for_app(app)
+    (alarm,) = graph["undeclared_subscribers"]
+    assert alarm["event"] == "notes.created"
+    assert alarm["handlers"] == [f"{__name__}.{_ghost_handler.__qualname__}"]
+    text = render_access_graph(graph, fmt="text")
+    assert "UNDECLARED event subscribers" in text

@@ -211,6 +211,7 @@ def build_access_graph(
     *,
     kernel_routes: Sequence[dict[str, object]] = (),
     omitted_routes: Sequence[dict[str, object]] = (),
+    undeclared_subscribers: Sequence[dict[str, object]] = (),
 ) -> dict[str, object]:
     """The Access Graph as plain data: roles -> modules -> endpoints -> data traits.
 
@@ -248,7 +249,37 @@ def build_access_graph(
         ],
         "kernel_routes": list(kernel_routes),
         "omitted_routes": list(omitted_routes),
+        "undeclared_subscribers": list(undeclared_subscribers),
     }
+
+
+def _undeclared_subscriber_alarms(specs: Sequence[ModuleSpec]) -> list[dict[str, object]]:
+    """Registered event handlers no module declares subscribing to (drift alarm).
+
+    The eventbus registry holds the ACTUAL handlers; ``ModuleSpec.subscribes`` is the
+    declared contract the control-plane view shows. A handler for an event nobody
+    declares is executable code reacting to events invisibly — alarmed, never dropped.
+    Lazy: an app without the eventbus capability has no registry (empty alarms).
+    """
+    try:
+        from terp.capabilities.eventbus.registry import registered_handlers
+    except ImportError:  # pragma: no cover - eventbus not installed
+        return []
+    declared = {
+        event.name for spec in specs for event in spec.subscribes
+    }
+    return [
+        {
+            "event": name,
+            "handlers": [
+                f"{handler.__module__}.{handler.__qualname__}" for handler in handlers
+            ],
+            "detail": "registered handler(s) for an event NO module declares "
+            "subscribing to (ModuleSpec.subscribes) -- invisible drift",
+        }
+        for name, handlers in sorted(registered_handlers().items())
+        if name not in declared
+    ]
 
 
 def _served_routes(app: FastAPI) -> dict[str, frozenset[str]]:
@@ -331,7 +362,12 @@ def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
         if not path.startswith(_API_PREFIX)
     ]
     kernel_routes.extend(_schema_hidden_routes(app))
-    graph = build_access_graph(plane, specs, kernel_routes=kernel_routes)
+    graph = build_access_graph(
+        plane,
+        specs,
+        kernel_routes=kernel_routes,
+        undeclared_subscribers=_undeclared_subscriber_alarms(specs),
+    )
     covered: dict[str, set[str]] = {}
     modules: list = graph["modules"]  # type: ignore[assignment]
     for module in modules:
@@ -414,6 +450,12 @@ def _render_access_text(graph: dict[str, object]) -> str:
         lines.append("! OMITTED served routes — mounted but absent from the graph:")
         for route in omitted:
             lines.append(f"  {','.join(route['methods']):8} {route['path']}")
+    undeclared: list = graph.get("undeclared_subscribers", [])  # type: ignore[assignment]
+    if undeclared:
+        lines.append("")
+        lines.append("! UNDECLARED event subscribers — handlers no module declares:")
+        for entry in undeclared:
+            lines.append(f"  {entry['event']}: {', '.join(entry['handlers'])}")
     return "\n".join(lines)
 
 
