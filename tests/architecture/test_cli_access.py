@@ -191,6 +191,72 @@ def test_access_graph_renders_public_policy() -> None:
     assert "policy public (health probe)" in text
 
 
+def test_access_graph_surfaces_missing_policy_and_empty_predicate_edges(
+    monkeypatch,
+) -> None:
+    """Fail-visible edges the example app never exercises: a module with no
+    Policy (boot would refuse it), a declared service whose ``model`` is not a
+    table, an empty row-scope registry, and a named object-authz predicate. The
+    graph and its text rendering must surface each — never silently drop them."""
+    from fastapi import APIRouter
+
+    from terp.cli import access as access_mod
+    from terp.core import (
+        ControlPlane,
+        EDITOR,
+        ModuleSpec,
+        Permission,
+        PermissionModel,
+    )
+
+    def _demo_object_authz() -> bool:  # reported by name only, never invoked here
+        return True  # pragma: no cover - listed in the graph, not called
+
+    # App-wide predicate registries are global; pin them for a deterministic view.
+    monkeypatch.setattr(access_mod, "registered_scope_predicates", lambda: ())
+    monkeypatch.setattr(
+        access_mod,
+        "registered_object_authz_predicates",
+        lambda: (_demo_object_authz,),
+    )
+
+    class _ServiceWithoutModel:
+        model = None  # not a table type -> the data layer skips this entry
+
+    router = APIRouter()
+
+    @router.get("/")
+    def listing() -> dict:  # pragma: no cover - never called
+        return {}
+
+    spec = ModuleSpec(
+        name="orphan",
+        router=router,
+        services=(_ServiceWithoutModel,),
+        policy=None,  # no Policy declared -> deny-by-default at mount time
+    )
+    plane = ControlPlane(
+        permissions=PermissionModel(
+            permissions=(Permission("orphan.approve", min_role=EDITOR),)
+        )
+    )
+
+    graph = build_access_graph(plane, [spec])
+    (module,) = graph["modules"]
+    assert module["policy"] is None
+    assert module["models"] == []
+    (endpoint,) = module["endpoints"]
+    assert endpoint["requirement"] == "denied (no policy declared)"
+    assert any("deny-by-default" in warning for warning in module["warnings"])
+
+    text = render_access(plane, [spec], fmt="text")
+    assert "orphan.approve  editor+" in text
+    assert "policy <missing> (boot refuses this module)" in text
+    assert "Row-scope predicates (app-wide)\n  <none registered>" in text
+    predicate_name = f"{_demo_object_authz.__module__}.{_demo_object_authz.__qualname__}"
+    assert f"  {predicate_name}" in text
+
+
 def test_access_graph_text_rendering_smoke() -> None:
     output = _with_example_on_path(
         lambda: inspect_access("control_plane:control_plane", modules=_MODULES)
