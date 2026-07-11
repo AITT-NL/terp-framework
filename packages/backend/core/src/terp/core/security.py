@@ -189,6 +189,11 @@ class SecurityConfig:
     max_request_bytes: int = 1024 * 1024
     request_id_header: str = "X-Request-ID"
     trusted_proxy_hops: int = 0
+    #: Serve the FastAPI docs endpoints (``/docs`` / ``/redoc`` / ``/openapi.json``)
+    #: in PRODUCTION. Off by default (secure-by-default: a production API's full
+    #: schema is not public information); development always serves them. The
+    #: openapi document itself stays exportable via ``terp openapi`` either way.
+    expose_api_docs: bool = False
 
     def __post_init__(self) -> None:
         if self.max_request_bytes <= 0:

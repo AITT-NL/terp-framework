@@ -814,9 +814,17 @@ def create_app(
     configure_schedules(resolved_plane.schedules)
     configure_password_policy(resolved_plane.passwords)
     configure_cache(cache_store)
+    # Secure by default: production hides the FastAPI docs/schema endpoints
+    # (/docs /redoc /openapi.json) unless SecurityConfig.expose_api_docs opts in —
+    # a production API's full schema is not public information. Development keeps
+    # them (DX); `terp openapi` exports the document either way via app.openapi().
+    hide_docs = settings.is_production and not resolved_plane.security.expose_api_docs
     app = FastAPI(
         title=title,
         middleware=list(middleware) if middleware else None,
+        docs_url=None if hide_docs else "/docs",
+        redoc_url=None if hide_docs else "/redoc",
+        openapi_url=None if hide_docs else "/openapi.json",
     )
     register_error_handlers(app)
     install_security_middleware(
