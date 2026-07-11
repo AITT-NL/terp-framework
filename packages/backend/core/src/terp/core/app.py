@@ -917,6 +917,12 @@ def create_app(
                 ],
             )
     app.include_router(build_health_router(), prefix="/health")
+    # Introspection seam (a view, never a control — ADR 0011): record the specs this
+    # app actually mounted (client modules AND every discovered capability router) and
+    # its resolved control plane, so ``terp inspect access --app`` can project the WHOLE
+    # guarded surface instead of a hand-passed module list — no mounted route can hide.
+    app.state.terp_module_specs = tuple(collected)
+    app.state.terp_control_plane = resolved_plane
     _freeze_app_route_registration(app)
     return app
 

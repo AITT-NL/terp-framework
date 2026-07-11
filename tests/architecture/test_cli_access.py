@@ -61,6 +61,9 @@ def test_access_graph_json_contract_top_level() -> None:
         "modules",
         "scope_predicates",
         "object_authz_predicates",
+        "kernel_routes",
+        "omitted_routes",
+        "undeclared_subscribers",
     }
     assert [role["name"] for role in graph["roles"]] == ["viewer", "editor", "admin"]
     assert [role["rank"] for role in graph["roles"]] == [10, 20, 30]
@@ -290,3 +293,210 @@ def test_inspect_access_rejects_wrong_object_type() -> None:
         _with_example_on_path(
             lambda: inspect_access("app.modules.notes.module:module")
         )
+
+
+_EXAMPLE_ROOT = str(_REPO_ROOT / "apps" / "example")
+
+
+def _app_graph() -> dict:
+    from terp.cli.access import build_access_graph_for_app
+
+    def _build():
+        from app.main import build
+
+        return build_access_graph_for_app(build())
+
+    return _with_example_on_path(_build)
+
+
+def test_access_graph_for_app_covers_the_whole_composed_surface() -> None:
+    # The leak the hand-passed --module form has: a composed app mounts client
+    # modules AND every discovered capability router; --app must report them all.
+    graph = _app_graph()
+    names = {m["name"] for m in graph["modules"]}
+    assert {"access", "audit", "groups", "users", "files", "webhooks"} <= names
+    assert {"auth", "me", "notes", "tasks", "projects", "journals"} <= names
+    # Fail-closed reconciliation against app.openapi(): nothing mounted is missing.
+    assert graph["omitted_routes"] == []
+    # Every registered event handler's event is declared by SOME module
+    # (tasks declares NOTE_CREATED, covering the app-level webhook fan-out too).
+    assert graph["undeclared_subscribers"] == []
+    # Every reachable non-module surface is surfaced, never silently dropped:
+    # the kernel health routes AND the schema-hidden FastAPI docs routes.
+    kernel_paths = {r["path"] for r in graph["kernel_routes"]}
+    assert {"/health/live", "/health/ready"} <= kernel_paths
+    assert {"/openapi.json", "/docs", "/redoc"} <= kernel_paths
+    # A discovered capability's endpoint carries its real per-endpoint requirement.
+    groups = next(m for m in graph["modules"] if m["name"] == "groups")
+    listing = next(e for e in groups["endpoints"] if e["path"] == "/api/v1/groups/")
+    assert "admin" in listing["requirement"]
+
+
+def test_inspect_access_app_mode_json_reports_every_capability(capsys) -> None:
+    main(
+        [
+            "inspect",
+            "access",
+            "--app",
+            "app.main:build",
+            "--app-root",
+            _EXAMPLE_ROOT,
+            "--format",
+            "json",
+        ]
+    )
+    graph = json.loads(capsys.readouterr().out)
+    names = {m["name"] for m in graph["modules"]}
+    assert {"groups", "users", "audit", "files", "webhooks", "access"} <= names
+    assert graph["omitted_routes"] == []
+
+
+def test_inspect_access_app_mode_text_lists_kernel_routes(capsys) -> None:
+    main(
+        [
+            "inspect",
+            "access",
+            "--app",
+            "app.main:build",
+            "--app-root",
+            _EXAMPLE_ROOT,
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "Kernel / unauthenticated routes" in out
+    assert "/health/live" in out
+    assert "Module groups" in out
+
+
+def test_build_access_graph_for_app_rejects_a_non_terp_app() -> None:
+    from fastapi import FastAPI
+
+    from terp.cli.access import build_access_graph_for_app
+
+    with pytest.raises(ValueError, match="not composed by terp.core.create_app"):
+        build_access_graph_for_app(FastAPI())
+
+
+def test_access_graph_flags_a_mounted_route_absent_from_the_graph() -> None:
+    # The fail-visible half: a route the composed app serves but the recorded specs
+    # do not cover must appear under omitted_routes, never vanish.
+    from fastapi import APIRouter, FastAPI
+
+    from terp.cli.access import build_access_graph_for_app, render_access_graph
+    from terp.core import ControlPlane, PermissionModel
+
+    app = FastAPI()
+    router = APIRouter()
+
+    @router.get("/")
+    def ghost() -> dict:  # pragma: no cover - never called
+        return {}
+
+    app.include_router(router, prefix="/api/v1/ghost")
+    app.state.terp_module_specs = ()
+    app.state.terp_control_plane = ControlPlane(permissions=PermissionModel())
+
+    graph = build_access_graph_for_app(app)
+    assert graph["omitted_routes"] == [{"path": "/api/v1/ghost/", "methods": ["GET"]}]
+    text = render_access_graph(graph, fmt="text")
+    assert "OMITTED served routes" in text
+    assert "/api/v1/ghost/" in text
+
+
+def test_access_graph_flags_nested_router_routes_instead_of_dropping_them() -> None:
+    # A route on a NESTED included router is served (it is in app.openapi()) but the
+    # spec-level endpoint extraction is flat — it must surface as an omitted-route
+    # alarm, never silently vanish from the permission report.
+    from fastapi import APIRouter, FastAPI
+
+    from terp.cli.access import build_access_graph_for_app
+    from terp.core import ControlPlane, ModuleSpec, PermissionModel, Policy
+
+    nested = APIRouter()
+
+    @nested.get("/nested")
+    def deep() -> dict:  # pragma: no cover - never called
+        return {}
+
+    parent = APIRouter()
+
+    @parent.get("/")
+    def top() -> dict:  # pragma: no cover - never called
+        return {}
+
+    parent.include_router(nested, prefix="/deep")
+    app = FastAPI()
+    app.include_router(parent, prefix="/api/v1/widgets")
+    app.state.terp_module_specs = (
+        ModuleSpec(name="widgets", router=parent, policy=Policy.default()),
+    )
+    app.state.terp_control_plane = ControlPlane(permissions=PermissionModel())
+
+    graph = build_access_graph_for_app(app)
+    (module,) = graph["modules"]
+    assert [e["path"] for e in module["endpoints"]] == ["/api/v1/widgets/"]
+    assert graph["omitted_routes"] == [
+        {"path": "/api/v1/widgets/deep/nested", "methods": ["GET"]}
+    ]
+
+
+def test_access_graph_reports_mounted_sub_applications() -> None:
+    # app.mount() bypasses the ModuleSpec policy guard entirely — the graph must
+    # show the mount as reachable-but-unguarded surface, never omit it.
+    from fastapi import FastAPI
+
+    from terp.cli.access import build_access_graph_for_app
+    from terp.core import ControlPlane, PermissionModel
+
+    app = FastAPI()
+    app.mount("/static", FastAPI())
+
+    @app.get("/ping")
+    def ping() -> dict:  # pragma: no cover - never called
+        return {}
+
+    app.state.terp_module_specs = ()
+    app.state.terp_control_plane = ControlPlane(permissions=PermissionModel())
+
+    graph = build_access_graph_for_app(app)
+    mounts = [r for r in graph["kernel_routes"] if r["path"] == "/static/*"]
+    assert len(mounts) == 1
+    assert "not policy-guarded" in mounts[0]["note"]
+    # The schema-hidden docs routes are reported alongside it, and a direct
+    # (top-level APIRoute) endpoint surfaces through the OpenAPI reconciliation.
+    kernel_paths = {r["path"] for r in graph["kernel_routes"]}
+    assert kernel_paths >= {"/openapi.json", "/docs", "/ping"}
+
+
+def test_inspect_access_app_mode_inserts_a_fresh_app_root(tmp_path) -> None:
+    # A fresh app_root (not yet on sys.path) exercises the path insertion; the bad
+    # app reference then fails closed after the insert (mirrors terp openapi).
+    with pytest.raises(SystemExit):
+        inspect_access(app=":app", app_root=str(tmp_path))
+
+
+def test_access_graph_alarms_undeclared_event_subscribers(monkeypatch) -> None:
+    # A registered handler for an event NO module declares subscribing to is
+    # executable drift — alarmed in the graph and the text rendering.
+    from fastapi import FastAPI
+
+    from terp.capabilities.eventbus import registry
+    from terp.cli.access import build_access_graph_for_app, render_access_graph
+    from terp.core import ControlPlane, PermissionModel
+
+    def _ghost_handler(envelope) -> None:  # pragma: no cover - never invoked
+        ...
+
+    monkeypatch.setattr(
+        registry, "registered_handlers", lambda: {"notes.created": [_ghost_handler]}
+    )
+    app = FastAPI()
+    app.state.terp_module_specs = ()  # nothing declares subscribes
+    app.state.terp_control_plane = ControlPlane(permissions=PermissionModel())
+
+    graph = build_access_graph_for_app(app)
+    (alarm,) = graph["undeclared_subscribers"]
+    assert alarm["event"] == "notes.created"
+    assert alarm["handlers"] == [f"{__name__}.{_ghost_handler.__qualname__}"]
+    text = render_access_graph(graph, fmt="text")
+    assert "UNDECLARED event subscribers" in text
