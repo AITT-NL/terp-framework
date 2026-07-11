@@ -40,6 +40,7 @@ from terp.arch import (
     check_no_internal_imports,
     check_no_manual_actor_stamping,
     check_no_manual_ownership_checks,
+    check_no_raw_app_routes,
     check_no_raw_file_references,
     check_no_manual_scope_filtering,
     check_no_raw_connection_access,
@@ -555,6 +556,66 @@ def test_no_adhoc_middleware(tmp_path: pathlib.Path) -> None:
     )
     _write(app, "modules/notes/mw.py", "from terp.core import SecurityConfig\n")
     assert check_no_adhoc_middleware(app) == []
+
+
+def test_no_raw_app_routes(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # The app-level registration APIs have no legitimate app-code use at all:
+    # each puts surface on the app outside the per-module deny-by-default guard.
+    for stmt in (
+        "app.mount('/static', files_app)",
+        "app.include_router(router, prefix='/api/v1/raw')",
+        "app.add_route('/raw', endpoint)",
+        "app.add_websocket_route('/ws', endpoint)",
+        "router.include_router(subrouter)",  # nesting: modules declare ONE flat router
+    ):
+        _write(app, "main.py", f"{stmt}\n")
+        assert _rule_names(check_no_raw_app_routes(app)) == {"no_raw_app_routes"}, stmt
+
+    # A verb route on a name bound from create_app(...) bypasses the module guard.
+    _write(
+        app,
+        "main.py",
+        "from terp.core import create_app\n"
+        "app = create_app([])\n"
+        "@app.get('/api/v1/hacks/')\n"
+        "def hacks() -> dict:\n"
+        "    return {}\n",
+    )
+    assert _rule_names(check_no_raw_app_routes(app)) == {"no_raw_app_routes"}
+
+    # ... and the same through the canonical factory spelling (app = build()).
+    _write(
+        app,
+        "main.py",
+        "from terp.core import create_app\n"
+        "def build():\n"
+        "    return create_app([])\n"
+        "app = build()\n"
+        "app.add_api_route('/api/v1/hacks/', hacks, methods=['POST'])\n",
+    )
+    assert _rule_names(check_no_raw_app_routes(app)) == {"no_raw_app_routes"}
+
+    # The canonical composition root is clean: build() + module-owned routers
+    # (a verb decorator on a module ROUTER is not app surface).
+    _write(
+        app,
+        "main.py",
+        "from terp.core import create_app\n"
+        "from app.modules.notes.module import module as notes_module\n"
+        "def build():\n"
+        "    return create_app([notes_module])\n"
+        "app = build()\n",
+    )
+    _write(
+        app,
+        "modules/notes/router.py",
+        "router = APIRouter()\n"
+        "@router.get('/', response_model=Page[NoteRead])\n"
+        "def list_notes() -> Page[NoteRead]:\n"
+        "    ...\n",
+    )
+    assert check_no_raw_app_routes(app) == []
 
 
 def test_no_adhoc_logging_config(tmp_path: pathlib.Path) -> None:

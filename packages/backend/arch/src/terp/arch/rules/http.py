@@ -541,6 +541,104 @@ def check_no_adhoc_middleware(
     return violations
 
 
+# App-level registration APIs with no legitimate app-code use: each one puts HTTP
+# surface on the app OUTSIDE the per-module deny-by-default guard `create_app`
+# injects at mount time (a mounted sub-app or raw route is served unguarded).
+_RAW_APP_SURFACE_ATTRS = frozenset(
+    {"mount", "include_router", "add_route", "add_websocket_route"}
+)
+
+# Route registrations that are legitimate on a module's APIRouter but never on the
+# composed app object: verb decorators plus the generic/imperative spellings.
+_APP_ROUTE_ATTRS = _HTTP_METHODS | frozenset(
+    {"head", "options", "trace", "api_route", "add_api_route", "websocket"}
+)
+
+
+def _composed_app_names(tree: ast.Module) -> set[str]:
+    """Names in *tree* bound to a composed app.
+
+    Two spellings cover the canonical composition root: a name assigned straight
+    from ``create_app(...)``, and a name assigned from calling a local zero-arg
+    factory whose body returns ``create_app(...)`` (``app = build()``).
+    """
+    factories: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            for inner in ast.walk(node):
+                if (
+                    isinstance(inner, ast.Return)
+                    and isinstance(inner.value, ast.Call)
+                    and base_name(inner.value.func) == "create_app"
+                ):
+                    factories.add(node.name)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        callee = base_name(node.value.func)
+        if callee == "create_app" or callee in factories:
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    names.add(target.id)
+    return names
+
+
+def check_no_raw_app_routes(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """App code never registers HTTP surface on the composed app object.
+
+    ``create_app`` mounts every module router behind the deny-by-default policy
+    guard; a route registered on the app itself bypasses that guard (served with
+    no authentication or role check) and is invisible to the module permission
+    model (``terp inspect access`` can only alarm on it, not attribute it). Two
+    shapes are caught: the app-level registration APIs that have no legitimate
+    app-code use at all (``mount`` / ``include_router`` / ``add_route`` /
+    ``add_websocket_route`` — modules declare ONE flat router; composition mounts
+    it), and any route registration (``@app.get`` / ``app.add_api_route`` / …)
+    whose receiver is bound from ``create_app(...)`` or from a local factory
+    returning it (``app = build()``).
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        tree = parse(path)
+        rel = _rel(path, root)
+        app_names = _composed_app_names(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            attr = node.func.attr
+            if attr in _RAW_APP_SURFACE_ATTRS:
+                violations.append(
+                    ArchViolation(
+                        "no_raw_app_routes",
+                        rel,
+                        node.lineno,
+                        f"app code calls .{attr}(...); HTTP surface belongs on a module's "
+                        "single flat router, mounted by create_app behind the deny-by-default "
+                        "guard -- surface registered on the app itself is served unguarded",
+                    )
+                )
+            elif (
+                attr in _APP_ROUTE_ATTRS
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in app_names
+            ):
+                violations.append(
+                    ArchViolation(
+                        "no_raw_app_routes",
+                        rel,
+                        node.lineno,
+                        f"route registered on the composed app ({node.func.value.id}.{attr}); "
+                        "it bypasses the module policy guard (no authentication, no role "
+                        "check) -- declare it on a module router instead",
+                    )
+                )
+    return violations
+
+
 def check_no_adhoc_logging_config(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
