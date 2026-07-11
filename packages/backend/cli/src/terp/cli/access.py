@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 
+from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
 from terp.core import (
@@ -43,6 +44,16 @@ from terp.core.scoping import registered_scope_predicates
 
 # Mirrors the kernel guard's method split (terp.core.app): any other method is a read.
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# Every module mounts under this prefix (``create_app``); a served path outside it is a
+# kernel / open route (e.g. health), not part of any module's policy surface.
+_API_PREFIX = "/api/v1/"
+
+# OpenAPI path-item keys that are HTTP operations (the rest are metadata such as
+# ``parameters`` / ``summary``) — used to read the served methods for each path.
+_HTTP_METHODS = frozenset(
+    {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+)
 
 # The attribute the access capability stamps on a ``require_permission(...)``
 # dependency so route-level grants are detectable here (a marker, not a control).
@@ -194,7 +205,11 @@ def _module_access_json(spec: ModuleSpec) -> dict[str, object]:
 
 
 def build_access_graph(
-    plane: ControlPlane, specs: Sequence[ModuleSpec]
+    plane: ControlPlane,
+    specs: Sequence[ModuleSpec],
+    *,
+    kernel_routes: Sequence[dict[str, object]] = (),
+    omitted_routes: Sequence[dict[str, object]] = (),
 ) -> dict[str, object]:
     """The Access Graph as plain data: roles -> modules -> endpoints -> data traits.
 
@@ -202,6 +217,11 @@ def build_access_graph(
     and other external tooling. App-wide registered predicates are reported by
     (qualified) name so a custom row-visibility or object-authz policy is
     *visible* in the graph even though its logic lives in code.
+
+    ``kernel_routes`` (unauthenticated framework routes, e.g. health) and
+    ``omitted_routes`` (mounted routes the graph does not cover — a leak alarm)
+    are supplied by :func:`build_access_graph_for_app`, which reconciles the graph
+    against the composed app; both are empty for a hand-passed module list.
     """
     return {
         "roles": [
@@ -225,7 +245,72 @@ def build_access_graph(
             f"{predicate.__module__}.{predicate.__qualname__}"
             for predicate in registered_object_authz_predicates()
         ],
+        "kernel_routes": list(kernel_routes),
+        "omitted_routes": list(omitted_routes),
     }
+
+
+def _served_routes(app: FastAPI) -> dict[str, frozenset[str]]:
+    """Every path the composed app serves -> its HTTP methods, from ``app.openapi()``.
+
+    ``app.openapi()`` is the same document ``terp openapi`` exports and FastAPI serves,
+    so it is the authoritative, full-path route table — client module routers, every
+    discovered capability router, and the kernel health routes — the ground truth the
+    access graph is reconciled against.
+    """
+    paths: dict[str, object] = app.openapi().get("paths", {})
+    return {
+        path: frozenset(
+            method.upper() for method in item if method.lower() in _HTTP_METHODS
+        )
+        for path, item in paths.items()
+    }
+
+
+def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
+    """The access graph for a fully composed app — the WHOLE guarded surface.
+
+    ``create_app`` records the specs it mounted (client modules AND every discovered
+    capability router) and its control plane on ``app.state``; this reads them back so
+    the graph covers routes a hand-passed ``--module`` list would miss. It then
+    reconciles the graph against ``app.openapi()`` (the ground truth): every served
+    ``/api/v1`` method must map to a module endpoint — any that does not is reported
+    under ``omitted_routes`` (fail-visible, so a mounted route can never hide) — and the
+    served routes outside ``/api/v1`` (the unauthenticated kernel health routes) are
+    listed under ``kernel_routes``.
+    """
+    specs = getattr(app.state, "terp_module_specs", None)
+    plane = getattr(app.state, "terp_control_plane", None)
+    if specs is None or plane is None:
+        raise ValueError(
+            "app was not composed by terp.core.create_app (no access-graph state on "
+            "app.state) — pass a terp app factory, e.g. --app app.main:build"
+        )
+    served = _served_routes(app)
+    kernel_routes: list[dict[str, object]] = [
+        {
+            "path": path,
+            "methods": sorted(methods),
+            "note": "unauthenticated kernel route (no module policy)",
+        }
+        for path, methods in sorted(served.items())
+        if not path.startswith(_API_PREFIX)
+    ]
+    graph = build_access_graph(plane, specs, kernel_routes=kernel_routes)
+    covered: dict[str, set[str]] = {}
+    modules: list = graph["modules"]  # type: ignore[assignment]
+    for module in modules:
+        for endpoint in module["endpoints"]:
+            covered.setdefault(endpoint["path"], set()).update(endpoint["methods"])
+    omitted: list[dict[str, object]] = []
+    for path, methods in sorted(served.items()):
+        if not path.startswith(_API_PREFIX):
+            continue
+        missing = sorted(methods - covered.get(path, set()))
+        if missing:
+            omitted.append({"path": path, "methods": missing})
+    graph["omitted_routes"] = omitted
+    return graph
 
 
 def _render_access_text(graph: dict[str, object]) -> str:
@@ -282,21 +367,39 @@ def _render_access_text(graph: dict[str, object]) -> str:
         lines.append("  <none registered>")
     for name in authz_predicates:  # type: ignore[union-attr]
         lines.append(f"  {name}")
+    kernel_routes: list = graph.get("kernel_routes", [])  # type: ignore[assignment]
+    if kernel_routes:
+        lines.append("")
+        lines.append("Kernel / unauthenticated routes")
+        for route in kernel_routes:
+            lines.append(f"  {','.join(route['methods']):8} {route['path']}")
+    omitted: list = graph.get("omitted_routes", [])  # type: ignore[assignment]
+    if omitted:
+        lines.append("")
+        lines.append("! OMITTED served routes — mounted but absent from the graph:")
+        for route in omitted:
+            lines.append(f"  {','.join(route['methods']):8} {route['path']}")
     return "\n".join(lines)
+
+
+def render_access_graph(graph: dict[str, object], fmt: str = "text") -> str:
+    """Render a prebuilt access *graph* as ``text`` or ``json``."""
+    if fmt == "json":
+        return json.dumps(graph, indent=2)
+    return _render_access_text(graph)
 
 
 def render_access(
     plane: ControlPlane, specs: Sequence[ModuleSpec], fmt: str = "text"
 ) -> str:
     """Render the access graph for *plane* + *specs* as ``text`` or ``json``."""
-    graph = build_access_graph(plane, specs)
-    if fmt == "json":
-        return json.dumps(graph, indent=2)
-    return _render_access_text(graph)
+    return render_access_graph(build_access_graph(plane, specs), fmt)
 
 
 __all__ = [
     "PERMISSION_DEPENDENCY_ATTR",
     "build_access_graph",
+    "build_access_graph_for_app",
     "render_access",
+    "render_access_graph",
 ]

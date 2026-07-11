@@ -5,13 +5,18 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import pathlib
 import re
 import sys
 from collections.abc import Callable, Sequence
 
 from terp.core import ControlPlane, CorsPolicy, ModuleSpec
 
-from terp.cli.access import render_access
+from terp.cli.access import (
+    build_access_graph_for_app,
+    render_access,
+    render_access_graph,
+)
 from terp.cli.apidocs import api_docs
 from terp.cli.dev import dev_plan, run_dev_command
 from terp.cli.docker import run_docker_dev_command
@@ -21,7 +26,7 @@ from terp.cli.jobs import (
     run_scheduler_command,
     run_worker_command,
 )
-from terp.cli.openapi import export_openapi
+from terp.cli.openapi import _load_app, export_openapi
 from terp.cli.profiles import DEFAULT_PROFILE, profile_names
 from terp.cli.scaffold import new_module, new_module_message
 from terp.cli.seed import run_seed_command
@@ -137,8 +142,12 @@ The access model (three layers) — profiles + the access graph
   A profile is a preset, never a mechanism: it only decides which primitives the
   scaffold composes, so the output is ordinary gate-checked Terp code you own.
 - SEE the whole graph — who can reach which module, endpoint, and rows:
-      uv run terp inspect access --object app.main:control_plane \\
-          --module app.modules.invoices.module:module --format json
+      uv run terp inspect access --app app.main:build --app-root . --format json
+  The --app form reports the WHOLE composed surface — client modules AND every
+  discovered capability router (users / groups / audit / files / …) plus the kernel
+  health routes — reconciled against app.openapi() so a mounted route can never hide
+  (any that is not covered is listed under omitted_routes, fail-visible). Use
+  --object/--module instead to inspect a focused, hand-passed subset.
   One document: roles, permissions, every endpoint's method/path/requirement, each
   declared service's model traits (owned / tenant-scoped / soft-delete), read scope,
   write authority, and warnings (e.g. OwnedMixin gates writes only). `--format json`
@@ -663,14 +672,26 @@ def inspect_access(
     dotted: str = "control_plane:control_plane",
     *,
     modules: Sequence[str] = (),
+    app: str | None = None,
+    app_root: str = ".",
     fmt: str = "text",
 ) -> str:
-    """Return the access graph for *dotted* control plane + *modules* (text or json).
+    """Return the access graph (text or json).
+
+    With ``app`` (a FastAPI instance or zero-arg factory, e.g. ``app.main:build``) the
+    graph covers the WHOLE composed surface — every discovered capability router and the
+    kernel routes — reconciled against ``app.openapi()`` so no mounted route can hide.
+    Without it, the focused form reports just the hand-passed ``modules``.
 
     The three-layer view — module policy, per-endpoint requirement, and the data
-    layer's row-visibility / write-authority traits — combined into one report
-    (JSON-first for Studio; ``terp inspect access --format json``).
+    layer's row-visibility / write-authority traits — is JSON-first for Studio
+    (``terp inspect access --app app.main:build --format json``).
     """
+    if app is not None:
+        root = str(pathlib.Path(app_root).resolve())
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        return render_access_graph(build_access_graph_for_app(_load_app(app)), fmt)
     plane = _load_control_plane(dotted)
     specs = [_load_module_spec(module) for module in modules]
     return render_access(plane, specs, fmt=fmt)
@@ -962,6 +983,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Dotted ModuleSpec to include (may be repeated)",
     )
     access_parser.add_argument(
+        "--app",
+        default=None,
+        help="Composed FastAPI app or factory (e.g. app.main:build): report the WHOLE "
+        "mounted surface incl. discovered capabilities, reconciled against app.openapi()",
+    )
+    access_parser.add_argument(
+        "--app-root",
+        default=".",
+        help="Directory placed first on sys.path so --app imports (default: .)",
+    )
+    access_parser.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -1216,7 +1248,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(render_jobs(args.object))
         return
     if args.command == "inspect" and args.inspect_command == "access":
-        print(inspect_access(args.object, modules=args.module, fmt=args.format))
+        print(
+            inspect_access(
+                args.object,
+                modules=args.module,
+                app=args.app,
+                app_root=args.app_root,
+                fmt=args.format,
+            )
+        )
         return
     if args.command == "guide":
         print(guide(args.topic))
