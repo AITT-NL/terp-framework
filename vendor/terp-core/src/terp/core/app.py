@@ -287,6 +287,10 @@ _APP_ROUTE_MUTATORS = frozenset(
         "options",
         "head",
         "trace",
+        # Lifecycle hooks are executable registration on the composed app — the
+        # same guard-bypass surface as a raw route (nothing gates what they run).
+        "on_event",
+        "add_event_handler",
     }
 )
 
@@ -294,8 +298,9 @@ _APP_ROUTE_MUTATORS = frozenset(
 def _refuse_route_mutation(name: str) -> Callable[..., None]:
     def refused(*_args: object, **_kwargs: object) -> None:
         raise BootError(
-            f"route registration via {name}(...) after create_app() composition is refused; "
-            "declare routes on a module APIRouter and expose it via ModuleSpec.router"
+            f"registration via {name}(...) after create_app() composition is refused; "
+            "declare routes on a module APIRouter (ModuleSpec.router) and lifecycle "
+            "work through the sanctioned seams"
         )
 
     return refused

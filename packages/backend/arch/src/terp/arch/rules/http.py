@@ -549,7 +549,8 @@ _RAW_APP_SURFACE_ATTRS = frozenset(
 )
 
 # Route registrations that are legitimate on a module's APIRouter but never on the
-# composed app object: verb decorators plus the generic/imperative spellings.
+# composed app object: verb decorators plus the generic/imperative spellings, and
+# the lifecycle hooks (ungated executable registration on the app).
 _APP_ROUTE_ATTRS = _HTTP_METHODS | frozenset(
     {
         "head",
@@ -560,6 +561,8 @@ _APP_ROUTE_ATTRS = _HTTP_METHODS | frozenset(
         "add_api_route",
         "websocket",
         "websocket_route",
+        "on_event",
+        "add_event_handler",
     }
 )
 
@@ -703,6 +706,37 @@ def check_no_raw_app_routes(
                         f"route registered on the composed app ({receiver}.{attr}); "
                         "it bypasses the module policy guard (no authentication, no role "
                         "check) -- declare it on a module router instead",
+                    )
+                )
+    return violations
+
+
+def check_no_dependency_overrides(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """App code never touches ``dependency_overrides``.
+
+    ``create_app`` binds the authentication and session seams once, at composition.
+    Rebinding ``app.dependency_overrides`` in app code (e.g. replacing the principal
+    provider) silently disables authentication or swaps the session outside every
+    guard. Overrides are a TEST-ONLY seam (the arch scan skips ``tests/``); app code
+    has no legitimate use.
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        tree = parse(path)
+        rel = _rel(path, root)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "dependency_overrides":
+                violations.append(
+                    ArchViolation(
+                        "no_dependency_overrides",
+                        rel,
+                        node.lineno,
+                        "app code touches dependency_overrides; the principal/session "
+                        "seams are bound once by create_app (overrides are test-only "
+                        "-- rebinding them here silently bypasses authentication)",
                     )
                 )
     return violations

@@ -52,8 +52,10 @@ def test_create_app_refuses_route_registration_after_composition() -> None:
         lambda: app.get("/raw")(endpoint),
         lambda: app.mount("/static", create_app([])),
         lambda: app.router.add_api_route("/raw", endpoint),
+        lambda: app.on_event("startup")(endpoint),
+        lambda: app.router.add_event_handler("startup", endpoint),
     ):
-        with pytest.raises(BootError, match="route registration"):
+        with pytest.raises(BootError, match="after create_app"):
             action()
 
 

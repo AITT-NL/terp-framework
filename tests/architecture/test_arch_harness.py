@@ -40,6 +40,7 @@ from terp.arch import (
     check_no_internal_imports,
     check_no_manual_actor_stamping,
     check_no_manual_ownership_checks,
+    check_no_dependency_overrides,
     check_no_raw_app_routes,
     check_no_raw_file_references,
     check_no_manual_scope_filtering,
@@ -631,6 +632,18 @@ def test_no_raw_app_routes(tmp_path: pathlib.Path) -> None:
     )
     assert _rule_names(check_no_raw_app_routes(app)) == {"no_raw_app_routes"}
 
+    # Lifecycle hooks on the composed app are ungated executable registration.
+    for hook in (
+        "@app.on_event('startup')\ndef warm():\n    ...\n",
+        "app.add_event_handler('startup', warm)\n",
+    ):
+        _write(
+            app,
+            "main.py",
+            "from terp.core import create_app\napp = create_app([])\n" + hook,
+        )
+        assert _rule_names(check_no_raw_app_routes(app)) == {"no_raw_app_routes"}, hook
+
     # The canonical composition root is clean: build() + module-owned routers
     # (a verb decorator on a module ROUTER is not app surface).
     _write(
@@ -651,6 +664,34 @@ def test_no_raw_app_routes(tmp_path: pathlib.Path) -> None:
         "    ...\n",
     )
     assert check_no_raw_app_routes(app) == []
+
+
+def test_no_dependency_overrides(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # Rebinding the principal seam in app code silently disables authentication.
+    _write(
+        app,
+        "main.py",
+        "from terp.core import create_app, get_principal\n"
+        "app = create_app([])\n"
+        "app.dependency_overrides[get_principal] = lambda: None\n",
+    )
+    assert _rule_names(check_no_dependency_overrides(app)) == {"no_dependency_overrides"}
+
+    # ...any spelling that touches the mapping is the same bypass.
+    _write(app, "main.py", "app.dependency_overrides.update({})\n")
+    assert _rule_names(check_no_dependency_overrides(app)) == {"no_dependency_overrides"}
+
+    # The canonical composition root never touches overrides.
+    _write(
+        app,
+        "main.py",
+        "from terp.core import create_app\n"
+        "def build():\n"
+        "    return create_app([])\n"
+        "app = build()\n",
+    )
+    assert check_no_dependency_overrides(app) == []
 
 
 def test_no_adhoc_logging_config(tmp_path: pathlib.Path) -> None:
