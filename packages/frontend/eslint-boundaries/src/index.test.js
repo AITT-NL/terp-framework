@@ -200,7 +200,7 @@ describe("terpBoundaries", () => {
 
   it("suppresses a violation with a justified terp-allow marker on the line above", async () => {
     const code = [
-      "// terp-allow-no-restricted-syntax: native button needed for a browser extension host",
+      "// terp-allow-token-styled-elements: native button needed for a browser extension host",
       "export const W = () => <button>x</button>;",
     ].join("\n");
     expect(await lint(code)).toEqual([]);
@@ -208,7 +208,7 @@ describe("terpBoundaries", () => {
 
   it("suppresses a violation with a justified terp-allow marker on the same line", async () => {
     const code =
-      "export const W = () => <textarea />; // terp-allow-no-restricted-syntax: measured host quirk";
+      "export const W = () => <textarea />; // terp-allow-token-styled-elements: measured host quirk";
     expect(await lint(code)).toEqual([]);
   });
 
@@ -220,9 +220,60 @@ describe("terpBoundaries", () => {
     expect(await lint(code)).toEqual([]);
   });
 
+  it("still honours the pre-0.6.0 core-id spelling, transitionally", async () => {
+    // DEPRECATED alias (LEGACY_MARKER_ALIASES): honoured for exactly one release so
+    // the pinned 0.5.x corpus keeps certifying; the 0.6.0 pin bump removes it and
+    // the 0.6.x corpus then pins that this spelling waives nothing.
+    const code = [
+      "// terp-allow-no-restricted-syntax: pre-0.6.0 spelling (migrate to the catalog rule)",
+      "export const W = () => <button>x</button>;",
+    ].join("\n");
+    expect(await lint(code)).toEqual([]);
+  });
+
+  it("reports a marker that names no governed rule instead of honouring it", async () => {
+    const code = [
+      "// terp-allow-made-up-rule: stale name",
+      "export const W = () => <button>x</button>;",
+    ].join("\n");
+    const rules = await lint(code);
+    expect(rules).toContain("no-restricted-syntax"); // not suppressed
+    expect(rules).toContain("terp/escape-hatch"); // the unknown name is itself reported
+  });
+
+  it("ignores marker-shaped text inside a string or template literal", async () => {
+    // Markers live in real comments only — a marker-shaped string neither
+    // suppresses the next line nor its own line.
+    const viaString = [
+      'const doc = "// terp-allow-no-eval: not a comment";',
+      "export const run = (code) => eval(code); export { doc };",
+    ].join("\n");
+    expect(await lint(viaString)).toContain("terp/no-eval");
+    const viaTemplate = [
+      "const doc = `// terp-allow-no-eval: not a comment`;",
+      "export const run = (code) => eval(code); export { doc };",
+    ].join("\n");
+    expect(await lint(viaTemplate)).toContain("terp/no-eval");
+  });
+
+  it("one catalog marker covers every detection path of its rule (egress family)", async () => {
+    // Bare fetch reports via no-restricted-globals; window.fetch via no-restricted-syntax.
+    // Both are frontend/generated-client-only, so ONE marker name waives either path.
+    const viaGlobals = [
+      "// terp-allow-generated-client-only: sanctioned health probe",
+      'export const ping = () => fetch("/healthz");',
+    ].join("\n");
+    expect(await lint(viaGlobals)).toEqual([]);
+    const viaSyntax = [
+      "// terp-allow-generated-client-only: sanctioned health probe",
+      'export const ping = () => window.fetch("/healthz");',
+    ].join("\n");
+    expect(await lint(viaSyntax)).toEqual([]);
+  });
+
   it("reports an unjustified terp-allow marker instead of honouring it", async () => {
     const code = [
-      "// terp-allow-no-restricted-syntax",
+      "// terp-allow-token-styled-elements",
       "export const W = () => <button>x</button>;",
     ].join("\n");
     const rules = await lint(code);
@@ -234,6 +285,16 @@ describe("terpBoundaries", () => {
     const code = [
       "// terp-allow-no-cross-module-imports: wrong rule name",
       "export const W = () => <button>x</button>;",
+    ].join("\n");
+    expect(await lint(code)).toContain("no-restricted-syntax");
+  });
+
+  it("does not let a sibling catalog rule's marker cross a shared core rule id", async () => {
+    // token-styled-elements and no-inline-styling both report as no-restricted-syntax;
+    // a marker for one must never waive the other.
+    const code = [
+      "// terp-allow-token-styled-elements: wrong sibling",
+      'export const W = () => <div style={{ color: "red" }}>x</div>;',
     ].join("\n");
     expect(await lint(code)).toContain("no-restricted-syntax");
   });

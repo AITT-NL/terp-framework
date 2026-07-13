@@ -29,6 +29,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     with op.batch_alter_table('webhook_subscription', schema=None) as batch_op:
+        # arch-allow-no-destructive-migrations: widening secret 256 -> 512 (a pure widen — no value can be truncated) so the sealed-at-rest ciphertext fits (ADR 0076)
         batch_op.alter_column(
             'secret',
             existing_type=sqlmodel.sql.sqltypes.AutoString(length=256),

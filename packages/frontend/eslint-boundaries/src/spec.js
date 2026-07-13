@@ -63,7 +63,10 @@ export const BOUNDARY_SPEC = {
   /**
    * The governed escape hatch (the frontend analog of the backend's `# arch-allow-*`): a
    * justified `// terp-allow-<rule>: <reason>` comment on (or immediately above) a violating
-   * line suppresses that rule there; an unjustified marker is itself reported. Marker counts
+   * line suppresses that rule there. `<rule>` is the Terp Standard CATALOG rule name (the
+   * `opt_out` spelling in `spec/catalog/frontend/<rule>.json`), never a tool-internal ESLint
+   * id — one marker covers every detection path of its rule and can never waive a sibling
+   * rule sharing a core lint id. An unjustified marker is itself reported. Marker counts
    * must exactly match the app's checked-in `escape-hatch-budget.json` (the ratchet).
    */
   allowMarkerPrefix: "terp-allow-",

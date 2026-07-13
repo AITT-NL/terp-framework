@@ -10,12 +10,14 @@ themed sibling modules (``imports`` / ``authz`` / ``http`` / ``persistence`` /
 from __future__ import annotations
 
 import ast
+import io
 import pathlib
 import re
+import tokenize
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from terp.arch._ast import base_name, iter_python_files
+from terp.arch._ast import _SECURITY_SKIP_DIRS, base_name, iter_python_files
 
 _HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete"})
 _SESSION_CONSTRUCTORS = frozenset({"Session", "create_engine", "sessionmaker"})
@@ -115,13 +117,34 @@ def _is_sensitive_field_name(name: str) -> bool:
 
 
 # Escape-hatch opt-out markers: ``# arch-allow-<rule>: <justification>``. A marker
-# suppresses exactly the rule it names, on the line it annotates, and only when a
-# non-empty justification follows the colon (an unjustified opt-out fails closed).
+# suppresses exactly the rule it names, on the line it annotates (or the line
+# immediately below — the spec's \"on or immediately above\" contract), and only when
+# a non-empty justification follows the colon (an unjustified opt-out fails closed).
+# Markers are read from real COMMENT tokens only — marker-shaped text inside a
+# string literal neither suppresses nor counts (no smuggled opt-outs).
 # The bare-token form is used to *count* markers for the budget ratchet (design §8).
 _ALLOW_TOKEN_RE = re.compile(r"arch-allow-[a-z0-9]+(?:-[a-z0-9]+)*")
 _ALLOW_MARKER_RE = re.compile(
     r"#\s*(?P<token>arch-allow-[a-z0-9]+(?:-[a-z0-9]+)*)\s*(?::\s*(?P<why>\S[^\n]*)?)?"
 )
+
+
+def _file_comments(text: str) -> list[tuple[int, str]]:
+    """``(line, comment_text)`` for every real comment token in *text*.
+
+    Tokenizes rather than line-scans so marker-shaped text inside a string or
+    docstring is never mistaken for a comment. A file that cannot be tokenized
+    yields no comments — fail closed: its markers are neither honoured nor
+    counted (the file will fail the AST-based rules anyway).
+    """
+    comments: list[tuple[int, str]] = []
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.COMMENT:
+                comments.append((token.start[0], token.string))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return []
+    return comments
 
 
 @dataclass(frozen=True)
@@ -397,12 +420,19 @@ class _AllowMarker:
 
 
 def _scan_allow_markers(root: pathlib.Path) -> dict[str, dict[int, _AllowMarker]]:
-    """Map each app file (rel path) → {line: marker} for every ``arch-allow-*`` comment."""
+    """Map each app file (rel path) → {line: marker} for every ``arch-allow-*`` comment.
+
+    Only real comment tokens are scanned (see :func:`_file_comments`): a
+    marker-shaped string literal is not an opt-out. The scan covers the
+    *security* surface (``tests/`` and ``migrations/`` included) — markers must
+    be visible wherever a rule can fire, e.g. a destructive-migration opt-out
+    inside a revision file.
+    """
     markers: dict[str, dict[int, _AllowMarker]] = {}
-    for path in iter_python_files(root):
+    for path in iter_python_files(root, skip_dirs=_SECURITY_SKIP_DIRS):
         per_line: dict[int, _AllowMarker] = {}
-        for lineno, text in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            match = _ALLOW_MARKER_RE.search(text)
+        for lineno, comment in _file_comments(path.read_text(encoding="utf-8")):
+            match = _ALLOW_MARKER_RE.search(comment)
             if match:
                 per_line[lineno] = _AllowMarker(match.group("token"), bool(match.group("why")))
         if per_line:
@@ -413,15 +443,19 @@ def _scan_allow_markers(root: pathlib.Path) -> dict[str, dict[int, _AllowMarker]
 def _apply_suppressions(
     violations: list[ArchViolation], markers: dict[str, dict[int, _AllowMarker]]
 ) -> list[ArchViolation]:
-    """Drop violations suppressed by a justified ``arch-allow-<rule>`` on their line.
+    """Drop violations suppressed by a justified ``arch-allow-<rule>`` marker.
 
-    A marker that names the violated rule but carries no justification does **not**
-    suppress (fail-closed); it is reported as ``escape_hatch_requires_justification``
-    so the only fix is to add a reason — never to silently opt out.
+    The marker sits on the violating line or the line immediately above it (the
+    escape-hatch contract's two sanctioned positions). A marker that names the
+    violated rule but carries no justification does **not** suppress
+    (fail-closed); it is re-reported under ``ungoverned_escape_hatch`` — the
+    catalogued fail-closed governance condition — so the only fix is to add a
+    reason, never to silently opt out.
     """
     result: list[ArchViolation] = []
     for violation in violations:
-        marker = markers.get(violation.path, {}).get(violation.line)
+        per_line = markers.get(violation.path, {})
+        marker = per_line.get(violation.line) or per_line.get(violation.line - 1)
         if marker is None or marker.token != _rule_token(violation.rule):
             result.append(violation)
             continue
@@ -429,7 +463,7 @@ def _apply_suppressions(
             continue  # explicit, justified, budgeted opt-out
         result.append(
             ArchViolation(
-                "escape_hatch_requires_justification",
+                "ungoverned_escape_hatch",
                 violation.path,
                 violation.line,
                 f"{marker.token!r} suppresses {violation.rule!r} but gives no reason; "

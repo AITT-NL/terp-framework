@@ -1,7 +1,10 @@
 """Migration safety rules: destructive DDL must be visibly justified.
 
 Terp migrations are the only supported schema-change path, so destructive DDL
-needs a greppable, reason-bearing marker in the revision that contains it.
+is refused unless each destructive operation carries the standard governed
+opt-out (``# arch-allow-no-destructive-migrations: <reason>`` on or immediately
+above the operation, counted by the escape-hatch budget) — the same one-marker
+contract as every other rule, never a bespoke file-wide waiver.
 """
 
 from __future__ import annotations
@@ -13,10 +16,6 @@ from collections.abc import Iterator
 
 from terp.arch._ast import parse
 from terp.arch.rules._support import ArchViolation, _rel
-
-_DESTRUCTIVE_MIGRATION_MARKER_RE = re.compile(
-    r"#[ \t]*terp-allow-destructive-migration[ \t]*:[ \t]*\S"
-)
 
 # Destructive SQL verbs a revision can smuggle through ``op.execute(...)``. Matched
 # against string literals only (a statically reviewable statement); DROP TRIGGER /
@@ -36,11 +35,6 @@ def _migration_files(root: pathlib.Path) -> Iterator[pathlib.Path]:
         for path in sorted(versions_dir.glob("*.py")):
             if path.is_file() and not path.name.startswith("_"):
                 yield path
-
-
-def _allows_destructive_migration(path: pathlib.Path) -> bool:
-    """Whether *path* carries the required file-level destructive-DDL marker."""
-    return bool(_DESTRUCTIVE_MIGRATION_MARKER_RE.search(path.read_text(encoding="utf-8")))
 
 
 def _literal_sql_fragments(node: ast.expr) -> Iterator[str]:
@@ -82,15 +76,15 @@ def check_no_destructive_migrations(
     ``alter_column(..., type_=...)`` (on ``op``, a batch block, or any alias), and
     ``execute(...)`` of a statement containing ``DROP TABLE`` / ``DROP COLUMN`` /
     ``TRUNCATE`` / ``DELETE FROM`` / ``ALTER TABLE ... DROP`` in ``upgrade()`` can
-    destroy data or make rollback unsafe. A revision may still perform one, but only
-    when the file carries ``# terp-allow-destructive-migration: <reason>`` so the
-    risk is explicit, reviewable, and greppable.
+    destroy data or make rollback unsafe. Each such operation is a violation; a
+    reviewed one is justified through the standard governed escape hatch — a
+    ``# arch-allow-no-destructive-migrations: <reason>`` marker on (or immediately
+    above) the operation, counted against the app's escape-hatch budget — so
+    every accepted risk is explicit, reviewable, greppable, and ratcheted.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in _migration_files(root):
-        if _allows_destructive_migration(path):
-            continue
         rel = _rel(path, root)
         tree = parse(path)
         for function in ast.walk(tree):
@@ -107,7 +101,8 @@ def check_no_destructive_migrations(
                         rel,
                         node.lineno,
                         "migration performs destructive DDL; avoid drops/type changes or add "
-                        "'# terp-allow-destructive-migration: <reason>' after review",
+                        "'# arch-allow-no-destructive-migrations: <reason>' after review "
+                        "(budgeted by the escape-hatch ratchet)",
                     )
                 )
     return violations

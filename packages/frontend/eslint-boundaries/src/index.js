@@ -5,8 +5,9 @@
  *
  * There are no modes and no severity dial — every rule is an error, always (exactly like the
  * backend gate). The only pressure valve is the governed escape hatch: a justified
- * `// terp-allow-<rule>: <reason>` marker (see {@link suppressWithMarkers}), whose counts must
- * match the app's checked-in `escape-hatch-budget.json` (see ./budget.js).
+ * `// terp-allow-<rule>: <reason>` marker naming the Terp Standard catalog rule (see
+ * {@link suppressWithMarkers}), whose counts must match the app's checked-in
+ * `escape-hatch-budget.json` (see ./budget.js).
  *
  * Loaded by Node (an ESLint flat config), so it is plain ESM JavaScript — not TypeScript.
  */
@@ -557,63 +558,152 @@ export function catalogRuleIds() {
   ].sort();
 }
 
-/** The marker name a message's ruleId answers to (`terp/x` -> `x`; core ruleIds as-is). */
-function markerNameFor(ruleId) {
-  return String(ruleId ?? "").replace(/^terp\//, "");
+/** The marker name a message answers to: its catalog rule name, or null when unwaivable.
+ *
+ * Suppression attributes markers exactly the way findings are attributed — through
+ * {@link catalogRuleId} — so a marker names the stack-neutral catalog rule
+ * (`terp-allow-token-styled-elements`). One marker therefore covers every detection
+ * path of its rule and cannot waive a sibling rule that shares a core lint id.
+ * A message outside the boundary is not waivable by the terp escape hatch at all, and
+ * `frontend/escape-hatch` itself is excluded: governance cannot be waived by the
+ * mechanism it governs (the catalog entry declares no opt_out).
+ */
+function suppressibleRuleName(message) {
+  const id = catalogRuleId(message);
+  if (id === null || id === "frontend/escape-hatch") {
+    return null;
+  }
+  return id.slice("frontend/".length);
+}
+
+/**
+ * DEPRECATED transitional aliases (Terp Standard < 0.6.0 spelled these rules' markers
+ * as the shared ESLint core ids). Honoured for exactly one release so the pinned
+ * 0.5.x corpus keeps certifying; removed with the 0.6.0 pin bump — the 0.6.x corpus
+ * then pins that these spellings waive NOTHING.
+ */
+const LEGACY_MARKER_ALIASES = new Set([
+  "no-restricted-syntax",
+  "no-restricted-imports",
+  "no-restricted-globals",
+]);
+
+/** Marker names the escape hatch recognises: catalog rule names (+ transitional aliases). */
+export function knownMarkerNames() {
+  const names = new Set(
+    catalogRuleIds()
+      .filter((id) => id !== "frontend/escape-hatch")
+      .map((id) => id.slice("frontend/".length)),
+  );
+  for (const alias of LEGACY_MARKER_ALIASES) {
+    names.add(alias);
+  }
+  return names;
 }
 
 const MARKER_RE = () =>
   new RegExp(`${BOUNDARY_SPEC.allowMarkerPrefix}([a-z0-9-]+)(?::[ \\t]*(.*?))?\\s*(?:\\*+\\/\\s*}?)?\\s*$`);
 
-/** Every escape-hatch marker in *text*: `{ line, rule, reason }` (reason null = unjustified). */
+/**
+ * Every escape-hatch marker in *text*: `{ line, rule, reason }` (reason null =
+ * unjustified). Markers are read from real COMMENT tokens only — the text is
+ * parsed (TSX) and markers are extracted from the comment list, so marker-shaped
+ * text inside a string or template literal neither suppresses nor counts. A file
+ * that fails to parse yields no markers (fail closed: nothing is waived; the
+ * parse error itself is already reported by the lint run).
+ */
 export function parseAllowMarkers(text) {
+  const source = String(text);
+  if (!source.includes(BOUNDARY_SPEC.allowMarkerPrefix)) {
+    return [];
+  }
+  let comments = null;
+  for (const jsx of [true, false]) {
+    try {
+      const { ast } = tseslint.parser.parseForESLint(source, {
+        comment: true,
+        loc: true,
+        range: true,
+        tokens: false,
+        ecmaFeatures: { jsx },
+      });
+      comments = ast.comments ?? [];
+      break;
+    } catch {
+      // Retry without JSX (a .ts file whose generics are not valid JSX), else fail closed.
+    }
+  }
+  if (comments === null) {
+    return [];
+  }
   const markers = [];
   const pattern = MARKER_RE();
-  String(text)
-    .split(/\r?\n/)
-    .forEach((lineText, index) => {
+  for (const comment of comments) {
+    const lines = String(comment.value).split(/\r?\n/);
+    lines.forEach((lineText, offset) => {
       if (!lineText.includes(BOUNDARY_SPEC.allowMarkerPrefix)) {
         return;
       }
       const match = pattern.exec(lineText);
       if (match) {
         const reason = match[2]?.trim();
-        markers.push({ line: index + 1, rule: match[1], reason: reason ? reason : null });
+        markers.push({
+          line: comment.loc.start.line + offset,
+          rule: match[1],
+          reason: reason ? reason : null,
+        });
       }
     });
-  return markers;
+  }
+  return markers.sort((a, b) => a.line - b.line);
 }
 
 /**
  * Apply the governed escape hatch to a lint result (the frontend analog of the backend's
  * justified `# arch-allow-<rule>: <reason>` suppressions): a marker with a reason, on the
- * violating line or the line immediately above, suppresses that rule there. An unjustified
- * marker (no reason) is itself reported — never silently honoured. Marker counts are governed
- * by the budget ratchet (./budget.js), so opt-outs stay visible, greppable, and can only shrink.
+ * violating line or the line immediately above, suppresses that rule there. The marker names
+ * the CATALOG rule (see {@link suppressibleRuleName}), so `spec/catalog/frontend/<rule>.json`'s
+ * `opt_out` spelling is the one that works — for every detection path of the rule at once
+ * (the pre-0.6.0 core-id spellings are honoured transitionally, see
+ * {@link LEGACY_MARKER_ALIASES}). An unjustified marker (no reason) is itself reported —
+ * never silently honoured — and so is a marker naming no governed rule (a typo or a stale
+ * name can never be budgeted into legitimacy). Marker counts are governed by the budget
+ * ratchet (./budget.js), so opt-outs stay visible, greppable, and can only shrink.
  */
 export function suppressWithMarkers(messages, text) {
   const markers = parseAllowMarkers(text);
+  const known = knownMarkerNames();
   const justified = markers.filter((marker) => marker.reason !== null);
   const kept = messages.filter((message) => {
-    const name = markerNameFor(message.ruleId);
+    const name = suppressibleRuleName(message);
+    if (name === null) {
+      return true; // not a waivable boundary finding
+    }
+    const legacyAlias = LEGACY_MARKER_ALIASES.has(String(message.ruleId ?? ""))
+      ? String(message.ruleId)
+      : null;
     return !justified.some(
       (marker) =>
-        marker.rule === name && (marker.line === message.line || marker.line === message.line - 1),
+        (marker.rule === name || (legacyAlias !== null && marker.rule === legacyAlias)) &&
+        (marker.line === message.line || marker.line === message.line - 1),
     );
   });
-  const unjustified = markers
-    .filter((marker) => marker.reason === null)
+  const problems = markers
+    .filter((marker) => marker.reason === null || !known.has(marker.rule))
     .map((marker) => ({
       ruleId: "terp/escape-hatch",
       severity: 2,
       line: marker.line,
       column: 1,
-      message:
-        "An escape-hatch marker needs a justification: " +
-        `"${BOUNDARY_SPEC.allowMarkerPrefix}${marker.rule}: <reason>". ` +
-        "An unjustified marker is reported, never silently honoured.",
+      message: !known.has(marker.rule)
+        ? `"${BOUNDARY_SPEC.allowMarkerPrefix}${marker.rule}" names no rule with a ` +
+          "governed opt-out; markers name the Terp Standard catalog rule " +
+          '(e.g. "terp-allow-token-styled-elements"). Remove or fix the marker.'
+        : "An escape-hatch marker needs a justification: " +
+          `"${BOUNDARY_SPEC.allowMarkerPrefix}${marker.rule}: <reason>". ` +
+          "An unjustified marker is reported, never silently honoured.",
     }));
-  return [...kept, ...unjustified];
+  return [...kept, ...problems];
 }
 
 /**

@@ -20,7 +20,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { BOUNDARY_SPEC } from "./spec.js";
-import { parseAllowMarkers } from "./index.js";
+import { knownMarkerNames, parseAllowMarkers } from "./index.js";
 
 const MODULE_FILE_RE = /\.(?:ts|tsx)$/;
 
@@ -57,7 +57,12 @@ export function countMarkers(root) {
   return counts;
 }
 
-/** Compare actual marker counts to the budget; return human-readable problems (empty = clean). */
+/** Compare actual marker counts to the budget; return human-readable problems (empty = clean).
+ *
+ * A marker (or budget key) that names no rule with a governed opt-out — a typo, a
+ * stale name, or the governance rule's own name — is refused outright: an unknown
+ * marker can never be budgeted into legitimacy.
+ */
 export function checkBudget(root, budgetPath) {
   let raw;
   try {
@@ -80,8 +85,23 @@ export function checkBudget(root, budgetPath) {
     return ["budget must be a JSON object mapping each 'terp-allow-*' marker to an integer count"];
   }
   const actual = countMarkers(root);
+  const known = knownMarkerNames();
   const problems = [];
+  const isGoverned = (name) =>
+    name.startsWith(BOUNDARY_SPEC.allowMarkerPrefix) &&
+    known.has(name.slice(BOUNDARY_SPEC.allowMarkerPrefix.length));
+  for (const name of [...new Set([...Object.keys(budget), ...Object.keys(actual)])].sort()) {
+    if (!isGoverned(name)) {
+      problems.push(
+        `'${name}' names no rule with a governed opt-out; remove the marker/budget entry ` +
+          "(opt-out markers name the Terp Standard catalog rule)",
+      );
+    }
+  }
   for (const [name, count] of Object.entries(budget)) {
+    if (!isGoverned(name)) {
+      continue;
+    }
     const used = actual[name] ?? 0;
     if (used < count) {
       problems.push(
@@ -94,7 +114,7 @@ export function checkBudget(root, budgetPath) {
     }
   }
   for (const [name, used] of Object.entries(actual)) {
-    if (!(name in budget)) {
+    if (isGoverned(name) && !(name in budget)) {
       problems.push(`unbudgeted marker '${name}' used ${used} time(s); add it with a justified count`);
     }
   }

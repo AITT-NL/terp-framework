@@ -91,6 +91,33 @@ def test_backend_entries_reference_real_checks_and_guide_topics() -> None:
         )
 
 
+def test_backend_opt_outs_are_the_live_suppression_tokens() -> None:
+    """The catalog's `opt_out` spelling is the marker the harness actually honours.
+
+    ``_apply_suppressions`` recognises exactly ``# {_rule_token(rule)}: <reason>``,
+    so each entry's declared opt-out is held to that live derivation. An entry may
+    omit ``opt_out`` only when it is an escape-hatch governance rule (whose
+    violations are produced outside the suppression pass, so no marker can waive
+    them — spec >= 0.6.0 omits exactly those).
+    """
+    from terp.arch.rules._support import _rule_token
+
+    governance = {"escape_hatch_budget", "ungoverned_escape_hatch"}
+    for name, entry in _entries("backend").items():
+        opt_out = entry.get("opt_out")
+        if opt_out is None:
+            assert name in governance, (
+                f"backend/{name}: only the escape-hatch governance rules may omit "
+                "opt_out — every other rule declares its governed marker"
+            )
+            continue
+        expected = f"# {_rule_token(name)}: <reason>"
+        assert opt_out == expected, (
+            f"backend/{name}: opt_out {opt_out!r} is not the live suppression token "
+            f"({expected!r})"
+        )
+
+
 # --------------------------------------------------------------------------- #
 # frontend: catalog <-> the ESLint adapter + BOUNDARY_SPEC, both directions
 # --------------------------------------------------------------------------- #

@@ -1717,23 +1717,37 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
     )
     assert check_no_destructive_migrations(app) == []
 
-    # A reason-bearing file-level marker permits a reviewed destructive migration.
+    # A reason-bearing standard marker on the operation's line (or immediately
+    # above) permits a reviewed destructive migration — the same governed escape
+    # hatch as every other rule, counted by the budget ratchet.
+    _write(
+        app,
+        "modules/notes/migrations/versions/0001_change.py",
+        "def upgrade():\n"
+        "    # arch-allow-no-destructive-migrations: removing obsolete beta table\n"
+        "    op.drop_table('notes_beta')\n",
+    )
+    assert check_app(app) == []
+
+    # The pre-0.6.0 file-level waiver is gone: a bespoke file-wide marker no longer
+    # blankets every destructive operation in the revision.
     _write(
         app,
         "modules/notes/migrations/versions/0001_change.py",
         "# terp-allow-destructive-migration: removing obsolete beta table\n"
         "def upgrade():\n    op.drop_table('notes_beta')\n",
     )
-    assert check_no_destructive_migrations(app) == []
+    assert _rule_names(check_no_destructive_migrations(app)) == {"no_destructive_migrations"}
 
     # A marker without a reason is not enough.
     _write(
         app,
         "modules/notes/migrations/versions/0001_change.py",
-        "# terp-allow-destructive-migration:\n"
-        "def upgrade():\n    op.drop_column('notes', 'legacy')\n",
+        "def upgrade():\n"
+        "    # arch-allow-no-destructive-migrations:\n"
+        "    op.drop_column('notes', 'legacy')\n",
     )
-    assert _rule_names(check_no_destructive_migrations(app)) == {"no_destructive_migrations"}
+    assert _rule_names(check_app(app)) == {"ungoverned_escape_hatch"}
 
     # Downgrade teardown and non-revision files are ignored.
     _write(app, "modules/notes/migrations/env.py", "def upgrade():\n    op.drop_table('notes')\n")
@@ -2052,8 +2066,55 @@ def test_justified_marker_suppresses_its_rule(tmp_path: pathlib.Path) -> None:
 def test_unjustified_marker_does_not_suppress(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     _write(app, "modules/notes/service.py", f"{_INTERNAL_IMPORT}  # arch-allow-no-internal-imports\n")
-    # A reason-less opt-out fails closed: the breach is re-reported as needing a reason.
-    assert _rule_names(check_app(app)) == {"escape_hatch_requires_justification"}
+    # A reason-less opt-out fails closed: the breach is re-reported under the
+    # catalogued fail-closed governance condition (never an uncatalogued rule id).
+    assert _rule_names(check_app(app)) == {"ungoverned_escape_hatch"}
+
+
+def test_marker_on_the_line_above_suppresses(tmp_path: pathlib.Path) -> None:
+    # The escape-hatch contract's second sanctioned position: a justified marker
+    # comment immediately above the violating line.
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/service.py",
+        "# arch-allow-no-internal-imports: kernel bootstrap shim\n"
+        f"{_INTERNAL_IMPORT}\n",
+    )
+    assert check_app(app) == []
+
+
+def test_marker_inside_a_string_literal_is_inert(tmp_path: pathlib.Path) -> None:
+    # Markers live in real comments only: marker-shaped text in a string neither
+    # suppresses (same line or line above) nor counts toward the budget.
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/service.py",
+        'DOC = "# arch-allow-no-internal-imports: not a comment"\n'
+        f"{_INTERNAL_IMPORT}  # noqa\n",
+    )
+    assert _rule_names(check_app(app)) == {"no_internal_imports"}
+    budget = tmp_path / "escape-hatch-budget.json"
+    budget.write_text("{}", encoding="utf-8")
+    assert check_escape_hatch_budget(app, budget_path=budget) == []
+
+
+def test_an_untokenizable_file_counts_no_markers(tmp_path: pathlib.Path) -> None:
+    # Fail closed: a file the tokenizer refuses (here an unterminated triple-quote)
+    # yields no comments at all, so a marker inside it is neither honoured nor
+    # counted toward the budget — even a marker on a line the tokenizer had
+    # already passed is discarded with the file.
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/service.py",
+        "# arch-allow-no-internal-imports: smuggled into a broken file\n"
+        'BROKEN = """\n',
+    )
+    budget = tmp_path / "escape-hatch-budget.json"
+    budget.write_text("{}", encoding="utf-8")
+    assert check_escape_hatch_budget(app, budget_path=budget) == []
 
 
 def test_marker_only_suppresses_the_named_rule(tmp_path: pathlib.Path) -> None:
@@ -2120,6 +2181,26 @@ def test_escape_hatch_budget_rejects_a_stale_entry(tmp_path: pathlib.Path) -> No
     violations = check_escape_hatch_budget(app, budget_path=budget)
     assert _rule_names(violations) == {"escape_hatch_budget"}
     assert "dropped to 0" in violations[0].message
+
+
+def test_escape_hatch_budget_rejects_an_unknown_marker_name(tmp_path: pathlib.Path) -> None:
+    # A typo, a stale name, or the governance rule's own token names no governed
+    # opt-out — it can never be budgeted into legitimacy.
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/service.py",
+        "from terp.core import BaseService  # arch-allow-made-up-rule: stale\n",
+    )
+    budget = tmp_path / "escape-hatch-budget.json"
+    budget.write_text(
+        json.dumps({"arch-allow-made-up-rule": 1, "arch-allow-escape-hatch-budget": 1}),
+        encoding="utf-8",
+    )
+    violations = check_escape_hatch_budget(app, budget_path=budget)
+    assert _rule_names(violations) == {"escape_hatch_budget"}
+    assert all("names no rule with a governed opt-out" in v.message for v in violations)
+    assert len(violations) == 2
 
 
 def test_markers_require_a_budget_to_be_clean(tmp_path: pathlib.Path) -> None:

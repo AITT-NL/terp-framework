@@ -10,8 +10,23 @@ from __future__ import annotations
 import json
 import pathlib
 
-from terp.arch._ast import iter_python_files
-from terp.arch.rules._support import ArchViolation, _ALLOW_TOKEN_RE
+from terp.arch._ast import _SECURITY_SKIP_DIRS, iter_python_files
+from terp.arch.rules._support import ArchViolation, _ALLOW_TOKEN_RE, _file_comments
+
+
+def _governed_tokens() -> set[str]:
+    """Every marker token that names a rule with a governed opt-out.
+
+    Derived from the live registry (imported lazily — the registry package
+    imports this module). The escape-hatch governance rules themselves are
+    excluded: governance cannot be waived by the mechanism it governs, so
+    their tokens are invalid budget keys and invalid markers.
+    """
+    from terp.arch.rules import GUIDE_TOPIC_BY_RULE
+    from terp.arch.rules._support import _rule_token
+
+    ungoverned = {"escape_hatch_budget", "ungoverned_escape_hatch"}
+    return {_rule_token(rule) for rule in GUIDE_TOPIC_BY_RULE if rule not in ungoverned}
 
 
 def check_escape_hatch_budget(
@@ -25,8 +40,12 @@ def check_escape_hatch_budget(
     The budget is a JSON object ``{marker: count}`` checked into the client repo.
     Actual usage must equal it **exactly**: a marker that *rose* needs a justified
     budget bump in the same change; one that *dropped* must be lowered to lock in
-    the win; an unbudgeted marker must be added with a justified count. This keeps
-    every secure-by-default opt-out visible, greppable, and governed (design §8).
+    the win; an unbudgeted marker must be added with a justified count. A marker
+    (or budget key) that names no rule with a governed opt-out — a typo, a stale
+    name, or a governance rule's own token — is refused outright: an unknown
+    marker can never be budgeted into legitimacy. Markers are counted from real
+    comment tokens only. This keeps every secure-by-default opt-out visible,
+    greppable, and governed (design §8).
     """
     root = pathlib.Path(app_root)
     budget_file = pathlib.Path(budget_path)
@@ -59,12 +78,25 @@ def check_escape_hatch_budget(
         ]
 
     actual: dict[str, int] = {}
-    for path in iter_python_files(root):
-        for token in _ALLOW_TOKEN_RE.findall(path.read_text(encoding="utf-8")):
-            actual[token] = actual.get(token, 0) + 1
+    for path in iter_python_files(root, skip_dirs=_SECURITY_SKIP_DIRS):
+        for _line, comment in _file_comments(path.read_text(encoding="utf-8")):
+            for token in _ALLOW_TOKEN_RE.findall(comment):
+                actual[token] = actual.get(token, 0) + 1
 
+    governed = _governed_tokens()
     violations: list[ArchViolation] = []
     for marker in sorted(set(budget) | set(actual)):
+        if marker not in governed:
+            violations.append(
+                ArchViolation(
+                    "escape_hatch_budget",
+                    where,
+                    0,
+                    f"{marker!r} names no rule with a governed opt-out; remove the "
+                    "marker/budget entry (opt-out markers name the catalog rule)",
+                )
+            )
+            continue
         expected = budget.get(marker)
         found = actual.get(marker, 0)
         if expected is None:

@@ -35,7 +35,7 @@ function check(root) {
   return checkBudget(root, path.join(root, "escape-hatch-budget.json"));
 }
 
-const MARKED = "// terp-allow-no-restricted-syntax: measured host quirk\nexport const W = 1;\n";
+const MARKED = "// terp-allow-token-styled-elements: measured host quirk\nexport const W = 1;\n";
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -46,7 +46,7 @@ afterEach(() => {
 describe("countMarkers", () => {
   it("counts markers per rule across the module surface", () => {
     const root = appRoot({ "a/x.tsx": MARKED, "b/y.tsx": MARKED });
-    expect(countMarkers(root)).toEqual({ "terp-allow-no-restricted-syntax": 2 });
+    expect(countMarkers(root)).toEqual({ "terp-allow-token-styled-elements": 2 });
   });
 
   it("counts custom terp rule markers for the same budget ratchet", () => {
@@ -66,20 +66,20 @@ describe("countMarkers", () => {
 
 describe("checkBudget", () => {
   it("passes when usage matches the budget exactly", () => {
-    const root = appRoot({ "a/x.tsx": MARKED }, '{ "terp-allow-no-restricted-syntax": 1 }');
+    const root = appRoot({ "a/x.tsx": MARKED }, '{ "terp-allow-token-styled-elements": 1 }');
     expect(check(root)).toEqual([]);
   });
 
   it("fails when a marker rose above its budget", () => {
     const root = appRoot(
       { "a/x.tsx": MARKED, "b/y.tsx": MARKED },
-      '{ "terp-allow-no-restricted-syntax": 1 }',
+      '{ "terp-allow-token-styled-elements": 1 }',
     );
     expect(check(root).join("\n")).toMatch(/rose to 2/);
   });
 
   it("fails when a marker dropped below its budget (lock in the win)", () => {
-    const root = appRoot({}, '{ "terp-allow-no-restricted-syntax": 1 }');
+    const root = appRoot({}, '{ "terp-allow-token-styled-elements": 1 }');
     expect(check(root).join("\n")).toMatch(/dropped to 0/);
   });
 
@@ -101,6 +101,26 @@ describe("checkBudget", () => {
   it("fails closed on a non-object budget", () => {
     const root = appRoot({}, '["terp-allow-x"]');
     expect(check(root).join("\n")).toMatch(/must be a JSON object/);
+  });
+
+  it("refuses a marker or budget key that names no governed rule", () => {
+    // A typo, a stale name, or the governance rule's own name can never be
+    // budgeted into legitimacy — refused on both sides of the ledger.
+    const marked = "// terp-allow-made-up-rule: stale\nexport const W = 1;\n";
+    const root = appRoot(
+      { "a/x.tsx": marked },
+      '{ "terp-allow-made-up-rule": 1, "terp-allow-escape-hatch": 1 }',
+    );
+    const problems = check(root).join("\n");
+    expect(problems).toMatch(/'terp-allow-made-up-rule' names no rule with a governed opt-out/);
+    expect(problems).toMatch(/'terp-allow-escape-hatch' names no rule with a governed opt-out/);
+  });
+
+  it("does not count marker-shaped text inside a string literal", () => {
+    const viaString = 'export const doc = "// terp-allow-token-styled-elements: in a string";\n';
+    const root = appRoot({ "a/x.tsx": viaString }, "{}");
+    expect(countMarkers(root)).toEqual({});
+    expect(check(root)).toEqual([]);
   });
 });
 
@@ -127,7 +147,7 @@ describe("terp-boundaries-budget --format json (the findings envelope)", () => {
   });
 
   it("publishes an empty findings list when the budget matches (exit 0)", () => {
-    const root = appRoot({ "a/x.tsx": MARKED }, '{ "terp-allow-no-restricted-syntax": 1 }');
+    const root = appRoot({ "a/x.tsx": MARKED }, '{ "terp-allow-token-styled-elements": 1 }');
     const run = runBin(root, ["--format", "json"]);
     expect(run.status).toBe(0);
     const envelope = JSON.parse(run.stdout);

@@ -14,7 +14,10 @@ permissions:
   contents: read
 
 jobs:
-  # The tag only releases what the gate has already proven.
+  # The tag only releases what the gate has already proven — BOTH stacks: the
+  # Python gate and the frontend checks run here, and every publish job needs
+  # this verify. An npm package can never publish from a tag whose frontend
+  # suite was not green at that tag.
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -30,6 +33,21 @@ jobs:
             || { echo "tag $GITHUB_REF_NAME != package version"; exit 1; }
       - name: Run the gate
         run: uv run pytest --cov=terp
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Frontend checks (typecheck + tests + boundary lint + build)
+        run: |
+          set -eux
+          npm run -w @terp/contract typecheck
+          npm run -w @terp/react-core typecheck
+          npm run -w @terp/react-core test
+          npm run -w @terp/eslint-boundaries test
+          npm run -w @terp-example/frontend typecheck
+          npm run -w @terp-example/frontend lint
+          npm run -w @terp-example/frontend build
 
   publish-pypi:
     needs: verify

@@ -363,7 +363,8 @@ Database migrations (terp migrate)
       terp migrate heads                   # more than one head = diverged
       terp migrate merge <label> -m "merge"
 - Destructive DDL (drop table/column or alter-column type changes) is refused by
-  `terp check` unless the revision carries `# terp-allow-destructive-migration: <reason>`.
+  `terp check` unless the operation carries `# arch-allow-no-destructive-migrations:
+  <reason>` on (or immediately above) its line, budgeted by the escape-hatch ratchet.
 - Adopt Terp on an EXISTING database (built by create_all or by hand) without dropping
   data - baseline each history at head, then only genuinely new migrations apply:
       terp migrate stamp                   # records head, runs no DDL
