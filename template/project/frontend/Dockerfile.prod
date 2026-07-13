@@ -7,16 +7,19 @@ FROM node:24-slim AS build
 
 WORKDIR /app
 
-COPY frontend/package.json ./
+# Preserve the project tree shape (frontend/ plus the optional .terp-dist/ of
+# pre-release @terp tarballs vendored by Terp Studio): the file: refs recorded in
+# package.json resolve inside the image exactly as they do on the host.
+COPY . .
+WORKDIR /app/frontend
 RUN npm install
-COPY frontend/ ./
 RUN npm run build
 
 # --- Stage 2: non-root nginx runtime -------------------------------------------------
 FROM nginxinc/nginx-unprivileged:alpine
 
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /app/frontend/dist /usr/share/nginx/html
 
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=5s \
