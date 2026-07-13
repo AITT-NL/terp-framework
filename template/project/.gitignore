@@ -4,6 +4,8 @@
 .env.*
 !.env.example
 !.env.example.jinja
+# Rendered app-declared variables (environment.schema.json) — may hold secrets.
+.app.env
 
 # Python
 __pycache__/

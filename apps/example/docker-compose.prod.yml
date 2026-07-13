@@ -22,6 +22,12 @@ name: terp-example-prod
 
 x-backend: &backend
   image: terp-example-backend-prod
+  # App-declared environment variables (environment.schema.json): the deploy
+  # pipeline renders exactly the declared keys into .app.env per environment.
+  # Optional by design — plain `docker compose up` works without the file.
+  env_file:
+    - path: .app.env
+      required: false
   environment: &backend-env
     DATABASE_URL: postgresql+psycopg://terp:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/terp
     SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}

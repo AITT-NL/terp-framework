@@ -10,7 +10,9 @@ are the build-time half — the profile cannot silently drift back to dev ergono
 
 from __future__ import annotations
 
+import json
 import pathlib
+import re
 
 import yaml
 
@@ -126,3 +128,62 @@ def test_example_and_template_prod_profiles_share_a_topology() -> None:
     example = _prod_compose()["services"]
     template = _template_prod_compose()["services"]
     assert set(example) == set(template) == {"db", "migrate", "api", "web"}
+
+
+# ---- app-declared environment variables (plan: app-declared-environment-config) --
+
+_APP_ENV_SEAM = [{"path": ".app.env", "required": False}]
+_ENV_SCHEMA_PATHS = (
+    _REPO_ROOT / "apps" / "example" / "environment.schema.json",
+    _REPO_ROOT / "template" / "project" / "environment.schema.json",
+)
+_ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+_PLATFORM_OWNED_NAMES = {
+    "SECRET_KEY",
+    "POSTGRES_PASSWORD",
+    "DATABASE_URL",
+    "ENVIRONMENT",
+    "WEB_PORT",
+    "BACKEND_CORS_ORIGINS",
+}
+
+
+def test_prod_backend_forwards_app_declared_env() -> None:
+    """The one generic seam: backend services read the optional .app.env the
+    deploy pipeline renders from environment.schema.json. `required: false`
+    keeps plain `docker compose up` working; the frontend (build-time vars
+    only) deliberately gets no seam."""
+    for data in _both_composes():
+        for name in ("migrate", "api"):
+            assert data["services"][name].get("env_file") == _APP_ENV_SEAM, (
+                f"{name} must read the optional .app.env (app-declared variables)"
+            )
+        assert "env_file" not in data["services"]["web"]
+
+
+def test_environment_schema_manifest_is_present_and_well_shaped() -> None:
+    """The app-declared variable manifest ships (empty) with every app: names
+    are UPPER_SNAKE, platform-owned names are never shadowed, and the shape
+    matches the target kinds' environment_schema dialect."""
+    for path in _ENV_SCHEMA_PATHS:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["type"] == "object", path
+        properties = data["properties"]
+        assert isinstance(properties, dict) and len(properties) <= 50, path
+        assert isinstance(data["required"], list), path
+        for name in data["required"]:
+            assert name in properties, f"{path}: required key {name!r} is undeclared"
+        for name in properties:
+            assert _ENV_NAME_RE.fullmatch(name), f"{path}: {name!r} is not UPPER_SNAKE"
+            assert name not in _PLATFORM_OWNED_NAMES, (
+                f"{path}: {name!r} is platform-owned — one owner per variable"
+            )
+
+
+def test_rendered_app_env_is_excluded_from_every_build_context() -> None:
+    root_ignore = (_REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
+    template_ignore = (
+        _REPO_ROOT / "template" / "project" / ".dockerignore"
+    ).read_text(encoding="utf-8")
+    assert "**/.app.env" in root_ignore
+    assert ".app.env" in template_ignore

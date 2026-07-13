@@ -174,6 +174,10 @@ def test_docs_teach_venv_correct_commands() -> None:
     assert "npm --prefix frontend run typecheck" in agents
     assert "npm --prefix frontend run lint" in agents
     assert "npm --prefix frontend run build" in agents
+    assert "Runtime environment variables" in agents
+    assert "environment.schema.json" in agents
+    assert '"format": "secret"' in agents
+    assert "Do not create/edit `.app.env`" in agents
 
 
 def test_frontend_skeleton_present() -> None:

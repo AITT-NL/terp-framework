@@ -20,6 +20,12 @@ name: {{ project_slug }}-prod
 
 x-backend: &backend
   image: {{ project_slug }}-backend-prod
+  # App-declared environment variables (environment.schema.json): the deploy
+  # pipeline renders exactly the declared keys into .app.env per environment.
+  # Optional by design — plain `docker compose up` works without the file.
+  env_file:
+    - path: .app.env
+      required: false
   environment: &backend-env
     DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/app
     SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}

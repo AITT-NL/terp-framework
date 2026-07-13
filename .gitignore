@@ -43,3 +43,5 @@ apps/example/_frontend_tpl_check/
 .env.*
 !.env.example
 !.env.example.jinja
+# Rendered app-declared variables (environment.schema.json) — may hold secrets.
+.app.env

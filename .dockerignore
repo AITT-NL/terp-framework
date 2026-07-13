@@ -13,3 +13,6 @@
 **/.ruff_cache
 **/.coverage
 apps/example/_frontend_tpl_check
+# Rendered app-declared variables may contain secrets. The example images use
+# the repository root as build context, so ignore nested environment files.
+**/.app.env

@@ -12,3 +12,6 @@
 **/.mypy_cache
 **/.ruff_cache
 **/.coverage
+# Rendered env files — may hold secrets; images must never bake them in.
+.env
+.app.env

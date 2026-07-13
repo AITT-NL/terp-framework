@@ -87,6 +87,18 @@ def test_web_watches_frontend_source_and_proxies_to_the_api() -> None:
     assert web["environment"]["TERP_API_PROXY"] == "http://api:8000"
 
 
+def test_workbench_backend_forwards_app_declared_env() -> None:
+    """Inner-loop parity with the production profile: backend services read the
+    optional .app.env (app-declared variables, environment.schema.json), so a
+    declared variable behaves identically in `Mijn app` and in a deploy."""
+    seam = [{"path": ".app.env", "required": False}]
+    for data in (_compose(), _template_compose()):
+        for name in ("migrate", "seed", "api"):
+            assert data["services"][name].get("env_file") == seam, (
+                f"{name} must read the optional .app.env (app-declared variables)"
+            )
+
+
 # --------------------------------------------------------------------------- #
 # Drift guard: the example (monorepo) and the template (standalone) workbenches
 # legitimately differ in build context, but their *topology* is the contract and

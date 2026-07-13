@@ -21,6 +21,14 @@ production deployment profile (multi-stage wheel images + hardened compose profi
 
 Late additions on the unreleased line:
 
+- **App-declared environment variables.** Every app ships an
+  `environment.schema.json` manifest (empty by default) declaring the run-time
+  variables it reads beyond the platform-owned set; both compose profiles
+  forward the declared keys through one optional `env_file` seam (`.app.env`,
+  `required: false`, gitignored/dockerignored). Deploy pipelines render exactly
+  the declared keys — undeclared variables stay impossible, secret-marked ones
+  stay out of plain records. Guarded by `test_prod_profile.py` /
+  `test_compose_workbench.py`.
 - **Per-rule verdicts are joinable to the Terp Standard (ADR 0083).**
   `terp check --format json` now publishes `rules` — the evaluated-rule
   inventory that matches the execution mode (the live registry; the budget

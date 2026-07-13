@@ -53,6 +53,23 @@ or `python` will not resolve.
   **`uv run terp inspect control-plane`** — your roles, permissions, and per-module
   authority map.
 
+## Runtime environment variables
+
+The app declares its own run-time variables in the checked-in
+`environment.schema.json`; Studio renders exactly those declarations into the
+per-environment `.app.env`. When a feature adds or removes a backend run-time
+variable, update the manifest in the same change:
+
+- Preserve existing declarations and declare only variables the app actually reads.
+- Names are UPPER_SNAKE (`^[A-Z][A-Z0-9_]{0,63}$`). Never shadow platform-owned
+  `SECRET_KEY`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `ENVIRONMENT`, `WEB_PORT`, or
+  `BACKEND_CORS_ORIGINS`; never put frontend build-time `VITE_*` values here.
+- Mark tokens, passwords, API keys and client secrets with `"format": "secret"`.
+  Never write secret values into the manifest, `.env`, source, tests, prompts or logs.
+- Do not create/edit `.app.env`; Studio owns environment-specific values and renders it.
+- Add concise titles/descriptions; use `required` only when the app cannot operate
+  without the variable. Validate the JSON and run the relevant gate after editing.
+
 ## Definition of done
 
 A change is done only when the whole gate is green — never claim success before

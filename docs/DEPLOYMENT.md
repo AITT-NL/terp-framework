@@ -63,6 +63,25 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | `DB_SCHEMA_LAYOUT` | no | `per-module` places each package's tables in its own PostgreSQL schema (ADR 0070) |
 | `WEB_PORT` | no | Host port for nginx (default 8080) |
 
+### App-declared variables (`environment.schema.json`)
+
+Variables the app itself needs (an SMTP relay, a third-party API key, a feature
+flag) are **declared, never invented at deploy time**: add them to the
+check-in manifest `environment.schema.json` at the project root — the same
+JSON-schema dialect the deploy-target kinds use. Names are UPPER_SNAKE
+(`^[A-Z][A-Z0-9_]{0,63}$`); the platform-owned names in the table above may
+not be shadowed; `"format": "secret"` marks a value as write-only sealed
+custody.
+
+Both compose profiles forward the declared variables through one generic seam:
+the backend services read an optional `.app.env` next to the compose file
+(`required: false` — plain `docker compose up` works without it). A deploy
+pipeline (the Terp Studio) renders exactly the declared keys into that file,
+owner-only; deploying by hand, write it yourself. `.app.env` is gitignored and
+dockerignored — it may hold secrets and must never be committed or baked into
+an image. Frontend (`VITE_*`) values are build-time, not run-time, and do not
+belong in this manifest.
+
 ## Least-privilege database (optional hardening)
 
 Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):

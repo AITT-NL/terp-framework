@@ -13,6 +13,12 @@ name: {{ project_slug }}
 # tag race in the exporter: "already exists"), the one-shots reuse it.
 x-backend: &backend
   image: {{ project_slug }}-backend
+  # App-declared environment variables (environment.schema.json): same seam as
+  # the production profile, so a declared variable behaves identically in the
+  # inner loop. Optional — the workbench runs without the file.
+  env_file:
+    - path: .app.env
+      required: false
   environment: &backend-env
     DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
     SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me-please-0123456789ab}

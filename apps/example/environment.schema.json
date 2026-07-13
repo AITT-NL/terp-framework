@@ -1,0 +1,6 @@
+{
+  "$comment": "App-declared environment variables. Declare every variable this app reads beyond the platform-owned set; the Terp Studio deploy pipeline renders exactly the declared keys into a per-environment .app.env (see docker-compose.prod.yml). Names match ^[A-Z][A-Z0-9_]{0,63}$. Mark write-only secrets with \"format\": \"secret\" — their values are sealed, never stored in plain records. Platform-owned names (SECRET_KEY, POSTGRES_PASSWORD, DATABASE_URL, ENVIRONMENT, WEB_PORT, BACKEND_CORS_ORIGINS) are refused here.",
+  "type": "object",
+  "properties": {},
+  "required": []
+}
