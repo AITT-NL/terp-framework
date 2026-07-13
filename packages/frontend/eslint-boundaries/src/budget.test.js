@@ -1,5 +1,7 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -99,5 +101,52 @@ describe("checkBudget", () => {
   it("fails closed on a non-object budget", () => {
     const root = appRoot({}, '["terp-allow-x"]');
     expect(check(root).join("\n")).toMatch(/must be a JSON object/);
+  });
+});
+
+describe("terp-boundaries-budget --format json (the findings envelope)", () => {
+  const BUDGET_BIN = fileURLToPath(new URL("./budget.js", import.meta.url));
+
+  function runBin(root, args = []) {
+    return spawnSync(process.execPath, [BUDGET_BIN, ...args], { cwd: root, encoding: "utf8" });
+  }
+
+  it("attributes drift to frontend/escape-hatch on stdout; humans keep stderr", () => {
+    const root = appRoot({ "a/x.tsx": MARKED }, "{}");
+    const run = runBin(root, ["--format", "json"]);
+    expect(run.status).toBe(1);
+    const envelope = JSON.parse(run.stdout);
+    expect(envelope.terp_findings).toBe(1);
+    expect(envelope.tool).toBe("terp-boundaries-budget");
+    expect(envelope.rules).toEqual(["frontend/escape-hatch"]);
+    expect(envelope.findings).toHaveLength(1);
+    expect(envelope.findings[0].rule).toBe("frontend/escape-hatch");
+    expect(envelope.findings[0].path).toBe("escape-hatch-budget.json");
+    expect(envelope.findings[0].message).toMatch(/unbudgeted marker/);
+    expect(run.stderr).toMatch(/unbudgeted marker/);
+  });
+
+  it("publishes an empty findings list when the budget matches (exit 0)", () => {
+    const root = appRoot({ "a/x.tsx": MARKED }, '{ "terp-allow-no-restricted-syntax": 1 }');
+    const run = runBin(root, ["--format", "json"]);
+    expect(run.status).toBe(0);
+    const envelope = JSON.parse(run.stdout);
+    expect(envelope.rules).toEqual(["frontend/escape-hatch"]);
+    expect(envelope.findings).toEqual([]);
+  });
+
+  it("still reads a positional budget path alongside the flag", () => {
+    const root = appRoot({ "a/x.tsx": MARKED });
+    fs.writeFileSync(path.join(root, "other-budget.json"), "{}");
+    const run = runBin(root, ["--format", "json", "other-budget.json"]);
+    expect(run.status).toBe(1);
+    expect(JSON.parse(run.stdout).findings[0].path).toBe("other-budget.json");
+  });
+
+  it("refuses an unsupported format (fail closed, exit 2)", () => {
+    const root = appRoot({}, "{}");
+    const run = runBin(root, ["--format", "yaml"]);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toMatch(/unsupported --format/);
   });
 });

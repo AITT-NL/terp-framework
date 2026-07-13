@@ -289,7 +289,7 @@ const noEval = {
 };
 
 /** Find the app's checked-in layout-contract config upward from *dir*; null = no contract. */
-function activeLayoutContract(dir) {
+export function activeLayoutContract(dir) {
   let current = dir;
   for (;;) {
     const file = path.join(current, LAYOUT_CONTRACT_FILE);
@@ -532,6 +532,29 @@ export function catalogRuleId(message) {
     return null;
   }
   return null;
+}
+
+/**
+ * Every Terp Standard catalog rule id (`frontend/<rule>`) this adapter evaluates, sorted:
+ * the named `terp/*` plugin rules, `terp/escape-hatch` (emitted by the suppression
+ * processor), the tagged `no-restricted-syntax` families, and the catalog rules realised
+ * through `no-restricted-globals` / `no-restricted-imports`. This is the evaluated-rule
+ * inventory a boundary lint run publishes in its findings envelope (see ./findings.js):
+ * a consumer joining findings to the catalog reads the inventory from the run itself, so
+ * a per-rule "pass" can never be claimed for a rule this adapter never ran (fail closed
+ * under version skew). Parity with `spec/catalog/frontend/` is locked by findings.test.js.
+ */
+export function catalogRuleIds() {
+  return [
+    ...new Set([
+      ...Object.keys(terpPlugin.rules).map((rule) => `frontend/${rule}`),
+      "frontend/escape-hatch",
+      ...restrictedSyntaxWithCatalogIds().map((entry) => entry.catalogId),
+      "frontend/generated-client-only",
+      "frontend/no-deep-imports",
+      "frontend/no-style-imports",
+    ]),
+  ].sort();
 }
 
 /** The marker name a message's ruleId answers to (`terp/x` -> `x`; core ruleIds as-is). */

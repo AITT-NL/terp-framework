@@ -7,7 +7,11 @@
  * be lowered to lock in the win; an unbudgeted marker must be added with a justified count.
  * This keeps every boundary opt-out visible, greppable, and governed.
  *
- * Run it after the lint (`eslint . && terp-boundaries-budget`); it exits non-zero on any drift.
+ * Run it standalone or in CI (`terp-boundaries-budget [budget-path]`); the app lint
+ * command (`terp-boundaries-lint`) runs the same {@link checkBudget} in-process, so the
+ * ratchet can never be skipped by a failing lint. It exits non-zero on any drift.
+ * `--format json` additionally publishes the drift as a findings envelope on stdout,
+ * attributed to `frontend/escape-hatch` (see ./findings.js).
  */
 
 import fs from "node:fs";
@@ -98,9 +102,41 @@ export function checkBudget(root, budgetPath) {
 }
 
 function main() {
+  const args = process.argv.slice(2);
+  // `--format json` additionally publishes the drift as a findings envelope on stdout
+  // (attributed to `frontend/escape-hatch`), so a driving tool joins the budget verdict
+  // to the Terp Standard catalog without parsing prose. Humans keep reading stderr.
+  let format = "text";
+  const formatIndex = args.indexOf("--format");
+  if (formatIndex !== -1) {
+    const value = args[formatIndex + 1];
+    if (value !== "json") {
+      console.error(`escape-hatch-budget: unsupported --format ${value ?? "(missing)"}; expected json`);
+      process.exit(2);
+    }
+    format = "json";
+    args.splice(formatIndex, 2);
+  }
   const root = process.cwd();
-  const budgetPath = process.argv[2] ?? path.join(root, "escape-hatch-budget.json");
+  const budgetPath = args[0] ?? path.join(root, "escape-hatch-budget.json");
   const problems = checkBudget(root, budgetPath);
+  if (format === "json") {
+    const relative = path.relative(root, budgetPath).split(path.sep).join("/");
+    const budgetFile = relative === "" ? budgetPath.split(path.sep).join("/") : relative;
+    console.log(
+      JSON.stringify({
+        terp_findings: 1,
+        tool: "terp-boundaries-budget",
+        rules: ["frontend/escape-hatch"],
+        findings: problems.map((problem) => ({
+          rule: "frontend/escape-hatch",
+          path: budgetFile,
+          message: problem,
+        })),
+        unattributed: [],
+      }),
+    );
+  }
   if (problems.length > 0) {
     for (const problem of problems) {
       console.error(`escape-hatch-budget: ${problem}`);

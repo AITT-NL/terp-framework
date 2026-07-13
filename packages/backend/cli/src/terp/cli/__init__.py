@@ -622,15 +622,29 @@ def check_report(
     that teaches the compliant pattern, and a copy-pasteable ``fix`` command. An
     ungoverned ``# arch-allow-*`` marker (the condition ``assert_app_clean`` fails
     closed on) is reported in-band as an ``ungoverned_escape_hatch`` violation.
+
+    ``rules`` is the evaluated-rule inventory: every rule id this run actually held
+    the app to. That is the live registry plus the escape-hatch governance half that
+    matches the execution mode: with a *budget_path* the budget ratchet ran (and an
+    unbudgeted marker is reported as its drift, subsuming the ungoverned condition);
+    without one only the ungoverned-marker condition ran — the ratchet is then left
+    OUT of the inventory, so a consumer joining verdicts to the Terp Standard catalog
+    can never claim ``escape_hatch_budget`` passed on a run that never enforced it
+    (fail closed under version skew and configuration alike).
     """
     from terp.arch import check_app, guide_topic_for, ungoverned_marker_violations
+    from terp.arch.rules import GUIDE_TOPIC_BY_RULE
 
     violations = list(check_app(root, package=package, budget_path=budget_path))
     if budget_path is None:
         violations.extend(ungoverned_marker_violations(root, package=package))
     violations.sort(key=lambda violation: (violation.path, violation.line, violation.rule))
+    rules = set(GUIDE_TOPIC_BY_RULE)
+    if budget_path is None:
+        rules.discard("escape_hatch_budget")
     return {
         "ok": not violations,
+        "rules": sorted(rules),
         "violation_count": len(violations),
         "violations": [
             {

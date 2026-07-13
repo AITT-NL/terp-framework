@@ -205,11 +205,12 @@ def test_frontend_example_module_slot_present() -> None:
 
 
 def test_frontend_ships_escape_hatch_budget() -> None:
-    # The governed boundary opt-out: the checked-in budget starts empty, and the lint script
-    # runs the ratchet after eslint (a `terp-allow-*` marker count must match it exactly).
+    # The governed boundary opt-out: the checked-in budget starts empty, and the lint
+    # command runs the ratchet in the same invocation as the boundary rules (a failing
+    # lint can never skip it — a `terp-allow-*` marker count must match it exactly).
     assert (_PROJECT / "frontend" / "escape-hatch-budget.json").read_text().strip() == "{}"
     package = (_PROJECT / "frontend" / "package.json.jinja").read_text()
-    assert "terp-boundaries-budget" in package
+    assert "terp-boundaries-lint" in package
 
 
 def test_frontend_templates_have_no_unescaped_jsx_double_braces() -> None:

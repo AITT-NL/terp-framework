@@ -79,7 +79,34 @@ def test_check_report_is_clean_on_the_example_app() -> None:
     report = check_report(
         str(_EXAMPLE_ROOT), budget_path=str(_EXAMPLE_ROOT / "escape-hatch-budget.json")
     )
-    assert report == {"ok": True, "violation_count": 0, "violations": []}
+    assert report == {
+        "ok": True,
+        "rules": sorted(GUIDE_TOPIC_BY_RULE),
+        "violation_count": 0,
+        "violations": [],
+    }
+
+
+def test_check_report_carries_the_evaluated_rule_inventory(tmp_path: pathlib.Path) -> None:
+    # The report names every rule the run actually held the app to, pass or fail —
+    # the seam a spec-matrix consumer joins on, so "pass" can never be claimed for
+    # a rule this toolchain never ran. Without a budget the ratchet never ran, so
+    # `escape_hatch_budget` stays OUT of the inventory (only the ungoverned-marker
+    # condition was enforced); with a budget the ratchet ran and subsumes it.
+    app = _violating_app(tmp_path)
+    unbudgeted = check_report(str(app))
+    assert unbudgeted["rules"] == sorted(set(GUIDE_TOPIC_BY_RULE) - {"escape_hatch_budget"})
+    assert "ungoverned_escape_hatch" in unbudgeted["rules"]
+    assert "escape_hatch_budget" not in unbudgeted["rules"]
+    in_registry = {rule.__name__.removeprefix("check_") for rule in _ALL_RULES}
+    assert in_registry <= set(unbudgeted["rules"])
+    assert {violation["rule"] for violation in unbudgeted["violations"]} <= set(
+        unbudgeted["rules"]
+    )
+    budget = tmp_path / "budget.json"
+    budget.write_text(json.dumps({}), encoding="utf-8")
+    budgeted = check_report(str(app), budget_path=str(budget))
+    assert budgeted["rules"] == sorted(GUIDE_TOPIC_BY_RULE)
 
 
 def test_check_report_violation_carries_its_own_fix(tmp_path: pathlib.Path) -> None:
@@ -156,6 +183,7 @@ def test_cli_check_json_prints_report_and_exits_zero_when_clean(
     )
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
+    assert payload["rules"] == sorted(GUIDE_TOPIC_BY_RULE)
 
 
 def test_cli_check_json_exits_nonzero_on_violations(

@@ -5,13 +5,15 @@
   "description": "Terp frontend boundary rules (as data) + the ESLint adapter: no cross-module imports, no package internals, design-token-only styling (no style/className/module stylesheets), token-styled components for raw HTML tags, router-only in-app links, generated-client-only, and browser XSS/navigation sink bans. Strict-only (no modes); governed opt-outs via terp-allow markers + the escape-hatch budget ratchet (terp-boundaries-budget).",
   "main": "./src/index.js",
   "bin": {
-    "terp-boundaries-budget": "./src/budget.js"
+    "terp-boundaries-budget": "./src/budget.js",
+    "terp-boundaries-lint": "./src/findings.js"
   },
   "exports": {
     ".": "./src/index.js",
     "./spec": "./src/spec.js",
     "./layouts": "./src/layouts.js",
-    "./budget": "./src/budget.js"
+    "./budget": "./src/budget.js",
+    "./findings": "./src/findings.js"
   },
   "scripts": {
     "test": "vitest run"

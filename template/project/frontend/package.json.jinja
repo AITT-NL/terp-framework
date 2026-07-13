@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/typecheck.tsbuildinfo",
-    "lint": "eslint . --cache --cache-location node_modules/.cache/eslint/ && terp-boundaries-budget",
+    "lint": "terp-boundaries-lint",
     "generate": "openapi-typescript ../openapi.json --output ./src/api/schema.d.ts"
   },
   "dependencies": {
