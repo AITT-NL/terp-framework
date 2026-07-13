@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import pathlib
+import tomllib
 
 from terp.arch import assert_app_clean
 from terp.migrations import assert_migrations_match_models, upgrade
@@ -17,6 +18,47 @@ _APP_ROOT = pathlib.Path(__file__).resolve().parents[1] / "app"
 
 def test_architecture() -> None:
     assert_app_clean("app", budget_path="escape-hatch-budget.json")
+
+
+def test_generic_appsec_baseline_is_wired() -> None:
+    # The Terp rules cover Terp-specific architecture; generic AppSec (command
+    # injection, unsafe deserialization, weak hashes, ...) is delegated to ruff's
+    # bandit-derived `S` baseline (platform ADR 0085), which CI runs as a blocking
+    # step. This test keeps that delegation from being weakened silently: dropping
+    # the select, widening the excusals, excluding app code, or removing the CI
+    # step all require editing this test too -- a visible, reviewed decision.
+    # Per-line opt-outs stay available as a `noqa` comment naming the S rule,
+    # with a reason.
+    project_root = pathlib.Path(__file__).resolve().parents[1]
+    config = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
+    ruff = config.get("tool", {}).get("ruff", {})
+    lint = ruff.get("lint", {})
+    assert "S" in lint.get("select", []), (
+        "pyproject.toml no longer selects the ruff `S` security baseline -- restore "
+        '[tool.ruff.lint] select = ["S"] (see the platform ADR 0085)'
+    )
+    assert set(lint.get("ignore", [])) <= {"S101", "S105", "S106"}, (
+        "the `S` baseline excuses more than the sanctioned name-heuristic rules "
+        "(S101/S105/S106); widening the ignores weakens the baseline"
+    )
+    for pattern, codes in lint.get("per-file-ignores", {}).items():
+        assert "tests" in pattern.replace("\\", "/").split("/"), (
+            f"per-file-ignores {pattern!r}: only test trees may excuse baseline rules"
+        )
+        assert set(codes) <= {"S311", "S603", "S607"}, (
+            f"per-file-ignores {pattern!r} excuses more than the sanctioned test "
+            "rules (S311/S603/S607)"
+        )
+    for key in ("exclude", "extend-exclude"):
+        assert set(ruff.get(key, [])) <= {".venv", "**/migrations/versions"}, (
+            f"[tool.ruff] {key} must not carve app code out of the security baseline "
+            "(only .venv and generated Alembic revisions are sanctioned)"
+        )
+    ci = (project_root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "uv run ruff check ." in ci, (
+        ".github/workflows/ci.yml no longer runs the ruff `S` baseline as a "
+        "blocking gate step (see the platform ADR 0085)"
+    )
 
 
 def test_every_module_is_mounted() -> None:

@@ -94,9 +94,14 @@ unless a human overrides them in the prompt:
 
 1. **Secure by default, opt‑out by exception.** Every security control has a safe
    default and a *visible, greppable, budgeted* opt‑out.
-2. **Two‑layer enforcement.** Each invariant is a **fail‑closed runtime control**
-   *and* a **build‑time fitness test** that catches its omission. The test is
-   never the only control.
+2. **Two‑layer enforcement where runtime can enforce.** An invariant the running
+   system can observe is a **fail‑closed runtime control** *and* a **build‑time
+   fitness test** that catches its omission — the test is never the only control
+   for such a rule. An invariant that exists only in the authored artifact
+   (source form, imports, markers, checked‑in files) is build‑time‑only **by
+   recorded decision, never silently**: every catalogued rule carries a
+   machine‑checked `runtime.applicability` classification (`required` /
+   `not-applicable` / `deferred`, ADR 0084) and an exemption always states why.
 3. **The contract is the product.** Backend↔frontend couple only through the
    OpenAPI contract; modules↔core couple only through a published **public API**.
 4. **Enforcement travels as a dependency.** Rules ship versioned; clients run them
@@ -270,8 +275,12 @@ DBA-gated shops render offline SQL with `terp migrate upgrade --sql`.
 ## 5. 🔒 Secure‑by‑default model (primary mandate)
 
 **Principle:** a developer who does nothing special gets a secure result. Every
-insecure action requires an explicit, greppable, budgeted opt‑out. Each control
-below is **two‑layered**: a fail‑closed runtime control *plus* a build‑time test.
+insecure action requires an explicit, greppable, budgeted opt‑out. A control
+whose invariant the running system can observe is **two‑layered** — a
+fail‑closed runtime control *plus* a build‑time test — and which rules those
+are is recorded per rule in the Terp Standard catalog
+(`runtime.applicability`, ADR 0084); a source‑form invariant is
+build‑time‑enforced by recorded decision, never silently.
 
 ### 5.1 Deny‑by‑default authorization
 
@@ -378,8 +387,13 @@ and signed releases. The harness fails the build on a known‑vulnerable depende
 
 ### 5.10 The secure‑default rule catalog
 
-Every row = a runtime control **and** a test. The test detects omission; the
-runtime control is what actually protects production.
+A row whose invariant is runtime‑observable pairs a runtime control **and** a
+test — those rules carry `runtime.applicability: required` in the Terp Standard
+catalog (ADR 0084), and there the runtime control is what actually protects
+production while the test detects omission. For the rest, the runtime column
+names the *ambient or constructive* mechanism (the ORM‑only data path, the
+compliant helper) and the rule is build‑time‑enforced by recorded, per‑rule
+decision — e.g. the module‑boundary, raw‑SQL and input‑cap rows below.
 
 | Invariant | 🔒 Runtime default (the control) | 🧪 Build‑time test (the reminder) | Tooling |
 |---|---|---|---|
@@ -710,7 +724,7 @@ Use this short prompt when scaffolding a new platform repository:
 | Users capability is a fresh build | Med | It persists nothing today; treat as new build, not a port |
 | Harness false positives blocking clients | Med | Escape‑hatch budget + precise messages + a documented exception path |
 | Core team becomes a bottleneck | Med | Capabilities are additive; clients own modules; retainer SLA on core |
-| "Secure by default" complacency | Med | Two‑layer model; runtime controls are the real defence, tests are reminders |
+| "Secure by default" complacency | Med | Two‑layer model where runtime can enforce (per‑rule `runtime.applicability`, ADR 0084): fail‑closed runtime controls carry the `required` rules; build‑time‑only rules are exempt by recorded, reviewable decision |
 
 ---
 

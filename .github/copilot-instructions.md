@@ -23,8 +23,12 @@ a guard to make a change pass:
 - **Secure by default** — declare a `ModuleSpec` with a `Policy`; routers mount
   behind a deny‑by‑default guard. Raise typed `AppError`s; paginate lists
   (`Page[T]`); cap every `str` field's length.
-- **Two‑layer enforcement** — every security rule is a fail‑closed runtime
-  control *and* a build‑time test. Never make the test the only control.
+- **Two‑layer enforcement** — a rule whose invariant is observable at runtime is
+  a fail‑closed runtime control *and* a build‑time test; never make the test the
+  only control for such a rule. A source‑form rule is build‑time‑only by recorded
+  decision: the Terp Standard catalog classifies every rule
+  (`runtime.applicability`, ADR 0084) and tests fail closed on a missing or
+  contradictory classification.
 
 ## Frontend conventions
 

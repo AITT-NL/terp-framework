@@ -72,8 +72,10 @@ end‑to‑end and passes the architecture harness clean.
 2. A single platform **monorepo** (separate packages, not separate repos).
 3. First frontend stack: **React**; the core stays frontend‑agnostic via a contract.
 4. Default tenancy: **`organization`**; the core stays tenancy‑agnostic.
-5. Secure‑by‑default is **two‑layered**: a fail‑closed runtime control **and** a
-   build‑time test — the test is never the only control.
+5. Secure‑by‑default is **two‑layered where runtime can enforce**: a runtime‑observable
+   rule is a fail‑closed runtime control **and** a build‑time test; a source‑form rule
+   is build‑time‑only by recorded, per‑rule decision (`runtime.applicability` in the
+   Terp Standard catalog, ADR 0084) — never silently.
 
 ## Documentation
 

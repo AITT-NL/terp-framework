@@ -38,6 +38,8 @@ _CONFORMANCE = _REPO_ROOT / "packages" / "frontend" / "conformance"
 # defined in that source tree (the fail-closed runtime half of the two-layer rule).
 _RUNTIME_TOOL_SOURCES = {
     "terp.core": _REPO_ROOT / "packages" / "backend" / "core" / "src" / "terp" / "core",
+    "terp.migrations": _REPO_ROOT / "packages" / "backend" / "migrations" / "src" / "terp" / "migrations",
+    "terp.capabilities.files": _REPO_ROOT / "packages" / "backend" / "capabilities" / "files" / "src" / "terp" / "capabilities" / "files",
     "@terp/react-core": _REPO_ROOT / "packages" / "frontend" / "react-core" / "src",
 }
 
@@ -146,6 +148,15 @@ def test_frontend_family_entries_reference_real_spec_fields() -> None:
 # runtime + black-box enforcement refs resolve (the two-layer story is checkable)
 # --------------------------------------------------------------------------- #
 def test_runtime_enforcement_refs_resolve_to_real_symbols() -> None:
+    """Every declared runtime ref names a real symbol in the cited package.
+
+    This proves *nomination* — the named seam exists where the catalog says it
+    lives — deliberately not behavior: the fail-closed conduct of each control
+    is pinned by the framework's own behavioral suite (test_session_write_guard,
+    test_jobs, test_core_app, test_object_authz, …), which is also what stops
+    an adjacent namesake (e.g. an adapter method sharing the chokepoint's name)
+    from silently standing in for a deleted control.
+    """
     for surface in ("backend", "frontend"):
         for name, entry in _entries(surface).items():
             for enforcement in entry["enforcement"]:
@@ -157,7 +168,9 @@ def test_runtime_enforcement_refs_resolve_to_real_symbols() -> None:
                     f"(add it to _RUNTIME_TOOL_SOURCES)"
                 )
                 symbol = enforcement["ref"]
-                pattern = re.compile(rf"\b(?:class|def|function)\s+{re.escape(symbol)}\b")
+                pattern = re.compile(
+                    rf"\b(?:class|(?:async\s+)?def|function)\s+{re.escape(symbol)}\b"
+                )
                 defined = any(
                     pattern.search(path.read_text(encoding="utf-8"))
                     for suffix in ("*.py", "*.ts", "*.tsx")

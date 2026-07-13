@@ -159,6 +159,10 @@ jobs:
         run: |
           uv sync
           uv run pytest
+          # The delegated AppSec baseline must hold on rendered output (ADR 0085):
+          # the in-project ratchet guards post-scaffold drift, this proves the
+          # template as shipped passes its own baseline.
+          uv run ruff check .
 
       - uses: actions/setup-node@v4
         with:

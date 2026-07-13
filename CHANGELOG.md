@@ -40,3 +40,34 @@ Late additions on the unreleased line:
   report stays on stderr. `terp-boundaries-budget --format json` emits the
   same envelope standalone. The template and example lint script is now
   `terp-boundaries-lint`.
+
+- **The two-layer doctrine is classified per rule (ADR 0084, Terp Standard
+  v0.5.0).** Every catalog entry now carries a mandatory, machine-checked
+  `runtime.applicability` (`required` / `not-applicable` / `deferred`): 21
+  rules declare their fail-closed runtime control (15 controls that already
+  existed — the write-chokepoint strip, the session re-scope, the boot
+  validators, the catalog chokepoints — are now *declared* instead of
+  folklore), 31 source-form rules are exempt with per-rule rationales, and 6
+  known seam gaps are explicit `deferred` entries (including pagination and
+  the missing-migration-history case, whose previously declared "runtime
+  halves" did not actually refuse those violations). Tests fail closed on a
+  missing, contradictory, or unresolvable classification, and the blanket
+  "every rule has a runtime half" wording is retired from the platform docs.
+  The spec repository's CI gains a `certify-against-reference` job that runs
+  this repo's parity + corpus certification against every candidate spec
+  change, closing the pinned-release adoption gap from the other side.
+
+- **The Terp Standard's AppSec scope is explicit and the generic baseline is
+  enforced (ADR 0085).** The catalog claims Terp-specific secure-architecture
+  rules, not complete application security: generic vulnerability classes a
+  stock analyzer detects well (command injection, unsafe deserialization,
+  weak crypto randomness) are delegated to the mandatory ruff-bandit (`S`)
+  baseline the platform repo already runs — and generated projects now
+  inherit it (template `pyproject.toml` config + blocking CI step + an
+  in-project ratchet that parses the stanza and pins the CI step), with
+  `tests/guardrails/test_appsec_baseline.py` holding the delegation in place
+  fail-closed and the template-acceptance job running the baseline on
+  rendered output. Classes no stock analyzer detects (path traversal,
+  secrets in logs, browser-storage auth material) stay addressed
+  constructively, never claimed as detected. Baseline findings stay
+  tool-attributed, never mapped to catalog ids.

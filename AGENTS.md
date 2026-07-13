@@ -31,8 +31,13 @@ a guard to make a change pass:
 3. **Secure by default** — declare a `ModuleSpec` with a `Policy`; the framework
    mounts routers behind a deny‑by‑default guard. Raise typed `AppError`s (uniform
    envelope). List endpoints paginate (`Page[T]`). Every `str` field caps length.
-4. **Two‑layer enforcement** — each security rule is a fail‑closed *runtime*
-   control **and** a build‑time *test*. The test is never the only control.
+4. **Two‑layer enforcement where runtime can enforce** — a rule whose invariant
+   the running system can observe pairs its build‑time check with a fail‑closed
+   *runtime* control, and the test is never the only control for it. Which rules
+   that is, is not folklore: every Terp Standard entry carries a machine‑checked
+   `runtime.applicability` classification (`required` / `not-applicable` /
+   `deferred`, ADR 0084) — a source‑form rule is build‑time‑only by recorded
+   decision, with its rationale in the catalog.
 5. **Own per-row writes with a trait** — never hand-roll an `owner_id` check; compose
    `OwnedMixin` for per-row write authorization (the `no_manual_ownership_checks` rule
    enforces it). Detail: `terp guide ownership`.

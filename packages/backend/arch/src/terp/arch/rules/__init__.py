@@ -2,9 +2,13 @@
 
 Each rule is a pure function that scans a client app's source tree and returns a
 list of :class:`ArchViolation`. They are the **build-time layer** of Terp's
-two-layer enforcement: every rule here pairs with a fail-closed runtime control
-in ``terp.core`` (or a capability). Clients *run* these rules against their own
-``app/`` but cannot edit them — the harness travels as a versioned package.
+two-layer enforcement: a rule whose invariant the running system can observe
+pairs with a fail-closed runtime control in ``terp.core`` (or a capability),
+and which rules those are is recorded per rule in the Terp Standard catalog
+(``runtime.applicability``, ADR 0084) -- a source-form rule is build-time-only
+by recorded decision, with its rationale in its catalog entry. Clients *run*
+these rules against their own ``app/`` but cannot edit them -- the harness
+travels as a versioned package.
 
 Run them all with :func:`assert_app_clean`::
 
