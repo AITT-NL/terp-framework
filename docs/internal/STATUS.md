@@ -356,6 +356,28 @@ seam, validating core's tenancy-agnosticism. The predicate's `owner_id` comparis
 the example app's one governed opt-out (`arch-allow-no-manual-ownership-checks`,
 budget `{}` → 1), dogfooding the escape-hatch ratchet on the real app.
 
+Most recently, **three of ADR 0084's six `deferred` runtime classifications closed**:
+the boot route-scan seam `_validate_router_response_models` (the ADR 0020 table-model
+guard) now also refuses, per composed route (decorator, imperative `add_api_route`,
+and nested included routers alike), a content route with **no declared
+`response_model`** (`_validate_routes_declare_response_model`; no-body 204/205/304
+statuses and `Response`-subclass-annotated non-content routes such as the files
+download stay exempt), a response DTO carrying a **credential-shaped field**
+(`_validate_schemas_exclude_sensitive_fields`; the same underscore-delimited word
+match + `token_version`/`version`/trailing-`token` exclusions as the arch rule, with
+framework-vetted `terp.*` DTOs exempt — the auth `AccessToken` keeps its budgeted
+build-time marker), and a **bare `list[...]`/`Sequence[...]` list envelope** instead
+of `Page[T]` (`_validate_list_routes_paginate`). Each `BootError` names the violated
+Terp Standard rule and route. `terp.core` is layer 0 and cannot import the harness, so
+the mirrored constants are parity-locked against `terp.arch` by
+`test_runtime_constants_match_the_arch_harness`
+(`tests/architecture/test_response_model_guard.py`). The terp-spec catalog entries
+`backend/routes_declare_response_model`, `backend/schemas_exclude_sensitive_fields`,
+and `backend/list_routes_paginate` can now flip `runtime.applicability` from
+`deferred` to `required` (a one-line catalog change each, per ADR 0084), leaving
+`no_adhoc_middleware`, `no_dependency_overrides`, and `tables_have_migrations` as the
+remaining deferrals.
+
 Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 
 ---

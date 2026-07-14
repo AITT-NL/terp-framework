@@ -240,7 +240,7 @@ def _mutating_router():
 
     router = APIRouter()
 
-    @router.post("/")
+    @router.post("/", status_code=204)
     def create() -> None: ...
 
     return router
@@ -270,8 +270,8 @@ def test_create_app_skips_the_write_tier_check_for_a_read_only_router() -> None:
 
     router = APIRouter()
 
-    @router.get("/")
-    def show() -> None: ...
+    @router.get("/", response_model=dict)
+    def show() -> dict: ...
 
     # No mutating route, so a low write tier under a high read tier is not a write-surface
     # inversion — the check does not apply and the app boots.
