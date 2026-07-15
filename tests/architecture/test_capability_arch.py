@@ -26,7 +26,7 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CAPS = _REPO_ROOT / "packages" / "backend" / "capabilities"
 
 # Capabilities that must be clean with zero opt-outs.
-_CLEAN_CAPS = ("access", "groups", "users", "eventbus", "oidc")
+_CLEAN_CAPS = ("access", "groups", "users", "eventbus", "oidc", "realtime")
 # Capabilities whose only violations are governed framework-primitive opt-outs.
 _BUDGETED_CAPS = (
     "auth",

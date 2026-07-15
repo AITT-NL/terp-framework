@@ -12,6 +12,13 @@ export { Authorized, useCan } from "./Authorized";
 export type { AuthorizedProps } from "./Authorized";
 export { useResource } from "./useResource";
 export type { Resource, ResourceSource } from "./useResource";
+export { useRealtimeChannel } from "./realtime";
+export type {
+  RealtimeChannelOptions,
+  RealtimeChannelState,
+  RealtimeStatus,
+  RealtimeTransport,
+} from "./realtime";
 export { unwrap, ApiError } from "./unwrap";
 export type { FetchResult } from "./unwrap";
 export { ResourceList } from "./ResourceList";

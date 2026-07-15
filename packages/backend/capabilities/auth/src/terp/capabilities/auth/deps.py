@@ -103,6 +103,30 @@ def build_get_principal(
     return get_principal
 
 
+def build_realtime_validator() -> Callable[[Principal, str], bool]:
+    """Validate the server-retained bearer behind a realtime connection ticket.
+
+    Native transports cannot send the Authorization header after the generated
+    client mints their one-use ticket. The ticket retains the credential only
+    in server-side TTL state; this validator rechecks signature/expiry and that
+    its subject+role still match the captured principal. Store-backed epoch /
+    active-user revocation is an app concern (it owns the identity store):
+    compose this validator inside the realtime capability's
+    ``principal_validator`` with the app's own fresh-session check.
+    """
+
+    def validate(principal: Principal, credential: str) -> bool:
+        if not credential:
+            return False
+        try:
+            claims = decode_access_token(credential)
+        except AuthenticationError:
+            return False
+        return claims.subject == principal.id and claims.role == principal.role
+
+    return validate
+
+
 def tenant_from_bearer(request: Request) -> uuid.UUID | None:
     """Resolve the signed ``tenant`` claim from the request's Bearer token.
 
@@ -120,4 +144,10 @@ def tenant_from_bearer(request: Request) -> uuid.UUID | None:
         return None
 
 
-__all__ = ["TokenValidator", "build_get_principal", "get_principal", "tenant_from_bearer"]
+__all__ = [
+    "TokenValidator",
+    "build_get_principal",
+    "build_realtime_validator",
+    "get_principal",
+    "tenant_from_bearer",
+]

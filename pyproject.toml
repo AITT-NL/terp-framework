@@ -19,6 +19,7 @@ members = [
     "packages/backend/capabilities/outbox",
     "packages/backend/capabilities/jobs_celery",
     "packages/backend/capabilities/redis",
+    "packages/backend/capabilities/realtime",
     "packages/backend/capabilities/oidc",
     "packages/backend/capabilities/scheduler_apscheduler",
     "packages/backend/capabilities/scheduler_celery_beat",
@@ -45,6 +46,7 @@ terp-cap-jobs-celery = { workspace = true }
 terp-cap-oidc = { workspace = true }
 terp-cap-outbox = { workspace = true }
 terp-cap-redis = { workspace = true }
+terp-cap-realtime = { workspace = true }
 terp-cap-scheduler-apscheduler = { workspace = true }
 terp-cap-scheduler-celery-beat = { workspace = true }
 terp-cap-sync = { workspace = true }

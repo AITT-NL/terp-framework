@@ -27,7 +27,13 @@ import uuid
 
 from sqlmodel import Session
 
-from terp.capabilities.auth import LoginThrottle, build_login_module, build_me_module
+from terp.capabilities.auth import (
+    LoginThrottle,
+    build_login_module,
+    build_me_module,
+    build_realtime_validator,
+    decode_access_token,
+)
 from terp.capabilities.identity import (
     FederatedIdentityService,
     IdentityService,
@@ -35,7 +41,7 @@ from terp.capabilities.identity import (
 )
 from terp.capabilities.oidc import OIDCClaims, OIDCProviderConfig, build_oidc_module
 from terp.capabilities.users import UsersService
-from terp.core import InMemoryThrottleStore, Principal, get_settings
+from terp.core import InMemoryThrottleStore, Principal, get_session, get_settings
 
 from control_plane import control_plane
 
@@ -56,6 +62,25 @@ throttle_store = InMemoryThrottleStore()
 # password-reset / logged-out user's token is rejected mid-session. It is marked, so
 # create_app(require_token_revocation=True) accepts it.
 principal_provider = _identity.principal_provider()
+_credential_is_current = build_realtime_validator()
+
+
+def realtime_session_factory():
+    """Fresh-session seam for long-lived realtime revocation checks."""
+    return get_session()
+
+
+def realtime_principal_validator(principal: Principal, credential: str) -> bool:
+    """Credential integrity + the same live identity epoch check as HTTP."""
+    if not _credential_is_current(principal, credential):
+        return False
+    sessions = realtime_session_factory()
+    session = next(sessions)
+    try:
+        claims = decode_access_token(credential)
+        return _identity.token_is_current(session, claims)
+    finally:
+        sessions.close()
 
 # Per-account login lockout (on by default). A module global so the e2e suite can reset
 # its in-process counters between cases (the login module is itself a module global).

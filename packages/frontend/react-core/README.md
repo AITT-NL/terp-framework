@@ -14,9 +14,11 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
 - **Token-styled primitives only** — raw `<button>` / `<input>` / `<select>` /
   `<textarea>` are refused; use `Button` / `Input` / `Select` / `Textarea` plus the
   higher-level form primitives (`Checkbox`, `RadioGroup`, `Switch`).
-- **Generated client only** — raw `fetch` / `XMLHttpRequest` / `WebSocket` /
-  `EventSource` / `navigator.sendBeacon` are refused; use `useTerpClient()` (typed
-  from the backend OpenAPI) and `unwrap` its results.
+- **Generated client + sanctioned realtime only** — raw `fetch` / `XMLHttpRequest` /
+  `WebSocket` / `EventSource` / `navigator.sendBeacon` are refused; use
+  `useTerpClient()` (typed from the backend OpenAPI) and `unwrap` for request/response,
+  or `useRealtimeChannel()` for typed SSE/WebSocket subscriptions. The hook mints a
+  one-use connection ticket through the generated client; bearer tokens never enter URLs.
 - **Design tokens, not inline colours** — style with the CSS variables from
   `@terp/contract` (`var(--color-*)`, `var(--space-*)`, `var(--font-*)`).
 - **User-facing text is `UiText`** — every text prop accepts a plain string or an
@@ -101,6 +103,7 @@ marker, counted by the escape-hatch budget.
 | `InMemoryDataViewRepository`, `HttpDataViewRepository` | Data repositories (client-side / server-side); `useServerDataView` keeps server query state in the URL. |
 | `InMemoryViewStateRepository`, `LocalStorageViewStateRepository` | Preference persistence seam. |
 | `useResource` | An async collection: rows + loading/error + reload + create-then-reload. |
+| `useRealtimeChannel` | The sanctioned typed SSE/WebSocket seam for the optional realtime capability: mints a short-lived one-use ticket via the authenticated generated client, validates every inbound JSON payload with the channel's runtime type guard, and exposes connection state / last message / WebSocket send. App modules never touch raw transports. |
 | `ResourceList` | The standard simple CRUD list screen: titled section, write-gated create form, loading/error/empty states. Composable — screens needing more render their own React. |
 | `unwrap`, `ApiError` | Turn a generated-client result into data-or-throw; `ApiError` carries the envelope's `code` / `status` / `requestId`. |
 | `FileUpload`, `useFileDownload` | The files-capability surface (ADR 0056/0057): a token-styled attachment picker that uploads through the typed client, and an authenticated download helper (a raw `<a href>` would carry no bearer token). |

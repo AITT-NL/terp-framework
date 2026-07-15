@@ -48,6 +48,7 @@ export interface SsoSession {
 }
 
 interface TerpContextValue {
+  baseUrl: string;
   client: TerpClient;
   auth: AuthSession;
   sso: SsoSession;
@@ -269,8 +270,8 @@ export function TerpProvider({
   );
 
   const value = useMemo<TerpContextValue>(
-    () => ({ client, auth, sso }),
-    [client, auth, sso],
+    () => ({ baseUrl, client, auth, sso }),
+    [baseUrl, client, auth, sso],
   );
 
   return <TerpContext.Provider value={value}>{children}</TerpContext.Provider>;
@@ -301,6 +302,11 @@ function useTerp(): TerpContextValue {
  */
 export function useTerpClient<AppPaths extends {} = ContractPaths>(): TerpClientFor<AppPaths> {
   return useTerp().client as unknown as TerpClientFor<AppPaths>;
+}
+
+/** @internal The configured backend origin for sanctioned transport hooks. */
+export function useTerpBaseUrl(): string {
+  return useTerp().baseUrl;
 }
 
 /** The current {@link AuthSession}: login / logout / refresh / currentUser / can. */

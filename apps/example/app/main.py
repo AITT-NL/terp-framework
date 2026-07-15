@@ -12,11 +12,20 @@ from terp.capabilities.access import enforce_permission
 from terp.capabilities.audit import persist_audit
 from terp.capabilities.auth import tenant_from_bearer
 from terp.capabilities.eventbus import dispatch_in_process
+from terp.capabilities.realtime import configure_realtime
 from terp.capabilities.tenancy import TenantMiddleware
 from terp.core import ModuleSpec, create_app, settings
 from terp.migrations import assert_migrations_current
 
-from app.auth import login_module, me_module, oidc_module, principal_provider, throttle_store
+from app.auth import (
+    login_module,
+    me_module,
+    oidc_module,
+    principal_provider,
+    realtime_principal_validator,
+    throttle_store,
+)
+from app import realtime as _realtime_channels  # noqa: F401 (registers typed channels)
 from app.modules.journals.module import module as journals_module
 from app.modules.notes.module import module as notes_module
 from app.modules.projects.module import module as projects_module
@@ -25,6 +34,7 @@ from control_plane import base_control_plane, control_plane
 
 
 _BASE_CAPABILITIES = ("access", "audit", "groups", "users")
+_REALTIME_CAPABILITIES = (*_BASE_CAPABILITIES, "realtime")
 
 
 def _create(
@@ -93,6 +103,11 @@ def build() -> FastAPI:
     if oidc_module is not None:
         modules.append(oidc_module)
 
+    _realtime_channels.register_realtime_channels()
+    configure_realtime(
+        permission_enforcer=enforce_permission,
+        principal_validator=realtime_principal_validator,
+    )
     return _create(
         *modules,
         notes_module,
@@ -100,7 +115,7 @@ def build() -> FastAPI:
         projects_module,
         journals_module,
         title="Terp example app",
-        capability_names=(*_BASE_CAPABILITIES, "files", "webhooks"),
+        capability_names=(*_REALTIME_CAPABILITIES, "files", "webhooks"),
         plane=control_plane,
         job_queue=OutboxJobQueue(),
     )

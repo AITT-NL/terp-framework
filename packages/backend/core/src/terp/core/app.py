@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import get_args, get_origin, get_type_hints
 
 from fastapi import APIRouter, Depends, FastAPI, Request
+from starlette.requests import HTTPConnection
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
@@ -161,7 +162,7 @@ def build_guard(
     """
 
     def guard(
-        request: Request,
+        connection: HTTPConnection,
         principal: Principal | None = Depends(principal_provider),
         session: Session = Depends(get_session),
     ) -> None:
@@ -171,9 +172,18 @@ def build_guard(
             raise AuthenticationError()
         if permission_model is not None and not permission_model.has_role(principal.role):
             raise PermissionDeniedError()
+        # ``HTTPConnection`` is the common Starlette base of Request and
+        # WebSocket, so the SAME deny-by-default module guard protects both
+        # transports. A WebSocket has no HTTP method after upgrade and is a
+        # read subscription surface here; a bidirectional channel authorizes
+        # its inbound messages explicitly in the realtime capability.
+        scope = getattr(connection, "scope", {})
+        method = getattr(connection, "method", None) or scope.get(
+            "method", "POST" if scope.get("type") == "websocket" else "GET"
+        )
         required = (
             policy.write_requirement
-            if request.method in _MUTATING_METHODS
+            if method in _MUTATING_METHODS
             else policy.read_requirement
         )
         if principal.role.rank < required.min_rank:
@@ -226,8 +236,12 @@ def build_read_only_request_binder() -> Callable[..., AsyncIterator[None]]:
     route) and request-scoped (set on entry, reset on exit).
     """
 
-    async def binder(request: Request) -> AsyncIterator[None]:
-        with read_only_request(request.method.upper() in _SAFE_METHODS):
+    async def binder(connection: HTTPConnection) -> AsyncIterator[None]:
+        scope = getattr(connection, "scope", {})
+        method = getattr(connection, "method", None) or scope.get(
+            "method", "POST" if scope.get("type") == "websocket" else "GET"
+        )
+        with read_only_request(method.upper() in _SAFE_METHODS):
             yield
 
     return binder

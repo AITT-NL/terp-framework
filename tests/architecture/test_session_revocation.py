@@ -35,6 +35,7 @@ from terp.capabilities.auth import (
     AccountLockedError,
     LoginThrottle,
     build_get_principal,
+    build_realtime_validator,
     create_access_token,
     decode_access_token,
 )
@@ -185,6 +186,31 @@ def test_validated_provider_rejects_a_token_its_validator_fails() -> None:
     # missing token is unauthenticated regardless of the validator.
     assert build_get_principal()(request, _SESSION) == Principal(id=subject, role=Roles.EDITOR)
     assert accept(_request(), _SESSION) is None
+
+
+def test_realtime_validator_rechecks_credential_identity() -> None:
+    settings.SECRET_KEY = _KEY
+    subject = uuid.uuid4()
+    token = create_access_token(subject=subject, role=Roles.EDITOR, token_version=3)
+    principal = Principal(id=subject, role=Roles.EDITOR)
+    validate = build_realtime_validator()
+    assert validate(principal, token) is True
+    assert validate(Principal(id=uuid.uuid4(), role=Roles.EDITOR), token) is False
+    assert validate(Principal(id=subject, role=Roles.ADMIN), token) is False
+    assert validate(principal, "not-a-token") is False
+    assert validate(principal, "") is False
+
+
+def test_realtime_validator_refuses_an_expired_access_token() -> None:
+    settings.SECRET_KEY = _KEY
+    subject = uuid.uuid4()
+    expired = create_access_token(
+        subject=subject,
+        role=Roles.EDITOR,
+        expires_in=datetime.timedelta(seconds=-1),
+    )
+    validate = build_realtime_validator()
+    assert validate(Principal(id=subject, role=Roles.EDITOR), expired) is False
 
 
 # --------------------------------------------------------------------------- #

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from terp.capabilities.redis.stores import (
     RedisCacheStore,
+    RedisConnectionTicketStore,
     RedisIdempotencyStore,
     RedisStoreBundle,
     RedisThrottleStore,
@@ -35,6 +36,7 @@ from terp.capabilities.redis.stores import (
 
 __all__ = [
     "RedisCacheStore",
+    "RedisConnectionTicketStore",
     "RedisIdempotencyStore",
     "RedisStoreBundle",
     "RedisThrottleStore",

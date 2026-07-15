@@ -22,6 +22,7 @@ from terp.core._internal.session_guard import WriteGuardedSession
 
 from terp.capabilities.auth import create_access_token
 
+from app import auth as app_auth
 from app.auth import login_throttle
 from app.main import build
 
@@ -80,9 +81,12 @@ def app_db(db_engine: Engine) -> Iterator[FastAPI]:
             yield session
 
     application.dependency_overrides[get_session] = _session_override
+    original_realtime_factory = app_auth.realtime_session_factory
+    app_auth.realtime_session_factory = _session_override
     try:
         yield application
     finally:
+        app_auth.realtime_session_factory = original_realtime_factory
         application.dependency_overrides.clear()
 
 

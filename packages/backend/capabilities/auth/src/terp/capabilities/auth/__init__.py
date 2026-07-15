@@ -12,6 +12,7 @@ from __future__ import annotations
 from terp.capabilities.auth.deps import (
     TokenValidator,
     build_get_principal,
+    build_realtime_validator,
     get_principal,
     tenant_from_bearer,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "TokenValidator",
     "TokenVersionResolver",
     "build_get_principal",
+    "build_realtime_validator",
     "build_login_module",
     "build_login_router",
     "build_me_module",

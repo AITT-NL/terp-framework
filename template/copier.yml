@@ -67,6 +67,11 @@ use_events:
   help: Domain events (terp-cap-eventbus) — typed catalog + in-process dispatch
   default: false
 
+use_realtime:
+  type: bool
+  help: Realtime channels (terp-cap-realtime) — typed SSE + WebSocket subscriptions
+  default: false
+
 # Derived (not prompted): the PascalCase identifier for the module's React view and nav,
 # e.g. invoices -> Invoices. Mirrors the CLI scaffolder's _pascal so a template module and
 # a `terp new module` module look identical.

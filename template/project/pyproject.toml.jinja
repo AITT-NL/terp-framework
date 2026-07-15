@@ -34,6 +34,10 @@ dependencies = [
     # Domain events: typed catalog + in-process dispatch (ADR 0008).
     "terp-cap-eventbus==0.1.0",
 {%- endif %}
+{%- if use_realtime %}
+    # Realtime: typed, policy-gated SSE + WebSocket channels (auto-discovered).
+    "terp-cap-realtime==0.1.0",
+{%- endif %}
 ]
 
 [dependency-groups]

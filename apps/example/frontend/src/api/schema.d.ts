@@ -395,6 +395,40 @@ export interface paths {
         patch: operations["update_item_api_v1_projects__item_id__patch"];
         trace?: never;
     };
+    "/api/v1/realtime/sse/{channel_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Subscribe Sse */
+        get: operations["subscribe_sse_api_v1_realtime_sse__channel_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/realtime/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mint Ticket */
+        post: operations["mint_ticket_api_v1_realtime_tickets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks/": {
         parameters: {
             query?: never;
@@ -1210,6 +1244,30 @@ export interface components {
              * @description Version from the most recent read response, used for optimistic concurrency control. A stale value is rejected with HTTP 409.
              */
             version: number;
+        };
+        /** TicketRequest */
+        TicketRequest: {
+            /** Channel */
+            channel: string;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "sse" | "websocket";
+        };
+        /** TicketResponse */
+        TicketResponse: {
+            /** Channel */
+            channel: string;
+            /** Expires In */
+            expires_in: number;
+            /** Ticket */
+            ticket: string;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "sse" | "websocket";
         };
         /**
          * UserAdminUpdate
@@ -2607,6 +2665,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    subscribe_sse_api_v1_realtime_sse__channel_name__get: {
+        parameters: {
+            query: {
+                ticket: string;
+            };
+            header?: never;
+            path: {
+                channel_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mint_ticket_api_v1_realtime_tickets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketResponse"];
                 };
             };
             /** @description Validation Error */

@@ -1356,6 +1356,67 @@
         "title": "TaskUpdate",
         "type": "object"
       },
+      "TicketRequest": {
+        "properties": {
+          "channel": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Channel",
+            "type": "string"
+          },
+          "transport": {
+            "enum": [
+              "sse",
+              "websocket"
+            ],
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "transport"
+        ],
+        "title": "TicketRequest",
+        "type": "object"
+      },
+      "TicketResponse": {
+        "properties": {
+          "channel": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Channel",
+            "type": "string"
+          },
+          "expires_in": {
+            "exclusiveMinimum": 0.0,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "ticket": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Ticket",
+            "type": "string"
+          },
+          "transport": {
+            "enum": [
+              "sse",
+              "websocket"
+            ],
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_in",
+          "channel",
+          "transport"
+        ],
+        "title": "TicketResponse",
+        "type": "object"
+      },
       "UserAdminUpdate": {
         "additionalProperties": false,
         "description": "Admin edits a user's email / role rank (OCC ``version`` required).\n\nActivation state is changed through the dedicated ``deactivate`` /\n``reactivate`` actions, not this generic patch.",
@@ -3471,6 +3532,93 @@
         "summary": "Update Item",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/realtime/sse/{channel_name}": {
+      "get": {
+        "operationId": "subscribe_sse_api_v1_realtime_sse__channel_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_name",
+            "required": true,
+            "schema": {
+              "title": "Channel Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ticket",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Ticket",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Subscribe Sse",
+        "tags": [
+          "realtime"
+        ]
+      }
+    },
+    "/api/v1/realtime/tickets": {
+      "post": {
+        "operationId": "mint_ticket_api_v1_realtime_tickets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mint Ticket",
+        "tags": [
+          "realtime"
         ]
       }
     },

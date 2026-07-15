@@ -29,7 +29,7 @@ def test_copier_declares_the_layout_presets_and_capability_toggles() -> None:
     config = (_TEMPLATE / "copier.yml").read_text()
     for choice in ("list", "hub", "process", "portal", "blank"):
         assert f": {choice}" in config
-    for toggle in ("use_files", "use_sso", "use_events"):
+    for toggle in ("use_files", "use_sso", "use_events", "use_realtime"):
         assert toggle in config
     # The blank layout renders module_name empty, which makes copier skip the
     # starter-module trees entirely (an empty rendered path segment is skipped).
@@ -127,7 +127,12 @@ def test_capability_toggles_wire_the_composition_root() -> None:
     # A toggled capability is a dependency AND its composition-root wiring — never a
     # half-mounted dep. Files rides discovery; SSO/events need explicit seams.
     pyproject = (_PROJECT / "pyproject.toml.jinja").read_text()
-    for dep in ("terp-cap-files", "terp-cap-oidc", "terp-cap-eventbus"):
+    for dep in (
+        "terp-cap-files",
+        "terp-cap-oidc",
+        "terp-cap-eventbus",
+        "terp-cap-realtime",
+    ):
         assert dep in pyproject
     main = (_PROJECT / "app" / "main.py.jinja").read_text()
     assert "if use_events %}" in main

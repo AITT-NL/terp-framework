@@ -8,6 +8,7 @@ shared-store boot markers are asserted through the public kernel predicates.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterable
 from typing import Any
 
@@ -15,12 +16,16 @@ import pytest
 
 from terp.capabilities.redis import (
     RedisCacheStore,
+    RedisConnectionTicketStore,
     RedisIdempotencyStore,
     RedisStoreBundle,
     RedisThrottleStore,
 )
+from terp.capabilities.realtime import ConnectionTicket
 from terp.capabilities.redis import stores as redis_stores
 from terp.core import (
+    EDITOR,
+    Principal,
     StoredResponse,
     is_shared_cache_store,
     is_shared_idempotency_store,
@@ -50,6 +55,10 @@ class _FakeRedis:
             return [self.delete(key)] if self._hget(key, "lease") == str(args[1]) else [0]
         if "local count = redis.call('INCR'" in script:
             return self._hit(key, int(args[1]))
+        if "local value = redis.call('GET'" in script:
+            value = self.get(key)
+            self.delete(key)
+            return value  # type: ignore[return-value]
         raise AssertionError(f"unexpected script: {script}")
 
     def get(self, key: str) -> object | None:
@@ -152,12 +161,14 @@ def test_bundle_marks_all_three_stores_as_shared(factory: object) -> None:
     assert is_shared_idempotency_store(bundle.idempotency) is True
     assert is_shared_throttle_store(bundle.throttle) is True
     assert is_shared_cache_store(bundle.cache) is True
+    assert isinstance(bundle.realtime_tickets, RedisConnectionTicketStore)
 
 
 def test_from_url_constructors_create_clients_without_connecting() -> None:
     assert RedisIdempotencyStore.from_url("redis://localhost/0")
     assert RedisThrottleStore.from_url("redis://localhost/0")
     assert RedisCacheStore.from_url("redis://localhost/0")
+    assert RedisConnectionTicketStore.from_url("redis://localhost/0")
     assert RedisStoreBundle.from_url("redis://localhost/0")
 
 
@@ -244,10 +255,36 @@ def test_redis_cache_get_set_delete_and_ttl_validation() -> None:
         store.set("k", "v", ttl_seconds=0)
 
 
+def test_redis_realtime_ticket_is_atomic_single_use_exact_match_and_ttl_bounded() -> None:
+    client = _FakeRedis(bytes_mode=False)
+    store = RedisConnectionTicketStore(client)
+    ticket = ConnectionTicket(
+        Principal(id=uuid.uuid4(), role=EDITOR),
+        "notes.live",
+        "websocket",
+        credential="access-token",
+        audience="tenant-a",
+    )
+    token = store.issue(ticket, ttl_seconds=10)
+    assert store.consume(token, channel="notes.live", transport="websocket") == ticket
+    assert store.consume(token, channel="notes.live", transport="websocket") is None
+
+    token = store.issue(ticket, ttl_seconds=10)
+    assert store.consume(token, channel="other", transport="websocket") is None
+    assert store.consume(token, channel="notes.live", transport="websocket") is None
+
+    token = store.issue(ticket, ttl_seconds=10)
+    client.now = 10
+    assert store.consume(token, channel="notes.live", transport="websocket") is None
+    with pytest.raises(ValueError, match="positive"):
+        store.issue(ticket, ttl_seconds=0)
+
+
 def test_public_module_exports_are_complete() -> None:
     exported: Iterable[str] = redis_stores.__all__
     assert set(exported) == {
         "RedisCacheStore",
+        "RedisConnectionTicketStore",
         "RedisIdempotencyStore",
         "RedisStoreBundle",
         "RedisThrottleStore",
