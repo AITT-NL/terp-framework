@@ -14,11 +14,15 @@ project_slug:
   default: my-terp-app
 
 # ---------------------------------------------------------------------------
-# Layout preset — the shape the app starts in. All three render a runnable,
+# Layout preset — the shape the app starts in. All five render a runnable,
 # loginnable app; they differ only in what greets a signed-in user.
 #   list  — the starter module's list IS the landing page (single-area app).
 #   hub   — a HubPage landing at "/" with cards into each area; the starter
 #           module mounts at its own path.
+#   process — a work-queue landing grouped by status; the starter module owns
+#             the actual records at its own path.
+#   portal  — a personal landing focused on the signed-in user's tasks and
+#             records; the starter module mounts at its own path.
 #   blank — no starter module at all: sign-in + admin surface + a welcome
 #           page; modules are built afterwards (terp new module / the agent).
 # ---------------------------------------------------------------------------
@@ -29,6 +33,8 @@ layout:
   choices:
     "Single-list app — the first module's list is the landing page": list
     "Hub landing — a dashboard of cards into each area": hub
+    "Process — a status-based work queue for requests and cases": process
+    "Portal — a personal overview for customers, staff or suppliers": portal
     "Blank shell — sign-in and admin only; add modules later": blank
 
 # The starter module. Not asked for the blank layout: it renders empty there,

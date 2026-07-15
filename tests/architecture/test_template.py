@@ -23,11 +23,11 @@ def test_copier_config_declares_inputs_and_subdirectory() -> None:
 
 
 def test_copier_declares_the_layout_presets_and_capability_toggles() -> None:
-    # The create wizard's deterministic surface: three layout presets and the
+    # The create wizard's deterministic surface: five layout presets and the
     # capability toggles whose wiring the template renders end-to-end. Every
     # toggle here must stay provably green in the template-acceptance matrix.
     config = (_TEMPLATE / "copier.yml").read_text()
-    for choice in ("list", "hub", "blank"):
+    for choice in ("list", "hub", "process", "portal", "blank"):
         assert f": {choice}" in config
     for toggle in ("use_files", "use_sso", "use_events"):
         assert toggle in config
@@ -98,27 +98,29 @@ def test_copier_declares_derived_module_pascal() -> None:
 
 
 def test_layout_presets_render_a_home_module() -> None:
-    # Hub and blank layouts get a frontend-only `home` module owning "/" (the dir name is a
+    # Every layout except list gets a frontend-only `home` module owning "/" (the dir name is a
     # copier conditional: it renders empty — and is skipped — for the single-list layout).
     home = _PROJECT / "frontend" / "src" / "modules" / "{% if layout != 'list' %}home{% endif %}"
     manifest = (home / "module.tsx.jinja").read_text()
     assert "defineModuleManifest(" in manifest
     assert 'path: "/"' in manifest
     view = (home / "Home.tsx.jinja").read_text()
-    # Hub: a HubPage of cards, linking through the stack's router Link (no raw anchors).
+    # Hub/process/portal: a HubPage of cards, linking through the stack's router Link.
     assert "HubPage" in view
     assert "HubCard" in view
     assert 'import { Link } from "@tanstack/react-router"' in view
     assert "renderLink=" in view
+    assert "Werkvoorraad" in view
+    assert "Mijn overzicht" in view
     # Blank: a plain archetype-framed welcome page pointing at `terp new module`.
     assert "Page" in view
     assert "terp new module" in view
     assert "style={{" not in view
-    # The starter module vacates "/" for the hub layout and keeps it otherwise.
+    # The starter module vacates "/" for every multi-screen layout.
     records = (
         _PROJECT / "frontend" / "src" / "modules" / "{{ module_name }}" / "module.tsx.jinja"
     ).read_text()
-    assert "{% if layout == 'hub' %}/{{ module_name }}{% else %}/{% endif %}" in records
+    assert "{% if layout in ['hub', 'process', 'portal'] %}/{{ module_name }}{% else %}/{% endif %}" in records
 
 
 def test_capability_toggles_wire_the_composition_root() -> None:

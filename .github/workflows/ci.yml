@@ -129,6 +129,10 @@ jobs:
               --data use_events=true
           - variant: blank
             copier-args: "--data layout=blank"
+          - variant: process
+            copier-args: "--data layout=process"
+          - variant: portal
+            copier-args: "--data layout=portal"
     steps:
       - uses: actions/checkout@v4
 

@@ -1,4 +1,4 @@
-{% if layout == 'hub' -%}
+{% if layout in ['hub', 'process', 'portal'] -%}
 // The hub landing: a card per area (each can carry a live `stat`, making the hub a
 // lightweight dashboard). Add a card here when you add a module.
 import { HubCard, HubPage } from "@terp/react-core";
@@ -6,13 +6,52 @@ import { Link } from "@tanstack/react-router";
 
 export function Home() {
   return (
-    <HubPage title="{{ project_name }}">
+    <HubPage title="{% if layout == 'process' %}Werkvoorraad{% elif layout == 'portal' %}Mijn overzicht{% else %}{{ project_name }}{% endif %}">
+{% if layout == 'process' -%}
+      <HubCard
+        to="/{{ module_name }}"
+        title="Nieuw"
+        description="Bekijk nieuwe {{ module_name }} en bepaal de volgende stap."
+        stat="Te beoordelen"
+        renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
+      />
+      <HubCard
+        to="/{{ module_name }}"
+        title="In behandeling"
+        description="Ga verder met {{ module_name }} waaraan al wordt gewerkt."
+        stat="Actief"
+        renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
+      />
+      <HubCard
+        to="/{{ module_name }}"
+        title="Afgerond"
+        description="Bekijk voltooide {{ module_name }} en hun geschiedenis."
+        stat="Archief"
+        renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
+      />
+{%- elif layout == 'portal' -%}
+      <HubCard
+        to="/{{ module_name }}"
+        title="Mijn {{ module_pascal }}"
+        description="Bekijk de {{ module_name }} die bij jouw account horen."
+        stat="Persoonlijk"
+        renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
+      />
+      <HubCard
+        to="/{{ module_name }}"
+        title="Openstaande acties"
+        description="Ga verder met wat nog aandacht of informatie nodig heeft."
+        stat="Actie nodig"
+        renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
+      />
+{%- else -%}
       <HubCard
         to="/{{ module_name }}"
         title="{{ module_pascal }}"
         description="Browse and manage {{ module_name }}."
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
+{%- endif %}
     </HubPage>
   );
 }

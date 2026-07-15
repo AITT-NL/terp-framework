@@ -9,6 +9,14 @@ row scoping for you, with precise, fixable messages.
 {% if layout == 'hub' -%}
 - **Layout: hub landing** — `frontend/src/modules/home` owns `/` (a `HubPage` of cards);
   each module mounts at its own path. Add a `HubCard` when you add a module.
+{%- elif layout == 'process' -%}
+- **Layout: process** — `frontend/src/modules/home` owns `/` as a status-based work
+  queue; the starter module mounts at `/{{ module_name }}`. Replace the starter
+  summary labels with live counts when the typed client is wired.
+{%- elif layout == 'portal' -%}
+- **Layout: portal** — `frontend/src/modules/home` owns `/` as the signed-in user's
+  personal overview; the starter module mounts at `/{{ module_name }}`. Apply an
+  ownership trait when records must be scoped per user (`uv run terp guide ownership`).
 {%- elif layout == 'blank' -%}
 - **Layout: blank shell** — no starter module; `frontend/src/modules/home` renders a
   welcome page at `/`. Build the first real module with `uv run terp new module <name>`

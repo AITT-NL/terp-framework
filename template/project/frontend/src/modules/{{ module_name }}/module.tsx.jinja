@@ -3,11 +3,11 @@ import { defineModuleManifest } from "@terp/contract";
 import { {{ module_pascal }}List } from "./{{ module_pascal }}List";
 
 // Dropped in and auto-discovered by renderTerpApp's import.meta.glob — no registration.
-// In the hub layout the home module owns "/", so this module mounts at its own path.
+// In every multi-screen layout the home module owns "/", so this module mounts at its own path.
 export const manifest = defineModuleManifest({
   name: "{{ module_name }}",
-  routes: [{ path: "{% if layout == 'hub' %}/{{ module_name }}{% else %}/{% endif %}", view: "{{ module_pascal }}List" }],
-  nav: [{ label: "{{ module_pascal }}", to: "{% if layout == 'hub' %}/{{ module_name }}{% else %}/{% endif %}", icon: "list" }],
+  routes: [{ path: "{% if layout in ['hub', 'process', 'portal'] %}/{{ module_name }}{% else %}/{% endif %}", view: "{{ module_pascal }}List" }],
+  nav: [{ label: "{{ module_pascal }}", to: "{% if layout in ['hub', 'process', 'portal'] %}/{{ module_name }}{% else %}/{% endif %}", icon: "list" }],
 });
 
 export const views = { {{ module_pascal }}List };
