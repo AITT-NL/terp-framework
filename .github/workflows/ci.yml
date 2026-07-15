@@ -36,6 +36,17 @@ jobs:
       - name: Run the gate (tests + arch rules + 100% coverage)
         run: uv run pytest --cov=terp
 
+      # The verifiable certification artifact (scorecard.schema.json): the
+      # terp-arch scorecard over the violation corpus, emitted by the same
+      # harness the gate just proved green. Self-validating — an invalid or
+      # failing scorecard fails this step, never uploads quietly.
+      - name: Emit the terp-arch conformance scorecard
+        run: uv run python tools/emit_backend_scorecard.py --out scorecard-terp-arch.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-terp-arch
+          path: scorecard-terp-arch.json
+
   # The PostgreSQL conformance lane (ADR 0069): the migration subsystem must hold on
   # the verified production dialect, not only the SQLite dev/test engine — SQLite
   # masks real differences (VARCHAR length enforcement, timezone-aware datetimes,

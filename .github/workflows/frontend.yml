@@ -60,6 +60,16 @@ jobs:
       - name: Test @terp/eslint-boundaries (the boundary rules fire)
         run: npm run -w @terp/eslint-boundaries test
 
+      # The verifiable certification artifact (scorecard.schema.json): the
+      # adapter's scorecard over the violation corpus, emitted by the same
+      # harness the suite above just proved green. Self-validating.
+      - name: Emit the @terp/eslint-boundaries conformance scorecard
+        run: node packages/frontend/eslint-boundaries/src/scorecard.js --out scorecard-eslint-boundaries.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-eslint-boundaries
+          path: scorecard-eslint-boundaries.json
+
       - name: Regenerate the example client and fail on drift from openapi.json
         run: |
           npm run -w @terp-example/frontend generate

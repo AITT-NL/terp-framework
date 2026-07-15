@@ -80,7 +80,7 @@ from terp.arch.rules import (
 #: runtime ``terp_spec`` read: the spec data package is a certification dependency of
 #: the platform repo, not of a generated app, and the version is a property of the
 #: toolchain build. Held equal to the pinned ``terp-spec`` release by the framework
-#: gate (``tests/architecture/test_spec_catalog.py``), so it cannot drift silently.
+#: gate (``tests/architecture/test_check_json.py``), so it cannot drift silently.
 SPEC_VERSION = "0.8.0"
 
 __all__ = [

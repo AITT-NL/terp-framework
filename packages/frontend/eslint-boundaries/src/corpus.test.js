@@ -18,10 +18,9 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
-import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
-import terpBoundaries, { catalogRuleId, LAYOUT_CONTRACT_FILE } from "./index.js";
+import { lintCaseFindings } from "./corpus-harness.js";
 
 // The spec is a declared dependency (@terp/spec, ADR 0082), never a repo-relative path —
 // inside the monorepo it resolves to the workspace member; after a repo split, to the pin.
@@ -37,66 +36,8 @@ const entries = fs
   .map((name) => JSON.parse(fs.readFileSync(path.join(CATALOG, name), "utf8")))
   .filter((entry) => entry.corpus);
 
-function caseFiles(caseDir) {
-  const files = [];
-  const walk = (dir) => {
-    for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, item.name);
-      if (item.isDirectory()) walk(full);
-      else files.push(full);
-    }
-  };
-  walk(caseDir);
-  return files;
-}
-
-/**
- * A case that ships a `layout-contract.json` at its root has opted into that layout
- * contract (exactly as a real app does, ADR 0079). The harness lints with virtual file
- * paths, so the rule's on-disk upward search cannot see the case's config; it is passed
- * through the rule's `contract` option instead — the same activation, spelled explicitly.
- */
-function caseLayoutContract(caseDir) {
-  const file = path.join(caseDir, LAYOUT_CONTRACT_FILE);
-  if (!fs.existsSync(file)) return null;
-  const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-  return typeof parsed.contract === "string" ? parsed.contract : null;
-}
-
 async function lintCase(caseDir) {
   return (await lintCaseFindings(caseDir)).map((finding) => finding.rule);
-}
-
-/** Lint a corpus case into spec-shaped findings (`findings.schema.json`): rule/path/line/message. */
-async function lintCaseFindings(caseDir) {
-  const contract = caseLayoutContract(caseDir);
-  const overrideConfig =
-    contract === null
-      ? terpBoundaries
-      : [
-          ...terpBoundaries,
-          {
-            files: ["**/modules/**/*.{ts,tsx}"],
-            rules: { "terp/layout-contract": ["error", { contract }] },
-          },
-        ];
-  const eslint = new ESLint({ overrideConfigFile: true, overrideConfig });
-  const findings = [];
-  for (const file of caseFiles(caseDir)) {
-    if (!/\.tsx?$/.test(file)) continue; // config carriers (layout-contract.json) are not linted
-    // Resolve under the cwd so the config's `files` globs match the module path.
-    const filePath = path.resolve(path.relative(caseDir, file));
-    const [result] = await eslint.lintText(fs.readFileSync(file, "utf8"), { filePath });
-    findings.push(
-      ...result.messages.map((message) => ({
-        rule: catalogRuleId(message),
-        path: path.relative(caseDir, file).split(path.sep).join("/"),
-        line: message.line,
-        message: message.message,
-      })),
-    );
-  }
-  return findings;
 }
 
 describe("frontend corpus (spec/corpus/frontend)", () => {

@@ -48,6 +48,18 @@ jobs:
           npm run -w @terp-example/frontend typecheck
           npm run -w @terp-example/frontend lint
           npm run -w @terp-example/frontend build
+      # The verifiable certification artifacts for this release: both checkers'
+      # scorecards over the violation corpus (scorecard.schema.json), attached
+      # to the verified run the publish jobs depend on.
+      - name: Emit the conformance scorecards
+        run: |
+          set -eux
+          uv run python tools/emit_backend_scorecard.py --out scorecard-terp-arch.json
+          node packages/frontend/eslint-boundaries/src/scorecard.js --out scorecard-eslint-boundaries.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conformance-scorecards
+          path: scorecard-*.json
 
   publish-pypi:
     needs: verify
