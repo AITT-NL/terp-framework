@@ -27,6 +27,28 @@ class PendingMigrationsError(MigrationError):
         )
 
 
+class MissingMigrationsError(MigrationError):
+    """A declared package defines table models but ships no migration history at all.
+
+    Raised by :func:`terp.migrations.assert_no_missing_histories` (run by the
+    :func:`terp.migrations.assert_migrations_current` boot guard) — the runtime half
+    of the ``tables_have_migrations`` rule. Such a package is invisible to the
+    pending-revisions check (it has no history to be "behind"), so without this
+    refusal its tables would silently never be created and the first request would
+    fail on a nonexistent table. The packages are named so the fix is obvious.
+    """
+
+    def __init__(self, missing: Sequence[str]) -> None:
+        self.missing = tuple(missing)
+        joined = ", ".join(self.missing)
+        super().__init__(
+            f"these packages define table models but ship no migration history: "
+            f"{joined}. Run `terp migrate make <label>` to generate the first revision "
+            f"and commit it; a deployed app builds its schema from packaged migrations, "
+            f"never from dev-time schema auto-creation."
+        )
+
+
 class MigrationDriftError(MigrationError):
     """Committed migrations do not match the models: autogenerate still finds changes.
 
@@ -45,4 +67,9 @@ class MigrationDriftError(MigrationError):
         )
 
 
-__all__ = ["MigrationDriftError", "MigrationError", "PendingMigrationsError"]
+__all__ = [
+    "MigrationDriftError",
+    "MigrationError",
+    "MissingMigrationsError",
+    "PendingMigrationsError",
+]

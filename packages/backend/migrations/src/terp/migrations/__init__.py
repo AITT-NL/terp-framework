@@ -21,11 +21,13 @@ from terp.migrations.cli import migrate_main
 from terp.migrations.errors import (
     MigrationDriftError,
     MigrationError,
+    MissingMigrationsError,
     PendingMigrationsError,
 )
 from terp.migrations.guard import (
     assert_migrations_current,
     assert_migrations_match_models,
+    assert_no_missing_histories,
 )
 from terp.migrations.orchestrate import (
     MigrationStatus,
@@ -46,10 +48,12 @@ __all__ = [
     "MigrationDriftError",
     "MigrationError",
     "MigrationStatus",
+    "MissingMigrationsError",
     "PendingMigrationsError",
     "adopt_schemas",
     "assert_migrations_current",
     "assert_migrations_match_models",
+    "assert_no_missing_histories",
     "downgrade",
     "ensure_database_search_path",
     "grant_runtime_role",

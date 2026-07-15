@@ -408,11 +408,11 @@ def check_tables_have_migrations(
     A deployed Terp app builds its schema from packaged migrations, not
     ``create_all`` (the production boot guard ``assert_migrations_current`` applies
     them) — so an ``app/modules/<name>`` that declares a ``table=True`` model but has
-    no ``migrations/versions/`` revision would deploy with that table **missing**: the
-    boot guard checks only *declared* histories, so it never notices, and the first
-    request 500s on a nonexistent table. This rule fails the build instead, the
-    build-time complement to the runtime boot guard (the two halves of the migration
-    control). Run ``terp migrate make <name>`` and commit the generated revision.
+    no ``migrations/versions/`` revision would deploy with that table **missing** and
+    the first request would 500 on a nonexistent table. This rule fails the build
+    first; at boot the guard's ``assert_no_missing_histories`` half refuses the same
+    violation fail closed (the two halves of the migration control). Run
+    ``terp migrate make <name>`` and commit the generated revision.
 
     Scope: app modules under ``modules/<name>`` only. A capability ships its history
     via a ``terp.migrations`` entry point (declared in packaging, not visible to a
