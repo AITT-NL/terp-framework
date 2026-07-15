@@ -36,6 +36,17 @@ html, body {
 body {
   background: var(--color-neutral-50);
 }
+/* Border-box baseline: react-core sizes components as padding-inclusive
+   (e.g. LoginView's 100vh page with padding, inputs at width:100% with
+   padding) and app modules cannot ship a stylesheet of their own, so the
+   framework owns this. Under the browser default (content-box) a
+   min-height:100vh + padding screen overflows the viewport by exactly its
+   padding — phantom scrollbars on pages that fit. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
 /* Shared focus-visible ring: every interactive element that opts in via
    [data-terp] shows a soft outline ring. !important lets the ring beat
