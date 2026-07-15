@@ -310,18 +310,91 @@ def _refuse_route_mutation(name: str) -> Callable[..., None]:
     return refused
 
 
-def _freeze_app_route_registration(app: FastAPI) -> None:
-    """Runtime half of ``no_raw_app_routes``: no post-composition surface.
+# Middleware registration spellings on the composed app. Post-composition middleware
+# wraps the central security stack from outside every declared control, so both the
+# imperative call and the decorator fail closed once the app is composed.
+_APP_MIDDLEWARE_MUTATORS = ("add_middleware", "middleware")
 
-    ``create_app`` is the only code path allowed to mount routers because it injects
-    the module policy guard at mount time. Once the app is composed, route mutation on
-    the app or its underlying router is a guard bypass, so every registration spelling
-    fails closed.
+
+def _refuse_middleware_registration(name: str) -> Callable[..., None]:
+    def refused(*_args: object, **_kwargs: object) -> None:
+        raise BootError(
+            f"middleware registration via {name}(...) after create_app() composition is "
+            "refused; pass middleware=[Middleware(...)] to create_app() — the one "
+            "sanctioned composition seam (the no_adhoc_middleware rule)"
+        )
+
+    return refused
+
+
+def _freeze_app_middleware_registration(app: FastAPI) -> None:
+    """Runtime half of ``no_adhoc_middleware``: no post-composition middleware.
+
+    Cross-cutting HTTP security is declared once (``SecurityConfig`` + the
+    ``create_app`` *middleware* parameter) and installed at composition, inside the
+    central security stack. Middleware registered on the composed app afterwards —
+    ``add_middleware(...)`` or the ``@app.middleware("http")`` decorator — would wrap
+    that stack from outside every declared control, so both spellings fail closed.
+    """
+    for method in _APP_MIDDLEWARE_MUTATORS:
+        setattr(app, method, _refuse_middleware_registration(f"app.{method}"))
+
+
+class _FrozenDependencyOverrides(dict):
+    """The composed app's ``dependency_overrides``: readable forever, never writable.
+
+    Runtime half of ``no_dependency_overrides``: composition binds the principal /
+    session seams once (``create_app(principal_provider=...)`` registers the app's
+    own override *before* the freeze), and any later write would silently disable
+    authentication or swap the database session outside every guard — so every
+    mutating spelling fails closed while reads (FastAPI's per-request override
+    lookup) keep working.
+    """
+
+    def _refused(self, *_args: object, **_kwargs: object) -> None:
+        raise BootError(
+            "rebinding dependency_overrides after create_app() composition is refused; "
+            "bind the seam at composition instead (e.g. "
+            "create_app(principal_provider=...)) — overrides are a test-only seam, "
+            "writable only in the local environment (the no_dependency_overrides rule)"
+        )
+
+    __setitem__ = _refused
+    __delitem__ = _refused
+    __ior__ = _refused
+    clear = _refused
+    pop = _refused
+    popitem = _refused
+    setdefault = _refused
+    update = _refused
+
+
+def _freeze_dependency_overrides(app: FastAPI) -> None:
+    """Swap the composed app's override map for the refusing, read-only mapping."""
+    app.dependency_overrides = _FrozenDependencyOverrides(app.dependency_overrides)
+
+
+def _freeze_app_route_registration(app: FastAPI) -> None:
+    """The composition freeze: no post-composition registration surface, fail closed.
+
+    Runtime half of ``no_raw_app_routes`` (and, through the two extensions below, of
+    ``no_adhoc_middleware`` and ``no_dependency_overrides``). ``create_app`` is the
+    only code path allowed to mount routers because it injects the module policy
+    guard at mount time. Once the app is composed, route mutation on the app or its
+    underlying router is a guard bypass, so every registration spelling fails closed;
+    middleware registration is refused on the same footing. The dependency-override
+    map is frozen only outside the ``local`` environment: overrides are the
+    sanctioned *test* seam (a local test suite overrides ``get_session`` against a
+    scratch engine), while a deployed app must never rebind its auth / session seams
+    post-composition.
     """
     for target_name, target in (("app", app), ("app.router", app.router)):
         for method in _APP_ROUTE_MUTATORS:
             if hasattr(target, method):
                 setattr(target, method, _refuse_route_mutation(f"{target_name}.{method}"))
+    _freeze_app_middleware_registration(app)
+    if get_settings().ENVIRONMENT != "local":
+        _freeze_dependency_overrides(app)
 
 
 def _validate_requires(specs: Sequence[ModuleSpec]) -> None:
@@ -850,7 +923,12 @@ def create_app(
     A non-default *principal_provider* is also registered as a dependency
     override for ``get_principal``, so route-level dependencies that read the
     caller through the public seam (e.g. ``access.require_permission``) receive
-    the configured principal — not only the policy guard does.
+    the configured principal — not only the policy guard does. That registration
+    happens at composition: outside the ``local`` environment the returned app's
+    ``dependency_overrides`` map is frozen (any later write raises
+    :class:`BootError`, fail closed — the runtime half of the
+    ``no_dependency_overrides`` rule), while local development / test suites keep
+    the writable map as the sanctioned test-only seam.
 
     *audit_sink* installs the durable audit sink (e.g.
     ``terp.capabilities.audit.persist_audit``). When omitted, audit records are
@@ -878,7 +956,9 @@ def create_app(
     so a request still passes request-id, security headers, CORS, rate-limit, and
     the body-size limit first; this is how a capability's middleware is wired
     without a module ever calling ``add_middleware`` (the ``no_adhoc_middleware``
-    rule keeps the composition root the only path).
+    rule keeps the composition root the only path). The seam is enforced at
+    runtime too: on the composed app, ``add_middleware(...)`` and the
+    ``@app.middleware(...)`` decorator raise :class:`BootError` (fail closed).
 
     *migration_check* is the fail-closed migration boot guard seam: a callable given
     the process engine that raises if the database schema is behind the code (e.g.
