@@ -33,6 +33,7 @@ RUN set -eux; \
         packages/backend/capabilities/groups \
         packages/backend/capabilities/users \
         packages/backend/capabilities/outbox \
+        packages/backend/capabilities/realtime \
         packages/backend/capabilities/oidc \
         packages/backend/capabilities/webhooks \
         packages/backend/cli \
@@ -56,7 +57,7 @@ RUN uv pip install --system --no-cache --find-links /wheels \
         terp-core terp-arch terp-migrations terp-cli \
         terp-cap-auth terp-cap-identity terp-cap-tenancy terp-cap-access \
         terp-cap-audit terp-cap-eventbus terp-cap-files terp-cap-groups terp-cap-users \
-        terp-cap-outbox terp-cap-oidc terp-cap-webhooks \
+        terp-cap-outbox terp-cap-realtime terp-cap-oidc terp-cap-webhooks \
         uvicorn "psycopg[binary]" \
     && rm -rf /wheels
 

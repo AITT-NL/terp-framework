@@ -90,7 +90,10 @@ def _principal(role=EDITOR) -> Principal:
     return Principal(id=uuid.uuid4(), role=role)
 
 
-def _request(token: str = "test-access-token") -> Request:
+_FAKE_BEARER = "test-access-token"  # noqa: S105 - test fixture, not a real credential
+
+
+def _request(token: str = _FAKE_BEARER) -> Request:
     return Request(
         {
             "type": "http",

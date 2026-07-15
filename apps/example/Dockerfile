@@ -32,6 +32,7 @@ RUN uv pip install --system --no-cache \
     -e packages/backend/capabilities/groups \
     -e packages/backend/capabilities/users \
     -e packages/backend/capabilities/outbox \
+    -e packages/backend/capabilities/realtime \
     -e packages/backend/capabilities/redis \
     -e packages/backend/capabilities/oidc \
     -e packages/backend/capabilities/webhooks \
