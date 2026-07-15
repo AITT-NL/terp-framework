@@ -268,6 +268,26 @@ def test_check_report_envelope_is_clean_and_attributed_on_the_example_app() -> N
     assert envelope["rules"] == [f"backend/{rule}" for rule in sorted(GUIDE_TOPIC_BY_RULE)]
 
 
+def test_check_report_envelope_versions_a_source_checkout_as_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A checkout where terp-arch is not an installed distribution (the platform
+    # repo itself, a vendored copy) still emits a well-formed checker identity:
+    # version "0", never a crash and never an invented number.
+    import importlib.metadata
+
+    from terp.cli import check_report_envelope
+
+    def missing(name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", missing)
+    envelope = check_report_envelope(
+        str(_EXAMPLE_ROOT), budget_path=str(_EXAMPLE_ROOT / "escape-hatch-budget.json")
+    )
+    assert envelope["checker"] == {"tool": "terp-arch", "version": "0"}
+
+
 def test_check_report_envelope_validates_against_the_spec_schema(
     tmp_path: pathlib.Path,
 ) -> None:

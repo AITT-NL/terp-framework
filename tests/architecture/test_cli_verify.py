@@ -25,6 +25,7 @@ from terp.cli.verify import (  # noqa: E402
     PROFILES,
     VerifyCheck,
     _json_documents,
+    _run_api_docs_drift,
     _run_subprocess,
 )
 
@@ -212,3 +213,144 @@ def test_json_documents_finds_indented_and_inline_docs() -> None:
     documents = _json_documents(stdout)
     markers = [next(iter(doc)) for doc in documents]
     assert "terp_findings" in markers and "terp_check_report" in markers
+
+
+# --------------------------------------------------------------------------- #
+# the subprocess/api-docs runners + the human (text) surfaces
+# --------------------------------------------------------------------------- #
+def _python_check(check_id: str, code: str, *, category: str = "build") -> VerifyCheck:
+    """A profile check running this interpreter (portable: no npm/uv spawn)."""
+    return VerifyCheck(
+        id=check_id,
+        category=category,
+        command=f'"{pathlib.Path(sys.executable).as_posix()}" -c "{code}"',
+        scope=("app/**",),
+    )
+
+
+def test_subprocess_checks_carry_their_published_documents(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A subprocess check's stdout documents (here a legacy terp_findings
+    # envelope) are parsed out and carried structurally in the terp_verify
+    # envelope — the consumer never re-derives them from the output tail.
+    envelope_code = (
+        "import json; print(json.dumps({'terp_findings': 1, 'rules': []}))"
+    )
+    monkeypatch.setitem(
+        PROFILES, "quick", (_python_check("fake-lint", envelope_code),)
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "quick", "--root", str(tmp_path), "--format", "json"])
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is True
+    (check,) = envelope["checks"]
+    assert check["id"] == "fake-lint" and check["exit_code"] == 0
+    (report,) = check["reports"]
+    assert report["terp_findings"] == 1
+
+
+def test_text_mode_prints_the_failing_tail_and_the_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The human surface: a failing check's output tail lands on stderr and the
+    # run ends with the profile verdict — RED here, green on a passing rerun.
+    failing = "import sys; print('the build exploded'); sys.exit(3)"
+    monkeypatch.setitem(PROFILES, "quick", (_python_check("fake-build", failing),))
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "quick", "--root", str(tmp_path)])
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "the build exploded" in captured.err
+    assert "profile quick is RED" in captured.err
+
+    monkeypatch.setitem(
+        PROFILES, "quick", (_python_check("fake-build", "print('ok')"),)
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "quick", "--root", str(tmp_path)])
+    assert excinfo.value.code == 0
+    assert "profile quick is green" in capsys.readouterr().err
+
+
+def test_cli_list_prints_the_human_manifest(capsys: pytest.CaptureFixture[str]) -> None:
+    # `--list` without --format json: the same manifest for human eyes,
+    # including each check's requires note — and still runs nothing.
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "release", "--list"])
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "profile release:" in out
+    for check in PROFILES["release"]:
+        assert check.id in out
+    assert "[requires the Docker workbench" in out
+
+
+def _git(root: pathlib.Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_api_docs_drift_check_detects_a_stale_committed_copy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    # The release-profile drift pair: regenerate docs/ (in the project root)
+    # and fail when the committed copy differs. api_docs itself boots the
+    # project's kernel — faked here; the check's own contract is the chdir +
+    # regenerate + `git diff --exit-code -- docs` choreography.
+    import terp.cli
+
+    root = tmp_path
+    docs = root / "docs"
+    docs.mkdir()
+    (docs / "api.md").write_text("old\n", encoding="utf-8")
+    _git(root, "init", "-b", "main")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-m", "committed docs")
+
+    def fake_api_docs(out: str) -> list[pathlib.Path]:
+        target = pathlib.Path(out) / "api.md"
+        target.write_text("regenerated\n", encoding="utf-8")
+        return [target]
+
+    monkeypatch.setattr(terp.cli, "api_docs", fake_api_docs)
+    exit_code, output = _run_api_docs_drift(root)
+    assert exit_code != 0
+    assert "wrote" in output and "drifted from the committed copy" in output
+    # And the clean case: regenerating exactly the committed content passes.
+    (docs / "api.md").write_text("old\n", encoding="utf-8")
+    monkeypatch.setattr(
+        terp.cli, "api_docs", lambda out: [pathlib.Path(out) / "api.md"]
+    )
+    exit_code, output = _run_api_docs_drift(root)
+    assert exit_code == 0
+
+
+def test_api_docs_drift_is_a_noop_until_docs_are_committed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # No docs/ directory = the pair is not enabled yet: success with a hint,
+    # exercised through the profile dispatch (the "api-docs-drift" runner).
+    from terp.cli.verify import _API_DOCS_DRIFT
+
+    monkeypatch.setitem(PROFILES, "quick", (_API_DOCS_DRIFT,))
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "quick", "--root", str(tmp_path), "--format", "json"])
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    (check,) = envelope["checks"]
+    assert check["ok"] is True
+    assert "drift check skipped" in check["output_tail"]
