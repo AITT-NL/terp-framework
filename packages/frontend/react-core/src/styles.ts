@@ -25,6 +25,18 @@ export const TERP_STYLES_ID = "terp-core-styles";
 
 /** The interaction-state rules layered over the component's inline base styles. */
 export const TERP_STYLES_CSS = `
+/* Document reset: the app shell owns the full canvas. Without this the
+   browser's default 8px body margin leaves the document's own (white)
+   canvas visible as a ring around the shell — most obvious in Studio's
+   preview iframe and in dark mode. The body carries the same canvas token
+   as the shell so overscroll never flashes white. */
+html, body {
+  margin: 0;
+}
+body {
+  background: var(--color-neutral-50);
+}
+
 /* Shared focus-visible ring: every interactive element that opts in via
    [data-terp] shows a soft outline ring. !important lets the ring beat
    inline base box-shadows (e.g. the primary button's resting shadow) so
