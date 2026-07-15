@@ -373,8 +373,11 @@ the mirrored constants are parity-locked against `terp.arch` by
 `test_runtime_constants_match_the_arch_harness`
 (`tests/architecture/test_response_model_guard.py`). The terp-spec catalog entries
 `backend/routes_declare_response_model`, `backend/schemas_exclude_sensitive_fields`,
-and `backend/list_routes_paginate` can now flip `runtime.applicability` from
-`deferred` to `required` (a one-line catalog change each, per ADR 0084), leaving
+and `backend/list_routes_paginate` **flipped `runtime.applicability` from `deferred`
+to `required` in spec v0.6.0** (each declaring its `terp.core` `_validate_*` runtime
+enforcement entry, per ADR 0084); the framework adopted the release by bumping both
+spec pins to `v0.6.0` together (ADR 0082) and dropping the one-release
+`LEGACY_MARKER_ALIASES` + the version-gated parity skips. That leaves
 `no_adhoc_middleware`, `no_dependency_overrides`, and `tables_have_migrations` as the
 remaining deferrals.
 

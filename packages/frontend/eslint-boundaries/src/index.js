@@ -576,29 +576,13 @@ function suppressibleRuleName(message) {
   return id.slice("frontend/".length);
 }
 
-/**
- * DEPRECATED transitional aliases (Terp Standard < 0.6.0 spelled these rules' markers
- * as the shared ESLint core ids). Honoured for exactly one release so the pinned
- * 0.5.x corpus keeps certifying; removed with the 0.6.0 pin bump — the 0.6.x corpus
- * then pins that these spellings waive NOTHING.
- */
-const LEGACY_MARKER_ALIASES = new Set([
-  "no-restricted-syntax",
-  "no-restricted-imports",
-  "no-restricted-globals",
-]);
-
-/** Marker names the escape hatch recognises: catalog rule names (+ transitional aliases). */
+/** Marker names the escape hatch recognises: exactly the catalog rule names. */
 export function knownMarkerNames() {
-  const names = new Set(
+  return new Set(
     catalogRuleIds()
       .filter((id) => id !== "frontend/escape-hatch")
       .map((id) => id.slice("frontend/".length)),
   );
-  for (const alias of LEGACY_MARKER_ALIASES) {
-    names.add(alias);
-  }
-  return names;
 }
 
 const MARKER_RE = () =>
@@ -663,12 +647,11 @@ export function parseAllowMarkers(text) {
  * justified `# arch-allow-<rule>: <reason>` suppressions): a marker with a reason, on the
  * violating line or the line immediately above, suppresses that rule there. The marker names
  * the CATALOG rule (see {@link suppressibleRuleName}), so `spec/catalog/frontend/<rule>.json`'s
- * `opt_out` spelling is the one that works — for every detection path of the rule at once
- * (the pre-0.6.0 core-id spellings are honoured transitionally, see
- * {@link LEGACY_MARKER_ALIASES}). An unjustified marker (no reason) is itself reported —
- * never silently honoured — and so is a marker naming no governed rule (a typo or a stale
- * name can never be budgeted into legitimacy). Marker counts are governed by the budget
- * ratchet (./budget.js), so opt-outs stay visible, greppable, and can only shrink.
+ * `opt_out` spelling is the one that works — for every detection path of the rule at once.
+ * An unjustified marker (no reason) is itself reported — never silently honoured — and so
+ * is a marker naming no governed rule (a typo, a stale name, or a pre-0.6.0 core-id
+ * spelling can never be budgeted into legitimacy). Marker counts are governed by the
+ * budget ratchet (./budget.js), so opt-outs stay visible, greppable, and can only shrink.
  */
 export function suppressWithMarkers(messages, text) {
   const markers = parseAllowMarkers(text);
@@ -679,12 +662,9 @@ export function suppressWithMarkers(messages, text) {
     if (name === null) {
       return true; // not a waivable boundary finding
     }
-    const legacyAlias = LEGACY_MARKER_ALIASES.has(String(message.ruleId ?? ""))
-      ? String(message.ruleId)
-      : null;
     return !justified.some(
       (marker) =>
-        (marker.rule === name || (legacyAlias !== null && marker.rule === legacyAlias)) &&
+        marker.rule === name &&
         (marker.line === message.line || marker.line === message.line - 1),
     );
   });

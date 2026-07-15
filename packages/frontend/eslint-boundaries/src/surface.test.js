@@ -134,11 +134,8 @@ describe("behavioural parity: each declared primitive is refused with the right 
 // A violating line per rule; the spec's own `opt_out` (a justified marker naming
 // the CATALOG rule) must suppress exactly that rule — and the escape-hatch
 // governance rule declares no opt_out at all (waiving governance is refused).
-// Spec >= 0.6.0 states this contract; the block self-activates when the
-// @terp/spec pin moves past the pre-0.6.0 core-id spellings.
+// The pinned spec (>= 0.6.0) states this contract.
 // ---------------------------------------------------------------------------
-const SPEC_VERSION = fs.readFileSync(path.join(SPEC_ROOT, "VERSION"), "utf8").trim();
-const SPEC_STATES_CATALOG_MARKERS = !/^0\.[0-5]\./.test(SPEC_VERSION);
 const CATALOG_DIR = path.join(SPEC_ROOT, "catalog", "frontend");
 const CATALOG_ENTRIES = fs
   .readdirSync(CATALOG_DIR)
@@ -161,7 +158,7 @@ const VIOLATION_SNIPPETS = {
     'export const W = () => <a href="https://example.com" target="_blank">x</a>;',
 };
 
-describe.skipIf(!SPEC_STATES_CATALOG_MARKERS)(
+describe(
   "opt-out parity: every catalog opt_out spelling suppresses its own rule",
   () => {
     for (const entry of CATALOG_ENTRIES) {

@@ -220,15 +220,17 @@ describe("terpBoundaries", () => {
     expect(await lint(code)).toEqual([]);
   });
 
-  it("still honours the pre-0.6.0 core-id spelling, transitionally", async () => {
-    // DEPRECATED alias (LEGACY_MARKER_ALIASES): honoured for exactly one release so
-    // the pinned 0.5.x corpus keeps certifying; the 0.6.0 pin bump removes it and
-    // the 0.6.x corpus then pins that this spelling waives nothing.
+  it("refuses the retired pre-0.6.0 core-id spelling", async () => {
+    // The one-release transitional aliases (LEGACY_MARKER_ALIASES) are gone with the
+    // 0.6.0 pin: a core-id spelling names no catalog rule, so it waives nothing and
+    // is itself reported as an ungoverned marker.
     const code = [
       "// terp-allow-no-restricted-syntax: pre-0.6.0 spelling (migrate to the catalog rule)",
       "export const W = () => <button>x</button>;",
     ].join("\n");
-    expect(await lint(code)).toEqual([]);
+    const rules = await lint(code);
+    expect(rules).toContain("no-restricted-syntax"); // not suppressed
+    expect(rules).toContain("terp/escape-hatch"); // the stale spelling is itself reported
   });
 
   it("reports a marker that names no governed rule instead of honouring it", async () => {
