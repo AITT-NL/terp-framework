@@ -13,18 +13,22 @@ with it owning ``Policy`` / ``Roles``.
 
 from __future__ import annotations
 
+import collections.abc
 import logging
+import re
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import get_args, get_origin
+from typing import get_args, get_origin, get_type_hints
 
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from pydantic import BaseModel
 from sqlalchemy import Engine
 from sqlmodel import Session, SQLModel
 from starlette.middleware import Middleware
+from starlette.responses import Response
 
 from terp.core.audit import (
     AuditSink,
@@ -634,18 +638,162 @@ def _iter_api_routes(routes: Sequence[object]) -> Iterator[APIRoute]:
             yield from _iter_api_routes(sub)
 
 
-def _validate_router_response_models(router: APIRouter) -> None:
-    """Fail closed if a route on *router* serializes a ``table=True`` ORM model.
+# HTTP status codes whose responses carry no body (RFC 9110); a route returning one of
+# these legitimately has no ``response_model`` to declare. Mirrors the ``terp.arch``
+# ``_NO_BODY_STATUS_CODES`` constant (rules/http.py) -- ``terp.core`` is layer 0 and
+# cannot import the harness, so the two copies are parity-locked by
+# ``tests/architecture/test_response_model_guard.py``.
+_NO_BODY_STATUS_CODES: frozenset[int] = frozenset({204, 205, 304})
 
-    A ``response_model`` that is (or wraps) a persisted model leaks every column --
-    a password hash, an internal flag -- straight through the boundary. The
-    build-time ``terp.arch`` ``response_model_not_table_model`` rule catches this
-    within a scanned tree; this runtime control is the universal guarantee, also
-    covering a table model reached across packages where a static scan cannot
-    follow the symbol (and routes declared on a nested, included router). Return a
-    ``*Read`` DTO (:class:`terp.core.BaseSchema`).
+# Bare (unpaginated) collection types a ``response_model`` must not use at the top
+# level: a list route returns a capped ``Page[T]``, never an unbounded ``list[...]``
+# (ADR 0006). The runtime counterpart of ``terp.arch``'s ``_COLLECTION_RESPONSE_TYPES``
+# name set (typing aliases such as ``List`` / ``Sequence`` normalize to these classes
+# through ``get_origin``); parity-locked with the harness by the same test.
+_UNPAGINATED_COLLECTION_TYPES: frozenset[type] = frozenset(
+    {
+        list,
+        tuple,
+        set,
+        frozenset,
+        collections.abc.Sequence,
+        collections.abc.Iterable,
+        collections.abc.Collection,
+    }
+)
+
+# A response DTO must never carry a credential-shaped field -- serializing one leaks a
+# secret out of the API boundary. Matched as an underscore-delimited word so a benign
+# name (``sort_key`` / ``version``) is never caught; a bearer ``token`` only as a
+# *trailing* word so ``token_type`` / ``token_version`` stay clean. Byte-for-byte
+# mirror of ``terp.arch``'s ``_SENSITIVE_FIELD_RE`` / ``_SENSITIVE_FIELD_EXCLUSIONS``
+# (rules/_support.py) -- the layer-0 boundary forbids importing the harness, so the
+# copies are parity-locked by ``tests/architecture/test_response_model_guard.py``.
+_SENSITIVE_FIELD_RE = re.compile(
+    r"(?:^|_)(?:password|passwd|pwd|passphrase|secret|salt|api_key|apikey"
+    r"|private_key|privatekey|credentials?)(?:$|_)"
+    r"|(?:^|_)token$"
+)
+_SENSITIVE_FIELD_EXCLUSIONS = frozenset({"token_version", "version"})
+
+
+def _is_sensitive_field_name(name: str) -> bool:
+    """True for a credential-shaped field name a response DTO must not expose."""
+    lowered = name.lower()
+    return lowered not in _SENSITIVE_FIELD_EXCLUSIONS and bool(
+        _SENSITIVE_FIELD_RE.search(lowered)
+    )
+
+
+def _endpoint_returns_raw_response(endpoint: Callable[..., object]) -> bool:
+    """True when *endpoint* annotates its return as a Starlette ``Response`` subclass.
+
+    Such a route (a ``StreamingResponse`` file download, a redirect) is a non-content
+    route by construction: FastAPI never serializes a model for it, so it legitimately
+    declares no ``response_model`` -- the runtime analogue of the build-time rule's
+    governed ``# arch-allow-routes-declare-response-model`` opt-out for binary routes.
+    """
+    try:
+        annotation = get_type_hints(endpoint).get("return")
+    except Exception:
+        # Unresolvable hints: treat as a content route so the check fails closed.
+        return False
+    return isinstance(annotation, type) and issubclass(annotation, Response)
+
+
+def _validate_routes_declare_response_model(route: APIRoute) -> None:
+    """Boot half of ``backend/routes_declare_response_model`` (Terp Standard).
+
+    A content route with no declared ``response_model`` can serialize a bare ORM/data
+    object straight out of the boundary. Exempt are the no-body statuses (204/205/304)
+    and a route whose endpoint returns a raw ``Response`` subclass (a streamed
+    download has no model to declare). Runs on the composed route table, so a route
+    registered imperatively or on a nested, included router is covered too.
+    """
+    if route.response_model is not None:
+        return
+    if route.status_code in _NO_BODY_STATUS_CODES:
+        return
+    if _endpoint_returns_raw_response(route.endpoint):
+        return
+    raise BootError(
+        f"route {route.path!r} declares no response_model and is not a no-body "
+        "status (204/205/304); a bare ORM/data object must not leave the API "
+        "boundary -- declare response_model= (or annotate the endpoint's return as "
+        "a Response subclass for a non-content route) "
+        "[Terp Standard backend/routes_declare_response_model]"
+    )
+
+
+def _validate_schemas_exclude_sensitive_fields(route: APIRoute) -> None:
+    """Boot half of ``backend/schemas_exclude_sensitive_fields`` (Terp Standard).
+
+    Every pydantic model referenced by the route's ``response_model`` (the DTO itself,
+    or one nested in a ``Page[...]`` / ``list[...]`` envelope) must not declare a
+    credential-shaped field -- serializing a ``password`` / ``*secret`` / ``*token``
+    leaks the credential to every caller. A framework-owned DTO (``terp.*``) is
+    exempt: the framework tree runs the same rule in its own gate, where a deliberate
+    exception (the auth capability's minted ``AccessToken``) carries a justified,
+    budgeted ``# arch-allow-*`` marker.
+    """
+    for tp in _referenced_response_types(route.response_model):
+        if not (isinstance(tp, type) and issubclass(tp, BaseModel)):
+            continue
+        if _is_orm_table_model(tp) or tp.__module__.partition(".")[0] == "terp":
+            continue
+        for field_name in tp.model_fields:
+            if _is_sensitive_field_name(field_name):
+                raise BootError(
+                    f"route {route.path!r} response DTO {tp.__name__!r} exposes the "
+                    f"credential-shaped field {field_name!r}; a response schema must "
+                    "not serialize a password/secret/token out of the API boundary "
+                    "[Terp Standard backend/schemas_exclude_sensitive_fields]"
+                )
+
+
+def _validate_list_routes_paginate(route: APIRoute) -> None:
+    """Boot half of ``backend/list_routes_paginate`` (Terp Standard).
+
+    A ``response_model`` that is a bare collection (``list`` / ``list[...]`` /
+    ``Sequence[...]``) serializes an **unbounded** collection -- a
+    resource-exhaustion and over-exposure footgun (ADR 0006, Tier A). Return a capped
+    ``terp.core.Page[...]`` (via ``Page.of(...)`` with ``PaginationDep``) instead; a
+    single-object ``response_model`` is unaffected.
+    """
+    annotation = route.response_model
+    top = get_origin(annotation) or annotation
+    if isinstance(top, type) and top in _UNPAGINATED_COLLECTION_TYPES:
+        raise BootError(
+            f"route {route.path!r} returns a bare collection response_model (an "
+            "unbounded list); return a capped terp.core.Page[...] (with "
+            "PaginationDep) so a list can never serialize unbounded rows "
+            "[Terp Standard backend/list_routes_paginate]"
+        )
+
+
+def _validate_router_response_models(router: APIRouter) -> None:
+    """Fail closed if a route on *router* violates a response-boundary rule.
+
+    The boot-time route scan over the **composed** route table -- covering routes
+    registered by decorator, imperatively (``add_api_route``), and on nested,
+    included routers, plus a response type reached across packages where a static
+    scan cannot follow the symbol. Each mounted route must:
+
+    * not serialize a ``table=True`` ORM model (``response_model_not_table_model``):
+      a persisted model leaks every column -- a password hash, an internal flag --
+      straight through the boundary; return a ``*Read`` DTO
+      (:class:`terp.core.BaseSchema`) instead;
+    * declare a ``response_model`` unless it is a no-body or non-content route
+      (``routes_declare_response_model``);
+    * not expose a credential-shaped DTO field
+      (``schemas_exclude_sensitive_fields``);
+    * paginate a list response through ``Page[T]`` (``list_routes_paginate``).
+
+    Each check is the fail-closed runtime half of the same-named build-time
+    ``terp.arch`` rule (the two-layer story, ADR 0084).
     """
     for route in _iter_api_routes(router.routes):
+        _validate_routes_declare_response_model(route)
         if route.response_model is None:
             continue
         for tp in _referenced_response_types(route.response_model):
@@ -655,6 +803,8 @@ def _validate_router_response_models(router: APIRouter) -> None:
                     "response_model; a persisted model serializes every column (e.g. a "
                     "password hash) -- return a *Read DTO (terp.core.BaseSchema) instead"
                 )
+        _validate_schemas_exclude_sensitive_fields(route)
+        _validate_list_routes_paginate(route)
 
 
 def create_app(

@@ -37,6 +37,7 @@ from terp.core import (
     BaseTable,
     BaseUpdateSchema,
     ModuleSpec,
+    Page,
     Policy,
     Roles,
     SessionDep,
@@ -79,10 +80,10 @@ async def create_doc(data: _DocCreate, session: SessionDep) -> str:
     return docs.create(session, data).title
 
 
-@_router.get("/", response_model=list[str])
-async def list_docs(session: SessionDep) -> list[str]:
-    rows, _ = docs.list(session, skip=0, limit=100)
-    return sorted(row.title for row in rows)
+@_router.get("/", response_model=Page[str])
+async def list_docs(session: SessionDep) -> Page[str]:
+    rows, total = docs.list(session, skip=0, limit=100)
+    return Page[str](items=sorted(row.title for row in rows), total=total, skip=0, limit=100)
 
 
 # --- fixtures ---------------------------------------------------------------- #
@@ -172,8 +173,8 @@ def test_scoped_service_isolates_rows_by_token_tenant(app: FastAPI) -> None:
     assert client_b.post("/api/v1/docs/", json={"title": "b1"}).status_code == 200
     assert client_b.post("/api/v1/docs/", json={"title": "b2"}).status_code == 200
 
-    assert client_a.get("/api/v1/docs/").json() == ["a1"]
-    assert client_b.get("/api/v1/docs/").json() == ["b1", "b2"]
+    assert client_a.get("/api/v1/docs/").json()["items"] == ["a1"]
+    assert client_b.get("/api/v1/docs/").json()["items"] == ["b1", "b2"]
 
 
 def test_a_tokenless_write_is_rejected_fail_closed(app: FastAPI) -> None:
