@@ -1320,9 +1320,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     verify_parser.add_argument(
         "--format",
-        choices=("text", "json"),
+        choices=("text", "json", "assurance"),
         default="text",
-        help="Output format: text (human) or json (the terp_verify envelope; default: text)",
+        help="Output format: text (human), json (the terp_verify envelope), or "
+        "assurance (the release-assurance claim, assurance-profile.schema.json; "
+        "requires --profile release; default: text)",
     )
 
     user_parser = subcommands.add_parser(

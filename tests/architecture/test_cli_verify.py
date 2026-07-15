@@ -354,3 +354,146 @@ def test_api_docs_drift_is_a_noop_until_docs_are_committed(
     (check,) = envelope["checks"]
     assert check["ok"] is True
     assert "drift check skipped" in check["output_tail"]
+
+
+# --------------------------------------------------------------------------- #
+# the assurance profile — the release claim (assurance-profile.schema.json)
+# --------------------------------------------------------------------------- #
+def _assurance_schema() -> dict:
+    from terp_spec import spec_dir
+
+    return json.loads(
+        (spec_dir() / "assurance-profile.schema.json").read_text(encoding="utf-8")
+    )
+
+
+def test_assurance_lanes_mirror_the_pinned_spec_vocabulary() -> None:
+    """The lane constants are the spec's normative vocabulary, in order —
+    mirrored here (with the requirement mapping from the spec README's
+    assurance table) and held to the pinned schema so they cannot drift."""
+    from terp.cli.verify import ASSURANCE_LANES
+
+    schema = _assurance_schema()
+    enum = schema["properties"]["lanes"]["items"]["properties"]["id"]["enum"]
+    assert [lane_id for lane_id, _requirement, _checks in ASSURANCE_LANES] == list(enum)
+    assert {req for _lane, req, _checks in ASSURANCE_LANES} == {"required", "recommended"}
+
+
+def test_assurance_lanes_compose_only_release_profile_checks() -> None:
+    """Every composing check id is a member of the release profile — the run
+    the claim is emitted from always carries a verdict for every realised
+    lane (an absent verdict can therefore never be misread as a pass)."""
+    from terp.cli.verify import ASSURANCE_LANES
+
+    release_ids = {check.id for check in PROFILES["release"]}
+    for lane_id, _requirement, check_ids in ASSURANCE_LANES:
+        assert set(check_ids) <= release_ids, f"{lane_id} composes unknown checks"
+    # The required lanes are realised by this toolchain; a11y is declared
+    # not-run until its integration lands — never silently dropped.
+    composed = {lane: checks for lane, _req, checks in ASSURANCE_LANES}
+    assert composed["terp-standard"] and composed["appsec-baseline"]
+    assert composed["dependency-audit"]
+    assert composed["a11y"] == ()
+
+
+def _release_stub_profile(ok_ids: set[str], fail_ids: set[str]) -> tuple[VerifyCheck, ...]:
+    """The release profile's check ids as fast interpreter stubs."""
+    checks = []
+    for check in PROFILES["release"]:
+        code = "pass" if check.id in ok_ids else "import sys; sys.exit(1)"
+        if check.id in ok_ids or check.id in fail_ids:
+            checks.append(_python_check(check.id, code, category=check.category))
+    return tuple(checks)
+
+
+def test_assurance_emission_claims_on_required_lanes_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Every release check green except conformance (a recommended lane): the
+    # claim HOLDS (exit 0) while the document reports the red lane honestly.
+    release_ids = {check.id for check in PROFILES["release"]}
+    monkeypatch.setitem(
+        PROFILES,
+        "release",
+        _release_stub_profile(release_ids - {"conformance"}, {"conformance"}),
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "release", "--root", str(tmp_path), "--format", "assurance"])
+    assert excinfo.value.code == 0
+    document = json.loads(capsys.readouterr().out)
+    schema = _assurance_schema()
+    assert set(schema["required"]) <= set(document)
+    assert set(document) <= set(schema["properties"])
+    assert document["terp_assurance"] == 1
+    assert document["ok"] is True
+    assert document["profile"] == "release"
+    lanes = {lane["id"]: lane for lane in document["lanes"]}
+    assert [lane["id"] for lane in document["lanes"]] == list(
+        schema["properties"]["lanes"]["items"]["properties"]["id"]["enum"]
+    )
+    assert lanes["terp-standard"]["status"] == "passed"
+    assert lanes["dependency-audit"]["status"] == "passed"
+    assert lanes["dependency-audit"]["checks"] == [
+        "dependency-audit-python",
+        "dependency-audit-npm",
+    ]
+    assert lanes["blackbox-conformance"]["status"] == "failed"
+    assert lanes["a11y"] == {"id": "a11y", "status": "not-run", "checks": []}
+
+
+def test_assurance_emission_fails_the_claim_on_a_red_required_lane(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    release_ids = {check.id for check in PROFILES["release"]}
+    monkeypatch.setitem(
+        PROFILES,
+        "release",
+        _release_stub_profile(
+            release_ids - {"dependency-audit-npm"}, {"dependency-audit-npm"}
+        ),
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "release", "--root", str(tmp_path), "--format", "assurance"])
+    assert excinfo.value.code == 1
+    document = json.loads(capsys.readouterr().out)
+    assert document["ok"] is False
+    lanes = {lane["id"]: lane for lane in document["lanes"]}
+    # One red composing check fails the whole lane — never a partial pass.
+    assert lanes["dependency-audit"]["status"] == "failed"
+
+
+def test_assurance_refuses_partial_runs() -> None:
+    """A partial run can never quietly become a release claim: any profile but
+    release, an --only subset, and --list are each refused outright."""
+    for argv in (
+        ["verify", "--profile", "quick", "--format", "assurance"],
+        ["verify", "--profile", "release", "--only", "architecture", "--format", "assurance"],
+        ["verify", "--profile", "release", "--list", "--format", "assurance"],
+    ):
+        with pytest.raises(SystemExit, match="never become a release claim"):
+            main(argv)
+
+
+def test_assurance_toolchain_versions_a_source_checkout_as_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Same fallback as check_report_envelope: no installed terp-cli
+    # distribution => toolchain version "0", never a crash.
+    import importlib.metadata
+
+    from terp.cli.verify import assurance_document
+
+    def missing(name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", missing)
+    document = assurance_document([])
+    assert document["toolchain"] == {"tool": "terp-verify", "version": "0"}
+    # No results at all: every realised lane fails, the unrealised stays not-run.
+    lanes = {lane["id"]: lane["status"] for lane in document["lanes"]}
+    assert lanes["terp-standard"] == "failed" and lanes["a11y"] == "not-run"
+    assert document["ok"] is False

@@ -10,9 +10,10 @@ data and executed sequentially in the project root. Three profiles ratchet up:
 * ``full`` — the merge bar: quick plus the backend test suite, the delegated
   generic AppSec baseline (ruff ``S``, ADR 0085), and the production frontend
   build. This is exactly the template CI's blocking surface.
-* ``release`` — full plus the contract-drift checks and the black-box
-  conformance suite (which needs the Docker workbench running; see the check's
-  ``requires`` note in the manifest).
+* ``release`` — full plus the dependency audits (pip-audit / npm audit — the
+  spec's required ``dependency-audit`` assurance lane), the contract-drift
+  checks and the black-box conformance suite (which needs the Docker workbench
+  running; see the check's ``requires`` note in the manifest).
 
 ``--list`` prints the manifest without running anything — the seam a driving
 tool reads so its gate DEFINITION comes from the project's own pinned
@@ -22,6 +23,10 @@ envelope: per-check verdicts plus every Terp Standard check report
 (``terp_check_report`` document, ``app-check-report.schema.json``) and legacy
 findings envelope (``terp_findings``) the checks published on stdout — parsed
 out and carried structurally, never re-derived by the consumer.
+``--format assurance`` (release profile only) emits the spec's release-
+assurance claim instead (``assurance-profile.schema.json``): the run's checks
+composed into the normative evidence lanes, with the exit code following the
+required lanes.
 """
 
 from __future__ import annotations
@@ -112,6 +117,26 @@ _API_DOCS_DRIFT = VerifyCheck(
     runner="api-docs-drift",
 )
 
+# The dependency-audit assurance lane (the spec's required generic evidence):
+# both dependency trees against known-vulnerability databases. Release-profile
+# checks (not the merge bar): advisory databases move independently of the
+# code, so a red here means "do not ship", not "this change broke something".
+_DEPENDENCY_AUDIT_PYTHON = VerifyCheck(
+    id="dependency-audit-python",
+    category="architecture",
+    command="uv run --with pip-audit pip-audit --progress-spinner off",
+    scope=("pyproject.toml", "uv.lock"),
+    requires="network access to the advisory databases",
+)
+
+_DEPENDENCY_AUDIT_NPM = VerifyCheck(
+    id="dependency-audit-npm",
+    category="architecture",
+    command="npm --prefix frontend audit --audit-level=high",
+    scope=("frontend/package.json", "frontend/package-lock.json"),
+    requires="network access to the advisory databases",
+)
+
 _CONFORMANCE = VerifyCheck(
     id="conformance",
     category="conformance",
@@ -135,6 +160,8 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ARCHITECTURE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
+        _DEPENDENCY_AUDIT_PYTHON,
+        _DEPENDENCY_AUDIT_NPM,
         _FRONTEND_BOUNDARIES,
         _FRONTEND_TYPECHECK,
         _FRONTEND_BUILD,
@@ -142,6 +169,25 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _CONFORMANCE,
     ),
 }
+
+#: The Terp Standard's assurance-lane vocabulary → (requirement, composing
+#: release-profile check ids). The vocabulary and each lane's requirement
+#: level are NORMATIVE in the spec (assurance-profile.schema.json + the
+#: README's "Assurance profile" table) — these constants mirror them, held to
+#: the pinned spec's schema by the framework gate. ``a11y`` is declared but
+#: not realised by this toolchain yet: it is emitted ``not-run`` (a lane is
+#: never dropped and never counted as passed without evidence).
+ASSURANCE_LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("terp-standard", "required", ("architecture", "frontend-boundaries")),
+    ("appsec-baseline", "required", ("appsec-baseline",)),
+    (
+        "dependency-audit",
+        "required",
+        ("dependency-audit-python", "dependency-audit-npm"),
+    ),
+    ("a11y", "recommended", ()),
+    ("blackbox-conformance", "recommended", ("conformance",)),
+)
 
 
 def profile_ids() -> tuple[str, ...]:
@@ -275,6 +321,48 @@ def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
     return completed.returncode, output
 
 
+def assurance_document(results: list[dict[str, object]]) -> dict[str, object]:
+    """The release-assurance claim (``assurance-profile.schema.json``) from a
+    release-profile run's per-check *results*.
+
+    Lane verdicts compose from the named checks' verdicts: every composing
+    check green ⇒ ``passed``, otherwise ``failed``; a lane this toolchain does
+    not realise (``a11y``) is ``not-run``, never dropped. The claim (``ok``)
+    follows the REQUIRED lanes only — the requirement mapping is the spec's,
+    mirrored in :data:`ASSURANCE_LANES` — so a red recommended lane informs
+    the reader without carrying the claim.
+    """
+    import importlib.metadata
+
+    from terp.arch import SPEC_VERSION  # lazy: the package imports this module
+
+    verdicts = {str(result["id"]): bool(result["ok"]) for result in results}
+    lanes: list[dict[str, object]] = []
+    ok = True
+    for lane_id, requirement, check_ids in ASSURANCE_LANES:
+        if not check_ids:
+            status = "not-run"
+        elif all(verdicts.get(check_id, False) for check_id in check_ids):
+            status = "passed"
+        else:
+            status = "failed"
+        if requirement == "required" and status != "passed":
+            ok = False
+        lanes.append({"id": lane_id, "status": status, "checks": list(check_ids)})
+    try:
+        version = importlib.metadata.version("terp-cli")
+    except importlib.metadata.PackageNotFoundError:  # a source checkout (the platform repo)
+        version = "0"
+    return {
+        "terp_assurance": 1,
+        "spec_version": SPEC_VERSION,
+        "toolchain": {"tool": "terp-verify", "version": version},
+        "profile": "release",
+        "ok": ok,
+        "lanes": lanes,
+    }
+
+
 def run_verify_command(
     *,
     profile: str,
@@ -287,7 +375,20 @@ def run_verify_command(
 
     Human progress goes to stderr so ``--format json`` keeps stdout as one
     machine document (the same stdout/stderr split as ``terp-boundaries-lint``).
+    ``--format assurance`` emits the release-assurance claim instead
+    (``assurance-profile.schema.json``) and its exit code follows the claim:
+    every REQUIRED lane passed = 0 — a red recommended lane does not fail the
+    emission (the strict every-check gate remains ``--format text``/``json``).
+    Assurance is only meaningful over the whole release profile, so it refuses
+    any other profile, ``--only`` subsets, and ``--list`` (fail closed: a
+    partial run can never quietly become a release claim).
     """
+    if fmt == "assurance" and (profile != "release" or only or list_only):
+        raise SystemExit(
+            "--format assurance emits the release-assurance claim: it requires "
+            "--profile release and refuses --only/--list — a partial run can "
+            "never become a release claim"
+        )
     manifest = verify_manifest(profile)
     checks = list(PROFILES[profile])
     selected = [name for name in (only or []) if name]
@@ -356,6 +457,12 @@ def run_verify_command(
                 }
             )
         )
+    elif fmt == "assurance":
+        document = assurance_document(results)
+        print(json.dumps(document, indent=2))
+        verdict = "holds" if document["ok"] else "does NOT hold"
+        print(f"verify: the release-assurance claim {verdict}", file=sys.stderr)
+        return 0 if document["ok"] else 1
     else:
         verdict = "green" if all_ok else "RED"
         print(f"verify: profile {profile} is {verdict}", file=sys.stderr)
