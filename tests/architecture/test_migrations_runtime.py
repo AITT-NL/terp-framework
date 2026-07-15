@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from terp.core.migrations import MigrationTree
-from terp.migrations import _runtime, make, orchestrate
+from terp.migrations import _runtime, guard, make, orchestrate
 from terp.migrations._config import alembic_config_for
 from terp.migrations._runtime import (
     _dependency_edges,
@@ -28,7 +28,7 @@ from terp.migrations._runtime import (
     unmapped_tables,
     unowned_tables,
 )
-from terp.migrations.errors import MigrationError
+from terp.migrations.errors import MigrationError, MissingMigrationsError
 
 # Import a real capability model so its table is registered for the ownership tests.
 import terp.capabilities.audit.models  # noqa: E402,F401
@@ -470,6 +470,158 @@ def test_first_revision_resolves_fk_to_a_module_without_migrations(
     assert "rt_alpha.id" in body  # the FK to the migration-less module resolved
     assert "create_table('rt_beta'" in body
     assert "create_table('rt_alpha'" not in body  # scoping held: alpha is not emitted
+
+
+# --------------------------------------------------------------------------- #
+# missing-history boot refusal (runtime half of tables_have_migrations)
+# --------------------------------------------------------------------------- #
+def test_assert_no_missing_histories_flags_only_declared_trees_with_owned_tables(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Point fake trees at real capability packages so the ownership lookup runs
+    # against the already-registered models — no synthetic model ever pollutes the
+    # shared SQLModel registry. Only the declared tree that (a) ships a models
+    # module, (b) is importable, (c) owns mapped tables, and (d) has NO revision
+    # file is refused; every conservative skip path stays quiet.
+    def _fake_tree(label: str, import_path: str, name: str) -> MigrationTree:
+        package_dir = tmp_path / name
+        package_dir.mkdir()
+        return MigrationTree(label, import_path, package_dir / "migrations")
+
+    missing = _fake_tree("audit", "terp.capabilities.audit", "aud")
+    (missing.path.parent / "models.py").write_text("", encoding="utf-8")
+    route_only = _fake_tree("routeonly", "terp.capabilities.audit", "bare")  # no models.py
+    unimportable = _fake_tree("ghost", "terp.capabilities.zzz_missing", "ghost")
+    (unimportable.path.parent / "models.py").write_text("", encoding="utf-8")
+    with_history = _fake_tree("identity", "terp.capabilities.identity", "id")
+    (with_history.path.parent / "models.py").write_text("", encoding="utf-8")
+    (with_history.path / "versions").mkdir(parents=True)
+    _write_revision(with_history.path / "versions", "idrev0001", None)
+
+    trees = [missing, route_only, unimportable, with_history]
+    monkeypatch.setattr(guard, "resolve_all_migration_trees", lambda *a, **k: trees)
+
+    with pytest.raises(MissingMigrationsError, match="audit") as excinfo:
+        guard.assert_no_missing_histories()
+    assert excinfo.value.missing == ("audit",)  # the skip paths stayed quiet
+    assert "terp migrate make" in str(excinfo.value)  # the remedy is named
+
+    # The boot guard path refuses the same way (missing history precedes "behind").
+    from sqlalchemy import create_engine
+
+    engine = create_engine("sqlite://")
+    try:
+        with pytest.raises(MissingMigrationsError, match="audit"):
+            guard.assert_migrations_current(engine)
+    finally:
+        engine.dispose()
+
+    # Authoring the first revision is exactly the remedy: the refusal clears.
+    (missing.path / "versions").mkdir(parents=True)
+    _write_revision(missing.path / "versions", "audrev0001", None)
+    guard.assert_no_missing_histories()  # no raise
+
+
+def test_boot_guard_refuses_a_declared_module_with_tables_but_no_history(
+    tmp_path: pathlib.Path,
+) -> None:
+    # End-to-end: an app module that DECLARES a table model but ships NO migration
+    # history is refused at boot by assert_migrations_current; a route-only module
+    # and a fixture table outside every declared tree are NOT flagged (the
+    # conservative scoping holds); `terp migrate make` + upgrade is the remedy. Run
+    # in a subprocess so the synthetic models never pollute this suite's shared
+    # SQLModel registry.
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    app = tmp_path / "rtboot"
+    for name in ("gamma", "helper"):
+        (app / "modules" / name).mkdir(parents=True)
+    for init in (
+        app / "__init__.py",
+        app / "modules" / "__init__.py",
+        app / "modules" / "gamma" / "__init__.py",
+        app / "modules" / "helper" / "__init__.py",
+    ):
+        init.write_text("", encoding="utf-8")
+    (app / "modules" / "gamma" / "models.py").write_text(
+        textwrap.dedent(
+            """
+            from __future__ import annotations
+            import uuid
+            from sqlmodel import Field, SQLModel
+
+            class Gamma(SQLModel, table=True):
+                __tablename__ = "rt_gamma"
+                id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+            """
+        ),
+        encoding="utf-8",
+    )
+    (app / "modules" / "helper" / "router.py").write_text("", encoding="utf-8")
+
+    db_url = f"sqlite:///{(tmp_path / 'boot.db').as_posix()}"
+    driver = tmp_path / "drive.py"
+    driver.write_text(
+        textwrap.dedent(
+            f"""
+            import uuid
+            from sqlalchemy import create_engine
+            from sqlmodel import Field, SQLModel
+
+            from terp.migrations import (
+                MissingMigrationsError,
+                PendingMigrationsError,
+                assert_migrations_current,
+                assert_no_missing_histories,
+                make,
+                upgrade,
+            )
+
+            class Stray(SQLModel, table=True):  # fixture pollution: owned by no tree
+                __tablename__ = "rt_stray"
+                id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+
+            app_root = {app.as_posix()!r}
+            engine = create_engine({db_url!r})
+            try:
+                assert_migrations_current(engine, app_root, package="rtboot")
+                raise SystemExit("expected MissingMigrationsError at boot")
+            except MissingMigrationsError as exc:
+                message = str(exc)
+                assert "gamma" in message, message          # the violation is named
+                assert "helper" not in message, message     # route-only module: quiet
+                assert "stray" not in message.lower(), message  # fixture table: quiet
+
+            # The remedy stated by the error: author the first revision...
+            make("gamma", "gamma init", {db_url!r}, app_root, package="rtboot")
+            assert_no_missing_histories(app_root, package="rtboot")  # refusal cleared
+            try:
+                assert_migrations_current(engine, app_root, package="rtboot")
+                raise SystemExit("expected PendingMigrationsError before upgrade")
+            except PendingMigrationsError:
+                pass  # ...then apply it:
+            upgrade({db_url!r}, app_root, package="rtboot")
+            assert_migrations_current(engine, app_root, package="rtboot")  # green
+            engine.dispose()
+            """
+        ),
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(tmp_path), env.get("PYTHONPATH", "")) if part
+    )
+    result = subprocess.run(
+        [sys.executable, str(driver)],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 # --------------------------------------------------------------------------- #

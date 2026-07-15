@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 from fastapi import APIRouter, Request
 from fastapi.testclient import TestClient
+from starlette.middleware import Middleware
 
 from terp.core import (
     ADMIN,
@@ -24,7 +25,10 @@ from terp.core import (
     SecurityConfig,
     VIEWER,
     create_app,
+    get_principal,
+    get_session,
     mark_shared_throttle_store,
+    settings,
 )
 
 
@@ -57,6 +61,89 @@ def test_create_app_refuses_route_registration_after_composition() -> None:
     ):
         with pytest.raises(BootError, match="after create_app"):
             action()
+
+
+class _HeaderStampMiddleware:
+    """A minimal pure-ASGI middleware stamping a response header (composition probe)."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        async def stamped(message) -> None:
+            if message["type"] == "http.response.start":
+                message["headers"] = [*message["headers"], (b"x-composed", b"yes")]
+            await send(message)
+
+        await self.app(scope, receive, stamped)
+
+
+def test_create_app_refuses_middleware_registration_after_composition() -> None:
+    # Runtime half of the no_adhoc_middleware rule: once composed, both middleware
+    # registration spellings fail closed — create_app(middleware=[...]) is the seam.
+    app = create_app([])
+
+    async def http_middleware(request, call_next):  # pragma: no cover - never called
+        return await call_next(request)
+
+    for action in (
+        lambda: app.add_middleware(_HeaderStampMiddleware),
+        lambda: app.middleware("http")(http_middleware),
+    ):
+        with pytest.raises(BootError, match="after create_app"):
+            action()
+
+
+def test_create_app_middleware_parameter_remains_the_sanctioned_seam() -> None:
+    # The one sanctioned wiring path keeps working: middleware passed at composition
+    # is installed and runs (the freeze refuses only post-composition registration).
+    app = create_app([], middleware=[Middleware(_HeaderStampMiddleware)])
+    response = TestClient(app).get("/health/live")
+    assert response.status_code == 200
+    assert response.headers["x-composed"] == "yes"
+
+
+def test_dependency_overrides_stay_writable_in_the_local_environment() -> None:
+    # Overrides are the sanctioned TEST-ONLY seam: a local (dev/test) composition
+    # keeps the writable map, so a consumer's test suite can override get_session.
+    app = create_app([])
+
+    def _sentinel() -> None:  # pragma: no cover - never called
+        return None
+
+    app.dependency_overrides[get_session] = _sentinel
+    assert app.dependency_overrides[get_session] is _sentinel
+
+
+def test_dependency_overrides_freeze_outside_the_local_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Runtime half of the no_dependency_overrides rule: a deployed composition
+    # (staging/production) hands back a refusing map — reads keep serving, every
+    # mutating spelling fails closed, and the composition-bound override survives.
+    monkeypatch.setattr(settings, "ENVIRONMENT", "staging")
+
+    def _provider() -> None:
+        return None
+
+    app = create_app([], principal_provider=_provider)
+    assert app.dependency_overrides[get_principal] is _provider  # bound pre-freeze
+    assert TestClient(app).get("/health/live").status_code == 200  # reads still work
+
+    overrides = app.dependency_overrides
+    for action in (
+        lambda: overrides.__setitem__(get_session, _provider),
+        lambda: overrides.__delitem__(get_principal),
+        lambda: overrides.update({get_session: _provider}),
+        lambda: overrides.clear(),
+        lambda: overrides.pop(get_principal),
+        lambda: overrides.popitem(),
+        lambda: overrides.setdefault(get_session, _provider),
+        lambda: overrides.__ior__({get_session: _provider}),
+    ):
+        with pytest.raises(BootError, match="after create_app"):
+            action()
+    assert app.dependency_overrides[get_principal] is _provider  # nothing slipped through
 
 
 def test_page_of_builds_envelope() -> None:
