@@ -207,3 +207,128 @@ def test_assert_app_clean_listing_points_at_the_fix_recipe(tmp_path: pathlib.Pat
     with pytest.raises(AssertionError, match=r"architecture violation") as excinfo:
         assert_app_clean(app)
     assert "(fix recipe: terp guide policy)" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------- #
+# the check report (`terp check --format check-report`) — the Terp Standard's
+# app-check-report.schema.json shape, self-describing and catalog-attributed
+# --------------------------------------------------------------------------- #
+def _check_report_schema() -> dict:
+    import terp_spec
+
+    return json.loads(
+        (terp_spec.spec_dir() / "app-check-report.schema.json").read_text(encoding="utf-8")
+    )
+
+
+def test_spec_version_constants_match_the_pinned_spec() -> None:
+    # The drift lock for the coupled pin bump: the constants the check reports
+    # carry must equal the pinned terp-spec release. Deliberately NOT part of
+    # test_spec_catalog.py — the spec repo's certify-against-reference runs that
+    # file against CANDIDATE spec versions, which are allowed to be newer; this
+    # framework-gate-only test is what forces the constants to move together
+    # with the pins.
+    import re as _re
+
+    import terp_spec
+
+    from terp.arch import SPEC_VERSION
+
+    assert SPEC_VERSION == terp_spec.spec_version(), (
+        "terp.arch.SPEC_VERSION must equal the pinned terp-spec release — bump the "
+        "constant together with the [tool.uv.sources] pin"
+    )
+    spec_js = (
+        _REPO_ROOT
+        / "packages"
+        / "frontend"
+        / "eslint-boundaries"
+        / "src"
+        / "spec.js"
+    ).read_text(encoding="utf-8")
+    match = _re.search(r'export const SPEC_VERSION = "([^"]+)"', spec_js)
+    assert match is not None, "eslint-boundaries/src/spec.js must export SPEC_VERSION"
+    assert match.group(1) == terp_spec.spec_version(), (
+        "@terp/eslint-boundaries SPEC_VERSION must equal the pinned @terp/spec release — "
+        "bump the constant together with the package.json pin"
+    )
+
+
+def test_check_report_envelope_is_clean_and_attributed_on_the_example_app() -> None:
+    from terp.cli import check_report_envelope
+
+    envelope = check_report_envelope(
+        str(_EXAMPLE_ROOT), budget_path=str(_EXAMPLE_ROOT / "escape-hatch-budget.json")
+    )
+    assert envelope["terp_check_report"] == 1
+    assert envelope["ok"] is True
+    assert envelope["checker"]["tool"] == "terp-arch"
+    assert envelope["findings"] == []
+    assert envelope["unattributed"] == []
+    assert envelope["rules"] == [f"backend/{rule}" for rule in sorted(GUIDE_TOPIC_BY_RULE)]
+
+
+def test_check_report_envelope_validates_against_the_spec_schema(
+    tmp_path: pathlib.Path,
+) -> None:
+    # Held to app-check-report.schema.json field by field (the same manual
+    # discipline test_spec_corpus applies to the finding format), so the emitted
+    # document can never drift from the published contract.
+    import re as _re
+
+    from terp.cli import check_report_envelope
+
+    schema = _check_report_schema()
+    envelope = check_report_envelope(str(_violating_app(tmp_path)))
+    assert envelope["ok"] is False
+
+    assert set(schema["required"]) <= set(envelope)
+    assert set(envelope) <= set(schema["properties"])
+    assert envelope["terp_check_report"] in schema["properties"]["terp_check_report"]["enum"]
+    assert _re.fullmatch(
+        schema["properties"]["spec_version"]["pattern"].strip("^$"),
+        envelope["spec_version"],
+    )
+    rule_pattern = _re.compile(schema["properties"]["rules"]["items"]["pattern"])
+    assert envelope["rules"] and all(rule_pattern.match(rule) for rule in envelope["rules"])
+
+    item = schema["properties"]["findings"]["items"]
+    finding_rule_pattern = _re.compile(item["properties"]["rule"]["pattern"])
+    assert envelope["findings"], "the violating app must produce findings"
+    for finding in envelope["findings"]:
+        assert set(item["required"]) <= set(finding)
+        assert set(finding) <= set(item["properties"])
+        assert finding_rule_pattern.match(finding["rule"])
+        assert "\\" not in finding["path"]
+        if "line" in finding:
+            assert isinstance(finding["line"], int) and finding["line"] >= 1
+        assert finding["fix_hint"].startswith("terp guide ")
+        assert finding["rule"] in set(envelope["rules"])
+
+
+def test_cli_check_report_format_exits_by_verdict(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main(
+        [
+            "check",
+            "--root",
+            str(_EXAMPLE_ROOT),
+            "--budget",
+            str(_EXAMPLE_ROOT / "escape-hatch-budget.json"),
+            "--format",
+            "check-report",
+        ]
+    )
+    clean = json.loads(capsys.readouterr().out)
+    assert clean["terp_check_report"] == 1 and clean["ok"] is True
+
+    app = _violating_app(tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
+        main(["check", "--root", str(app), "--format", "check-report"])
+    assert excinfo.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert {finding["rule"] for finding in payload["findings"]} >= {
+        "backend/modules_declare_policy"
+    }

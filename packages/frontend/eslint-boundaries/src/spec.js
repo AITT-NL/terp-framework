@@ -6,6 +6,17 @@
  * They apply to the **app-authored surface** (`src/modules/**`) — the code agents and users write —
  * not the framework packages, which legitimately define the very primitives the rules point back to.
  */
+/**
+ * The Terp Standard version this adapter is certified against — the `spec_version` a
+ * check report (`app-check-report.schema.json`) carries. A constant rather than a runtime
+ * `@terp/spec` read: the spec data package is a dev/certification dependency of the platform
+ * repo, not of a generated app, and the version is a property of the toolchain build. Held
+ * equal to the pinned spec release by the framework gate (test_check_json.py — deliberately
+ * NOT by this package's own suite, which certification runs against candidate spec releases
+ * whose version is allowed to be newer).
+ */
+export const SPEC_VERSION = "0.7.0";
+
 export const BOUNDARY_SPEC = {
   /** App module files the boundary + frontend security defaults apply to. */
   moduleFiles: ["**/modules/**/*.{ts,tsx}"],

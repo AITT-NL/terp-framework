@@ -51,10 +51,16 @@ or `python` will not resolve.
 - **`uv run terp guide`** / **`uv run terp guide <topic>`** — the authoring guide
   (module, service, policy, ownership, tenancy, events, capability, migrations, rules,
   frontend, dataview, forms).
+- **`uv run terp verify`** — the one-command gate: runs the declared verification
+  profile (`--profile quick` for per-edit static checks, `--profile full` for the
+  merge bar CI enforces, `--profile release` before shipping). `--list` shows what a
+  profile runs; `--format json` emits the machine envelope with every check's
+  Terp Standard check report embedded.
 - **`uv run terp check`** / **`uv run pytest`** — the gate is the source of truth.
   Green means compliant; red names the fix. `uv run terp check --format json` emits
   structured violations (rule, file, line, message, and the `uv run terp guide` fix
-  recipe) for tools and agents.
+  recipe) for tools and agents; `--format check-report` emits the Terp Standard
+  check-report document (catalog-attributed findings + the evaluated-rule inventory).
 - **`uv run terp dev`** — run the API (:8000) and frontend (:5173) together, with an
   OpenAPI preflight so the typed client stays current.
 - **`uv run terp new module <name>`** — scaffold the five slots.
@@ -81,7 +87,13 @@ variable, update the manifest in the same change:
 ## Definition of done
 
 A change is done only when the whole gate is green — never claim success before
-running **all four** (exactly what CI runs), backend *and* frontend:
+it is. One command runs everything:
+
+```bash
+uv run terp verify --profile full   # the merge bar: exactly what CI enforces
+```
+
+Or run the four halves individually (useful for narrower reruns while iterating):
 
 ```bash
 uv run pytest                         # backend gate (architecture, migrations, mounted modules)

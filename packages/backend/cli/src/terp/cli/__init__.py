@@ -37,6 +37,7 @@ from terp.cli.schema import (
 )
 from terp.cli.seed import run_seed_command
 from terp.cli.users import create_user_command
+from terp.cli.verify import profile_ids, run_verify_command, verify_manifest
 
 _GUIDE_TOPICS: dict[str, str] = {
     "module": """\
@@ -663,6 +664,53 @@ def check_report(
     }
 
 
+def check_report_envelope(
+    root: str = ".", *, package: str = "app", budget_path: str | None = None
+) -> dict[str, object]:
+    """The architecture gate as a Terp Standard **check report** (``terp check
+    --format check-report``).
+
+    The spec's ``app-check-report.schema.json`` shape: one self-describing document a
+    consumer joins to the catalog without knowing this toolchain — ``spec_version``
+    (the standard the rule ids resolve against), the checker identity, the run
+    verdict, the evaluated-rule inventory as **catalog ids** (``backend/<rule>``),
+    and findings in the finding format's shape (``fix_hint`` = the ``terp guide``
+    recipe). The legacy ``--format json`` report keeps its published shape for
+    existing consumers; this is the successor surface driving tools migrate to.
+    """
+    import importlib.metadata
+
+    from terp.arch import SPEC_VERSION
+
+    report = check_report(root, package=package, budget_path=budget_path)
+    try:
+        version = importlib.metadata.version("terp-arch")
+    except importlib.metadata.PackageNotFoundError:  # a source checkout (the platform repo)
+        version = "0"
+    findings: list[dict[str, object]] = []
+    for violation in report["violations"]:  # type: ignore[union-attr]
+        finding: dict[str, object] = {
+            "rule": f"backend/{violation['rule']}",
+            "path": violation["path"],
+            "message": violation["message"],
+            "fix_hint": violation["fix"],
+        }
+        # The spec's line is optional and 1-based ("when the checker can locate
+        # it") — a whole-tree condition (budget drift) carries line 0 internally.
+        if int(violation["line"]) >= 1:
+            finding["line"] = violation["line"]
+        findings.append(finding)
+    return {
+        "terp_check_report": 1,
+        "spec_version": SPEC_VERSION,
+        "checker": {"tool": "terp-arch", "version": version},
+        "ok": report["ok"],
+        "rules": [f"backend/{rule}" for rule in report["rules"]],  # type: ignore[union-attr]
+        "findings": findings,
+        "unattributed": [],
+    }
+
+
 def _mermaid_id(prefix: str, name: str) -> str:
     """A Mermaid-safe node id (``prefix_`` + non-alphanumerics collapsed to ``_``)."""
     return f"{prefix}_{re.sub(r'[^0-9A-Za-z_]', '_', name)}"
@@ -1239,9 +1287,42 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     check_parser.add_argument(
         "--format",
+        choices=("text", "json", "check-report"),
+        default="text",
+        help="Output format: text (human), json (the legacy structured report), or "
+        "check-report (the Terp Standard app-check-report envelope; default: text)",
+    )
+
+    verify_parser = subcommands.add_parser(
+        "verify",
+        help="Run the project's whole verification profile (the one-command gate)",
+    )
+    verify_parser.add_argument(
+        "--profile",
+        choices=profile_ids(),
+        default="quick",
+        help="Which checks run: quick (static enforcement), full (+ tests, AppSec "
+        "baseline, build), release (+ docs drift, conformance; default: quick)",
+    )
+    verify_parser.add_argument("--root", default=".", help="Project root (default: .)")
+    verify_parser.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        metavar="CHECK",
+        help="Run only the named check(s) of the profile (repeatable) — the seam a "
+        "driving tool uses for change-scoped reruns",
+    )
+    verify_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="Print the profile's check manifest without running anything",
+    )
+    verify_parser.add_argument(
+        "--format",
         choices=("text", "json"),
         default="text",
-        help="Output format: text (human) or json (structured, for tools/agents; default: text)",
+        help="Output format: text (human) or json (the terp_verify envelope; default: text)",
     )
 
     user_parser = subcommands.add_parser(
@@ -1396,6 +1477,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "check":
+        if args.format == "check-report":
+            payload = check_report_envelope(
+                args.root, package=args.package, budget_path=args.budget
+            )
+            print(json.dumps(payload, indent=2))
+            if not payload["ok"]:
+                raise SystemExit(1)
+            return
         if args.format == "json":
             payload = check_report(args.root, package=args.package, budget_path=args.budget)
             print(json.dumps(payload, indent=2))
@@ -1407,6 +1496,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         assert_app_clean(args.root, package=args.package, budget_path=args.budget)
         print("terp.arch: app is clean")
         return
+    if args.command == "verify":
+        raise SystemExit(
+            run_verify_command(
+                profile=args.profile,
+                root=args.root,
+                only=args.only,
+                list_only=args.list,
+                fmt=args.format,
+            )
+        )
     if args.command == "user" and args.user_command == "create":
         print(
             create_user_command(
@@ -1434,6 +1533,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 __all__ = [
     "api_docs",
     "check_report",
+    "check_report_envelope",
     "create_user_command",
     "dev_plan",
     "export_openapi",
@@ -1443,11 +1543,14 @@ __all__ = [
     "inspect_control_plane",
     "main",
     "new_module",
+    "profile_ids",
     "render_jobs",
     "run_dev_command",
     "run_docker_dev_command",
     "run_job_command",
     "run_scheduler_command",
     "run_seed_command",
+    "run_verify_command",
     "run_worker_command",
+    "verify_manifest",
 ]

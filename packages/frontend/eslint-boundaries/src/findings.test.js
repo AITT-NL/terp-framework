@@ -8,7 +8,8 @@ import { ESLint } from "eslint";
 import { afterEach, describe, expect, it } from "vitest";
 
 import terpBoundaries, { catalogRuleIds } from "./index.js";
-import { renderEnvelope } from "./findings.js";
+import { asCheckReport, renderEnvelope } from "./findings.js";
+import { SPEC_VERSION } from "./spec.js";
 
 // The machine-readable boundary lint (the frontend analog of `terp check --format json`):
 // the findings envelope publishes the evaluated-rule inventory + findings attributed to
@@ -230,5 +231,116 @@ describe("terp-boundaries-lint (the bin)", () => {
     const envelope = JSON.parse(run.stdout);
     expect(envelope.rules).toEqual(catalogRuleIds());
     expect(envelope.not_applicable).toEqual([]);
+  });
+});
+
+describe("the check report (--format check-report, app-check-report.schema.json)", () => {
+  const config =
+    'import terpBoundaries from "@terp/eslint-boundaries";\n' +
+    'export default [{ ignores: ["node_modules/**"] }, ...terpBoundaries];\n';
+
+  function runBin(root, args) {
+    return spawnSync(process.execPath, [FINDINGS_BIN, ...args], { cwd: root, encoding: "utf8" });
+  }
+
+  it("asCheckReport self-describes the envelope in the spec's report shape", async () => {
+    const schema = JSON.parse(
+      fs.readFileSync(path.join(SPEC_ROOT, "app-check-report.schema.json"), "utf8"),
+    );
+    const results = await lintModule("export const x = fetch('/api');\n");
+    const { envelope } = renderEnvelope(results, path.resolve("."), { layoutContract: true });
+    const report = asCheckReport(envelope);
+    expect(report.terp_check_report).toBe(1);
+    // The certified spec version rides every report. Shape only here — the
+    // equality lock against the pinned @terp/spec lives in the framework gate
+    // (test_check_json.py), because certification runs THIS suite against
+    // candidate spec releases whose version is allowed to be newer.
+    expect(report.spec_version).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(report.checker.tool).toBe("@terp/eslint-boundaries");
+    expect(report.checker.version).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(report.ok).toBe(false);
+    expect(report.rules).toEqual(catalogRuleIds());
+    expect(Object.keys(report).sort()).toEqual(
+      Object.keys(schema.properties).sort().filter((key) => key !== "error"),
+    );
+    const itemProperties = new Set(Object.keys(schema.properties.findings.items.properties));
+    for (const finding of report.findings) {
+      expect(finding.rule).toMatch(
+        new RegExp(schema.properties.findings.items.properties.rule.pattern),
+      );
+      for (const key of Object.keys(finding)) {
+        expect(itemProperties.has(key)).toBe(true);
+      }
+    }
+  });
+
+  it("omits a null reported_as instead of publishing it (the schema forbids null)", async () => {
+    const results = await lintModule("export const = broken(\n");
+    const { envelope } = renderEnvelope(results, path.resolve("."));
+    const report = asCheckReport(envelope);
+    expect(report.unattributed.length).toBeGreaterThan(0);
+    for (const entry of report.unattributed) {
+      expect("reported_as" in entry).toBe(false);
+      expect(Object.keys(entry).sort()).toEqual(["line", "message", "path"]);
+    }
+  });
+
+  it("the bin prints exactly one check-report document under --format check-report", () => {
+    const root = appRoot({
+      "package.json": '{ "type": "module" }',
+      "eslint.config.js": config,
+      "escape-hatch-budget.json": "{}",
+      "src/modules/sample/View.tsx": "export function View() {\n  return <button>x</button>;\n}\n",
+    });
+    const run = runBin(root, ["--format", "check-report"]);
+    expect(run.status).toBe(1);
+    const report = JSON.parse(run.stdout); // strict single-document parse
+    expect(report.terp_check_report).toBe(1);
+    expect(report.spec_version).toBe(SPEC_VERSION);
+    expect(report.ok).toBe(false);
+    expect(report.findings.map((finding) => finding.rule)).toContain(
+      "frontend/token-styled-elements",
+    );
+    expect(report.not_applicable).toEqual(["frontend/layout-contract"]);
+  });
+
+  it("keeps the default format as the legacy terp_findings envelope", () => {
+    const root = appRoot({
+      "package.json": '{ "type": "module" }',
+      "eslint.config.js": config,
+      "escape-hatch-budget.json": "{}",
+      "src/modules/sample/View.tsx": "export const view = 1;\n",
+    });
+    const run = runBin(root, []);
+    expect(run.status).toBe(0);
+    const envelope = JSON.parse(run.stdout);
+    expect(envelope.terp_findings).toBe(1);
+    expect("terp_check_report" in envelope).toBe(false);
+  });
+
+  it("refuses an unsupported format (fail closed, exit 2)", () => {
+    const root = appRoot({
+      "package.json": '{ "type": "module" }',
+      "eslint.config.js": config,
+      "escape-hatch-budget.json": "{}",
+      "src/modules/sample/View.tsx": "export const view = 1;\n",
+    });
+    const run = runBin(root, ["--format", "yaml"]);
+    expect(run.status).toBe(2);
+    expect(run.stderr).toMatch(/unsupported --format/);
+  });
+
+  it("still reads a positional budget path alongside the flag", () => {
+    const root = appRoot({
+      "package.json": '{ "type": "module" }',
+      "eslint.config.js": config,
+      "custom-budget.json": "{}",
+      "src/modules/sample/View.tsx": "export const view = 1;\n",
+    });
+    const run = runBin(root, ["--format", "check-report", "custom-budget.json"]);
+    expect(run.status).toBe(0);
+    const report = JSON.parse(run.stdout);
+    expect(report.ok).toBe(true);
+    expect(report.rules).toContain("frontend/escape-hatch");
   });
 });

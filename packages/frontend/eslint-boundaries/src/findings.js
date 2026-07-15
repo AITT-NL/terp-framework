@@ -27,8 +27,12 @@
  * Both halves ALWAYS run — a boundary violation cannot skip the budget ratchet the way
  * an `eslint . && terp-boundaries-budget` chain could — and the exit code is the
  * combined verdict (non-zero when either half failed). An optional positional argument
- * names the budget file (default `escape-hatch-budget.json`, as the budget bin).
- */
+ * names the budget file (default `escape-hatch-budget.json`, as the budget bin). *
+ * `--format check-report` prints the Terp Standard **check report** instead
+ * (`app-check-report.schema.json`: the same inventory and findings, self-described with
+ * `spec_version`, the checker identity, and the run verdict) — still exactly one JSON
+ * document on stdout. The default stays the legacy `terp_findings` envelope, a published
+ * seam (ADR 0083) existing consumers parse strictly. */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -39,6 +43,39 @@ import { ESLint } from "eslint";
 
 import { checkBudget } from "./budget.js";
 import { activeLayoutContract, catalogRuleId, catalogRuleIds } from "./index.js";
+import { SPEC_VERSION } from "./spec.js";
+
+/** This package's own version — the `checker.version` a check report carries. */
+const PACKAGE_VERSION = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version;
+
+/**
+ * Render a findings envelope as the Terp Standard **check report**
+ * (`app-check-report.schema.json`, printed by `--format check-report`): the same
+ * inventory and findings, self-described with the spec version the rule ids resolve
+ * against, the checker identity, and the run verdict — so a consumer joins per-rule
+ * verdicts to the catalog without knowing this toolchain. `unattributed.reported_as`
+ * is omitted (never null) per the schema; `ok` covers the standard's own findings
+ * (the process exit code stays the combined verdict, unattributed errors included).
+ */
+export function asCheckReport(envelope) {
+  return {
+    terp_check_report: 1,
+    spec_version: SPEC_VERSION,
+    checker: { tool: envelope.tool, version: PACKAGE_VERSION },
+    ok: envelope.findings.length === 0,
+    rules: envelope.rules,
+    not_applicable: envelope.not_applicable,
+    findings: envelope.findings,
+    unattributed: envelope.unattributed.map(({ path: file, line, message, reported_as }) => ({
+      path: file,
+      ...(Number.isInteger(line) && line >= 1 ? { line } : {}),
+      message,
+      ...(typeof reported_as === "string" && reported_as !== "" ? { reported_as } : {}),
+    })),
+  };
+}
 
 /**
  * Render lint *results* (ESLint result objects) as the findings envelope plus the
@@ -103,7 +140,26 @@ export function renderEnvelope(results, cwd = process.cwd(), options = {}) {
 
 async function main() {
   const cwd = process.cwd();
-  const budgetPath = process.argv[2] ?? path.join(cwd, "escape-hatch-budget.json");
+  const args = process.argv.slice(2);
+  // `--format check-report` prints the Terp Standard check report
+  // (app-check-report.schema.json) instead of the legacy terp_findings envelope —
+  // still exactly ONE JSON document on stdout, so strict consumers keep a single
+  // parse. The default stays the legacy envelope (a published seam, ADR 0083).
+  let format = "findings";
+  const formatIndex = args.indexOf("--format");
+  if (formatIndex !== -1) {
+    const value = args[formatIndex + 1];
+    if (value !== "findings" && value !== "check-report") {
+      process.stderr.write(
+        `terp-boundaries-lint: unsupported --format ${value ?? "(missing)"}; ` +
+          "expected findings or check-report\n",
+      );
+      process.exit(2);
+    }
+    format = value;
+    args.splice(formatIndex, 2);
+  }
+  const budgetPath = args[0] ?? path.join(cwd, "escape-hatch-budget.json");
   // The app's own config and ignore set, with the same cache the plain CLI used
   // (`--cache --cache-location node_modules/.cache/eslint/`).
   const eslint = new ESLint({ cache: true, cacheLocation: "node_modules/.cache/eslint/" });
@@ -120,7 +176,8 @@ async function main() {
       `${human.join("\n")}\n${human.length} problem(s); the findings envelope is on stdout.\n`,
     );
   }
-  process.stdout.write(`${JSON.stringify(envelope)}\n`);
+  const document = format === "check-report" ? asCheckReport(envelope) : envelope;
+  process.stdout.write(`${JSON.stringify(document)}\n`);
   const errors =
     results.reduce((sum, result) => sum + result.errorCount, 0) + budgetProblems.length;
   process.exitCode = errors > 0 ? 1 : 0;

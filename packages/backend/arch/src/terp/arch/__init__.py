@@ -75,9 +75,18 @@ from terp.arch.rules import (
     ungoverned_marker_violations,
 )
 
+#: The Terp Standard version this harness is certified against — the ``spec_version``
+#: a check report (``app-check-report.schema.json``) carries. A constant rather than a
+#: runtime ``terp_spec`` read: the spec data package is a certification dependency of
+#: the platform repo, not of a generated app, and the version is a property of the
+#: toolchain build. Held equal to the pinned ``terp-spec`` release by the framework
+#: gate (``tests/architecture/test_spec_catalog.py``), so it cannot drift silently.
+SPEC_VERSION = "0.7.0"
+
 __all__ = [
     "ArchViolation",
     "GUIDE_TOPIC_BY_RULE",
+    "SPEC_VERSION",
     "assert_app_clean",
     "check_app",
     "check_base_query_not_overridden",

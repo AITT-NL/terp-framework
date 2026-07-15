@@ -1,0 +1,214 @@
+"""``terp verify`` — the one-command gate over declared profiles.
+
+The profile table is the single source of truth for "what does green mean":
+these assertions hold its shape (profiles ratchet up, categories stay in the
+known set, every check declares a scope), the manifest surface a driving tool
+configures its gate from, and the runner's verdict/envelope semantics — using
+the in-process architecture check so the suite spawns no npm/uv toolchains.
+"""
+
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+import pytest
+
+# terp-cli is not pip-installed in the dev venv; inject its src (as the other CLI tests do).
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
+sys.path.insert(0, str(_CLI_SRC))
+
+from terp.cli import main, profile_ids, verify_manifest  # noqa: E402
+from terp.cli.verify import (  # noqa: E402
+    PROFILES,
+    VerifyCheck,
+    _json_documents,
+    _run_subprocess,
+)
+
+_EXAMPLE_ROOT = _REPO_ROOT / "apps" / "example"
+
+#: The gate categories a driving tool understands (the Studio's issue tabs).
+_KNOWN_CATEGORIES = {
+    "architecture",
+    "backend-tests",
+    "frontend-boundaries",
+    "build",
+    "conformance",
+}
+
+
+# --------------------------------------------------------------------------- #
+# the profile table — the declared meaning of green
+# --------------------------------------------------------------------------- #
+def test_profiles_ratchet_up() -> None:
+    # Each profile is a superset of the previous: a stricter tier can never
+    # silently drop a check the cheaper tier ran.
+    quick, full, release = (
+        {check.id for check in PROFILES[name]} for name in ("quick", "full", "release")
+    )
+    assert profile_ids() == ("quick", "full", "release")
+    assert quick < full < release
+
+
+def test_every_check_is_well_formed() -> None:
+    seen_ids: set[str] = set()
+    for profile, checks in PROFILES.items():
+        for check in checks:
+            assert check.category in _KNOWN_CATEGORIES, f"{profile}/{check.id}"
+            assert check.command.strip(), f"{profile}/{check.id}: empty command"
+            assert check.scope, f"{profile}/{check.id}: a check must declare its input scope"
+            seen_ids.add(check.id)
+    assert "architecture" in seen_ids
+
+
+def test_the_full_profile_is_the_template_ci_surface() -> None:
+    # The merge bar: architecture gate, backend tests, the delegated AppSec
+    # baseline (ADR 0085), and the frontend chain — the exact blocking checks
+    # the generated project's CI runs. Dropping one here would make "verify is
+    # the source of truth" a lie.
+    ids = {check.id for check in PROFILES["full"]}
+    assert ids == {
+        "architecture",
+        "backend-tests",
+        "appsec-baseline",
+        "frontend-boundaries",
+        "frontend-typecheck",
+        "frontend-build",
+    }
+
+
+# --------------------------------------------------------------------------- #
+# the manifest — what a driving tool configures its gate from
+# --------------------------------------------------------------------------- #
+def test_manifest_lists_the_profile_checks() -> None:
+    manifest = verify_manifest("release")
+    assert manifest["terp_verify_manifest"] == 1
+    entries = {entry["id"]: entry for entry in manifest["checks"]}
+    assert entries["conformance"]["requires"], (
+        "the conformance check must state its workbench precondition"
+    )
+    assert "requires" not in entries["architecture"]
+    assert entries["architecture"]["scope"] == [
+        "app/**",
+        "control_plane/**",
+        "escape-hatch-budget.json",
+    ]
+
+
+def test_manifest_refuses_an_unknown_profile() -> None:
+    with pytest.raises(SystemExit, match="unknown profile"):
+        verify_manifest("nightly")
+
+
+def test_cli_list_prints_the_manifest(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "full", "--list", "--format", "json"])
+    assert excinfo.value.code == 0
+    manifest = json.loads(capsys.readouterr().out)
+    assert manifest["profile"] == "full"
+    assert [entry["id"] for entry in manifest["checks"]] == [
+        check.id for check in PROFILES["full"]
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# the runner — verdicts, the terp_verify envelope, embedded check reports
+# --------------------------------------------------------------------------- #
+def test_verify_architecture_only_is_green_on_the_example_app(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "quick",
+                "--root",
+                str(_EXAMPLE_ROOT),
+                "--only",
+                "architecture",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["terp_verify"] == 1
+    assert envelope["ok"] is True
+    (check,) = envelope["checks"]
+    assert check["id"] == "architecture" and check["ok"] is True
+    # The embedded machine document: the Terp Standard check report, carried
+    # structurally so a consumer never re-parses the output tail.
+    (report,) = check["reports"]
+    assert report["terp_check_report"] == 1
+    assert report["ok"] is True
+
+
+def test_verify_fails_red_with_findings_on_a_violating_app(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    app = tmp_path / "app"
+    module = app / "modules" / "billing"
+    module.mkdir(parents=True)
+    (module / "module.py").write_text(
+        "module = ModuleSpec(name='billing', router=router)\n", encoding="utf-8"
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "quick",
+                "--root",
+                str(tmp_path),
+                "--only",
+                "architecture",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 1
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is False
+    (check,) = envelope["checks"]
+    (report,) = check["reports"]
+    assert {finding["rule"] for finding in report["findings"]} >= {
+        "backend/modules_declare_policy"
+    }
+
+
+def test_verify_refuses_an_unknown_only_selection() -> None:
+    with pytest.raises(SystemExit, match="names no check"):
+        main(["verify", "--profile", "quick", "--only", "nonexistent"])
+
+
+def test_a_missing_executable_fails_visibly() -> None:
+    check = VerifyCheck(
+        id="ghost",
+        category="build",
+        command="definitely-missing-terp-binary-xyz --flag",
+        scope=("frontend/**",),
+    )
+    exit_code, output = _run_subprocess(check, pathlib.Path("."))
+    assert exit_code == 127
+    assert "not found" in output
+
+
+def test_json_documents_finds_indented_and_inline_docs() -> None:
+    stdout = "\n".join(
+        [
+            "prose before",
+            '{"terp_findings": 1, "rules": []}',
+            "{",
+            '  "terp_check_report": 1,',
+            '  "ok": true',
+            "}",
+            "prose { not json } after",
+        ]
+    )
+    documents = _json_documents(stdout)
+    markers = [next(iter(doc)) for doc in documents]
+    assert "terp_findings" in markers and "terp_check_report" in markers

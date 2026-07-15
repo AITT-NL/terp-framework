@@ -21,6 +21,27 @@ production deployment profile (multi-stage wheel images + hardened compose profi
 
 Late additions on the unreleased line:
 
+- **`terp verify` — the one-command gate over declared profiles.** The project's
+  whole verification surface as data: `--profile quick` (static enforcement:
+  architecture gate, boundary lint, typecheck), `full` (the merge bar: + backend
+  tests, the delegated AppSec baseline, the production build — exactly the
+  template CI's blocking checks), `release` (+ API-docs drift, black-box
+  conformance). `--list` prints the manifest a driving tool configures its gate
+  from (id, category, command, input scope per check); `--only <check>` runs a
+  subset (the change-scoped rerun seam); `--format json` emits the `terp_verify`
+  envelope with every Terp Standard check report the checks published carried
+  structurally.
+- **Check reports (Terp Standard v0.7.0, `app-check-report.schema.json`).**
+  `terp check --format check-report` and `terp-boundaries-lint --format
+  check-report` emit the spec's self-describing check report — the certified
+  `spec_version`, the checker identity, the run verdict, the evaluated-rule
+  inventory as catalog ids, and findings in the finding format's shape
+  (`fix_hint` = the `terp guide` recipe) — so a consumer joins per-rule verdicts
+  to the catalog through one contract on both surfaces. The legacy
+  `--format json` report and `terp_findings` envelope keep their published
+  shapes; the certified spec version is a build-time constant
+  (`terp.arch.SPEC_VERSION`, `SPEC_VERSION` in `@terp/eslint-boundaries`) held
+  equal to the pinned spec release by the framework gate.
 - **App-declared environment variables.** Every app ships an
   `environment.schema.json` manifest (empty by default) declaring the run-time
   variables it reads beyond the platform-owned set; both compose profiles
