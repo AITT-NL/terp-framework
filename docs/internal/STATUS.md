@@ -381,6 +381,32 @@ spec pins to `v0.6.0` together (ADR 0082) and dropping the one-release
 `no_adhoc_middleware`, `no_dependency_overrides`, and `tables_have_migrations` as the
 remaining deferrals.
 
+Most recently, **the last three ADR 0084 `deferred` classifications gained their
+fail-closed runtime halves** (branch `runtime-deferrals`). `no_adhoc_middleware`:
+the composition freeze (`_freeze_app_route_registration`) now also refuses
+`add_middleware(...)` and the `@app.middleware(...)` decorator on the composed app
+(`_freeze_app_middleware_registration` in `terp.core.app`; `create_app`'s
+`middleware=[...]` parameter stays the one sanctioned seam).
+`no_dependency_overrides`: outside the `local` environment the composed app's
+`dependency_overrides` is replaced by a refusing mapping
+(`_freeze_dependency_overrides` / `_FrozenDependencyOverrides` — reads keep serving,
+every mutating spelling raises `BootError`); local dev/test compositions keep the
+writable map, preserving the sanctioned test-only override seam the framework's own
+suites use. `tables_have_migrations`: the boot guard now refuses the standalone
+missing-history case — `assert_no_missing_histories` (called first by
+`assert_migrations_current`, exported from `terp.migrations`) raises the new
+`MissingMigrationsError` when a *declared* tree (capability entry point or app
+module) ships a models module whose import path owns mapped tables but has no
+revision file, scoped so a fixture model outside every declared tree can never
+false-positive (the FK-scoped homeless-table check at `terp migrate make` is
+unchanged). Proven by the composition-freeze tests in
+`tests/architecture/test_core_app.py` and the missing-history tests in
+`tests/architecture/test_migrations_runtime.py`. The catalog flips
+(`runtime.applicability` `deferred` → `required`, each entry naming its runtime
+enforcement ref above) ship separately in the next terp-spec release; until the pin
+bump the three entries' `tracking` notes point here — **runtime halves: done,
+catalog flip: pending the spec release**.
+
 Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 
 ---
