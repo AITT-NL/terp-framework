@@ -1243,6 +1243,10 @@ def test_no_hardcoded_credentials(tmp_path: pathlib.Path) -> None:
         "self.api_key = 'not-from-config'",
         "client_secret: str = 'not-from-config'",
         "(password, label) = 'not-from-config'",
+        # Destructured parallel literals pair element-wise: the credential-shaped
+        # target is checked against ITS OWN value, not the tuple as a whole.
+        "user, password = 'svc', 'not-from-config'",
+        "(alpha, (beta, token)) = ('a', ('b', 'not-from-config'))",
     ):
         _write(app, "modules/billing/service.py", f"def configure(self):\n    {source}\n")
         assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}, source
@@ -1262,7 +1266,10 @@ def test_no_hardcoded_credentials(tmp_path: pathlib.Path) -> None:
         app,
         "modules/billing/service.py",
         "password = ''\napi_key = settings.API_KEY\ntoken = os.environ['TOKEN']\n"
-        "config['password'] = 'dev-only'\nlabel = 'not-secret'\n",
+        "config['password'] = 'dev-only'\nlabel = 'not-secret'\n"
+        # Element-wise pairing works both ways: the literal belongs to the
+        # non-credential name, the credential name gets the dynamic value.
+        "password, greeting = fetch_secret(), 'hello'\n",
     )
     assert check_no_hardcoded_credentials(app) == []
 

@@ -48,6 +48,28 @@ def _target_names(target: ast.expr) -> list[str]:
     return []
 
 
+def _assignment_pairs(target: ast.expr, value: ast.expr) -> list[tuple[str, ast.expr]]:
+    """``(name, value node)`` pairs for an assignment, through destructuring.
+
+    A tuple/list target with a same-arity tuple/list value pairs positionally
+    — ``user, password = "svc", "hunter2"`` checks ``password`` against
+    ``"hunter2"`` — recursively, so nested destructuring keeps precise pairs.
+    Any other shape pairs every extractable target name with the whole value
+    (``(password, label) = "literal"`` still flags ``password``).
+    """
+    if (
+        isinstance(target, ast.Tuple | ast.List)
+        and isinstance(value, ast.Tuple | ast.List)
+        and len(target.elts) == len(value.elts)
+    ):
+        return [
+            pair
+            for element, paired in zip(target.elts, value.elts, strict=True)
+            for pair in _assignment_pairs(element, paired)
+        ]
+    return [(name, value) for name in _target_names(target)]
+
+
 def _credential_shaped(name: str) -> bool:
     """Case-insensitive substring match for names likely to hold credentials."""
     lowered = name.lower()
@@ -82,21 +104,21 @@ def check_no_hardcoded_credentials(
         rel = _rel(path, root)
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign | ast.AnnAssign):
-                value = _literal_string(node.value)
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                if value:
-                    for name in [target_name for target in targets for target_name in _target_names(target)]:
-                        if _credential_shaped(name):
-                            violations.append(
-                                ArchViolation(
-                                    "no_hardcoded_credentials",
-                                    rel,
-                                    node.lineno,
-                                    f"assignment to credential-shaped name {name!r} uses a "
-                                    "non-empty string literal; load credentials from sealed "
-                                    "config/environment wiring instead",
+                if node.value is not None:
+                    for target in targets:
+                        for name, paired in _assignment_pairs(target, node.value):
+                            if _literal_string(paired) and _credential_shaped(name):
+                                violations.append(
+                                    ArchViolation(
+                                        "no_hardcoded_credentials",
+                                        rel,
+                                        node.lineno,
+                                        f"assignment to credential-shaped name {name!r} uses a "
+                                        "non-empty string literal; load credentials from sealed "
+                                        "config/environment wiring instead",
+                                    )
                                 )
-                            )
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 if _SECRET_LITERAL_RE.search(node.value):
                     violations.append(
