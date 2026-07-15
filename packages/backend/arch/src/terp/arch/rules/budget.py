@@ -7,11 +7,25 @@ A standalone check (not in ``_ALL_RULES``) the orchestrator runs when a
 
 from __future__ import annotations
 
+import datetime
 import json
 import pathlib
+import re
 
 from terp.arch._ast import _SECURITY_SKIP_DIRS, iter_python_files
-from terp.arch.rules._support import ArchViolation, _ALLOW_TOKEN_RE, _file_comments
+from terp.arch.rules._support import (
+    _ALLOW_MARKER_RE,
+    _ALLOW_TOKEN_RE,
+    ArchViolation,
+    _file_comments,
+    _rel,
+)
+
+#: The ``review-by:<YYYY-MM-DD>`` metadata token in a marker's reason (the Terp
+#: Standard's escape-hatch contract): when the exception must be re-justified.
+#: The tokens are a convention, not a gate — a reason without one is never
+#: rejected — but the spec says a toolchain SHOULD surface *expired* dates.
+_REVIEW_BY_RE = re.compile(r"review-by:\s*(\d{4}-\d{2}-\d{2})")
 
 
 def _governed_tokens() -> set[str]:
@@ -34,6 +48,7 @@ def check_escape_hatch_budget(
     *,
     budget_path: str | pathlib.Path,
     package: str = "app",
+    today: datetime.date | None = None,
 ) -> list[ArchViolation]:
     """``# arch-allow-*`` marker counts must match the checked-in budget (a ratchet).
 
@@ -46,6 +61,13 @@ def check_escape_hatch_budget(
     marker can never be budgeted into legitimacy. Markers are counted from real
     comment tokens only. This keeps every secure-by-default opt-out visible,
     greppable, and governed (design §8).
+
+    A marker reason MAY carry the spec's ``review-by:<YYYY-MM-DD>`` metadata
+    token; one whose date has passed is surfaced as a violation on the marker's
+    own line (re-justify the exception or remove it — a long-lived opt-out is
+    never silently eternal). Reasons without the token are never rejected, and
+    a malformed date is not a well-formed token (the convention is not a gate).
+    *today* is injectable for tests; ``None`` means the real current date.
     """
     root = pathlib.Path(app_root)
     budget_file = pathlib.Path(budget_path)
@@ -78,10 +100,31 @@ def check_escape_hatch_budget(
         ]
 
     actual: dict[str, int] = {}
+    expired: list[ArchViolation] = []
+    review_deadline = today if today is not None else datetime.date.today()  # noqa: DTZ011 — date-only convention
     for path in iter_python_files(root, skip_dirs=_SECURITY_SKIP_DIRS):
-        for _line, comment in _file_comments(path.read_text(encoding="utf-8")):
+        for lineno, comment in _file_comments(path.read_text(encoding="utf-8")):
             for token in _ALLOW_TOKEN_RE.findall(comment):
                 actual[token] = actual.get(token, 0) + 1
+            marker = _ALLOW_MARKER_RE.search(comment)
+            if marker is None or not marker.group("why"):
+                continue
+            for value in _REVIEW_BY_RE.findall(marker.group("why")):
+                try:
+                    review_by = datetime.date.fromisoformat(value)
+                except ValueError:
+                    continue  # not a well-formed token; the convention is not a gate
+                if review_by < review_deadline:
+                    expired.append(
+                        ArchViolation(
+                            "escape_hatch_budget",
+                            _rel(path, root),
+                            lineno,
+                            f"{marker.group('token')!r} opt-out review date passed "
+                            f"(review-by:{value}); re-justify the exception with a "
+                            "new review-by date or remove the marker",
+                        )
+                    )
 
     governed = _governed_tokens()
     violations: list[ArchViolation] = []
@@ -121,4 +164,4 @@ def check_escape_hatch_budget(
                     f"{marker!r} {detail[0]} to {found} (budget {expected}); {detail[1]}",
                 )
             )
-    return violations
+    return violations + expired

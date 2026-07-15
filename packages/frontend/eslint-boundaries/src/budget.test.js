@@ -122,6 +122,41 @@ describe("checkBudget", () => {
     expect(countMarkers(root)).toEqual({});
     expect(check(root)).toEqual([]);
   });
+
+  it("surfaces an expired review-by date on the marker's own file:line", () => {
+    // The spec's escape-hatch contract: a reason MAY carry review-by:<YYYY-MM-DD>;
+    // a toolchain SHOULD surface expired dates — so a long-lived opt-out is
+    // re-justified on schedule instead of staying silently eternal.
+    const marked =
+      "// terp-allow-token-styled-elements: host quirk owner:web ticket:APP-9 review-by:2026-01-31\n" +
+      "export const W = 1;\n";
+    const root = appRoot({ "a/x.tsx": marked }, '{ "terp-allow-token-styled-elements": 1 }');
+    const budgetPath = path.join(root, "escape-hatch-budget.json");
+    const problems = checkBudget(root, budgetPath, new Date("2026-02-01T12:00:00Z"));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/'terp-allow-token-styled-elements' at src\/modules\/a\/x\.tsx:1/);
+    expect(problems[0]).toMatch(/review-by:2026-01-31/);
+    expect(problems[0]).toMatch(/re-justify/);
+    // Due today = not yet passed; a future date is simply fine.
+    expect(checkBudget(root, budgetPath, new Date("2026-01-31T23:59:00Z"))).toEqual([]);
+  });
+
+  it("treats review-by as a convention, not a gate", () => {
+    // Reasons without the token are never rejected (the spec's MUST NOT), and
+    // a malformed date is not a well-formed token — neither fires, ever.
+    const marked =
+      "// terp-allow-token-styled-elements: no token here\nexport const A = 1;\n";
+    const broken =
+      "// terp-allow-token-styled-elements: review-by:2020-13-45 broken\n" +
+      "// terp-allow-token-styled-elements: review-by:someday prose\n" +
+      "export const B = 1;\n";
+    const root = appRoot(
+      { "a/x.tsx": marked, "b/y.tsx": broken },
+      '{ "terp-allow-token-styled-elements": 3 }',
+    );
+    const budgetPath = path.join(root, "escape-hatch-budget.json");
+    expect(checkBudget(root, budgetPath, new Date("2030-01-01T00:00:00Z"))).toEqual([]);
+  });
 });
 
 describe("terp-boundaries-budget --format json (the findings envelope)", () => {

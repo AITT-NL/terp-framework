@@ -24,6 +24,24 @@ import { knownMarkerNames, parseAllowMarkers } from "./index.js";
 
 const MODULE_FILE_RE = /\.(?:ts|tsx)$/;
 
+/** The `review-by:<YYYY-MM-DD>` metadata token in a marker's reason (the Terp
+ * Standard's escape-hatch contract): when the exception must be re-justified.
+ * The tokens are a convention, not a gate — a reason without one is never
+ * rejected — but the spec says a toolchain SHOULD surface *expired* dates. */
+const REVIEW_BY_RE = /review-by:\s*(\d{4}-\d{2}-\d{2})/g;
+
+/** A strictly valid calendar date from a `YYYY-MM-DD` token, else null — a
+ * malformed date (2026-13-45) is not a well-formed token and never fires. */
+function parsedReviewDate(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const roundTrips =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+  return roundTrips ? date : null;
+}
+
 /** Every `src/modules/**` TypeScript file under *root*, recursively. */
 function moduleFiles(root) {
   const modulesRoot = path.join(root, "src", "modules");
@@ -61,9 +79,13 @@ export function countMarkers(root) {
  *
  * A marker (or budget key) that names no rule with a governed opt-out — a typo, a
  * stale name, or the governance rule's own name — is refused outright: an unknown
- * marker can never be budgeted into legitimacy.
+ * marker can never be budgeted into legitimacy. A marker reason MAY carry the spec's
+ * `review-by:<YYYY-MM-DD>` metadata token; one whose date has passed is surfaced as a
+ * problem naming the marker's own file:line (re-justify the exception or remove it —
+ * a long-lived opt-out is never silently eternal). Reasons without the token are never
+ * rejected. *today* is injectable for tests; the default is the real current date.
  */
-export function checkBudget(root, budgetPath) {
+export function checkBudget(root, budgetPath, today = new Date()) {
   let raw;
   try {
     raw = fs.readFileSync(budgetPath, "utf-8");
@@ -116,6 +138,27 @@ export function checkBudget(root, budgetPath) {
   for (const [name, used] of Object.entries(actual)) {
     if (isGoverned(name) && !(name in budget)) {
       problems.push(`unbudgeted marker '${name}' used ${used} time(s); add it with a justified count`);
+    }
+  }
+  // Date-only comparison (like the backend checker): a review-by dated today
+  // is due, not yet passed.
+  const deadline = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  for (const file of moduleFiles(root)) {
+    const relative = path.relative(root, file).split(path.sep).join("/");
+    for (const marker of parseAllowMarkers(fs.readFileSync(file, "utf-8"))) {
+      if (marker.reason === null) {
+        continue;
+      }
+      for (const match of marker.reason.matchAll(REVIEW_BY_RE)) {
+        const reviewBy = parsedReviewDate(match[1]);
+        if (reviewBy !== null && reviewBy.getTime() < deadline) {
+          problems.push(
+            `marker '${BOUNDARY_SPEC.allowMarkerPrefix}${marker.rule}' at ${relative}:${marker.line} ` +
+              `has a passed review date (review-by:${match[1]}); re-justify the exception ` +
+              "with a new review-by date or remove the marker",
+          );
+        }
+      }
     }
   }
   return problems;

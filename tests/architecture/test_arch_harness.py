@@ -2215,6 +2215,62 @@ def test_markers_require_a_budget_to_be_clean(tmp_path: pathlib.Path) -> None:
         assert_app_clean(app)
 
 
+def test_expired_review_by_token_is_surfaced(tmp_path: pathlib.Path) -> None:
+    # The spec's escape-hatch contract: a reason MAY carry review-by:<YYYY-MM-DD>;
+    # a toolchain SHOULD surface expired dates — so a long-lived opt-out is
+    # re-justified on schedule instead of staying silently eternal.
+    import datetime
+
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/service.py",
+        f"{_INTERNAL_IMPORT}  # arch-allow-no-internal-imports: shim owner:core "
+        "ticket:APP-7 review-by:2026-01-31\n",
+    )
+    budget = tmp_path / "escape-hatch-budget.json"
+    budget.write_text(json.dumps({"arch-allow-no-internal-imports": 1}), encoding="utf-8")
+    violations = check_escape_hatch_budget(
+        app, budget_path=budget, today=datetime.date(2026, 2, 1)
+    )
+    assert _rule_names(violations) == {"escape_hatch_budget"}
+    assert len(violations) == 1
+    assert violations[0].path.replace("\\", "/") == "app/modules/notes/service.py"
+    assert violations[0].line == 1
+    assert "review-by:2026-01-31" in violations[0].message
+    assert "re-justify" in violations[0].message
+    # Due today = not yet passed; a future date is simply fine.
+    assert (
+        check_escape_hatch_budget(
+            app, budget_path=budget, today=datetime.date(2026, 1, 31)
+        )
+        == []
+    )
+
+
+def test_review_by_is_a_convention_not_a_gate(tmp_path: pathlib.Path) -> None:
+    # A reason without the token is never rejected (the spec's MUST NOT), and a
+    # malformed date is not a well-formed token — neither fires, ever.
+    import datetime
+
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/service.py",
+        f"{_INTERNAL_IMPORT}  # arch-allow-no-internal-imports: no token here\n"
+        f"{_INTERNAL_IMPORT}  # arch-allow-no-internal-imports: review-by:2020-13-45 broken\n"
+        f"{_INTERNAL_IMPORT}  # arch-allow-no-internal-imports: review-by:someday prose\n",
+    )
+    budget = tmp_path / "escape-hatch-budget.json"
+    budget.write_text(json.dumps({"arch-allow-no-internal-imports": 3}), encoding="utf-8")
+    assert (
+        check_escape_hatch_budget(
+            app, budget_path=budget, today=datetime.date(2030, 1, 1)
+        )
+        == []
+    )
+
+
 def test_example_app_escape_hatch_budget_is_clean() -> None:
     # Dogfood: the example app's single opt-out (the journals read-visibility
     # predicate's owner_id comparison, ADR 0061) is governed — the budget agrees exactly.
