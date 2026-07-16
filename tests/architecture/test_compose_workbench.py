@@ -1,9 +1,11 @@
-"""The example Docker workbench topology (apps/example/docker-compose.yml) stays intact.
+﻿"""The example Docker workbench topology (apps/example/docker-compose.yml) stays intact.
 
 A structure guard that parses the Compose file as data: the workbench services exist, the API
 waits for a healthy database and a completed migrate, seeding follows migrate, and both app and
-frontend source are watched for live sync — so the "one command to a seeded, running app"
-contract cannot silently rot. Docker is not required (this parses the file, it does not run it).
+frontend source reach the running containers live (bind mounts + polling reloaders â€” compose
+watch's inotify never fires across Docker Desktop / volume mounts, ADR: the Studio dev loop) â€”
+so the "one command to a seeded, running app" contract cannot silently rot. Docker is not
+required (this parses the file, it does not run it).
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ _JINJA_IF_BLOCK = re.compile(r"\{%-?\s*if\b.*?%\}.*?\{%-?\s*endif\s*-?%\}", re.D
 
 def _template_compose() -> dict:
     # Substituting the one interpolation ({{ project_slug }}) and stripping the wizard's
-    # conditional blocks (their default render — every capability toggle off) lets the file
+    # conditional blocks (their default render â€” every capability toggle off) lets the file
     # parse as YAML without a Jinja engine (mirrors test_template.py's no-render checks).
     # The toggled-on renders are proven by the template-acceptance CI matrix.
     text = _TEMPLATE_COMPOSE.read_text(encoding="utf-8").replace("{{ project_slug }}", "app")
@@ -76,16 +78,37 @@ def test_seed_follows_a_completed_migrate() -> None:
     assert deps["migrate"]["condition"] == "service_completed_successfully"
 
 
-def test_api_watches_app_source_for_live_sync() -> None:
-    watched = {entry["path"] for entry in _compose()["services"]["api"]["develop"]["watch"]}
-    assert "app" in watched
+def test_api_mounts_live_app_source_with_a_polling_reloader() -> None:
+    """Edits reach the running API without a rebuild: the checkout's app +
+    control_plane are bind-mounted and uvicorn's reloader polls (inotify
+    never crosses a Docker Desktop / volume mount)."""
+    api = _compose()["services"]["api"]
+    sources = {volume.rsplit(":", 1)[0] for volume in api.get("volumes", [])}
+    assert "./app" in sources
+    assert "./control_plane" in sources
+    assert api["environment"]["WATCHFILES_FORCE_POLLING"] == "true"
 
 
-def test_web_watches_frontend_source_and_proxies_to_the_api() -> None:
+def test_web_mounts_live_frontend_source_and_proxies_to_the_api() -> None:
     web = _compose()["services"]["web"]
-    watched = {entry["path"] for entry in web["develop"]["watch"]}
-    assert "frontend/src" in watched
+    sources = {volume.rsplit(":", 1)[0] for volume in web.get("volumes", [])}
+    assert "./frontend/src" in sources
+    assert web["environment"]["TERP_DEV_FORCE_POLLING"] == "true"
     assert web["environment"]["TERP_API_PROXY"] == "http://api:8000"
+
+
+def test_template_workbench_mounts_live_source_through_the_studio_seam() -> None:
+    """The template's bind sources interpolate TERP_DEV_HOST_ROOT (the checkout
+    as the DAEMON sees it â€” a containerized Studio passes it; default `.` is
+    the manual layout), so the Studio dev loop hot-reloads too."""
+    services = _template_compose()["services"]
+    api_sources = {volume.rsplit(":", 1)[0] for volume in services["api"].get("volumes", [])}
+    web_sources = {volume.rsplit(":", 1)[0] for volume in services["web"].get("volumes", [])}
+    assert "${TERP_DEV_HOST_ROOT:-.}/app" in api_sources
+    assert "${TERP_DEV_HOST_ROOT:-.}/control_plane" in api_sources
+    assert "${TERP_DEV_HOST_ROOT:-.}/frontend/src" in web_sources
+    assert services["api"]["environment"]["WATCHFILES_FORCE_POLLING"] == "true"
+    assert services["web"]["environment"]["TERP_DEV_FORCE_POLLING"] == "true"
 
 
 def test_workbench_backend_forwards_app_declared_env() -> None:
@@ -103,7 +126,7 @@ def test_workbench_backend_forwards_app_declared_env() -> None:
 # --------------------------------------------------------------------------- #
 # Drift guard: the example (monorepo) and the template (standalone) workbenches
 # legitimately differ in build context, but their *topology* is the contract and
-# must not drift — the same anti-drift discipline as the vendored core / OpenAPI gates.
+# must not drift â€” the same anti-drift discipline as the vendored core / OpenAPI gates.
 # --------------------------------------------------------------------------- #
 def test_example_and_template_workbenches_share_a_topology() -> None:
     example = _compose()["services"]
@@ -112,11 +135,12 @@ def test_example_and_template_workbenches_share_a_topology() -> None:
     # Identical health-gated ordering across every service (db -> migrate -> seed -> api + web).
     for service in _WORKBENCH_SERVICES:
         assert _depends_conditions(example[service]) == _depends_conditions(template[service])
-    # Identical backend config contract, live-sync, same-origin proxy, and configurable host ports.
+    # Identical backend config contract, live-mounted source, same-origin proxy, and
+    # configurable host ports.
     assert (
         set(example["api"]["environment"])
         == set(template["api"]["environment"])
-        == {"DATABASE_URL", "SECRET_KEY", "ENVIRONMENT"}
+        == {"DATABASE_URL", "SECRET_KEY", "ENVIRONMENT", "WATCHFILES_FORCE_POLLING"}
     )
     assert "watch" in example["api"]["develop"] and "watch" in template["api"]["develop"]
     assert (

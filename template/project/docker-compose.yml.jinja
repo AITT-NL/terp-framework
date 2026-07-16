@@ -4,8 +4,9 @@
 #   terp docker dev              # (or: docker compose watch) build, migrate, seed, then run
 #
 # Topology: Postgres (prod-parity DB) -> one-shot migrate -> one-shot seed -> the API
-# (uvicorn) and the frontend (Vite). Editing app / frontend source live-syncs into the
-# running containers (uvicorn --reload + Vite HMR).
+# (uvicorn) and the frontend (Vite). App and frontend source are bind-mounted straight
+# from the checkout (uvicorn --reload + Vite HMR, both polling — reliable on every
+# filesystem); dependency/manifest changes rebuild via compose watch.
 name: {{ project_slug }}
 
 # Shared backend definition — migrate / seed / api run the same image. Only the `api`
@@ -71,10 +72,21 @@ services:
       context: .
       dockerfile: Dockerfile
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      <<: *backend-env
+      # Bind-mounted source can live on a filesystem without inotify (Docker
+      # Desktop mounts, the Studio's checkout volume) — poll instead of miss.
+      WATCHFILES_FORCE_POLLING: "true"
     ports:
       - "${API_PORT:-8000}:8000"
-{%- if use_files %}
     volumes:
+      # Live source, straight from the checkout: edits reload without a
+      # rebuild. TERP_DEV_HOST_ROOT is the checkout as the DAEMON sees it
+      # (Terp Studio passes it for containerized runs); default `.` is the
+      # manual `docker compose watch` layout on a dev host.
+      - ${TERP_DEV_HOST_ROOT:-.}/app:/app/app
+      - ${TERP_DEV_HOST_ROOT:-.}/control_plane:/app/control_plane
+{%- if use_files %}
       # Uploaded blobs (terp-cap-files' default local profile stores under ./var/files):
       # a named volume so uploads survive container rebuilds.
       - files-data:/app/var/files
@@ -92,12 +104,6 @@ services:
       start_period: 10s
     develop:
       watch:
-        - action: sync
-          path: app
-          target: /app/app
-        - action: sync
-          path: control_plane
-          target: /app/control_plane
         - action: rebuild
           path: pyproject.toml
 
@@ -109,15 +115,17 @@ services:
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
     environment:
       TERP_API_PROXY: http://api:8000
+      # Poll the bind-mounted source (no inotify across Desktop/volume mounts).
+      TERP_DEV_FORCE_POLLING: "true"
     ports:
       - "${WEB_PORT:-5173}:5173"
+    volumes:
+      # Live frontend source (see the api service's note on TERP_DEV_HOST_ROOT).
+      - ${TERP_DEV_HOST_ROOT:-.}/frontend/src:/app/frontend/src
     depends_on:
       - api
     develop:
       watch:
-        - action: sync
-          path: frontend/src
-          target: /app/frontend/src
         - action: rebuild
           path: frontend/package.json
 

@@ -4,8 +4,9 @@
 #   docker compose watch         # build, migrate, seed, then run api + web with live sync
 #
 # Topology: Postgres (prod-parity DB) -> one-shot `migrate` -> one-shot `seed` -> the API
-# (uvicorn) and the frontend (Vite). Editing app / package source live-syncs into the running
-# containers (uvicorn --reload + Vite HMR).
+# (uvicorn) and the frontend (Vite). App and package source are bind-mounted straight from
+# the checkout (uvicorn --reload + Vite HMR, both polling — reliable on every filesystem);
+# dependency/manifest changes rebuild via compose watch.
 name: terp-example
 
 # Shared backend definition — migrate / seed / api run the same image. Only the `api`
@@ -64,8 +65,18 @@ services:
       context: ../..
       dockerfile: apps/example/Dockerfile
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      <<: *backend-env
+      # Bind-mounted source can live on a filesystem without inotify (Docker
+      # Desktop mounts) — poll instead of miss.
+      WATCHFILES_FORCE_POLLING: "true"
     ports:
       - "${API_PORT:-8000}:8000"
+    volumes:
+      # Live source, straight from the checkout: edits reload without a rebuild.
+      - ./app:/workspace/app
+      - ./control_plane:/workspace/control_plane
+      - ../../packages/backend:/workspace/packages/backend
     depends_on:
       db:
         condition: service_healthy
@@ -79,15 +90,6 @@ services:
       start_period: 10s
     develop:
       watch:
-        - action: sync
-          path: app
-          target: /workspace/app
-        - action: sync
-          path: control_plane
-          target: /workspace/control_plane
-        - action: sync
-          path: ../../packages/backend
-          target: /workspace/packages/backend
         - action: rebuild
           path: Dockerfile
 
@@ -99,18 +101,18 @@ services:
     command: ["npm", "run", "-w", "@terp-example/frontend", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
     environment:
       TERP_API_PROXY: http://api:8000
+      # Poll the bind-mounted source (no inotify across Desktop mounts).
+      TERP_DEV_FORCE_POLLING: "true"
     ports:
       - "${WEB_PORT:-5173}:5173"
+    volumes:
+      # Live frontend + package source (see the api service's note).
+      - ./frontend/src:/workspace/apps/example/frontend/src
+      - ../../packages/frontend:/workspace/packages/frontend
     depends_on:
       - api
     develop:
       watch:
-        - action: sync
-          path: frontend/src
-          target: /workspace/apps/example/frontend/src
-        - action: sync
-          path: ../../packages/frontend
-          target: /workspace/packages/frontend
         - action: rebuild
           path: frontend/package.json
 
