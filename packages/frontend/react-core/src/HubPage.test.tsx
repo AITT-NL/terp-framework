@@ -16,10 +16,9 @@ describe("HubPage", () => {
     );
 
     expect(screen.getByRole("heading", { level: 1, name: "Administration" })).toBeInTheDocument();
-    // Two lists exist by construction: the breadcrumb trail and the card grid.
-    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
-    const grid = screen.getAllByRole("list").find((list) => !crumbs.contains(list));
-    expect(grid).toBeDefined();
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Administration")).toHaveLength(1);
+    expect(screen.getByRole("list")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Users/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Roles/ })).toBeInTheDocument();
     expect(screen.getByText("Manage accounts")).toBeInTheDocument();

@@ -23,15 +23,11 @@ describe("Page", () => {
     expect(screen.getByText("body")).toBeInTheDocument();
   });
 
-  it("always shows the breadcrumb frame: a root page carries its own crumb", () => {
+  it("does not repeat a root page title as a current-page-only breadcrumb", () => {
     render(<Page title="Tasks">x</Page>);
 
-    const trail = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(trail).toBeInTheDocument();
-    expect(screen.getByText("Tasks", { selector: "span" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Tasks")).toHaveLength(1);
   });
 
   it("appends its own crumb to the supplied trail", () => {
@@ -110,15 +106,12 @@ describe("Page", () => {
 });
 
 describe("OverviewPage", () => {
-  it("is a root-level Page: h1 title, its own crumb as the trail", () => {
+  it("is a root-level Page with one title and no redundant breadcrumb", () => {
     render(<OverviewPage title="Tasks">list</OverviewPage>);
 
     expect(screen.getByRole("heading", { level: 1, name: "Tasks" })).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeInTheDocument();
-    expect(screen.getByText("Tasks", { selector: "span" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Tasks")).toHaveLength(1);
     expect(screen.getByText("list")).toBeInTheDocument();
   });
 });

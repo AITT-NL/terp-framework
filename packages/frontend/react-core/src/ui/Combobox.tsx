@@ -30,6 +30,8 @@ const inputWrapStyle: CSSProperties = { position: "relative", display: "grid" };
 const inputStyle: CSSProperties = {
   font: "inherit",
   lineHeight: 1.2,
+  width: "100%",
+  minWidth: 0,
   minHeight: "2.25rem",
   padding: "0 calc(var(--space-3) + 1.5rem) 0 var(--space-3)",
   border: "1px solid var(--color-neutral-300)",

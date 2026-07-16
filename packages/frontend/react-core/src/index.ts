@@ -87,6 +87,8 @@ export { Tabs } from "./ui/Tabs";
 export type { TabItem, TabsProps } from "./ui/Tabs";
 export { Badge } from "./ui/Badge";
 export type { BadgeProps, BadgeTone } from "./ui/Badge";
+export { Card } from "./ui/Card";
+export type { CardProps } from "./ui/Card";
 export { Tooltip } from "./ui/Tooltip";
 export type { TooltipProps } from "./ui/Tooltip";
 export { Alert } from "./ui/Alert";

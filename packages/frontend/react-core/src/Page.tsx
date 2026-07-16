@@ -17,7 +17,7 @@ import type { UiText } from "./uiText";
 export interface PageProps {
   /** The page heading (rendered as the single `h1`). */
   title: UiText;
-  /** Breadcrumb trail, outermost first; the current page's crumb is appended automatically. */
+  /** Ancestor breadcrumb trail, outermost first; the current page's crumb is appended automatically. */
   breadcrumbs?: readonly BreadcrumbItem[];
   /** Link renderer for ancestor crumbs; pass the stack's `Link` (see {@link Breadcrumbs}). */
   renderLink?: RenderBreadcrumbLink;
@@ -40,7 +40,13 @@ export interface PageProps {
   children: ReactNode;
 }
 
-const pageStyle: CSSProperties = { display: "grid", gap: "var(--space-4)", alignContent: "start" };
+const pageStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
+  gap: "var(--space-4)",
+  alignContent: "start",
+  minWidth: 0,
+};
 
 const headerStyle: CSSProperties = { display: "grid", gap: "var(--space-2)" };
 
@@ -51,6 +57,11 @@ const crumbRowStyle: CSSProperties = {
   gap: "var(--space-3)",
   flexWrap: "wrap",
   minHeight: "2rem",
+};
+
+const actionsOnlyRowStyle: CSSProperties = {
+  ...crumbRowStyle,
+  justifyContent: "flex-end",
 };
 
 const titleStyle: CSSProperties = {
@@ -64,9 +75,9 @@ const titleStyle: CSSProperties = {
 
 /**
  * The base content-page frame: every routed view is constructed the same way — one
- * constant header row holding the breadcrumb trail (the path back up through the
- * layers, always rendered — a root page shows its own crumb) on the left and the
- * page's `actions` slot on the right, then the single `h1` title, then the body.
+ * header row holding the breadcrumb trail (when there is a path back up through the
+ * layers) on the left and the page's `actions` slot on the right, then the single
+ * `h1` title, then the body. A root page omits the redundant current-page-only crumb.
  * `OverviewPage` and `DetailPage` specialise it for the standard overview -> detail
  * layering; a bespoke screen composes `Page` directly.
  *
@@ -115,7 +126,8 @@ export function Page({
   if (slotViolation !== null) {
     throw new Error(slotViolation);
   }
-  const trail: BreadcrumbItem[] = [...(breadcrumbs ?? []), { label: title }];
+  const hasAncestors = breadcrumbs !== undefined && breadcrumbs.length > 0;
+  const trail: BreadcrumbItem[] = hasAncestors ? [...breadcrumbs, { label: title }] : [];
   const body =
     error !== null && error !== undefined ? (
       (errorState ?? <ErrorState error={error} />)
@@ -127,10 +139,12 @@ export function Page({
   return (
     <article ref={articleRef} style={pageStyle}>
       <header style={headerStyle}>
-        <div style={crumbRowStyle}>
-          <Breadcrumbs items={trail} renderLink={renderLink} />
-          {actions}
-        </div>
+        {hasAncestors || actions ? (
+          <div style={hasAncestors ? crumbRowStyle : actionsOnlyRowStyle}>
+            {hasAncestors ? <Breadcrumbs items={trail} renderLink={renderLink} /> : null}
+            {actions}
+          </div>
+        ) : null}
         <h1 style={titleStyle}>{resolve(title)}</h1>
       </header>
       {/* Reset the slot for the body's own subtree, so nested content is never judged

@@ -147,6 +147,7 @@ token spacing scale, so spacing is themed centrally):
 | Export | Use |
 |---|---|
 | `Stack` | The layout primitive: a flex container with a token gap. Vertical by default (forms, sections); `direction="row"` + `justify` for toolbars; `as="form"` etc. for semantics. |
+| `Card` | A token-styled surface (border + background + padding) grouping one block of a page — the sanctioned visual separation between sections. Optional header row: `title` (semantic `<h3>`), muted `description`, `actions` slot. |
 | `DetailList` | Token-styled label/value pairs as a semantic `<dl>` (record metadata, expanded-row summaries). |
 
 ## The packaged admin area

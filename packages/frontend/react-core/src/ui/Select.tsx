@@ -12,6 +12,8 @@ const chevronUrl =
 const selectStyle: CSSProperties = {
   font: "inherit",
   lineHeight: 1.2,
+  maxWidth: "100%",
+  minWidth: 0,
   minHeight: "2.25rem",
   padding: "0 calc(var(--space-3) + 1.25rem) 0 var(--space-3)",
   border: "1px solid var(--color-neutral-300)",
