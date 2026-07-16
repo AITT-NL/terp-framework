@@ -37,7 +37,7 @@ RUN uv pip install --system --no-cache \
     -e packages/backend/capabilities/oidc \
     -e packages/backend/capabilities/webhooks \
     -e packages/backend/cli \
-    uvicorn "psycopg[binary]"
+    "uvicorn[standard]" "psycopg[binary]"
 
 # The example app code runs on PYTHONPATH (mirrors the pytest `pythonpath = apps/example`).
 COPY apps/example/app app

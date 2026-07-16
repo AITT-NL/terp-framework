@@ -29,7 +29,10 @@ await publish(NOTICES, Notice(sequence=1, text="Ready"), audience=str(user_id))
 A bidirectional WebSocket channel adds an inbound Pydantic model + handler. Its
 subscription requirement defaults to VIEWER; its inbound requirement defaults
 to EDITOR, and both can be typed `Role`/`Permission` objects. The handler receives
-the authenticated principal and a validated model, never an untyped frame.
+the authenticated principal and a validated model, never an untyped frame. Each
+frame runs in a fresh session that closes when its sync or async handler returns;
+apps with a custom session seam pass it as `message_session_provider` to
+`configure_realtime`.
 
 The self-registering `ModuleSpec` mounts:
 
@@ -56,4 +59,6 @@ const notices = useRealtimeChannel({
 
 The hook mints its ticket through the generated authenticated client, opens the
 native transport internally, and validates every JSON payload with the supplied
-type guard before exposing it.
+type guard before exposing it. A transient disconnect closes the consumed-ticket
+transport and remints with bounded exponential backoff; `close()` cancels both a
+pending mint and scheduled reconnects.

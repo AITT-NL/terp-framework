@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import contextmanager
+from inspect import isawaitable, iscoroutinefunction
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
@@ -29,6 +31,7 @@ from terp.core import (
     SessionDep,
     bind_audit_actor,
     get_principal,
+    get_session,
 )
 
 from terp.capabilities.realtime.broker import (
@@ -44,9 +47,11 @@ HEARTBEAT_SECONDS = 15.0
 MAX_INBOUND_BYTES = 64 * 1024
 
 PrincipalValidator = Callable[[Principal, str], bool]
+MessageSessionProvider = Callable[[], Iterator[Session]]
 
 _permission_enforcer: PermissionEnforcer | None = None
 _principal_validator: PrincipalValidator | None = None
+_message_session_provider: MessageSessionProvider | None = None
 
 
 class TicketRequest(BaseModel):
@@ -65,6 +70,7 @@ def configure_realtime(
     *,
     permission_enforcer: PermissionEnforcer | None = None,
     principal_validator: PrincipalValidator | None = None,
+    message_session_provider: MessageSessionProvider | None = None,
 ) -> None:
     """Wire optional authorization/revocation seams at composition time.
 
@@ -72,10 +78,13 @@ def configure_realtime(
     ``permission_enforcer`` is present. ``principal_validator`` may revalidate
     long-lived connections at handshake/heartbeat/frame boundaries; without it,
     authority is the live principal captured by the 30-second ticket mint.
+    ``message_session_provider`` supplies one fresh session per inbound frame;
+    the core request-session provider is the default.
     """
-    global _permission_enforcer, _principal_validator
+    global _permission_enforcer, _principal_validator, _message_session_provider
     _permission_enforcer = permission_enforcer
     _principal_validator = principal_validator
+    _message_session_provider = message_session_provider
 
 
 def reset_realtime_configuration() -> None:
@@ -107,6 +116,67 @@ def _validate_live(ticket: ConnectionTicket) -> bool:
     return _principal_validator is None or _principal_validator(
         ticket.principal, ticket.credential
     )
+
+
+async def _validate_live_async(ticket: ConnectionTicket) -> bool:
+    validator = _principal_validator
+    if validator is None:
+        return True
+    return await asyncio.to_thread(
+        validator, ticket.principal, ticket.credential
+    )
+
+
+@contextmanager
+def _message_session() -> Iterator[Session]:
+    sessions = (_message_session_provider or get_session)()
+    try:
+        session = next(sessions)
+    except StopIteration as exc:
+        raise RuntimeError("realtime message session provider yielded no session") from exc
+    try:
+        yield session
+    finally:
+        close = getattr(sessions, "close", None)
+        if close is not None:
+            close()
+
+
+def _handler_is_async(handler: Callable[..., object]) -> bool:
+    return iscoroutinefunction(handler) or iscoroutinefunction(
+        getattr(handler, "__call__", None)
+    )
+
+
+def _run_sync_handler(
+    handler: Callable[..., object],
+    ticket: ConnectionTicket,
+    message: BaseModel,
+) -> None:
+    with _message_session() as session, bind_audit_actor(ticket.principal.id):
+        result = handler(session, ticket.principal, message)
+        if isawaitable(result):
+            close = getattr(result, "close", None)
+            if close is not None:
+                close()
+            raise TypeError(
+                "realtime sync handler returned an awaitable; declare it with async def"
+            )
+
+
+async def _run_inbound_handler(
+    handler: Callable[..., object],
+    ticket: ConnectionTicket,
+    message: BaseModel,
+) -> None:
+    if not _handler_is_async(handler):
+        await asyncio.to_thread(_run_sync_handler, handler, ticket, message)
+        return
+    with _message_session() as session, bind_audit_actor(ticket.principal.id):
+        result = handler(session, ticket.principal, message)
+        if not isawaitable(result):
+            raise TypeError("realtime async handler returned a non-awaitable")
+        await result
 
 
 def _bearer_credential(request: Request) -> str:
@@ -177,12 +247,12 @@ def _sse_data(payload: str) -> bytes:
 
 async def _sse_stream(
     channel: RealtimeChannel,
-    audience: str,
+    ticket: ConnectionTicket,
     *,
     heartbeat_seconds: float = HEARTBEAT_SECONDS,
 ) -> AsyncIterator[bytes]:
     iterator = get_broker().stream(
-        audience_topic(channel.name, audience)
+        audience_topic(channel.name, ticket.audience)
     ).__aiter__()
     pending = asyncio.create_task(anext(iterator))
     try:
@@ -191,11 +261,15 @@ async def _sse_stream(
                 {pending}, timeout=heartbeat_seconds
             )
             if not done:
+                if not await _validate_live_async(ticket):
+                    return
                 yield b": keepalive\n\n"
                 continue
             try:
                 payload = pending.result()
             except (StopAsyncIteration, BackpressureError):
+                return
+            if not await _validate_live_async(ticket):
                 return
             yield _sse_data(payload)
             pending = asyncio.create_task(anext(iterator))
@@ -225,7 +299,7 @@ def subscribe_sse(
 
         raise AuthenticationError()
     return StreamingResponse(
-        _sse_stream(channel, redeemed.audience),
+        _sse_stream(channel, redeemed),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-store",
@@ -235,26 +309,41 @@ def subscribe_sse(
 
 
 async def _websocket_outbound(
-    websocket: WebSocket, channel: RealtimeChannel, audience: str
+    websocket: WebSocket, channel: RealtimeChannel, ticket: ConnectionTicket
 ) -> None:
     async for payload in get_broker().stream(
-        audience_topic(channel.name, audience)
+        audience_topic(channel.name, ticket.audience)
     ):
+        if not await _validate_live_async(ticket):
+            await websocket.close(code=1008, reason="session no longer valid")
+            return
         await websocket.send_text(payload)
+
+
+async def _websocket_liveness(
+    websocket: WebSocket,
+    ticket: ConnectionTicket,
+    *,
+    interval_seconds: float = HEARTBEAT_SECONDS,
+) -> None:
+    while True:
+        await asyncio.sleep(interval_seconds)
+        if not await _validate_live_async(ticket):
+            await websocket.close(code=1008, reason="session no longer valid")
+            return
 
 
 async def _websocket_inbound(
     websocket: WebSocket,
     channel: RealtimeChannel,
     ticket: ConnectionTicket,
-    session: Session,
 ) -> None:
     while True:
         text = await websocket.receive_text()
         if len(text.encode("utf-8")) > MAX_INBOUND_BYTES:
             await websocket.close(code=1009, reason="message too large")
             return
-        if not _validate_live(ticket):
+        if not await _validate_live_async(ticket):
             await websocket.close(code=1008, reason="session no longer valid")
             return
         if channel.inbound_model is None or channel.on_message is None:
@@ -269,12 +358,7 @@ async def _websocket_inbound(
                 )
             )
             continue
-        # The HTTP guard's audit-actor binder never saw this connection (the
-        # handshake authenticated by ticket), so an audited write inside the
-        # handler must still know WHO acted: bind the ticket's principal for
-        # exactly the handler call, mirroring what the binder does per request.
-        with bind_audit_actor(ticket.principal.id):
-            channel.on_message(session, ticket.principal, message)
+        await _run_inbound_handler(channel.on_message, ticket, message)
 
 
 def _raise_unexpected_task_results(results: list[object]) -> None:
@@ -291,7 +375,7 @@ async def subscribe_websocket(
     websocket: WebSocket,
     channel_name: str,
     ticket: Annotated[str, Query(min_length=1, max_length=200)],
-    session: SessionDep,
+    handshake_session: SessionDep,
 ) -> None:
     channel = get_channel(channel_name)
     redeemed = _consume_ticket(
@@ -301,19 +385,24 @@ async def subscribe_websocket(
         channel is None
         or channel.mode != "websocket"
         or redeemed is None
-        or not _validate_live(redeemed)
+        or not await _validate_live_async(redeemed)
     ):
         await websocket.close(code=1008, reason="invalid connection ticket")
         return
+    # Global guard/audit dependencies resolve one request session even for this
+    # ticket-authenticated public route. Release it before the long-lived socket;
+    # each inbound frame gets a fresh, bounded message unit of work instead.
+    handshake_session.close()
     await websocket.accept()
     outbound = asyncio.create_task(
-        _websocket_outbound(websocket, channel, redeemed.audience)
+        _websocket_outbound(websocket, channel, redeemed)
     )
     inbound = asyncio.create_task(
-        _websocket_inbound(websocket, channel, redeemed, session)
+        _websocket_inbound(websocket, channel, redeemed)
     )
+    liveness = asyncio.create_task(_websocket_liveness(websocket, redeemed))
     done, pending = await asyncio.wait(
-        {outbound, inbound}, return_when=asyncio.FIRST_COMPLETED
+        {outbound, inbound, liveness}, return_when=asyncio.FIRST_COMPLETED
     )
     for task in pending:
         task.cancel()
@@ -339,6 +428,7 @@ module = ModuleSpec(
 __all__ = [
     "HEARTBEAT_SECONDS",
     "MAX_INBOUND_BYTES",
+    "MessageSessionProvider",
     "TICKET_TTL_SECONDS",
     "PrincipalValidator",
     "TicketRequest",

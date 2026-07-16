@@ -89,20 +89,23 @@ class InMemoryConnectionTicketStore(ConnectionTicketStore):
 
 
 _configured_store: ConnectionTicketStore | None = None
+_configuration_lock = Lock()
 
 
 def configure_ticket_store(store: ConnectionTicketStore | None) -> None:
     """Install *store* process-wide (``None`` resets to the lazy default)."""
     global _configured_store
-    _configured_store = store
+    with _configuration_lock:
+        _configured_store = store
 
 
 def get_ticket_store() -> ConnectionTicketStore:
     """The configured store, creating the in-memory default lazily."""
     global _configured_store
-    if _configured_store is None:
-        _configured_store = InMemoryConnectionTicketStore()
-    return _configured_store
+    with _configuration_lock:
+        if _configured_store is None:
+            _configured_store = InMemoryConnectionTicketStore()
+        return _configured_store
 
 
 __all__ = [

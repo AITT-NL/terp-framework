@@ -9,7 +9,7 @@ add an inbound model + handler for bidirectional messages.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from threading import RLock
 from typing import Literal
@@ -28,7 +28,7 @@ from terp.core import (
 
 _CHANNEL_RE = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 
-InboundHandler = Callable[[Session, Principal, BaseModel], None]
+InboundHandler = Callable[[Session, Principal, BaseModel], None | Awaitable[None]]
 AudienceResolver = Callable[[Session, Principal], str]
 
 
@@ -60,8 +60,10 @@ class RealtimeChannel:
     ``requirement`` is the read authority for minting a ticket. Role floors and
     permissions use the same normalized objects as ``Policy``; a permission is
     denied fail-closed unless the realtime capability is configured with a
-    permission enforcer. ``inbound_model`` / ``on_message`` are both required
-    or both absent, and only WebSocket channels may declare them.
+    permission enforcer. Each ``on_message`` call receives a fresh per-frame
+    session that closes when the handler completes. ``inbound_model`` /
+    ``on_message`` are both required or both absent, and only WebSocket channels
+    may declare them.
     """
 
     name: str

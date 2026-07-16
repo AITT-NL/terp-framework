@@ -122,20 +122,23 @@ class InMemoryRealtimeBroker(RealtimeBroker):
 
 
 _configured_broker: RealtimeBroker | None = None
+_configuration_lock = RLock()
 
 
 def configure_broker(broker: RealtimeBroker | None) -> None:
     """Install *broker* process-wide (``None`` resets to the lazy default)."""
     global _configured_broker
-    _configured_broker = broker
+    with _configuration_lock:
+        _configured_broker = broker
 
 
 def get_broker() -> RealtimeBroker:
     """The configured broker, creating the bounded in-memory default lazily."""
     global _configured_broker
-    if _configured_broker is None:
-        _configured_broker = InMemoryRealtimeBroker()
-    return _configured_broker
+    with _configuration_lock:
+        if _configured_broker is None:
+            _configured_broker = InMemoryRealtimeBroker()
+        return _configured_broker
 
 
 __all__ = [

@@ -22,6 +22,7 @@ from app.auth import (
     me_module,
     oidc_module,
     principal_provider,
+    realtime_message_session_provider,
     realtime_principal_validator,
     throttle_store,
 )
@@ -107,6 +108,7 @@ def build() -> FastAPI:
     configure_realtime(
         permission_enforcer=enforce_permission,
         principal_validator=realtime_principal_validator,
+        message_session_provider=realtime_message_session_provider,
     )
     return _create(
         *modules,

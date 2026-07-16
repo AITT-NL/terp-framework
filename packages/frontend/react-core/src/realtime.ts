@@ -5,6 +5,9 @@ import { useTerpBaseUrl, useTerpClient } from "./TerpProvider";
 export type RealtimeTransport = "sse" | "websocket";
 export type RealtimeStatus = "connecting" | "open" | "closed" | "error";
 
+const INITIAL_RECONNECT_DELAY_MS = 1_000;
+const MAX_RECONNECT_DELAY_MS = 30_000;
+
 interface TicketResponse {
   ticket: string;
   expires_in: number;
@@ -112,6 +115,8 @@ export function useRealtimeChannel<Message>({
   const eventSourceRef = useRef<EventSource | null>(null);
   const validateRef = useRef(validate);
   const onMessageRef = useRef(onMessage);
+  const closeRef = useRef<() => void>(() => {});
+  const terminalFailureRef = useRef<(cause: unknown) => void>(() => {});
   validateRef.current = validate;
   onMessageRef.current = onMessage;
   const [status, setStatus] = useState<RealtimeStatus>(
@@ -127,10 +132,7 @@ export function useRealtimeChannel<Message>({
       setLastMessage(message);
       onMessageRef.current?.(message);
     } catch (cause) {
-      setError(cause instanceof Error ? cause : new Error("Realtime message failed"));
-      setStatus("error");
-      socketRef.current?.close(1003, "invalid message payload");
-      eventSourceRef.current?.close();
+      terminalFailureRef.current(cause);
     }
   };
 
@@ -142,21 +144,69 @@ export function useRealtimeChannel<Message>({
 
   useEffect(() => {
     let cancelled = false;
+    let stopped = false;
     let source: EventSource | null = null;
     let socket: WebSocket | null = null;
-    if (!enabled) {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryAttempt = 0;
+
+    const active = () => !cancelled && !stopped;
+
+    const releaseTransport = (reason: string) => {
+      source?.close();
+      socket?.close(1000, reason);
+      if (eventSourceRef.current === source) eventSourceRef.current = null;
+      if (socketRef.current === socket) socketRef.current = null;
+      source = null;
+      socket = null;
+    };
+
+    const cancelRetry = () => {
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      retryTimer = null;
+    };
+
+    const stop = () => {
+      stopped = true;
+      cancelRetry();
+      releaseTransport("closed by caller");
       setStatus("closed");
-      return;
+    };
+    closeRef.current = stop;
+
+    const terminalFailure = (cause: unknown) => {
+      if (!active()) return;
+      stopped = true;
+      cancelRetry();
+      releaseTransport("invalid message payload");
+      failRef.current(cause);
+    };
+    terminalFailureRef.current = terminalFailure;
+
+    if (!enabled) {
+      stopped = true;
+      setStatus("closed");
+      return () => {
+        cancelled = true;
+        if (closeRef.current === stop) closeRef.current = () => {};
+        if (terminalFailureRef.current === terminalFailure) {
+          terminalFailureRef.current = () => {};
+        }
+      };
     }
     setStatus("connecting");
     setError(null);
+    setLastMessage(null);
 
-    void client
-      .POST("/api/v1/realtime/tickets", {
-        body: { channel, transport },
-      })
-      .then(({ data, error: apiError }) => {
-        if (cancelled) return;
+    const connect = async (): Promise<void> => {
+      if (!active()) return;
+      setStatus("connecting");
+      try {
+        const { data, error: apiError } = await client.POST(
+          "/api/v1/realtime/tickets",
+          { body: { channel, transport } },
+        );
+        if (!active()) return;
         if (apiError || !data) {
           throw new Error("Realtime ticket mint failed");
         }
@@ -164,33 +214,76 @@ export function useRealtimeChannel<Message>({
         if (transport === "sse") {
           source = new EventSource(url);
           eventSourceRef.current = source;
-          source.onopen = () => setStatus("open");
-          source.onmessage = (event) => receiveRef.current(event.data);
-          source.onerror = () =>
-            failRef.current(new Error("Realtime SSE connection failed"));
+          const connectedSource = source;
+          source.onopen = () => {
+            if (!active() || source !== connectedSource) return;
+            retryAttempt = 0;
+            setError(null);
+            setStatus("open");
+          };
+          source.onmessage = (event) => {
+            if (!active() || source !== connectedSource) return;
+            receiveRef.current(event.data);
+          };
+          source.onerror = () => {
+            if (!active() || source !== connectedSource) return;
+            scheduleReconnect(new Error("Realtime SSE connection failed"));
+          };
         } else {
           socket = new WebSocket(url);
           socketRef.current = socket;
-          socket.onopen = () => setStatus("open");
-          socket.onmessage = (event) => receiveRef.current(String(event.data));
-          socket.onerror = () =>
-            failRef.current(new Error("Realtime WebSocket connection failed"));
-          socket.onclose = () => {
-            socketRef.current = null;
-            setStatus((current) => (current === "error" ? current : "closed"));
+          const connectedSocket = socket;
+          socket.onopen = () => {
+            if (!active() || socket !== connectedSocket) return;
+            retryAttempt = 0;
+            setError(null);
+            setStatus("open");
+          };
+          socket.onmessage = (event) => {
+            if (!active() || socket !== connectedSocket) return;
+            receiveRef.current(String(event.data));
+          };
+          socket.onerror = () => {
+            if (!active() || socket !== connectedSocket) return;
+            scheduleReconnect(new Error("Realtime WebSocket connection failed"));
+          };
+          socket.onclose = (event) => {
+            if (!active() || socket !== connectedSocket) return;
+            scheduleReconnect(
+              new Error(`Realtime WebSocket connection closed (${event.code})`),
+            );
           };
         }
-      })
-      .catch((cause) => {
-        if (!cancelled) failRef.current(cause);
-      });
+      } catch (cause) {
+        if (active()) scheduleReconnect(cause);
+      }
+    };
+
+    const scheduleReconnect = (cause: unknown) => {
+      if (!active() || retryTimer !== null) return;
+      releaseTransport("reconnecting");
+      failRef.current(cause);
+      const delay = Math.min(
+        INITIAL_RECONNECT_DELAY_MS * 2 ** retryAttempt,
+        MAX_RECONNECT_DELAY_MS,
+      );
+      retryAttempt += 1;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (active()) void connect();
+      }, delay);
+    };
+
+    void connect();
 
     return () => {
       cancelled = true;
-      source?.close();
-      socket?.close(1000, "component unmounted");
-      if (eventSourceRef.current === source) eventSourceRef.current = null;
-      if (socketRef.current === socket) socketRef.current = null;
+      cancelRetry();
+      releaseTransport("component unmounted");
+      if (closeRef.current === stop) closeRef.current = () => {};
+      if (terminalFailureRef.current === terminalFailure) {
+        terminalFailureRef.current = () => {};
+      }
     };
   }, [baseUrl, channel, client, enabled, transport]);
 
@@ -206,11 +299,7 @@ export function useRealtimeChannel<Message>({
       socket.send(JSON.stringify(message));
     },
     close() {
-      eventSourceRef.current?.close();
-      socketRef.current?.close(1000, "closed by caller");
-      eventSourceRef.current = null;
-      socketRef.current = null;
-      setStatus("closed");
+      closeRef.current();
     },
   };
 }

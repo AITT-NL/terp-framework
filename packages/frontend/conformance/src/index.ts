@@ -42,7 +42,9 @@ export async function login(
   await page.getByPlaceholder("Email").fill(credentials.email);
   await page.getByPlaceholder("Password").fill(credentials.password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0, {
+    timeout: 15_000,
+  });
 }
 
 /**

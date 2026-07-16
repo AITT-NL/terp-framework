@@ -174,9 +174,8 @@ def build_guard(
             raise PermissionDeniedError()
         # ``HTTPConnection`` is the common Starlette base of Request and
         # WebSocket, so the SAME deny-by-default module guard protects both
-        # transports. A WebSocket has no HTTP method after upgrade and is a
-        # read subscription surface here; a bidirectional channel authorizes
-        # its inbound messages explicitly in the realtime capability.
+        # transports. A WebSocket has no HTTP method after upgrade and defaults
+        # to the write tier; a capability may apply finer per-message authority.
         scope = getattr(connection, "scope", {})
         method = getattr(connection, "method", None) or scope.get(
             "method", "POST" if scope.get("type") == "websocket" else "GET"

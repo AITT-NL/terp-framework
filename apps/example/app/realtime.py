@@ -8,6 +8,7 @@ from sqlmodel import Session
 from terp.capabilities.realtime import (
     RealtimeChannel,
     global_audience,
+    publish,
     register_channel,
 )
 from terp.core import Principal
@@ -27,12 +28,15 @@ class RealtimeCommand(BaseModel):
     action: str = Field(pattern=r"^(refresh|acknowledge)$")
 
 
-def _handle_command(
-    _session: Session, _principal: Principal, _message: BaseModel
+async def _handle_command(
+    _session: Session, principal: Principal, message: BaseModel
 ) -> None:
-    # Reference seam only: a real module delegates to its service. The handler
-    # receives a validated RealtimeCommand + the authenticated principal.
-    return None
+    assert isinstance(message, RealtimeCommand)
+    await publish(
+        PERSONAL_UPDATES,
+        PersonalUpdate(sequence=1, text=f"{message.action} accepted"),
+        audience=str(principal.id),
+    )
 
 
 SYSTEM_NOTICES = register_channel(

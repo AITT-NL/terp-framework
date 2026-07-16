@@ -31,7 +31,7 @@ WORKDIR /srv
 # ASGI server + the Postgres driver.
 COPY --from=wheels /build/dist /wheels
 RUN uv pip install --system --no-cache --find-links /wheels \
-        /wheels/*.whl uvicorn "psycopg[binary]" \
+        /wheels/*.whl "uvicorn[standard]" "psycopg[binary]" \
     && rm -rf /wheels
 
 # `terp migrate --app-root` and the app ref resolve the app package from /srv.

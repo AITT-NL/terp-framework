@@ -25,6 +25,7 @@ from collections.abc import Callable
 
 from fastapi import Request
 from sqlmodel import Session
+from starlette.requests import HTTPConnection
 
 from terp.core import (
     AuthenticationError,
@@ -45,22 +46,22 @@ _BEARER_PREFIX = "bearer "
 TokenValidator = Callable[[Session, AccessTokenClaims], bool]
 
 
-def _bearer_token(request: Request) -> str | None:
+def _bearer_token(connection: HTTPConnection) -> str | None:
     """Return the raw ``Authorization: Bearer`` token, or ``None`` if absent."""
-    header = request.headers.get("Authorization")
+    header = connection.headers.get("Authorization")
     if not header or not header.lower().startswith(_BEARER_PREFIX):
         return None
     return header[len(_BEARER_PREFIX):].strip()
 
 
-def get_principal(request: Request) -> Principal | None:
+def get_principal(connection: HTTPConnection) -> Principal | None:
     """Extract the caller's principal from the ``Authorization: Bearer`` header.
 
     The stateless provider: it does **no** per-request store lookup, so an already-issued
     token stays valid until it expires. Use :func:`build_get_principal` for prompt
     revocation (deactivate / demote / password-reset / logout taking effect mid-session).
     """
-    token = _bearer_token(request)
+    token = _bearer_token(connection)
     if token is None:
         return None
     try:
@@ -86,8 +87,10 @@ def build_get_principal(
     left unmarked.
     """
 
-    def get_principal(request: Request, session: SessionDep) -> Principal | None:
-        token = _bearer_token(request)
+    def get_principal(
+        connection: HTTPConnection, session: SessionDep
+    ) -> Principal | None:
+        token = _bearer_token(connection)
         if token is None:
             return None
         try:

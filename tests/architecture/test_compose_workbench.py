@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import tomllib
 
 import yaml
 
@@ -135,4 +136,24 @@ def test_example_and_template_backend_images_share_the_security_invariants() -> 
         assert "FROM python:3.13-slim" in text  # pinned slim base
         assert "\nUSER " in text  # drops root
         assert "psycopg" in text  # the production database driver
-        assert "uvicorn" in text and "app.main:app" in text
+        assert '"uvicorn[standard]"' in text and "app.main:app" in text
+
+
+def test_local_dev_environments_install_websocket_server_support() -> None:
+    root = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    root_dev = root["dependency-groups"]["dev"]
+    assert any(dependency.startswith("uvicorn[standard]") for dependency in root_dev)
+
+    template = (
+        _REPO_ROOT / "template" / "project" / "pyproject.toml.jinja"
+    ).read_text(encoding="utf-8")
+    assert '"uvicorn[standard]>=0.30"' in template
+
+
+def test_example_and_template_dev_proxies_forward_websocket_upgrades() -> None:
+    for vite_config in (
+        _REPO_ROOT / "apps" / "example" / "frontend" / "vite.config.ts",
+        _REPO_ROOT / "template" / "project" / "frontend" / "vite.config.ts",
+    ):
+        text = vite_config.read_text(encoding="utf-8")
+        assert "ws: true" in text, f"{vite_config} must proxy WebSocket upgrades"

@@ -70,6 +70,11 @@ def realtime_session_factory():
     return get_session()
 
 
+def realtime_message_session_provider():
+    """Resolve the overridable factory for each inbound WebSocket frame."""
+    return realtime_session_factory()
+
+
 def realtime_principal_validator(principal: Principal, credential: str) -> bool:
     """Credential integrity + the same live identity epoch check as HTTP."""
     if not _credential_is_current(principal, credential):

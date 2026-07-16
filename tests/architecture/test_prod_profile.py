@@ -25,6 +25,7 @@ _PROD_WEB_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "frontend" / "Dockerfil
 _TEMPLATE_PROD_WEB_DOCKERFILE = _REPO_ROOT / "template" / "project" / "frontend" / "Dockerfile.prod"
 _NGINX_CONF = _REPO_ROOT / "apps" / "example" / "frontend" / "nginx.conf"
 _TEMPLATE_NGINX_CONF = _REPO_ROOT / "template" / "project" / "frontend" / "nginx.conf"
+_PROD_SMOKE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "prod-smoke.yml"
 
 
 def _prod_compose() -> dict:
@@ -107,6 +108,7 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
         ]
         assert not any("--reload" in line for line in code_lines)
         assert "HEALTHCHECK" in text
+        assert '"uvicorn[standard]"' in text, f"{path.name} must serve WebSockets"
 
 
 def test_prod_web_images_build_the_bundle_and_serve_nonroot() -> None:
@@ -121,6 +123,23 @@ def test_prod_nginx_serves_spa_fallback_and_same_origin_api() -> None:
         text = path.read_text(encoding="utf-8")
         assert "try_files $uri /index.html;" in text, "SPA fallback required"
         assert "proxy_pass http://api:8000;" in text, "same-origin /api proxy required"
+        assert "proxy_set_header Upgrade $http_upgrade;" in text
+        assert 'proxy_set_header Connection "upgrade";' in text
+
+
+def test_prod_smoke_exercises_websocket_through_nginx() -> None:
+    workflow = yaml.safe_load(_PROD_SMOKE_WORKFLOW.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["prod-smoke"]["steps"]
+    websocket_steps = [
+        step for step in steps
+        if step.get("name") == "WebSocket upgrade + typed frame through production nginx"
+    ]
+    assert len(websocket_steps) == 1
+    script = websocket_steps[0]["run"]
+    assert "websockets.connect" in script
+    assert "asyncio.wait_for" in script
+    assert "personal.updates" in script
+    assert "refresh accepted" in script
 
 
 def test_example_and_template_prod_profiles_share_a_topology() -> None:

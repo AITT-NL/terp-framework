@@ -56,12 +56,81 @@ jobs:
 
       - name: Login + authenticated round-trip through the same-origin /api proxy
         run: |
-          payload=$(python3 -c 'import json,os; print(json.dumps({"email": "smoke-admin@example.test", "pass" "word": os.environ["SMOKE_ADMIN_PASSWORD"]}))')
+          payload=$(python3 -c 'import json,os; print(json.dumps({"email": "smoke-admin@example.test", "password": os.environ["SMOKE_ADMIN_PASSWORD"]}))')
           token=$(curl -fsS -X POST http://localhost:8080/api/v1/auth/login \
             -H 'Content-Type: application/json' -d "$payload" \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
           curl -fsS http://localhost:8080/api/v1/me/ -H "Authorization: Bearer $token" \
             | grep -q 'smoke-admin@example.test'
+
+      - name: WebSocket upgrade + typed frame through production nginx
+        run: |
+          docker compose -f apps/example/docker-compose.prod.yml exec -T \
+            -e SMOKE_ADMIN_PASSWORD="$SMOKE_ADMIN_PASSWORD" api python - <<'PY'
+          import asyncio
+          import json
+          import os
+          import urllib.request
+
+          import websockets
+
+          def post(path, body, *, token=None):
+              request = urllib.request.Request(
+                  f"http://web:8080{path}",
+                  data=json.dumps(body).encode(),
+                  headers={
+                      "Content-Type": "application/json",
+                      **({"Authorization": f"Bearer {token}"} if token else {}),
+                  },
+                  method="POST",
+              )
+              with urllib.request.urlopen(request) as response:
+                  return json.load(response)
+
+          login = post(
+              "/api/v1/auth/login",
+              {
+                "email": "smoke-admin@example.test",
+                "password": os.environ["SMOKE_ADMIN_PASSWORD"],
+              },
+          )
+          ticket = post(
+              "/api/v1/realtime/tickets",
+              {"channel": "personal.updates", "transport": "websocket"},
+              token=login["access_token"],
+          )["ticket"]
+
+          async def exercise():
+              uri = (
+                "ws://web:8080/api/v1/realtime/ws/personal.updates"
+                f"?ticket={ticket}"
+              )
+              async with websockets.connect(uri) as socket:
+                await socket.send(json.dumps({"action": "refresh"}))
+                await socket.send(json.dumps({"wrong": True}))
+                messages = {
+                  json.dumps(
+                    json.loads(await asyncio.wait_for(socket.recv(), timeout=10)),
+                    sort_keys=True,
+                  ),
+                  json.dumps(
+                    json.loads(await asyncio.wait_for(socket.recv(), timeout=10)),
+                    sort_keys=True,
+                  ),
+                }
+                assert messages == {
+                  json.dumps(
+                    {"sequence": 1, "text": "refresh accepted"},
+                    sort_keys=True,
+                  ),
+                  json.dumps(
+                    {"type": "error", "code": "invalid_message"},
+                    sort_keys=True,
+                  ),
+                }
+
+          asyncio.run(exercise())
+          PY
 
       - name: Seed refuses production (fail-closed check)
         run: |

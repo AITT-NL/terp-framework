@@ -18,9 +18,9 @@ WORKDIR /app
 # package registry is used. The .dockerignore keeps host-only trees out of the context.
 COPY . .
 RUN if [ -d .terp-dist/wheels ]; then \
-        uv pip install --system --no-cache --find-links .terp-dist/wheels -e . uvicorn "psycopg[binary]"; \
+        uv pip install --system --no-cache --find-links .terp-dist/wheels -e . "uvicorn[standard]" "psycopg[binary]"; \
     else \
-        uv pip install --system --no-cache -e . uvicorn "psycopg[binary]"; \
+        uv pip install --system --no-cache -e . "uvicorn[standard]" "psycopg[binary]"; \
     fi
 
 # Run as a non-root user that owns the (sync-mutable) source.

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,6 +33,7 @@ from terp.capabilities.realtime import (
     configure_realtime,
     configure_ticket_store,
     get_ticket_store,
+    get_broker,
     get_channel,
     audience_topic,
     module,
@@ -47,6 +49,7 @@ from terp.capabilities.realtime.router import (
     _sse_data,
     _sse_stream,
     _websocket_inbound,
+    _websocket_liveness,
     _websocket_outbound,
     _raise_unexpected_task_results,
     subscribe_websocket,
@@ -150,6 +153,7 @@ def test_channel_registry_validates_and_refuses_conflicting_declarations() -> No
 def test_realtime_public_surface_and_module_posture_are_explicit() -> None:
     assert {
         "RealtimeChannel",
+        "MessageSessionProvider",
         "register_channel",
         "publish",
         "configure_realtime",
@@ -187,6 +191,16 @@ def test_ticket_store_is_exact_match_single_use_and_ttl_bounded() -> None:
     with pytest.raises(ValueError, match="positive"):
         store.issue(ticket, ttl_seconds=0)
     store.reset()
+
+
+def test_lazy_realtime_defaults_are_singletons_under_concurrency() -> None:
+    configure_broker(None)
+    configure_ticket_store(None)
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        brokers = tuple(executor.map(lambda _index: get_broker(), range(64)))
+        stores = tuple(executor.map(lambda _index: get_ticket_store(), range(64)))
+    assert all(broker is brokers[0] for broker in brokers)
+    assert all(store is stores[0] for store in stores)
 
 
 def test_ticket_mint_enforces_mode_role_permission_and_live_principal() -> None:
@@ -393,9 +407,17 @@ def test_sse_protocol_strips_newlines_emits_payload_and_heartbeat() -> None:
     channel = register_channel(RealtimeChannel("notes.sse", Notice))
     broker = InMemoryRealtimeBroker()
     configure_broker(broker)
+    principal = _principal(VIEWER)
+    ticket = ConnectionTicket(
+        principal,
+        channel.name,
+        "sse",
+        credential="live",
+        audience="user-a",
+    )
 
     async def exercise() -> None:
-        stream = _sse_stream(channel, "user-a", heartbeat_seconds=0.001)
+        stream = _sse_stream(channel, ticket, heartbeat_seconds=0.001)
         heartbeat = await anext(stream)
         assert heartbeat == b": keepalive\n\n"
         pending = asyncio.create_task(anext(stream))
@@ -419,11 +441,31 @@ def test_sse_protocol_strips_newlines_emits_payload_and_heartbeat() -> None:
     configure_broker(_BackpressureBroker())
 
     async def backpressure() -> None:
-        stream = _sse_stream(channel, "user-a", heartbeat_seconds=1)
+        stream = _sse_stream(channel, ticket, heartbeat_seconds=1)
         with pytest.raises(StopAsyncIteration):
             await anext(stream)
 
     asyncio.run(backpressure())
+
+    configure_broker(InMemoryRealtimeBroker())
+    configure_realtime(principal_validator=lambda _p, _c: False)
+
+    async def revoked_at_heartbeat() -> None:
+        stream = _sse_stream(channel, ticket, heartbeat_seconds=0.001)
+        with pytest.raises(StopAsyncIteration):
+            await anext(stream)
+
+    asyncio.run(revoked_at_heartbeat())
+
+    configure_broker(_FiniteBroker())
+    configure_realtime(principal_validator=lambda _p, _c: False)
+
+    async def revoked_before_payload() -> None:
+        stream = _sse_stream(channel, ticket, heartbeat_seconds=1)
+        with pytest.raises(StopAsyncIteration):
+            await anext(stream)
+
+    asyncio.run(revoked_before_payload())
 
 
 def test_websocket_inbound_close_paths_and_outbound_delivery() -> None:
@@ -431,8 +473,6 @@ def test_websocket_inbound_close_paths_and_outbound_delivery() -> None:
     ticket = ConnectionTicket(
         principal, "notes.live", "websocket", audience=str(principal.id)
     )
-    session = object()
-
     async def exercise() -> None:
         too_large = _WebSocketDouble(["x" * (64 * 1024 + 1)])
         channel = RealtimeChannel(
@@ -442,28 +482,248 @@ def test_websocket_inbound_close_paths_and_outbound_delivery() -> None:
             inbound_model=Command,
             on_message=lambda _session, _principal, _message: None,
         )
-        await _websocket_inbound(too_large, channel, ticket, session)  # type: ignore[arg-type]
+        await _websocket_inbound(too_large, channel, ticket)
         assert too_large.closed == [(1009, "message too large")]
 
         configure_realtime(principal_validator=lambda _p, _c: False)
         revoked = _WebSocketDouble(['{"action":"refresh"}'])
-        await _websocket_inbound(revoked, channel, ticket, session)  # type: ignore[arg-type]
+        await _websocket_inbound(revoked, channel, ticket)
         assert revoked.closed == [(1008, "session no longer valid")]
         reset_realtime_configuration()
 
         push_only = RealtimeChannel("notes.push", Notice, mode="websocket")
         refused = _WebSocketDouble(['{"action":"refresh"}'])
-        await _websocket_inbound(refused, push_only, ticket, session)  # type: ignore[arg-type]
+        await _websocket_inbound(refused, push_only, ticket)
         assert refused.closed == [(1008, "channel is server-push only")]
 
         outbound_socket = _WebSocketDouble()
         configure_broker(_FiniteBroker())
-        await _websocket_outbound(
-            outbound_socket, channel, str(principal.id)  # type: ignore[arg-type]
-        )
+        await _websocket_outbound(outbound_socket, channel, ticket)  # type: ignore[arg-type]
         assert outbound_socket.sent == ['{"sequence":3,"text":"pushed"}']
 
+        configure_realtime(principal_validator=lambda _p, _c: False)
+        revoked_outbound = _WebSocketDouble()
+        await _websocket_outbound(revoked_outbound, channel, ticket)  # type: ignore[arg-type]
+        assert revoked_outbound.sent == []
+        assert revoked_outbound.closed == [(1008, "session no longer valid")]
+
+        revoked_idle = _WebSocketDouble()
+        await _websocket_liveness(
+            revoked_idle, ticket, interval_seconds=0  # type: ignore[arg-type]
+        )
+        assert revoked_idle.closed == [(1008, "session no longer valid")]
+
     asyncio.run(exercise())
+
+
+def test_websocket_awaits_async_handler_under_the_audit_actor() -> None:
+    from terp.core.audit import current_actor_id
+
+    principal = _principal(EDITOR)
+    ticket = ConnectionTicket(
+        principal, "notes.async", "websocket", audience=str(principal.id)
+    )
+    observed: list[uuid.UUID | None] = []
+
+    async def on_message(
+        _session: Session, _principal: Principal, _message: BaseModel
+    ) -> None:
+        observed.append(current_actor_id())
+        await asyncio.sleep(0)
+        observed.append(current_actor_id())
+
+    channel = RealtimeChannel(
+        "notes.async",
+        Notice,
+        mode="websocket",
+        inbound_model=Command,
+        on_message=on_message,
+    )
+    socket = _WebSocketDouble(['{"action":"refresh"}'])
+    sessions: list[object] = []
+    closed: list[object] = []
+
+    def session_provider():
+        session = object()
+        sessions.append(session)
+        try:
+            yield session
+        finally:
+            closed.append(session)
+
+    configure_realtime(message_session_provider=session_provider)  # type: ignore[arg-type]
+
+    with pytest.raises(WebSocketDisconnect):
+        asyncio.run(_websocket_inbound(socket, channel, ticket))
+    assert observed == [principal.id, principal.id]
+    assert len(sessions) == 1
+    assert closed == sessions
+
+
+def test_websocket_sync_handler_gets_a_fresh_closed_session_per_frame() -> None:
+    principal = _principal(EDITOR)
+    ticket = ConnectionTicket(
+        principal, "notes.sync", "websocket", audience=str(principal.id)
+    )
+    sessions: list[object] = []
+    closed: list[object] = []
+    observed: list[object] = []
+
+    def session_provider():
+        session = object()
+        sessions.append(session)
+        try:
+            yield session
+        finally:
+            closed.append(session)
+
+    def on_message(session, _principal, _message) -> None:
+        observed.append(session)
+
+    configure_realtime(message_session_provider=session_provider)  # type: ignore[arg-type]
+    channel = RealtimeChannel(
+        "notes.sync",
+        Notice,
+        mode="websocket",
+        inbound_model=Command,
+        on_message=on_message,
+    )
+    socket = _WebSocketDouble(
+        ['{"action":"first"}', '{"action":"second"}']
+    )
+
+    with pytest.raises(WebSocketDisconnect):
+        asyncio.run(_websocket_inbound(socket, channel, ticket))
+
+    assert len(sessions) == 2
+    assert observed == sessions
+    assert closed == sessions
+
+
+def test_websocket_handler_session_contract_fails_closed() -> None:
+    principal = _principal(EDITOR)
+    ticket = ConnectionTicket(
+        principal, "notes.contract", "websocket", audience=str(principal.id)
+    )
+
+    def empty_provider():
+        if False:
+            yield object()
+
+    configure_realtime(message_session_provider=empty_provider)  # type: ignore[arg-type]
+    channel = RealtimeChannel(
+        "notes.contract",
+        Notice,
+        mode="websocket",
+        inbound_model=Command,
+        on_message=lambda _session, _principal, _message: None,
+    )
+    with pytest.raises(RuntimeError, match="yielded no session"):
+        asyncio.run(
+            _websocket_inbound(
+                _WebSocketDouble(['{"action":"refresh"}']), channel, ticket
+            )
+        )
+
+    def session_provider():
+        yield object()
+
+    async def work() -> None:
+        await asyncio.sleep(0)
+
+    def misdeclared_handler(_session, _principal, _message):
+        return work()
+
+    configure_realtime(message_session_provider=session_provider)  # type: ignore[arg-type]
+    misdeclared = RealtimeChannel(
+        "notes.misdeclared",
+        Notice,
+        mode="websocket",
+        inbound_model=Command,
+        on_message=misdeclared_handler,
+    )
+    with pytest.raises(TypeError, match="declare it with async def"):
+        asyncio.run(
+            _websocket_inbound(
+                _WebSocketDouble(['{"action":"refresh"}']),
+                misdeclared,
+                ConnectionTicket(
+                    principal,
+                    misdeclared.name,
+                    "websocket",
+                    audience=str(principal.id),
+                ),
+            )
+        )
+
+
+def test_websocket_supports_an_async_callable_handler() -> None:
+    principal = _principal(EDITOR)
+    observed: list[uuid.UUID] = []
+
+    def session_provider():
+        yield object()
+
+    class AsyncHandler:
+        async def __call__(self, _session, actor: Principal, _message) -> None:
+            await asyncio.sleep(0)
+            observed.append(actor.id)
+
+    configure_realtime(message_session_provider=session_provider)  # type: ignore[arg-type]
+    channel = RealtimeChannel(
+        "notes.callable",
+        Notice,
+        mode="websocket",
+        inbound_model=Command,
+        on_message=AsyncHandler(),
+    )
+    ticket = ConnectionTicket(
+        principal, channel.name, "websocket", audience=str(principal.id)
+    )
+
+    with pytest.raises(WebSocketDisconnect):
+        asyncio.run(
+            _websocket_inbound(
+                _WebSocketDouble(['{"action":"refresh"}']), channel, ticket
+            )
+        )
+    assert observed == [principal.id]
+
+
+def test_websocket_async_handler_contract_fails_closed() -> None:
+    principal = _principal(EDITOR)
+
+    def session_provider():
+        yield object()
+
+    class BrokenAsyncHandler:
+        def __call__(self, _session, _principal, _message) -> None:
+            return None
+
+    handler = BrokenAsyncHandler()
+
+    async def async_marker(_session, _principal, _message) -> None:
+        return None
+
+    handler.__call__ = async_marker  # type: ignore[method-assign]
+    configure_realtime(message_session_provider=session_provider)  # type: ignore[arg-type]
+    channel = RealtimeChannel(
+        "notes.broken-async",
+        Notice,
+        mode="websocket",
+        inbound_model=Command,
+        on_message=handler,
+    )
+    ticket = ConnectionTicket(
+        principal, channel.name, "websocket", audience=str(principal.id)
+    )
+
+    with pytest.raises(TypeError, match="returned a non-awaitable"):
+        asyncio.run(
+            _websocket_inbound(
+                _WebSocketDouble(['{"action":"refresh"}']), channel, ticket
+            )
+        )
 
 
 def test_invalid_websocket_ticket_closes_before_accept() -> None:
@@ -523,6 +783,7 @@ def _app(principal: Principal):
     app = create_app([module], discover_capabilities=False)
     app.dependency_overrides[get_principal] = lambda: principal
     app.dependency_overrides[get_session] = session_override
+    configure_realtime(message_session_provider=session_override)
     return app
 
 
