@@ -4,6 +4,7 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
+import { CONTROL_TEXT_STYLE } from "./controlStyles";
 
 injectTerpStyles();
 
@@ -15,7 +16,7 @@ const tabListStyle: CSSProperties = {
   borderBlockEnd: "1px solid var(--color-neutral-200)",
 };
 const tabStyle = (selected: boolean): CSSProperties => ({
-  font: "inherit",
+  ...CONTROL_TEXT_STYLE,
   fontWeight: (selected
     ? "var(--font-weight-semibold)"
     : "var(--font-weight-medium)") as never,

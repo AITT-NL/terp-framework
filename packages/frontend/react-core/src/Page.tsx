@@ -50,34 +50,35 @@ const pageStyle: CSSProperties = {
 
 const headerStyle: CSSProperties = { display: "grid", gap: "var(--space-2)" };
 
-const crumbRowStyle: CSSProperties = {
+const breadcrumbRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  minHeight: "2rem",
+};
+
+const titleRowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: "var(--space-3)",
   flexWrap: "wrap",
-  minHeight: "2rem",
-};
-
-const actionsOnlyRowStyle: CSSProperties = {
-  ...crumbRowStyle,
-  justifyContent: "flex-end",
 };
 
 const titleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "var(--font-size-xl)",
-  fontWeight: "var(--font-weight-bold)" as CSSProperties["fontWeight"],
-  letterSpacing: "-0.01em",
+  fontSize: "var(--font-size-lg)",
+  fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
+  letterSpacing: 0,
   color: "var(--color-neutral-900)",
-  lineHeight: 1.2,
+  lineHeight: 1.3,
 };
 
 /**
  * The base content-page frame: every routed view is constructed the same way — one
- * header row holding the breadcrumb trail (when there is a path back up through the
- * layers) on the left and the page's `actions` slot on the right, then the single
- * `h1` title, then the body. A root page omits the redundant current-page-only crumb.
+ * header holding the breadcrumb trail (when there is a path back up through the
+ * layers), then one row with the single `h1` title on the left and the page's
+ * `actions` slot on the right, then the body. A root page omits the redundant
+ * current-page-only crumb. Title-first DOM order keeps narrow layouts natural.
  * `OverviewPage` and `DetailPage` specialise it for the standard overview -> detail
  * layering; a bespoke screen composes `Page` directly.
  *
@@ -139,13 +140,15 @@ export function Page({
   return (
     <article ref={articleRef} style={pageStyle}>
       <header style={headerStyle}>
-        {hasAncestors || actions ? (
-          <div style={hasAncestors ? crumbRowStyle : actionsOnlyRowStyle}>
-            {hasAncestors ? <Breadcrumbs items={trail} renderLink={renderLink} /> : null}
-            {actions}
+        {hasAncestors && (
+          <div style={breadcrumbRowStyle}>
+            <Breadcrumbs items={trail} renderLink={renderLink} />
           </div>
-        ) : null}
-        <h1 style={titleStyle}>{resolve(title)}</h1>
+        )}
+        <div style={titleRowStyle}>
+          <h1 style={titleStyle}>{resolve(title)}</h1>
+          {actions}
+        </div>
       </header>
       {/* Reset the slot for the body's own subtree, so nested content is never judged
           by an ancestor archetype's slot. */}

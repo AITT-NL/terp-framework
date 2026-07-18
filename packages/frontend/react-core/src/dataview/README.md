@@ -11,6 +11,11 @@ all preference persistence through a **view-state repository** — adding a new 
 source or preference store never requires modifying any component file (dependency
 inversion / open-closed).
 
+`variant="embedded"` removes pagination and view controls. When its repository
+is non-searchable and no selection, filter, or custom controls exist, DataView
+also omits the toolbar band entirely so related empty collections add no blank
+chrome.
+
 ## Quick start (client-side data)
 
 ```tsx
@@ -40,6 +45,7 @@ const repository = new InMemoryDataViewRepository(tickets, {
   repository={repository}
   viewStateRepository={new LocalStorageViewStateRepository()}
   columns={columns}
+  getRowLabel={(t) => t.title}                         // required with onRowClick (a11y name)
   onRowClick={(t) => navigate(t.id)}
   enableSelection
   batchActions={[{ label: "Archive", onClick: archive, onSelectAll: archiveAll, inline: true }]}

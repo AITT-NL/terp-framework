@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+
+import type { UiText } from "../uiText";
 
 import { DataViewExpandToggle } from "./DataViewExpandableRow";
 import { DataViewRowActions } from "./DataViewRowActions";
@@ -10,6 +12,7 @@ export interface DataViewCardListProps<T> {
   columns: DataViewColumn<T>[];
   getRowId: (row: T) => string;
   onRowClick?: (row: T) => void;
+  getRowLabel?: (row: T) => UiText;
   /** Escape hatch for fully custom cards. */
   renderCard?: (row: T) => ReactNode;
   // Selection
@@ -23,6 +26,18 @@ export interface DataViewCardListProps<T> {
   // Actions
   rowActions?: (row: T) => DataViewRowAction<T>[];
 }
+
+const recordButtonStyle: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
 
 function slotValue<T>(
   columns: DataViewColumn<T>[],
@@ -47,7 +62,7 @@ function slotValue<T>(
  * (standard actions collapse into the ellipsis menu).
  */
 export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
-  const { strings, resolve } = useDataViewText();
+  const { strings, resolve, format } = useDataViewText();
 
   return (
     <ul style={{ listStyle: "none", margin: 0, padding: "var(--space-2)", display: "grid", gap: "var(--space-2)" }}>
@@ -59,6 +74,7 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
           <li key={rowId}>
             <div
               onClick={clickable ? () => props.onRowClick?.(row) : undefined}
+              data-terp={clickable ? "dataview-card" : undefined}
               style={{
                 display: "grid",
                 gap: "var(--space-2)",
@@ -70,6 +86,20 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
                 cursor: clickable ? "pointer" : undefined,
               }}
             >
+              {clickable && (
+                <button
+                  type="button"
+                  data-terp="dataview-row-open"
+                  aria-label={format(strings.openRow, {
+                    label: resolve(props.getRowLabel?.(row) ?? ""),
+                  })}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onRowClick?.(row);
+                  }}
+                  style={recordButtonStyle}
+                />
+              )}
               <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-2)" }}>
                 {props.renderExpanded !== undefined && (
                   <DataViewExpandToggle

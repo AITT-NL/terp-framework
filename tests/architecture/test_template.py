@@ -112,6 +112,11 @@ def test_layout_presets_render_a_home_module() -> None:
     assert "renderLink=" in view
     assert "Werkvoorraad" in view
     assert "Mijn overzicht" in view
+    # Sidebar label and rendered page title share the same layout-dependent source.
+    assert "Werkvoorraad" in manifest
+    assert "Mijn overzicht" in manifest
+    assert "{{ project_name }}" in manifest
+    assert 'label: "Home"' not in manifest
     # The placeholder cards must not reference a module that does not exist.
     assert "module_name" not in view
     # Blank: a plain archetype-framed welcome page pointing at `terp new module`.

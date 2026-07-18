@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import { injectTerpStyles } from "../styles";
+import type { UiText } from "../uiText";
 import { DataViewExpandToggle, DataViewExpandableRow } from "./DataViewExpandableRow";
 import { DataViewRowActions } from "./DataViewRowActions";
 import type { DataViewRowActionsLayout } from "./DataViewRowActions";
@@ -18,6 +19,7 @@ export interface DataViewTableProps<T> {
   columns: DataViewColumn<T>[];
   getRowId: (row: T) => string;
   onRowClick?: (row: T) => void;
+  getRowLabel?: (row: T) => UiText;
   isMobile: boolean;
   // Sorting
   sorting: { id: string; desc: boolean }[];
@@ -64,6 +66,18 @@ const bodyCellStyle: CSSProperties = {
   textOverflow: "ellipsis",
 };
 
+const recordButtonStyle: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 /**
  * The table layout of {@link DataView}: sortable, resizable headers; system columns
  * (expand → select → user columns → actions); row click, selection, expansion.
@@ -72,7 +86,7 @@ const bodyCellStyle: CSSProperties = {
  * hint → auto (content-based).
  */
 export function DataViewTable<T>(props: DataViewTableProps<T>) {
-  const { strings, resolve } = useDataViewText();
+  const { strings, resolve, format } = useDataViewText();
   const tableRef = useRef<HTMLTableElement>(null);
 
   // Live widths during a resize drag only — persisted once, on pointer-up.
@@ -262,6 +276,7 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
             <RowGroup key={rowId}>
               <tr
                 onClick={clickable ? () => props.onRowClick?.(row) : undefined}
+                data-terp={clickable ? "dataview-row" : undefined}
                 data-selected={props.isSelected(rowId) || undefined}
                 style={{
                   cursor: clickable ? "pointer" : undefined,
@@ -288,6 +303,20 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
                 )}
                 {props.columns.map((column) => (
                   <td key={column.id} style={bodyCellStyle}>
+                    {clickable && column === props.columns[0] && (
+                      <button
+                        type="button"
+                        data-terp="dataview-row-open"
+                        aria-label={format(strings.openRow, {
+                          label: resolve(props.getRowLabel?.(row) ?? ""),
+                        })}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          props.onRowClick?.(row);
+                        }}
+                        style={recordButtonStyle}
+                      />
+                    )}
                     {column.cell !== undefined
                       ? column.cell(row)
                       : formatCell(column.accessor?.(row))}

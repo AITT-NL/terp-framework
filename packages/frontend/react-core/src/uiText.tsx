@@ -82,6 +82,8 @@ export interface TerpStrings {
   profile: string;
   /** Label of the profile page's role detail. */
   role: string;
+  /** Label of the application home/root page. */
+  home: string;
   /** Accessible name of the sidebar `nav` landmark. */
   primaryNavigationLabel: string;
   /** Accessible label of the header toggle when it collapses the expanded sidebar. */
@@ -126,6 +128,12 @@ export interface TerpStrings {
   statusDeactivated: string;
   /** Users admin: provision-form submit label. */
   provisionUser: string;
+  /** Users admin: viewer role label. */
+  roleViewer: string;
+  /** Users admin: editor role label. */
+  roleEditor: string;
+  /** Users admin: administrator role label. */
+  roleAdmin: string;
   /** Generic in-flight label for a pending mutation. */
   working: string;
   /** Users admin: change-role action; `{role}` is replaced by the role's name. */
@@ -138,6 +146,12 @@ export interface TerpStrings {
   deactivate: string;
   /** Users admin: reactivate action. */
   reactivate: string;
+  /** Users admin: confirmation before changing a role; `{role}` is replaced. */
+  changeRoleConfirm: string;
+  /** Users admin: confirmation before deactivation. */
+  deactivateUserConfirm: string;
+  /** Users admin: confirmation before reactivation. */
+  reactivateUserConfirm: string;
   /** Groups admin: name field / column. */
   groupName: string;
   /** Groups admin: description field / column. */
@@ -154,6 +168,8 @@ export interface TerpStrings {
   addMember: string;
   /** Group detail: remove-member action. */
   removeMember: string;
+  /** Group detail: confirmation before removing a member. */
+  removeMemberConfirm: string;
   /** Group detail: the user field of the add-member form. */
   userField: string;
   /** Group detail: no account matched the typed email. */
@@ -166,6 +182,8 @@ export interface TerpStrings {
   permission: string;
   /** Group detail: revoke-grant action. */
   revoke: string;
+  /** Group detail: confirmation before revoking a permission. */
+  revokeConfirm: string;
   /** Audit admin: action column. */
   actionColumn: string;
   /** Audit admin: actor column. */
@@ -212,6 +230,7 @@ export const DEFAULT_STRINGS: TerpStrings = {
   settings: "Settings",
   profile: "Profile",
   role: "Role",
+  home: "Home",
   primaryNavigationLabel: "Primary",
   collapseSidebar: "Collapse sidebar",
   expandSidebar: "Expand sidebar",
@@ -234,12 +253,18 @@ export const DEFAULT_STRINGS: TerpStrings = {
   statusActive: "Active",
   statusDeactivated: "Deactivated",
   provisionUser: "Provision user",
+  roleViewer: "Viewer",
+  roleEditor: "Editor",
+  roleAdmin: "Administrator",
   working: "Working…",
   makeRole: "Make {role}",
   resetPassword: "Reset password",
   newPassword: "New password",
   deactivate: "Deactivate",
   reactivate: "Reactivate",
+  changeRoleConfirm: "Change this user's role to {role}?",
+  deactivateUserConfirm: "Deactivate this account? Its active sessions will be revoked.",
+  reactivateUserConfirm: "Reactivate this account?",
   groupName: "Name",
   description: "Description",
   members: "Members",
@@ -248,12 +273,14 @@ export const DEFAULT_STRINGS: TerpStrings = {
   deleteGroupConfirm: "Delete this group? Its memberships and permission grants go with it.",
   addMember: "Add member",
   removeMember: "Remove",
+  removeMemberConfirm: "Remove this member from the group?",
   userField: "User",
   userNotFound: "No account matches that email.",
   permissions: "Permissions",
   grantPermission: "Grant permission",
   permission: "Permission",
   revoke: "Revoke",
+  revokeConfirm: "Revoke this permission from the group?",
   actionColumn: "Action",
   actorColumn: "Actor",
   targetColumn: "Target",

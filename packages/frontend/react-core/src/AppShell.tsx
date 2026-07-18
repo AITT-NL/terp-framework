@@ -1,11 +1,12 @@
 import type { NavItem } from "@terp/contract";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
-import { NavIcon, TerpMark } from "./icons";
+import { Icon, NavIcon, TerpMark } from "./icons";
 import { LanguageSwitcher } from "./locale";
 import { injectTerpStyles } from "./styles";
 import { ThemeToggle } from "./theme";
+import { CONTROL_TEXT_STYLE } from "./ui/controlStyles";
 import { useStrings, useUiText } from "./uiText";
 import type { UiText } from "./uiText";
 
@@ -16,6 +17,17 @@ export interface AppShellSlotContext {
   collapsed: boolean;
 }
 
+export interface AppShellLinkContext extends AppShellSlotContext {
+  style: CSSProperties;
+  activeStyle: CSSProperties;
+}
+
+export type RenderBrandLink = (props: {
+  to: string;
+  children: ReactNode;
+  style: CSSProperties;
+}) => ReactNode;
+
 export interface AppShellProps {
   /** Product / app title shown next to the logo at the top of the sidebar. */
   title: UiText;
@@ -24,10 +36,13 @@ export interface AppShellProps {
   /**
    * Turns a nav item into the active stack's link around the shell-styled
    * `children` (icon + label), keeping the shell router-agnostic. Spread
-   * {@link NAV_LINK_STYLE} (and {@link NAV_LINK_ACTIVE_STYLE} on the active
-   * route) onto the link element so every stack's links look identical.
+   * `context.style` (and `context.activeStyle` on the active route) onto the
+   * link element — the shell owns the expanded/collapsed link geometry, so
+   * every stack's links look identical in both rail states.
    */
-  renderLink: (item: NavItem, children: ReactNode) => ReactNode;
+  renderLink: (item: NavItem, children: ReactNode, context: AppShellLinkContext) => ReactNode;
+  /** Turns the product brand into the home link; defaults to a plain anchor to `/`. */
+  renderBrandLink?: RenderBrandLink;
   /** Brand mark at the top of the sidebar; default: the {@link TerpMark} placeholder. */
   logo?: ReactNode;
   /** Extra header content, rendered before the theme / language controls. */
@@ -62,7 +77,17 @@ export const NAV_LINK_STYLE: CSSProperties = {
   textDecoration: "none",
   whiteSpace: "nowrap",
   overflow: "hidden",
+  boxSizing: "border-box",
+  minHeight: "2.25rem",
   transition: "background-color 150ms ease, color 150ms ease",
+};
+
+/** Collapsed rail geometry: one centered fixed-size icon inside the 2.5rem content track. */
+export const NAV_LINK_COLLAPSED_STYLE: CSSProperties = {
+  justifyContent: "center",
+  gap: 0,
+  padding: "var(--space-2)",
+  width: "100%",
 };
 
 /** Merged over {@link NAV_LINK_STYLE} on the active route's link. */
@@ -74,10 +99,13 @@ export const NAV_LINK_ACTIVE_STYLE: CSSProperties = {
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(
-    () => typeof window.matchMedia === "function" && window.matchMedia(MOBILE_BREAKPOINT).matches,
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia(MOBILE_BREAKPOINT).matches,
   );
   useEffect(() => {
-    if (typeof window.matchMedia !== "function") {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return;
     }
     const media = window.matchMedia(MOBILE_BREAKPOINT);
@@ -89,6 +117,9 @@ function useIsMobile(): boolean {
 }
 
 function readStoredCollapsed(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
   try {
     return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "collapsed";
   } catch {
@@ -115,6 +146,7 @@ const sidebarStyle: CSSProperties = {
   position: "sticky",
   top: 0,
   height: "100vh",
+  overflowX: "hidden",
   background: "var(--color-neutral-0)",
   borderRight: "1px solid var(--color-neutral-200)",
   transition: "width 150ms ease",
@@ -145,6 +177,20 @@ const brandStyle: CSSProperties = {
   minHeight: "2.25rem",
 };
 
+const brandLinkStyle: CSSProperties = {
+  ...brandStyle,
+  color: "var(--color-neutral-900)",
+  textDecoration: "none",
+  borderRadius: "var(--radius-md)",
+  boxSizing: "border-box",
+};
+
+const drawerBrandRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+};
+
 const brandTitleStyle: CSSProperties = {
   overflow: "hidden",
   textOverflow: "ellipsis",
@@ -152,13 +198,25 @@ const brandTitleStyle: CSSProperties = {
   fontSize: "var(--font-size-base)",
   fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
   color: "var(--color-neutral-900)",
-  letterSpacing: "-0.01em",
+  letterSpacing: 0,
 };
 
 const navItemLabelStyle: CSSProperties = {
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
+};
+
+const visuallyHiddenStyle: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
 };
 
 const navStyle: CSSProperties = { flexGrow: 1, overflowY: "auto", minHeight: 0 };
@@ -211,19 +269,25 @@ const footerStyle: CSSProperties = {
 };
 
 const toggleStyle: CSSProperties = {
+  ...CONTROL_TEXT_STYLE,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
   width: "2.25rem",
   height: "2.25rem",
   padding: 0,
-  font: "inherit",
   color: "var(--color-neutral-700)",
   background: "transparent",
   border: "1px solid transparent",
   borderRadius: "var(--radius-md)",
   cursor: "pointer",
 };
+
+const defaultRenderBrandLink: RenderBrandLink = ({ to, children, style }) => (
+  <a href={to} data-terp="appshell-brand" style={style}>
+    {children}
+  </a>
+);
 
 function PanelIcon() {
   return (
@@ -262,6 +326,7 @@ export function AppShell({
   title,
   nav,
   renderLink,
+  renderBrandLink = defaultRenderBrandLink,
   logo,
   headerActions,
   navFooter,
@@ -273,6 +338,9 @@ export function AppShell({
   const isMobile = useIsMobile();
   const [collapsed, setCollapsed] = useState(readStoredCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+  const drawerCloseRef = useRef<HTMLButtonElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
@@ -280,13 +348,36 @@ export function AppShell({
     if (!isMobile || !drawerOpen) {
       return;
     }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setDrawerOpen(false);
-      }
+    drawerCloseRef.current?.focus();
+    return () => {
+      window.setTimeout(() => toggleRef.current?.focus(), 0);
+    };
+  }, [isMobile, drawerOpen]);
+
+  function onDrawerKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDrawer();
     }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+  }
+
+  function focusDrawerEdge(edge: "first" | "last") {
+    const focusable = drawerRef.current?.querySelectorAll<HTMLElement>(
+      'a[href], button:not(:disabled)',
+    );
+    const target = edge === "first" ? focusable?.[0] : focusable?.[focusable.length - 1];
+    (target ?? drawerRef.current)?.focus();
+  }
+
+  useEffect(() => {
+    if (!isMobile || !drawerOpen) {
+      return;
+    }
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
   }, [isMobile, drawerOpen]);
 
   function toggleSidebar() {
@@ -308,23 +399,76 @@ export function AppShell({
   // The drawer always shows labels; the desktop rail hides them when collapsed.
   const railCollapsed = !isMobile && collapsed;
   const context: AppShellSlotContext = { collapsed: railCollapsed };
+  const linkStyle = railCollapsed
+    ? { ...NAV_LINK_STYLE, ...NAV_LINK_COLLAPSED_STYLE }
+    : NAV_LINK_STYLE;
   const resolvedTitle = resolve(title);
+
+  const brand = renderBrandLink({
+    to: "/",
+    style: railCollapsed
+      ? { ...brandLinkStyle, justifyContent: "center", paddingInline: 0 }
+      : isMobile
+        ? { ...brandLinkStyle, flex: 1, minWidth: 0 }
+        : brandLinkStyle,
+    children: (
+      <>
+        {logo ?? <TerpMark />}
+        <strong style={railCollapsed ? visuallyHiddenStyle : brandTitleStyle}>
+          {resolvedTitle}
+        </strong>
+      </>
+    ),
+  });
 
   const sidebar = (
     <aside
+      ref={isMobile ? drawerRef : undefined}
+      role={isMobile ? "dialog" : undefined}
+      aria-modal={isMobile ? true : undefined}
+      aria-label={isMobile ? strings.primaryNavigationLabel : undefined}
+      tabIndex={isMobile ? -1 : undefined}
+      onKeyDown={isMobile ? onDrawerKeyDown : undefined}
       style={
         isMobile
           ? drawerStyle
           : { ...sidebarStyle, width: railCollapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH }
       }
     >
-      <div style={brandStyle} title={resolvedTitle}>
-        {logo ?? <TerpMark />}
-        {!railCollapsed && <strong style={brandTitleStyle}>{resolvedTitle}</strong>}
-      </div>
+      {isMobile && (
+        <span
+          data-terp="drawer-focus-start"
+          tabIndex={0}
+          style={visuallyHiddenStyle}
+          onFocus={() => focusDrawerEdge("last")}
+        />
+      )}
+      {isMobile ? (
+        <div
+          style={drawerBrandRowStyle}
+          onClick={(event) => {
+            if (event.target instanceof Element && event.target.closest("a") !== null) {
+              closeDrawer();
+            }
+          }}
+        >
+          {brand}
+          <button
+            ref={drawerCloseRef}
+            type="button"
+            data-terp="iconbutton"
+            aria-label={strings.closeNavigation}
+            style={toggleStyle}
+            onClick={closeDrawer}
+          >
+            <Icon name="x" size="1.15rem" />
+          </button>
+        </div>
+      ) : brand}
       <nav
         style={navStyle}
         data-terp="appshell-nav"
+        data-collapsed={railCollapsed || undefined}
         aria-label={strings.primaryNavigationLabel}
         onClick={isMobile ? closeDrawer : undefined}
       >
@@ -335,14 +479,25 @@ export function AppShell({
                 item,
                 <>
                   <NavIcon name={item.icon} label={item.label} />
-                  {!railCollapsed && <span style={navItemLabelStyle}>{item.label}</span>}
+                  <span style={railCollapsed ? visuallyHiddenStyle : navItemLabelStyle}>
+                    {item.label}
+                  </span>
                 </>,
+                { collapsed: railCollapsed, style: linkStyle, activeStyle: NAV_LINK_ACTIVE_STYLE },
               )}
             </li>
           ))}
         </ul>
       </nav>
       {typeof navFooter === "function" ? navFooter(context) : navFooter}
+      {isMobile && (
+        <span
+          data-terp="drawer-focus-end"
+          tabIndex={0}
+          style={visuallyHiddenStyle}
+          onFocus={() => focusDrawerEdge("first")}
+        />
+      )}
     </aside>
   );
 
@@ -360,9 +515,14 @@ export function AppShell({
       ) : (
         sidebar
       )}
-      <div style={columnStyle}>
+      <div
+        style={columnStyle}
+        inert={isMobile && drawerOpen ? true : undefined}
+        aria-hidden={isMobile && drawerOpen ? true : undefined}
+      >
         <header style={headerStyle}>
           <button
+            ref={toggleRef}
             type="button"
             data-terp="iconbutton"
             style={toggleStyle}

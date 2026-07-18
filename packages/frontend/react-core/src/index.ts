@@ -26,8 +26,19 @@ export type { ResourceListProps } from "./ResourceList";
 export { RequireAuth } from "./RequireAuth";
 export type { RequireAuthProps } from "./RequireAuth";
 export { visibleNav } from "./nav";
-export { AppShell, NAV_LINK_STYLE, NAV_LINK_ACTIVE_STYLE, SIDEBAR_STORAGE_KEY } from "./AppShell";
-export type { AppShellProps, AppShellSlotContext } from "./AppShell";
+export {
+  AppShell,
+  NAV_LINK_STYLE,
+  NAV_LINK_COLLAPSED_STYLE,
+  NAV_LINK_ACTIVE_STYLE,
+  SIDEBAR_STORAGE_KEY,
+} from "./AppShell";
+export type {
+  AppShellProps,
+  AppShellSlotContext,
+  AppShellLinkContext,
+  RenderBrandLink,
+} from "./AppShell";
 export { Icon, NavIcon, TerpMark, ICON_GLYPHS } from "./icons";
 export type { IconProps, NavIconProps } from "./icons";
 export { ProfileView } from "./ProfileView";
@@ -120,7 +131,10 @@ export type { RenderTerpAppOptions, TerpModule } from "./bootstrap";
 export { adminModule } from "./admin/module";
 export { AdminHub } from "./admin/AdminHub";
 export { UsersAdmin } from "./admin/UsersAdmin";
+export { UserCreate } from "./admin/UserCreate";
+export { UserDetail } from "./admin/UserDetail";
 export { GroupsAdmin } from "./admin/GroupsAdmin";
+export { GroupCreate } from "./admin/GroupCreate";
 export { GroupDetail } from "./admin/GroupDetail";
 export { AuditLogAdmin } from "./admin/AuditLogAdmin";
 export { ThemeProvider, ThemeToggle, useTheme, THEME_STORAGE_KEY } from "./theme";

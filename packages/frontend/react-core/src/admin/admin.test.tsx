@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModuleManifest } from "@terp/contract";
@@ -38,6 +38,12 @@ describe("withAdminArea", () => {
     const admin = manifests.find((manifest) => manifest.name === "terp-admin");
     expect(admin).toBeDefined();
     expect(admin?.routes.map((route) => route.path)).toContain("/admin");
+    expect(admin?.routes.map((route) => route.path)).toEqual(expect.arrayContaining([
+      "/admin/users/new",
+      "/admin/users/$userId",
+      "/admin/groups/new",
+      "/admin/groups/$groupId",
+    ]));
     expect(admin?.nav?.[0]?.label).toBe("Admin");
     expect(views.TerpAdminHub).toBeDefined();
   });
@@ -118,7 +124,51 @@ function stubAdminFetch() {
         role_name: "admin",
       });
     }
+    if (path.endsWith("/api/v1/users/u1")) {
+      if (request.method === "PATCH") {
+        return jsonResponse({
+          id: "u1",
+          email: "jane.doe@example.com",
+          role: 10,
+          is_active: true,
+          created_at: "2026-07-01T10:00:00Z",
+          updated_at: "2026-07-02T10:00:00Z",
+          version: 2,
+        });
+      }
+      return jsonResponse({
+        id: "u1",
+        email: "jane.doe@example.com",
+        role: 20,
+        is_active: true,
+        created_at: "2026-07-01T10:00:00Z",
+        updated_at: "2026-07-01T10:00:00Z",
+        version: 1,
+      });
+    }
+    if (path.endsWith("/api/v1/users/u2")) {
+      return jsonResponse({
+        id: "u2",
+        email: "new.account@example.com",
+        role: 10,
+        is_active: true,
+        created_at: "2026-07-02T10:00:00Z",
+        updated_at: "2026-07-02T10:00:00Z",
+        version: 1,
+      });
+    }
     if (path.endsWith("/api/v1/users/")) {
+      if (request.method === "POST") {
+        return jsonResponse({
+          id: "u2",
+          email: "new.account@example.com",
+          role: 10,
+          is_active: true,
+          created_at: "2026-07-02T10:00:00Z",
+          updated_at: "2026-07-02T10:00:00Z",
+          version: 1,
+        });
+      }
       // The directory search behind the member picker filters by email substring.
       if (url.searchParams.get("email") === "new.user") {
         return jsonResponse({
@@ -191,8 +241,45 @@ function stubAdminFetch() {
         updated_at: "2026-07-01T10:00:00Z",
       });
     }
+    if (path.endsWith("/api/v1/groups/g2")) {
+      return jsonResponse({
+        id: "g2",
+        name: "Operations",
+        description: "Daily operations",
+        member_count: 0,
+        version: 1,
+        created_at: "2026-07-02T10:00:00Z",
+        updated_at: "2026-07-02T10:00:00Z",
+      });
+    }
     if (path.endsWith("/api/v1/groups/")) {
-      return jsonResponse({ ...emptyPage, total: 3 });
+      if (request.method === "POST") {
+        return jsonResponse({
+          id: "g2",
+          name: "Operations",
+          description: "Daily operations",
+          member_count: 0,
+          version: 1,
+          created_at: "2026-07-02T10:00:00Z",
+          updated_at: "2026-07-02T10:00:00Z",
+        });
+      }
+      return jsonResponse({
+        items: [
+          {
+            id: "g1",
+            name: "Finance",
+            description: "money",
+            member_count: 1,
+            version: 1,
+            created_at: "2026-07-01T10:00:00Z",
+            updated_at: "2026-07-01T10:00:00Z",
+          },
+        ],
+        total: 3,
+        skip: 0,
+        limit: 10,
+      });
     }
     if (path.endsWith("/api/v1/audit/")) {
       return jsonResponse(emptyPage);
@@ -239,7 +326,7 @@ function renderAdminApp(initialPath: string, roleRank = 30) {
       </ToastProvider>
     </TerpProvider>,
   );
-  return fetchMock;
+  return { fetchMock, router };
 }
 
 describe("the packaged admin area", () => {
@@ -258,19 +345,88 @@ describe("the packaged admin area", () => {
     expect(screen.getByRole("link", { name: "Admin" })).toBeInTheDocument();
   });
 
-  it("serves the users screen with the provision form and the listed accounts", async () => {
+  it("uses the users overview action and clickable rows for dedicated pages", async () => {
     renderAdminApp("/admin/users");
     await waitFor(() =>
       expect(screen.getByRole("heading", { level: 1, name: "Users" })).toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: "Provision user" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("jane.doe@example.com")).toBeInTheDocument());
-    // The overview breadcrumbs back to the hub.
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Admin");
+
+    fireEvent.click(screen.getByText("jane.doe@example.com"));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: "jane.doe@example.com" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "Reset password" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Users");
+  });
+
+  it("provisions a user on a dedicated create page and redirects to its detail", async () => {
+    const { fetchMock } = renderAdminApp("/admin/users");
+    await screen.findByRole("heading", { level: 1, name: "Users" });
+    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+    await screen.findByRole("heading", { level: 1, name: "Provision user" });
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "new.account@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "strong-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+
+    await screen.findByRole("heading", { level: 1, name: "new.account@example.com" });
+    expect(fetchMock.mock.calls.some(([input]) => {
+      const request = input as Request;
+      return request.method === "POST" && request.url.endsWith("/api/v1/users/");
+    })).toBe(true);
+  });
+
+  it("confirms lifecycle mutations from the user detail action slot", async () => {
+    const { fetchMock } = renderAdminApp("/admin/users/u1");
+    await screen.findByRole("heading", { level: 1, name: "jane.doe@example.com" });
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Make viewer" }));
+    expect(screen.getByRole("dialog", { name: "Make viewer" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => (input as Request).method === "PATCH")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([input]) => (input as Request).method === "PATCH")).toBe(true),
+    );
+  });
+
+  it("clears user mutation state when navigating between detail records in place", async () => {
+    const { router } = renderAdminApp("/admin/users/u1");
+    await screen.findByRole("heading", { level: 1, name: "jane.doe@example.com" });
+    fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
+    fireEvent.change(screen.getByLabelText("New password"), {
+      target: { value: "must-not-cross-records" },
+    });
+    expect(screen.getByRole("dialog", { name: /Reset password/ })).toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate({
+        to: "/admin/users/$userId",
+        params: { userId: "u2" },
+      });
+    });
+    await screen.findByRole("heading", { level: 1, name: "new.account@example.com" });
+    expect(screen.queryByRole("dialog", { name: /Reset password/ })).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("must-not-cross-records")).not.toBeInTheDocument();
+  });
+
+  it("uses the groups overview action and rows for create/detail navigation", async () => {
+    renderAdminApp("/admin/groups");
+    await screen.findByRole("heading", { level: 1, name: "Groups" });
+    await screen.findByText("Finance");
+
+    fireEvent.click(screen.getByRole("button", { name: "Create group" }));
+    await screen.findByRole("heading", { level: 1, name: "Create group" });
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Groups");
   });
 
   it("serves the group detail: API-resolved member emails and a searched member picker", async () => {
-    const fetchMock = renderAdminApp("/admin/groups/g1");
+    const { fetchMock } = renderAdminApp("/admin/groups/g1");
     await waitFor(() =>
       expect(screen.getByRole("heading", { level: 1, name: "Finance" })).toBeInTheDocument(),
     );
@@ -302,6 +458,23 @@ describe("the packaged admin area", () => {
         }),
       ).toBe(true),
     );
+  });
+
+  it("clears group destructive state when navigating between detail records in place", async () => {
+    const { router } = renderAdminApp("/admin/groups/g1");
+    await screen.findByRole("heading", { level: 1, name: "Finance" });
+    fireEvent.click(screen.getAllByRole("button", { name: "More actions" })[0]!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete group" }));
+    expect(screen.getByRole("dialog", { name: /Delete group/ })).toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate({
+        to: "/admin/groups/$groupId",
+        params: { groupId: "g2" },
+      });
+    });
+    await screen.findByRole("heading", { level: 1, name: "Operations" });
+    expect(screen.queryByRole("dialog", { name: /Delete group/ })).not.toBeInTheDocument();
   });
 
   it("denies the area to a non-admin (nav hidden, route refused)", async () => {

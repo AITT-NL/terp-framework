@@ -9,6 +9,26 @@ const items = ["Archive", "Duplicate", "Delete"];
 afterEach(cleanup);
 
 describe("Menu", () => {
+  it("portals the panel outside clipping ancestors without treating panel clicks as outside", () => {
+    render(
+      <div data-testid="clip" style={{ overflow: "hidden" }}>
+        <Menu trigger="Open" triggerLabel="Actions">
+          {({ close }) => <MenuItem label="Archive" onSelect={() => close()} />}
+        </Menu>
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    const menu = screen.getByRole("menu");
+    expect(screen.getByTestId("clip")).not.toContainElement(menu);
+    expect(menu.parentElement).toHaveStyle({
+      fontFamily: "var(--font-family-sans)",
+      color: "var(--color-neutral-900)",
+    });
+    fireEvent.pointerDown(menu);
+    expect(menu).toBeInTheDocument();
+  });
+
   it("opens, roves enabled items, selects and restores trigger focus", () => {
     const onDelete = vi.fn();
     render(
@@ -48,5 +68,18 @@ describe("Menu", () => {
     fireEvent.click(screen.getByRole("button", { name: "Actions" }));
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("reports one controlled close for one outside pointer interaction", () => {
+    const onOpenChange = vi.fn();
+    render(
+      <Menu trigger="Open" triggerLabel="Actions" open onOpenChange={onOpenChange}>
+        {() => <MenuItem label="Archive" onSelect={() => {}} />}
+      </Menu>,
+    );
+
+    fireEvent.pointerDown(document.body);
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

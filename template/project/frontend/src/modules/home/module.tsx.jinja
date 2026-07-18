@@ -6,7 +6,7 @@ import { Home } from "./Home";
 export const manifest = defineModuleManifest({
   name: "home",
   routes: [{ path: "/", view: "Home" }],
-  nav: [{ label: "Home", to: "/", icon: "home" }],
+  nav: [{ label: "{% if layout == 'process' %}Werkvoorraad{% elif layout == 'portal' %}Mijn overzicht{% else %}{{ project_name }}{% endif %}", to: "/", icon: "home" }],
 });
 
 export const views = { Home };

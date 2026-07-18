@@ -54,7 +54,7 @@ export function AdminHub() {
   const strings = useStrings();
   const stats = useHubStats();
   return (
-    <HubPage title={strings.admin}>
+    <HubPage title={strings.admin} parents={[{ label: strings.home, to: "/" }]}>
       <HubCard
         to="/admin/users"
         title={strings.adminUsers}

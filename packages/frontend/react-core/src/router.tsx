@@ -12,7 +12,7 @@ import type { ComponentType, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { ModuleManifest } from "@terp/contract";
 
-import { AppShell, NAV_LINK_ACTIVE_STYLE, NAV_LINK_STYLE } from "./AppShell";
+import { AppShell } from "./AppShell";
 import { ProfileView } from "./ProfileView";
 import { LAYOUT_CONTRACTS, LayoutContractContext } from "./layoutContract";
 import { visibleNav } from "./nav";
@@ -120,11 +120,16 @@ export function buildAppRouter(
         logo={options.logo}
         footer={options.footer}
         nav={nav}
-        renderLink={(item, children) => (
+        renderBrandLink={({ to, children, style }) => (
+          <Link to={to} data-terp="appshell-brand" style={style}>
+            {children}
+          </Link>
+        )}
+        renderLink={(item, children, context) => (
           <Link
             to={item.to}
-            style={NAV_LINK_STYLE}
-            activeProps={{ style: { ...NAV_LINK_STYLE, ...NAV_LINK_ACTIVE_STYLE } }}
+            style={context.style}
+            activeProps={{ style: { ...context.style, ...context.activeStyle } }}
             activeOptions={{ exact: item.to === "/" }}
           >
             {children}

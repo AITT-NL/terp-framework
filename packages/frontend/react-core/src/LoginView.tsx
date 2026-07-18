@@ -41,7 +41,7 @@ const brandTitleStyle: CSSProperties = {
   margin: 0,
   fontSize: "var(--font-size-xl)",
   fontWeight: "var(--font-weight-bold)" as CSSProperties["fontWeight"],
-  letterSpacing: "-0.01em",
+  letterSpacing: 0,
 };
 
 const formStyle: CSSProperties = { display: "grid", gap: "var(--space-3)" };

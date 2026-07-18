@@ -28,6 +28,8 @@ export interface ConfirmDialogProps {
   /** Keep the dialog inert while the confirmed action is in flight: disables both
    * buttons and blocks Escape / backdrop dismissal until the action settles. */
   isPending?: boolean;
+  /** Disable confirmation until required dialog input is valid. */
+  confirmDisabled?: boolean;
 }
 
 const dialogStyle: CSSProperties = {
@@ -51,7 +53,7 @@ const dialogTitleStyle: CSSProperties = {
   margin: 0,
   fontSize: "var(--font-size-lg)",
   fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
-  letterSpacing: "-0.01em",
+  letterSpacing: 0,
   color: "var(--color-neutral-900)",
 };
 
@@ -92,6 +94,7 @@ export function ConfirmDialog({
   cancelLabel,
   destructive,
   isPending,
+  confirmDisabled,
 }: ConfirmDialogProps) {
   const strings = useStrings();
   const resolve = useUiText();
@@ -155,7 +158,7 @@ export function ConfirmDialog({
           </Button>
           <Button
             variant={destructive ? "danger" : "primary"}
-            disabled={isPending}
+            disabled={isPending || confirmDisabled}
             onClick={onConfirm}
           >
             {resolve(confirmLabel ?? strings.confirm)}

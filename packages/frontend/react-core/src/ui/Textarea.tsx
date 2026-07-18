@@ -1,11 +1,12 @@
 import type { CSSProperties, TextareaHTMLAttributes } from "react";
 
 import { injectTerpStyles } from "../styles";
+import { CONTROL_TEXT_STYLE } from "./controlStyles";
 
 injectTerpStyles();
 
 const textareaStyle: CSSProperties = {
-  font: "inherit",
+  ...CONTROL_TEXT_STYLE,
   lineHeight: 1.4,
   padding: "var(--space-2) var(--space-3)",
   border: "1px solid var(--color-neutral-300)",

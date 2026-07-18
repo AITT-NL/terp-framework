@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import { Select } from "./ui/Select";
+import { Icon } from "./icons";
+import { Menu, MenuItem } from "./ui/Menu";
 import { UiTextProvider, useStrings } from "./uiText";
 import type { TerpStrings } from "./uiText";
 
@@ -57,6 +58,7 @@ export const LOCALE_NL: LocaleCatalog = {
     settings: "Instellingen",
     profile: "Profiel",
     role: "Rol",
+    home: "Start",
     primaryNavigationLabel: "Hoofdnavigatie",
     collapseSidebar: "Zijbalk inklappen",
     expandSidebar: "Zijbalk uitklappen",
@@ -79,12 +81,18 @@ export const LOCALE_NL: LocaleCatalog = {
     statusActive: "Actief",
     statusDeactivated: "Gedeactiveerd",
     provisionUser: "Gebruiker aanmaken",
+    roleViewer: "Lezer",
+    roleEditor: "Redacteur",
+    roleAdmin: "Beheerder",
     working: "Bezig…",
     makeRole: "Maak {role}",
     resetPassword: "Wachtwoord resetten",
     newPassword: "Nieuw wachtwoord",
     deactivate: "Deactiveren",
     reactivate: "Heractiveren",
+    changeRoleConfirm: "De rol van deze gebruiker wijzigen naar {role}?",
+    deactivateUserConfirm: "Dit account deactiveren? Actieve sessies worden ingetrokken.",
+    reactivateUserConfirm: "Dit account heractiveren?",
     groupName: "Naam",
     description: "Omschrijving",
     members: "Leden",
@@ -93,12 +101,14 @@ export const LOCALE_NL: LocaleCatalog = {
     deleteGroupConfirm: "Deze groep verwijderen? Lidmaatschappen en permissies gaan mee.",
     addMember: "Lid toevoegen",
     removeMember: "Verwijderen",
+    removeMemberConfirm: "Dit lid uit de groep verwijderen?",
     userField: "Gebruiker",
     userNotFound: "Geen account gevonden met dat e-mailadres.",
     permissions: "Permissies",
     grantPermission: "Permissie toekennen",
     permission: "Permissie",
     revoke: "Intrekken",
+    revokeConfirm: "Deze permissie van de groep intrekken?",
     actionColumn: "Actie",
     actorColumn: "Uitvoerder",
     targetColumn: "Doel",
@@ -188,14 +198,14 @@ export function useLocale(): LocaleContextValue | null {
 
 export interface LanguageSwitcherProps {
   /**
-   * `"stacked"` (default) renders a labelled select for menus / settings panels;
-   * `"inline"` renders the compact, `aria-label`led select the shell header uses.
+   * `"stacked"` (default) renders a labelled icon menu for settings panels;
+   * `"inline"` renders only the compact icon trigger used by the shell header.
    */
   variant?: "stacked" | "inline";
 }
 
 /**
- * The standard language control: a select over the app's locale catalogs.
+ * The standard language control: a token-themed menu over the app's locale catalogs.
  * Renders nothing outside a {@link LocaleProvider} or when only one locale is declared,
  * so shared chrome (the shell header) can include it unconditionally.
  */
@@ -205,26 +215,32 @@ export function LanguageSwitcher({ variant = "stacked" }: LanguageSwitcherProps)
   if (context === null || context.locales.length < 2) {
     return null;
   }
-  const select = (
-    <Select
-      value={context.locale}
-      aria-label={variant === "inline" ? strings.language : undefined}
-      onChange={(event) => context.setLocale(event.currentTarget.value)}
-    >
-      {context.locales.map((code) => (
-        <option key={code} value={code}>
-          {context.labelOf(code)}
-        </option>
-      ))}
-    </Select>
+  const menu = (
+    <Menu trigger={<Icon name="globe" size="1.15rem" />} triggerLabel={strings.language}>
+      {({ close }) => (
+        <>
+          {context.locales.map((code) => (
+            <MenuItem
+              key={code}
+              label={context.labelOf(code)}
+              selected={code === context.locale}
+              onSelect={() => {
+                context.setLocale(code);
+                close(true);
+              }}
+            />
+          ))}
+        </>
+      )}
+    </Menu>
   );
   if (variant === "inline") {
-    return select;
+    return menu;
   }
   return (
-    <label style={{ display: "grid", gap: "var(--space-1)", fontSize: "var(--font-size-sm)" }}>
+    <div style={{ display: "grid", justifyItems: "start", gap: "var(--space-1)", fontSize: "var(--font-size-sm)" }}>
       <span style={{ color: "var(--color-neutral-600)" }}>{strings.language}</span>
-      {select}
-    </label>
+      {menu}
+    </div>
   );
 }

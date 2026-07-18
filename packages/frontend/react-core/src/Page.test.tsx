@@ -19,7 +19,14 @@ describe("Page", () => {
     );
 
     expect(screen.getByRole("heading", { level: 1, name: "Tasks" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Tasks" })).toHaveStyle({
+      fontSize: "var(--font-size-lg)",
+      letterSpacing: "0",
+    });
     expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
+    const title = screen.getByRole("heading", { level: 1, name: "Tasks" });
+    const action = screen.getByRole("button", { name: "New" });
+    expect(title.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("body")).toBeInTheDocument();
   });
 

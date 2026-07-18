@@ -21,6 +21,19 @@ production deployment profile (multi-stage wheel images + hardened compose profi
 
 Late additions on the unreleased line:
 
+- **Centralized first-run frontend design system.** `@terp/react-core` now owns
+  stable control typography and intrinsic button sizing, icon-only themed
+  preference menus, body-portaled/clamped overlays, normalized number inputs,
+  compact page headers, equal-track `HubCard`s, and record-labelled DataView
+  navigation. `AppShell` now has a home-linked brand, fixed-size collapsed icon
+  slots, a scrollbar-free rail, and a scroll-locked/focus-contained mobile
+  drawer; its `renderLink` receives an additive third context argument with the
+  framework-owned expanded/collapsed styles (existing two-argument callbacks
+  remain valid), and `renderBrandLink` is optional. Packaged users/groups admin
+  now follows overview -> dedicated create/detail routes with breadcrumbs,
+  page actions and confirmation-gated destructive changes. Nested `HubPage`s
+  accept `parents`; the inherited `breadcrumbs` prop remains a compatibility
+  alias.
 - **`terp verify` — the one-command gate over declared profiles.** The project's
   whole verification surface as data: `--profile quick` (static enforcement:
   architecture gate, boundary lint, typecheck), `full` (the merge bar: + backend

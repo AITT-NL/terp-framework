@@ -1,11 +1,12 @@
 import type { CSSProperties, InputHTMLAttributes } from "react";
 
 import { injectTerpStyles } from "../styles";
+import { CONTROL_TEXT_STYLE } from "./controlStyles";
 
 injectTerpStyles();
 
 const inputStyle: CSSProperties = {
-  font: "inherit",
+  ...CONTROL_TEXT_STYLE,
   lineHeight: 1.2,
   minHeight: "2.25rem",
   padding: "0 var(--space-3)",

@@ -1,6 +1,7 @@
 import type { CSSProperties, SelectHTMLAttributes } from "react";
 
 import { injectTerpStyles } from "../styles";
+import { CONTROL_TEXT_STYLE } from "./controlStyles";
 
 injectTerpStyles();
 
@@ -10,7 +11,7 @@ const chevronUrl =
   "url(\"data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 8 5 5 5-5'/%3E%3C/svg%3E\")";
 
 const selectStyle: CSSProperties = {
-  font: "inherit",
+  ...CONTROL_TEXT_STYLE,
   lineHeight: 1.2,
   maxWidth: "100%",
   minWidth: 0,

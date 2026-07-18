@@ -1,6 +1,7 @@
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
 
 import { injectTerpStyles } from "../styles";
+import { CONTROL_TEXT_STYLE } from "./controlStyles";
 
 injectTerpStyles();
 
@@ -13,19 +14,23 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const baseStyle: CSSProperties = {
+  ...CONTROL_TEXT_STYLE,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
   gap: "var(--space-2)",
-  font: "inherit",
   fontWeight: "var(--font-weight-medium)" as never,
-  lineHeight: 1,
+  lineHeight: 1.2,
+  width: "fit-content",
+  maxWidth: "100%",
   minHeight: "2.25rem",
   padding: "0 var(--space-4)",
   border: "1px solid transparent",
   borderRadius: "var(--radius-md)",
+  boxSizing: "border-box",
   cursor: "pointer",
-  whiteSpace: "nowrap",
+  whiteSpace: "normal",
+  textAlign: "center",
 };
 
 const variantStyle: Record<ButtonVariant, CSSProperties> = {

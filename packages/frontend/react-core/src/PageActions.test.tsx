@@ -80,7 +80,7 @@ describe("PageActions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "More actions" }));
     expect(screen.getByRole("menu")).toBeInTheDocument();
-    fireEvent.mouseDown(document.body);
+    fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 

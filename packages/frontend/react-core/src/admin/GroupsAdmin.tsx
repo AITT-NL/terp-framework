@@ -1,18 +1,14 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import { useMemo } from "react";
 import type { components } from "@terp/contract";
 
-import { Page } from "../Page";
+import { Icon } from "../icons";
+import { OverviewPage } from "../OverviewPage";
+import { PageActions } from "../PageActions";
 import { useTerpClient } from "../TerpProvider";
-import { Field } from "../Field";
 import { DataView, HttpDataViewRepository, useServerDataView } from "../dataview";
 import type { DataViewColumn } from "../dataview";
-import { Stack } from "../layout";
-import { useToast } from "../toast";
 import { Button } from "../ui/Button";
-import { ConfirmDialog } from "../ConfirmDialog";
-import { Input } from "../ui/Input";
 import { useStrings } from "../uiText";
 import type { TerpStrings } from "../uiText";
 import { unwrap } from "../unwrap";
@@ -47,24 +43,15 @@ function buildColumns(strings: TerpStrings): DataViewColumn<GroupRead>[] {
 }
 
 /**
- * The packaged groups overview (`/admin/groups`): create a group, see live member
- * counts, delete with confirmation (the backend cascades memberships + grants
- * atomically, ADR 0074), and click through to a group's detail page for members
- * and permissions.
+ * The packaged groups overview (`/admin/groups`): a server-paged table with live
+ * member counts. Rows open dedicated details; creation and destructive operations
+ * live on routed pages instead of competing with list navigation.
  */
 export function GroupsAdmin() {
   const client = useTerpClient();
-  const toast = useToast();
   const strings = useStrings();
   const navigate = useNavigate();
   const serverQuery = useServerDataView({ initialPageSize: 10 });
-  const [version, setVersion] = useState(0);
-
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<GroupRead | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const columns = useMemo(() => buildColumns(strings), [strings]);
   const repository = useMemo(
@@ -82,101 +69,41 @@ export function GroupsAdmin() {
           return { items: page.items, total: page.total };
         },
       }),
-    [client, version],
+    [client],
   );
 
-  function failed(error: unknown): void {
-    toast.warning(error instanceof Error ? error.message : strings.requestFailed);
-  }
-
-  async function onCreate(event: FormEvent) {
-    event.preventDefault();
-    setCreating(true);
-    try {
-      unwrap(await client.POST("/api/v1/groups/", { body: { name, description } }));
-      toast.success(strings.saved);
-      setName("");
-      setDescription("");
-      setVersion((v) => v + 1);
-    } catch (error) {
-      failed(error);
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function onConfirmDelete() {
-    if (!pendingDelete) return;
-    setDeleting(true);
-    try {
-      unwrap(
-        await client.DELETE("/api/v1/groups/{group_id}", {
-          params: { path: { group_id: pendingDelete.id } },
-        }),
-      );
-      toast.success(strings.saved);
-      setVersion((v) => v + 1);
-    } catch (error) {
-      failed(error);
-    } finally {
-      setDeleting(false);
-      setPendingDelete(null);
-    }
-  }
-
   return (
-    <Page
+    <OverviewPage
       title={strings.adminGroups}
-      breadcrumbs={[adminCrumb(strings)]}
+      parents={[{ ...adminCrumb(strings), to: "/admin" }]}
       renderLink={renderAdminCrumb}
+      actions={
+        <PageActions
+          primary={
+            <Button
+              icon={<Icon name="plus" />}
+              onClick={() => void navigate({ to: "/admin/groups/new" })}
+            >
+              {strings.createGroup}
+            </Button>
+          }
+        />
+      }
     >
-      <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onCreate}>
-        <Field label={strings.groupName}>
-          <Input value={name} onChange={(event) => setName(event.target.value)} required />
-        </Field>
-        <Field label={strings.description}>
-          <Input
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-          />
-        </Field>
-        <Button type="submit" disabled={creating}>
-          {creating ? strings.working : strings.createGroup}
-        </Button>
-      </Stack>
       <DataView<GroupRead>
         viewId="terp.admin.groups"
         repository={repository}
         columns={columns}
         serverQuery={serverQuery}
         pageSizeOptions={[10, 25, 50]}
+        getRowLabel={(group) => group.name}
         onRowClick={(group) =>
           void navigate({
             to: "/admin/groups/$groupId",
             params: { groupId: group.id },
           })
         }
-        rowActions={(group) => [
-          {
-            label: strings.deleteGroup,
-            variant: "destructive",
-            onClick: () => setPendingDelete(group),
-          },
-        ]}
       />
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPendingDelete(null);
-          }
-        }}
-        onConfirm={() => void onConfirmDelete()}
-        title={`${strings.deleteGroup}: ${pendingDelete?.name ?? ""}`}
-        description={strings.deleteGroupConfirm}
-        confirmLabel={strings.deleteGroup}
-        isPending={deleting}
-      />
-    </Page>
+    </OverviewPage>
   );
 }

@@ -186,6 +186,7 @@ export interface DataViewStrings {
   clearSelection: UiText;
   moreActions: UiText;
   actions: UiText;
+  openRow: UiText; // "Open details: {label}"
   expandRow: UiText;
   collapseRow: UiText;
   empty: UiText;
@@ -219,6 +220,7 @@ export const DEFAULT_DATA_VIEW_STRINGS: DataViewStrings = {
   clearSelection: "Clear selection",
   moreActions: "More actions",
   actions: "Actions",
+  openRow: "Open details: {label}",
   expandRow: "Expand row",
   collapseRow: "Collapse row",
   empty: "Nothing to show.",

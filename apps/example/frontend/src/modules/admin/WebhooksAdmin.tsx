@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
 import type { components, paths } from "../../api/schema";
+import { ADMIN_PARENTS, renderAdminCrumb } from "./crumbs";
 
 type SubscriptionRead = components["schemas"]["WebhookSubscriptionRead"];
 
@@ -144,7 +145,7 @@ export function WebhooksAdmin() {
   }
 
   return (
-    <OverviewPage title="Webhooks">
+    <OverviewPage title="Webhooks" parents={ADMIN_PARENTS} renderLink={renderAdminCrumb}>
       <ModuleNav items={WEBHOOKS_TABS} />
       <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onCreate}>
         <Field label="Target URL">

@@ -11,6 +11,7 @@ import type { DataViewColumn } from "@terp/react-core";
 import { useMemo } from "react";
 
 import type { components, paths } from "../../api/schema";
+import { ADMIN_PARENTS, renderAdminCrumb } from "./crumbs";
 import { WEBHOOKS_TABS } from "./WebhooksAdmin";
 
 type DeliveryRead = components["schemas"]["WebhookDeliveryRead"];
@@ -67,7 +68,11 @@ export function WebhookDeliveriesAdmin() {
   );
 
   return (
-    <OverviewPage title="Webhook deliveries">
+    <OverviewPage
+      title="Webhook deliveries"
+      parents={ADMIN_PARENTS}
+      renderLink={renderAdminCrumb}
+    >
       <ModuleNav items={WEBHOOKS_TABS} />
       <DataView<DeliveryRead>
         viewId="admin.webhooks.deliveries"

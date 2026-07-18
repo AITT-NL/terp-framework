@@ -39,7 +39,7 @@ const headerStyle: CSSProperties = {
 
 const titleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "var(--font-size-md)",
+  fontSize: "var(--font-size-base)",
   fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
   lineHeight: 1.3,
 };

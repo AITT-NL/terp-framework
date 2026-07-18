@@ -70,6 +70,7 @@ export function DevicesExplorer() {
         searchDebounceMs={300}
         searchPlaceholder="Search devices…"
         pageSizeOptions={[10, 25, 50, 100]}
+        getRowLabel={(d) => d.name}
         onRowClick={(d) => toast.success(`Opened ${d.name}`)}
         batchActions={[
           {

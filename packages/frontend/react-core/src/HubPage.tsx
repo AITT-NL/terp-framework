@@ -13,12 +13,17 @@ injectTerpStyles();
 export type HubPageProps = Omit<
   PageProps,
   "isLoading" | "loadingState" | "error" | "errorState"
->;
+> & {
+  /** Parent trail for nested hubs; aliases the base Page's `breadcrumbs` prop. */
+  parents?: PageProps["breadcrumbs"];
+};
 
 const gridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(16rem, 100%), 1fr))",
+  gridAutoRows: "1fr",
   gap: "var(--space-4)",
+  alignItems: "stretch",
   listStyle: "none",
   margin: 0,
   padding: 0,
@@ -30,7 +35,7 @@ const gridStyle: CSSProperties = {
  * adds discovery value (each card can carry a live `stat`, making the hub a lightweight
  * dashboard) — never as a mandatory speed-bump in front of a single frequently-used list.
  */
-export function HubPage({ children, ...page }: HubPageProps) {
+export function HubPage({ children, parents, breadcrumbs, ...page }: HubPageProps) {
   // The runtime half of the slot-typed layout contract control (ADR 0079) for the hub
   // grid: with a contract active, every rendered child of the grid must be a HubCard
   // (its data-terp marker) — verified one macrotask after mount, refused fail closed.
@@ -54,7 +59,7 @@ export function HubPage({ children, ...page }: HubPageProps) {
     throw new Error(slotViolation);
   }
   return (
-    <Page {...page}>
+    <Page {...page} breadcrumbs={parents ?? breadcrumbs}>
       <ul ref={gridRef} style={gridStyle}>
         {children}
       </ul>
@@ -84,14 +89,22 @@ export interface HubCardProps {
 }
 
 const cardStyle: CSSProperties = {
+  height: "100%",
+  minHeight: 0,
+};
+
+const cardBodyStyle: CSSProperties = {
   display: "grid",
+  gridTemplateRows: "auto minmax(3rem, 1fr) auto",
   gap: "var(--space-2)",
+  height: "100%",
+  minHeight: "10rem",
   padding: "var(--space-4)",
   border: "1px solid var(--color-neutral-200)",
   borderRadius: "var(--radius-lg)",
   background: "var(--color-neutral-0)",
-  height: "100%",
   color: "var(--color-neutral-900)",
+  boxSizing: "border-box",
 };
 
 const cardTitleRowStyle: CSSProperties = {
@@ -127,17 +140,21 @@ const descriptionStyle: CSSProperties = {
   lineHeight: 1.5,
 };
 
+const emptyDescriptionStyle: CSSProperties = { ...descriptionStyle, visibility: "hidden" };
+
 const statStyle: CSSProperties = {
   color: "var(--color-neutral-900)",
   fontSize: "var(--font-size-sm)",
   fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
 };
+const emptyStatStyle: CSSProperties = { ...statStyle, visibility: "hidden" };
 
 const linkStyle: CSSProperties = {
   textDecoration: "none",
   color: "inherit",
   display: "block",
   height: "100%",
+  minHeight: 0,
 };
 
 const defaultRenderLink: RenderHubCardLink = ({ to, children }) => (
@@ -165,15 +182,19 @@ export function HubCard({
       {renderLink({
         to,
         children: (
-          <span style={{ display: "grid", gap: "var(--space-2)" }}>
+          <span data-terp="hubcard-body" style={cardBodyStyle}>
             <span style={cardTitleRowStyle}>
               {icon !== undefined && <span style={iconTileStyle}>{icon}</span>}
               <strong data-terp="hubcard-title" style={titleTextStyle}>
                 {resolve(title)}
               </strong>
             </span>
-            {description !== undefined && <span style={descriptionStyle}>{resolve(description)}</span>}
-            {stat !== undefined && <span style={statStyle}>{stat}</span>}
+            <span data-terp="hubcard-description" style={description === undefined ? emptyDescriptionStyle : descriptionStyle}>
+              {description === undefined ? " " : resolve(description)}
+            </span>
+            <span data-terp="hubcard-stat" style={stat === undefined ? emptyStatStyle : statStyle}>
+              {stat ?? " "}
+            </span>
           </span>
         ),
       })}

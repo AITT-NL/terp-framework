@@ -18,7 +18,8 @@ describe("ThemeProvider + ThemeToggle", () => {
       </ThemeProvider>,
     );
     expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
-    expect(screen.getByLabelText("Theme")).toHaveValue("system");
+    fireEvent.click(screen.getByRole("button", { name: "Theme" }));
+    expect(screen.getByRole("menuitemradio", { name: "System" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("applies an explicit choice to <html data-theme> and persists it", () => {
@@ -27,7 +28,8 @@ describe("ThemeProvider + ThemeToggle", () => {
         <ThemeToggle />
       </ThemeProvider>,
     );
-    fireEvent.change(screen.getByLabelText("Theme"), { target: { value: "dark" } });
+    fireEvent.click(screen.getByRole("button", { name: "Theme" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Dark" }));
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
   });
@@ -49,7 +51,8 @@ describe("ThemeProvider + ThemeToggle", () => {
       </ThemeProvider>,
     );
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    fireEvent.change(screen.getByLabelText("Theme"), { target: { value: "system" } });
+    fireEvent.click(screen.getByRole("button", { name: "Theme" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "System" }));
     expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
 
@@ -65,6 +68,7 @@ describe("ThemeProvider + ThemeToggle", () => {
         <ThemeToggle />
       </ThemeProvider>,
     );
-    expect(screen.getByLabelText("Theme")).toHaveValue("system");
+    fireEvent.click(screen.getByRole("button", { name: "Theme" }));
+    expect(screen.getByRole("menuitemradio", { name: "System" })).toHaveAttribute("aria-checked", "true");
   });
 });

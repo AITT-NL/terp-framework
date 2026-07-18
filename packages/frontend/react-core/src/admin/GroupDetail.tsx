@@ -1,14 +1,17 @@
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import type { components } from "@terp/contract";
 
+import { ConfirmDialog } from "../ConfirmDialog";
 import { DetailPage } from "../DetailPage";
 import { useTerpClient } from "../TerpProvider";
 import { Field } from "../Field";
+import { Icon } from "../icons";
 import { DataView, HttpDataViewRepository } from "../dataview";
 import type { DataViewColumn } from "../dataview";
-import { Stack } from "../layout";
+import { DetailList, Stack } from "../layout";
+import { PageActions } from "../PageActions";
 import { useResource } from "../useResource";
 import { useToast } from "../toast";
 import { Button } from "../ui/Button";
@@ -39,6 +42,7 @@ export function GroupDetail() {
   const params = useParams({ strict: false }) as { groupId?: string };
   const groupId = params.groupId ?? "";
   const client = useTerpClient();
+  const navigate = useNavigate();
   const toast = useToast();
   const strings = useStrings();
   const suggestionsId = useId();
@@ -50,6 +54,26 @@ export function GroupDetail() {
   const [adding, setAdding] = useState(false);
   const [permission, setPermission] = useState("");
   const [granting, setGranting] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [pendingMember, setPendingMember] = useState<GroupMemberRead | null>(null);
+  const [removingMember, setRemovingMember] = useState(false);
+  const [pendingGrant, setPendingGrant] = useState<GrantRead | null>(null);
+  const [revoking, setRevoking] = useState(false);
+
+  useEffect(() => {
+    setMemberQuery("");
+    setSuggestions([]);
+    setPermission("");
+    setDeleteOpen(false);
+    setPendingMember(null);
+    setPendingGrant(null);
+    setAdding(false);
+    setGranting(false);
+    setDeleting(false);
+    setRemovingMember(false);
+    setRevoking(false);
+  }, [groupId]);
 
   const group = useResource<GroupRead>(
     {
@@ -207,18 +231,23 @@ export function GroupDetail() {
     }
   }
 
-  async function onRemoveMember(member: GroupMemberRead) {
+  async function onConfirmRemoveMember() {
+    if (pendingMember === null) return;
+    setRemovingMember(true);
     try {
       unwrap(
         await client.DELETE("/api/v1/groups/{group_id}/members/{user_id}", {
-          params: { path: { group_id: groupId, user_id: member.user_id } },
+          params: { path: { group_id: groupId, user_id: pendingMember.user_id } },
         }),
       );
       toast.success(strings.saved);
+      setPendingMember(null);
       setMembersVersion((v) => v + 1);
       void group.reload();
     } catch (error) {
       failed(error);
+    } finally {
+      setRemovingMember(false);
     }
   }
 
@@ -241,17 +270,39 @@ export function GroupDetail() {
     }
   }
 
-  async function onRevoke(grant: GrantRead) {
+  async function onConfirmRevoke() {
+    if (pendingGrant === null) return;
+    setRevoking(true);
     try {
       unwrap(
         await client.DELETE("/api/v1/access/grants/{grant_id}", {
-          params: { path: { grant_id: grant.id } },
+          params: { path: { grant_id: pendingGrant.id } },
         }),
       );
       toast.success(strings.saved);
+      setPendingGrant(null);
       setGrantsVersion((v) => v + 1);
     } catch (error) {
       failed(error);
+    } finally {
+      setRevoking(false);
+    }
+  }
+
+  async function onConfirmDelete() {
+    setDeleting(true);
+    try {
+      unwrap(
+        await client.DELETE("/api/v1/groups/{group_id}", {
+          params: { path: { group_id: groupId } },
+        }),
+      );
+      toast.success(strings.saved);
+      await navigate({ to: "/admin/groups" });
+    } catch (error) {
+      failed(error);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -266,10 +317,31 @@ export function GroupDetail() {
       renderLink={renderAdminCrumb}
       isLoading={group.loading}
       error={group.cause ?? group.error ?? undefined}
+      actions={record !== undefined ? (
+        <PageActions
+          overflow={[
+            {
+              label: strings.deleteGroup,
+              icon: <Icon name="trash" />,
+              variant: "destructive",
+              onSelect: () => setDeleteOpen(true),
+            },
+          ]}
+        />
+      ) : undefined}
     >
       <Stack gap={6}>
+        {record !== undefined && (
+          <DetailList
+            items={[
+              { label: strings.description, value: record.description || "-" },
+              { label: strings.members, value: record.member_count },
+              { label: strings.createdColumn, value: new Date(record.created_at).toLocaleString() },
+            ]}
+          />
+        )}
         <Stack gap={3}>
-          <h2 style={{ margin: 0, fontSize: "var(--font-size-lg, 1.125rem)" }}>
+          <h2 style={{ margin: 0, fontSize: "var(--font-size-base)" }}>
             {strings.members}
           </h2>
           <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onAddMember}>
@@ -300,13 +372,13 @@ export function GroupDetail() {
               {
                 label: strings.removeMember,
                 variant: "destructive",
-                onClick: () => void onRemoveMember(member),
+                onClick: () => setPendingMember(member),
               },
             ]}
           />
         </Stack>
         <Stack gap={3}>
-          <h2 style={{ margin: 0, fontSize: "var(--font-size-lg, 1.125rem)" }}>
+          <h2 style={{ margin: 0, fontSize: "var(--font-size-base)" }}>
             {strings.permissions}
           </h2>
           <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onGrant}>
@@ -329,12 +401,46 @@ export function GroupDetail() {
               {
                 label: strings.revoke,
                 variant: "destructive",
-                onClick: () => void onRevoke(grant),
+                onClick: () => setPendingGrant(grant),
               },
             ]}
           />
         </Stack>
       </Stack>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onConfirm={() => void onConfirmDelete()}
+        title={`${strings.deleteGroup}: ${record?.name ?? ""}`}
+        description={strings.deleteGroupConfirm}
+        confirmLabel={strings.deleteGroup}
+        destructive
+        isPending={deleting}
+      />
+      <ConfirmDialog
+        open={pendingMember !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingMember(null);
+        }}
+        onConfirm={() => void onConfirmRemoveMember()}
+        title={strings.removeMember}
+        description={strings.removeMemberConfirm}
+        confirmLabel={strings.removeMember}
+        destructive
+        isPending={removingMember}
+      />
+      <ConfirmDialog
+        open={pendingGrant !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingGrant(null);
+        }}
+        onConfirm={() => void onConfirmRevoke()}
+        title={strings.revoke}
+        description={strings.revokeConfirm}
+        confirmLabel={strings.revoke}
+        destructive
+        isPending={revoking}
+      />
     </DetailPage>
   );
 }

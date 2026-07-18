@@ -34,7 +34,8 @@ describe("LocaleProvider + LanguageSwitcher", () => {
       </LocaleProvider>,
     );
     expect(screen.getByText("Sign out")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Language"), { target: { value: "nl" } });
+    fireEvent.click(screen.getByRole("button", { name: "Language" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Nederlands" }));
     expect(screen.getByText("Uitloggen")).toBeInTheDocument();
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("nl");
     // The switcher itself follows the active catalog too.
@@ -48,10 +49,9 @@ describe("LocaleProvider + LanguageSwitcher", () => {
         <LanguageSwitcher />
       </LocaleProvider>,
     );
-    const select = screen.getByLabelText("Taal");
-    expect(select).toHaveValue("nl");
-    expect(screen.getByRole("option", { name: "English" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Nederlands" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Taal" }));
+    expect(screen.getByRole("menuitemradio", { name: "English" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: "Nederlands" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("ignores a persisted locale the app no longer declares", () => {
@@ -74,13 +74,13 @@ describe("LocaleProvider + LanguageSwitcher", () => {
     expect(screen.queryByLabelText("Language")).not.toBeInTheDocument();
   });
 
-  it("offers an inline variant for the shell header (bare, aria-labelled select)", () => {
+  it("offers an icon-only inline variant for the shell header", () => {
     render(
       <LocaleProvider locales={{ en: LOCALE_EN, nl: NL }}>
         <LanguageSwitcher variant="inline" />
       </LocaleProvider>,
     );
-    expect(screen.getByLabelText("Language")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Language" })).toBeInTheDocument();
     // No visible label text in the inline variant.
     expect(screen.queryByText("Language")).not.toBeInTheDocument();
   });

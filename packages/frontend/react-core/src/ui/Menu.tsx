@@ -1,14 +1,15 @@
 import { useRef } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 
+import { Icon } from "../icons";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
+import { CONTROL_TEXT_STYLE } from "./controlStyles";
 import { Popover } from "./Popover";
 import type { PopoverAlign, PopoverPlacement } from "./Popover";
 
 const triggerStyle: CSSProperties = {
-  font: "inherit",
-  fontSize: "var(--font-size-sm)",
+  ...CONTROL_TEXT_STYLE,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -25,7 +26,7 @@ const triggerStyle: CSSProperties = {
 const menuStyle: CSSProperties = { display: "grid", gap: "var(--space-1)" };
 
 const itemStyle = (destructive: boolean, disabled: boolean): CSSProperties => ({
-  font: "inherit",
+  ...CONTROL_TEXT_STYLE,
   display: "flex",
   alignItems: "center",
   gap: "var(--space-2)",
@@ -161,19 +162,30 @@ export function Menu({
 export interface MenuItemProps {
   label: UiText;
   icon?: ReactNode;
+  /** Marks one choice in a mutually exclusive menu (renders `menuitemradio`). */
+  selected?: boolean;
   destructive?: boolean;
   disabled?: boolean;
   onSelect: () => void;
 }
 
 /** One actionable item inside a Menu. */
-export function MenuItem({ label, icon, destructive = false, disabled = false, onSelect }: MenuItemProps) {
+export function MenuItem({
+  label,
+  icon,
+  selected,
+  destructive = false,
+  disabled = false,
+  onSelect,
+}: MenuItemProps) {
   const resolve = useUiText();
   return (
     <button
       type="button"
-      role="menuitem"
+      role={selected === undefined ? "menuitem" : "menuitemradio"}
+      aria-checked={selected}
       data-terp="menu-item"
+      data-selected={selected === true ? "true" : undefined}
       tabIndex={-1}
       disabled={disabled}
       onClick={() => {
@@ -185,6 +197,11 @@ export function MenuItem({ label, icon, destructive = false, disabled = false, o
     >
       {icon !== undefined && <span aria-hidden="true" style={{ display: "inline-flex" }}>{icon}</span>}
       {resolve(label)}
+      {selected === true && (
+        <span aria-hidden="true" style={{ display: "inline-flex", marginLeft: "auto" }}>
+          <Icon name="check" />
+        </span>
+      )}
     </button>
   );
 }
@@ -193,5 +210,7 @@ function menuItems(menu: HTMLDivElement | null): HTMLButtonElement[] {
   if (menu === null) {
     return [];
   }
-  return Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+  return Array.from(
+    menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"], [role="menuitemradio"]'),
+  );
 }

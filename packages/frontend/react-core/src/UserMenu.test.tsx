@@ -121,6 +121,10 @@ describe("UserMenu", () => {
     const trigger = await screen.findByRole("button", { name: "Account menu" });
     expect(screen.getByText("JD")).toBeInTheDocument();
     expect(screen.queryByText("jane.doe@example.com")).not.toBeInTheDocument();
+    expect(trigger.style.width).toBe("100%");
+    expect(trigger.style.boxSizing).toBe("border-box");
+    expect(trigger.style.justifyContent).toBe("center");
+    expect(trigger.style.padding).toBe("0px");
     // The identity still surfaces inside the opened panel.
     fireEvent.click(trigger);
     expect(screen.getByText("jane.doe@example.com")).toBeInTheDocument();

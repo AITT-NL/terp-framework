@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import { Select } from "./ui/Select";
+import { Icon } from "./icons";
+import { Menu, MenuItem } from "./ui/Menu";
 import { useStrings } from "./uiText";
 
 /**
@@ -13,6 +14,11 @@ import { useStrings } from "./uiText";
 export type Theme = "light" | "dark" | "system";
 
 const THEMES: readonly Theme[] = ["light", "dark", "system"];
+const THEME_ICONS: Record<Theme, string> = {
+  light: "sun",
+  dark: "moon",
+  system: "monitor",
+};
 
 /** The `localStorage` key {@link ThemeProvider} persists the choice under. */
 export const THEME_STORAGE_KEY = "terp.theme";
@@ -80,14 +86,14 @@ export function useTheme(): ThemeContextValue | null {
 
 export interface ThemeToggleProps {
   /**
-   * `"stacked"` (default) renders a labelled select for menus / settings panels;
-   * `"inline"` renders the compact, `aria-label`led select the shell header uses.
+   * `"stacked"` (default) renders a labelled icon menu for settings panels;
+   * `"inline"` renders only the compact icon trigger used by the shell header.
    */
   variant?: "stacked" | "inline";
 }
 
 /**
- * The standard theme control: a light/dark/system select. Renders nothing
+ * The standard theme control: a token-themed light/dark/system menu. Renders nothing
  * outside a {@link ThemeProvider}, so shared chrome (the shell header) can
  * include it unconditionally.
  */
@@ -102,26 +108,36 @@ export function ThemeToggle({ variant = "stacked" }: ThemeToggleProps) {
     dark: strings.themeDark,
     system: strings.themeSystem,
   };
-  const select = (
-    <Select
-      value={context.theme}
-      aria-label={variant === "inline" ? strings.theme : undefined}
-      onChange={(event) => context.setTheme(event.currentTarget.value as Theme)}
+  const menu = (
+    <Menu
+      trigger={<Icon name={THEME_ICONS[context.theme]} size="1.15rem" />}
+      triggerLabel={strings.theme}
     >
-      {THEMES.map((theme) => (
-        <option key={theme} value={theme}>
-          {labels[theme]}
-        </option>
-      ))}
-    </Select>
+      {({ close }) => (
+        <>
+          {THEMES.map((theme) => (
+            <MenuItem
+              key={theme}
+              label={labels[theme]}
+              icon={<Icon name={THEME_ICONS[theme]} />}
+              selected={theme === context.theme}
+              onSelect={() => {
+                context.setTheme(theme);
+                close(true);
+              }}
+            />
+          ))}
+        </>
+      )}
+    </Menu>
   );
   if (variant === "inline") {
-    return select;
+    return menu;
   }
   return (
-    <label style={{ display: "grid", gap: "var(--space-1)", fontSize: "var(--font-size-sm)" }}>
+    <div style={{ display: "grid", justifyItems: "start", gap: "var(--space-1)", fontSize: "var(--font-size-sm)" }}>
       <span style={{ color: "var(--color-neutral-600)" }}>{strings.theme}</span>
-      {select}
-    </label>
+      {menu}
+    </div>
   );
 }

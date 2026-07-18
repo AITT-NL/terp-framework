@@ -5,6 +5,7 @@ import { useLocale } from "../locale";
 import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
+import { CONTROL_TEXT_STYLE } from "./controlStyles";
 import { Popover } from "./Popover";
 
 injectTerpStyles();
@@ -39,7 +40,7 @@ export interface DateRangePickerProps {
 }
 
 const triggerStyle: CSSProperties = {
-  font: "inherit",
+  ...CONTROL_TEXT_STYLE,
   lineHeight: 1.2,
   minHeight: "2.25rem",
   width: "100%",
@@ -73,7 +74,7 @@ const navButtonStyle: CSSProperties = {
 const weekStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "var(--space-1)" };
 const weekdayStyle: CSSProperties = { textAlign: "center", fontSize: "var(--font-size-xs)", color: "var(--color-neutral-500)" };
 const dayStyle = (selected: boolean, inRange: boolean, disabled: boolean): CSSProperties => ({
-  font: "inherit",
+  ...CONTROL_TEXT_STYLE,
   minHeight: "2rem",
   border: selected ? "1px solid var(--color-brand-primary)" : "1px solid transparent",
   borderRadius: "var(--radius-md)",

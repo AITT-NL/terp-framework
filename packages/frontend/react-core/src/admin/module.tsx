@@ -5,7 +5,10 @@ import type { TerpModule } from "../bootstrap";
 import { AdminHub } from "./AdminHub";
 import { AuditLogAdmin } from "./AuditLogAdmin";
 import { GroupDetail } from "./GroupDetail";
+import { GroupCreate } from "./GroupCreate";
 import { GroupsAdmin } from "./GroupsAdmin";
+import { UserCreate } from "./UserCreate";
+import { UserDetail } from "./UserDetail";
 import { UsersAdmin } from "./UsersAdmin";
 
 /**
@@ -26,7 +29,10 @@ export const adminModule: TerpModule = {
     routes: [
       { path: "/admin", view: "TerpAdminHub", role: "admin" },
       { path: "/admin/users", view: "TerpAdminUsers", role: "admin" },
+      { path: "/admin/users/new", view: "TerpAdminUserCreate", role: "admin" },
+      { path: "/admin/users/$userId", view: "TerpAdminUserDetail", role: "admin" },
       { path: "/admin/groups", view: "TerpAdminGroups", role: "admin" },
+      { path: "/admin/groups/new", view: "TerpAdminGroupCreate", role: "admin" },
       { path: "/admin/groups/$groupId", view: "TerpAdminGroupDetail", role: "admin" },
       { path: "/admin/audit", view: "TerpAdminAudit", role: "admin" },
     ],
@@ -35,7 +41,10 @@ export const adminModule: TerpModule = {
   views: {
     TerpAdminHub: AdminHub,
     TerpAdminUsers: UsersAdmin,
+    TerpAdminUserCreate: UserCreate,
+    TerpAdminUserDetail: UserDetail,
     TerpAdminGroups: GroupsAdmin,
+    TerpAdminGroupCreate: GroupCreate,
     TerpAdminGroupDetail: GroupDetail,
     TerpAdminAudit: AuditLogAdmin,
   },

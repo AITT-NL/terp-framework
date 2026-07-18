@@ -31,6 +31,11 @@ function LogInOnMount() {
 
 const manifests: ModuleManifest[] = [
   {
+    name: "home",
+    routes: [{ path: "/", view: "Home" }],
+    nav: [],
+  },
+  {
     name: "notes",
     routes: [{ path: "/notes", view: "NotesList" }],
     nav: [{ label: "Notes", to: "/notes" }],
@@ -43,6 +48,7 @@ const manifests: ModuleManifest[] = [
 ];
 
 const views = {
+  Home: () => <Page title="Home view">home body</Page>,
   NotesList: () => <Page title="Notes view">notes body</Page>,
   UsersList: () => <Page title="Users view">users body</Page>,
 };
@@ -77,6 +83,34 @@ describe("buildAppRouter", () => {
     // Editor (rank 20) sees the Notes nav but not the admin-only Users nav.
     expect(screen.getByRole("link", { name: "Notes" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
+  });
+
+  it("navigates home through the product brand", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = (input as Request).url;
+      if (url.endsWith("/api/v1/auth/login")) {
+        return jsonResponse({ access_token: "t", token_type: "bearer" });
+      }
+      return jsonResponse({ id: "1", email: "editor@example.com", role_rank: 20, role_name: "editor" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const router = buildAppRouter(manifests, {
+      views,
+      title: "Terp",
+      history: createMemoryHistory({ initialEntries: ["/notes"] }),
+    });
+
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+    await screen.findByRole("heading", { name: "Notes view" });
+    const brand = screen.getByRole("link", { name: "Terp" });
+    expect(brand).toHaveAttribute("data-terp", "appshell-brand");
+    fireEvent.click(brand);
+    await screen.findByRole("heading", { name: "Home view" });
   });
 
   it("shows a sign-out control for the signed-in user and revokes the token on click", async () => {

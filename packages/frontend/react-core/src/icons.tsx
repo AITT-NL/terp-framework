@@ -60,6 +60,23 @@ export const ICON_GLYPHS: Record<string, ReactNode> = {
       <path d="M12 2.75v2.5M12 18.75v2.5M2.75 12h2.5M18.75 12h2.5M5.4 5.4l1.8 1.8M16.8 16.8l1.8 1.8M18.6 5.4l-1.8 1.8M7.2 16.8l-1.8 1.8" />
     </svg>
   ),
+  sun: (
+    <svg {...svgProps}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </svg>
+  ),
+  moon: (
+    <svg {...svgProps}>
+      <path d="M20.2 15.2A8.5 8.5 0 0 1 8.8 3.8 8.5 8.5 0 1 0 20.2 15.2Z" />
+    </svg>
+  ),
+  monitor: (
+    <svg {...svgProps}>
+      <rect x="3" y="4" width="18" height="13" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </svg>
+  ),
   document: (
     <svg {...svgProps}>
       <path d="M6 3h8l4 4v14H6Z" />
@@ -390,12 +407,23 @@ export const ICON_GLYPHS: Record<string, ReactNode> = {
   ),
 };
 
+const navIconStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "1.25rem",
+  height: "1.25rem",
+  flex: "0 0 1.25rem",
+  fontSize: "1rem",
+  lineHeight: 1,
+};
+
 const fallbackStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  width: "1.25em",
-  height: "1.25em",
+  width: "100%",
+  height: "100%",
   borderRadius: "var(--radius-sm, 4px)",
   background: "var(--color-brand-primary-soft, var(--color-neutral-200))",
   color: "var(--color-brand-primary, var(--color-neutral-700))",
@@ -417,12 +445,13 @@ export interface NavIconProps {
  */
 export function NavIcon({ name, label }: NavIconProps) {
   const glyph = name !== undefined ? ICON_GLYPHS[name] : undefined;
-  if (glyph !== undefined) {
-    return <>{glyph}</>;
-  }
   return (
-    <span aria-hidden="true" style={fallbackStyle}>
-      {(label[0] ?? "?").toUpperCase()}
+    <span aria-hidden="true" data-terp="nav-icon" style={navIconStyle}>
+      {glyph ?? (
+        <span style={fallbackStyle}>
+          {(label[0] ?? "?").toUpperCase()}
+        </span>
+      )}
     </span>
   );
 }

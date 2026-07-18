@@ -1,5 +1,6 @@
-import { cloneElement, useCallback, useEffect, useId, useRef, useState } from "react";
+import { cloneElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactElement, ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { injectTerpStyles } from "../styles";
 
@@ -23,21 +24,25 @@ export interface PopoverProps {
 const rootStyle: CSSProperties = { position: "relative", display: "inline-flex" };
 
 const basePanelStyle: CSSProperties = {
-  position: "absolute",
+  position: "fixed",
   zIndex: 60,
   minWidth: "12rem",
   padding: "var(--space-1)",
+  fontFamily: "var(--font-family-sans)",
+  color: "var(--color-neutral-900)",
   background: "var(--color-neutral-0)",
   border: "1px solid var(--color-neutral-200)",
   borderRadius: "var(--radius-lg)",
   boxShadow: "var(--shadow-lg)",
 };
 
-function panelPosition(placement: PopoverPlacement, align: PopoverAlign): CSSProperties {
-  return {
-    [placement === "bottom" ? "top" : "bottom"]: "calc(100% + var(--space-1))",
-    [align === "end" ? "right" : "left"]: 0,
-  };
+const VIEWPORT_GUTTER = 8;
+const PANEL_GAP = 4;
+
+interface PanelPosition {
+  left: number;
+  top: number;
+  visibility: CSSProperties["visibility"];
 }
 
 /** Anchored disclosure panel with outside-click, Escape close and focus return. */
@@ -58,6 +63,11 @@ export function Popover({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [panelPosition, setPanelPosition] = useState<PanelPosition>({
+    left: 0,
+    top: 0,
+    visibility: "hidden",
+  });
 
   const setOpen = useCallback(
     (next: boolean) => {
@@ -91,9 +101,15 @@ export function Popover({
         (first ?? panelRef.current)?.focus();
       }, 0);
     }
-    function onPointerDown(event: PointerEvent | MouseEvent) {
+    function onPointerDown(event: PointerEvent) {
       const root = rootRef.current;
-      if (root !== null && event.target instanceof Node && !root.contains(event.target)) {
+      const panel = panelRef.current;
+      if (
+        root !== null &&
+        event.target instanceof Node &&
+        !root.contains(event.target) &&
+        !panel?.contains(event.target)
+      ) {
         close(false);
       }
     }
@@ -104,14 +120,55 @@ export function Popover({
       }
     }
     document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [close, focusOnOpen, isOpen]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    function updatePosition() {
+      const trigger = triggerRef.current;
+      const panel = panelRef.current;
+      if (trigger === null || panel === null) {
+        return;
+      }
+      const anchor = trigger.getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
+      const below = anchor.bottom + PANEL_GAP;
+      const above = anchor.top - panelRect.height - PANEL_GAP;
+      const preferredTop = placement === "bottom" ? below : above;
+      const fallbackTop = placement === "bottom" ? above : below;
+      const fitsPreferred = preferredTop >= VIEWPORT_GUTTER &&
+        preferredTop + panelRect.height <= window.innerHeight - VIEWPORT_GUTTER;
+      const rawTop = fitsPreferred ? preferredTop : fallbackTop;
+      const rawLeft = align === "end"
+        ? anchor.right - panelRect.width
+        : anchor.left;
+      setPanelPosition({
+        left: Math.max(
+          VIEWPORT_GUTTER,
+          Math.min(rawLeft, window.innerWidth - panelRect.width - VIEWPORT_GUTTER),
+        ),
+        top: Math.max(
+          VIEWPORT_GUTTER,
+          Math.min(rawTop, window.innerHeight - panelRect.height - VIEWPORT_GUTTER),
+        ),
+        visibility: "visible",
+      });
+    }
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [align, isOpen, placement]);
 
   const triggerProps = trigger.props as Record<string, unknown>;
   const cloned = cloneElement(trigger, {
@@ -144,16 +201,17 @@ export function Popover({
   return (
     <div ref={rootRef} data-terp="popover" style={rootStyle}>
       {cloned}
-      {isOpen && (
+      {isOpen && createPortal(
         <div
           id={panelId}
           ref={panelRef}
           data-terp="popover-panel"
           tabIndex={-1}
-          style={{ ...basePanelStyle, ...panelPosition(placement, align), ...panelStyle }}
+          style={{ ...basePanelStyle, ...panelStyle, ...panelPosition }}
         >
           {children({ close, panelId })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

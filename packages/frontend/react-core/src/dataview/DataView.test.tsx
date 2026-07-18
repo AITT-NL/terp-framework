@@ -260,6 +260,7 @@ describe("DataView row actions", () => {
       <DataView
         repository={inMemoryRepo()}
         columns={COLUMNS}
+        getRowLabel={(ticket) => ticket.title}
         onRowClick={onRowClick}
         rowActionsLayout="inline"
         rowActions={() => [{ label: "Open", onClick: vi.fn() }]}
@@ -271,6 +272,26 @@ describe("DataView row actions", () => {
 
     fireEvent.click(screen.getByText("Broken printer"));
     expect(onRowClick).toHaveBeenCalledWith(TICKETS[0]);
+  });
+
+  it("exposes record-labelled native activation buttons in table and card views", async () => {
+    const onRowClick = vi.fn();
+    render(
+      <DataView
+        repository={inMemoryRepo()}
+        columns={COLUMNS}
+        getRowLabel={(ticket) => ticket.title}
+        onRowClick={onRowClick}
+      />,
+    );
+    await screen.findByText("Broken printer");
+    fireEvent.click(screen.getByRole("button", { name: "Open details: Broken printer" }));
+    expect(onRowClick).toHaveBeenLastCalledWith(TICKETS[0]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Card view" }));
+    await screen.findByText("Broken printer");
+    fireEvent.click(screen.getByRole("button", { name: "Open details: Broken printer" }));
+    expect(onRowClick).toHaveBeenLastCalledWith(TICKETS[0]);
   });
 });
 
@@ -347,13 +368,25 @@ describe("DataView search and view options", () => {
 });
 
 describe("DataView embedded variant", () => {
-  it("renders without pagination footer, page-size selector or view toggle", async () => {
+  it("keeps real search controls but omits pagination and view controls", async () => {
     render(<DataView repository={inMemoryRepo()} columns={COLUMNS} variant="embedded" />);
     await screen.findByText("Broken printer");
+    expect(screen.getByRole("searchbox")).toBeInTheDocument();
     expect(screen.queryByText(/of 4 results/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Card view" })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Rows per page" })).not.toBeInTheDocument();
     // All rows rendered — the parent owns paging.
     expect(screen.getAllByRole("row")).toHaveLength(5);
+  });
+
+  it("does not render an empty toolbar band for a non-searchable embedded view", async () => {
+    const repository: DataViewRepository<Ticket> = {
+      query: async () => ({ rows: TICKETS, totalCount: TICKETS.length }),
+      getRowId: (ticket) => ticket.id,
+      capabilities: { serverSide: false, search: false, searchScope: false },
+    };
+    render(<DataView repository={repository} columns={COLUMNS} variant="embedded" />);
+    await screen.findByText("Broken printer");
+    expect(document.querySelector('[data-terp="dataview-toolbar"]')).not.toBeInTheDocument();
   });
 });

@@ -4,6 +4,7 @@ import type { CSSProperties, InputHTMLAttributes, KeyboardEvent } from "react";
 import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
+import { CONTROL_TEXT_STYLE } from "./controlStyles";
 
 injectTerpStyles();
 
@@ -28,7 +29,7 @@ export interface ComboboxProps
 const wrapperStyle: CSSProperties = { position: "relative", display: "grid" };
 const inputWrapStyle: CSSProperties = { position: "relative", display: "grid" };
 const inputStyle: CSSProperties = {
-  font: "inherit",
+  ...CONTROL_TEXT_STYLE,
   lineHeight: 1.2,
   width: "100%",
   minWidth: 0,
@@ -70,7 +71,7 @@ const listStyle: CSSProperties = {
   boxShadow: "var(--shadow-lg)",
 };
 const optionStyle = (active: boolean, selected: boolean, disabled: boolean): CSSProperties => ({
-  font: "inherit",
+  ...CONTROL_TEXT_STYLE,
   textAlign: "left",
   padding: "var(--space-2) var(--space-3)",
   border: "none",
@@ -82,7 +83,7 @@ const optionStyle = (active: boolean, selected: boolean, disabled: boolean): CSS
       ? "var(--color-brand-primary)"
       : "var(--color-neutral-900)",
   cursor: disabled ? "not-allowed" : "pointer",
-  fontWeight: selected ? "var(--font-weight-semibold)" as never : "var(--font-weight-regular)" as never,
+  fontWeight: selected ? "var(--font-weight-semibold)" as never : "var(--font-weight-normal)" as never,
 });
 const emptyStyle: CSSProperties = {
   padding: "var(--space-2) var(--space-3)",

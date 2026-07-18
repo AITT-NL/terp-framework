@@ -74,7 +74,7 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
     const inlineActions = (props.batchActions ?? []).filter((action) => action.inline !== false);
     const overflowActions = (props.batchActions ?? []).filter((action) => action.inline === false);
     return (
-      <div style={barStyle}>
+      <div data-terp="dataview-toolbar" style={barStyle}>
         <span style={{ fontWeight: "var(--font-weight-medium)" as never }}>
           {format(strings.selected, { count: props.selectedCount })}
         </span>
@@ -128,7 +128,7 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
   }
 
   return (
-    <div style={barStyle}>
+    <div data-terp="dataview-toolbar" style={barStyle}>
       {props.searchEnabled && (
         <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
           <span

@@ -43,8 +43,8 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
 | `LoginView` | The standard sign-in screen: username/password, plus optional SSO provider buttons via `ssoProviders` and a dev-only credential-fill button via `devCredentials` (gate it on `import.meta.env.DEV`). |
 | `useSso`, `parseSsoCallback`, `fetchSsoAuthorizationUrl`, `completeSsoCallback` | The SSO login seam (ADR 0058): `useSso().begin(provider)` opens an OIDC flow; `TerpProvider` completes the `/auth/callback/{provider}` redirect landing into a normal session on boot. `renderTerpApp({ ssoProviders })` wires the buttons in one line. |
 | `RequireAuth` | Renders children only with a session; pairs with the router so the app mounts only when signed in. |
-| `ThemeProvider`, `ThemeToggle`, `useTheme` | Light/dark/system theming: applies `data-theme` on `<html>` (the token stylesheet carries both palettes) and persists the choice. `renderTerpApp` mounts it for every app; the shell header shows the compact `variant="inline"` toggle. |
-| `LocaleProvider`, `LanguageSwitcher`, `useLocale`, `LOCALE_EN`, `LOCALE_NL` | The language seam over `UiTextProvider`: per-locale string catalogs, a persisted active locale, and a switcher in the shell header once an app declares a second locale. English and Dutch catalogs ship complete; `renderTerpApp({ locales })` wires them. |
+| `ThemeProvider`, `ThemeToggle`, `useTheme` | Light/dark/system theming: applies `data-theme` on `<html>` (the token stylesheet carries both palettes) and persists the choice. `renderTerpApp` mounts it for every app; the shell header uses an icon-only, token-themed `variant="inline"` menu. |
+| `LocaleProvider`, `LanguageSwitcher`, `useLocale`, `LOCALE_EN`, `LOCALE_NL` | The language seam over `UiTextProvider`: per-locale string catalogs, a persisted active locale, and an icon-only, token-themed menu in the shell header once an app declares a second locale. English and Dutch catalogs ship complete; `renderTerpApp({ locales })` wires them. |
 | `UserMenu`, `userInitials` | The signed-in user's menu, pinned by `buildAppRouter` to the bottom of the sidebar: an initials avatar trigger opening the identity block, **Settings** (the built-in profile page) and sign-out. Collapses to the avatar in the icon rail. |
 | `ProfileView` | The built-in profile / settings page (`/profile`): the server-validated identity, theme + language preferences, and sign-out. |
 
@@ -64,10 +64,10 @@ runtime, fail closed (ADR 0059), so every screen keeps the breadcrumb/title/erro
 
 | Export | Use |
 |---|---|
-| `AppShell` | The responsive level-1 frame: a full-height sidebar (brand logo + title, icon/label nav, `navFooter` chrome) that collapses to a persisted icon rail on desktop and an overlay drawer on mobile; a **sticky** header (sidebar toggle left, theme + language controls right); the routed content in `main`; a slim footer. Router-agnostic via `renderLink(item, children)`; `NAV_LINK_STYLE` / `NAV_LINK_ACTIVE_STYLE` keep every stack's links identical. |
+| `AppShell` | The responsive level-1 frame: a home-linked brand, icon/label nav and account footer. Desktop collapses to a persisted, scrollbar-free rail with one fixed icon slot; mobile becomes a scroll-locking drawer. The sticky header holds the sidebar toggle and icon-only preferences. Router-agnostic link renderers receive framework-owned expanded/collapsed geometry. |
 | `NavIcon`, `Icon`, `TerpMark`, `ICON_GLYPHS` | The dependency-free icon layer: manifest `NavItem.icon` names resolve to bundled inline-SVG glyphs (label-initial fallback), `Icon` renders any glyph by name (`<Icon name="plus" size="1em" />`) — the bundled catalogue covers common UI, action, object, and status glyphs (home, list, folder, users, plus, edit, trash, search, check, x, chevron-{left,right,down}, arrow-left, external, logout, user, bell, key, globe, lock, tag, mail, refresh, filter, download, upload, star, heart, database, code, truck, cart, wallet, map-pin, clock, link, grid, book, briefcase, building, clipboard, layers, send, phone, image, video, music, wrench, zap, …) — and `TerpMark` is the placeholder brand mark until an app passes its own `logo`. |
-| `Page` | The base routed screen: one constant header row (breadcrumb trail left, `actions` slot right), the `h1` title, then the body with loading/error slots. |
-| `HubPage`, `HubCard` | A landing grid of cards into sub-areas (optional dashboard-style module index). |
+| `Page` | The base routed screen: optional breadcrumb row, then one compact `h1` + intrinsic-width actions row (title-first on narrow layouts), then the body with loading/error slots. |
+| `HubPage`, `HubCard` | Responsive `auto-fit` landing grid. Cards share equal outer and internal tracks even when descriptions/stats differ; nested hubs use the ordinary breadcrumb contract via `parents`. |
 | `OverviewPage` | A module's top-level listing screen (level 2); detail pages crumb back to it. |
 | `DetailPage` | One record's screen (level 3); breadcrumb trail = ancestors + record title. |
 | `Breadcrumbs` | The trail itself (used by the archetypes; rarely composed directly). |
@@ -99,7 +99,7 @@ marker, counted by the escape-hatch budget.
 
 | Export | Use |
 |---|---|
-| `DataView` + family | **The single sanctioned surface for data collections**: repository-driven table/card view with search, sorting, pagination, column management, selection + batch actions, row actions, expandable rows, and persisted view preferences. See [`src/dataview/README.md`](src/dataview/README.md) for the full guide (client-side and server-side recipes). |
+| `DataView` + family | **The single sanctioned surface for data collections**: repository-driven table/card view with search, sorting, pagination, column management, selection + batch actions, row actions, expandable rows, persisted view preferences, and pointer/keyboard row activation for overview-to-detail navigation. See [`src/dataview/README.md`](src/dataview/README.md) for the full guide (client-side and server-side recipes). |
 | `InMemoryDataViewRepository`, `HttpDataViewRepository` | Data repositories (client-side / server-side); `useServerDataView` keeps server query state in the URL. |
 | `InMemoryViewStateRepository`, `LocalStorageViewStateRepository` | Preference persistence seam. |
 | `useResource` | An async collection: rows + loading/error + reload + create-then-reload. |
@@ -123,8 +123,8 @@ marker, counted by the escape-hatch budget.
 
 | Export | Use |
 |---|---|
-| `Button` | Token-styled button (`variant`: primary / secondary / danger / ghost; optional `icon` slot renders a leading glyph before the label). |
-| `Input`, `Select`, `Textarea` | Token-styled form controls (the raw elements are lint-refused). |
+| `Button` | Token-styled, content-sized command (`variant`: primary / secondary / danger / ghost; optional leading `icon`). Explicit `width: 100%` opts into full width. |
+| `Input`, `Select`, `Textarea` | Token-styled controls with stable framework typography, independent of surrounding display text (raw elements are lint-refused). Numeric inputs suppress unthemeable browser steppers. |
 | `Combobox` | Accessible autocomplete/typeahead single-select: filterable options, controlled or uncontrolled value, loading state, disabled state, and ARIA combobox/listbox keyboard navigation. |
 | `DatePicker`, `DateRangePicker` | Locale-aware calendar popover controls with keyboard-navigable month grids, min/max bounds, and range selection for ERP date filters. |
 | `Checkbox` | Labelled checkbox with `checked` / `defaultChecked` and boolean `onChange`. |
@@ -133,7 +133,7 @@ marker, counted by the escape-hatch budget.
 | `Tabs` | In-page (non-routed) tab set with `tablist` / `tab` / `tabpanel` roles, arrow-key navigation, and controlled or uncontrolled value. |
 | `Badge` | Small status pill (`tone`: neutral / info / success / warning / danger). |
 | `Tooltip` | Accessible focus/hover tooltip that describes its trigger with `aria-describedby`. |
-| `Popover`, `Menu`, `MenuItem` | Shared anchored overlay and dropdown-menu primitives: outside-click/Escape close, focus return, and roving menuitem keyboard navigation. |
+| `Popover`, `Menu`, `MenuItem` | Shared anchored overlay and dropdown-menu primitives: body-portaled, viewport-aware panels that escape scroll/table clipping, with outside-click/Escape close, focus return, selected-item semantics, and roving keyboard navigation. |
 | `Alert` | Inline banner for persistent feedback (`tone`: neutral / info / success / warning / danger); warnings and danger announce as `alert`, others as `status`. |
 | `Markdown` | Safe, dependency-free markdown renderer for headings, paragraphs, bold, italic, inline code, code blocks, lists, and safe links; raw HTML is rendered as text and never passed through. |
 | `Field` | Label + control + hint/error wrapper for one form field. |
@@ -164,8 +164,8 @@ single screen by claiming its path from an app module.
 |---|---|
 | `adminModule` | The whole area as a `TerpModule` (manifest + views) — spread it manually into an L2 `buildAppRouter` composition. |
 | `AdminHub` | `/admin`: cards into users / groups / audit with live totals. |
-| `UsersAdmin` | `/admin/users`: provision, change role, deactivate/reactivate, reset password. |
-| `GroupsAdmin`, `GroupDetail` | `/admin/groups(/$groupId)`: create/delete groups (the backend cascades memberships + grants, ADR 0074), manage members by email, grant/revoke the group's permissions. |
+| `UsersAdmin`, `UserCreate`, `UserDetail` | `/admin/users`: clickable account overview; `/new`: dedicated provisioning page; `/$userId`: details with header actions and confirmation-gated role, status and password changes. |
+| `GroupsAdmin`, `GroupCreate`, `GroupDetail` | `/admin/groups`: clickable group overview; `/new`: dedicated creation page; `/$groupId`: details with header deletion, member management and permission grants (destructive changes use confirmation dialogs; deletion cascades memberships + grants, ADR 0074). |
 | `AuditLogAdmin` | `/admin/audit`: the append-only trail, rows expanding to identifiers + payload. |
 
 ## Localization

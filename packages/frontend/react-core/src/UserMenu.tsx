@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { Icon } from "./icons";
 import { useAuth } from "./TerpProvider";
 import { Menu, MenuItem } from "./ui/Menu";
+import { CONTROL_TEXT_STYLE } from "./ui/controlStyles";
 import { useStrings } from "./uiText";
 
 /** Initials for the avatar: the first letters of the email's local-part words. */
@@ -14,19 +15,26 @@ export function userInitials(email: string): string {
 }
 
 const triggerStyle: CSSProperties = {
+  ...CONTROL_TEXT_STYLE,
   display: "flex",
   alignItems: "center",
   justifyContent: "flex-start",
   gap: "var(--space-2)",
   width: "100%",
+  boxSizing: "border-box",
   padding: "var(--space-2)",
-  font: "inherit",
   textAlign: "left",
   color: "var(--color-neutral-900)",
   background: "transparent",
   border: "1px solid transparent",
   borderRadius: "var(--radius-md)",
   cursor: "pointer",
+};
+
+const collapsedTriggerStyle: CSSProperties = {
+  justifyContent: "center",
+  gap: 0,
+  padding: 0,
 };
 
 const avatarStyle: CSSProperties = {
@@ -90,7 +98,7 @@ export function UserMenu({ collapsed = false, onSettings }: UserMenuProps = {}) 
       triggerLabel={strings.accountMenu}
       placement="top"
       align="start"
-      triggerStyle={triggerStyle}
+      triggerStyle={collapsed ? { ...triggerStyle, ...collapsedTriggerStyle } : triggerStyle}
       panelStyle={{ minWidth: "14rem", padding: "var(--space-2)" }}
     >
       {({ close }) => (

@@ -115,6 +115,10 @@ body {
   color: var(--color-neutral-500);
   opacity: 1;
 }
+[data-terp="input"] option {
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-0);
+}
 [data-terp="input"]:disabled {
   /* background-color (not the background shorthand) so the Select's chevron,
      drawn as a background-image, survives the disabled state. */
@@ -124,6 +128,18 @@ body {
 }
 [data-terp="input"][aria-invalid="true"] {
   border-color: var(--color-status-danger) !important;
+}
+/* Number steppers are browser chrome and cannot be token-themed consistently.
+   Keep keyboard/wheel/manual numeric input while removing the mismatched arrows. */
+[data-terp="input"][type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+[data-terp="input"][type="number"]::-webkit-inner-spin-button,
+[data-terp="input"][type="number"]::-webkit-outer-spin-button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* Checkboxes / radios / switches ------------------------------------------- */
@@ -149,6 +165,20 @@ label:has([data-terp="switch"]:disabled) {
   background: var(--color-neutral-100) !important;
   color: var(--color-neutral-900) !important;
 }
+[data-terp="appshell-nav"][data-collapsed="true"] {
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+[data-terp="appshell-nav"][data-collapsed="true"]::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+[data-terp="appshell-brand"] {
+  transition: background-color 150ms ease;
+}
+[data-terp="appshell-brand"]:hover {
+  background: var(--color-neutral-100) !important;
+}
 
 /* Tabs -------------------------------------------------------------------- */
 [data-terp="tab"] {
@@ -171,6 +201,8 @@ label:has([data-terp="switch"]:disabled) {
   text-decoration: none;
   color: inherit;
   display: block;
+  height: 100%;
+  min-height: 0;
 }
 [data-terp="hubcard"] {
   transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
@@ -202,6 +234,10 @@ label:has([data-terp="switch"]:disabled) {
 [data-terp="dataview-table"] tbody tr:hover td {
   background: var(--color-neutral-50);
 }
+[data-terp="dataview-row"]:focus-within td,
+[data-terp="dataview-card"]:focus-within {
+  background: var(--color-brand-primary-soft) !important;
+}
 
 /* Menu items (UserMenu, DataView row-actions / column settings). */
 [data-terp="menu-item"] {
@@ -211,6 +247,10 @@ label:has([data-terp="switch"]:disabled) {
 [data-terp="menu-item"]:hover:not(:disabled) {
   background: var(--color-neutral-100) !important;
   color: var(--color-neutral-900) !important;
+}
+[data-terp="menu-item"][data-selected="true"] {
+  background: var(--color-brand-primary-soft) !important;
+  color: var(--color-brand-primary) !important;
 }
 
 /* Dialogs: ::backdrop cannot be set inline, so the dim layer lives here and

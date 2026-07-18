@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
 import type { components, paths } from "../../api/schema";
+import { ADMIN_PARENTS, renderAdminCrumb } from "./crumbs";
 
 type GrantRead = components["schemas"]["GrantRead"];
 
@@ -120,7 +121,11 @@ export function AccessGrantsAdmin() {
   }
 
   return (
-    <OverviewPage title="Access grants">
+    <OverviewPage
+      title="Access grants"
+      parents={ADMIN_PARENTS}
+      renderLink={renderAdminCrumb}
+    >
       <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onLoad}>
         <Field label="Subject id" hint="The user whose grants to manage">
           <Input

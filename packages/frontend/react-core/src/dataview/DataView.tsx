@@ -28,7 +28,7 @@ const MOBILE_BREAKPOINT = "(max-width: 768px)";
 /** Embedded views render all rows; the parent owns paging. */
 const EMBEDDED_PAGE_SIZE = 10_000;
 
-export interface DataViewProps<T> {
+interface DataViewBaseProps<T> {
   /** Stable key for persisted view preferences; omit to keep them in memory only. */
   viewId?: string;
   /** The data access seam — DataView never fetches on its own. */
@@ -38,7 +38,6 @@ export interface DataViewProps<T> {
   columns: DataViewColumn<T>[];
   /** "embedded" renders a plain compact view: no view toggle, no page-size selector, no footer. */
   variant?: "full" | "embedded";
-  onRowClick?: (row: T) => void;
   enableSelection?: boolean;
   batchActions?: DataViewBatchAction<T>[];
   rowActions?: (row: T) => DataViewRowAction<T>[];
@@ -69,6 +68,19 @@ export interface DataViewProps<T> {
   strings?: Partial<DataViewStrings>;
 }
 
+export type DataViewProps<T> = DataViewBaseProps<T> & (
+  | {
+      onRowClick?: undefined;
+      getRowLabel?: undefined;
+    }
+  | {
+      /** Pointer activation for overview-to-detail navigation. */
+      onRowClick: (row: T) => void;
+      /** Accessible record name used by the row's native activation button. */
+      getRowLabel: (row: T) => UiText;
+    }
+);
+
 /**
  * The single sanctioned surface for rendering data collections: a repository-driven
  * table/card view with search, sorting, pagination, column management, selection,
@@ -89,10 +101,13 @@ export function DataView<T>(props: DataViewProps<T>) {
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(
-    () => typeof window.matchMedia === "function" && window.matchMedia(MOBILE_BREAKPOINT).matches,
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia(MOBILE_BREAKPOINT).matches,
   );
   useEffect(() => {
-    if (typeof window.matchMedia !== "function") {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return;
     }
     const media = window.matchMedia(MOBILE_BREAKPOINT);
@@ -287,6 +302,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
           columns={state.orderedColumns}
           getRowId={getRowId}
           onRowClick={props.onRowClick}
+          getRowLabel={props.getRowLabel}
           renderCard={props.renderCard}
           selectionEnabled={props.enableSelection === true}
           isSelected={(id) => selectedIds.has(id)}
@@ -305,6 +321,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
           columns={state.visibleColumns}
           getRowId={getRowId}
           onRowClick={props.onRowClick}
+          getRowLabel={props.getRowLabel}
           isMobile={isMobile}
           sorting={state.sorting}
           onToggleSort={state.toggleSort}
@@ -327,34 +344,46 @@ function DataViewInner<T>(props: DataViewProps<T>) {
   })();
 
   if (embedded) {
+    // Stable inputs only: keying this on transient fetch state would pop the
+    // whole band in and out on mount and on every background refetch.
+    const showsEmbeddedToolbar =
+      props.repository.capabilities.search ||
+      props.searchScope !== undefined ||
+      props.onClearFilters !== undefined ||
+      props.enableSelection === true ||
+      (props.batchActions?.length ?? 0) > 0 ||
+      props.toolbarContent !== undefined ||
+      props.toolbarTrailing !== undefined;
     return (
       <div data-terp="dataview" style={{ display: "grid" }}>
-        <DataViewToolbar<T>
-          searchEnabled={props.repository.capabilities.search}
-          search={state.search}
-          onSearchChange={state.setSearch}
-          searchPlaceholder={props.searchPlaceholder}
-          searchDebounceMs={props.searchDebounceMs}
-          searchScope={props.repository.capabilities.searchScope ? props.searchScope : undefined}
-          onClearFilters={props.onClearFilters !== undefined ? clearFilters : undefined}
-          hasActiveFilters={hasActiveFilters}
-          layout={layout}
-          selectedCount={selectedIds.size}
-          totalCount={totalCount}
-          selectAllAcrossPages={selectAllAcrossPages}
-          onSelectAllAcrossPages={
-            allPageSelected && totalCount > selectedIds.size
-              ? () => setSelectAllAcrossPages(true)
-              : undefined
-          }
-          onClearSelection={clearSelection}
-          batchActions={props.batchActions}
-          onBatchAction={onBatchAction}
-          isFetching={isFetching}
-          trailing={props.toolbarTrailing}
-        >
-          {props.toolbarContent}
-        </DataViewToolbar>
+        {showsEmbeddedToolbar && (
+          <DataViewToolbar<T>
+            searchEnabled={props.repository.capabilities.search}
+            search={state.search}
+            onSearchChange={state.setSearch}
+            searchPlaceholder={props.searchPlaceholder}
+            searchDebounceMs={props.searchDebounceMs}
+            searchScope={props.repository.capabilities.searchScope ? props.searchScope : undefined}
+            onClearFilters={props.onClearFilters !== undefined ? clearFilters : undefined}
+            hasActiveFilters={hasActiveFilters}
+            layout={layout}
+            selectedCount={selectedIds.size}
+            totalCount={totalCount}
+            selectAllAcrossPages={selectAllAcrossPages}
+            onSelectAllAcrossPages={
+              allPageSelected && totalCount > selectedIds.size
+                ? () => setSelectAllAcrossPages(true)
+                : undefined
+            }
+            onClearSelection={clearSelection}
+            batchActions={props.batchActions}
+            onBatchAction={onBatchAction}
+            isFetching={isFetching}
+            trailing={props.toolbarTrailing}
+          >
+            {props.toolbarContent}
+          </DataViewToolbar>
+        )}
         {content}
       </div>
     );
