@@ -35,8 +35,10 @@ def test_copier_declares_the_layout_presets_and_capability_toggles() -> None:
     config = (_TEMPLATE / "copier.yml").read_text()
     for choice in ("blank", "hub", "process", "portal"):
         assert f": {choice}" in config
-    assert ": list" not in config  # retired with the starter module
     assert "default: blank" in config
+    # `list` survives only as a LEGACY answers-file alias (copier update
+    # validates recorded answers against the choices), never as an offering.
+    assert "(legacy) Single-list" in config
     for toggle in ("use_files", "use_sso", "use_events", "use_realtime"):
         assert toggle in config
 

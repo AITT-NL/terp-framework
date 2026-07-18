@@ -34,6 +34,13 @@ layout:
     "Hub landing — a dashboard of cards into each area": hub
     "Process — a status-based work queue for requests and cases": process
     "Portal — a personal overview for customers, staff or suppliers": portal
+    # Legacy alias: projects rendered before the starter module's retirement
+    # recorded `layout: list` in their answers file; `copier update` validates
+    # recorded answers against these choices, so the value must stay accepted.
+    # It renders identically to the blank shell (there is no starter module
+    # whose list could be the landing page anymore). Never offered for new
+    # projects (the Studio filters it out of the wizard).
+    "(legacy) Single-list — renders the blank shell since the starter module's retirement": list
 
 # ---------------------------------------------------------------------------
 # Capability toggles — each adds the dependency AND its composition-root
