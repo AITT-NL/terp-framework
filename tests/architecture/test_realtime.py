@@ -9,6 +9,7 @@ These tests exercise that security boundary and the typed/backpressure paths.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -48,6 +49,7 @@ from terp.capabilities.realtime.router import TicketRequest, mint_ticket, subscr
 from terp.capabilities.realtime.router import (
     _sse_data,
     _sse_stream,
+    _settle_websocket_tasks,
     _websocket_inbound,
     _websocket_liveness,
     _websocket_outbound,
@@ -853,3 +855,71 @@ def test_websocket_bidirectional_round_trip_and_ticket_replay_refusal() -> None:
                 f"/api/v1/realtime/ws/{channel.name}?ticket={ticket}"
             ):
                 pass
+
+
+def test_websocket_teardown_preserves_the_hosts_cancellation() -> None:
+    """Cancelling the connection task mid-drain must surface the HOST's own
+    CancelledError. anyio's cancel scopes (the ASGI server, starlette's test
+    portal) absorb only a cancellation carrying their own scope message; a
+    gather-based drain re-raised the last child's untagged copy instead,
+    crashing every teardown that raced the drain."""
+
+    async def scenario() -> str | None:
+        in_drain = asyncio.Event()
+        release = asyncio.Event()
+
+        async def stubborn() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                in_drain.set()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await release.wait()
+                raise
+
+        first = asyncio.create_task(asyncio.sleep(0))
+        hanging = asyncio.create_task(stubborn())
+        settle = asyncio.create_task(_settle_websocket_tasks(first, hanging))
+        await in_drain.wait()
+        # The exact shape of an anyio host-task cancellation (see
+        # anyio._backends._asyncio.is_anyio_cancellation).
+        settle.cancel("Cancelled via cancel scope 0xterp")
+        release.set()
+        try:
+            await settle
+        except asyncio.CancelledError as exc:
+            return str(exc.args[0]) if exc.args else None
+        finally:
+            hanging.cancel()
+            await asyncio.wait({hanging})
+        return "settle finished without raising the host's cancellation"
+
+    message = asyncio.run(scenario())
+    assert message is not None
+    assert message.startswith("Cancelled via cancel scope")
+
+
+def test_settle_websocket_tasks_drains_and_surfaces_unexpected_results() -> None:
+    """The uncancelled settle path: cancelled tasks are tolerated silently,
+    normal returns collected, and an unexpected exception still propagates."""
+
+    async def scenario() -> None:
+        async def hang() -> None:
+            await asyncio.Event().wait()
+
+        async def fine() -> None:
+            return None
+
+        await _settle_websocket_tasks(
+            asyncio.create_task(fine()), asyncio.create_task(hang())
+        )
+
+        async def boom() -> None:
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await _settle_websocket_tasks(
+                asyncio.create_task(boom()), asyncio.create_task(hang())
+            )
+
+    asyncio.run(scenario())

@@ -275,7 +275,8 @@ async def _sse_stream(
             pending = asyncio.create_task(anext(iterator))
     finally:
         pending.cancel()
-        await asyncio.gather(pending, return_exceptions=True)
+        # asyncio.wait, never gather — see _settle_websocket_tasks.
+        await asyncio.wait({pending})
         await iterator.aclose()
 
 
@@ -370,6 +371,29 @@ def _raise_unexpected_task_results(results: list[object]) -> None:
             raise result
 
 
+async def _settle_websocket_tasks(*tasks: asyncio.Task[None]) -> None:
+    """Run until the first task settles, then cancel and drain the rest.
+
+    The drain awaits ``asyncio.wait`` — never ``asyncio.gather``: when the
+    host task is cancelled mid-drain (server shutdown, test-portal teardown),
+    a cancelled gather re-raises the *last child's* CancelledError instead of
+    the host's own. The child's copy carries no cancel-scope message, so the
+    surrounding anyio cancel scope refuses to absorb it and the teardown
+    crashes the connection task.
+    """
+    _done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for task in pending:
+        task.cancel()
+    await asyncio.wait(tasks)
+    results: list[object] = []
+    for task in tasks:
+        if task.cancelled():
+            continue
+        exc = task.exception()
+        results.append(exc if exc is not None else task.result())
+    _raise_unexpected_task_results(results)
+
+
 @router.websocket("/ws/{channel_name}")
 async def subscribe_websocket(
     websocket: WebSocket,
@@ -401,13 +425,7 @@ async def subscribe_websocket(
         _websocket_inbound(websocket, channel, redeemed)
     )
     liveness = asyncio.create_task(_websocket_liveness(websocket, redeemed))
-    done, pending = await asyncio.wait(
-        {outbound, inbound, liveness}, return_when=asyncio.FIRST_COMPLETED
-    )
-    for task in pending:
-        task.cancel()
-    results = await asyncio.gather(*done, *pending, return_exceptions=True)
-    _raise_unexpected_task_results(results)
+    await _settle_websocket_tasks(outbound, inbound, liveness)
 
 
 module = ModuleSpec(
