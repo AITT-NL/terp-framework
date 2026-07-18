@@ -111,6 +111,15 @@ even if the backend gate passes. Import only what a package really exports:
 check the catalog in `node_modules/@terp/react-core/README.md` instead of
 guessing component names or props.
 
+Two boundaries are never autonomous agent decisions:
+
+- Never add an opt-out marker or raise an escape-hatch budget. Fix the underlying
+  violation; if that is impossible, leave the check red and report the exact human
+  approval or platform capability required.
+- When `uv run terp guide <rule>` says no sanctioned construct exists, stop before
+  implementing a forbidden substitute. Do not hide it behind a helper, marker, budget
+  change, or static/local replacement that changes the requested behavior.
+
 ## Golden rules
 
 1. Table models inherit `BaseTable`; never redeclare id/created_at/updated_at/version.

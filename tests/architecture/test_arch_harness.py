@@ -157,7 +157,10 @@ def test_no_raw_outbound_http(tmp_path: pathlib.Path) -> None:
 def test_modules_declare_policy(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     _write(app, "modules/billing/module.py", "module = ModuleSpec(name='billing', router=router)\n")
-    assert _rule_names(check_modules_declare_policy(app)) == {"modules_declare_policy"}
+    violations = check_modules_declare_policy(app)
+    assert _rule_names(violations) == {"modules_declare_policy"}
+    assert "Use Policy.default() for authenticated CRUD" in violations[0].message
+    assert "only for an intentionally unauthenticated module" in violations[0].message
 
     _write(
         app,

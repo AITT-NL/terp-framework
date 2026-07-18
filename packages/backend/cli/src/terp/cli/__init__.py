@@ -265,6 +265,12 @@ Background jobs (terp.core.enqueue + JobCatalog)
   (ControlPlane(job_system_actor_id=...)), so its writes are never unstamped. For real
   off-request execution + durability, wire a durable adapter and require it at boot:
       create_app(specs, ..., job_queue=<durable>, require_durable_jobs=settings.is_production)
+- The system actor CANNOT update or delete a user's OwnedMixin row. It remains a
+  different actor from the owner. The built-in owner gate and registered object-authz
+  predicates compose fail-closed (AND). Predicates can narrow authority but never grant
+  an override. Cross-owner maintenance requires a reviewed maintenance-authority
+  capability. If none is installed, stop and report the missing capability — never
+  remove OwnedMixin or author a destructive owner-column migration.
 - Trigger a scheduled job from any cron / k8s CronJob / systemd or cloud timer:
       terp jobs run sync.customers.pull --payload '{"source": "crm"}'
   Inspect the declared jobs:  terp jobs list   /   terp inspect jobs.

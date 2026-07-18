@@ -41,7 +41,9 @@ def check_modules_declare_policy(
                             rel,
                             node.lineno,
                             "ModuleSpec declares no policy=; deny-by-default requires "
-                            "an explicit Policy (use Policy.public(reason=...) to opt out)",
+                            "an explicit Policy. Use Policy.default() for authenticated "
+                            "CRUD; Policy.public(reason=...) is only for an intentionally "
+                            "unauthenticated module",
                         )
                     )
         if not found_spec:

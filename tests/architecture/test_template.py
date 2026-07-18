@@ -187,6 +187,10 @@ def test_docs_teach_venv_correct_commands() -> None:
     assert "environment.schema.json" in agents
     assert '"format": "secret"' in agents
     assert "Do not create/edit `.app.env`" in agents
+    assert "Never add an opt-out marker or raise an escape-hatch budget" in agents
+    assert "leave the check red" in agents
+    assert "no sanctioned construct exists" in agents
+    assert "static/local replacement" in agents
 
 
 def test_frontend_skeleton_present() -> None:

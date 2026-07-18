@@ -71,6 +71,14 @@ def test_outbound_http_rule_guide_is_truthful_and_preserves_the_feature() -> Non
     assert "no_raw_outbound_http" in guide_choices()
 
 
+def test_jobs_guide_refuses_to_trade_ownership_for_scheduled_maintenance() -> None:
+    text = guide("jobs")
+    assert "CANNOT update or delete a user's OwnedMixin row" in text
+    assert "Predicates can narrow authority but never grant" in text
+    assert "Cross-owner maintenance requires a reviewed maintenance-authority" in text
+    assert "remove OwnedMixin or author a destructive owner-column migration" in text
+
+
 def test_cli_guide_prints_overview(capsys: pytest.CaptureFixture[str]) -> None:
     main(["guide"])
     out = capsys.readouterr().out
