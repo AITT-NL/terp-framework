@@ -31,6 +31,15 @@ x-backend: &backend
     OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
     OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
 {%- endif %}
+  volumes:
+    # The API and one-shot migrate/seed processes execute the same live checkout.
+    # TERP_DEV_HOST_ROOT is the checkout as the Docker daemon sees it.
+    - ${TERP_DEV_HOST_ROOT:-.}/app:/app/app
+    - ${TERP_DEV_HOST_ROOT:-.}/control_plane:/app/control_plane
+{%- if use_files %}
+    # Uploaded blobs survive container rebuilds.
+    - files-data:/app/var/files
+{%- endif %}
 
 services:
   db:
@@ -79,18 +88,6 @@ services:
       WATCHFILES_FORCE_POLLING: "true"
     ports:
       - "${API_PORT:-8000}:8000"
-    volumes:
-      # Live source, straight from the checkout: edits reload without a
-      # rebuild. TERP_DEV_HOST_ROOT is the checkout as the DAEMON sees it
-      # (Terp Studio passes it for containerized runs); default `.` is the
-      # manual `docker compose watch` layout on a dev host.
-      - ${TERP_DEV_HOST_ROOT:-.}/app:/app/app
-      - ${TERP_DEV_HOST_ROOT:-.}/control_plane:/app/control_plane
-{%- if use_files %}
-      # Uploaded blobs (terp-cap-files' default local profile stores under ./var/files):
-      # a named volume so uploads survive container rebuilds.
-      - files-data:/app/var/files
-{%- endif %}
     depends_on:
       db:
         condition: service_healthy

@@ -24,6 +24,11 @@ x-backend: &backend
     DATABASE_URL: postgresql+psycopg://terp:terp@db:5432/terp
     SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me-please-0123456789ab}
     ENVIRONMENT: local
+  volumes:
+    # The API and one-shot migrate/seed processes execute the same live checkout.
+    - ./app:/workspace/app
+    - ./control_plane:/workspace/control_plane
+    - ../../packages/backend:/workspace/packages/backend
 
 services:
   db:
@@ -72,11 +77,6 @@ services:
       WATCHFILES_FORCE_POLLING: "true"
     ports:
       - "${API_PORT:-8000}:8000"
-    volumes:
-      # Live source, straight from the checkout: edits reload without a rebuild.
-      - ./app:/workspace/app
-      - ./control_plane:/workspace/control_plane
-      - ../../packages/backend:/workspace/packages/backend
     depends_on:
       db:
         condition: service_healthy
