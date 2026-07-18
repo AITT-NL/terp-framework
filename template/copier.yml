@@ -14,37 +14,26 @@ project_slug:
   default: my-terp-app
 
 # ---------------------------------------------------------------------------
-# Layout preset — the shape the app starts in. All five render a runnable,
-# loginnable app; they differ only in what greets a signed-in user.
-#   list  — the starter module's list IS the landing page (single-area app).
-#   hub   — a HubPage landing at "/" with cards into each area; the starter
-#           module mounts at its own path.
-#   process — a work-queue landing grouped by status; the starter module owns
-#             the actual records at its own path.
-#   portal  — a personal landing focused on the signed-in user's tasks and
-#             records; the starter module mounts at its own path.
-#   blank — no starter module at all: sign-in + admin surface + a welcome
-#           page; modules are built afterwards (terp new module / the agent).
+# Layout preset — the shape the app starts in. All four render a runnable,
+# loginnable app with NO pre-built domain module: the first module is created
+# on demand (`terp new module <name>` / the agent), named after the actual
+# domain — so there is nothing generic to rename or delete. The presets
+# differ only in the home page that greets a signed-in user.
+#   blank — a welcome page; modules are built afterwards.
+#   hub   — a HubPage landing at "/" with placeholder cards to wire up.
+#   process — a work-queue landing grouped by status (placeholder cards).
+#   portal  — a personal landing focused on the signed-in user (placeholder
+#             cards; apply an ownership trait when modules arrive).
 # ---------------------------------------------------------------------------
 layout:
   type: str
   help: Starting layout
-  default: list
+  default: blank
   choices:
-    "Single-list app — the first module's list is the landing page": list
+    "Blank shell — sign-in and admin only; add modules later": blank
     "Hub landing — a dashboard of cards into each area": hub
     "Process — a status-based work queue for requests and cases": process
     "Portal — a personal overview for customers, staff or suppliers": portal
-    "Blank shell — sign-in and admin only; add modules later": blank
-
-# The starter module. Not asked for the blank layout: it renders empty there,
-# and a path segment that renders empty makes copier skip the whole tree — so
-# a blank app ships no starter module at all.
-module_name:
-  type: str
-  help: First module (lowercase plural identifier, e.g. records)
-  default: "{% if layout == 'blank' %}{% else %}records{% endif %}"
-  when: "{{ layout != 'blank' }}"
 
 # ---------------------------------------------------------------------------
 # Capability toggles — each adds the dependency AND its composition-root
@@ -71,11 +60,3 @@ use_realtime:
   type: bool
   help: Realtime channels (terp-cap-realtime) — typed SSE + WebSocket subscriptions
   default: false
-
-# Derived (not prompted): the PascalCase identifier for the module's React view and nav,
-# e.g. invoices -> Invoices. Mirrors the CLI scaffolder's _pascal so a template module and
-# a `terp new module` module look identical.
-module_pascal:
-  type: str
-  default: "{% if module_name %}{{ module_name[0] | upper }}{{ module_name[1:] }}{% endif %}"
-  when: false

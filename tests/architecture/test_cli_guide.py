@@ -16,7 +16,7 @@ import pytest
 _CLI_SRC = pathlib.Path(__file__).resolve().parents[2] / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import guide, guide_topics, main  # noqa: E402  (import after sys.path setup)
+from terp.cli import guide, guide_choices, guide_topics, main  # noqa: E402  (import after sys.path setup)
 
 # Derived from the live CLI registry — not hand-duplicated — so a new topic is covered
 # automatically (and the rules topic is generated; see test_docs_parity.py).
@@ -53,6 +53,16 @@ def test_recipes_carry_their_key_markers() -> None:
     assert "no_manual_ownership_checks" in guide("rules")
 
 
+def test_outbound_http_rule_guide_is_truthful_and_preserves_the_feature() -> None:
+    text = guide("no_raw_outbound_http")
+    assert "no generic outbound-fetch capability" in text
+    assert "returning static/local data" in text
+    assert "stop and report the missing capability" in text
+    assert "Do not create an app-local helper package" in text
+    assert "terp-cap-webhooks" in text
+    assert "no_raw_outbound_http" in guide_choices()
+
+
 def test_cli_guide_prints_overview(capsys: pytest.CaptureFixture[str]) -> None:
     main(["guide"])
     out = capsys.readouterr().out
@@ -65,6 +75,15 @@ def test_cli_guide_topic_prints_recipe(capsys: pytest.CaptureFixture[str]) -> No
     out = capsys.readouterr().out
     assert "BaseService" in out
     assert "business_filters" in out
+
+
+def test_cli_guide_rule_prints_exact_remediation(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main(["guide", "no_raw_outbound_http"])
+    out = capsys.readouterr().out
+    assert "Compliant decision path for outbound HTTP" in out
+    assert "missing capability" in out
 
 
 def test_cli_migrate_delegates_to_the_runner(

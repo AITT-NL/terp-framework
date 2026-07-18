@@ -7,22 +7,25 @@ row scoping for you, with precise, fixable messages.
 ## This project's selections
 
 {% if layout == 'hub' -%}
-- **Layout: hub landing** — `frontend/src/modules/home` owns `/` (a `HubPage` of cards);
-  each module mounts at its own path. Add a `HubCard` when you add a module.
+- **Layout: hub landing** — `frontend/src/modules/home` owns `/` (a `HubPage` of cards).
+  No module exists yet: the cards are placeholders pointing at `/`. When you build the
+  first module (`uv run terp new module <name>`, named after the actual domain), point
+  the cards at its route and add a `HubCard` per area as the app grows.
 {%- elif layout == 'process' -%}
 - **Layout: process** — `frontend/src/modules/home` owns `/` as a status-based work
-  queue; the starter module mounts at `/{{ module_name }}`. Replace the starter
-  summary labels with live counts when the typed client is wired.
+  queue. No module exists yet: the status cards are placeholders pointing at `/`. Build
+  the first module (`uv run terp new module <name>`), point the cards at its route, and
+  replace the placeholder labels with live counts when the typed client is wired.
 {%- elif layout == 'portal' -%}
 - **Layout: portal** — `frontend/src/modules/home` owns `/` as the signed-in user's
-  personal overview; the starter module mounts at `/{{ module_name }}`. Apply an
-  ownership trait when records must be scoped per user (`uv run terp guide ownership`).
-{%- elif layout == 'blank' -%}
+  personal overview. No module exists yet: the cards are placeholders pointing at `/`.
+  Build the first module (`uv run terp new module <name>`), point the cards at its
+  route, and apply an ownership trait when records must be scoped per user
+  (`uv run terp guide ownership`).
+{%- else -%}
 - **Layout: blank shell** — no starter module; `frontend/src/modules/home` renders a
   welcome page at `/`. Build the first real module with `uv run terp new module <name>`
   and replace the welcome page (or point `/` at your first real screen).
-{%- else -%}
-- **Layout: single-list app** — the `{{ module_name }}` module's list is the landing page (`/`).
 {%- endif %}
 {%- if use_files %}
 - **File uploads** (`terp-cap-files`): auto-discovered admin surface at `/api/v1/files`;

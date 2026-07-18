@@ -1,6 +1,8 @@
 {% if layout in ['hub', 'process', 'portal'] -%}
-// The hub landing: a card per area (each can carry a live `stat`, making the hub a
-// lightweight dashboard). Add a card here when you add a module.
+// The {{ layout }} landing: a HubPage of cards. These are PLACEHOLDERS — each card
+// currently points at "/" because no module exists yet. When the first module lands
+// (`uv run terp new module <name>` or the agent), point the cards at its route (and
+// add a card per area as the app grows; a card can carry a live `stat`).
 import { HubCard, HubPage } from "@terp/react-core";
 import { Link } from "@tanstack/react-router";
 
@@ -9,46 +11,46 @@ export function Home() {
     <HubPage title="{% if layout == 'process' %}Werkvoorraad{% elif layout == 'portal' %}Mijn overzicht{% else %}{{ project_name }}{% endif %}">
 {% if layout == 'process' -%}
       <HubCard
-        to="/{{ module_name }}"
+        to="/"
         title="Nieuw"
-        description="Bekijk nieuwe {{ module_name }} en bepaal de volgende stap."
+        description="Hier komt de lijst met nieuwe aanvragen zodra het eerste onderdeel is gebouwd."
         stat="Te beoordelen"
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
       <HubCard
-        to="/{{ module_name }}"
+        to="/"
         title="In behandeling"
-        description="Ga verder met {{ module_name }} waaraan al wordt gewerkt."
+        description="Hier ga je verder met aanvragen waaraan al wordt gewerkt."
         stat="Actief"
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
       <HubCard
-        to="/{{ module_name }}"
+        to="/"
         title="Afgerond"
-        description="Bekijk voltooide {{ module_name }} en hun geschiedenis."
+        description="Hier vind je afgeronde aanvragen en hun geschiedenis."
         stat="Archief"
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
 {%- elif layout == 'portal' -%}
       <HubCard
-        to="/{{ module_name }}"
-        title="Mijn {{ module_pascal }}"
-        description="Bekijk de {{ module_name }} die bij jouw account horen."
+        to="/"
+        title="Mijn zaken"
+        description="Hier komen de gegevens die bij jouw account horen zodra het eerste onderdeel is gebouwd."
         stat="Persoonlijk"
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
       <HubCard
-        to="/{{ module_name }}"
+        to="/"
         title="Openstaande acties"
-        description="Ga verder met wat nog aandacht of informatie nodig heeft."
+        description="Hier ga je verder met wat nog aandacht of informatie nodig heeft."
         stat="Actie nodig"
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
 {%- else -%}
       <HubCard
-        to="/{{ module_name }}"
-        title="{{ module_pascal }}"
-        description="Browse and manage {{ module_name }}."
+        to="/"
+        title="Eerste onderdeel"
+        description="Hier komt je eerste onderdeel. Bouw het via de chat of met `terp new module`."
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
 {%- endif %}

@@ -121,7 +121,7 @@ def test_check_report_violation_carries_its_own_fix(tmp_path: pathlib.Path) -> N
     assert violation["line"] == 1
     assert "policy" in violation["message"]
     assert violation["guide_topic"] == "policy"
-    assert violation["fix"] == "terp guide policy"
+    assert violation["fix"] == "terp guide modules_declare_policy"
 
 
 def test_check_report_surfaces_ungoverned_markers_in_band(tmp_path: pathlib.Path) -> None:
@@ -143,7 +143,7 @@ def test_check_report_surfaces_ungoverned_markers_in_band(tmp_path: pathlib.Path
         if violation["rule"] == "ungoverned_escape_hatch"
     )
     assert "escape-hatch-budget.json" in ungoverned["message"]
-    assert ungoverned["fix"] == "terp guide rules"
+    assert ungoverned["fix"] == "terp guide ungoverned_escape_hatch"
     # With a governing budget the marker is honoured and the condition disappears.
     budget = tmp_path / "budget.json"
     budget.write_text(json.dumps({"arch-allow-no-internal-imports": 1}), encoding="utf-8")
@@ -196,7 +196,7 @@ def test_cli_check_json_exits_nonzero_on_violations(
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is False
     fixes = {violation["fix"] for violation in payload["violations"]}
-    assert "terp guide policy" in fixes
+    assert "terp guide modules_declare_policy" in fixes
 
 
 # --------------------------------------------------------------------------- #
@@ -206,7 +206,7 @@ def test_assert_app_clean_listing_points_at_the_fix_recipe(tmp_path: pathlib.Pat
     app = _violating_app(tmp_path)
     with pytest.raises(AssertionError, match=r"architecture violation") as excinfo:
         assert_app_clean(app)
-    assert "(fix recipe: terp guide policy)" in str(excinfo.value)
+    assert "(fix recipe: terp guide modules_declare_policy)" in str(excinfo.value)
 
 
 # --------------------------------------------------------------------------- #

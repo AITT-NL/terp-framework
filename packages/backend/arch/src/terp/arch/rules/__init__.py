@@ -253,7 +253,7 @@ def assert_app_clean(
     violations = check_app(root, package=package, budget_path=budget_path)
     if violations:
         listing = "\n".join(
-            f"  - {violation}  (fix recipe: terp guide {guide_topic_for(violation.rule)})"
+            f"  - {violation}  (fix recipe: terp guide {violation.rule})"
             for violation in violations
         )
         raise AssertionError(

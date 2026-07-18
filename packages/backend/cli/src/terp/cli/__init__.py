@@ -515,6 +515,29 @@ Layout contracts (slot-typed layouts, ADR 0079)
 # Topics whose body is generated from a live registry (not a static recipe above).
 _GENERATED_TOPICS: tuple[str, ...] = ("rules",)
 
+_RULE_GUIDE_DETAILS: dict[str, str] = {
+     "no_raw_outbound_http": """\
+Compliant decision path for outbound HTTP
+
+1. Preserve the requested integration and its external contract. Removing the live
+    call, returning static/local data, or moving the client import to an unscanned
+    helper only to make the gate green is not a compliant fix.
+2. Use a maintained purpose-built capability when its semantics match. For example,
+    terp-cap-webhooks owns signed webhook POST delivery; it is not a generic GET client.
+3. The maintained Terp capability surface currently has no generic outbound-fetch
+    capability for arbitrary HTTP GETs. App modules therefore cannot implement a live
+    news/feed fetch through a sanctioned generic API today.
+4. When no matching capability exists, stop and report the missing capability. Leave
+    the check red until a human approves an escape hatch or the platform supplies a
+    reviewed adapter capability. Do not create an app-local helper package merely to
+    move the raw client outside the scanner.
+5. A new adapter capability must expose a narrow domain API and centrally enforce a
+    fixed destination allowlist, HTTPS, SSRF-safe DNS/IP handling, redirect policy,
+    bounded timeouts and response sizes, credentials from settings, and egress audit.
+    App modules import only that declared capability's public domain seam.
+""",
+}
+
 
 def guide_topics() -> tuple[str, ...]:
     """Every ``terp guide`` topic, sorted: the static recipes + the generated ones.
@@ -523,6 +546,13 @@ def guide_topics() -> tuple[str, ...]:
     test, which derives its per-topic coverage from this rather than re-listing topics.
     """
     return tuple(sorted([*_GUIDE_TOPICS, *_GENERATED_TOPICS]))
+
+
+def guide_choices() -> tuple[str, ...]:
+    """Every accepted focused guide name: broad topics plus exact architecture rules."""
+    from terp.arch.rules import GUIDE_TOPIC_BY_RULE
+
+    return tuple(sorted({*guide_topics(), *GUIDE_TOPIC_BY_RULE}))
 
 
 _TOPIC_NAMES = ", ".join(guide_topics())
@@ -556,6 +586,7 @@ Golden rules (the gate enforces these — follow them and it stays green):
      terp.core._internal, never a sibling module.
 
 More:  terp guide <topic>   (topics: {_TOPIC_NAMES})
+    terp guide <rule>            (the exact rule's remediation and related pattern)
        terp guide rules             (every architecture rule the gate enforces, generated)
        terp inspect control-plane   (your roles / permissions / module authority map)
        terp inspect access          (the full access graph: modules, endpoints, data traits)
@@ -598,6 +629,31 @@ def _render_rules_topic() -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_rule_guide(rule_name: str) -> str:
+    """Render one rule's exact remediation followed by its broader authoring pattern."""
+    from terp.arch.rules import GUIDE_TOPIC_BY_RULE, _ALL_RULES
+
+    topic = GUIDE_TOPIC_BY_RULE[rule_name]
+    rules = {
+        rule.__name__.removeprefix("check_"): rule
+        for rule in _ALL_RULES
+    }
+    headline = _rule_headline(rules[rule_name]) if rule_name in rules else rule_name
+    detail = _RULE_GUIDE_DETAILS.get(
+        rule_name,
+        "Apply the sanctioned construct in the related authoring pattern below at "
+        "the exact file and line from the finding. Preserve existing behavior and "
+        "rerun the failing check; do not add an opt-out merely to turn it green.",
+    )
+    return (
+        f"Rule: {rule_name}\n"
+        f"{headline}\n\n"
+        f"{detail.rstrip()}\n\n"
+        f"Related authoring pattern ({topic})\n\n"
+        f"{guide(topic)}"
+    )
+
+
 def guide(topic: str | None = None) -> str:
     """Return the Terp authoring guide, or a focused recipe for *topic*.
 
@@ -611,7 +667,9 @@ def guide(topic: str | None = None) -> str:
         return _GUIDE_OVERVIEW
     if topic == "rules":
         return _render_rules_topic()
-    return _GUIDE_TOPICS[topic]
+    if topic in _GUIDE_TOPICS:
+        return _GUIDE_TOPICS[topic]
+    return _render_rule_guide(topic)
 
 
 def check_report(
@@ -657,7 +715,7 @@ def check_report(
                 "line": violation.line,
                 "message": violation.message,
                 "guide_topic": guide_topic_for(violation.rule),
-                "fix": f"terp guide {guide_topic_for(violation.rule)}",
+                "fix": f"terp guide {violation.rule}",
             }
             for violation in violations
         ],
@@ -1126,9 +1184,9 @@ def _build_parser() -> argparse.ArgumentParser:
     guide_parser.add_argument(
         "topic",
         nargs="?",
-        choices=guide_topics(),
+        choices=guide_choices(),
         default=None,
-        help="Optional topic for a focused recipe",
+        help="Optional topic or exact architecture rule for a focused recipe",
     )
 
     migrate_parser = subcommands.add_parser(
@@ -1541,6 +1599,7 @@ __all__ = [
     "export_openapi",
     "guide",
     "guide_topics",
+    "guide_choices",
     "inspect_access",
     "inspect_control_plane",
     "main",

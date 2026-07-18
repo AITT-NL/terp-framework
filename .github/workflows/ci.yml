@@ -124,22 +124,22 @@ jobs:
   # distribution (standing in for the published index), and run the generated
   # project's own gate against them; then build its frontend against packed npm
   # tarballs. Converts "the template deploys" from an opinion into a failing test.
-  # The matrix proves each create-wizard preset: the default single-list render,
-  # the hub layout with every capability toggle on, and the blank shell.
+  # The matrix proves each create-wizard preset (all module-less since the starter
+  # module's retirement; the default render is the blank shell). The hub variant
+  # additionally proves the on-demand path a real project takes: `terp new module`,
+  # mount it, generate its migration, and hold the grown app to the same gate.
   template-acceptance:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - variant: default
+          - variant: default-blank
             copier-args: ""
           - variant: hub-all-capabilities
             copier-args: >-
               --data layout=hub --data use_files=true --data use_sso=true
               --data use_events=true
-          - variant: blank
-            copier-args: "--data layout=blank"
           - variant: process
             copier-args: "--data layout=process"
           - variant: portal
@@ -178,6 +178,21 @@ jobs:
           # the in-project ratchet guards post-scaffold drift, this proves the
           # template as shipped passes its own baseline.
           uv run ruff check .
+
+      - name: Grow the app the real way — terp new module + gate (hub variant)
+        if: matrix.variant == 'hub-all-capabilities'
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: |
+          set -eux
+          uv run terp new module records
+          # Mount it in the composition root (the gate refuses unmounted modules).
+          sed -i 's/^from control_plane import control_plane$/from control_plane import control_plane\nfrom app.modules.records.module import module as records_module/' app/main.py
+          sed -i 's/modules = \[login_module, me_module\]/modules = [login_module, me_module, records_module]/' app/main.py
+          uv run terp migrate make records -m "create records table"
+          uv run pytest
+          uv run terp check
 
       - uses: actions/setup-node@v4
         with:

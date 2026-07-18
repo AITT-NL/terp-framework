@@ -1,9 +1,10 @@
 """Template skeleton integrity — the copier client-app template scaffolds a real app.
 
-Validates the structure deterministically (no copier install required): the five module
-slots, the composition root, the control plane, the discovered base profile, and the
-generated `AGENTS.md`. The five-slot *shape* is exercised by test_cli_scaffold.py, which
-asserts the equivalent `terp new module` output passes every architecture rule.
+Validates the structure deterministically (no copier install required): the composition
+root, the control plane, the home module per layout preset, and the generated
+`AGENTS.md`. The template deliberately ships NO pre-built domain module — the first
+module is created on demand (`terp new module <name>`), whose five-slot shape is
+exercised by test_cli_scaffold.py against every architecture rule.
 """
 
 from __future__ import annotations
@@ -18,25 +19,26 @@ _PROJECT = _TEMPLATE / "project"
 def test_copier_config_declares_inputs_and_subdirectory() -> None:
     config = (_TEMPLATE / "copier.yml").read_text()
     assert "_subdirectory: project" in config
-    for var in ("project_name", "project_slug", "module_name", "layout"):
+    for var in ("project_name", "project_slug", "layout"):
         assert var in config
+    # The template ships no pre-built domain module: the first module is created
+    # on demand (`terp new module <name>`), named after the actual domain — so
+    # nothing generic exists to rename or delete.
+    assert "module_name" not in config
 
 
 def test_copier_declares_the_layout_presets_and_capability_toggles() -> None:
-    # The create wizard's deterministic surface: five layout presets and the
-    # capability toggles whose wiring the template renders end-to-end. Every
-    # toggle here must stay provably green in the template-acceptance matrix.
+    # The create wizard's deterministic surface: four layout presets (all
+    # module-less home shapes; blank is the default) and the capability
+    # toggles whose wiring the template renders end-to-end. Every toggle here
+    # must stay provably green in the template-acceptance matrix.
     config = (_TEMPLATE / "copier.yml").read_text()
-    for choice in ("list", "hub", "process", "portal", "blank"):
+    for choice in ("blank", "hub", "process", "portal"):
         assert f": {choice}" in config
+    assert ": list" not in config  # retired with the starter module
+    assert "default: blank" in config
     for toggle in ("use_files", "use_sso", "use_events", "use_realtime"):
         assert toggle in config
-    # The blank layout renders module_name empty, which makes copier skip the
-    # starter-module trees entirely (an empty rendered path segment is skipped).
-    assert "{% if layout == 'blank' %}{% else %}records{% endif %}" in config
-    assert "when: \"{{ layout != 'blank' }}\"" in config
-    # ...and the derived PascalCase name must tolerate that empty value.
-    assert "{% if module_name %}" in config
 
 
 def test_runnable_app_skeleton_present() -> None:
@@ -80,27 +82,23 @@ def test_project_ships_ci_and_hatch_packaging() -> None:
     assert 'packages = ["app", "control_plane"]' in pyproject
 
 
-def test_example_module_has_five_slots() -> None:
-    module = _PROJECT / "app" / "modules" / "{{ module_name }}"
-    for slot in ("models", "schemas", "service", "router", "module"):
-        assert (module / f"{slot}.py.jinja").exists()
-    assert "BaseTable" in (module / "models.py.jinja").read_text()
-
-
-def test_copier_declares_derived_module_pascal() -> None:
-    # The React view/nav identifiers are PascalCase; a derived (non-prompted) copier
-    # variable computes them from module_name so a template module and a `terp new module`
-    # module look identical (mirrors the CLI scaffolder's _pascal).
-    config = (_TEMPLATE / "copier.yml").read_text()
-    assert "module_pascal" in config
-    assert "{{ module_name[0] | upper }}{{ module_name[1:] }}" in config
-    assert "when: false" in config
+def test_template_ships_no_prebuilt_domain_module() -> None:
+    # The whole point of the retirement: no `{{ module_name }}` trees, backend or
+    # frontend — an app is born with the platform surface only, and its first
+    # module arrives via `terp new module <name>` with the right domain name.
+    app_modules = [p.name for p in (_PROJECT / "app" / "modules").iterdir()]
+    assert app_modules == ["__init__.py"]
+    frontend_modules = sorted(
+        p.name for p in (_PROJECT / "frontend" / "src" / "modules").iterdir()
+    )
+    assert frontend_modules == ["home"]
 
 
 def test_layout_presets_render_a_home_module() -> None:
-    # Every layout except list gets a frontend-only `home` module owning "/" (the dir name is a
-    # copier conditional: it renders empty — and is skipped — for the single-list layout).
-    home = _PROJECT / "frontend" / "src" / "modules" / "{% if layout != 'list' %}home{% endif %}"
+    # Every layout gets the frontend-only `home` module owning "/": hub/process/
+    # portal a HubPage of PLACEHOLDER cards (no module exists yet, so they point
+    # at "/" until the first module lands), blank a welcome page.
+    home = _PROJECT / "frontend" / "src" / "modules" / "home"
     manifest = (home / "module.tsx.jinja").read_text()
     assert "defineModuleManifest(" in manifest
     assert 'path: "/"' in manifest
@@ -112,15 +110,12 @@ def test_layout_presets_render_a_home_module() -> None:
     assert "renderLink=" in view
     assert "Werkvoorraad" in view
     assert "Mijn overzicht" in view
+    # The placeholder cards must not reference a module that does not exist.
+    assert "module_name" not in view
     # Blank: a plain archetype-framed welcome page pointing at `terp new module`.
     assert "Page" in view
     assert "terp new module" in view
     assert "style={{" not in view
-    # The starter module vacates "/" for every multi-screen layout.
-    records = (
-        _PROJECT / "frontend" / "src" / "modules" / "{{ module_name }}" / "module.tsx.jinja"
-    ).read_text()
-    assert "{% if layout in ['hub', 'process', 'portal'] %}/{{ module_name }}{% else %}/{% endif %}" in records
 
 
 def test_capability_toggles_wire_the_composition_root() -> None:
@@ -198,21 +193,12 @@ def test_frontend_skeleton_present() -> None:
     assert 'import.meta.glob("./modules/*/module.tsx"' in main
 
 
-def test_frontend_example_module_slot_present() -> None:
-    module = _PROJECT / "frontend" / "src" / "modules" / "{{ module_name }}"
-    manifest = (module / "module.tsx.jinja").read_text()
-    assert "defineModuleManifest(" in manifest
-    assert "export const views" in manifest
-    # The starter view is named for the PascalCase module (auto-discovered by the glob).
-    assert (module / "{{ module_pascal }}List.tsx.jinja").exists()
-    # It composes the centralized ResourceList primitive (the same pattern the example dogfoods),
-    # so a generated module lists + creates the same way as every other module.
-    view = (module / "{{ module_pascal }}List.tsx.jinja").read_text()
-    assert "ResourceList" in view
-    assert "emptyMessage" in view
-    assert "/api/v1/{{ module_name }}/" in view
-    # ...framed by a page archetype (buildAppRouter refuses a routed view without one).
-    assert "OverviewPage" in view
+def test_frontend_templates_have_no_unescaped_jsx_double_braces() -> None:
+    # In a copier .jinja file `{{ ... }}` is a Jinja expression, so a JSX inline-style
+    # object (`style={{ ... }}`) would be mis-parsed. The frontend starter must avoid it.
+    home = _PROJECT / "frontend" / "src" / "modules" / "home"
+    for tsx in ("module.tsx.jinja", "Home.tsx.jinja"):
+        assert "style={{" not in (home / tsx).read_text()
 
 
 def test_frontend_ships_escape_hatch_budget() -> None:
@@ -222,14 +208,6 @@ def test_frontend_ships_escape_hatch_budget() -> None:
     assert (_PROJECT / "frontend" / "escape-hatch-budget.json").read_text().strip() == "{}"
     package = (_PROJECT / "frontend" / "package.json.jinja").read_text()
     assert "terp-boundaries-lint" in package
-
-
-def test_frontend_templates_have_no_unescaped_jsx_double_braces() -> None:
-    # In a copier .jinja file `{{ ... }}` is a Jinja expression, so a JSX inline-style
-    # object (`style={{ ... }}`) would be mis-parsed. The frontend starter must avoid it.
-    module = _PROJECT / "frontend" / "src" / "modules" / "{{ module_name }}"
-    for tsx in ("module.tsx.jinja", "{{ module_pascal }}List.tsx.jinja"):
-        assert "style={{" not in (module / tsx).read_text()
 
 
 def test_project_ships_frontend_ci() -> None:
@@ -249,11 +227,6 @@ def test_frontend_ships_typed_client_codegen() -> None:
     assert "openapi-typescript" in package
     assert '"generate"' in package
     assert "frontend/src/api/" in (_PROJECT / ".gitignore").read_text()
-    view = (
-        _PROJECT / "frontend" / "src" / "modules" / "{{ module_name }}" / "{{ module_pascal }}List.tsx.jinja"
-    ).read_text()
-    assert "useTerpClient<paths>()" in view
-    assert "npm --prefix frontend run generate" in view
 
 
 def test_project_ships_a_docker_workbench() -> None:

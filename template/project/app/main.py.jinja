@@ -18,13 +18,10 @@ from terp.core import create_app
 
 from app.auth import login_module, me_module, principal_provider{% if use_sso %}, oidc_module{% endif %}
 from control_plane import control_plane
-{%- if module_name %}
-from app.modules.{{ module_name }}.module import module as {{ module_name }}_module
-{%- endif %}
 
 
 def build():
-    modules = [login_module, me_module{% if module_name %}, {{ module_name }}_module{% endif %}]
+    modules = [login_module, me_module]
 {%- if use_sso %}
     # SSO mounts only when an OIDC provider is configured (see app/auth.py).
     if oidc_module is not None:

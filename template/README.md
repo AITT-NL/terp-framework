@@ -17,7 +17,7 @@ terp check                      # the architecture gate (== CI)
 terp dev                        # run the API + frontend together
 ```
 
-Inputs (see `copier.yml`): `project_name`, `project_slug`, `module_name`. The rendered
+Inputs (see `copier.yml`): `project_name`, `project_slug`, `layout`. The rendered
 sources live under `project/` (`_subdirectory: project`), so this README and the
 top-level `AGENTS.md` stay out of the generated repo. `terp new module <name>` adds
 further modules against the same shape.
