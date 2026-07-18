@@ -38,6 +38,13 @@ def test_each_topic_returns_a_nonempty_recipe(topic: str) -> None:
     assert guide(topic).strip()
 
 
+@pytest.mark.parametrize("rule", sorted(set(guide_choices()) - set(_TOPICS)))
+def test_each_rule_returns_an_exact_nonempty_recipe(rule: str) -> None:
+    text = guide(rule)
+    assert text.startswith(f"Rule: {rule}\n")
+    assert "Related authoring pattern" in text
+
+
 def test_recipes_carry_their_key_markers() -> None:
     assert "BaseService" in guide("service")
     assert "Permission" in guide("policy")
@@ -55,7 +62,8 @@ def test_recipes_carry_their_key_markers() -> None:
 
 def test_outbound_http_rule_guide_is_truthful_and_preserves_the_feature() -> None:
     text = guide("no_raw_outbound_http")
-    assert "no generic outbound-fetch capability" in text
+    assert "SSRF protection, allowlists, egress auditing, and timeout" in text
+    assert "no generic outbound-fetch" in text
     assert "returning static/local data" in text
     assert "stop and report the missing capability" in text
     assert "Do not create an app-local helper package" in text
@@ -84,6 +92,14 @@ def test_cli_guide_rule_prints_exact_remediation(
     out = capsys.readouterr().out
     assert "Compliant decision path for outbound HTTP" in out
     assert "missing capability" in out
+
+
+def test_cli_guide_refuses_an_unknown_topic_or_rule() -> None:
+    # Validated on dispatch (not argparse choices), so the rule registry stays
+    # off the common CLI path — and the refusal names both discovery commands.
+    with pytest.raises(SystemExit, match=r"unknown topic or rule 'made_up'") as excinfo:
+        main(["guide", "made_up"])
+    assert "terp guide rules" in str(excinfo.value)
 
 
 def test_cli_migrate_delegates_to_the_runner(

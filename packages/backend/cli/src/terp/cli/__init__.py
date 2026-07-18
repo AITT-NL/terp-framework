@@ -638,7 +638,12 @@ def _render_rule_guide(rule_name: str) -> str:
         rule.__name__.removeprefix("check_"): rule
         for rule in _ALL_RULES
     }
-    headline = _rule_headline(rules[rule_name]) if rule_name in rules else rule_name
+    checker = rules.get(rule_name)
+    explanation = (
+        _clean_doc(checker.__doc__.strip()).strip()
+        if checker is not None and checker.__doc__
+        else rule_name
+    )
     detail = _RULE_GUIDE_DETAILS.get(
         rule_name,
         "Apply the sanctioned construct in the related authoring pattern below at "
@@ -647,7 +652,7 @@ def _render_rule_guide(rule_name: str) -> str:
     )
     return (
         f"Rule: {rule_name}\n"
-        f"{headline}\n\n"
+        f"{explanation}\n\n"
         f"{detail.rstrip()}\n\n"
         f"Related authoring pattern ({topic})\n\n"
         f"{guide(topic)}"
@@ -1184,9 +1189,9 @@ def _build_parser() -> argparse.ArgumentParser:
     guide_parser.add_argument(
         "topic",
         nargs="?",
-        choices=guide_choices(),
         default=None,
-        help="Optional topic or exact architecture rule for a focused recipe",
+        help="Optional topic or exact architecture rule for a focused recipe "
+        "(validated on dispatch, so the rule registry stays off the common CLI path)",
     )
 
     migrate_parser = subcommands.add_parser(
@@ -1475,6 +1480,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(inspect_schema(app_root=args.app_root, package=args.package, fmt=args.format))
         return
     if args.command == "guide":
+        if args.topic is not None and args.topic not in guide_choices():
+            raise SystemExit(
+                f"terp guide: unknown topic or rule {args.topic!r}; run `terp guide` "
+                "for the topic list or `terp guide rules` for every rule name"
+            )
         print(guide(args.topic))
         return
     if args.command == "migrate":
