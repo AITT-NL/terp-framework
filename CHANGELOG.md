@@ -21,6 +21,12 @@ production deployment profile (multi-stage wheel images + hardened compose profi
 
 Late additions on the unreleased line:
 
+- **Background jobs preserve row ownership.** The ownership architecture rule
+  now rejects a job-bearing app module whose declared CRUD service model omits
+  `OwnedMixin`, and `create_app` refuses the same shape at composition. A system
+  actor remains an audit identity, not blanket cross-owner maintenance authority;
+  such workflows stop for a reviewed maintenance capability instead of deleting
+  the owner gate.
 - **Centralized first-run frontend design system.** `@terp/react-core` now owns
   stable control typography and intrinsic button sizing, icon-only themed
   preference menus, body-portaled/clamped overlays, normalized number inputs,

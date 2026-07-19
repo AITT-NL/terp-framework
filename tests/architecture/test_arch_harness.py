@@ -1391,6 +1391,48 @@ def test_no_manual_ownership_checks(tmp_path: pathlib.Path) -> None:
     assert check_no_manual_ownership_checks(app) == []
 
 
+def test_background_job_cannot_trade_away_owned_rows(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/models.py",
+        "class Note(BaseTable, ActorStampedMixin, table=True):\n"
+        "    title: str = Field(max_length=200)\n",
+    )
+    _write(
+        app,
+        "modules/notes/service.py",
+        "class NoteService(BaseService[Note, NoteCreate, NoteUpdate]):\n"
+        "    model = Note\n",
+    )
+    _write(
+        app,
+        "modules/notes/module.py",
+        "module = ModuleSpec(name='notes', services=(NoteService,), jobs=[PURGE])\n",
+    )
+
+    violations = check_no_manual_ownership_checks(app)
+    assert _rule_names(violations) == {"no_manual_ownership_checks"}
+    assert "maintenance-authority" in violations[0].message
+
+    _write(
+        app,
+        "modules/notes/module.py",
+        "module = ModuleSpec(name='notes', jobs=[PURGE])\n",
+    )
+    assert _rule_names(check_no_manual_ownership_checks(app)) == {
+        "no_manual_ownership_checks"
+    }
+
+    _write(
+        app,
+        "modules/notes/models.py",
+        "class Note(BaseTable, OwnedMixin, table=True):\n"
+        "    title: str = Field(max_length=200)\n",
+    )
+    assert check_no_manual_ownership_checks(app) == []
+
+
 def test_no_raw_file_references(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     # A bare uuid file pointer on a table model is an undeclared reference: nothing ties

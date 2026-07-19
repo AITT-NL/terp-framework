@@ -37,6 +37,7 @@ from terp.core.audit import (
     configure_audit,
     is_durable_audit_sink,
 )
+from terp.core.base_models import OwnedMixin
 from terp.core.config import get_settings
 from terp.core.control_plane import ControlPlane
 from terp.core.db import get_session
@@ -574,6 +575,32 @@ def _validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
             )
 
 
+def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) -> None:
+    """Refuse a module job that can mutate an unowned CRUD model.
+
+    Background work can run without an originating user and then uses the control-plane
+    system actor. That actor is deliberately not an ownership bypass: cross-owner
+    maintenance needs a reviewed capability. Keeping this check at composition makes
+    the ownership choice structural; an app module cannot make a purge "work" by
+    dropping ``OwnedMixin`` from the model its declared service binds.
+    """
+    for spec in specs:
+        if not spec.jobs:
+            continue
+        for service in spec.services:
+            model = getattr(service, "model", None)
+            if not isinstance(model, type) or issubclass(model, OwnedMixin):
+                continue
+            raise BootError(
+                f"module {spec.name!r} declares background jobs and service "
+                f"{service.__name__!r} binds unowned model {model.__name__!r}; "
+                "scheduled work runs as the system actor, which is not an ownership "
+                "bypass. Compose OwnedMixin for user-owned rows and stop for a "
+                "reviewed maintenance-authority capability instead of dropping the "
+                "owner gate (backend/no_manual_ownership_checks)."
+            )
+
+
 def _validate_shared_throttle_store(
     throttle_store: ThrottleStore | None, require_shared_throttle_store: bool
 ) -> None:
@@ -1071,6 +1098,7 @@ def create_app(
     _validate_token_revocation(principal_provider, require_token_revocation)
     _validate_policy_write_tiers(collected)
     _validate_public_modules_read_only(collected)
+    _validate_background_jobs_preserve_ownership(collected)
     _validate_shared_throttle_store(throttle_store, require_shared_throttle_store)
     _validate_durable_jobs(job_queue, require_durable_jobs)
     _validate_shared_cache_store(cache_store, require_shared_cache_store)

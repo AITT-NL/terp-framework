@@ -17,6 +17,7 @@ from terp.arch.rules._support import (
     _MANAGED_OWNERSHIP_COLUMNS,
     _MANAGED_SCOPE_COLUMNS,
     _is_table_model_class,
+    _module_under,
     _rel,
     _service_model,
 )
@@ -137,7 +138,7 @@ def check_no_manual_actor_stamping(
 def check_no_manual_ownership_checks(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
-    """Modules never gate a row write on the framework-managed ``owner_id`` by hand.
+    """Modules keep ownership structural and never gate ``owner_id`` by hand.
 
     Object-level authorization is applied **centrally**: ``BaseService`` stamps
     ``owner_id`` from the request actor on create and authorizes every update / delete
@@ -153,10 +154,47 @@ def check_no_manual_ownership_checks(
     / compare) is policed.
     """
     root = pathlib.Path(app_root)
+    trees = {path: parse(path) for path in iter_python_files(root)}
     violations: list[ArchViolation] = []
-    for path in iter_python_files(root):
-        tree = parse(path)
+
+    owned_models: set[tuple[str, str]] = set()
+    service_models: dict[tuple[str, str], tuple[str, str, int]] = {}
+    for path, tree in trees.items():
+        module_name = _module_under(path, package)
+        if module_name is None:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            bases = {base_name(base) for base in node.bases}
+            if "OwnedMixin" in bases:
+                owned_models.add((module_name, node.name))
+            model = _service_model(node)
+            if model is not None:
+                service_models[(module_name, node.name)] = (
+                    model,
+                    _rel(path, root),
+                    node.lineno,
+                )
+
+    job_modules: set[str] = set()
+    for path, tree in trees.items():
+        module_name = _module_under(path, package)
+        if module_name is None:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or base_name(node.func) != "ModuleSpec":
+                continue
+            jobs = next(
+                (keyword.value for keyword in node.keywords if keyword.arg == "jobs"),
+                None,
+            )
+            if isinstance(jobs, ast.List | ast.Tuple) and jobs.elts:
+                job_modules.add(module_name)
+
+    for path, tree in trees.items():
         rel = _rel(path, root)
+        module_name = _module_under(path, package)
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr in _MANAGED_OWNERSHIP_COLUMNS:
                 violations.append(
@@ -171,6 +209,22 @@ def check_no_manual_ownership_checks(
                         "object-authz predicate for a richer policy",
                     )
                 )
+    for (module_name, service_name), (model_name, rel, line) in service_models.items():
+        if module_name not in job_modules or (module_name, model_name) in owned_models:
+            continue
+        violations.append(
+            ArchViolation(
+                "no_manual_ownership_checks",
+                rel,
+                line,
+                f"module declares background jobs while service "
+                f"{service_name!r} binds model {model_name!r} without "
+                "OwnedMixin; a system actor is not an ownership bypass. "
+                "Compose OwnedMixin for user-owned rows and stop for a "
+                "reviewed maintenance-authority capability instead of "
+                "dropping the owner gate",
+            )
+        )
     return violations
 
 

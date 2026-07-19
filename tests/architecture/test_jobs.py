@@ -38,8 +38,11 @@ from terp.core import (
     JobQueue,
     JobVisibility,
     ModuleSpec,
+    OwnedMixin,
     Policy,
     RetryPolicy,
+    ScheduleCatalog,
+    ScheduleDefinition,
     create_app,
     enqueue,
     is_durable_job_queue,
@@ -89,6 +92,11 @@ class _JobTenantDoc(BaseTable, ActorStampedMixin, _JobTenantMixin, table=True):
     label: str = Field(max_length=50)
 
 
+class _OwnedJobDoc(BaseTable, OwnedMixin, table=True):
+    __tablename__ = "_owned_job_doc"
+    label: str = Field(max_length=50)
+
+
 class _DocCreate(BaseSchema):
     label: str = Field(max_length=50)
 
@@ -107,6 +115,10 @@ class _DocService(BaseService[_JobDoc, _DocCreate, _DocUpdate]):
 
 class _TenantDocService(BaseService[_JobTenantDoc, _DocCreate, _DocUpdate]):
     model = _JobTenantDoc
+
+
+class _OwnedDocService(BaseService[_OwnedJobDoc, _DocCreate, _DocUpdate]):
+    model = _OwnedJobDoc
 
 
 def _tenant_predicate(model: type[SQLModel], query):  # type: ignore[no-untyped-def]
@@ -540,6 +552,31 @@ def test_create_app_wires_the_catalog_and_system_actor() -> None:
     assert active_job_catalog().names() == ("docs.create",)
     assert active_job_queue() is queue
     assert active_job_system_actor() == system
+
+
+def test_create_app_refuses_background_job_that_drops_row_ownership() -> None:
+    job = _doc_job()
+    schedule = ScheduleDefinition(name="docs.nightly", job=job, cron="0 3 * * *")
+    plane = ControlPlane(
+        jobs=JobCatalog([job]), schedules=ScheduleCatalog([schedule])
+    )
+    unsafe = ModuleSpec(
+        name="docs",
+        policy=Policy.default(),
+        jobs=(job,),
+        services=(_DocService,),
+    )
+
+    with pytest.raises(BootError, match="maintenance-authority"):
+        create_app([unsafe], control_plane=plane)
+
+    safe = ModuleSpec(
+        name="docs",
+        policy=Policy.default(),
+        jobs=(job,),
+        services=(_OwnedDocService,),
+    )
+    create_app([safe], control_plane=plane)
 
 
 def test_create_app_requires_a_durable_queue_when_asked() -> None:
