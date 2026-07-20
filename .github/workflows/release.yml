@@ -141,3 +141,25 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/terp-example-frontend:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/terp-example-frontend:latest
+
+  # A version tag is a release someone can find: the PyPI/npm/GHCR publishes
+  # above plus a GitHub Release entry with generated notes (commits since the
+  # previous tag) and the conformance scorecards attached as evidence.
+  github-release:
+    needs: [publish-pypi, publish-npm, publish-images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: conformance-scorecards
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Terp $GITHUB_REF_NAME" \
+            --generate-notes --verify-tag \
+            scorecard-*.json
