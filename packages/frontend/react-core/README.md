@@ -36,7 +36,7 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
 
 | Export | Use |
 |---|---|
-| `renderTerpApp`, `collectModules`, `withAdminArea` | One-call app bootstrap: glob-import `modules/*/module.tsx`, merge the packaged admin area (opt out with `adminArea: false`; an app route claiming an admin path overrides that screen), build the router, mount provider + auth gate + shell. Options include `logo` (sidebar brand) and `footer`. |
+| `renderTerpApp`, `collectModules`, `withAdminArea` | One-call app bootstrap: glob-import `modules/*/module.tsx`, merge the packaged admin area (opt out with `adminArea: false`, or select sections with `adminArea: { users, groups, audit }`; an app route claiming an admin path overrides that screen), build the router, mount provider + auth gate + shell. Options include `logo` (sidebar brand) and `footer`. |
 | `TerpProvider`, `useAuth`, `useTerpClient` | The context root: session state + the typed API client. Drop to this + `buildAppRouter` when you need full control. |
 | `buildAppRouter`, `DEFAULT_ROLE_RANKS`, `PROFILE_PATH` | TanStack Router adapter: realises stack-agnostic module manifests (routes + nav + roles) into a real router; throws at build time on a route referencing a missing view. Mounts the built-in `ProfileView` at `/profile` unless an app manifest claims that path. |
 | `createAuthClient` | The auth/session contract implementation (login / refresh / currentUser) over the generated client. |
@@ -157,7 +157,10 @@ access grants, audit); react-core ships the UI over them, so every app has a
 working admin area on day one. `renderTerpApp` injects it by default: one
 admin-gated **Admin** sidebar entry opens the `/admin` hub, whose cards lead to
 the overviews; each overview breadcrumbs back to the hub (hub → overview →
-detail, like every screen). Opt out with `adminArea: false`, or override a
+detail, like every screen). Opt out with `adminArea: false`; ship only the
+screens whose capabilities the app mounts with a sections object —
+`adminArea: { groups: false }` is the users + audit profile, first-class (a
+dropped section loses its routes, hub card and stat call) — or override a
 single screen by claiming its path from an app module.
 
 | Export | Use |

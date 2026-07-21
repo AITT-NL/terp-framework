@@ -8,6 +8,7 @@ import { LoginView } from "./LoginView";
 import type { DevCredentials } from "./LoginView";
 import { RequireAuth } from "./RequireAuth";
 import { TerpProvider } from "./TerpProvider";
+import { AdminHub } from "./admin/AdminHub";
 import { adminModule } from "./admin/module";
 import { LocaleProvider } from "./locale";
 import type { LocaleCatalog } from "./locale";
@@ -21,6 +22,39 @@ import { ToastProvider } from "./toast";
 export interface TerpModule {
   manifest: ModuleManifest;
   views: Record<string, ComponentType>;
+}
+
+/**
+ * Which packaged admin screens to ship — one flag per backend capability the area
+ * fronts. Omitted flags default to `true`, so `{ groups: false }` is the whole
+ * "users + audit without groups" configuration: the groups routes, hub card and
+ * stat call disappear while the rest of the area stays packaged.
+ */
+export interface AdminAreaSections {
+  /** The users overview / create / detail screens (terp-cap-users). */
+  users?: boolean;
+  /** The groups overview / create / detail screens (terp-cap-groups). */
+  groups?: boolean;
+  /** The audit-log overview (terp-cap-audit). */
+  audit?: boolean;
+}
+
+/** Route-path prefix per admin section, used to filter the packaged manifest. */
+const ADMIN_SECTION_PREFIXES: Record<keyof AdminAreaSections, string> = {
+  users: "/admin/users",
+  groups: "/admin/groups",
+  audit: "/admin/audit",
+};
+
+function resolveAdminSections(
+  config: boolean | AdminAreaSections,
+): Required<AdminAreaSections> {
+  const sections = typeof config === "boolean" ? {} : config;
+  return {
+    users: sections.users !== false,
+    groups: sections.groups !== false,
+    audit: sections.audit !== false,
+  };
 }
 
 function isTerpModule(value: unknown): value is TerpModule {
@@ -70,8 +104,11 @@ export interface RenderTerpAppOptions {
    * `/admin` hub, and the users / groups / audit screens over the base-profile
    * capabilities. An app route claiming one of its paths overrides that screen;
    * `false` drops the whole area (e.g. an app building its own admin surface).
+   * A partial {@link AdminAreaSections} object keeps the area but selects which
+   * capability screens it ships — e.g. `{ groups: false }` for a users + audit
+   * profile without groups.
    */
-  adminArea?: boolean;
+  adminArea?: boolean | AdminAreaSections;
   /** Backend API origin; default "" (same-origin, for a dev proxy). */
   baseUrl?: string;
   /** Signed-out screen; default the built-in {@link LoginView}. */
@@ -111,22 +148,29 @@ export interface RenderTerpAppOptions {
  * Merge the packaged admin area into collected modules (the `renderTerpApp` default).
  * Pure and collision-aware: per path the app wins — an app route claiming an admin
  * path drops that packaged screen (mirroring the built-in /profile rule) — and the
- * sidebar's Admin entry disappears with the hub. Disabled (`enabled: false`) it
- * returns the inputs untouched.
+ * sidebar's Admin entry disappears with the hub. Disabled (`false`) it returns the
+ * inputs untouched; an {@link AdminAreaSections} object keeps the area but ships
+ * only the selected capability screens (the hub renders one card per kept section).
  */
 export function withAdminArea(
   manifests: ModuleManifest[],
   views: Record<string, ComponentType>,
-  enabled: boolean,
+  config: boolean | AdminAreaSections,
 ): { manifests: ModuleManifest[]; views: Record<string, ComponentType> } {
-  if (!enabled) {
+  if (config === false) {
     return { manifests, views };
   }
+  const sections = resolveAdminSections(config);
+  const sectionAllows = (path: string): boolean =>
+    (Object.keys(ADMIN_SECTION_PREFIXES) as (keyof AdminAreaSections)[]).every(
+      (section) =>
+        sections[section] || !path.startsWith(ADMIN_SECTION_PREFIXES[section]),
+    );
   const claimed = new Set(
     manifests.flatMap((manifest) => manifest.routes.map((route) => route.path)),
   );
   const routes = adminModule.manifest.routes.filter(
-    (route) => !claimed.has(route.path),
+    (route) => !claimed.has(route.path) && sectionAllows(route.path),
   );
   // A view-id collision without a path claim would silently drop a packaged screen
   // the hub still links to — refuse it loudly (claim the path to override a screen,
@@ -146,7 +190,16 @@ export function withAdminArea(
     return { manifests, views };
   }
   const merged = { ...views };
+  const allSections = sections.users && sections.groups && sections.audit;
   for (const route of routes) {
+    if (route.view === "TerpAdminHub" && !allSections) {
+      // The hub mirrors the selection: one card per kept section (and no stat
+      // call for a dropped one), so a lean profile never dead-links.
+      merged[route.view] = function TerpAdminHubSelected() {
+        return <AdminHub sections={sections} />;
+      };
+      continue;
+    }
     merged[route.view] = adminModule.views[route.view]!;
   }
   return {
@@ -174,7 +227,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
   const { manifests, views } = withAdminArea(
     collected.manifests,
     collected.views,
-    options.adminArea !== false,
+    options.adminArea ?? true,
   );
   const router = buildAppRouter(manifests, {
     views,

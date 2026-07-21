@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import tomllib
 
 import pytest
 
@@ -46,9 +47,18 @@ def _pyproject_name(path: pathlib.Path) -> str:
 
 
 def _pyproject_dependencies(path: pathlib.Path) -> list[str]:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    project = data["project"]
+    dependencies = list(project.get("dependencies", ()))
+    for extra_dependencies in project.get("optional-dependencies", {}).values():
+        dependencies.extend(extra_dependencies)
+    return dependencies
+
+
+def _template_dependencies(path: pathlib.Path) -> list[str]:
+    """Read quoted requirements from the Jinja template, which is not valid TOML."""
     text = path.read_text(encoding="utf-8")
-    matches = re.findall(r"^(?:dependencies|dev) = \[(.*?)^\]", text, re.MULTILINE | re.DOTALL)
-    return [dependency for match in matches for dependency in re.findall(r'"([^"]+)"', match)]
+    return re.findall(r'^\s*"([^"]+)"', text, re.MULTILINE)
 
 
 _BACKEND_INTERNAL = {_pyproject_name(path) for path in _BACKEND_PYPROJECTS}
@@ -76,7 +86,7 @@ def test_backend_internal_dependencies_are_lockstep_pinned(path: pathlib.Path) -
 
 
 def test_template_backend_dependencies_are_lockstep_pinned() -> None:
-    for dependency in _pyproject_dependencies(_TEMPLATE_PYPROJECT):
+    for dependency in _template_dependencies(_TEMPLATE_PYPROJECT):
         name = re.split(r"[<>=!~;\\[]", dependency, maxsplit=1)[0]
         if name in _BACKEND_INTERNAL:
             assert dependency == f"{name}=={_RELEASE_VERSION}"

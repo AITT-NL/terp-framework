@@ -7,6 +7,7 @@ import type { ModuleManifest } from "@terp/contract";
 import type { ComponentType } from "react";
 
 import { withAdminArea } from "../bootstrap";
+import type { AdminAreaSections } from "../bootstrap";
 import { buildAppRouter } from "../router";
 import { Page } from "../Page";
 import { TerpProvider, useAuth } from "../TerpProvider";
@@ -84,6 +85,36 @@ describe("withAdminArea", () => {
     const admin = merged.manifests.find((manifest) => manifest.name === "terp-admin");
     expect(admin?.nav).toEqual([]);
     expect(admin?.routes.map((route) => route.path)).toContain("/admin/users");
+  });
+
+  it("ships a capability-selective area from a sections object", () => {
+    const { manifests, views } = withAdminArea(appManifests(), appViews(), {
+      groups: false,
+    });
+    const admin = manifests.find((manifest) => manifest.name === "terp-admin");
+    const paths = admin?.routes.map((route) => route.path) ?? [];
+    expect(paths).toContain("/admin");
+    expect(paths).toContain("/admin/users");
+    expect(paths).toContain("/admin/audit");
+    expect(paths.some((path) => path.startsWith("/admin/groups"))).toBe(false);
+    expect(views.TerpAdminGroups).toBeUndefined();
+    expect(views.TerpAdminGroupCreate).toBeUndefined();
+    expect(views.TerpAdminHub).toBeDefined();
+    // Omitted flags default to true: an empty object is the full area.
+    const full = withAdminArea(appManifests(), appViews(), {});
+    const fullAdmin = full.manifests.find((manifest) => manifest.name === "terp-admin");
+    expect(fullAdmin?.routes).toHaveLength(8);
+    expect(full.views.TerpAdminHub).toBe(withAdminArea(appManifests(), appViews(), true).views.TerpAdminHub);
+  });
+
+  it("keeps the Admin nav and hub when only some sections are dropped", () => {
+    const { manifests } = withAdminArea(appManifests(), appViews(), {
+      users: false,
+      groups: false,
+    });
+    const admin = manifests.find((manifest) => manifest.name === "terp-admin");
+    expect(admin?.nav?.[0]?.label).toBe("Admin");
+    expect(admin?.routes.map((route) => route.path)).toEqual(["/admin", "/admin/audit"]);
   });
 
   it("refuses a view-id collision that claims no path (a silent drop would dead-link the hub)", () => {
@@ -290,14 +321,18 @@ function stubAdminFetch() {
   return fetchMock;
 }
 
-function renderAdminApp(initialPath: string, roleRank = 30) {
+function renderAdminApp(
+  initialPath: string,
+  roleRank = 30,
+  adminArea: boolean | AdminAreaSections = true,
+) {
   const manifests: ModuleManifest[] = [
     { name: "notes", routes: [{ path: "/", view: "NotesList" }], nav: [] },
   ];
   const views: Record<string, ComponentType> = {
     NotesList: () => <Page title="Notes">notes</Page>,
   };
-  const merged = withAdminArea(manifests, views, true);
+  const merged = withAdminArea(manifests, views, adminArea);
   const router = buildAppRouter(merged.manifests, {
     views: merged.views,
     title: "Terp",
@@ -343,6 +378,21 @@ describe("the packaged admin area", () => {
     expect(screen.getByText("3")).toBeInTheDocument();
     // The sidebar carries the single admin-gated entry.
     expect(screen.getByRole("link", { name: "Admin" })).toBeInTheDocument();
+  });
+
+  it("serves a capability-selective hub: dropped sections lose card, route and stat call", async () => {
+    const { fetchMock } = renderAdminApp("/admin", 30, { groups: false });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: "Admin" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("link", { name: /Users/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Audit log/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Groups/ })).not.toBeInTheDocument();
+    // The users stat still arrives; the groups endpoint is never probed (its
+    // capability may not be mounted at all).
+    await waitFor(() => expect(screen.getByText("7")).toBeInTheDocument());
+    const probed = fetchMock.mock.calls.map((call) => (call[0] as Request).url);
+    expect(probed.some((url) => url.includes("/api/v1/groups/"))).toBe(false);
   });
 
   it("uses the users overview action and clickable rows for dedicated pages", async () => {

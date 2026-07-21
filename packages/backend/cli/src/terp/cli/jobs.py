@@ -135,7 +135,9 @@ def run_worker_command(
     runner and events through the in-process handlers, and retries / dead-letters per each
     job's :class:`~terp.core.RetryPolicy`. ``SKIP LOCKED`` is enabled automatically on
     PostgreSQL; on SQLite the portable atomic-UPDATE lease is used. Requires the
-    ``terp-cap-outbox`` capability.
+    ``terp-cap-outbox`` capability (an app wiring the durable queue already depends on
+    it; a standalone worker image installs ``terp-cli[worker]`` or the combined
+    ``terp-cli[jobs]`` extra).
     """
     root = str(pathlib.Path(app_root).resolve())
     if root not in sys.path:
@@ -144,7 +146,15 @@ def run_worker_command(
 
     from sqlmodel import Session
 
-    from terp.capabilities.outbox import OutboxWorker
+    try:
+        from terp.capabilities.outbox import OutboxWorker
+    except ImportError as exc:
+        raise SystemExit(
+            "terp jobs worker requires the terp-cap-outbox capability, which is not "
+            "installed. Add terp-cap-outbox to the app's dependencies (wiring the "
+            "durable OutboxJobQueue already requires it) or install `terp-cli[worker]` "
+            "(or `terp-cli[jobs]` for worker + scheduler support)."
+        ) from exc
     from terp.core._internal.engine import get_engine
 
     engine = get_engine()
@@ -168,10 +178,19 @@ def _default_scheduler() -> object:
     ``start`` blocks the main thread), driving each schedule's tick through the jobs seam.
     Requires the ``terp-cap-scheduler-apscheduler`` capability.
     """
-    from apscheduler.schedulers.blocking import BlockingScheduler
     from sqlmodel import Session
 
-    from terp.capabilities.scheduler_apscheduler import ApschedulerScheduler
+    try:
+        from apscheduler.schedulers.blocking import BlockingScheduler
+
+        from terp.capabilities.scheduler_apscheduler import ApschedulerScheduler
+    except ImportError as exc:
+        raise SystemExit(
+            "terp jobs scheduler requires the terp-cap-scheduler-apscheduler "
+            "capability, which is not installed. Add terp-cap-scheduler-apscheduler "
+            "to the app's dependencies, install `terp-cli[scheduler]` (or the combined "
+            "`terp-cli[jobs]` extra), or run schedules with Celery beat."
+        ) from exc
     from terp.core._internal.engine import get_engine
 
     engine = get_engine()

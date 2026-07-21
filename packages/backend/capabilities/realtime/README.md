@@ -44,7 +44,9 @@ The self-registering `ModuleSpec` mounts:
 The bearer token stays server-side; it never appears in the URL. Configure
 `principal_validator` to recheck expiry/revocation during long-lived connections.
 Single-process apps use bounded in-memory broker/ticket stores. Multi-replica
-apps wire a shared broker and `RedisConnectionTicketStore` (atomic GET+DEL).
+apps wire a shared broker and `RedisConnectionTicketStore` (atomic GET+DEL),
+shipped behind the `terp-cap-redis[realtime]` extra
+(`terp.capabilities.redis.realtime`).
 
 ## Frontend
 

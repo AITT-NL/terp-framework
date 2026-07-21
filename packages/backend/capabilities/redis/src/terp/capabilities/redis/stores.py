@@ -1,4 +1,4 @@
-"""Redis implementations of Terp's shared store ports.
+"""Redis implementations of Terp's kernel store ports (idempotency, throttle, cache).
 
 The three ports have deliberately narrow contracts, so the adapter keeps Redis usage narrow
 as well: one namespaced key per logical entry, explicit TTLs on every value, and Lua only
@@ -10,6 +10,7 @@ single-process defaults.
 from __future__ import annotations
 
 import base64
+import importlib
 import json
 import uuid
 from dataclasses import dataclass
@@ -25,8 +26,6 @@ from terp.core import (
     mark_shared_idempotency_store,
     mark_shared_throttle_store,
 )
-from terp.capabilities.realtime import ConnectionTicket, ConnectionTicketStore
-from terp.core import Principal, Role
 
 _BEGIN_SCRIPT = """
 local fingerprint = redis.call('HGET', KEYS[1], 'fingerprint')
@@ -83,16 +82,6 @@ if ttl < 0 then
 end
 return {count, ttl}
 """
-
-_CONSUME_TICKET_SCRIPT = """
-local value = redis.call('GET', KEYS[1])
-if not value then
-    return nil
-end
-redis.call('DEL', KEYS[1])
-return value
-"""
-
 
 def _client_from_url(url: str) -> Any:
     """Construct a redis-py client lazily so importing the adapter stays lightweight."""
@@ -263,76 +252,22 @@ class RedisCacheStore(CacheStore):
         return f"{self._prefix}{key}"
 
 
-class RedisConnectionTicketStore(ConnectionTicketStore):
-    """Shared one-use realtime tickets with atomic GET+DEL consumption."""
-
-    def __init__(self, client: Any, *, namespace: str = "terp") -> None:
-        self._client = client
-        self._prefix = f"{namespace}:realtime-ticket:"
-
-    @classmethod
-    def from_url(
-        cls, url: str, *, namespace: str = "terp"
-    ) -> RedisConnectionTicketStore:
-        return cls(_client_from_url(url), namespace=namespace)
-
-    def issue(self, ticket: ConnectionTicket, *, ttl_seconds: int) -> str:
-        if ttl_seconds <= 0:
-            raise ValueError(
-                "RedisConnectionTicketStore.issue requires a positive ttl_seconds"
-            )
-        token = uuid.uuid4().hex + uuid.uuid4().hex
-        value = json.dumps(
-            {
-                "principal_id": str(ticket.principal.id),
-                "role_name": ticket.principal.role.name,
-                "role_rank": ticket.principal.role.rank,
-                "channel": ticket.channel,
-                "transport": ticket.transport,
-                "credential": ticket.credential,
-                "audience": ticket.audience,
-            },
-            separators=(",", ":"),
-        )
-        self._client.set(self._key(token), value, ex=int(ttl_seconds))
-        return token
-
-    def consume(
-        self, token: str, *, channel: str, transport: str
-    ) -> ConnectionTicket | None:
-        raw = self._client.eval(_CONSUME_TICKET_SCRIPT, 1, self._key(token))
-        if raw is None:
-            return None
-        payload = json.loads(_text(raw))
-        if payload["channel"] != channel or payload["transport"] != transport:
-            return None
-        return ConnectionTicket(
-            principal=Principal(
-                id=uuid.UUID(payload["principal_id"]),
-                role=Role(payload["role_name"], int(payload["role_rank"])),
-            ),
-            channel=payload["channel"],
-            transport=payload["transport"],
-            credential=payload.get("credential", ""),
-            audience=payload.get("audience", ""),
-        )
-
-    def _key(self, token: str) -> str:
-        return f"{self._prefix}{token}"
-
-
 @dataclass(frozen=True)
 class RedisStoreBundle:
     """Convenience holder for Redis-backed platform store adapters.
 
     Use this when one Redis deployment backs all three Terp store seams. Separate classes
     remain available for deployments that split cache and control-state Redis clusters.
+    Capability-facing adapters (realtime connection tickets, OIDC authorization state)
+    live in their own submodules behind optional extras. For compatibility, the bundle
+    includes ``realtime_tickets`` when the ``realtime`` extra is installed; it is ``None``
+    in a base-only installation.
     """
 
     idempotency: RedisIdempotencyStore
     throttle: RedisThrottleStore
     cache: RedisCacheStore
-    realtime_tickets: RedisConnectionTicketStore
+    realtime_tickets: Any | None = None
 
     @classmethod
     def from_client(cls, client: Any, *, namespace: str = "terp") -> RedisStoreBundle:
@@ -341,7 +276,7 @@ class RedisStoreBundle:
             idempotency=RedisIdempotencyStore(client, namespace=namespace),
             throttle=RedisThrottleStore(client, namespace=namespace),
             cache=RedisCacheStore(client, namespace=namespace),
-            realtime_tickets=RedisConnectionTicketStore(client, namespace=namespace),
+            realtime_tickets=_optional_realtime_store(client, namespace=namespace),
         )
 
     @classmethod
@@ -350,9 +285,36 @@ class RedisStoreBundle:
         return cls.from_client(_client_from_url(url), namespace=namespace)
 
 
+def _optional_realtime_store(client: Any, *, namespace: str) -> Any | None:
+    """Build the compatibility bundle member only when the realtime extra is installed."""
+    try:
+        module = importlib.import_module("terp.capabilities.redis.realtime")
+    except ModuleNotFoundError as exc:
+        if exc.name == "terp.capabilities.realtime":
+            return None
+        raise
+    return module.RedisConnectionTicketStore(client, namespace=namespace)
+
+
+def __getattr__(name: str) -> Any:
+    """Preserve the former direct import path when the realtime extra is installed."""
+    if name != "RedisConnectionTicketStore":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    try:
+        module = importlib.import_module("terp.capabilities.redis.realtime")
+    except ModuleNotFoundError as exc:
+        if exc.name != "terp.capabilities.realtime":
+            raise
+        raise ModuleNotFoundError(
+            "RedisConnectionTicketStore requires the optional `realtime` adapter; "
+            "install `terp-cap-redis[realtime]` (or `terp-cap-redis[all]`).",
+            name="terp.capabilities.realtime",
+        ) from exc
+    return module.RedisConnectionTicketStore
+
+
 __all__ = [
     "RedisCacheStore",
-    "RedisConnectionTicketStore",
     "RedisIdempotencyStore",
     "RedisStoreBundle",
     "RedisThrottleStore",

@@ -10,8 +10,18 @@ requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
     "terp-core==0.1.0",
-    "terp-cap-realtime==0.1.0",
     "redis>=5",
+]
+
+# Capability-facing adapters are OPT-IN extras, so the base distribution never installs
+# another capability: shared throttling/idempotency/cache must not drag in a
+# self-registering transport (realtime) or an SSO stack (oidc).
+[project.optional-dependencies]
+realtime = ["terp-cap-realtime==0.1.0"]
+oidc = ["terp-cap-oidc==0.1.0"]
+all = [
+    "terp-cap-realtime==0.1.0",
+    "terp-cap-oidc==0.1.0",
 ]
 
 # A LIBRARY (store-adapter) capability: it provides Redis-backed implementations of

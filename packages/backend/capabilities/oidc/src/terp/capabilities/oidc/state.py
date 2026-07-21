@@ -7,7 +7,9 @@ single-use (a replayed state finds nothing) and expiring (an abandoned flow ages
 out), so a captured callback URL cannot be replayed and the store cannot grow
 without bound. In-memory and per-process by default — an authorization flow is
 short-lived, so per-instance state suffices behind a sticky or single-API setup; a
-multi-instance deployment can swap in a shared implementation of the same shape.
+multi-instance deployment swaps in a shared :class:`OIDCStateStore` implementation
+(e.g. ``terp.capabilities.redis.oidc.RedisOIDCStateStore``) so any replica can
+finish a flow another replica opened.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import secrets
 from threading import Lock
 from base64 import urlsafe_b64encode
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 DEFAULT_STATE_TTL = datetime.timedelta(minutes=10)
 
@@ -46,6 +49,27 @@ def code_challenge_s256(verifier: str) -> str:
     """The S256 code challenge for *verifier* (RFC 7636 §4.2): base64url(sha256), unpadded."""
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     return urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+@runtime_checkable
+class OIDCStateStore(Protocol):
+    """The single-use authorization-state port every state store implements.
+
+    The router only ever calls these two methods, so a deployment picks its scope by
+    implementation: the default :class:`InMemoryStateStore` is per-process (one API
+    replica or sticky routing); a shared implementation (e.g. the Redis-backed store in
+    ``terp-cap-redis[oidc]``) lets any replica finish a flow another replica opened.
+    Every implementation must keep ``consume`` strictly single-use, expiring, and
+    provider-matched.
+    """
+
+    def issue(self, provider: str) -> tuple[str, PendingAuthorization]:
+        """Open a new flow for *provider*: returns ``(state, pending)``."""
+        ...
+
+    def consume(self, state: str, provider: str) -> PendingAuthorization | None:
+        """Redeem *state* exactly once, or ``None`` (unknown / expired / wrong provider)."""
+        ...
 
 
 class InMemoryStateStore:
@@ -94,6 +118,7 @@ class InMemoryStateStore:
 __all__ = [
     "DEFAULT_STATE_TTL",
     "InMemoryStateStore",
+    "OIDCStateStore",
     "PendingAuthorization",
     "code_challenge_s256",
     "generate_code_verifier",

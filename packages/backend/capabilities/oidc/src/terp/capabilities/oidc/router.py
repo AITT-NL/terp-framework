@@ -53,7 +53,11 @@ from terp.capabilities.auth import (
 from terp.capabilities.oidc.client import OIDCClient
 from terp.capabilities.oidc.config import OIDCClaims, OIDCProviderConfig
 from terp.capabilities.oidc.schemas import AuthorizationRequest, OIDCCallbackRequest
-from terp.capabilities.oidc.state import InMemoryStateStore, code_challenge_s256
+from terp.capabilities.oidc.state import (
+    InMemoryStateStore,
+    OIDCStateStore,
+    code_challenge_s256,
+)
 
 # The one identity seam (the ``authenticate`` analog): validated claims in, a
 # principal (or a refusal) out. App-wired so OIDC never imports where users live.
@@ -81,7 +85,7 @@ def build_oidc_router(
     token_version_resolver: TokenVersionResolver | None = None,
     refresh_issuer: RefreshIssuer | None = None,
     throttle: LoginThrottle | None = None,
-    state_store: InMemoryStateStore | None = None,
+    state_store: OIDCStateStore | None = None,
     secret_resolver: SecretResolver | None = None,
     http_factory: Callable[[], httpx.Client] | None = None,
 ) -> APIRouter:
@@ -198,7 +202,7 @@ def build_oidc_module(
     token_version_resolver: TokenVersionResolver | None = None,
     refresh_issuer: RefreshIssuer | None = None,
     throttle: LoginThrottle | None = None,
-    state_store: InMemoryStateStore | None = None,
+    state_store: OIDCStateStore | None = None,
     secret_resolver: SecretResolver | None = None,
     http_factory: Callable[[], httpx.Client] | None = None,
 ) -> ModuleSpec:

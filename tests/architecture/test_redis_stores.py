@@ -1,4 +1,4 @@
-"""Redis store adapters: shared idempotency, throttling, and cache semantics.
+"""Redis store adapters: shared idempotency, throttling, cache, and extra-gated stores.
 
 The suite drives the adapters over a tiny in-repo Redis double instead of a live server, but
 keeps the adapter's public surface intact: the idempotency and throttle paths still go
@@ -8,19 +8,28 @@ shared-store boot markers are asserted through the public kernel predicates.
 
 from __future__ import annotations
 
+import datetime
+import importlib
+import pathlib
+import tomllib
 import uuid
 from collections.abc import Iterable
 from typing import Any
 
 import pytest
 
+# RedisConnectionTicketStore / RedisOIDCStateStore resolve through the package root's
+# lazy __getattr__ (they live behind the [realtime] / [oidc] extras) — importing them
+# here exercises that hook.
 from terp.capabilities.redis import (
     RedisCacheStore,
     RedisConnectionTicketStore,
     RedisIdempotencyStore,
+    RedisOIDCStateStore,
     RedisStoreBundle,
     RedisThrottleStore,
 )
+from terp.capabilities.oidc import OIDCStateStore
 from terp.capabilities.realtime import ConnectionTicket
 from terp.capabilities.redis import stores as redis_stores
 from terp.core import (
@@ -33,6 +42,7 @@ from terp.core import (
 )
 
 _RESPONSE = StoredResponse(status_code=201, headers=(("content-type", "application/json"),), body=b"{}")
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class _FakeRedis:
@@ -280,12 +290,136 @@ def test_redis_realtime_ticket_is_atomic_single_use_exact_match_and_ttl_bounded(
         store.issue(ticket, ttl_seconds=0)
 
 
+def test_redis_oidc_state_is_shared_single_use_provider_matched_and_ttl_bounded() -> None:
+    client = _FakeRedis(bytes_mode=False)
+    store = RedisOIDCStateStore(client)
+    assert isinstance(store, OIDCStateStore)
+
+    state, pending = store.issue("corp")
+    assert pending.provider == "corp"
+    # Another replica (a second adapter over the same Redis) finishes the flow.
+    other_replica = RedisOIDCStateStore(client)
+    assert other_replica.consume(state, "corp") == pending
+    assert store.consume(state, "corp") is None  # strictly single-use
+
+    state, _ = store.issue("corp")
+    assert store.consume(state, "other") is None  # cross-provider splice refused
+    assert store.consume(state, "corp") is None  # ...and the state is spent
+
+    short = RedisOIDCStateStore(client, ttl=datetime.timedelta(seconds=5))
+    state, _ = short.issue("corp")
+    client.now = 5
+    assert short.consume(state, "corp") is None  # expired server-side (Redis TTL)
+
+    assert RedisOIDCStateStore.from_url("redis://localhost/0")
+    with pytest.raises(ValueError, match="positive ttl"):
+        RedisOIDCStateStore(client, ttl=datetime.timedelta(seconds=0))
+
+
+def test_redis_oidc_state_refuses_a_stale_payload_defensively() -> None:
+    # The Redis TTL normally expires the key first; a payload that outlives it (e.g. a
+    # clock skewed backwards) is still refused by the recorded expires_at.
+    client = _FakeRedis(bytes_mode=False)
+    store = RedisOIDCStateStore(client)
+    state, pending = store.issue("corp")
+    raw = client.get(f"terp:oidc-state:{state}")
+    assert raw is not None
+    stale = str(raw).replace(
+        pending.expires_at.isoformat(),
+        (pending.expires_at - datetime.timedelta(minutes=30)).isoformat(),
+    )
+    client.set(f"terp:oidc-state:{state}", stale, ex=600)
+    assert store.consume(state, "corp") is None
+
+
+def test_package_root_lazily_resolves_extra_exports_and_refuses_unknown_names() -> None:
+    import terp.capabilities.redis as redis_pkg
+
+    assert redis_pkg.RedisConnectionTicketStore is RedisConnectionTicketStore
+    assert redis_pkg.RedisOIDCStateStore is RedisOIDCStateStore
+    with pytest.raises(AttributeError, match="Nope"):
+        _ = redis_pkg.Nope
+
+
+def test_optional_exports_give_directive_errors_when_extra_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import terp.capabilities.redis as redis_pkg
+
+    real_import_module = importlib.import_module
+
+    def _missing_optional(name: str, package: str | None = None) -> Any:
+        if name == "terp.capabilities.redis.realtime":
+            raise ModuleNotFoundError(
+                "No module named 'terp.capabilities.realtime'",
+                name="terp.capabilities.realtime",
+            )
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", _missing_optional)
+    with pytest.raises(ModuleNotFoundError, match=r"terp-cap-redis\[realtime\]"):
+        _ = redis_pkg.RedisConnectionTicketStore
+    with pytest.raises(ModuleNotFoundError, match=r"terp-cap-redis\[realtime\]"):
+        _ = redis_stores.RedisConnectionTicketStore
+    bundle = RedisStoreBundle.from_client(_FakeRedis())
+    assert bundle.realtime_tickets is None
+
+
+def test_optional_exports_do_not_mask_broken_installed_adapters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import terp.capabilities.redis as redis_pkg
+
+    real_import_module = importlib.import_module
+
+    def _broken_adapter(name: str, package: str | None = None) -> Any:
+        if name == "terp.capabilities.redis.realtime":
+            raise ModuleNotFoundError("No module named 'adapter_dependency'", name="adapter_dependency")
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", _broken_adapter)
+    with pytest.raises(ModuleNotFoundError, match="adapter_dependency"):
+        _ = redis_pkg.RedisConnectionTicketStore
+    with pytest.raises(ModuleNotFoundError, match="adapter_dependency"):
+        _ = redis_stores.RedisConnectionTicketStore
+    with pytest.raises(ModuleNotFoundError, match="adapter_dependency"):
+        RedisStoreBundle.from_client(_FakeRedis())
+
+
+def test_redis_adapter_extras_are_selective_and_composable() -> None:
+    project = tomllib.loads(
+        (
+            _REPO_ROOT
+            / "packages"
+            / "backend"
+            / "capabilities"
+            / "redis"
+            / "pyproject.toml"
+        ).read_text(encoding="utf-8")
+    )["project"]
+    extras = project["optional-dependencies"]
+    realtime = "terp-cap-realtime==0.1.0"
+    oidc = "terp-cap-oidc==0.1.0"
+    assert extras["realtime"] == [realtime]
+    assert extras["oidc"] == [oidc]
+    assert set(extras["all"]) == {realtime, oidc}
+    assert realtime not in project["dependencies"]
+    assert oidc not in project["dependencies"]
+
+
 def test_public_module_exports_are_complete() -> None:
     exported: Iterable[str] = redis_stores.__all__
     assert set(exported) == {
         "RedisCacheStore",
-        "RedisConnectionTicketStore",
         "RedisIdempotencyStore",
         "RedisStoreBundle",
         "RedisThrottleStore",
     }
+    import terp.capabilities.redis as redis_pkg
+    from terp.capabilities.redis import oidc as redis_oidc
+    from terp.capabilities.redis import realtime as redis_realtime
+
+    assert set(redis_pkg.__all__) == set(exported)
+    assert redis_stores.RedisConnectionTicketStore is RedisConnectionTicketStore
+    assert redis_realtime.__all__ == ["RedisConnectionTicketStore"]
+    assert redis_oidc.__all__ == ["RedisOIDCStateStore"]
