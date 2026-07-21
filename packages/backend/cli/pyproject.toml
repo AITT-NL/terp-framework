@@ -18,14 +18,16 @@ dependencies = [
     "terp-arch==0.1.0",
 ]
 
-# `terp jobs worker` drives the durable outbox's leased worker. terp-cap-outbox is an
-# opt-in, table-owning capability: installing it registers its migration history, so the
-# base CLI must never pull it in (a plain `terp migrate` would otherwise create the outbox
-# schema in apps that never use it). A worker deployment installs `terp-cli[jobs]` — or
-# the app itself depends on terp-cap-outbox, which is what wiring the durable queue
-# already requires.
+# Job-process adapters stay optional: the base CLI must not install the table-owning outbox
+# or a scheduler engine into apps that only use inspect/check/migrate. Deployments can select
+# one process role, while `jobs` is the convenient complete jobs-process bundle.
 [project.optional-dependencies]
-jobs = ["terp-cap-outbox==0.1.0"]
+worker = ["terp-cap-outbox==0.1.0"]
+scheduler = ["terp-cap-scheduler-apscheduler==0.1.0"]
+jobs = [
+    "terp-cap-outbox==0.1.0",
+    "terp-cap-scheduler-apscheduler==0.1.0",
+]
 
 [project.scripts]
 terp = "terp.cli:main"

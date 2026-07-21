@@ -10,6 +10,7 @@ single-process defaults.
 from __future__ import annotations
 
 import base64
+import importlib
 import json
 import uuid
 from dataclasses import dataclass
@@ -253,17 +254,20 @@ class RedisCacheStore(CacheStore):
 
 @dataclass(frozen=True)
 class RedisStoreBundle:
-    """Convenience holder for the three Redis-backed kernel store adapters.
+    """Convenience holder for Redis-backed platform store adapters.
 
     Use this when one Redis deployment backs all three Terp store seams. Separate classes
     remain available for deployments that split cache and control-state Redis clusters.
     Capability-facing adapters (realtime connection tickets, OIDC authorization state)
-    live in their own submodules behind optional extras — construct them explicitly.
+    live in their own submodules behind optional extras. For compatibility, the bundle
+    includes ``realtime_tickets`` when the ``realtime`` extra is installed; it is ``None``
+    in a base-only installation.
     """
 
     idempotency: RedisIdempotencyStore
     throttle: RedisThrottleStore
     cache: RedisCacheStore
+    realtime_tickets: Any | None = None
 
     @classmethod
     def from_client(cls, client: Any, *, namespace: str = "terp") -> RedisStoreBundle:
@@ -272,12 +276,41 @@ class RedisStoreBundle:
             idempotency=RedisIdempotencyStore(client, namespace=namespace),
             throttle=RedisThrottleStore(client, namespace=namespace),
             cache=RedisCacheStore(client, namespace=namespace),
+            realtime_tickets=_optional_realtime_store(client, namespace=namespace),
         )
 
     @classmethod
     def from_url(cls, url: str, *, namespace: str = "terp") -> RedisStoreBundle:
         """Build all three adapters over one Redis client constructed from *url*."""
         return cls.from_client(_client_from_url(url), namespace=namespace)
+
+
+def _optional_realtime_store(client: Any, *, namespace: str) -> Any | None:
+    """Build the compatibility bundle member only when the realtime extra is installed."""
+    try:
+        module = importlib.import_module("terp.capabilities.redis.realtime")
+    except ModuleNotFoundError as exc:
+        if exc.name == "terp.capabilities.realtime":
+            return None
+        raise
+    return module.RedisConnectionTicketStore(client, namespace=namespace)
+
+
+def __getattr__(name: str) -> Any:
+    """Preserve the former direct import path when the realtime extra is installed."""
+    if name != "RedisConnectionTicketStore":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    try:
+        module = importlib.import_module("terp.capabilities.redis.realtime")
+    except ModuleNotFoundError as exc:
+        if exc.name != "terp.capabilities.realtime":
+            raise
+        raise ModuleNotFoundError(
+            "RedisConnectionTicketStore requires the optional `realtime` adapter; "
+            "install `terp-cap-redis[realtime]` (or `terp-cap-redis[all]`).",
+            name="terp.capabilities.realtime",
+        ) from exc
+    return module.RedisConnectionTicketStore
 
 
 __all__ = [

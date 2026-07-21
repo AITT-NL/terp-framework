@@ -136,7 +136,8 @@ def run_worker_command(
     job's :class:`~terp.core.RetryPolicy`. ``SKIP LOCKED`` is enabled automatically on
     PostgreSQL; on SQLite the portable atomic-UPDATE lease is used. Requires the
     ``terp-cap-outbox`` capability (an app wiring the durable queue already depends on
-    it; a standalone worker image installs ``terp-cli[jobs]``).
+    it; a standalone worker image installs ``terp-cli[worker]`` or the combined
+    ``terp-cli[jobs]`` extra).
     """
     root = str(pathlib.Path(app_root).resolve())
     if root not in sys.path:
@@ -151,7 +152,8 @@ def run_worker_command(
         raise SystemExit(
             "terp jobs worker requires the terp-cap-outbox capability, which is not "
             "installed. Add terp-cap-outbox to the app's dependencies (wiring the "
-            "durable OutboxJobQueue already requires it) or install `terp-cli[jobs]`."
+            "durable OutboxJobQueue already requires it) or install `terp-cli[worker]` "
+            "(or `terp-cli[jobs]` for worker + scheduler support)."
         ) from exc
     from terp.core._internal.engine import get_engine
 
@@ -186,7 +188,8 @@ def _default_scheduler() -> object:
         raise SystemExit(
             "terp jobs scheduler requires the terp-cap-scheduler-apscheduler "
             "capability, which is not installed. Add terp-cap-scheduler-apscheduler "
-            "to the app's dependencies (or run schedules with Celery beat)."
+            "to the app's dependencies, install `terp-cli[scheduler]` (or the combined "
+            "`terp-cli[jobs]` extra), or run schedules with Celery beat."
         ) from exc
     from terp.core._internal.engine import get_engine
 

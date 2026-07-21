@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib
 import pathlib
 import sys
+import tomllib
 import uuid
 from collections.abc import Iterator
 
@@ -291,7 +292,7 @@ def test_cli_jobs_worker_dispatch(
 def test_run_worker_command_without_the_outbox_capability_is_directive(
     tmp_path: pathlib.Path, worker_db: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # terp-cap-outbox is an OPTIONAL extra of terp-cli (`terp-cli[jobs]`): the base CLI
+    # terp-cap-outbox is an OPTIONAL extra of terp-cli (`terp-cli[worker]`): the base CLI
     # never installs a table-owning capability, so a worker started without it must fail
     # with the fix, not a raw ImportError.
     (tmp_path / "jobs_worker_noext.py").write_text(
@@ -300,7 +301,7 @@ def test_run_worker_command_without_the_outbox_capability_is_directive(
     )
     sys.modules.pop("jobs_worker_noext", None)
     monkeypatch.setitem(sys.modules, "terp.capabilities.outbox", None)
-    with pytest.raises(SystemExit, match=r"terp-cli\[jobs\]"):
+    with pytest.raises(SystemExit, match=r"terp-cli\[worker\]"):
         run_worker_command(app_ref="jobs_worker_noext:build", app_root=tmp_path, max_cycles=1)
 
 
@@ -385,8 +386,24 @@ def test_default_scheduler_without_the_adapter_capability_is_directive(
     from terp.cli.jobs import _default_scheduler
 
     monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
-    with pytest.raises(SystemExit, match="terp-cap-scheduler-apscheduler"):
+    with pytest.raises(SystemExit, match=r"terp-cli\[scheduler\]"):
         _default_scheduler()
+
+
+def test_cli_job_process_extras_are_selective_and_composable() -> None:
+    project = tomllib.loads(
+        (_REPO_ROOT / "packages" / "backend" / "cli" / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )["project"]
+    extras = project["optional-dependencies"]
+    outbox = "terp-cap-outbox==0.1.0"
+    scheduler = "terp-cap-scheduler-apscheduler==0.1.0"
+    assert extras["worker"] == [outbox]
+    assert extras["scheduler"] == [scheduler]
+    assert set(extras["jobs"]) == {outbox, scheduler}
+    assert outbox not in project["dependencies"]
+    assert scheduler not in project["dependencies"]
 
 
 def test_cli_jobs_scheduler_dispatch(

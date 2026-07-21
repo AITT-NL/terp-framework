@@ -9,6 +9,9 @@ shared-store boot markers are asserted through the public kernel predicates.
 from __future__ import annotations
 
 import datetime
+import importlib
+import pathlib
+import tomllib
 import uuid
 from collections.abc import Iterable
 from typing import Any
@@ -39,6 +42,7 @@ from terp.core import (
 )
 
 _RESPONSE = StoredResponse(status_code=201, headers=(("content-type", "application/json"),), body=b"{}")
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class _FakeRedis:
@@ -167,6 +171,7 @@ def test_bundle_marks_all_three_stores_as_shared(factory: object) -> None:
     assert is_shared_idempotency_store(bundle.idempotency) is True
     assert is_shared_throttle_store(bundle.throttle) is True
     assert is_shared_cache_store(bundle.cache) is True
+    assert isinstance(bundle.realtime_tickets, RedisConnectionTicketStore)
 
 
 def test_from_url_constructors_create_clients_without_connecting() -> None:
@@ -336,6 +341,51 @@ def test_package_root_lazily_resolves_extra_exports_and_refuses_unknown_names() 
         _ = redis_pkg.Nope
 
 
+def test_optional_exports_give_directive_errors_when_extra_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import terp.capabilities.redis as redis_pkg
+
+    real_import_module = importlib.import_module
+
+    def _missing_optional(name: str, package: str | None = None) -> Any:
+        if name == "terp.capabilities.redis.realtime":
+            raise ModuleNotFoundError(
+                "No module named 'terp.capabilities.realtime'",
+                name="terp.capabilities.realtime",
+            )
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", _missing_optional)
+    with pytest.raises(ModuleNotFoundError, match=r"terp-cap-redis\[realtime\]"):
+        _ = redis_pkg.RedisConnectionTicketStore
+    with pytest.raises(ModuleNotFoundError, match=r"terp-cap-redis\[realtime\]"):
+        _ = redis_stores.RedisConnectionTicketStore
+    bundle = RedisStoreBundle.from_client(_FakeRedis())
+    assert bundle.realtime_tickets is None
+
+
+def test_redis_adapter_extras_are_selective_and_composable() -> None:
+    project = tomllib.loads(
+        (
+            _REPO_ROOT
+            / "packages"
+            / "backend"
+            / "capabilities"
+            / "redis"
+            / "pyproject.toml"
+        ).read_text(encoding="utf-8")
+    )["project"]
+    extras = project["optional-dependencies"]
+    realtime = "terp-cap-realtime==0.1.0"
+    oidc = "terp-cap-oidc==0.1.0"
+    assert extras["realtime"] == [realtime]
+    assert extras["oidc"] == [oidc]
+    assert set(extras["all"]) == {realtime, oidc}
+    assert realtime not in project["dependencies"]
+    assert oidc not in project["dependencies"]
+
+
 def test_public_module_exports_are_complete() -> None:
     exported: Iterable[str] = redis_stores.__all__
     assert set(exported) == {
@@ -348,9 +398,7 @@ def test_public_module_exports_are_complete() -> None:
     from terp.capabilities.redis import oidc as redis_oidc
     from terp.capabilities.redis import realtime as redis_realtime
 
-    assert set(redis_pkg.__all__) == set(exported) | {
-        "RedisConnectionTicketStore",
-        "RedisOIDCStateStore",
-    }
+    assert set(redis_pkg.__all__) == set(exported)
+    assert redis_stores.RedisConnectionTicketStore is RedisConnectionTicketStore
     assert redis_realtime.__all__ == ["RedisConnectionTicketStore"]
     assert redis_oidc.__all__ == ["RedisOIDCStateStore"]

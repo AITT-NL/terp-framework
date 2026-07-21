@@ -32,9 +32,11 @@ capability):
 * ``terp-cap-redis[oidc]`` — :class:`RedisOIDCStateStore`
   (:mod:`terp.capabilities.redis.oidc`), shared single-use OIDC authorization state for
   multi-replica SSO.
+* ``terp-cap-redis[all]`` — both capability-facing adapters.
 
 Both re-export lazily from the package root: importing them without the matching extra
-raises the underlying ``ModuleNotFoundError`` for the missing capability.
+raises a directive ``ModuleNotFoundError`` naming the extra to install. They are omitted
+from ``__all__`` so a wildcard import remains valid for a base-only installation.
 """
 
 from __future__ import annotations
@@ -51,25 +53,42 @@ from terp.capabilities.redis.stores import (
 # The extras' adapters import their capability at module import time, so they resolve
 # lazily here: the base install (no extras) can `import terp.capabilities.redis` freely.
 _EXTRA_EXPORTS = {
-    "RedisConnectionTicketStore": "terp.capabilities.redis.realtime",
-    "RedisOIDCStateStore": "terp.capabilities.redis.oidc",
+    "RedisConnectionTicketStore": (
+        "terp.capabilities.redis.realtime",
+        "terp.capabilities.realtime",
+        "realtime",
+    ),
+    "RedisOIDCStateStore": (
+        "terp.capabilities.redis.oidc",
+        "terp.capabilities.oidc",
+        "oidc",
+    ),
 }
 
 
 def __getattr__(name: str) -> Any:
-    module_name = _EXTRA_EXPORTS.get(name)
-    if module_name is None:
+    extra = _EXTRA_EXPORTS.get(name)
+    if extra is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     import importlib
 
-    return getattr(importlib.import_module(module_name), name)
+    module_name, required_module, extra_name = extra
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name != required_module:
+            raise
+        raise ModuleNotFoundError(
+            f"{name} requires the optional `{extra_name}` adapter; "
+            f"install `terp-cap-redis[{extra_name}]` (or `terp-cap-redis[all]`).",
+            name=required_module,
+        ) from exc
+    return getattr(module, name)
 
 
 __all__ = [
     "RedisCacheStore",
-    "RedisConnectionTicketStore",
     "RedisIdempotencyStore",
-    "RedisOIDCStateStore",
     "RedisStoreBundle",
     "RedisThrottleStore",
 ]
