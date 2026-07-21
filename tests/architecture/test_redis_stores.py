@@ -365,6 +365,27 @@ def test_optional_exports_give_directive_errors_when_extra_is_missing(
     assert bundle.realtime_tickets is None
 
 
+def test_optional_exports_do_not_mask_broken_installed_adapters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import terp.capabilities.redis as redis_pkg
+
+    real_import_module = importlib.import_module
+
+    def _broken_adapter(name: str, package: str | None = None) -> Any:
+        if name == "terp.capabilities.redis.realtime":
+            raise ModuleNotFoundError("No module named 'adapter_dependency'", name="adapter_dependency")
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", _broken_adapter)
+    with pytest.raises(ModuleNotFoundError, match="adapter_dependency"):
+        _ = redis_pkg.RedisConnectionTicketStore
+    with pytest.raises(ModuleNotFoundError, match="adapter_dependency"):
+        _ = redis_stores.RedisConnectionTicketStore
+    with pytest.raises(ModuleNotFoundError, match="adapter_dependency"):
+        RedisStoreBundle.from_client(_FakeRedis())
+
+
 def test_redis_adapter_extras_are_selective_and_composable() -> None:
     project = tomllib.loads(
         (
