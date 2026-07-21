@@ -1,4 +1,4 @@
-"""Redis store adapters: shared idempotency, throttling, and cache semantics.
+"""Redis store adapters: shared idempotency, throttling, cache, and extra-gated stores.
 
 The suite drives the adapters over a tiny in-repo Redis double instead of a live server, but
 keeps the adapter's public surface intact: the idempotency and throttle paths still go
@@ -8,19 +8,25 @@ shared-store boot markers are asserted through the public kernel predicates.
 
 from __future__ import annotations
 
+import datetime
 import uuid
 from collections.abc import Iterable
 from typing import Any
 
 import pytest
 
+# RedisConnectionTicketStore / RedisOIDCStateStore resolve through the package root's
+# lazy __getattr__ (they live behind the [realtime] / [oidc] extras) — importing them
+# here exercises that hook.
 from terp.capabilities.redis import (
     RedisCacheStore,
     RedisConnectionTicketStore,
     RedisIdempotencyStore,
+    RedisOIDCStateStore,
     RedisStoreBundle,
     RedisThrottleStore,
 )
+from terp.capabilities.oidc import OIDCStateStore
 from terp.capabilities.realtime import ConnectionTicket
 from terp.capabilities.redis import stores as redis_stores
 from terp.core import (
@@ -161,7 +167,6 @@ def test_bundle_marks_all_three_stores_as_shared(factory: object) -> None:
     assert is_shared_idempotency_store(bundle.idempotency) is True
     assert is_shared_throttle_store(bundle.throttle) is True
     assert is_shared_cache_store(bundle.cache) is True
-    assert isinstance(bundle.realtime_tickets, RedisConnectionTicketStore)
 
 
 def test_from_url_constructors_create_clients_without_connecting() -> None:
@@ -280,12 +285,72 @@ def test_redis_realtime_ticket_is_atomic_single_use_exact_match_and_ttl_bounded(
         store.issue(ticket, ttl_seconds=0)
 
 
+def test_redis_oidc_state_is_shared_single_use_provider_matched_and_ttl_bounded() -> None:
+    client = _FakeRedis(bytes_mode=False)
+    store = RedisOIDCStateStore(client)
+    assert isinstance(store, OIDCStateStore)
+
+    state, pending = store.issue("corp")
+    assert pending.provider == "corp"
+    # Another replica (a second adapter over the same Redis) finishes the flow.
+    other_replica = RedisOIDCStateStore(client)
+    assert other_replica.consume(state, "corp") == pending
+    assert store.consume(state, "corp") is None  # strictly single-use
+
+    state, _ = store.issue("corp")
+    assert store.consume(state, "other") is None  # cross-provider splice refused
+    assert store.consume(state, "corp") is None  # ...and the state is spent
+
+    short = RedisOIDCStateStore(client, ttl=datetime.timedelta(seconds=5))
+    state, _ = short.issue("corp")
+    client.now = 5
+    assert short.consume(state, "corp") is None  # expired server-side (Redis TTL)
+
+    assert RedisOIDCStateStore.from_url("redis://localhost/0")
+    with pytest.raises(ValueError, match="positive ttl"):
+        RedisOIDCStateStore(client, ttl=datetime.timedelta(seconds=0))
+
+
+def test_redis_oidc_state_refuses_a_stale_payload_defensively() -> None:
+    # The Redis TTL normally expires the key first; a payload that outlives it (e.g. a
+    # clock skewed backwards) is still refused by the recorded expires_at.
+    client = _FakeRedis(bytes_mode=False)
+    store = RedisOIDCStateStore(client)
+    state, pending = store.issue("corp")
+    raw = client.get(f"terp:oidc-state:{state}")
+    assert raw is not None
+    stale = str(raw).replace(
+        pending.expires_at.isoformat(),
+        (pending.expires_at - datetime.timedelta(minutes=30)).isoformat(),
+    )
+    client.set(f"terp:oidc-state:{state}", stale, ex=600)
+    assert store.consume(state, "corp") is None
+
+
+def test_package_root_lazily_resolves_extra_exports_and_refuses_unknown_names() -> None:
+    import terp.capabilities.redis as redis_pkg
+
+    assert redis_pkg.RedisConnectionTicketStore is RedisConnectionTicketStore
+    assert redis_pkg.RedisOIDCStateStore is RedisOIDCStateStore
+    with pytest.raises(AttributeError, match="Nope"):
+        _ = redis_pkg.Nope
+
+
 def test_public_module_exports_are_complete() -> None:
     exported: Iterable[str] = redis_stores.__all__
     assert set(exported) == {
         "RedisCacheStore",
-        "RedisConnectionTicketStore",
         "RedisIdempotencyStore",
         "RedisStoreBundle",
         "RedisThrottleStore",
     }
+    import terp.capabilities.redis as redis_pkg
+    from terp.capabilities.redis import oidc as redis_oidc
+    from terp.capabilities.redis import realtime as redis_realtime
+
+    assert set(redis_pkg.__all__) == set(exported) | {
+        "RedisConnectionTicketStore",
+        "RedisOIDCStateStore",
+    }
+    assert redis_realtime.__all__ == ["RedisConnectionTicketStore"]
+    assert redis_oidc.__all__ == ["RedisOIDCStateStore"]

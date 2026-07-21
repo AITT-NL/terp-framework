@@ -28,6 +28,7 @@ from terp.capabilities.oidc.schemas import AuthorizationRequest, OIDCCallbackReq
 from terp.capabilities.oidc.state import (
     DEFAULT_STATE_TTL,
     InMemoryStateStore,
+    OIDCStateStore,
     PendingAuthorization,
     code_challenge_s256,
     generate_code_verifier,
@@ -44,6 +45,7 @@ __all__ = [
     "OIDCClaims",
     "OIDCClient",
     "OIDCProviderConfig",
+    "OIDCStateStore",
     "PendingAuthorization",
     "ProviderUnavailableError",
     "SecretResolver",

@@ -1,4 +1,4 @@
-"""Redis implementations of Terp's shared store ports.
+"""Redis implementations of Terp's kernel store ports (idempotency, throttle, cache).
 
 The three ports have deliberately narrow contracts, so the adapter keeps Redis usage narrow
 as well: one namespaced key per logical entry, explicit TTLs on every value, and Lua only
@@ -25,8 +25,6 @@ from terp.core import (
     mark_shared_idempotency_store,
     mark_shared_throttle_store,
 )
-from terp.capabilities.realtime import ConnectionTicket, ConnectionTicketStore
-from terp.core import Principal, Role
 
 _BEGIN_SCRIPT = """
 local fingerprint = redis.call('HGET', KEYS[1], 'fingerprint')
@@ -83,16 +81,6 @@ if ttl < 0 then
 end
 return {count, ttl}
 """
-
-_CONSUME_TICKET_SCRIPT = """
-local value = redis.call('GET', KEYS[1])
-if not value then
-    return nil
-end
-redis.call('DEL', KEYS[1])
-return value
-"""
-
 
 def _client_from_url(url: str) -> Any:
     """Construct a redis-py client lazily so importing the adapter stays lightweight."""
@@ -263,76 +251,19 @@ class RedisCacheStore(CacheStore):
         return f"{self._prefix}{key}"
 
 
-class RedisConnectionTicketStore(ConnectionTicketStore):
-    """Shared one-use realtime tickets with atomic GET+DEL consumption."""
-
-    def __init__(self, client: Any, *, namespace: str = "terp") -> None:
-        self._client = client
-        self._prefix = f"{namespace}:realtime-ticket:"
-
-    @classmethod
-    def from_url(
-        cls, url: str, *, namespace: str = "terp"
-    ) -> RedisConnectionTicketStore:
-        return cls(_client_from_url(url), namespace=namespace)
-
-    def issue(self, ticket: ConnectionTicket, *, ttl_seconds: int) -> str:
-        if ttl_seconds <= 0:
-            raise ValueError(
-                "RedisConnectionTicketStore.issue requires a positive ttl_seconds"
-            )
-        token = uuid.uuid4().hex + uuid.uuid4().hex
-        value = json.dumps(
-            {
-                "principal_id": str(ticket.principal.id),
-                "role_name": ticket.principal.role.name,
-                "role_rank": ticket.principal.role.rank,
-                "channel": ticket.channel,
-                "transport": ticket.transport,
-                "credential": ticket.credential,
-                "audience": ticket.audience,
-            },
-            separators=(",", ":"),
-        )
-        self._client.set(self._key(token), value, ex=int(ttl_seconds))
-        return token
-
-    def consume(
-        self, token: str, *, channel: str, transport: str
-    ) -> ConnectionTicket | None:
-        raw = self._client.eval(_CONSUME_TICKET_SCRIPT, 1, self._key(token))
-        if raw is None:
-            return None
-        payload = json.loads(_text(raw))
-        if payload["channel"] != channel or payload["transport"] != transport:
-            return None
-        return ConnectionTicket(
-            principal=Principal(
-                id=uuid.UUID(payload["principal_id"]),
-                role=Role(payload["role_name"], int(payload["role_rank"])),
-            ),
-            channel=payload["channel"],
-            transport=payload["transport"],
-            credential=payload.get("credential", ""),
-            audience=payload.get("audience", ""),
-        )
-
-    def _key(self, token: str) -> str:
-        return f"{self._prefix}{token}"
-
-
 @dataclass(frozen=True)
 class RedisStoreBundle:
-    """Convenience holder for Redis-backed platform store adapters.
+    """Convenience holder for the three Redis-backed kernel store adapters.
 
     Use this when one Redis deployment backs all three Terp store seams. Separate classes
     remain available for deployments that split cache and control-state Redis clusters.
+    Capability-facing adapters (realtime connection tickets, OIDC authorization state)
+    live in their own submodules behind optional extras — construct them explicitly.
     """
 
     idempotency: RedisIdempotencyStore
     throttle: RedisThrottleStore
     cache: RedisCacheStore
-    realtime_tickets: RedisConnectionTicketStore
 
     @classmethod
     def from_client(cls, client: Any, *, namespace: str = "terp") -> RedisStoreBundle:
@@ -341,7 +272,6 @@ class RedisStoreBundle:
             idempotency=RedisIdempotencyStore(client, namespace=namespace),
             throttle=RedisThrottleStore(client, namespace=namespace),
             cache=RedisCacheStore(client, namespace=namespace),
-            realtime_tickets=RedisConnectionTicketStore(client, namespace=namespace),
         )
 
     @classmethod
@@ -352,7 +282,6 @@ class RedisStoreBundle:
 
 __all__ = [
     "RedisCacheStore",
-    "RedisConnectionTicketStore",
     "RedisIdempotencyStore",
     "RedisStoreBundle",
     "RedisThrottleStore",

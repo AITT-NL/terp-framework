@@ -47,7 +47,13 @@ def _pyproject_name(path: pathlib.Path) -> str:
 
 def _pyproject_dependencies(path: pathlib.Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
-    matches = re.findall(r"^(?:dependencies|dev) = \[(.*?)^\]", text, re.MULTILINE | re.DOTALL)
+    # `dependencies` / `dev` groups plus every optional-dependencies extra (extras
+    # carry intra-workspace pins too — e.g. terp-cli[jobs], terp-cap-redis[realtime]).
+    matches = re.findall(
+        r"^(?:dependencies|dev|jobs|realtime|oidc) = \[(.*?)^\]",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
     return [dependency for match in matches for dependency in re.findall(r'"([^"]+)"', match)]
 
 

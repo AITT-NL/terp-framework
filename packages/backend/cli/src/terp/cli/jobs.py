@@ -135,7 +135,8 @@ def run_worker_command(
     runner and events through the in-process handlers, and retries / dead-letters per each
     job's :class:`~terp.core.RetryPolicy`. ``SKIP LOCKED`` is enabled automatically on
     PostgreSQL; on SQLite the portable atomic-UPDATE lease is used. Requires the
-    ``terp-cap-outbox`` capability.
+    ``terp-cap-outbox`` capability (an app wiring the durable queue already depends on
+    it; a standalone worker image installs ``terp-cli[jobs]``).
     """
     root = str(pathlib.Path(app_root).resolve())
     if root not in sys.path:
@@ -144,7 +145,14 @@ def run_worker_command(
 
     from sqlmodel import Session
 
-    from terp.capabilities.outbox import OutboxWorker
+    try:
+        from terp.capabilities.outbox import OutboxWorker
+    except ImportError as exc:
+        raise SystemExit(
+            "terp jobs worker requires the terp-cap-outbox capability, which is not "
+            "installed. Add terp-cap-outbox to the app's dependencies (wiring the "
+            "durable OutboxJobQueue already requires it) or install `terp-cli[jobs]`."
+        ) from exc
     from terp.core._internal.engine import get_engine
 
     engine = get_engine()

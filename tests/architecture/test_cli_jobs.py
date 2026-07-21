@@ -288,6 +288,22 @@ def test_cli_jobs_worker_dispatch(
     assert importlib.import_module(name).drained == ["cli"]
 
 
+def test_run_worker_command_without_the_outbox_capability_is_directive(
+    tmp_path: pathlib.Path, worker_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # terp-cap-outbox is an OPTIONAL extra of terp-cli (`terp-cli[jobs]`): the base CLI
+    # never installs a table-owning capability, so a worker started without it must fail
+    # with the fix, not a raw ImportError.
+    (tmp_path / "jobs_worker_noext.py").write_text(
+        "from terp.core import create_app\n\n\ndef build():\n    return create_app([])\n",
+        encoding="utf-8",
+    )
+    sys.modules.pop("jobs_worker_noext", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.outbox", None)
+    with pytest.raises(SystemExit, match=r"terp-cli\[jobs\]"):
+        run_worker_command(app_ref="jobs_worker_noext:build", app_root=tmp_path, max_cycles=1)
+
+
 # --------------------------------------------------------------------------- #
 # terp jobs scheduler — run the in-process scheduler (ADR 0047/0048 CLI)
 # --------------------------------------------------------------------------- #
