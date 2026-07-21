@@ -1,5 +1,5 @@
 # copier.yml — Terp client-app template (design §13 Phase 5).
-# Render a runnable, secure-by-default repo:  copier copy gh:AITT-NL/TERP/template ./my-app
+# Render a runnable, secure-by-default repo:  copier copy gh:AITT-NL/terp-framework/template ./my-app
 _subdirectory: project
 _templates_suffix: .jinja
 

@@ -78,10 +78,15 @@ jobs:
                      packages/backend/cli packages/backend/capabilities/*/; do
             uv build --out-dir dist "$pkg"
           done
+      # Every backend project on PyPI trusts this same (repo, workflow, environment)
+      # publisher identity, so one upload publishes them all. skip-existing makes a
+      # re-run of a partially failed release idempotent — critical because the
+      # lockstep `==` pins make a partial publish uninstallable until completed.
       - name: Publish to PyPI (trusted publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          skip-existing: true
 
   publish-npm:
     needs: verify
@@ -100,7 +105,13 @@ jobs:
       - name: Publish the frontend packages (public, with provenance)
         run: |
           set -eux
+          version="${GITHUB_REF_NAME#v}"
           for ws in @terp/contract @terp/eslint-boundaries @terp/react-core @terp/conformance; do
+            # Idempotent re-run: skip a package this version already published.
+            if [ "$(npm view "$ws@$version" version 2>/dev/null || true)" = "$version" ]; then
+              echo "$ws@$version already on the registry — skipping"
+              continue
+            fi
             npm publish -w "$ws" --access public --provenance
           done
         env:
@@ -159,6 +170,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Idempotent re-run: a release for this tag may already exist.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists — skipping"
+            exit 0
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --title "Terp $GITHUB_REF_NAME" \
             --generate-notes --verify-tag \

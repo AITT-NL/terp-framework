@@ -35,7 +35,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AITT-NL/TERP.git",
+    "url": "git+https://github.com/AITT-NL/terp-framework.git",
     "directory": "packages/frontend/react-core"
   },
   "publishConfig": {
