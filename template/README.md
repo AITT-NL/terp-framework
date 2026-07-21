@@ -10,7 +10,7 @@ test.
 ## Use it
 
 ```bash
-copier copy gh:AITT-NL/TERP/template ./my-app
+copier copy gh:AITT-NL/terp-framework/template ./my-app
 cd my-app && uv sync
 npm --prefix frontend install   # frontend deps
 terp check                      # the architecture gate (== CI)

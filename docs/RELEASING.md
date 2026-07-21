@@ -1,0 +1,94 @@
+# Releasing Terp
+
+Terp releases **in lockstep** (ADR 0063): one tag `v<version>` publishes every backend
+distribution to PyPI, every frontend package to npm, and the production example images
+to GHCR, then creates the GitHub Release. The pipeline is
+[`.github/workflows/release.yml`](../.github/workflows/release.yml); the gate refuses a
+drifted version at build time (`tests/architecture/test_release_versions.py`).
+
+## One-time registry setup
+
+### PyPI — trusted publishing (OIDC, no token)
+
+The `publish-pypi` job builds and uploads **all** backend distributions through one
+trusted-publishing exchange. Every PyPI project must therefore trust the same publisher
+identity. On <https://pypi.org/manage/account/publishing/> add a (pending) publisher
+**per project below**, each with:
+
+- **Owner:** `AITT-NL` · **Repository:** `terp-framework`
+- **Workflow:** `release.yml`
+- **Environment:** `release`
+
+Projects (one publisher each — the distribution names, not the repository name):
+
+| Kernel & tooling | Capabilities |
+|---|---|
+| `terp-core` | `terp-cap-access`, `terp-cap-audit`, `terp-cap-auth`, `terp-cap-eventbus`, `terp-cap-files`, `terp-cap-groups`, `terp-cap-identity`, `terp-cap-jobs-celery`, `terp-cap-oidc`, `terp-cap-outbox`, `terp-cap-realtime`, `terp-cap-redis`, `terp-cap-scheduler-apscheduler`, `terp-cap-scheduler-celery-beat`, `terp-cap-sync`, `terp-cap-tenancy`, `terp-cap-users`, `terp-cap-webhooks` |
+| `terp-arch` | |
+| `terp-cli` | |
+| `terp-migrations` | |
+
+A pending publisher becomes the project on first publish. **All publishers must exist
+before the first tag**: the lockstep `==` pins mean a partially published release is
+uninstallable until every sibling is on the index (`skip-existing: true` makes a
+re-run complete the remainder).
+
+`terp-spec` / `@terp/spec` are **not** published from this repository — the framework
+consumes them as git-tag pins from AITT-NL/terp-spec (ADR 0082); registry publishing of
+the spec is deliberately out of scope until third-party checker consumption needs it.
+
+### GitHub — the `release` environment
+
+Create an environment named `release` (Settings → Environments). Both publish jobs run
+in it; the PyPI trusted publishers above bind to it. Recommended: restrict it to tag
+deployments and require reviewers if you want a manual publish gate.
+
+### npm — the `@terp` scope
+
+1. Ensure the npm account owns the `@terp` organization/scope.
+2. Create a granular automation token with publish rights for `@terp/contract`,
+   `@terp/eslint-boundaries`, `@terp/react-core`, `@terp/conformance`.
+3. Store it as the `NPM_TOKEN` secret on the `release` environment.
+
+`npm publish --provenance` requires each `package.json`'s `repository.url` to match
+this repository — they point at `git+https://github.com/AITT-NL/terp-framework.git`.
+
+### GHCR — nothing to configure
+
+`publish-images` authenticates with the workflow's `GITHUB_TOKEN` (`packages: write`).
+It publishes the **example app's** production images
+(`ghcr.io/aitt-nl/terp-example-backend`, `…-frontend`); client projects build their own
+images from the published packages. Ensure organization settings allow Actions to
+create packages.
+
+## Cutting a release
+
+1. Confirm every manifest carries the release version and `CHANGELOG.md` records it —
+   `uv run pytest tests/architecture/test_release_versions.py` proves the lockstep.
+2. Confirm CI is green on `main` at the release commit.
+3. Tag and push (do **not** pre-create a GitHub Release in the UI — the workflow
+   creates it after all three publishes succeed):
+
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+4. Watch the `release` workflow: `verify` (tag ↔ version + the full gate, both stacks)
+   fans out to `publish-pypi` + `publish-npm` + `publish-images`, then
+   `github-release` attaches the conformance scorecards.
+5. Verify installability from a clean project: `uv add terp-core terp-cli` and
+   `npm install @terp/react-core` resolve at the new version.
+
+### If a publish job fails partway
+
+Fix the cause (usually a missing trusted publisher or scope permission) and re-run the
+failed jobs from the same tag run: the PyPI upload (`skip-existing`), the npm loop
+(version-exists check), and the GitHub Release step are all idempotent, so a re-run
+publishes only what is still missing.
+
+## Version bumps
+
+Bump **every** backend `pyproject.toml`, every frontend `package.json`, the template
+pins, and `CHANGELOG.md` in one commit — the gate enforces the lockstep. Then tag
+`v<new-version>`.
