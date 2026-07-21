@@ -127,7 +127,7 @@ export type { SsoSession } from "./TerpProvider";
 export { FileUpload, useFileDownload, uploadFile, fetchFileContent } from "./files";
 export type { FileMeta, FileUploadProps } from "./files";
 export { collectModules, renderTerpApp, withAdminArea } from "./bootstrap";
-export type { RenderTerpAppOptions, TerpModule } from "./bootstrap";
+export type { AdminAreaSections, RenderTerpAppOptions, TerpModule } from "./bootstrap";
 export { adminModule } from "./admin/module";
 export { AdminHub } from "./admin/AdminHub";
 export { UsersAdmin } from "./admin/UsersAdmin";

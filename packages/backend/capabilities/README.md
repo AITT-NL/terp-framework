@@ -32,7 +32,7 @@ Built capabilities (design §3.1, §6):
 | **oidc** (SSO via OpenID Connect) | `terp-cap-oidc` | `terp.capabilities.oidc` |
 | **outbox** (durable event delivery) | `terp-cap-outbox` | `terp.capabilities.outbox` |
 | **sync** (data synchronisation) | `terp-cap-sync` | `terp.capabilities.sync` |
-| **redis** (shared Idempotency/Throttle/Cache stores, ADR 0078) | `terp-cap-redis` | `terp.capabilities.redis` |
+| **redis** (shared Idempotency/Throttle/Cache stores, ADR 0078; realtime tickets / OIDC state behind `[realtime]` / `[oidc]` extras) | `terp-cap-redis` | `terp.capabilities.redis` |
 | **jobs_celery** (Celery job backend) | `terp-cap-jobs-celery` | `terp.capabilities.jobs_celery` |
 | **scheduler_apscheduler** (APScheduler backend) | `terp-cap-scheduler-apscheduler` | `terp.capabilities.scheduler_apscheduler` |
 | **scheduler_celery_beat** (Celery beat backend) | `terp-cap-scheduler-celery-beat` | `terp.capabilities.scheduler_celery_beat` |

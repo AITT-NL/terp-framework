@@ -176,10 +176,18 @@ def _default_scheduler() -> object:
     ``start`` blocks the main thread), driving each schedule's tick through the jobs seam.
     Requires the ``terp-cap-scheduler-apscheduler`` capability.
     """
-    from apscheduler.schedulers.blocking import BlockingScheduler
     from sqlmodel import Session
 
-    from terp.capabilities.scheduler_apscheduler import ApschedulerScheduler
+    try:
+        from apscheduler.schedulers.blocking import BlockingScheduler
+
+        from terp.capabilities.scheduler_apscheduler import ApschedulerScheduler
+    except ImportError as exc:
+        raise SystemExit(
+            "terp jobs scheduler requires the terp-cap-scheduler-apscheduler "
+            "capability, which is not installed. Add terp-cap-scheduler-apscheduler "
+            "to the app's dependencies (or run schedules with Celery beat)."
+        ) from exc
     from terp.core._internal.engine import get_engine
 
     engine = get_engine()

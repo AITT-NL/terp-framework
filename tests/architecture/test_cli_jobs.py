@@ -377,6 +377,18 @@ def test_default_scheduler_builds_an_apscheduler_scheduler() -> None:
     assert isinstance(_default_scheduler(), ApschedulerScheduler)
 
 
+def test_default_scheduler_without_the_adapter_capability_is_directive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # terp-cli keeps no hard dependency on the APScheduler adapter (ADR 0049): a
+    # scheduler started without it must fail with the fix, not a raw ImportError.
+    from terp.cli.jobs import _default_scheduler
+
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
+    with pytest.raises(SystemExit, match="terp-cap-scheduler-apscheduler"):
+        _default_scheduler()
+
+
 def test_cli_jobs_scheduler_dispatch(
     tmp_path: pathlib.Path,
     capsys: pytest.CaptureFixture[str],
