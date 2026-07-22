@@ -16,9 +16,13 @@ opt-out lives in one place:
 * :func:`finalize` commits a worker's status transition (dispatched / rescheduled /
   dead-lettered) on the outbox's own table.
 
-The worker drives :func:`claim_due` / :func:`finalize` on a **plain** session — the
-outbox is infrastructure managing its own table, not an audited business mutation —
-so it never needs the write-guard scope :func:`append` opens for the request session.
+The worker drives :func:`claim_due` / :func:`finalize` on a **plain** session, but the
+session is still a :class:`~terp.core._internal.session_guard.WriteGuardedSession`
+(handed out by the same session factory as the request session), so both ride
+:func:`~terp.core._internal.session_guard.enter_write_unit` too, exactly like
+:func:`append` — the lease UPDATE and the status-transition commit are themselves
+unaudited, infrastructure-only writes on the outbox's own table, not a business
+mutation, but the guard cannot tell that from an ``# arch-allow-*`` comment alone.
 """
 
 from __future__ import annotations
@@ -90,12 +94,14 @@ def claim_due(
     )
     if skip_locked:
         due = due.with_for_update(skip_locked=True)
-    session.execute(  # arch-allow-mutations-emit-audit: the atomic lease claim on the outbox's own table — a portable SKIP-LOCKED-style lock, not a business mutation
-        update(OutboxMessage)
-        .where(col(OutboxMessage.id).in_(due))
-        .values(locked_by=claim_id, locked_until=lease_until)
-    )
-    session.commit()  # arch-allow-mutations-emit-audit: commit the lease so concurrent workers observe it
+    with enter_write_unit() as outermost:
+        session.execute(  # arch-allow-mutations-emit-audit: the atomic lease claim on the outbox's own table — a portable SKIP-LOCKED-style lock, not a business mutation
+            update(OutboxMessage)
+            .where(col(OutboxMessage.id).in_(due))
+            .values(locked_by=claim_id, locked_until=lease_until)
+        )
+        if outermost:
+            session.commit()  # arch-allow-mutations-emit-audit: commit the lease so concurrent workers observe it
     return list(
         session.exec(
             select(OutboxMessage)
@@ -107,7 +113,8 @@ def claim_due(
 
 def finalize(session: Session) -> None:
     """Commit a worker's in-place status transition on the outbox's own table."""
-    session.commit()  # arch-allow-mutations-emit-audit: persist the worker's status transition (dispatched / rescheduled / dead-lettered)
+    with enter_write_unit():
+        session.commit()  # arch-allow-mutations-emit-audit: persist the worker's status transition (dispatched / rescheduled / dead-lettered)
 
 
 __all__ = ["append", "claim_due", "finalize"]

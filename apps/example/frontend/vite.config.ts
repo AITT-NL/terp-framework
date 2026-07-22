@@ -15,6 +15,13 @@ const usePolling = process.env.TERP_DEV_FORCE_POLLING === "true";
 export default defineConfig({
   plugins: [react()],
   server: {
+    // The Docker workbench publishes this dev server on a host port behind a reverse
+    // proxy / port-forward whose hostname Vite cannot predict (the operator's own host,
+    // not localhost) — Vite's DNS-rebinding guard (server.allowedHosts) would otherwise
+    // answer any such request with 403. The workbench network is not the public
+    // internet (Compose network + operator-controlled host firewall), so trusting the
+    // Host header here is the accepted trade-off.
+    allowedHosts: true,
     watch: usePolling ? { usePolling: true, interval: 300 } : undefined,
     proxy: {
       "/api": {
