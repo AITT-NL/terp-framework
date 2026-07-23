@@ -24,7 +24,10 @@ import pathlib
 import yaml
 
 _WORKFLOW = (
-    pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
+    pathlib.Path(__file__).resolve().parents[2]
+    / ".github"
+    / "workflows"
+    / "release.yml"
 )
 _REPO_ROOT = _WORKFLOW.parents[2]
 
@@ -99,7 +102,9 @@ def test_pypi_job_runs_on_both_events_via_trusted_publishing() -> None:
     job = _workflow()["jobs"]["publish-pypi"]
     assert "if" not in job, "publish-pypi must run on both tag and dispatch"
     assert job["environment"] == "release", "trusted publisher is bound to env release"
-    assert job["permissions"]["id-token"] == "write", "OIDC token for trusted publishing"
+    assert job["permissions"]["id-token"] == "write", (
+        "OIDC token for trusted publishing"
+    )
 
     publish = _step(job, "Publish to PyPI (trusted publishing)")
     assert publish["uses"].startswith("pypa/gh-action-pypi-publish")
@@ -114,7 +119,9 @@ def test_lockstep_build_is_push_only_and_single_build_is_dispatch_only() -> None
     all_packages = _step(job, "Build wheels + sdists for every backend distribution")
     assert all_packages["if"] == _PUSH_ONLY
 
-    single = _step(job, "Build a single backend distribution (manual bootstrap/backfill)")
+    single = _step(
+        job, "Build a single backend distribution (manual bootstrap/backfill)"
+    )
     assert single["if"] == _DISPATCH_ONLY
     assert single["env"]["PACKAGE_PATH"] == "${{ inputs.package }}", (
         "untrusted expressions must enter the shell through env, not script interpolation"
