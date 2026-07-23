@@ -79,7 +79,9 @@ Create an environment named `release` (Settings → Environments). Both publish 
 in it; the PyPI trusted publishers above bind to it. Configure **Deployment branches and
 tags** as **Selected branches and tags**, allowing only the default branch (`main`) and
 release tags (`v*`). Require reviewers: a tag release and a manual per-package publish
-both cross a registry trust boundary and should have an explicit approval gate.
+both cross a registry trust boundary and should have an explicit approval gate. Disable
+administrator bypass. Prefer an independent organization-member reviewer with
+self-review prevention; GitHub does not accept an external collaborator for that role.
 
 ### npm — the `@terp` scope
 
