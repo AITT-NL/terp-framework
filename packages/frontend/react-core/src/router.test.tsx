@@ -3,7 +3,7 @@ import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ModuleManifest } from "@terp/contract";
+import type { ModuleManifest } from "@terpjs/contract";
 
 import { buildAppRouter } from "./router";
 import { Page } from "./Page";

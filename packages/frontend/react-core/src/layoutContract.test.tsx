@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Component } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-// The lint-side source of the contract table (spec-as-data in @terp/eslint-boundaries);
+// The lint-side source of the contract table (spec-as-data in @terpjs/eslint-boundaries);
 // react-core carries a TS mirror because a published runtime package cannot depend on a
 // lint package. This parity test keeps the two identical, so the data cannot drift.
 // @ts-expect-error — monorepo-relative untyped JS import, test-only

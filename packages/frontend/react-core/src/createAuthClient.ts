@@ -1,4 +1,4 @@
-import { createTerpClient, type TerpClient } from "@terp/contract";
+import { createTerpClient, type TerpClient } from "@terpjs/contract";
 
 /** Returns the current bearer token, or null when signed out. */
 export type TokenGetter = () => string | null;

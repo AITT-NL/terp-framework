@@ -3,7 +3,7 @@
 A [copier](https://copier.readthedocs.io/) template for new Terp client applications: a
 runnable full-stack repo with `create_app` wired to a base-profile control plane, a
 discovered capability stack (auth · identity · users · access · audit), one example
-module in the canonical five-slot shape, and a React frontend (Vite + `@terp/react-core`)
+module in the canonical five-slot shape, and a React frontend (Vite + `@terpjs/react-core`)
 with a matching, auto-discovered module slot — plus CI, `AGENTS.md`, and an architecture
 test.
 

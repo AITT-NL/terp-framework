@@ -3,7 +3,7 @@
 App modules never touch raw transports. They declare a :class:`RealtimeChannel`,
 register it, and publish Pydantic messages through :func:`publish`; the
 self-registering capability exposes the authenticated ticket + transport
-router. Browser code subscribes through ``@terp/react-core``'s
+router. Browser code subscribes through ``@terpjs/react-core``'s
 ``useRealtimeChannel`` hook, which mints its one-use ticket with the generated
 client before opening EventSource/WebSocket.
 """

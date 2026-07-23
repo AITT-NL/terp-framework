@@ -98,7 +98,7 @@ services:
       context: ../..
       dockerfile: apps/example/frontend/Dockerfile
     image: terp-example-frontend
-    command: ["npm", "run", "-w", "@terp-example/frontend", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    command: ["npm", "run", "-w", "@terpjs-example/frontend", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
     environment:
       TERP_API_PROXY: http://api:8000
       # Poll the bind-mounted source (no inotify across Desktop mounts).

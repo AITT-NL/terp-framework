@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import type { RenderBreadcrumbLink } from "@terp/react-core";
+import type { RenderBreadcrumbLink } from "@terpjs/react-core";
 
 export const ADMIN_PARENTS = [{ label: "Admin", to: "/admin" }] as const;
 

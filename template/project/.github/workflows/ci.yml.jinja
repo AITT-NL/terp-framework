@@ -21,7 +21,7 @@ jobs:
       - run: uv run terp api-docs --out docs
       - run: git diff --exit-code -- docs
 
-  # The React frontend type-checks and builds against @terp/react-core + @terp/contract.
+  # The React frontend type-checks and builds against @terpjs/react-core + @terpjs/contract.
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -41,7 +41,7 @@ jobs:
       - run: npm run build
 
   # End-to-end conformance: boot the Docker workbench (db -> migrate -> seed -> api + web) and drive
-  # real browser auth flows with Playwright (the base-profile suite from @terp/conformance). Grow it
+  # real browser auth flows with Playwright (the base-profile suite from @terpjs/conformance). Grow it
   # with your own module specs.
   conformance:
     runs-on: ubuntu-latest

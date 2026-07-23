@@ -32,9 +32,9 @@ a guard to make a change pass:
 
 ## Frontend conventions
 
-Frontend UI composes the **`@terp/react-core` component surface** — see the catalog in
+Frontend UI composes the **`@terpjs/react-core` component surface** — see the catalog in
 [packages/frontend/react-core/README.md](../packages/frontend/react-core/README.md).
-Enforced by `@terp/eslint-boundaries` (strict-only, no modes — ADR 0059): token‑styled
+Enforced by `@terpjs/eslint-boundaries` (strict-only, no modes — ADR 0059): token‑styled
 primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/`<table>`/`<dialog>`/
 `<form>`), the generated client only (no raw `fetch` / `XMLHttpRequest` / `WebSocket` /
 `EventSource` / `sendBeacon`), data collections via `DataView`

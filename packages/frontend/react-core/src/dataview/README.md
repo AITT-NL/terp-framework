@@ -23,8 +23,8 @@ import {
   DataView,
   InMemoryDataViewRepository,
   LocalStorageViewStateRepository,
-} from "@terp/react-core";
-import type { DataViewColumn } from "@terp/react-core";
+} from "@terpjs/react-core";
+import type { DataViewColumn } from "@terpjs/react-core";
 
 interface Ticket { id: string; title: string; status: string; created: string }
 
@@ -65,7 +65,7 @@ Server-side views keep sorting/filter/pagination in the URL via `useServerDataVi
 API parameters through an injectable request adapter:
 
 ```tsx
-import { DataView, HttpDataViewRepository, useServerDataView, unwrap } from "@terp/react-core";
+import { DataView, HttpDataViewRepository, useServerDataView, unwrap } from "@terpjs/react-core";
 
 const repository = new HttpDataViewRepository<NoteRead>({
   getRowId: (n) => n.id,

@@ -7,7 +7,7 @@ import { useStrings } from "./uiText";
 
 /**
  * The visual theme: an explicit choice, or "system" to follow the OS preference.
- * The token stylesheet (`@terp/contract/tokens.css`) carries both palettes: it applies
+ * The token stylesheet (`@terpjs/contract/tokens.css`) carries both palettes: it applies
  * the dark colours under `<html data-theme="dark">` and — with no attribute — under
  * `@media (prefers-color-scheme: dark)`, so "system" simply removes the attribute.
  */

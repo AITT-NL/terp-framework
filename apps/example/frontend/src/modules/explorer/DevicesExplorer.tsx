@@ -5,8 +5,8 @@ import {
   LocalStorageViewStateRepository,
   OverviewPage,
   useToast,
-} from "@terp/react-core";
-import type { DataViewColumn } from "@terp/react-core";
+} from "@terpjs/react-core";
+import type { DataViewColumn } from "@terpjs/react-core";
 import { useMemo } from "react";
 
 /** A demo row: enough shape to exercise sorting, searching, paging and card slots. */

@@ -1,4 +1,4 @@
-import { Button, Field, Input, OverviewPage, ResourceList, Stack, Textarea } from "@terp/react-core";
+import { Button, Field, Input, OverviewPage, ResourceList, Stack, Textarea } from "@terpjs/react-core";
 import { useState } from "react";
 import type { FormEvent } from "react";
 

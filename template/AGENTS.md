@@ -41,8 +41,8 @@ fails closed with precise, fixable messages.
 
 ## Frontend golden rules (the boundary lint enforces these)
 
-Screens compose the **`@terp/react-core` component surface** — the full catalog is in
-`node_modules/@terp/react-core/README.md` (bootstrap/providers, page archetypes
+Screens compose the **`@terpjs/react-core` component surface** — the full catalog is in
+`node_modules/@terpjs/react-core/README.md` (bootstrap/providers, page archetypes
 `AppShell`/`Page`/`OverviewPage`/`DetailPage`/`HubPage`, data via `DataView` +
 `useResource`/`ResourceList`, feedback via `ToastProvider`/`ConfirmDialog`/
 `EmptyState`/`ErrorState`/`Alert`/`Badge`/`Tooltip`, form primitives `Button`/`Input`/
@@ -56,7 +56,7 @@ for in-page tab sets and `Markdown` for safe rich text).
 2. The generated typed client only (`useTerpClient()` + `unwrap`) — never raw `fetch` /
    `XMLHttpRequest` / `WebSocket` / `EventSource` / `navigator.sendBeacon`.
 3. Data collections render via `DataView` (repository-driven; see
-   `node_modules/@terp/react-core/src/dataview/README.md`).
+   `node_modules/@terpjs/react-core/src/dataview/README.md`).
 4. Style with design tokens (`var(--color-*)`, `var(--space-*)`) — no inline colours,
    no `style={}`, no `className`, no module-authored stylesheets: layout comes from
    `Stack` / `DetailList` / the page archetypes; theming from the app's token source.
@@ -67,7 +67,7 @@ for in-page tab sets and `Markdown` for safe rich text).
    `layoutContract` in `main.tsx`): each archetype's body slot accepts only the
    contract's components, enforced at lint time and runtime with a message that states
    the fix — recipe: `uv run terp guide layouts`.
-6. Import from `@terp/*` package roots only — no deep `src/` / `dist/` imports.
+6. Import from `@terpjs/*` package roots only — no deep `src/` / `dist/` imports.
 7. A module's UI is wired by its `module.tsx` manifest (routes + nav + views) — no
    central registry to edit.
 8. Security defaults, each its own error: `dangerouslySetInnerHTML` and DOM

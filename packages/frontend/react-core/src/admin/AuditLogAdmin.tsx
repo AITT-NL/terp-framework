@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { components } from "@terp/contract";
+import type { components } from "@terpjs/contract";
 
 import { Page } from "../Page";
 import { useTerpClient } from "../TerpProvider";

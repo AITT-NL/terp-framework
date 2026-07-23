@@ -208,7 +208,7 @@ def _files(name: str, package: str, profile: ModuleProfile) -> dict[str, str]:
 
 
 _MODULE_TSX = """\
-import { defineModuleManifest } from "@terp/contract";
+import { defineModuleManifest } from "@terpjs/contract";
 
 import { __PASCAL__List } from "./__PASCAL__List";
 
@@ -229,7 +229,7 @@ _VIEW_TSX = """\
 //
 //   uv run terp openapi && npm --prefix frontend run generate   // -> src/api/schema.d.ts
 //
-//   import { useResource, useTerpClient } from "@terp/react-core";
+//   import { useResource, useTerpClient } from "@terpjs/react-core";
 //   import type { paths, components } from "../../api/schema";
 //   type __PASCAL__ = components["schemas"]["__PASCAL__Read"];
 //   const client = useTerpClient<paths>();
@@ -239,7 +239,7 @@ _VIEW_TSX = """\
 //   });
 //   // ...then pass createPlaceholder="New __NAME__" to <ResourceList> so writers can add rows.
 //
-import { OverviewPage, ResourceList, useResource } from "@terp/react-core";
+import { OverviewPage, ResourceList, useResource } from "@terpjs/react-core";
 
 export function __PASCAL__List() {
   // Placeholder until you wire the typed client above: an empty, read-only list (compiles pre-codegen).

@@ -400,7 +400,7 @@ const terpPlugin = {
 };
 
 const deepImportMessage =
-  "Import from the package root (@terp/react-core, @terp/contract), not its internals.";
+  "Import from the package root (@terpjs/react-core, @terpjs/contract), not its internals.";
 const styleImportMessage =
   "Module-authored stylesheets are forbidden; theming flows from the design tokens " +
   "and layout from the react-core components (Stack, the page archetypes).";
@@ -415,7 +415,7 @@ function restrictedSyntaxWithCatalogIds() {
   const rawElements = Object.entries(BOUNDARY_SPEC.restrictedElements).map(([element, use]) => ({
     catalogId: "frontend/token-styled-elements",
     selector: `JSXOpeningElement[name.name='${element}']`,
-    message: `Use ${use} from @terp/react-core, not a raw <${element}>.`,
+    message: `Use ${use} from @terpjs/react-core, not a raw <${element}>.`,
   }));
   const rawAttributes = BOUNDARY_SPEC.restrictedAttributes.map((attribute) => ({
     catalogId: "frontend/no-inline-styling",
@@ -711,7 +711,7 @@ function escapeHatchProcessor() {
  * The Terp frontend boundary config (an ESLint flat-config array), scoped to app modules. Spread it
  * into a repo's `eslint.config.js`:
  *
- *   import terpBoundaries from "@terp/eslint-boundaries";
+ *   import terpBoundaries from "@terpjs/eslint-boundaries";
  *   export default [{ ignores: ["dist/**", "src/api/**"] }, ...terpBoundaries];
  */
 export function terpBoundaries() {

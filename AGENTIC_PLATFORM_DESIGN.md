@@ -7,7 +7,7 @@
 > **Status:** canonical design · **Audience:** platform/core team + module authors
 > **Naming (authoritative):** Terp — "Trusted Enterprise Reinforced Platform"
 > ("Build on high ground"). Python `terp.*`; distributions `terp-core` /
-> `terp-arch` / `terp-cap-*`; npm `@terp/*`; CLI `terp`. `platform.*` is
+> `terp-arch` / `terp-cap-*`; npm `@terpjs/*`; CLI `terp`. `platform.*` is
 > forbidden — it shadows a Python stdlib module. (This document originally used
 > a placeholder namespace; `terp.*` is authoritative throughout.)
 
@@ -61,7 +61,7 @@ unless a human overrides them in the prompt:
 1. **Python import namespace:** use `terp.*`, never `platform.*`.
   `platform` is a Python stdlib module; shadowing it will break imports and
   tooling. Distributions are `terp-core`, `terp-arch`, `terp-cap-*` (capabilities
-  import as `terp.capabilities.<name>`); npm `@terp/*`; CLI `terp`.
+  import as `terp.capabilities.<name>`); npm `@terpjs/*`; CLI `terp`.
 2. **First frontend stack:** React first. Svelte is the second stack and is built
   only after the shared frontend contract and React conformance suite are green.
 3. **Default tenancy:** organisation‑scoped by default. `single` is allowed only
@@ -121,12 +121,12 @@ unless a human overrides them in the prompt:
 ### 3.1 Package topology
 
 ```
-BACKEND (Python)                      FRONTEND (per stack, e.g. @terp/react, @terp/svelte)
-  terp-core             (pip)           @terp/contract           (npm) — generated client + tokens + manifest types
-  terp-cap-identity     (pip)           @terp/react-core         (npm) — shell, guards, UI primitives (React)
-  terp-cap-auth         (pip)           @terp/svelte-core        (npm) — shell, guards, UI primitives (Svelte)
-  terp-cap-access       (pip)           @terp/eslint-boundaries  (npm) — boundary rules (shared spec)
-  terp-cap-tenancy      (pip)           @terp/conformance        (npm) — Playwright parity suite (stack-agnostic)
+BACKEND (Python)                      FRONTEND (per stack, e.g. @terpjs/react, @terpjs/svelte)
+  terp-core             (pip)           @terpjs/contract           (npm) — generated client + tokens + manifest types
+  terp-cap-identity     (pip)           @terpjs/react-core         (npm) — shell, guards, UI primitives (React)
+  terp-cap-auth         (pip)           @terpjs/svelte-core        (npm) — shell, guards, UI primitives (Svelte)
+  terp-cap-access       (pip)           @terpjs/eslint-boundaries  (npm) — boundary rules (shared spec)
+  terp-cap-tenancy      (pip)           @terpjs/conformance        (npm) — Playwright parity suite (stack-agnostic)
   terp-cap-users        (pip)
   terp-cap-groups       (pip)         TOOLING
   terp-cap-oidc         (pip)           terp-cli                 (pip) — new module, migrate, check, api-docs
@@ -467,12 +467,12 @@ parity. The backend is unaware of which stack is mounted.
 5. **Boundary‑lint spec** — the module‑boundary rules (no cross‑module imports, no
    reaching into core internals, **design‑token‑only styling**, no raw
    `<button>`/`<input>`, routed pages not modals for forms) are declared **as data**
-  in `@terp/eslint-boundaries`; each stack provides a parser adapter. The
+  in `@terpjs/eslint-boundaries`; each stack provides a parser adapter. The
    *rules* are shared; only the *enforcement adapter* is per‑stack.
 
 ### 7.2 The equaliser: a shared conformance suite
 
-`@terp/conformance` is a **Playwright** suite (framework‑agnostic) that every
+`@terpjs/conformance` is a **Playwright** suite (framework‑agnostic) that every
 stack core must pass: same routes resolve, same guards deny/allow, same a11y
 landmarks, same token‑driven visuals, same error envelope handling. This is how
 multiple stacks stay in parity and remain maintainable — adding or upgrading a
@@ -590,9 +590,9 @@ monorepo** with many independently versioned, independently published packages.
 | `packages/backend/capabilities/*` | `terp-cap-*` | Platform team |
 | `packages/backend/arch` | `terp-arch` (harness) | Platform team |
 | `packages/backend/cli` | `terp-cli` | Platform team |
-| `packages/frontend/contract` | `@terp/contract` (client + tokens + manifest types) | Platform team |
-| `packages/frontend/react-core` | `@terp/react-core` | Platform team |
-| `packages/frontend/svelte-core` | `@terp/svelte-core` (later) | Platform team |
+| `packages/frontend/contract` | `@terpjs/contract` (client + tokens + manifest types) | Platform team |
+| `packages/frontend/react-core` | `@terpjs/react-core` | Platform team |
+| `packages/frontend/svelte-core` | `@terpjs/svelte-core` (later) | Platform team |
 | `packages/frontend/eslint-boundaries`, `packages/frontend/conformance` | shared lint spec + Playwright parity suite | Platform team |
 | `template/` | copier skeleton, CI, AGENTS.md | Platform team |
 | `apps/example/` | neutral dogfood app consuming packaged core | Platform team |
@@ -682,7 +682,7 @@ apps/example/                         # the neutral app consuming packaged core
      the escape‑hatch budget and docs‑parity tests run from the package.
 4. **Frontend contract + Stack A (React)**; extract eslint boundary spec
    + conformance suite.
-   - **Gate:** React consumes `@terp/contract`; no stack‑specific API
+   - **Gate:** React consumes `@terpjs/contract`; no stack‑specific API
      client or hand‑rolled fetch is allowed.
 5. **Scaffolding**: copier template + `terp` CLI.
    - **Gate:** `terp new module billing` creates a backend and frontend module

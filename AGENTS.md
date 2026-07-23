@@ -44,10 +44,10 @@ a guard to make a change pass:
 
 ## Frontend conventions
 
-Frontend UI composes the **`@terp/react-core` component surface** — the catalog lives
+Frontend UI composes the **`@terpjs/react-core` component surface** — the catalog lives
 in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.md)
 (providers, page archetypes, data, feedback, form primitives). Key rules, enforced by
-`@terp/eslint-boundaries`:
+`@terpjs/eslint-boundaries`:
 
 - **Token-styled primitives only** — never raw `<button>` / `<input>` / `<select>` /
   `<textarea>` / `<table>` / `<dialog>` / `<form>`; use `Button` / `Input` / `Select` /
@@ -76,7 +76,7 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   (`innerHTML` / `outerHTML` / `insertAdjacentHTML` / `document.write`) are refused
   (use `Markdown` for rich text); `eval()` / `new Function()` are refused;
   `javascript:` URLs are refused; static `target="_blank"` links need `rel="noopener"`.
-- **No deep imports** — import from the `@terp/*` package root only.
+- **No deep imports** — import from the `@terpjs/*` package root only.
 - **No modes, no severity dial** (ADR 0059) — every boundary violation is an error. The one
   governed opt-out is a justified `// terp-allow-<rule>: <reason>` marker whose counts must
   exactly match the app's checked-in `escape-hatch-budget.json` (a ratchet, run by

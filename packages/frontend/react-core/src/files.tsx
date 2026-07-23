@@ -5,7 +5,7 @@ import { useTerpClient } from "./TerpProvider";
 import { Button } from "./ui/Button";
 import { useStrings, useUiText, type UiText } from "./uiText";
 import { unwrap } from "./unwrap";
-import type { TerpClient, TerpClientFor } from "@terp/contract";
+import type { TerpClient, TerpClientFor } from "@terpjs/contract";
 
 /**
  * The frontend surface of the files capability (ADR 0056/0057): a token-styled

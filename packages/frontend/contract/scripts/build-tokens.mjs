@@ -10,7 +10,7 @@
  *
  * Apps opt in/out per user via the `data-theme` attribute on <html> (react-core's
  * `ThemeProvider` manages it); with no attribute the OS preference wins. Regenerate with
- * `npm run -w @terp/contract tokens`; the frontend CI gate fails on drift.
+ * `npm run -w @terpjs/contract tokens`; the frontend CI gate fails on drift.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

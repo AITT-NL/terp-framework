@@ -1,4 +1,4 @@
-import { OverviewPage, ResourceList } from "@terp/react-core";
+import { OverviewPage, ResourceList } from "@terpjs/react-core";
 
 import { useProjects } from "./useProjects";
 

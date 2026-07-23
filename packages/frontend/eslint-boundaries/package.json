@@ -1,5 +1,5 @@
 {
-  "name": "@terp/eslint-boundaries",
+  "name": "@terpjs/eslint-boundaries",
   "version": "0.1.0",
   "type": "module",
   "description": "Terp frontend boundary rules (as data) + the ESLint adapter: no cross-module imports, no package internals, design-token-only styling (no style/className/module stylesheets), token-styled components for raw HTML tags, router-only in-app links, generated-client-only, and browser XSS/navigation sink bans. Strict-only (no modes); governed opt-outs via terp-allow markers + the escape-hatch budget ratchet (terp-boundaries-budget).",

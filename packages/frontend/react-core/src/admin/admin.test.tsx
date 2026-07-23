@@ -3,7 +3,7 @@ import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ModuleManifest } from "@terp/contract";
+import type { ModuleManifest } from "@terpjs/contract";
 import type { ComponentType } from "react";
 
 import { withAdminArea } from "../bootstrap";

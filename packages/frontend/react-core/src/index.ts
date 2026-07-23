@@ -1,5 +1,5 @@
-// Public surface of @terp/react-core — see README.md for the component catalog and
-// usage conventions: the provider/hooks that wire a tree to @terp/contract, the
+// Public surface of @terpjs/react-core — see README.md for the component catalog and
+// usage conventions: the provider/hooks that wire a tree to @terpjs/contract, the
 // capability gate, the authorization guard, the TanStack Router adapter, and the
 // presentational shell + token-only UI primitives.
 export { TerpProvider, useAuth, useTerpClient } from "./TerpProvider";

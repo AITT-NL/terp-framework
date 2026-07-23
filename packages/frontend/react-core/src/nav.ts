@@ -1,4 +1,4 @@
-import type { ModuleManifest, NavItem } from "@terp/contract";
+import type { ModuleManifest, NavItem } from "@terpjs/contract";
 
 /**
  * Flatten the nav of every module manifest into one ordered sidebar list, keeping only

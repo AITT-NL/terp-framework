@@ -1,4 +1,4 @@
-import type { NavItem } from "@terp/contract";
+import type { NavItem } from "@terpjs/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 

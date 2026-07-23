@@ -34,14 +34,14 @@ async function lint(code, config = terpBoundaries) {
 describe("terp/layout-contract", () => {
   it("is inert without an opted-in contract (backwards compatible)", async () => {
     const code =
-      'import { HubPage } from "@terp/react-core";\n' +
+      'import { HubPage } from "@terpjs/react-core";\n' +
       "export const W = () => <HubPage title='x'><div /></HubPage>;";
     expect((await lint(code)).map((m) => m.ruleId)).toEqual([]);
   });
 
   it("refuses a non-conforming child in a HubPage body, with the directive message", async () => {
     const code =
-      'import { HubPage, Stack } from "@terp/react-core";\n' +
+      'import { HubPage, Stack } from "@terpjs/react-core";\n' +
       "export const W = () => <HubPage title='x'><Stack /></HubPage>;";
     const messages = await lint(code, configWithContract("standard"));
     expect(messages.map((m) => m.ruleId)).toContain("terp/layout-contract");
@@ -50,7 +50,7 @@ describe("terp/layout-contract", () => {
 
   it("passes a conforming hub / overview / detail composition", async () => {
     const code = [
-      'import { DataView, DetailList, HubCard, HubPage, OverviewPage, DetailPage, Stack } from "@terp/react-core";',
+      'import { DataView, DetailList, HubCard, HubPage, OverviewPage, DetailPage, Stack } from "@terpjs/react-core";',
       "export const H = () => <HubPage title='x'><HubCard to='/a' title='a' /></HubPage>;",
       "export const O = () => <OverviewPage title='x'><DataView /></OverviewPage>;",
       "export const D = () => <DetailPage title='x' parents={[]}><Stack><DetailList items={[]} /></Stack></DetailPage>;",
@@ -60,19 +60,19 @@ describe("terp/layout-contract", () => {
 
   it("refuses raw text and recurses through fragments; dynamic children are left to the runtime half", async () => {
     const text =
-      'import { OverviewPage } from "@terp/react-core";\n' +
+      'import { OverviewPage } from "@terpjs/react-core";\n' +
       "export const W = () => <OverviewPage title='x'>loose text</OverviewPage>;";
     expect((await lint(text, configWithContract("standard"))).map((m) => m.ruleId)).toContain(
       "terp/layout-contract",
     );
     const fragment =
-      'import { HubPage } from "@terp/react-core";\n' +
+      'import { HubPage } from "@terpjs/react-core";\n' +
       "export const W = () => <HubPage title='x'><><span /></></HubPage>;";
     expect((await lint(fragment, configWithContract("standard"))).map((m) => m.ruleId)).toContain(
       "terp/layout-contract",
     );
     const dynamic =
-      'import { HubPage } from "@terp/react-core";\n' +
+      'import { HubPage } from "@terpjs/react-core";\n' +
       "export const W = ({items}) => <HubPage title='x'>{items}</HubPage>;";
     expect((await lint(dynamic, configWithContract("standard"))).map((m) => m.ruleId)).toEqual([]);
   });
@@ -85,7 +85,7 @@ describe("terp/layout-contract", () => {
 
   it("honours a justified escape-hatch marker (and only a justified one)", async () => {
     const code =
-      'import { HubPage } from "@terp/react-core";\n' +
+      'import { HubPage } from "@terpjs/react-core";\n' +
       "export const W = () => <HubPage title='x'>\n" +
       "  {/* terp-allow-layout-contract: legacy widget pending HubCard port */}\n" +
       "  <div />\n" +

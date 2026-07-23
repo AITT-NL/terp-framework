@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { EDITOR, login, logout } from "@terp/conformance";
+import { EDITOR, login, logout } from "@terpjs/conformance";
 
 import { NOTES } from "./seed";
 

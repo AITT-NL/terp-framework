@@ -9,8 +9,8 @@ import {
   useServerDataView,
   useTerpClient,
   useToast,
-} from "@terp/react-core";
-import type { DataViewColumn } from "@terp/react-core";
+} from "@terpjs/react-core";
+import type { DataViewColumn } from "@terpjs/react-core";
 import { useMemo, useState } from "react";
 
 import type { components, paths } from "../../api/schema";

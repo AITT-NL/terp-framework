@@ -1,4 +1,4 @@
-import { defineModuleManifest } from "@terp/contract";
+import { defineModuleManifest } from "@terpjs/contract";
 
 import { TasksList } from "./TasksList";
 

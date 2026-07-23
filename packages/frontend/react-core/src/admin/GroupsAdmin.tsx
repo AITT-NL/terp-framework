@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
-import type { components } from "@terp/contract";
+import type { components } from "@terpjs/contract";
 
 import { Icon } from "../icons";
 import { OverviewPage } from "../OverviewPage";

@@ -142,7 +142,7 @@ describe("renderEnvelope", () => {
 
 describe("terp-boundaries-lint (the bin)", () => {
   const config =
-    'import terpBoundaries from "@terp/eslint-boundaries";\n' +
+    'import terpBoundaries from "@terpjs/eslint-boundaries";\n' +
     'export default [{ ignores: ["node_modules/**"] }, ...terpBoundaries];\n';
 
   function runBin(root) {
@@ -236,7 +236,7 @@ describe("terp-boundaries-lint (the bin)", () => {
 
 describe("the check report (--format check-report, app-check-report.schema.json)", () => {
   const config =
-    'import terpBoundaries from "@terp/eslint-boundaries";\n' +
+    'import terpBoundaries from "@terpjs/eslint-boundaries";\n' +
     'export default [{ ignores: ["node_modules/**"] }, ...terpBoundaries];\n';
 
   function runBin(root, args) {

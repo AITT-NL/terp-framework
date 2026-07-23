@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { defineModuleManifest } from "@terp/contract";
+import { defineModuleManifest } from "@terpjs/contract";
 
 import { collectModules, renderTerpApp } from "./bootstrap";
 

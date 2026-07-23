@@ -1,4 +1,4 @@
-import type { Action } from "@terp/contract";
+import type { Action } from "@terpjs/contract";
 
 /**
  * The minimum backend role rank that may perform each coarse UI {@link Action}.

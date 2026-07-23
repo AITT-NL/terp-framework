@@ -45,11 +45,11 @@ uv run pytest apps/example/tests     # or the repo‑wide `uv run pytest`
 ```
 
 With the workbench running, the app's own browser flows (its notes / tasks / projects / journals
-modules) run with Playwright — composing the app-agnostic helpers from `@terp/conformance`
+modules) run with Playwright — composing the app-agnostic helpers from `@terpjs/conformance`
 (login, seeded role credentials) with this app's seed expectations in `frontend/e2e/`:
 
 ```bash
-npm run -w @terp-example/frontend test:e2e     # base-profile flows: npm run -w @terp/conformance test
+npm run -w @terpjs-example/frontend test:e2e     # base-profile flows: npm run -w @terpjs/conformance test
 ```
 
 The frontend escape‑hatch budget is empty (`frontend/escape-hatch-budget.json`

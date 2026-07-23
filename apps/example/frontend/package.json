@@ -1,9 +1,9 @@
 {
-  "name": "@terp-example/frontend",
+  "name": "@terpjs-example/frontend",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Terp example app — React frontend dogfooding @terp/react-core + @terp/contract against the example backend.",
+  "description": "Terp example app — React frontend dogfooding @terpjs/react-core + @terpjs/contract against the example backend.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -14,15 +14,15 @@
   },
   "dependencies": {
     "@tanstack/react-router": "^1.170.16",
-    "@terp/contract": "*",
-    "@terp/react-core": "*",
+    "@terpjs/contract": "*",
+    "@terpjs/react-core": "*",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",
-    "@terp/conformance": "*",
-    "@terp/eslint-boundaries": "*",
+    "@terpjs/conformance": "*",
+    "@terpjs/eslint-boundaries": "*",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",

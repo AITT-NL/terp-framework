@@ -165,7 +165,7 @@ and drift-checked in the gate**: `test_openapi_contract` regenerates it from the
 fails closed if the committed copy fell behind (the committed-artifact + no-drift shape of the
 vendored mirror, ADR 0034), so the frontend has a stable, reviewable input that cannot silently
 diverge from the backend. The remaining `packages/frontend/*` packages stay stubs pending the
-`@terp/contract` scaffolding (OpenAPI→typed client, design tokens, the route/nav manifest, and
+`@terpjs/contract` scaffolding (OpenAPI→typed client, design tokens, the route/nav manifest, and
 the auth interface).
 
 Most recently, the **jobs seam (ADR 0043)** lands the async/jobs design's Phase 1 — the core
@@ -200,7 +200,7 @@ adapters, and the sync capability are deferred to later ADRs; the example app is
 its escape-hatch budget stays `{}`.
 
 Most recently, the **current-user `/me` endpoint (ADR 0044)** gives the frontend session
-contract a real, server-validated source. Building `@terp/contract` surfaced that no exported
+contract a real, server-validated source. Building `@terpjs/contract` surfaced that no exported
 path returned the signed-in user and the access token carries no email (only id + role + tenant
 + epoch), with `GET /api/v1/users/{id}` ADMIN-only — so the UI would have had to trust decoded,
 possibly stale token claims. A self-scoped `GET /api/v1/me` now ships on the auth surface via a
@@ -212,7 +212,7 @@ reflects the store, not the token. Self-scope is structural (the handler reads o
 `principal.id` and takes no id parameter), so it rides the existing guard + read-only binder with
 no new AST rule (runtime / test-covered, the ADR-0031 precedent). The committed
 `packages/frontend/contract/openapi.json` + `schema.d.ts` regenerate (gaining `/api/v1/me/` + the
-`CurrentUser` schema), and `@terp/contract`'s `CurrentUser` is now reused from the generated
+`CurrentUser` schema), and `@terpjs/contract`'s `CurrentUser` is now reused from the generated
 schema so it cannot drift; the role stays a numeric **rank** on the wire (ADR 0004 / 0022) with
 `role_name` added for display only. No new table or migration; the example budget stays `{}`.
 
@@ -663,7 +663,7 @@ generic by construction.
 | 1 | Carve `terp-core` + `ModuleSpec` + public surface | ✅ | Kernel + `create_app` + `BaseService` shipped (ADR D3–D5). `.pyi` / api-docs generator now shipped via `terp api-docs` (ADR 0039). |
 | 2 | Repackage capabilities (entry-point extras) + base profile | ✅ | auth, access, identity, tenancy, users ✅; entry-point discovery ✅. Base profile closed by ADR 0060 (`projects` reclassified as example module code). |
 | 3 | Ship `terp-arch`; delegate layering to a tool | ✅ | Harness shipped (full rule set + `requires` boot check + governed escape-hatch budget ratchet + docs-parity test, ADR 0030; universal rule set completed by ADR 0037). Generic CI backstops now layer on top (ADR 0033): ruff bandit `S`, an import-linter `terp.core` layer-0 contract mirroring `test_core_boundary`, plus advisory pip-audit + deptry — CI-only, never replacing `terp-arch`. |
-| 4 | Frontend contract + Stack A (React) + conformance | ✅ | `@terp/contract` (base-profile OpenAPI → typed client + design tokens + stack-agnostic manifest/auth types), `@terp/react-core` (Stack A: `TerpProvider` + auth session, app shell + TanStack router adapter + token-styled primitives + capability gates + `useResource` data hooks), `@terp/eslint-boundaries` (fail-closed module-boundary lint), and `@terp/conformance` (Playwright e2e over the Docker workbench). The example app dogfoods all four (notes/tasks/projects/journals modules); the copier template ships them. |
+| 4 | Frontend contract + Stack A (React) + conformance | ✅ | `@terpjs/contract` (base-profile OpenAPI → typed client + design tokens + stack-agnostic manifest/auth types), `@terpjs/react-core` (Stack A: `TerpProvider` + auth session, app shell + TanStack router adapter + token-styled primitives + capability gates + `useResource` data hooks), `@terpjs/eslint-boundaries` (fail-closed module-boundary lint), and `@terpjs/conformance` (Playwright e2e over the Docker workbench). The example app dogfoods all four (notes/tasks/projects/journals modules); the copier template ships them. |
 | 5 | Scaffolding: copier template + `terp` CLI | ✅ | `terp new module` (canonical five slots), the copier `template/` (runnable app + base profile), `terp api-docs` (generated `.pyi` + reference), and `terp check` (ADR 0039). |
 | 6 | Agent-visibility layer (§10) | ✅ | `vendor/terp-core/` read-only mirror + `test_vendored_core_unmodified` drift gate (ADR 0034). CODEOWNERS deferred; the publish pipeline shipped (lockstep versions + release.yml + template acceptance, ADR 0063). |
 | 7 | Packaged migrations (§4.6) | ✅ | Independent per-package Alembic histories + `terp migrate` (incl. stamp/heads/merge, cross-package FK autogenerate, model-drift check) + boot guard (ADR 0027), plus the `tables_have_migrations` arch rule (ADR 0028). The conformance suite now also runs against real PostgreSQL in CI, and production boot refuses an unverified dialect without an explicit acknowledgement (ADR 0069). Deployments can opt into the per-module schema layout (`DB_SCHEMA_LAYOUT=per-module` + `terp migrate adopt-schemas`, `no_manual_table_schema` rule; ADR 0070) and split privileges with a least-privilege runtime role (`terp migrate grant-runtime`; ADR 0071). Offline `--sql` deferred. |

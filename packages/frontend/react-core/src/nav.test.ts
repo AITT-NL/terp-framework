@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ModuleManifest } from "@terp/contract";
+import type { ModuleManifest } from "@terpjs/contract";
 
 import { visibleNav } from "./nav";
 

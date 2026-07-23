@@ -128,7 +128,7 @@ def build_base_profile() -> FastAPI:
     this app's domain modules or optional capability routers.
 
     ``terp openapi --app app.main:build_base_profile`` exports this as the frontend contract
-    (``packages/frontend/contract/openapi.json``), so the bundled ``@terp/contract`` client types the
+    (``packages/frontend/contract/openapi.json``), so the bundled ``@terpjs/contract`` client types the
     endpoints in the reusable base profile — not this example's notes / tasks / projects / journals
     and not optional installed capability routers such as webhooks. An app that wants its own
     endpoints typed generates its own schema (``npm run generate``) and passes those ``paths`` to

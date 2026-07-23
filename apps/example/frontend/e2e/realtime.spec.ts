@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { EDITOR } from "@terp/conformance";
+import { EDITOR } from "@terpjs/conformance";
 
 interface TicketResponse {
   ticket: string;

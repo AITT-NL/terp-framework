@@ -1,5 +1,5 @@
 {
-  "name": "@terp/monorepo",
+  "name": "@terpjs/monorepo",
   "version": "0.0.0",
   "private": true,
   "description": "Terp — Trusted Enterprise Reinforced Platform (JS workspace root).",

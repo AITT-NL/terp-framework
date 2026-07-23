@@ -1,4 +1,4 @@
-import terpBoundaries from "@terp/eslint-boundaries";
+import terpBoundaries from "@terpjs/eslint-boundaries";
 
 // Terp's frontend boundary enforcement (the analog of the backend `terp check` gate): app modules
 // stay independent and on the centralized contract — no cross-module imports, no package internals,

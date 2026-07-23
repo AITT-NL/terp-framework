@@ -13,7 +13,7 @@ WORKDIR /workspace
 COPY package.json package-lock.json ./
 COPY packages/frontend packages/frontend
 COPY apps/example/frontend apps/example/frontend
-RUN npm ci && npm run -w @terp-example/frontend build
+RUN npm ci && npm run -w @terpjs-example/frontend build
 
 # --- Stage 2: non-root nginx runtime -------------------------------------------------
 FROM nginxinc/nginx-unprivileged:alpine

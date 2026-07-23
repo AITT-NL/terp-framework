@@ -5,7 +5,7 @@ fails closed if either falls behind the live backend — the same "committed gen
 no-drift test" shape as the vendored core mirror (ADR 0034). The checks are semantic (parsed JSON),
 robust to formatting / line endings, and report exactly which routes / schemas drifted:
 
-- ``packages/frontend/contract/openapi.json`` is the ``@terp/contract`` baked schema: the
+- ``packages/frontend/contract/openapi.json`` is the ``@terpjs/contract`` baked schema: the
   BASE-PROFILE surface every Terp app has (auth, ``/me``, users, access, audit, ...), exported from
   ``app.main:build_base_profile`` — NOT this example's domain modules. react-core and a generated
   repo's default client are typed from it.
@@ -66,7 +66,7 @@ def test_openapi_contract_present() -> None:
 
 
 def test_openapi_contract_is_base_profile_only(tmp_path: pathlib.Path) -> None:
-    """The @terp/contract spec must equal the base-profile app — framework surface, no domain modules."""
+    """The @terpjs/contract spec must equal the base-profile app — framework surface, no domain modules."""
     committed = json.loads(_CONTRACT.read_text(encoding="utf-8"))
     regenerated = _regenerate("app.main:build_base_profile", tmp_path / "openapi.json")
     # The example's own domain modules must NOT leak into the bundled contract.

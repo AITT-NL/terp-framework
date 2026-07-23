@@ -1,5 +1,5 @@
-import { unwrap, useResource, useTerpClient } from "@terp/react-core";
-import type { Resource } from "@terp/react-core";
+import { unwrap, useResource, useTerpClient } from "@terpjs/react-core";
+import type { Resource } from "@terpjs/react-core";
 import type { paths, components } from "../../api/schema";
 
 type NoteRead = components["schemas"]["NoteRead"];

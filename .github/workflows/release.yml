@@ -92,13 +92,13 @@ jobs:
       - name: Frontend checks (typecheck + tests + boundary lint + build)
         run: |
           set -eux
-          npm run -w @terp/contract typecheck
-          npm run -w @terp/react-core typecheck
-          npm run -w @terp/react-core test
-          npm run -w @terp/eslint-boundaries test
-          npm run -w @terp-example/frontend typecheck
-          npm run -w @terp-example/frontend lint
-          npm run -w @terp-example/frontend build
+          npm run -w @terpjs/contract typecheck
+          npm run -w @terpjs/react-core typecheck
+          npm run -w @terpjs/react-core test
+          npm run -w @terpjs/eslint-boundaries test
+          npm run -w @terpjs-example/frontend typecheck
+          npm run -w @terpjs-example/frontend lint
+          npm run -w @terpjs-example/frontend build
       # The verifiable certification artifacts for this release: both checkers'
       # scorecards over the violation corpus (scorecard.schema.json), attached
       # to the verified run the publish jobs depend on.
@@ -200,7 +200,7 @@ jobs:
         run: |
           set -eux
           version="${GITHUB_REF_NAME#v}"
-          for ws in @terp/contract @terp/eslint-boundaries @terp/react-core @terp/conformance; do
+          for ws in @terpjs/contract @terpjs/eslint-boundaries @terpjs/react-core @terpjs/conformance; do
             # Idempotent re-run: skip a package this version already published.
             if [ "$(npm view "$ws@$version" version 2>/dev/null || true)" = "$version" ]; then
               echo "$ws@$version already on the registry — skipping"

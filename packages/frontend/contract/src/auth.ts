@@ -3,7 +3,7 @@ import type { components } from "./schema";
 /**
  * The auth/session contract every frontend stack implements identically (design §7.1,
  * item 4): token handling, the current user, and UI permission gating that honours the
- * backend roles. Implementations wrap the generated `@terp/contract` client; they never
+ * backend roles. Implementations wrap the generated `@terpjs/contract` client; they never
  * invent their own auth semantics.
  *
  * Wire types (`Credentials`, `AccessToken`) are reused from the generated schema, so the

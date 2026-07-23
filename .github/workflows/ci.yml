@@ -204,7 +204,7 @@ jobs:
           set -eux
           npm ci
           mkdir -p /tmp/terp-npm
-          for ws in @terp/contract @terp/eslint-boundaries @terp/react-core @terp/conformance; do
+          for ws in @terpjs/contract @terpjs/eslint-boundaries @terpjs/react-core @terpjs/conformance; do
             npm pack -w "$ws" --pack-destination /tmp/terp-npm
           done
 

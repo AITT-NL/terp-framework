@@ -21,7 +21,7 @@ export type TerpClient = ReturnType<typeof createTerpClient>;
 
 /**
  * A typed Terp client for ANY app's generated `paths` (the openapi-typescript output of
- * that app's own OpenAPI document). `@terp/react-core`'s `useTerpClient<paths>()` returns
+ * that app's own OpenAPI document). `@terpjs/react-core`'s `useTerpClient<paths>()` returns
  * this, so a client app types calls to its OWN endpoints — not only the base-profile paths
  * bundled in this package. The runtime client is the same; only the compile-time view differs.
  */

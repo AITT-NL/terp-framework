@@ -1,8 +1,8 @@
 {
-  "name": "@terp/react-core",
+  "name": "@terpjs/react-core",
   "version": "0.1.0",
   "type": "module",
-  "description": "Terp React stack core — typed @terp/contract client provider, auth session, capability gates, TanStack Router adapter, app shell, page archetypes, DataView and token-styled UI primitives. First frontend stack; see README.md for the component catalog.",
+  "description": "Terp React stack core — typed @terpjs/contract client provider, auth session, capability gates, TanStack Router adapter, app shell, page archetypes, DataView and token-styled UI primitives. First frontend stack; see README.md for the component catalog.",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@tanstack/react-router": "^1.170.16",
-    "@terp/contract": "^0.1.0"
+    "@terpjs/contract": "^0.1.0"
   },
   "peerDependencies": {
     "react": "^18.3.0 || ^19.0.0",

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { useTerpClient } from "./TerpProvider";
 
-// A synthetic app contract with an endpoint that is NOT in @terp/contract's base profile —
+// A synthetic app contract with an endpoint that is NOT in @terpjs/contract's base profile —
 // what an app's own openapi-typescript output looks like.
 interface AppPaths {
   "/api/v1/invoices/": {

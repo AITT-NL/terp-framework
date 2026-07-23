@@ -21,7 +21,7 @@ async function lint(code, filePath = MODULE_FILE) {
 describe("terpBoundaries", () => {
   it("passes clean module code (react-core components + generated client)", async () => {
     const code = [
-      'import { Button, Select, Textarea, useTerpClient } from "@terp/react-core";',
+      'import { Button, Select, Textarea, useTerpClient } from "@terpjs/react-core";',
       "export function Widget() {",
       "  const client = useTerpClient();",
       "  void client;",

@@ -39,31 +39,31 @@ jobs:
         run: npm audit --audit-level=high
 
       - name: Type-check the generated client
-        run: npm run -w @terp/contract typecheck
+        run: npm run -w @terpjs/contract typecheck
 
       - name: Regenerate the client and fail on drift from openapi.json
         run: |
-          npm run -w @terp/contract generate
+          npm run -w @terpjs/contract generate
           git diff --exit-code -- packages/frontend/contract/src/schema.d.ts
 
       - name: Rebuild design tokens and fail on drift from tokens.json
         run: |
-          npm run -w @terp/contract tokens
+          npm run -w @terpjs/contract tokens
           git diff --exit-code -- packages/frontend/contract/src/tokens.css
 
-      - name: Type-check @terp/react-core
-        run: npm run -w @terp/react-core typecheck
+      - name: Type-check @terpjs/react-core
+        run: npm run -w @terpjs/react-core typecheck
 
-      - name: Test @terp/react-core
-        run: npm run -w @terp/react-core test
+      - name: Test @terpjs/react-core
+        run: npm run -w @terpjs/react-core test
 
-      - name: Test @terp/eslint-boundaries (the boundary rules fire)
-        run: npm run -w @terp/eslint-boundaries test
+      - name: Test @terpjs/eslint-boundaries (the boundary rules fire)
+        run: npm run -w @terpjs/eslint-boundaries test
 
       # The verifiable certification artifact (scorecard.schema.json): the
       # adapter's scorecard over the violation corpus, emitted by the same
       # harness the suite above just proved green. Self-validating.
-      - name: Emit the @terp/eslint-boundaries conformance scorecard
+      - name: Emit the @terpjs/eslint-boundaries conformance scorecard
         run: node packages/frontend/eslint-boundaries/src/scorecard.js --out scorecard-eslint-boundaries.json
       - uses: actions/upload-artifact@v4
         with:
@@ -72,14 +72,14 @@ jobs:
 
       - name: Regenerate the example client and fail on drift from openapi.json
         run: |
-          npm run -w @terp-example/frontend generate
+          npm run -w @terpjs-example/frontend generate
           git diff --exit-code -- apps/example/frontend/src/api/schema.d.ts
 
       - name: Type-check the example frontend
-        run: npm run -w @terp-example/frontend typecheck
+        run: npm run -w @terpjs-example/frontend typecheck
 
       - name: Lint the example frontend (module boundary rules)
-        run: npm run -w @terp-example/frontend lint
+        run: npm run -w @terpjs-example/frontend lint
 
       - name: Build the example frontend
-        run: npm run -w @terp-example/frontend build
+        run: npm run -w @terpjs-example/frontend build

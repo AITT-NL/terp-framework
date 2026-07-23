@@ -1,5 +1,5 @@
 {
-  "name": "@terp/contract",
+  "name": "@terpjs/contract",
   "version": "0.1.0",
   "type": "module",
   "description": "Terp frontend contract \u2014 the OpenAPI-generated TypeScript client, design tokens, and the stack-agnostic module/route/nav + auth types.",

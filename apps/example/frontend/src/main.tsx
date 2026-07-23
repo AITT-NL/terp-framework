@@ -1,6 +1,6 @@
 // The design-token CSS variables the react-core primitives style against (light + dark).
-import "@terp/contract/tokens.css";
-import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terp/react-core";
+import "@terpjs/contract/tokens.css";
+import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terpjs/react-core";
 
 // The whole app: discover the modules and mount. baseUrl "" keeps API calls same-origin
 // so the Vite dev proxy forwards /api to the backend. The SSO provider button mirrors

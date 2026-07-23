@@ -55,7 +55,7 @@ See `AGENTS.md` and `uv run terp guide` for the authoring rules.
 
 ## Frontend
 
-A React frontend is wired in `frontend/` (Vite + `@terp/react-core`), with one module
+A React frontend is wired in `frontend/` (Vite + `@terpjs/react-core`), with one module
 slot matching the backend. `frontend/src/modules/<name>/module.tsx` is auto-discovered —
 no central registration, and `uv run terp new module <name>` adds the matching slot for you.
 
@@ -75,7 +75,7 @@ const client = useTerpClient<paths>();   // now typed to YOUR endpoints
 ## Conformance
 
 End-to-end browser flows run with [Playwright](https://playwright.dev) in `conformance/`, using the
-base-profile helpers from `@terp/conformance` (sign-in gating, sign-out). Boot the workbench, then:
+base-profile helpers from `@terpjs/conformance` (sign-in gating, sign-out). Boot the workbench, then:
 
 ```bash
 cd conformance

@@ -4,7 +4,7 @@ import {
   ResourceList,
   Stack,
   useRealtimeChannel,
-} from "@terp/react-core";
+} from "@terpjs/react-core";
 
 import { useNotes } from "./useNotes";
 

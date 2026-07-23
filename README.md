@@ -38,10 +38,10 @@ packages/backend/arch           terp-arch    → import terp.arch            (fi
 packages/backend/cli            terp-cli     → `terp` command
 packages/backend/migrations     terp-migrations → import terp.migrations   (migration engine)
 packages/backend/capabilities   terp-cap-*   → import terp.capabilities.*  (opt-in)
-packages/frontend/contract      @terp/contract        (client + tokens + manifest types)
-packages/frontend/react-core    @terp/react-core      (first stack: React)
-packages/frontend/eslint-boundaries  @terp/eslint-boundaries
-packages/frontend/conformance   @terp/conformance     (Playwright parity suite)
+packages/frontend/contract      @terpjs/contract        (client + tokens + manifest types)
+packages/frontend/react-core    @terpjs/react-core      (first stack: React)
+packages/frontend/eslint-boundaries  @terpjs/eslint-boundaries
+packages/frontend/conformance   @terpjs/conformance     (Playwright parity suite)
 apps/example                    neutral example app consuming the packaged core
 template/                       copier skeleton (CI, AGENTS.md)
 vendor/terp-core                byte-for-byte mirror of packages/backend/core
@@ -68,7 +68,7 @@ end‑to‑end and passes the architecture harness clean.
 
 ## Non‑negotiable defaults
 
-1. Python namespace **`terp.*`** (never `platform.*`). npm **`@terp/*`**. CLI **`terp`**.
+1. Python namespace **`terp.*`** (never `platform.*`). npm **`@terpjs/*`**. CLI **`terp`**.
 2. A single platform **monorepo** (separate packages, not separate repos).
 3. First frontend stack: **React**; the core stays frontend‑agnostic via a contract.
 4. Default tenancy: **`organization`**; the core stays tenancy‑agnostic.

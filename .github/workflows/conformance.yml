@@ -45,12 +45,12 @@ jobs:
       - name: Run the base-profile conformance suite (app-agnostic)
         env:
           TERP_E2E_BASE_URL: http://localhost:5173
-        run: npm run -w @terp/conformance test
+        run: npm run -w @terpjs/conformance test
 
       - name: Run the example app's own e2e flows (its modules)
         env:
           TERP_E2E_BASE_URL: http://localhost:5173
-        run: npm run -w @terp-example/frontend test:e2e
+        run: npm run -w @terpjs-example/frontend test:e2e
 
       - name: Upload the Playwright reports on failure
         if: failure()

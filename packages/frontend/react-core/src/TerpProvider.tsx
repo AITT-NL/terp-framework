@@ -16,8 +16,8 @@ import type {
   paths as ContractPaths,
   TerpClient,
   TerpClientFor,
-} from "@terp/contract";
-import { createTerpClient } from "@terp/contract";
+} from "@terpjs/contract";
+import { createTerpClient } from "@terpjs/contract";
 
 import {
   canPerform,
@@ -79,7 +79,7 @@ async function loadCurrentUser(client: TerpClient): Promise<CurrentUser> {
 }
 
 /**
- * Provides a typed `@terp/contract` client and an {@link AuthSession} to the tree. The
+ * Provides a typed `@terpjs/contract` client and an {@link AuthSession} to the tree. The
  * session implements the contract over the generated client: login exchanges credentials
  * for a token and loads `/me`, logout revokes it (ADR 0031), and `can` gates the UI on
  * the server-validated role rank. The bearer token lives in memory for the provider's
@@ -298,7 +298,7 @@ function useTerp(): TerpContextValue {
  * const { data } = await client.GET("/api/v1/invoices/", {});
  * ```
  *
- * The default types the base-profile endpoints bundled in `@terp/contract`.
+ * The default types the base-profile endpoints bundled in `@terpjs/contract`.
  */
 export function useTerpClient<AppPaths extends {} = ContractPaths>(): TerpClientFor<AppPaths> {
   return useTerp().client as unknown as TerpClientFor<AppPaths>;

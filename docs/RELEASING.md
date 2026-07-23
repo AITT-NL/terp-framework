@@ -86,8 +86,8 @@ self-review prevention; GitHub does not accept an external collaborator for that
 ### npm — the `@terp` scope
 
 1. Ensure the npm account owns the `@terp` organization/scope.
-2. Create a granular automation token with publish rights for `@terp/contract`,
-   `@terp/eslint-boundaries`, `@terp/react-core`, `@terp/conformance`.
+2. Create a granular automation token with publish rights for `@terpjs/contract`,
+   `@terpjs/eslint-boundaries`, `@terpjs/react-core`, `@terpjs/conformance`.
 3. Store it as the `NPM_TOKEN` secret on the `release` environment.
 
 `npm publish --provenance` requires each `package.json`'s `repository.url` to match
@@ -118,7 +118,7 @@ create packages.
    fans out to `publish-pypi` + `publish-npm` + `publish-images`, then
    `github-release` attaches the conformance scorecards.
 5. Verify installability from a clean project: `uv add terp-core terp-cli` and
-   `npm install @terp/react-core` resolve at the new version.
+   `npm install @terpjs/react-core` resolve at the new version.
 
 ### If a publish job fails partway
 

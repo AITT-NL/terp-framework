@@ -1,6 +1,6 @@
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import type { components } from "@terp/contract";
+import type { components } from "@terpjs/contract";
 
 import { ConfirmDialog } from "../ConfirmDialog";
 import { DetailPage } from "../DetailPage";

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, logout } from "@terp/conformance";
+import { login, logout } from "@terpjs/conformance";
 
 // This app's seeded administrator (see app/seed.py). Override via TERP_E2E_ADMIN_* for other
 // environments (e.g. a staging seed).
@@ -10,7 +10,7 @@ const ADMIN = {
 
 // Base-profile auth — identical in every Terp app: a signed-out visitor is gated to the login
 // screen, the seeded admin signs in to reach the app shell, and can sign out again. This suite is
-// yours to grow: add module specs alongside this file using the @terp/conformance login/logout
+// yours to grow: add module specs alongside this file using the @terpjs/conformance login/logout
 // helpers (see the notes/tasks specs in the Terp example app for the pattern).
 
 test("an unauthenticated visitor is gated to the sign-in screen", async ({ page }) => {

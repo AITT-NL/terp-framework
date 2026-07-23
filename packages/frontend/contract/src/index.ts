@@ -1,4 +1,4 @@
-// Public surface of @terp/contract — the generated, drift-checked API contract.
+// Public surface of @terpjs/contract — the generated, drift-checked API contract.
 export { createTerpClient } from "./client";
 export type { TerpClient, TerpClientFor } from "./client";
 export type { components, operations, paths } from "./schema";

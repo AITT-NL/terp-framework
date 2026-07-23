@@ -1,4 +1,4 @@
-import type { Action } from "@terp/contract";
+import type { Action } from "@terpjs/contract";
 import type { ReactNode } from "react";
 
 import { useAuth } from "./TerpProvider";

@@ -409,13 +409,13 @@ Database migrations (terp migrate)
       upgrade(db_url, app_root); assert_migrations_match_models(db_url, app_root)
 """,
     "frontend": """\
-Frontend module screens (@terp/react-core)
+Frontend module screens (@terpjs/react-core)
 
 - A module's frontend slot is frontend/src/modules/<name>/ with a module.tsx manifest;
-  everything composes the token-styled @terp/react-core surface. The full catalog (with
-  per-export "Use" guidance) is the @terp/react-core README; each export also carries
+  everything composes the token-styled @terpjs/react-core surface. The full catalog (with
+  per-export "Use" guidance) is the @terpjs/react-core README; each export also carries
   JSDoc, so your editor shows the same guidance inline.
-- The boundary lint (@terp/eslint-boundaries) refuses, fail-closed:
+- The boundary lint (@terpjs/eslint-boundaries) refuses, fail-closed:
     raw <button>/<input>/<select>/<textarea>   ->  Button / Input / Select / Textarea
     raw <table>                                ->  DataView          (terp guide dataview)
     raw <dialog>                               ->  ConfirmDialog
@@ -424,11 +424,11 @@ Frontend module screens (@terp/react-core)
     WebSocket / EventSource / sendBeacon       ->  the generated client (one egress path)
     style={} / className / module stylesheets  ->  layout via Stack/DetailList; design tokens
     <a href="/...">                            ->  the router's Link (role-aware, no reload)
-    deep imports (@terp/*/src, @terp/*/dist)   ->  import from the package root only
+    deep imports (@terpjs/*/src, @terpjs/*/dist)   ->  import from the package root only
 - Frontend security defaults (each its own lint rule, same error-only footing):
   dangerouslySetInnerHTML and DOM HTML-injection sinks (innerHTML/outerHTML/
   insertAdjacentHTML/document.write) are refused — render text, or Markdown from
-  @terp/react-core for rich text; eval() / new Function() are refused; javascript:
+  @terpjs/react-core for rich text; eval() / new Function() are refused; javascript:
   URLs in href/src are refused; a static target="_blank" link needs rel="noopener".
 - Every routed view renders a page archetype (Page / OverviewPage / DetailPage / HubPage);
   buildAppRouter refuses an unframed view at runtime, fail closed. An app can ratchet

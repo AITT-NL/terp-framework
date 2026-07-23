@@ -108,7 +108,7 @@ npm --prefix frontend run build       # the production build CI ships
 A frontend module that fails typecheck breaks the app at runtime (a blank page —
 Vite refuses the module graph), so a red typecheck means the app does not work,
 even if the backend gate passes. Import only what a package really exports:
-check the catalog in `node_modules/@terp/react-core/README.md` instead of
+check the catalog in `node_modules/@terpjs/react-core/README.md` instead of
 guessing component names or props.
 
 Two boundaries are never autonomous agent decisions:
@@ -138,9 +138,9 @@ Two boundaries are never autonomous agent decisions:
 
 ## Frontend golden rules
 
-Screens compose the **`@terp/react-core` component surface** — catalog in
-`node_modules/@terp/react-core/README.md`; data collections via `DataView`
-(`node_modules/@terp/react-core/src/dataview/README.md`); in-terminal recipes via
+Screens compose the **`@terpjs/react-core` component surface** — catalog in
+`node_modules/@terpjs/react-core/README.md`; data collections via `DataView`
+(`node_modules/@terpjs/react-core/src/dataview/README.md`); in-terminal recipes via
 `uv run terp guide frontend` / `uv run terp guide dataview` / `uv run terp guide forms`.
 The boundary lint enforces:
 token-styled primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/
@@ -148,7 +148,7 @@ token-styled primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>
 `XMLHttpRequest` / `WebSocket` / `EventSource` / `sendBeacon`),
 design-token styling with no `style={}` / `className` / module stylesheets (layout via
 `Stack` / the page archetypes), in-app links via the router (no raw `<a href="/...">`),
-and no deep `@terp/*` imports. Every routed view renders a page archetype (`Page` /
+and no deep `@terpjs/*` imports. Every routed view renders a page archetype (`Page` /
 `OverviewPage` / `DetailPage` / `HubPage`) — the router refuses an unframed view.
 This app also opts into the **`standard` layout contract** (ADR 0079,
 `frontend/layout-contract.json` + `layoutContract` in `main.tsx` — keep the two in

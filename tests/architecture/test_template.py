@@ -314,23 +314,23 @@ def test_project_ships_frontend_boundary_lint() -> None:
     # cross-module imports, no package internals, tokens-only styling, generated client only.
     assert (_PROJECT / "frontend" / "eslint.config.js").exists()
     package = (_PROJECT / "frontend" / "package.json.jinja").read_text()
-    assert "@terp/eslint-boundaries" in package
+    assert "@terpjs/eslint-boundaries" in package
     assert '"lint"' in package
     assert '"eslint"' in package
 
 
 def test_project_ships_conformance_e2e() -> None:
     # The generated repo ships a Playwright conformance project (the base-profile auth/logout flows
-    # from @terp/conformance) + a CI job that boots the workbench and runs it — the browser-level
+    # from @terpjs/conformance) + a CI job that boots the workbench and runs it — the browser-level
     # complement to the type/build checks, ready to grow with the app's own module specs.
     conformance = _PROJECT / "conformance"
     assert (conformance / "playwright.config.ts").exists()
     assert (conformance / "tsconfig.json").exists()
     package = (conformance / "package.json.jinja").read_text()
-    assert "@terp/conformance" in package
+    assert "@terpjs/conformance" in package
     assert "@playwright/test" in package
     spec = (conformance / "tests" / "auth.spec.ts").read_text()
-    assert "@terp/conformance" in spec
+    assert "@terpjs/conformance" in spec
     assert "logout" in spec
     # CI boots the workbench and runs the suite (the browser-level gate).
     ci = (_PROJECT / ".github" / "workflows" / "ci.yml.jinja").read_text()

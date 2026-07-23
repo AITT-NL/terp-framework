@@ -1,4 +1,4 @@
-import type { TerpClient, TerpClientFor } from "@terp/contract";
+import type { TerpClient, TerpClientFor } from "@terpjs/contract";
 
 import { unwrap } from "./unwrap";
 

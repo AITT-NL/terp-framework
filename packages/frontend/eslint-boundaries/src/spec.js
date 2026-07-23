@@ -22,7 +22,7 @@ export const BOUNDARY_SPEC = {
   moduleFiles: ["**/modules/**/*.{ts,tsx}"],
   /**
    * Raw HTML elements an app module must not author directly, mapped to the token-styled
-   * `@terp/react-core` replacement (accessible + theme-consistent by construction).
+   * `@terpjs/react-core` replacement (accessible + theme-consistent by construction).
    */
   restrictedElements: {
     button: "Button",

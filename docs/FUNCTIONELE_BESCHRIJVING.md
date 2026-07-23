@@ -59,8 +59,8 @@ Aanvullende onderdelen:
 
 - **Harness** (`terp.arch`) — de build-time fitness-suite, geleverd als dependency.
 - **CLI** (`terp`) — scaffolding, inspectie, migraties, documentatie (zie §9).
-- **Frontend-pakketten** — `@terp/contract`, `@terp/react-core`,
-  `@terp/eslint-boundaries`, `@terp/conformance`.
+- **Frontend-pakketten** — `@terpjs/contract`, `@terpjs/react-core`,
+  `@terpjs/eslint-boundaries`, `@terpjs/conformance`.
 
 ### De drie koppelnaden
 
@@ -79,10 +79,10 @@ packages/backend/arch           terp-arch    → import terp.arch            (ha
 packages/backend/cli            terp-cli     → `terp`-commando
 packages/backend/capabilities   terp-cap-*   → import terp.capabilities.*
 packages/backend/migrations     terp-migrations (migratie-orkestratie)
-packages/frontend/contract      @terp/contract       (client + tokens + manifest-types)
-packages/frontend/react-core    @terp/react-core     (eerste stack: React)
-packages/frontend/eslint-boundaries  @terp/eslint-boundaries
-packages/frontend/conformance   @terp/conformance    (Playwright-pariteitssuite)
+packages/frontend/contract      @terpjs/contract       (client + tokens + manifest-types)
+packages/frontend/react-core    @terpjs/react-core     (eerste stack: React)
+packages/frontend/eslint-boundaries  @terpjs/eslint-boundaries
+packages/frontend/conformance   @terpjs/conformance    (Playwright-pariteitssuite)
 apps/example                    neutrale voorbeeldapp (dogfood)
 template/                       copier-skelet (CI, AGENTS.md)
 vendor/terp-core                read-only spiegel voor agent-zichtbaarheid
@@ -317,9 +317,9 @@ Elke stack implementeert hetzelfde stack-agnostische contract:
 5. **Boundary-lint-spec** — de regels (geen cross-module-imports, tokens-only
    styling, geen ruwe `<button>`/`<input>`, geen `dangerouslySetInnerHTML` zonder
    allowlist, routed pages voor formulieren) staan **als data** in
-   `@terp/eslint-boundaries`; per stack alleen een parser-adapter.
+   `@terpjs/eslint-boundaries`; per stack alleen een parser-adapter.
 
-**De equalizer**: `@terp/conformance` is een stack-agnostische Playwright-suite die
+**De equalizer**: `@terpjs/conformance` is een stack-agnostische Playwright-suite die
 elke stack-core moet halen — zelfde routes, zelfde guards, zelfde
 a11y-landmarks, zelfde token-gedreven visuals, zelfde error-envelope-afhandeling.
 Een stack toevoegen of upgraden = "maak de conformance-suite groen".

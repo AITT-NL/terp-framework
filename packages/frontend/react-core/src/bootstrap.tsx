@@ -2,7 +2,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import type { ComponentType, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import type { ModuleManifest } from "@terp/contract";
+import type { ModuleManifest } from "@terpjs/contract";
 
 import { LoginView } from "./LoginView";
 import type { DevCredentials } from "./LoginView";

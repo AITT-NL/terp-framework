@@ -10,7 +10,7 @@ import { createContext, useContext } from "react";
  * agent-directive message the `terp/layout-contract` lint rule phrases.
  *
  * This table is the TypeScript mirror of the spec-as-data source in
- * `@terp/eslint-boundaries/src/layouts.js` (react-core ships standalone, so it cannot
+ * `@terpjs/eslint-boundaries/src/layouts.js` (react-core ships standalone, so it cannot
  * import a lint package); the parity test in ./layoutContract.test.tsx keeps the two
  * identical, so the data cannot drift.
  */

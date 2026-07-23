@@ -1,6 +1,6 @@
 // This app's own seeded content and module UI strings (see ../../app/seed.py and the module
 // pages under ../src/modules). These are app data, not framework constants — which is why they
-// live here in the app's e2e suite rather than in @terp/conformance, which stays domain-agnostic.
+// live here in the app's e2e suite rather than in @terpjs/conformance, which stays domain-agnostic.
 
 export const NOTES = {
   link: "Notes",

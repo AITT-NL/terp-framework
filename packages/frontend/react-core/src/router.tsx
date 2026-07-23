@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-router";
 import type { ComponentType, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import type { ModuleManifest } from "@terp/contract";
+import type { ModuleManifest } from "@terpjs/contract";
 
 import { AppShell } from "./AppShell";
 import { ProfileView } from "./ProfileView";

@@ -1,13 +1,13 @@
-# @terp/react-core
+# @terpjs/react-core
 
 Stack A (React) of the Terp frontend contract: the provider/hooks that wire a tree to
-`@terp/contract`, the auth session, the app shell + TanStack Router adapter, and the
+`@terpjs/contract`, the auth session, the app shell + TanStack Router adapter, and the
 **token-styled component surface** every app module composes its screens from.
 
 This README is the catalog of that surface. Everything listed here is exported from
-the package root (`import { … } from "@terp/react-core"`); each export also carries
+the package root (`import { … } from "@terpjs/react-core"`); each export also carries
 JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
-`src/` or `dist/` — the boundary lint (`@terp/eslint-boundaries`) refuses it.
+`src/` or `dist/` — the boundary lint (`@terpjs/eslint-boundaries`) refuses it.
 
 ## Conventions (the lint enforces these)
 
@@ -20,7 +20,7 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
   or `useRealtimeChannel()` for typed SSE/WebSocket subscriptions. The hook mints a
   one-use connection ticket through the generated client; bearer tokens never enter URLs.
 - **Design tokens, not inline colours** — style with the CSS variables from
-  `@terp/contract` (`var(--color-*)`, `var(--space-*)`, `var(--font-*)`).
+  `@terpjs/contract` (`var(--color-*)`, `var(--space-*)`, `var(--font-*)`).
 - **User-facing text is `UiText`** — every text prop accepts a plain string or an
   `{id, message}` descriptor, so apps can localize via `UiTextProvider` without
   react-core taking an i18n dependency.
@@ -183,7 +183,7 @@ Component tests run under vitest with `// @vitest-environment jsdom` at the top 
 file plus an explicit `afterEach(cleanup)` (the default environment is node). Run:
 
 ```bash
-npm run -w @terp/react-core typecheck && npm run -w @terp/react-core test
+npm run -w @terpjs/react-core typecheck && npm run -w @terpjs/react-core test
 ```
 
 `vitest.setup.ts` polyfills `HTMLDialogElement.showModal/close` (jsdom lacks them), so

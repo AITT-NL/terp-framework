@@ -3,7 +3,7 @@
 // currently points at "/" because no module exists yet. When the first module lands
 // (`uv run terp new module <name>` or the agent), point the cards at its route (and
 // add a card per area as the app grows; a card can carry a live `stat`).
-import { HubCard, HubPage } from "@terp/react-core";
+import { HubCard, HubPage } from "@terpjs/react-core";
 import { Link } from "@tanstack/react-router";
 
 export function Home() {
@@ -60,7 +60,7 @@ export function Home() {
 {%- else -%}
 // The blank-shell landing — replace it with your first real screen. Add modules with
 // `uv run terp new module <name>` (or ask the agent); each drops in a routed, nav-linked slot.
-import { Page } from "@terp/react-core";
+import { Page } from "@terpjs/react-core";
 
 export function Home() {
   return (

@@ -16,4 +16,4 @@ RUN npm ci
 EXPOSE 5173
 # The Vite dev server, reachable from the host; the /api proxy target is TERP_API_PROXY
 # (set to the api service in compose), so the browser calls the API same-origin.
-CMD ["npm", "run", "-w", "@terp-example/frontend", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+CMD ["npm", "run", "-w", "@terpjs-example/frontend", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
