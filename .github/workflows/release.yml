@@ -231,6 +231,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # GHCR repository names must be lowercase; github.repository_owner can be
+      # mixed-case (e.g. AITT-NL), so lowercase it before using it in image tags.
+      - name: Lowercase the image owner
+        id: owner
+        run: echo "lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
       - name: Build and push the production backend image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -239,8 +244,8 @@ jobs:
           push: true
           provenance: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/terp-example-backend:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/terp-example-backend:latest
+            ghcr.io/${{ steps.owner.outputs.lc }}/terp-example-backend:${{ github.ref_name }}
+            ghcr.io/${{ steps.owner.outputs.lc }}/terp-example-backend:latest
       - name: Build and push the production frontend image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -249,8 +254,8 @@ jobs:
           push: true
           provenance: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/terp-example-frontend:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/terp-example-frontend:latest
+            ghcr.io/${{ steps.owner.outputs.lc }}/terp-example-frontend:${{ github.ref_name }}
+            ghcr.io/${{ steps.owner.outputs.lc }}/terp-example-frontend:latest
 
   # A version tag is a release someone can find: the PyPI/npm/GHCR publishes
   # above plus a GitHub Release entry with generated notes (commits since the
