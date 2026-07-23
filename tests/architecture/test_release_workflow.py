@@ -20,6 +20,7 @@ checked-in workflow to that contract.
 from __future__ import annotations
 
 import pathlib
+import re
 
 import yaml
 
@@ -101,6 +102,7 @@ def test_pypi_job_runs_on_both_events_via_trusted_publishing() -> None:
     dispatch (no push-only job guard) and keep OIDC trusted publishing."""
     job = _workflow()["jobs"]["publish-pypi"]
     assert "if" not in job, "publish-pypi must run on both tag and dispatch"
+    assert job["needs"] == "build-pypi", "publish only the isolated build artifact"
     assert job["environment"] == "release", "trusted publisher is bound to env release"
     assert job["permissions"]["id-token"] == "write", (
         "OIDC token for trusted publishing"
@@ -111,10 +113,33 @@ def test_pypi_job_runs_on_both_events_via_trusted_publishing() -> None:
     assert publish["with"]["packages-dir"] == "dist"
 
 
+def test_oidc_publisher_never_executes_repository_or_build_code() -> None:
+    """Package build backends and dependencies are untrusted execution. They run
+    before the release environment in a job with no OIDC permission; the privileged
+    publisher may only download the resulting bytes and invoke the pinned uploader."""
+    jobs = _workflow()["jobs"]
+    build = jobs["build-pypi"]
+    publish = jobs["publish-pypi"]
+
+    assert "environment" not in build
+    assert build.get("permissions", {}).get("id-token") != "write"
+    upload = _step(build, "Upload distributions for the isolated publisher")
+    assert upload["with"]["name"] == "pypi-distributions"
+    assert upload["with"]["if-no-files-found"] == "error"
+
+    download = _step(publish, "Download the verified distribution artifact")
+    assert download["with"]["name"] == "pypi-distributions"
+    assert all("run" not in step for step in publish["steps"]), (
+        "the OIDC publisher must never execute shell or repository-controlled code"
+    )
+    uses = {step.get("uses", "").split("@", maxsplit=1)[0] for step in publish["steps"]}
+    assert uses == {"actions/download-artifact", "pypa/gh-action-pypi-publish"}
+
+
 def test_lockstep_build_is_push_only_and_single_build_is_dispatch_only() -> None:
     """The two build steps feed the same dist/, gated by mutually exclusive
     events: all packages on a tag, exactly the named one on a dispatch."""
-    job = _workflow()["jobs"]["publish-pypi"]
+    job = _workflow()["jobs"]["build-pypi"]
 
     all_packages = _step(job, "Build wheels + sdists for every backend distribution")
     assert all_packages["if"] == _PUSH_ONLY
@@ -142,3 +167,33 @@ def test_dispatch_never_cuts_a_platform_release() -> None:
     jobs = _workflow()["jobs"]
     for name in ("publish-npm", "publish-images", "github-release"):
         assert jobs[name].get("if") == _PUSH_ONLY, f"{name} must stay tag-only"
+
+
+def test_tag_release_dependency_graph_stays_fail_closed() -> None:
+    """Every artifact starts after verification, and the discoverable GitHub
+    Release exists only after all three registry/image publish legs succeed."""
+    jobs = _workflow()["jobs"]
+    assert jobs["build-pypi"]["needs"] == "verify"
+    assert jobs["publish-pypi"]["needs"] == "build-pypi"
+    assert jobs["publish-npm"]["needs"] == "verify"
+    assert jobs["publish-images"]["needs"] == "verify"
+    assert set(jobs["github-release"]["needs"]) == {
+        "publish-pypi",
+        "publish-npm",
+        "publish-images",
+    }
+
+
+def test_release_actions_are_immutably_pinned() -> None:
+    """Mutable action tags/branches are remote code execution in the release chain;
+    every external action must be pinned to a full commit SHA."""
+    for job_name, job in _workflow()["jobs"].items():
+        for step in job["steps"]:
+            uses = step.get("uses")
+            if not uses or uses.startswith("./"):
+                continue
+            assert "@" in uses, f"{job_name}: action has no ref: {uses}"
+            action, ref = uses.rsplit("@", maxsplit=1)
+            assert re.fullmatch(r"[0-9a-f]{40}", ref), (
+                f"{job_name}: {action} must use an immutable 40-character commit SHA"
+            )

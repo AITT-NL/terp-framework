@@ -10,10 +10,14 @@ drifted version at build time (`tests/architecture/test_release_versions.py`).
 
 ### PyPI — trusted publishing (OIDC, no token)
 
-The `publish-pypi` job builds and uploads **all** backend distributions through one
-trusted-publishing exchange. Every PyPI project must therefore trust the same publisher
-identity. On <https://pypi.org/manage/account/publishing/> add a (pending) publisher
-**per project below**, each with:
+The unprivileged `build-pypi` job builds **all** backend distributions and transfers
+the resulting bytes as a short-lived workflow artifact. Only then does `publish-pypi`
+enter the `release` environment, download those pre-built bytes, and upload them through
+one trusted-publishing exchange. It never checks out the repository, installs
+dependencies, invokes a build backend, or runs shell code while holding the OIDC token.
+Every PyPI project must trust the same publisher identity. On
+<https://pypi.org/manage/account/publishing/> add a (pending) publisher **per project
+below**, each with:
 
 - **Owner:** `AITT-NL` · **Repository:** `terp-framework`
 - **Workflow:** `release.yml`
@@ -51,11 +55,12 @@ per-package entry point of the same workflow:
    gh workflow run release.yml -f package=packages/backend/core
    ```
 
-   This runs the full gate, then builds and publishes **only** that distribution through
-   the same trusted-publishing step (same `release` environment), so the artifact is
-   attested exactly like a tagged release. It creates the project and converts the
-   pending publisher to an **active** one bound to the project. The workflow refuses a
-   manual publish from any branch other than the repository's default branch.
+   This runs the full gate, then builds **only** that distribution outside the privileged
+   job and publishes its transferred artifact through the same trusted-publishing step
+   (same `release` environment), so it is attested exactly like a tagged release. It
+   creates the project and converts the pending publisher to an **active** one bound to
+   the project. The workflow refuses a manual publish from any branch other than the
+   repository's default branch.
 3. Once the project exists, its active publisher no longer occupies the single pending
    slot — register the next project's pending publisher and repeat.
 

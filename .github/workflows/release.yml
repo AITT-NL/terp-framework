@@ -62,8 +62,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           enable-cache: true
       - run: uv python install 3.14
@@ -84,7 +84,7 @@ jobs:
             || { echo "tag $GITHUB_REF_NAME != package version"; exit 1; }
       - name: Run the gate
         run: uv run pytest --cov=terp
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -107,21 +107,20 @@ jobs:
           set -eux
           uv run python tools/emit_backend_scorecard.py --out scorecard-terp-arch.json
           node packages/frontend/eslint-boundaries/src/scorecard.js --out scorecard-eslint-boundaries.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: conformance-scorecards
           path: scorecard-*.json
 
-  publish-pypi:
+  # Building executes package-controlled build backends and dependencies, so it
+  # MUST stay outside the OIDC-privileged publisher job. The resulting immutable
+  # workflow artifact is the only input crossing into the release environment.
+  build-pypi:
     needs: verify
     runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      contents: read
-      id-token: write # PyPI trusted publishing (OIDC)
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
       # Lockstep tag release: build every backend distribution into one dist/.
       - name: Build wheels + sdists for every backend distribution
         if: github.event_name == 'push'
@@ -149,12 +148,35 @@ jobs:
           esac
           test -f "$pkg/pyproject.toml" || { echo "no pyproject.toml at '$pkg'"; exit 1; }
           uv build --out-dir dist "$pkg"
+      - name: Upload distributions for the isolated publisher
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pypi-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  # This job handles pre-built bytes only: no checkout, package build, dependency
+  # installation, or repository-controlled code may execute with an OIDC token.
+  publish-pypi:
+    needs: build-pypi
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing (OIDC)
+    steps:
+      - name: Download the verified distribution artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pypi-distributions
+          path: dist/
       # Every backend project on PyPI trusts this same (repo, workflow, environment)
       # publisher identity, so one upload publishes them all. skip-existing makes a
       # re-run of a partially failed release idempotent — critical because the
       # lockstep `==` pins make a partial publish uninstallable until completed.
       - name: Publish to PyPI (trusted publishing)
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # release/v1
         with:
           packages-dir: dist
           skip-existing: true
@@ -168,8 +190,8 @@ jobs:
       contents: read
       id-token: write # npm provenance
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           registry-url: https://registry.npmjs.org
@@ -199,14 +221,14 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push the production backend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: apps/example/Dockerfile.prod
@@ -216,7 +238,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/terp-example-backend:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/terp-example-backend:latest
       - name: Build and push the production frontend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: apps/example/frontend/Dockerfile.prod
@@ -236,8 +258,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: conformance-scorecards
       - name: Create the GitHub Release
