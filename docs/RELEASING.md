@@ -28,10 +28,40 @@ Projects (one publisher each — the distribution names, not the repository name
 | `terp-cli` | |
 | `terp-migrations` | |
 
-A pending publisher becomes the project on first publish. **All publishers must exist
+A pending publisher becomes the project on first publish. **All projects must exist
 before the first tag**: the lockstep `==` pins mean a partially published release is
 uninstallable until every sibling is on the index (`skip-existing: true` makes a
 re-run complete the remainder).
+
+#### Bootstrapping brand-new projects (per-package publish)
+
+PyPI's *pending* publisher is keyed by `(owner, repository, workflow, environment)` and
+that tuple must be **unique** — since every Terp project shares the exact same identity,
+you can register a pending publisher for only **one** not-yet-existing project at a time.
+So the very first publish of each project is done one at a time, through the manual
+per-package entry point of the same workflow:
+
+1. On <https://pypi.org/manage/account/publishing/>, register the pending publisher for a
+   single project (the four fields above; **PyPI Project Name** = the distribution name,
+   e.g. `terp-core`).
+2. Run the release workflow manually against that project — either in the Actions UI
+   (**release → Run workflow → `package`**) or from the CLI:
+
+   ```bash
+   gh workflow run release.yml -f package=packages/backend/core
+   ```
+
+   This runs the full gate, then builds and publishes **only** that distribution through
+   the same trusted-publishing step (same `release` environment), so the artifact is
+   attested exactly like a tagged release. It creates the project and converts the
+   pending publisher to an **active** one bound to the project.
+3. Once the project exists, its active publisher no longer occupies the single pending
+   slot — register the next project's pending publisher and repeat.
+
+The dispatch publishes to PyPI only; it never publishes npm, pushes images, or creates a
+GitHub Release (those legs stay tag-only). Use the same entry point later to **backfill**
+a single distribution whose upload failed mid-release
+(`gh workflow run release.yml -f package=packages/backend/capabilities/<name>`).
 
 `terp-spec` / `@terp/spec` are **not** published from this repository — the framework
 consumes them as git-tag pins from AITT-NL/terp-spec (ADR 0082); registry publishing of

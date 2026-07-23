@@ -9,6 +9,24 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Manual, single-package publish to PyPI. A multi-package release pipeline has
+  # two recurring needs the lockstep tag path cannot serve: FIRST-TIME project
+  # creation and BACKFILL of one distribution whose upload failed mid-release.
+  # PyPI trusted publishing cannot pre-register every not-yet-existing project at
+  # once — a pending publisher's identity (owner, repo, workflow, environment) is
+  # unique, so brand-new projects are necessarily created one at a time. This
+  # entry point publishes ONLY the named package, through the SAME trusted-
+  # publishing step (same workflow file + `release` environment), so the artifact
+  # is attested exactly like a tagged release. The npm / image / GitHub-Release
+  # legs stay tag-only — a manual dispatch never cuts a platform release.
+  workflow_dispatch:
+    inputs:
+      package:
+        description: >-
+          Path of the single backend distribution to publish to PyPI, e.g.
+          `packages/backend/core` or `packages/backend/capabilities/access`.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -27,6 +45,7 @@ jobs:
           enable-cache: true
       - run: uv python install 3.14
       - name: Tag matches the lockstep version
+        if: github.event_name == 'push'
         run: |
           version="${GITHUB_REF_NAME#v}"
           grep -q "^version = \"$version\"" packages/backend/core/pyproject.toml \
@@ -71,13 +90,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      # Lockstep tag release: build every backend distribution into one dist/.
       - name: Build wheels + sdists for every backend distribution
+        if: github.event_name == 'push'
         run: |
           set -eux
           for pkg in packages/backend/core packages/backend/arch packages/backend/migrations \
                      packages/backend/cli packages/backend/capabilities/*/; do
             uv build --out-dir dist "$pkg"
           done
+      # Manual dispatch: build ONLY the named package (first-time create / backfill).
+      # Fail closed on a path that is not a backend distribution with a manifest.
+      - name: Build a single backend distribution (manual bootstrap/backfill)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -eux
+          pkg="${{ inputs.package }}"
+          case "$pkg" in
+            packages/backend/*) ;;
+            *) echo "package must be a path under packages/backend/, got '$pkg'"; exit 1 ;;
+          esac
+          test -f "$pkg/pyproject.toml" || { echo "no pyproject.toml at '$pkg'"; exit 1; }
+          uv build --out-dir dist "$pkg"
       # Every backend project on PyPI trusts this same (repo, workflow, environment)
       # publisher identity, so one upload publishes them all. skip-existing makes a
       # re-run of a partially failed release idempotent — critical because the
@@ -90,6 +124,7 @@ jobs:
 
   publish-npm:
     needs: verify
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -119,6 +154,7 @@ jobs:
 
   publish-images:
     needs: verify
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -158,6 +194,7 @@ jobs:
   # previous tag) and the conformance scorecards attached as evidence.
   github-release:
     needs: [publish-pypi, publish-npm, publish-images]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
