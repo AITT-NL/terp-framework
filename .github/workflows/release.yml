@@ -195,8 +195,13 @@ jobs:
         with:
           node-version: "22"
           registry-url: https://registry.npmjs.org
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; Node 22 ships an older
+      # npm. Upgrade so `npm publish` exchanges the id-token for a short-lived
+      # registry credential — no NPM_TOKEN secret required. Provenance is emitted
+      # automatically under Trusted Publishing.
+      - run: npm install -g npm@latest
       - run: npm ci
-      - name: Publish the frontend packages (public, with provenance)
+      - name: Publish the frontend packages (public, via Trusted Publishing)
         run: |
           set -eux
           version="${GITHUB_REF_NAME#v}"
@@ -208,8 +213,6 @@ jobs:
             fi
             npm publish -w "$ws" --access public --provenance
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-images:
     needs: verify
