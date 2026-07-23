@@ -26,7 +26,30 @@ on:
           Path of the single backend distribution to publish to PyPI, e.g.
           `packages/backend/core` or `packages/backend/capabilities/access`.
         required: true
-        type: string
+        type: choice
+        options:
+          - packages/backend/core
+          - packages/backend/arch
+          - packages/backend/cli
+          - packages/backend/migrations
+          - packages/backend/capabilities/access
+          - packages/backend/capabilities/audit
+          - packages/backend/capabilities/auth
+          - packages/backend/capabilities/eventbus
+          - packages/backend/capabilities/files
+          - packages/backend/capabilities/groups
+          - packages/backend/capabilities/identity
+          - packages/backend/capabilities/jobs_celery
+          - packages/backend/capabilities/oidc
+          - packages/backend/capabilities/outbox
+          - packages/backend/capabilities/realtime
+          - packages/backend/capabilities/redis
+          - packages/backend/capabilities/scheduler_apscheduler
+          - packages/backend/capabilities/scheduler_celery_beat
+          - packages/backend/capabilities/sync
+          - packages/backend/capabilities/tenancy
+          - packages/backend/capabilities/users
+          - packages/backend/capabilities/webhooks
 
 permissions:
   contents: read
@@ -44,6 +67,15 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install 3.14
+      - name: Manual publish uses the default branch
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          test "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" || {
+            echo "manual publishing is allowed only from '$DEFAULT_BRANCH', got '$GITHUB_REF_NAME'"
+            exit 1
+          }
       - name: Tag matches the lockstep version
         if: github.event_name == 'push'
         run: |
@@ -100,15 +132,20 @@ jobs:
             uv build --out-dir dist "$pkg"
           done
       # Manual dispatch: build ONLY the named package (first-time create / backfill).
-      # Fail closed on a path that is not a backend distribution with a manifest.
+      # Treat the input as untrusted even though workflow_dispatch restricts it to a
+      # finite choice: pass it through env (never expression-to-shell interpolation),
+      # canonicalize it, and fail closed if it escapes the backend distribution tree.
       - name: Build a single backend distribution (manual bootstrap/backfill)
         if: github.event_name == 'workflow_dispatch'
+        env:
+          PACKAGE_PATH: ${{ inputs.package }}
         run: |
-          set -eux
-          pkg="${{ inputs.package }}"
+          set -euo pipefail
+          backend_root="$(realpath -e -- "$GITHUB_WORKSPACE/packages/backend")"
+          pkg="$(realpath -e -- "$GITHUB_WORKSPACE/$PACKAGE_PATH")"
           case "$pkg" in
-            packages/backend/*) ;;
-            *) echo "package must be a path under packages/backend/, got '$pkg'"; exit 1 ;;
+            "$backend_root"/*) ;;
+            *) echo "package must resolve under '$backend_root', got '$pkg'"; exit 1 ;;
           esac
           test -f "$pkg/pyproject.toml" || { echo "no pyproject.toml at '$pkg'"; exit 1; }
           uv build --out-dir dist "$pkg"

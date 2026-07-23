@@ -45,7 +45,7 @@ per-package entry point of the same workflow:
    single project (the four fields above; **PyPI Project Name** = the distribution name,
    e.g. `terp-core`).
 2. Run the release workflow manually against that project — either in the Actions UI
-   (**release → Run workflow → `package`**) or from the CLI:
+   (**release → Run workflow → branch `main` → `package`**) or from the CLI:
 
    ```bash
    gh workflow run release.yml -f package=packages/backend/core
@@ -54,7 +54,8 @@ per-package entry point of the same workflow:
    This runs the full gate, then builds and publishes **only** that distribution through
    the same trusted-publishing step (same `release` environment), so the artifact is
    attested exactly like a tagged release. It creates the project and converts the
-   pending publisher to an **active** one bound to the project.
+   pending publisher to an **active** one bound to the project. The workflow refuses a
+   manual publish from any branch other than the repository's default branch.
 3. Once the project exists, its active publisher no longer occupies the single pending
    slot — register the next project's pending publisher and repeat.
 
@@ -70,8 +71,10 @@ the spec is deliberately out of scope until third-party checker consumption need
 ### GitHub — the `release` environment
 
 Create an environment named `release` (Settings → Environments). Both publish jobs run
-in it; the PyPI trusted publishers above bind to it. Recommended: restrict it to tag
-deployments and require reviewers if you want a manual publish gate.
+in it; the PyPI trusted publishers above bind to it. Configure **Deployment branches and
+tags** as **Selected branches and tags**, allowing only the default branch (`main`) and
+release tags (`v*`). Require reviewers: a tag release and a manual per-package publish
+both cross a registry trust boundary and should have an explicit approval gate.
 
 ### npm — the `@terp` scope
 

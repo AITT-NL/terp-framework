@@ -26,6 +26,7 @@ import yaml
 _WORKFLOW = (
     pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
 )
+_REPO_ROOT = _WORKFLOW.parents[2]
 
 _PUSH_ONLY = "github.event_name == 'push'"
 _DISPATCH_ONLY = "github.event_name == 'workflow_dispatch'"
@@ -51,6 +52,17 @@ def _step(job: dict, name: str) -> dict:
     raise AssertionError(f"step {name!r} not found")
 
 
+def _backend_package_paths() -> set[str]:
+    backend_root = _REPO_ROOT / "packages" / "backend"
+    return {
+        path.parent.relative_to(_REPO_ROOT).as_posix()
+        for path in backend_root.glob("*/pyproject.toml")
+    } | {
+        path.parent.relative_to(_REPO_ROOT).as_posix()
+        for path in backend_root.glob("capabilities/*/pyproject.toml")
+    }
+
+
 def test_workflow_triggers_on_tag_and_manual_dispatch() -> None:
     triggers = _triggers(_workflow())
     assert triggers["push"]["tags"] == ["v*"], "lockstep tag trigger must stay v*"
@@ -58,13 +70,27 @@ def test_workflow_triggers_on_tag_and_manual_dispatch() -> None:
     dispatch = triggers["workflow_dispatch"]
     package = dispatch["inputs"]["package"]
     assert package["required"] is True, "the package input must be required"
-    assert package["type"] == "string", "the package input is a distribution path"
+    assert package["type"] == "choice", "arbitrary publish paths must be impossible"
+    assert set(package["options"]) == _backend_package_paths(), (
+        "the dispatch choices must cover exactly the backend distribution inventory"
+    )
 
 
 def test_tag_version_check_is_push_only() -> None:
     """A manual dispatch has no tag, so the tag-vs-version guard must not run."""
     verify = _workflow()["jobs"]["verify"]
     assert _step(verify, "Tag matches the lockstep version")["if"] == _PUSH_ONLY
+
+
+def test_manual_publish_is_default_branch_only() -> None:
+    """The trusted-publishing identity does not pin the selected Git ref, so the
+    workflow must refuse dispatches from anything except the repository default."""
+    verify = _workflow()["jobs"]["verify"]
+    guard = _step(verify, "Manual publish uses the default branch")
+    assert guard["if"] == _DISPATCH_ONLY
+    assert "github.event.repository.default_branch" in guard["env"]["DEFAULT_BRANCH"]
+    assert "GITHUB_REF_NAME" in guard["run"]
+    assert "DEFAULT_BRANCH" in guard["run"]
 
 
 def test_pypi_job_runs_on_both_events_via_trusted_publishing() -> None:
@@ -90,9 +116,16 @@ def test_lockstep_build_is_push_only_and_single_build_is_dispatch_only() -> None
 
     single = _step(job, "Build a single backend distribution (manual bootstrap/backfill)")
     assert single["if"] == _DISPATCH_ONLY
+    assert single["env"]["PACKAGE_PATH"] == "${{ inputs.package }}", (
+        "untrusted expressions must enter the shell through env, not script interpolation"
+    )
     run = single["run"]
-    assert "inputs.package" in run, "the dispatch build must publish the named package"
-    assert "packages/backend/" in run, "it must fail closed on a non-backend path"
+    assert "${{" not in run, "never interpolate a workflow expression into shell code"
+    assert "realpath -e" in run, "the package path must be canonicalized before use"
+    assert "GITHUB_WORKSPACE/packages/backend" in run, (
+        "the canonical path must be contained by the backend distribution root"
+    )
+    assert "set -euo pipefail" in run, "the security-sensitive shell must fail closed"
     assert "uv build --out-dir dist" in run, "both build paths feed the same dist/"
 
 
