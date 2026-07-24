@@ -1123,6 +1123,10 @@ def test_no_empty_tests(tmp_path: pathlib.Path) -> None:
     _write(app, "tests/test_notes.py", "def helper():\n    pass\n")
     assert check_no_empty_tests(app) == []
 
+    # A test file inside a security-skip dir (.venv) is vendored, not scanned.
+    _write(app, ".venv/test_vendored.py", "def test_a():\n    pass\n")
+    assert check_no_empty_tests(app) == []
+
 
 
 def test_no_manual_version_assignment(tmp_path: pathlib.Path) -> None:
@@ -1192,9 +1196,28 @@ def test_update_schemas_inherit_base_update_schema(tmp_path: pathlib.Path) -> No
     _write(app, "modules/notes/router.py", "router = None\n")
     assert check_update_schemas_inherit_base_update_schema(app) == []
 
+    # A local class literally named like the OCC base is the base definition itself,
+    # not a DTO that must inherit it — it is skipped.
+    _write(
+        app,
+        "modules/notes/schemas.py",
+        "class BaseUpdateSchema(BaseSchema):\n    version: int\n",
+    )
+    assert check_update_schemas_inherit_base_update_schema(app) == []
 
-
-def test_input_str_fields_have_max_length(tmp_path: pathlib.Path) -> None:
+    # A diamond of scanned bases that never reaches the OCC base is still refused — the
+    # base-graph walk deduplicates revisited nodes and returns to report the DTO.
+    _write(
+        app,
+        "modules/notes/schemas.py",
+        "class A(BaseSchema):\n    pass\n\n\n"
+        "class B(A):\n    pass\n\n\n"
+        "class C(A):\n    pass\n\n\n"
+        "class NoteUpdate(B, C):\n    title: str\n",
+    )
+    assert _rule_names(check_update_schemas_inherit_base_update_schema(app)) == {
+        "update_schemas_inherit_base_update_schema"
+    }
     app = tmp_path / "app"
     _write(
         app,
@@ -1888,6 +1911,16 @@ def test_path_id_params_are_uuid(tmp_path: pathlib.Path) -> None:
         "def replace(note_id: UUID) -> NoteRead:\n    return NoteRead()\n",
     )
     assert check_path_id_params_are_uuid(app) == []
+
+    # A path id param annotated with a *subscripted* type (not a plain name/attribute)
+    # is not a bare UUID annotation, so it is still refused.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "@router.get('/{note_id}', response_model=NoteRead)\n"
+        "def get_note(note_id: Optional[UUID]) -> NoteRead:\n    return NoteRead()\n",
+    )
+    assert _rule_names(check_path_id_params_are_uuid(app)) == {"path_id_params_are_uuid"}
 
 
 def test_offset_queries_declare_ordering(tmp_path: pathlib.Path) -> None:
