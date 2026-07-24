@@ -1218,6 +1218,10 @@ def test_update_schemas_inherit_base_update_schema(tmp_path: pathlib.Path) -> No
     assert _rule_names(check_update_schemas_inherit_base_update_schema(app)) == {
         "update_schemas_inherit_base_update_schema"
     }
+
+
+
+def test_input_str_fields_have_max_length(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     _write(
         app,
