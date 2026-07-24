@@ -40,6 +40,8 @@ from terp.arch import (
     check_no_internal_imports,
     check_no_manual_actor_stamping,
     check_no_manual_ownership_checks,
+    check_no_manual_version_assignment,
+    check_no_naive_datetime,
     check_no_dependency_overrides,
     check_no_raw_app_routes,
     check_no_raw_file_references,
@@ -60,6 +62,7 @@ from terp.arch import (
     check_table_models_use_base_table,
     check_tables_have_migrations,
     check_tenant_scoped_models_use_scoped_service,
+    check_update_schemas_inherit_base_update_schema,
 )
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -958,6 +961,100 @@ def test_no_dynamic_sql(tmp_path: pathlib.Path) -> None:
     # tests/ and migrations/ dirs inside a module are importable code: still scanned (G1).
     _write(app, "modules/notes/tests/helper.py", "stmt = text(query)\n")
     assert _rule_names(check_no_dynamic_sql(app)) == {"no_dynamic_sql"}
+
+
+
+def test_no_naive_datetime(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # The deprecated naive constructor and a bare now() both erase the timezone.
+    naive_sources = (
+        "datetime.utcnow()",
+        "datetime.now()",
+        "dt.datetime.utcnow()",
+        "dt.datetime.now()",
+    )
+    for source in naive_sources:
+        _write(app, "modules/notes/service.py", f"def run():\n    return {source}\n")
+        assert _rule_names(check_no_naive_datetime(app)) == {"no_naive_datetime"}, source
+
+    # An explicit zone makes now() aware — positional or keyword.
+    _write(app, "modules/notes/service.py", "stamp = datetime.now(UTC)\n")
+    assert check_no_naive_datetime(app) == []
+    _write(app, "modules/notes/service.py", "stamp = datetime.now(tz=timezone.utc)\n")
+    assert check_no_naive_datetime(app) == []
+
+    # A ``now`` on some other object is not the datetime constructor: no false positive.
+    _write(app, "modules/notes/service.py", "value = clock.now()\n")
+    assert check_no_naive_datetime(app) == []
+
+
+
+def test_no_manual_version_assignment(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # Every spelling of writing the concurrency token by hand is refused.
+    manual_writes = (
+        "db_obj.version = data.version",
+        "row.version += 1",
+        "entity.version: int = 5",
+        'setattr(db_obj, "version", data.version)',
+    )
+    for source in manual_writes:
+        _write(app, "modules/notes/service.py", f"def run():\n    {source}\n")
+        assert _rule_names(check_no_manual_version_assignment(app)) == {
+            "no_manual_version_assignment"
+        }, source
+
+    # A plain local named ``version`` is not an attribute write on a row: allowed.
+    _write(app, "modules/notes/service.py", "version = 1\n")
+    assert check_no_manual_version_assignment(app) == []
+
+    # setattr of some other attribute, and reading ``.version``, are both fine.
+    _write(app, "modules/notes/service.py", 'setattr(db_obj, "title", data.title)\n')
+    assert check_no_manual_version_assignment(app) == []
+    _write(app, "modules/notes/service.py", "token = db_obj.version\n")
+    assert check_no_manual_version_assignment(app) == []
+
+
+
+def test_update_schemas_inherit_base_update_schema(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # An ``*Update`` DTO that does not reach the OCC base is refused.
+    _write(app, "modules/notes/schemas.py", "class NoteUpdate(BaseSchema):\n    title: str\n")
+    assert _rule_names(check_update_schemas_inherit_base_update_schema(app)) == {
+        "update_schemas_inherit_base_update_schema"
+    }
+
+    # Direct inheritance of the OCC base is compliant.
+    _write(app, "modules/notes/schemas.py", "class NoteUpdate(BaseUpdateSchema):\n    title: str\n")
+    assert check_update_schemas_inherit_base_update_schema(app) == []
+
+    # Transitive inheritance through another scanned class is compliant too.
+    _write(
+        app,
+        "modules/notes/schemas.py",
+        "class _Base(BaseUpdateSchema):\n    pass\n\n\nclass NoteUpdate(_Base):\n    title: str\n",
+    )
+    assert check_update_schemas_inherit_base_update_schema(app) == []
+
+    # A class wired as a CRUD router's update body is held to the same contract.
+    _write(app, "modules/notes/schemas.py", "class NotePatch(BaseSchema):\n    title: str\n")
+    _write(
+        app,
+        "modules/notes/router.py",
+        "router = build_crud_router(update_schema=NotePatch)\n",
+    )
+    assert _rule_names(check_update_schemas_inherit_base_update_schema(app)) == {
+        "update_schemas_inherit_base_update_schema"
+    }
+
+    # The base itself and non-update classes are not flagged.
+    _write(
+        app,
+        "modules/notes/schemas.py",
+        "class NoteCreate(BaseSchema):\n    title: str\n",
+    )
+    _write(app, "modules/notes/router.py", "router = None\n")
+    assert check_update_schemas_inherit_base_update_schema(app) == []
 
 
 

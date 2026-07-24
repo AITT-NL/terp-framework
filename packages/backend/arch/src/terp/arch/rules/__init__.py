@@ -45,6 +45,7 @@ from terp.arch.rules.authz import (
     check_public_modules_are_read_only,
 )
 from terp.arch.rules.budget import check_escape_hatch_budget
+from terp.arch.rules.datetimes import check_no_naive_datetime
 from terp.arch.rules.events import check_events_reference_catalog
 from terp.arch.rules.http import (
     check_list_routes_paginate,
@@ -66,6 +67,10 @@ from terp.arch.rules.imports import (
 )
 from terp.arch.rules.migrations import check_no_destructive_migrations
 from terp.arch.rules.jobs import check_jobs_reference_catalog
+from terp.arch.rules.occ import (
+    check_no_manual_version_assignment,
+    check_update_schemas_inherit_base_update_schema,
+)
 from terp.arch.rules.persistence import (
     check_input_schemas_exclude_managed_columns,
     check_input_str_fields_have_max_length,
@@ -118,6 +123,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_raw_session_construction": "service",
     "no_raw_connection_access": "service",
     "no_dynamic_sql": "service",
+    "no_naive_datetime": "service",
     "mutations_emit_audit": "service",
     "events_reference_catalog": "events",
     "jobs_reference_catalog": "jobs",
@@ -131,6 +137,8 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_manual_scope_filtering": "tenancy",
     "no_manual_actor_stamping": "service",
     "no_manual_ownership_checks": "ownership",
+    "no_manual_version_assignment": "service",
+    "update_schemas_inherit_base_update_schema": "module",
     "no_raw_file_references": "files",
     "table_models_use_base_table": "module",
     "tables_have_migrations": "migrations",
@@ -177,6 +185,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_raw_session_construction,
     check_no_raw_connection_access,
     check_no_dynamic_sql,
+    check_no_naive_datetime,
     check_mutations_emit_audit,
     check_events_reference_catalog,
     check_jobs_reference_catalog,
@@ -190,6 +199,8 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_manual_scope_filtering,
     check_no_manual_actor_stamping,
     check_no_manual_ownership_checks,
+    check_no_manual_version_assignment,
+    check_update_schemas_inherit_base_update_schema,
     check_no_raw_file_references,
     check_table_models_use_base_table,
     check_tables_have_migrations,
@@ -317,6 +328,9 @@ __all__ = [
     "check_no_internal_imports",
     "check_no_manual_actor_stamping",
     "check_no_manual_ownership_checks",
+    "check_no_manual_version_assignment",
+    "check_update_schemas_inherit_base_update_schema",
+    "check_no_naive_datetime",
     "check_no_dependency_overrides",
     "check_no_raw_app_routes",
     "check_no_raw_file_references",

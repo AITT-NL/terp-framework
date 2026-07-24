@@ -53,6 +53,8 @@ from terp.arch.rules import (
     check_no_internal_imports,
     check_no_manual_actor_stamping,
     check_no_manual_ownership_checks,
+    check_no_manual_version_assignment,
+    check_no_naive_datetime,
     check_no_dependency_overrides,
     check_no_raw_app_routes,
     check_no_raw_file_references,
@@ -71,6 +73,7 @@ from terp.arch.rules import (
     check_no_manual_table_schema,
     check_tables_have_migrations,
     check_tenant_scoped_models_use_scoped_service,
+    check_update_schemas_inherit_base_update_schema,
     guide_topic_for,
     ungoverned_marker_violations,
 )
@@ -114,6 +117,8 @@ __all__ = [
     "check_no_internal_imports",
     "check_no_manual_actor_stamping",
     "check_no_manual_ownership_checks",
+    "check_no_manual_version_assignment",
+    "check_no_naive_datetime",
     "check_no_dependency_overrides",
     "check_no_raw_app_routes",
     "check_no_raw_file_references",
@@ -133,6 +138,7 @@ __all__ = [
     "check_no_manual_table_schema",
     "check_tables_have_migrations",
     "check_tenant_scoped_models_use_scoped_service",
+    "check_update_schemas_inherit_base_update_schema",
     "guide_topic_for",
     "ungoverned_marker_violations",
 ]
