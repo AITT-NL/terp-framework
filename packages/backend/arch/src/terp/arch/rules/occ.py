@@ -18,6 +18,7 @@ from terp.arch.rules._support import ArchViolation, _rel
 
 _VERSION_ATTR = "version"
 _UPDATE_BASE = "BaseUpdateSchema"
+_SCHEMA_BASES = frozenset({"BaseSchema", "BaseUpdateSchema"})
 
 
 
@@ -100,8 +101,10 @@ def _update_schema_wiring(trees: Iterable[ast.AST]) -> set[str]:
     return names
 
 
-def _inherits_update_base(name: str, bases_by_class: dict[str, set[str]]) -> bool:
-    """True when *name* reaches ``BaseUpdateSchema`` by following base edges in scope."""
+def _reaches_base(
+    name: str, bases_by_class: dict[str, set[str]], targets: frozenset[str]
+) -> bool:
+    """True when *name* reaches any base in *targets* by following base edges in scope."""
     seen: set[str] = set()
     frontier = [name]
     while frontier:
@@ -110,7 +113,7 @@ def _inherits_update_base(name: str, bases_by_class: dict[str, set[str]]) -> boo
             continue
         seen.add(current)
         parents = bases_by_class.get(current, set())
-        if _UPDATE_BASE in parents:
+        if parents & targets or (current != name and current in targets):
             return True
         frontier.extend(parents)
     return False
@@ -125,8 +128,10 @@ def check_update_schemas_inherit_base_update_schema(
     must echo the version it loaded and the update seam can reject a stale write. An
     update DTO that does not inherit it is missing that required field — the token is
     never demanded, and a blind overwrite (a lost update) goes through. An update DTO
-    is a class named ``*Update`` or one wired as a CRUD router's update body; each must
-    reach the update base through its bases. (The token itself is never redeclared on
+    is a schema class named ``*Update`` (one that reaches ``BaseSchema`` through its
+    bases — a plain message model that merely ends in ``Update`` is not a DTO) or one
+    wired as a CRUD router's update body; each must reach the update base through its
+    bases. (The token itself is never redeclared on
     the DTO — that is a framework-managed column the input-column rule already refuses;
     the field arrives by inheritance.)
     """
@@ -147,10 +152,13 @@ def check_update_schemas_inherit_base_update_schema(
                 continue
             if node.name == _UPDATE_BASE:
                 continue
-            is_update_dto = node.name.endswith("Update") or node.name in wired
+            is_update_dto = node.name in wired or (
+                node.name.endswith("Update")
+                and _reaches_base(node.name, bases_by_class, _SCHEMA_BASES)
+            )
             if not is_update_dto:
                 continue
-            if _inherits_update_base(node.name, bases_by_class):
+            if _reaches_base(node.name, bases_by_class, frozenset({_UPDATE_BASE})):
                 continue
             violations.append(
                 ArchViolation(

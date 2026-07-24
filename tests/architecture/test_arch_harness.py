@@ -33,6 +33,7 @@ from terp.arch import (
     check_no_adhoc_middleware,
     check_no_adhoc_permission_literals,
     check_no_app_instantiation,
+    check_alembic_downgrades_not_empty,
     check_no_destructive_migrations,
     check_no_dynamic_sql,
     check_no_cross_module_imports,
@@ -42,6 +43,14 @@ from terp.arch import (
     check_no_manual_ownership_checks,
     check_no_manual_version_assignment,
     check_no_naive_datetime,
+    check_no_oversized_python_files,
+    check_no_blocking_sleep,
+    check_no_empty_tests,
+    check_no_eval_or_exec,
+    check_no_mutable_default_args,
+    check_no_print,
+    check_no_star_imports,
+    check_no_todo_fixme,
     check_no_dependency_overrides,
     check_no_raw_app_routes,
     check_no_raw_file_references,
@@ -49,6 +58,8 @@ from terp.arch import (
     check_no_raw_connection_access,
     check_no_raw_outbound_http,
     check_no_raw_session_construction,
+    check_offset_queries_declare_ordering,
+    check_path_id_params_are_uuid,
     check_policy_refs_resolve,
     check_public_modules_are_read_only,
     check_reads_use_base_query,
@@ -988,6 +999,131 @@ def test_no_naive_datetime(tmp_path: pathlib.Path) -> None:
     assert check_no_naive_datetime(app) == []
 
 
+def test_no_oversized_python_files(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+
+    # A file over the 500-line cap is flagged once, at line 1 (so the opt-out marker
+    # sits naturally at the top of the file).
+    oversized = "\n".join(f"CONSTANT_{i} = {i}" for i in range(1, 521)) + "\n"
+    _write(app, "modules/notes/service.py", oversized)
+    violations = check_no_oversized_python_files(app)
+    assert _rule_names(violations) == {"no_oversized_python_files"}
+    assert [violation.line for violation in violations] == [1]
+
+    # A file exactly at the cap is fine — the boundary is inclusive.
+    at_cap = "\n".join(f"CONSTANT_{i} = {i}" for i in range(1, 501)) + "\n"
+    _write(app, "modules/notes/service.py", at_cap)
+    assert check_no_oversized_python_files(app) == []
+
+    # The test tree and migration history are out of scope even when oversized.
+    _write(app, "tests/test_big.py", oversized)
+    _write(app, "modules/notes/migrations/0001_big.py", oversized)
+    assert check_no_oversized_python_files(app) == []
+
+
+
+def test_no_eval_or_exec(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    for source in ("eval(payload)", "exec(payload)"):
+        _write(app, "modules/notes/service.py", f"def run(payload):\n    return {source}\n")
+        assert _rule_names(check_no_eval_or_exec(app)) == {"no_eval_or_exec"}, source
+
+    # Attribute access named ``eval``/``exec`` on some object is not the builtin.
+    _write(app, "modules/notes/service.py", "def run(m):\n    return m.eval(1)\n")
+    assert check_no_eval_or_exec(app) == []
+
+    # The security surface covers tests and migrations too.
+    _write(app, "modules/notes/service.py", "value = 1\n")
+    _write(app, "tests/test_notes.py", "def test_x():\n    eval('1')\n")
+    assert _rule_names(check_no_eval_or_exec(app)) == {"no_eval_or_exec"}
+
+
+def test_no_star_imports(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(app, "modules/notes/service.py", "from os.path import *\n")
+    assert _rule_names(check_no_star_imports(app)) == {"no_star_imports"}
+
+    # Explicit names are fine.
+    _write(app, "modules/notes/service.py", "from os.path import join, dirname\n")
+    assert check_no_star_imports(app) == []
+
+
+def test_no_blocking_sleep(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(app, "modules/notes/service.py", "import time\n\n\ndef run():\n    time.sleep(1)\n")
+    assert _rule_names(check_no_blocking_sleep(app)) == {"no_blocking_sleep"}
+
+    # A ``sleep`` attribute on some other object is not ``time.sleep``.
+    _write(app, "modules/notes/service.py", "def run(worker):\n    worker.sleep(1)\n")
+    assert check_no_blocking_sleep(app) == []
+
+
+def test_no_print(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(app, "modules/notes/service.py", "def run():\n    print('hello')\n")
+    assert _rule_names(check_no_print(app)) == {"no_print"}
+
+    # Logging is the sanctioned diagnostic path.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "import logging\n\nlog = logging.getLogger(__name__)\n\n\ndef run():\n    log.info('hi')\n",
+    )
+    assert check_no_print(app) == []
+
+
+def test_no_todo_fixme(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    for marker in ("TODO", "FIXME", "HACK", "XXX"):
+        _write(app, "modules/notes/service.py", f"value = 1  # {marker}: finish this\n")
+        assert _rule_names(check_no_todo_fixme(app)) == {"no_todo_fixme"}, marker
+
+    # A marker-shaped word inside a string is not a comment: no false positive.
+    _write(app, "modules/notes/service.py", "label = 'TODO list feature'\n")
+    assert check_no_todo_fixme(app) == []
+
+
+def test_no_mutable_default_args(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    for default in ("[]", "{}", "{1, 2}"):
+        _write(app, "modules/notes/service.py", f"def run(items={default}):\n    return items\n")
+        assert _rule_names(check_no_mutable_default_args(app)) == {
+            "no_mutable_default_args"
+        }, default
+
+    # A keyword-only mutable default is caught too.
+    _write(app, "modules/notes/service.py", "def run(*, items={}):\n    return items\n")
+    assert _rule_names(check_no_mutable_default_args(app)) == {"no_mutable_default_args"}
+
+    # ``None`` + in-body construction is the compliant shape.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "def run(items=None):\n    items = items or []\n    return items\n",
+    )
+    assert check_no_mutable_default_args(app) == []
+
+
+def test_no_empty_tests(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    empty_bodies = (
+        "def test_a():\n    pass\n",
+        "def test_b():\n    '''docstring only'''\n",
+        "def test_c():\n    assert True\n",
+    )
+    for body in empty_bodies:
+        _write(app, "tests/test_notes.py", body)
+        assert _rule_names(check_no_empty_tests(app)) == {"no_empty_tests"}, body
+
+    # A test with a real assertion is fine.
+    _write(app, "tests/test_notes.py", "def test_ok():\n    assert 1 + 1 == 2\n")
+    assert check_no_empty_tests(app) == []
+
+    # Non-test functions are out of scope even if empty.
+    _write(app, "tests/test_notes.py", "def helper():\n    pass\n")
+    assert check_no_empty_tests(app) == []
+
+
 
 def test_no_manual_version_assignment(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
@@ -1723,6 +1859,65 @@ def test_list_routes_paginate(tmp_path: pathlib.Path) -> None:
     assert check_list_routes_paginate(app) == []
 
 
+def test_path_id_params_are_uuid(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # A path param named like a resource id (id / *_id) that also appears in the route's
+    # URL template must be typed uuid.UUID — a bare int / str skips boundary validation.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "@router.get('/{note_id}', response_model=NoteRead)\n"
+        "def get_note(note_id: int) -> NoteRead:\n    return NoteRead()\n"
+        "@router.delete('/{id}')\n"
+        "def delete_note(id) -> None:\n    return None\n",
+    )
+    flagged = check_path_id_params_are_uuid(app)
+    assert _rule_names(flagged) == {"path_id_params_are_uuid"}
+    assert len(flagged) == 2  # the int-typed one and the un-annotated one
+
+    # Clean: uuid.UUID (attribute) and a bare UUID name are both accepted; a non-id
+    # path param and an id-shaped *query* param (not in the URL template) are ignored.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "@router.get('/{note_id}', response_model=NoteRead)\n"
+        "def get_note(note_id: uuid.UUID) -> NoteRead:\n    return NoteRead()\n"
+        "@router.get('/{slug}', response_model=NoteRead)\n"
+        "def by_slug(slug: str, tenant_id: int) -> NoteRead:\n    return NoteRead()\n"
+        "@router.put('/{note_id}', response_model=NoteRead)\n"
+        "def replace(note_id: UUID) -> NoteRead:\n    return NoteRead()\n",
+    )
+    assert check_path_id_params_are_uuid(app) == []
+
+
+def test_offset_queries_declare_ordering(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # A query paginated with .offset() but no .order_by() has undefined row order, so
+    # pages can skip or repeat rows.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "def page(session, skip):\n"
+        "    return session.exec(select(Note).offset(skip).limit(20)).all()\n",
+    )
+    flagged = check_offset_queries_declare_ordering(app)
+    assert _rule_names(flagged) == {"offset_queries_declare_ordering"}
+    assert len(flagged) == 1
+
+    # Clean: an ordered offset query is deterministic; a query without offset is fine.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "def page(session, skip):\n"
+        "    return session.exec(\n"
+        "        select(Note).order_by(Note.created_at).offset(skip).limit(20)\n"
+        "    ).all()\n"
+        "def all_notes(session):\n"
+        "    return session.exec(select(Note)).all()\n",
+    )
+    assert check_offset_queries_declare_ordering(app) == []
+
+
 def test_safe_methods_are_read_only(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     # Any handler REACHABLE via a safe method (GET/HEAD/OPTIONS) must not call a mutating
@@ -1907,6 +2102,42 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
     )
     assert check_no_destructive_migrations(app) == []
 
+
+def test_alembic_downgrades_not_empty(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # An empty downgrade() makes a revision irreversible — a lone pass, an ellipsis, or
+    # only a docstring all leave a rollback with nothing to run.
+    empty_bodies = (
+        "def downgrade():\n    pass\n",
+        "def downgrade():\n    ...\n",
+        "def downgrade():\n    '''revert.'''\n",
+    )
+    for body in empty_bodies:
+        _write(
+            app,
+            "modules/notes/migrations/versions/0001_change.py",
+            "def upgrade():\n    op.add_column('notes', column)\n" + body,
+        )
+        assert _rule_names(check_alembic_downgrades_not_empty(app)) == {
+            "alembic_downgrades_not_empty"
+        }, body
+
+    # Clean: a downgrade that reverses the change, or a documented intentional no-op
+    # (a '#' comment explaining why the step is irreversible).
+    _write(
+        app,
+        "modules/notes/migrations/versions/0001_change.py",
+        "def upgrade():\n    op.add_column('notes', column)\n"
+        "def downgrade():\n    op.drop_column('notes', 'title')\n",
+    )
+    assert check_alembic_downgrades_not_empty(app) == []
+    _write(
+        app,
+        "modules/notes/migrations/versions/0002_backfill.py",
+        "def upgrade():\n    backfill()\n"
+        "def downgrade():\n    # irreversible data backfill; nothing to undo\n    pass\n",
+    )
+    assert check_alembic_downgrades_not_empty(app) == []
 
 
 def test_session_imported_from_sqlmodel(tmp_path: pathlib.Path) -> None:

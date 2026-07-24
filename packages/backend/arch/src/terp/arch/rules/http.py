@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 
 from terp.arch._ast import base_name, iter_python_files, parse
 from terp.arch.rules._support import (
@@ -297,6 +298,85 @@ def check_list_routes_paginate(
                                 "terp.core.Page[...] instead",
                             )
                         )
+    return violations
+
+
+# A path parameter naming a resource id (``id`` or ``…_id``) must be a UUID: the
+# framework issues UUID v4 primary keys, and typing the path param as ``uuid.UUID``
+# gives free 422 validation at the boundary instead of letting malformed ids reach
+# the service layer.
+_ID_PARAM_RE = re.compile(r"(?:^id$|_id$)")
+_PATH_PARAM_RE = re.compile(r"\{(\w+)(?::[^}]*)?\}")
+
+
+def _route_path_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    """The ``{param}`` names declared in *node*'s route-decorator URL templates."""
+    params: set[str] = set()
+    for decorator in node.decorator_list:
+        if not isinstance(decorator, ast.Call) or not _is_route_decorator(decorator.func):
+            continue
+        if decorator.args and isinstance(decorator.args[0], ast.Constant):
+            template = decorator.args[0].value
+            if isinstance(template, str):
+                params.update(_PATH_PARAM_RE.findall(template))
+    return params
+
+
+def _is_uuid_annotation(annotation: ast.expr) -> bool:
+    """True when *annotation* is ``uuid.UUID`` (attribute) or ``UUID`` (name)."""
+    if isinstance(annotation, ast.Attribute):
+        return annotation.attr == "UUID"
+    if isinstance(annotation, ast.Name):
+        return annotation.id == "UUID"
+    return False
+
+
+def check_path_id_params_are_uuid(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """A route path parameter naming a resource id must be typed as a UUID.
+
+    A handler parameter that also appears in the route's URL template
+    (``@router.get("/{note_id}")``) and is named ``id`` or ends in ``_id`` must be
+    annotated ``uuid.UUID`` — the framework's primary keys are UUID v4, and the UUID
+    type gives automatic boundary validation (a 422 on malformed input) instead of
+    letting a bad id reach the service. Query / body parameters are out of scope —
+    only path params are checked.
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        tree = parse(path)
+        rel = _rel(path, root)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            path_params = _route_path_params(node)
+            if not path_params:
+                continue
+            for arg in (*node.args.posonlyargs, *node.args.args):
+                if arg.arg not in path_params or not _ID_PARAM_RE.search(arg.arg):
+                    continue
+                if arg.annotation is None:
+                    violations.append(
+                        ArchViolation(
+                            "path_id_params_are_uuid",
+                            rel,
+                            node.lineno,
+                            f"path parameter {arg.arg!r} has no type annotation; type it "
+                            "as uuid.UUID for automatic boundary validation",
+                        )
+                    )
+                elif not _is_uuid_annotation(arg.annotation):
+                    violations.append(
+                        ArchViolation(
+                            "path_id_params_are_uuid",
+                            rel,
+                            node.lineno,
+                            f"path parameter {arg.arg!r} is not typed as uuid.UUID; an id path "
+                            "param must be a UUID so malformed input is rejected at the boundary",
+                        )
+                    )
     return violations
 
 

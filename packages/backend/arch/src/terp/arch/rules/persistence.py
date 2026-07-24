@@ -74,6 +74,49 @@ def check_no_dynamic_sql(
     return violations
 
 
+def _attr_calls_in(node: ast.AST, attr: str) -> list[ast.Call]:
+    """Every ``<recv>.<attr>(...)`` call node in *node*'s subtree."""
+    return [
+        sub
+        for sub in ast.walk(node)
+        if isinstance(sub, ast.Call)
+        and isinstance(sub.func, ast.Attribute)
+        and sub.func.attr == attr
+    ]
+
+
+def check_offset_queries_declare_ordering(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """An offset-paginated query must declare an explicit ordering.
+
+    Row order without an ``ORDER BY`` is undefined, so paging with ``.offset(...)``
+    over an unordered query can skip or repeat rows between pages. A function that
+    calls ``.offset(...)`` must also call ``.order_by(...)`` (or page through the
+    framework's ordered pagination helper) so the sequence is deterministic.
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        tree = parse(path)
+        rel = _rel(path, root)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            offset_calls = _attr_calls_in(node, "offset")
+            if offset_calls and not _attr_calls_in(node, "order_by"):
+                violations.append(
+                    ArchViolation(
+                        "offset_queries_declare_ordering",
+                        rel,
+                        offset_calls[0].lineno,
+                        f"{node.name!r} paginates with .offset() but declares no .order_by(); "
+                        "add a deterministic ordering so pages do not skip or repeat rows",
+                    )
+                )
+    return violations
+
+
 
 def check_no_raw_session_construction(
     app_root: str | pathlib.Path, *, package: str = "app"
