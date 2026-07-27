@@ -48,4 +48,14 @@ describe("design tokens", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("opts native chrome into the palette via color-scheme (light + dark)", () => {
+    // Without `color-scheme`, native chrome the framework cannot restyle — the
+    // <select> option popup, and any scrollbar a browser draws natively — stays
+    // in OS-light rendering even under the dark theme. The light root declares
+    // it and both dark blocks (explicit [data-theme='dark'] and the
+    // prefers-color-scheme media query) flip it.
+    expect(tokensCss).toContain("color-scheme: light");
+    expect(tokensCss.match(/color-scheme: dark/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+  });
 });

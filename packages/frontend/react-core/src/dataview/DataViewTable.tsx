@@ -235,7 +235,10 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
                   style={{
                     position: "absolute",
                     top: 0,
-                    right: -3,
+                    // Sit flush with the cell's right edge — a negative offset would
+                    // let the last column's handle spill past the table and trip the
+                    // scroll container's overflow-x, adding a spurious scrollbar.
+                    right: 0,
                     width: 7,
                     height: "100%",
                     cursor: "col-resize",

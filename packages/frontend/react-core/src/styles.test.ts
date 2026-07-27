@@ -18,4 +18,13 @@ describe("injectTerpStyles", () => {
     expect(nodes[0]?.textContent ?? "").toContain('[data-terp="input"][type="number"]');
     expect(nodes[0]?.textContent ?? "").toContain("::-webkit-inner-spin-button");
   });
+
+  it("themes scrollbars against the token palette (thin, not the OS default)", () => {
+    injectTerpStyles();
+    const css = document.querySelector(`style#${TERP_STYLES_ID}`)?.textContent ?? "";
+    expect(css).toContain("scrollbar-width: thin");
+    expect(css).toContain("scrollbar-color: var(--color-neutral-300) transparent");
+    expect(css).toContain("::-webkit-scrollbar");
+    expect(css).toContain("::-webkit-scrollbar-thumb");
+  });
 });

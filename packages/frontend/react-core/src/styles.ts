@@ -48,6 +48,39 @@ body {
   box-sizing: border-box;
 }
 
+/* Themed scrollbars: the OS default chrome (thick, grey, light-only) ignores
+   the app theme and looks foreign against a token-styled surface — most
+   obvious on the horizontal overflow of a DataView table. These rules give
+   every scroll container a thin, token-coloured bar that tracks light/dark.
+   Firefox uses the inheritable scrollbar-* properties (set once on the root);
+   WebKit/Blink use the ::-webkit-scrollbar pseudo-elements (not inherited, so
+   they match every scrollable element globally). Paired with the color-scheme
+   declaration on the token roots so any native chrome we do not restyle here
+   (notably the native <select> option popup) also follows the theme. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-neutral-300) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-neutral-300);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-neutral-400);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* Shared focus-visible ring: every interactive element that opts in via
    [data-terp] shows a soft outline ring. !important lets the ring beat
    inline base box-shadows (e.g. the primary button's resting shadow) so

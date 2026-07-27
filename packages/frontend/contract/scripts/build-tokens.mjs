@@ -60,17 +60,23 @@ const output = `/**
  */
 
 :root {
+  /* Opts native chrome (scrollbars, the <select> option popup, form controls,
+     text-field carets) into the light palette so it never renders as foreign
+     OS-light chrome. The dark blocks below flip it to dark. */
+  color-scheme: light;
 ${light}
 }
 
 /* Dark theme: an explicit user/app choice via <html data-theme="dark">. */
 [data-theme='dark'] {
+  color-scheme: dark;
 ${dark}
 }
 
 /* Dark theme: the OS preference, unless the app pinned light explicitly. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    color-scheme: dark;
 ${dark.replace(/^ {2}/gm, "    ")}
   }
 }
