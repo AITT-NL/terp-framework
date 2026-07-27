@@ -75,12 +75,15 @@ export function DataViewMenuItem({
   label,
   destructive = false,
   disabled = false,
+  selected,
   icon,
   onSelect,
 }: {
   label: string;
   destructive?: boolean;
   disabled?: boolean;
+  /** Marks one choice in a mutually exclusive menu (renders `menuitemradio`). */
+  selected?: boolean;
   icon?: ReactNode;
   onSelect: () => void;
 }) {
@@ -88,6 +91,7 @@ export function DataViewMenuItem({
     <MenuItem
       label={label}
       icon={icon}
+      selected={selected}
       destructive={destructive}
       disabled={disabled}
       onSelect={onSelect}

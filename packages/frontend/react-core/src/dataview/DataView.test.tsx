@@ -374,7 +374,7 @@ describe("DataView embedded variant", () => {
     expect(screen.getByRole("searchbox")).toBeInTheDocument();
     expect(screen.queryByText(/of 4 results/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Card view" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Rows per page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rows per page" })).not.toBeInTheDocument();
     // All rows rendered — the parent owns paging.
     expect(screen.getAllByRole("row")).toHaveLength(5);
   });

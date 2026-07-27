@@ -2,10 +2,9 @@ import type { ReactNode } from "react";
 
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
-import { Select } from "../ui/Select";
 import { DataViewColumnSettings } from "./DataViewColumnSettings";
 import type { DataViewColumnSettingsProps } from "./DataViewColumnSettings";
-import { CardsGlyph, CloseGlyph, EllipsisGlyph, SearchGlyph, TableGlyph } from "./glyphs";
+import { CardsGlyph, ChevronDownGlyph, CloseGlyph, EllipsisGlyph, SearchGlyph, TableGlyph } from "./glyphs";
 import { DataViewMenu, DataViewMenuItem, useDataViewText } from "./internal";
 import { useViewSearch } from "./hooks/useViewSearch";
 import type { DataViewBatchAction, DataViewSearchScope } from "./types";
@@ -204,17 +203,29 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
       )}
       <span style={{ flex: 1 }} />
       {props.onPageSizeChange !== undefined && props.pageSize !== undefined && (
-        <Select
-          value={String(props.pageSize)}
-          aria-label={resolve(strings.pageSize)}
-          onChange={(event) => props.onPageSizeChange?.(Number(event.target.value))}
+        <DataViewMenu
+          triggerLabel={resolve(strings.pageSize)}
+          trigger={
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-1)" }}>
+              {props.pageSize}
+              <ChevronDownGlyph size={14} />
+            </span>
+          }
         >
-          {(props.pageSizeOptions ?? [10, 25, 50, 100]).map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </Select>
+          {(close) =>
+            (props.pageSizeOptions ?? [10, 25, 50, 100]).map((option) => (
+              <DataViewMenuItem
+                key={option}
+                label={String(option)}
+                selected={option === props.pageSize}
+                onSelect={() => {
+                  props.onPageSizeChange?.(option);
+                  close();
+                }}
+              />
+            ))
+          }
+        </DataViewMenu>
       )}
       {props.onLayoutChange !== undefined && (
         <span style={{ display: "inline-flex", gap: "var(--space-1)" }}>
