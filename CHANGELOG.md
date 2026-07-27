@@ -10,6 +10,31 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## 0.3.0 — 2026-07-27
+
+The Terp Standard becomes a dependency you install rather than a repository you
+clone, and the deep-import rule starts guarding the scope the packages are
+actually published under.
+
+### Fixed
+
+- **`frontend/no-deep-imports` refuses the published scope.** The rule only ever
+  matched `@terp/*/src/*` and `@terp/*/dist/*`, so from the moment the frontend
+  packages were renamed to `@terpjs/*` an
+  `import x from "@terpjs/react-core/src/…"` walked straight past the one rule
+  meant to stop it. Deep imports of the published packages are refused again.
+
+### Changed
+
+- **The Terp Standard is consumed as a published package** (ADR 0086). The
+  backend resolves `terp-spec` from PyPI and the boundary lint resolves
+  `@terpjs/spec` from npm, both pinned by version instead of a git tag — no
+  `[tool.uv.sources]` entry and no `github:` dependency. `test_repo_split_readiness`
+  now proves both lockfiles resolved the pinned release from a registry, and
+  the two ecosystems may not drift apart.
+- **Pinned spec: 0.16.0**, which records every rule's enforcing tool under the
+  `@terpjs/*` scope the packages publish under.
+
 ## 0.2.0 — 2026-07-27
 
 Second release: the enforcement harness grows fifteen rules, and the frontend

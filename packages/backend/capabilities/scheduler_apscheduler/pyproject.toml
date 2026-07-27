@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-scheduler-apscheduler"
-version = "0.2.0"
+version = "0.3.0"
 description = "Terp APScheduler adapter — fire catalog schedules on their cron in-process, through the jobs seam."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.2.0",
+    "terp-core==0.3.0",
     "apscheduler>=3.10,<4",
 ]
 
