@@ -398,8 +398,11 @@ def test_redis_adapter_extras_are_selective_and_composable() -> None:
         ).read_text(encoding="utf-8")
     )["project"]
     extras = project["optional-dependencies"]
-    realtime = "terp-cap-realtime==0.1.0"
-    oidc = "terp-cap-oidc==0.1.0"
+    # Lockstep pins move every release; derive them so this test keeps asserting
+    # the extras' shape rather than the version of the day.
+    version = project["version"]
+    realtime = f"terp-cap-realtime=={version}"
+    oidc = f"terp-cap-oidc=={version}"
     assert extras["realtime"] == [realtime]
     assert extras["oidc"] == [oidc]
     assert set(extras["all"]) == {realtime, oidc}

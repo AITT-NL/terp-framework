@@ -397,8 +397,11 @@ def test_cli_job_process_extras_are_selective_and_composable() -> None:
         )
     )["project"]
     extras = project["optional-dependencies"]
-    outbox = "terp-cap-outbox==0.1.0"
-    scheduler = "terp-cap-scheduler-apscheduler==0.1.0"
+    # Lockstep pins move every release; derive them so this test keeps asserting
+    # the extras' shape rather than the version of the day.
+    version = project["version"]
+    outbox = f"terp-cap-outbox=={version}"
+    scheduler = f"terp-cap-scheduler-apscheduler=={version}"
     assert extras["worker"] == [outbox]
     assert extras["scheduler"] == [scheduler]
     assert set(extras["jobs"]) == {outbox, scheduler}
