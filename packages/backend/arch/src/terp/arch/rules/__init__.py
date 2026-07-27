@@ -45,7 +45,10 @@ from terp.arch.rules.authz import (
     check_public_modules_are_read_only,
 )
 from terp.arch.rules.budget import check_escape_hatch_budget
-from terp.arch.rules.datetimes import check_no_naive_datetime
+from terp.arch.rules.datetimes import (
+    check_datetime_columns_are_timezone_aware,
+    check_no_naive_datetime,
+)
 from terp.arch.rules.hygiene import (
     check_no_blocking_sleep,
     check_no_empty_tests,
@@ -141,6 +144,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_dynamic_sql": "service",
     "offset_queries_declare_ordering": "service",
     "no_naive_datetime": "service",
+    "datetime_columns_are_timezone_aware": "module",
     "no_oversized_python_files": "module",
     "no_eval_or_exec": "capability",
     "no_star_imports": "module",
@@ -214,6 +218,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_dynamic_sql,
     check_offset_queries_declare_ordering,
     check_no_naive_datetime,
+    check_datetime_columns_are_timezone_aware,
     check_no_oversized_python_files,
     check_no_eval_or_exec,
     check_no_star_imports,
@@ -369,6 +374,7 @@ __all__ = [
     "check_no_manual_version_assignment",
     "check_update_schemas_inherit_base_update_schema",
     "check_no_naive_datetime",
+    "check_datetime_columns_are_timezone_aware",
     "check_no_oversized_python_files",
     "check_no_blocking_sleep",
     "check_no_empty_tests",

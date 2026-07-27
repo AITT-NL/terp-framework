@@ -43,6 +43,7 @@ from terp.arch import (
     check_no_manual_ownership_checks,
     check_no_manual_version_assignment,
     check_no_naive_datetime,
+    check_datetime_columns_are_timezone_aware,
     check_no_oversized_python_files,
     check_no_blocking_sleep,
     check_no_empty_tests,
@@ -997,6 +998,114 @@ def test_no_naive_datetime(tmp_path: pathlib.Path) -> None:
     # A ``now`` on some other object is not the datetime constructor: no false positive.
     _write(app, "modules/notes/service.py", "value = clock.now()\n")
     assert check_no_naive_datetime(app) == []
+
+
+def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+
+    def model(fields: str) -> str:
+        return f"class Note(BaseTable, table=True):\n{fields}"
+
+    # Every way of declaring a timestamp column WITHOUT pinning the zone: a bare
+    # annotation, a Field() that never names the column type, an optional column,
+    # and an explicit timezone=False (the zone is dropped just as thoroughly).
+    naive_columns = (
+        "    due_at: datetime\n",
+        "    due_at: datetime = Field(default=None)\n",
+        "    due_at: datetime | None = Field(default=None, index=True)\n",
+        "    due_at: datetime = Field(sa_type=DateTime(timezone=False))\n",
+        "    due_at: datetime.datetime = Field(default=None)\n",
+    )
+    for fields in naive_columns:
+        _write(app, "modules/notes/models.py", model(fields))
+        assert _rule_names(check_datetime_columns_are_timezone_aware(app)) == {
+            "datetime_columns_are_timezone_aware"
+        }, fields
+
+    # Pinning timezone=True is compliant, however the type is spelled or carried:
+    # sa_type=, sa_column=Column(...), a qualified name, and the TIMESTAMP alias.
+    aware_columns = (
+        "    due_at: datetime = Field(sa_type=DateTime(timezone=True))\n",
+        "    due_at: datetime | None = Field(sa_column=Column(DateTime(timezone=True)))\n",
+        "    due_at: datetime = Field(sa_type=sa.DateTime(timezone=True))\n",
+        "    due_at: datetime = Field(sa_type=TIMESTAMP(timezone=True))\n",
+        "    due_at: datetime.datetime = Field(sa_type=DateTime(timezone=True))\n",
+    )
+    for fields in aware_columns:
+        _write(app, "modules/notes/models.py", model(fields))
+        assert check_datetime_columns_are_timezone_aware(app) == [], fields
+
+    # Non-timestamp columns are none of this rule's business.
+    _write(app, "modules/notes/models.py", model("    title: str = Field(max_length=200)\n"))
+    assert check_datetime_columns_are_timezone_aware(app) == []
+
+    # The rule is about *columns*: a class that is not a table (a schema DTO, a
+    # mixin) declares no storage, so its timestamps are not flagged.
+    _write(
+        app,
+        "modules/notes/schemas.py",
+        "class NoteRead(BaseSchema):\n    due_at: datetime\n",
+    )
+    _write(app, "modules/notes/models.py", model("    title: str = Field(max_length=200)\n"))
+    assert check_datetime_columns_are_timezone_aware(app) == []
+
+    # A non-Name assignment target still reports, naming the field generically.
+    _write(
+        app,
+        "modules/notes/models.py",
+        "class Note(BaseTable, table=True):\n    obj.due_at: datetime = Field(default=None)\n",
+    )
+    assert _rule_names(check_datetime_columns_are_timezone_aware(app)) == {
+        "datetime_columns_are_timezone_aware"
+    }
+
+    # A column inherited from a mixin lands on the table just the same, so a naive
+    # timestamp cannot be hidden by declaring it one class up.
+    _write(
+        app,
+        "modules/notes/models.py",
+        "class ArchivedMixin:\n"
+        "    archived_at: datetime | None = Field(default=None)\n\n\n"
+        "class Note(ArchivedMixin, BaseTable, table=True):\n"
+        "    title: str = Field(max_length=200)\n",
+    )
+    assert _rule_names(check_datetime_columns_are_timezone_aware(app)) == {
+        "datetime_columns_are_timezone_aware"
+    }
+
+    # The same mixin with a timezone-aware column is clean.
+    _write(
+        app,
+        "modules/notes/models.py",
+        "class ArchivedMixin:\n"
+        "    archived_at: datetime | None = Field(sa_type=DateTime(timezone=True))\n\n\n"
+        "class Note(ArchivedMixin, BaseTable, table=True):\n"
+        "    title: str = Field(max_length=200)\n",
+    )
+    assert check_datetime_columns_are_timezone_aware(app) == []
+
+    # A class that no table inherits stays out of scope, even next to one that does.
+    _write(
+        app,
+        "modules/notes/models.py",
+        "class DraftPayload:\n"
+        "    due_at: datetime = Field(default=None)\n\n\n"
+        "class Note(BaseTable, table=True):\n"
+        "    title: str = Field(max_length=200)\n",
+    )
+    assert check_datetime_columns_are_timezone_aware(app) == []
+
+    # A subscripted base unwraps to its leaf name, and a base with no simple name
+    # at all must not crash the mixin scan.
+    _write(
+        app,
+        "modules/notes/models.py",
+        "class Note(Base[int], make_mixin(), BaseTable, table=True):\n"
+        "    due_at: datetime = Field(default=None)\n",
+    )
+    assert _rule_names(check_datetime_columns_are_timezone_aware(app)) == {
+        "datetime_columns_are_timezone_aware"
+    }
 
 
 def test_no_oversized_python_files(tmp_path: pathlib.Path) -> None:
