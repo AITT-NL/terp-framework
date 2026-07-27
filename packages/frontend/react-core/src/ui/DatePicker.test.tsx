@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LOCALE_NL, LocaleProvider } from "../locale";
+import { LOCALE_EN, LOCALE_NL, LocaleProvider } from "../locale";
 import { DatePicker, DateRangePicker } from "./DatePicker";
 
 afterEach(cleanup);
@@ -10,7 +10,15 @@ afterEach(cleanup);
 describe("DatePicker", () => {
   it("selects a date and supports keyboard navigation", () => {
     const onChange = vi.fn();
-    render(<DatePicker aria-label="Due date" defaultValue={new Date(2026, 6, 7)} onChange={onChange} />);
+    // Pinned to `en`: without a LocaleProvider the picker formats with
+    // `Intl.DateTimeFormat(undefined, …)`, i.e. whatever locale the machine
+    // running the suite happens to use — the month name below would then be
+    // English only on an English host.
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN }}>
+        <DatePicker aria-label="Due date" defaultValue={new Date(2026, 6, 7)} onChange={onChange} />
+      </LocaleProvider>,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Due date" }));
     expect(screen.getByRole("grid", { name: /July 2026/ })).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("grid"), { key: "ArrowRight" });
