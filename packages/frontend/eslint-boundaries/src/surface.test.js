@@ -71,11 +71,9 @@ describe("structural parity: BOUNDARY_SPEC realises exactly the declared surface
   it("every declared deep-import segment is refused by the import patterns", () => {
     for (const segment of SURFACE.deepImportPathSegments) {
       expect(BOUNDARY_SPEC.internalImportPatterns).toContain(`@terpjs/*/${segment}/*`);
-      // transitional: a pinned spec release may still ship fixtures on the legacy scope
-      expect(BOUNDARY_SPEC.internalImportPatterns).toContain(`@terp/*/${segment}/*`);
     }
     expect(BOUNDARY_SPEC.internalImportPatterns).toHaveLength(
-      SURFACE.deepImportPathSegments.length * 2,
+      SURFACE.deepImportPathSegments.length,
     );
   });
 });

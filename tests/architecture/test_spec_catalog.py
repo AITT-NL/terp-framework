@@ -44,19 +44,6 @@ _RUNTIME_TOOL_SOURCES = {
 }
 
 
-def _tool(enforcement: dict) -> str:
-    """A catalog tool id, normalised onto the scope we actually publish under.
-
-    The catalog historically named the frontend tools in the ``@terp`` scope,
-    which is not ours — they are published as ``@terpjs/*``. The rename lands in
-    a spec release of its own, so this gate accepts either spelling for exactly
-    as long as it takes the pin to cross that release; drop the fallback once no
-    supported spec version still says ``@terp/``.
-    """
-    tool = enforcement["tool"]
-    return f"@terpjs/{tool[len('@terp/'):]}" if tool.startswith("@terp/") else tool
-
-
 def _entries(surface: str) -> dict[str, dict]:
     entries: dict[str, dict] = {}
     for path in sorted((_CATALOG / surface).glob("*.json")):
@@ -202,7 +189,7 @@ def test_runtime_enforcement_refs_resolve_to_real_symbols() -> None:
             for enforcement in entry["enforcement"]:
                 if enforcement["kind"] != "runtime":
                     continue
-                source_root = _RUNTIME_TOOL_SOURCES.get(_tool(enforcement))
+                source_root = _RUNTIME_TOOL_SOURCES.get(enforcement["tool"])
                 assert source_root is not None, (
                     f"{surface}/{name}: unknown runtime tool {enforcement['tool']!r} "
                     f"(add it to _RUNTIME_TOOL_SOURCES)"
@@ -234,7 +221,7 @@ def test_black_box_enforcement_refs_resolve_to_conformance_probes() -> None:
             for enforcement in entry["enforcement"]:
                 if enforcement["kind"] != "black-box":
                     continue
-                assert _tool(enforcement) == "@terpjs/conformance", (
+                assert enforcement["tool"] == "@terpjs/conformance", (
                     f"{surface}/{name}: black-box enforcement runs via @terpjs/conformance"
                 )
                 assert f'"{enforcement["ref"]}"' in probe_titles, (

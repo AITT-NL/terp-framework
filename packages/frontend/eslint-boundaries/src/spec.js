@@ -15,7 +15,7 @@
  * NOT by this package's own suite, which certification runs against candidate spec releases
  * whose version is allowed to be newer).
  */
-export const SPEC_VERSION = "0.15.0";
+export const SPEC_VERSION = "0.16.0";
 
 export const BOUNDARY_SPEC = {
   /** App module files the boundary + frontend security defaults apply to. */
@@ -44,17 +44,8 @@ export const BOUNDARY_SPEC = {
    * guard); modules use the stack's `Link`. External `https://...` anchors stay allowed.
    */
   restrictInAppAnchors: true,
-  /**
-   * Package internals an app module must not deep-import (import from the package root).
-   * The packages publish under `@terpjs/*`; the legacy `@terp/*` leg stays only while a
-   * supported spec release still ships corpus fixtures under the old scope.
-   */
-  internalImportPatterns: [
-    "@terpjs/*/src/*",
-    "@terpjs/*/dist/*",
-    "@terp/*/src/*",
-    "@terp/*/dist/*",
-  ],
+  /** Package internals an app module must not deep-import (import from the package root). */
+  internalImportPatterns: ["@terpjs/*/src/*", "@terpjs/*/dist/*"],
   /** Module-authored stylesheets are refused — theming flows from the app's token source. */
   styleImportPatterns: [
     "*.css",
