@@ -15,10 +15,10 @@ import { describe, expect, it } from "vitest";
 import { buildScorecard, validateScorecard } from "./scorecard.js";
 
 const SPEC_ROOT = path.dirname(
-  createRequire(import.meta.url).resolve("@terp/spec/package.json"),
+  createRequire(import.meta.url).resolve("@terpjs/spec/package.json"),
 );
 
-describe("the @terp/eslint-boundaries scorecard", () => {
+describe("the @terpjs/eslint-boundaries scorecard", () => {
   it("claims the whole corpus-covered catalog, green, schema-shaped", async () => {
     const scorecard = await buildScorecard();
     expect(validateScorecard(scorecard)).toEqual([]);
@@ -34,7 +34,7 @@ describe("the @terp/eslint-boundaries scorecard", () => {
     expect(scorecard.spec_version).toBe(
       fs.readFileSync(path.join(SPEC_ROOT, "VERSION"), "utf8").trim(),
     );
-    expect(scorecard.checker.tool).toBe("@terp/eslint-boundaries");
+    expect(scorecard.checker.tool).toBe("@terpjs/eslint-boundaries");
     const itemProperties = Object.keys(schema.properties.rules.items.properties);
     for (const claim of scorecard.rules) {
       expect(claim.pass).toBe(true);

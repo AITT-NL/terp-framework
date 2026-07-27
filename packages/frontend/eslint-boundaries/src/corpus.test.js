@@ -22,10 +22,9 @@ import { describe, expect, it } from "vitest";
 
 import { lintCaseFindings } from "./corpus-harness.js";
 
-// The spec is a declared dependency (@terp/spec, ADR 0082), never a repo-relative path —
-// inside the monorepo it resolves to the workspace member; after a repo split, to the pin.
+// The spec is a declared dependency (@terpjs/spec, ADR 0082), never a repo-relative path.
 const SPEC_ROOT = path.dirname(
-  createRequire(import.meta.url).resolve("@terp/spec/package.json"),
+  createRequire(import.meta.url).resolve("@terpjs/spec/package.json"),
 );
 const CATALOG = path.join(SPEC_ROOT, "catalog", "frontend");
 const CORPUS = path.join(SPEC_ROOT, "corpus", "frontend");

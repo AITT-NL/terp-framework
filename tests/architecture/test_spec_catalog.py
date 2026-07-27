@@ -12,7 +12,7 @@ completeness discipline as ``test_docs_parity`` and ``test_arch_harness``:
 * every named ``terp/*`` ESLint rule and every ``BOUNDARY_SPEC`` family the
   frontend catalog claims resolves to the real adapter/spec source;
 * a ``runtime`` enforcement ref resolves to a real symbol in the cited package,
-  and a ``black-box`` ref to a real ``@terp/conformance`` probe title.
+  and a ``black-box`` ref to a real ``@terpjs/conformance`` probe title.
 
 The spec itself is consumed as a dependency (``terp-spec``), never a repo path —
 the seam a repository split cuts along (ADR 0082).
@@ -40,8 +40,21 @@ _RUNTIME_TOOL_SOURCES = {
     "terp.core": _REPO_ROOT / "packages" / "backend" / "core" / "src" / "terp" / "core",
     "terp.migrations": _REPO_ROOT / "packages" / "backend" / "migrations" / "src" / "terp" / "migrations",
     "terp.capabilities.files": _REPO_ROOT / "packages" / "backend" / "capabilities" / "files" / "src" / "terp" / "capabilities" / "files",
-    "@terp/react-core": _REPO_ROOT / "packages" / "frontend" / "react-core" / "src",
+    "@terpjs/react-core": _REPO_ROOT / "packages" / "frontend" / "react-core" / "src",
 }
+
+
+def _tool(enforcement: dict) -> str:
+    """A catalog tool id, normalised onto the scope we actually publish under.
+
+    The catalog historically named the frontend tools in the ``@terp`` scope,
+    which is not ours — they are published as ``@terpjs/*``. The rename lands in
+    a spec release of its own, so this gate accepts either spelling for exactly
+    as long as it takes the pin to cross that release; drop the fallback once no
+    supported spec version still says ``@terp/``.
+    """
+    tool = enforcement["tool"]
+    return f"@terpjs/{tool[len('@terp/'):]}" if tool.startswith("@terp/") else tool
 
 
 def _entries(surface: str) -> dict[str, dict]:
@@ -189,7 +202,7 @@ def test_runtime_enforcement_refs_resolve_to_real_symbols() -> None:
             for enforcement in entry["enforcement"]:
                 if enforcement["kind"] != "runtime":
                     continue
-                source_root = _RUNTIME_TOOL_SOURCES.get(enforcement["tool"])
+                source_root = _RUNTIME_TOOL_SOURCES.get(_tool(enforcement))
                 assert source_root is not None, (
                     f"{surface}/{name}: unknown runtime tool {enforcement['tool']!r} "
                     f"(add it to _RUNTIME_TOOL_SOURCES)"
@@ -221,15 +234,15 @@ def test_black_box_enforcement_refs_resolve_to_conformance_probes() -> None:
             for enforcement in entry["enforcement"]:
                 if enforcement["kind"] != "black-box":
                     continue
-                assert enforcement["tool"] == "@terp/conformance", (
-                    f"{surface}/{name}: black-box enforcement runs via @terp/conformance"
+                assert _tool(enforcement) == "@terpjs/conformance", (
+                    f"{surface}/{name}: black-box enforcement runs via @terpjs/conformance"
                 )
                 assert f'"{enforcement["ref"]}"' in probe_titles, (
                     f"{surface}/{name}: black-box ref {enforcement['ref']!r} is not a "
-                    "@terp/conformance test title"
+                    "@terpjs/conformance test title"
                 )
                 black_box_layer_rules.discard(f"{surface}/{name}")
     assert black_box_layer_rules == set(), (
-        "a rule classified layer=black-box must name its @terp/conformance probe "
+        "a rule classified layer=black-box must name its @terpjs/conformance probe "
         f"(a black-box enforcement entry): {sorted(black_box_layer_rules)}"
     )

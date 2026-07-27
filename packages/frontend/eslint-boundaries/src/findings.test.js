@@ -16,7 +16,7 @@ import { SPEC_VERSION } from "./spec.js";
 // stack-neutral catalog ids, humans keep stderr, and the exit code stays the verdict.
 
 const SPEC_ROOT = path.dirname(
-  createRequire(import.meta.url).resolve("@terp/spec/package.json"),
+  createRequire(import.meta.url).resolve("@terpjs/spec/package.json"),
 );
 const FINDINGS_BIN = fileURLToPath(new URL("./findings.js", import.meta.url));
 
@@ -71,7 +71,7 @@ describe("renderEnvelope", () => {
       layoutContract: true,
     });
     expect(envelope.terp_findings).toBe(1);
-    expect(envelope.tool).toBe("@terp/eslint-boundaries");
+    expect(envelope.tool).toBe("@terpjs/eslint-boundaries");
     expect(envelope.rules).toEqual(catalogRuleIds());
     expect(envelope.not_applicable).toEqual([]);
     const rules = envelope.findings.map((finding) => finding.rule);
@@ -252,11 +252,11 @@ describe("the check report (--format check-report, app-check-report.schema.json)
     const report = asCheckReport(envelope);
     expect(report.terp_check_report).toBe(1);
     // The certified spec version rides every report. Shape only here — the
-    // equality lock against the pinned @terp/spec lives in the framework gate
+    // equality lock against the pinned @terpjs/spec lives in the framework gate
     // (test_check_json.py), because certification runs THIS suite against
     // candidate spec releases whose version is allowed to be newer.
     expect(report.spec_version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(report.checker.tool).toBe("@terp/eslint-boundaries");
+    expect(report.checker.tool).toBe("@terpjs/eslint-boundaries");
     expect(report.checker.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(report.ok).toBe(false);
     expect(report.rules).toEqual(catalogRuleIds());

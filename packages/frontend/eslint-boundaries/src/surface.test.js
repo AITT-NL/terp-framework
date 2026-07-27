@@ -22,9 +22,9 @@ import { describe, expect, it } from "vitest";
 
 import terpBoundaries, { BOUNDARY_SPEC, catalogRuleId } from "./index.js";
 
-// The spec is a declared dependency (@terp/spec, ADR 0082), never a repo-relative path.
+// The spec is a declared dependency (@terpjs/spec, ADR 0082), never a repo-relative path.
 const SPEC_ROOT = path.dirname(
-  createRequire(import.meta.url).resolve("@terp/spec/package.json"),
+  createRequire(import.meta.url).resolve("@terpjs/spec/package.json"),
 );
 const SURFACE = JSON.parse(
   fs.readFileSync(path.join(SPEC_ROOT, "restricted-surface.json"), "utf8"),

@@ -200,12 +200,7 @@ jobs:
       # registry credential — no NPM_TOKEN secret required. Provenance is emitted
       # automatically under Trusted Publishing.
       - run: npm install -g npm@latest
-      # --omit=dev: npm 12 refuses to fetch git dependencies (EALLOWGIT), and the
-      # boundary package pins the Terp Standard as `github:AITT-NL/terp-spec#<tag>`
-      # (@terp/spec is not on the npm registry). That pin is dev-only and none of
-      # the published packages run a prepare/prepublish script, so publishing needs
-      # no dev tree at all — omitting it sidesteps the git fetch entirely.
-      - run: npm ci --omit=dev
+      - run: npm ci
       - name: Publish the frontend packages (public, via Trusted Publishing)
         run: |
           set -eux

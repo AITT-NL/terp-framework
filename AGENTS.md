@@ -95,11 +95,11 @@ flag and drop the rule from the ratchet. Parity is enforced by
 `test_spec_catalog` / `test_spec_corpus` and `corpus.test.js`.
 
 The spec is consumed as a **package**, never a repo-relative path (ADR 0082):
-Python via `terp_spec.spec_dir()` (the `terp-spec` distribution, pinned by
-release tag in `[tool.uv.sources]`), JS via `@terp/spec` resolution (pinned in
-`packages/frontend/eslint-boundaries`). Bump both pins together to adopt a new
-spec release; `test_repo_split_readiness` fails the build if framework code
-re-couples to `spec/` or `studio/` by path.
+Python via `terp_spec.spec_dir()` (the `terp-spec` distribution on PyPI), JS via
+`@terpjs/spec` resolution (pinned in `packages/frontend/eslint-boundaries`).
+Both registries are fed by terp-spec's own release workflow (ADR 0086). Bump
+both pins together to adopt a new spec release; `test_repo_split_readiness` fails
+the build if the framework re-couples to `spec/` or `studio/` by path.
 
 ## Run the gate
 

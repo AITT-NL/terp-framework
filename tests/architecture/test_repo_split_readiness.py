@@ -3,18 +3,18 @@
 The split is DONE: this repository is the framework (``packages/`` +
 ``tests/`` + ``apps/`` + ``template/``); the Terp Standard lives in
 `AITT-NL/terp-spec <https://github.com/AITT-NL/terp-spec>`_ (consumed as the
-``terp-spec`` / ``@terp/spec`` packages, pinned by release tag) and Terp
-Studio in its own private repository. This guard fails the build the moment
-code re-couples them:
+published ``terp-spec`` / ``@terpjs/spec`` packages, pinned by release) and
+Terp Studio in its own private repository. This guard fails the build the
+moment code re-couples them:
 
 * nothing in the framework locates the spec by repo-relative path — the only
-  seam is the ``terp_spec`` accessor / ``@terp/spec`` package resolution;
+  seam is the ``terp_spec`` accessor / ``@terpjs/spec`` package resolution;
 * nothing in the framework references ``studio/`` at all;
 * the split units never silently return as directories or workspace members;
-* the two spec pins (``terp-spec`` in pyproject.toml, ``@terp/spec`` in the
-  eslint-boundaries package) name the **same** ``vX.Y.Z`` release, and the
-  lockfiles resolved that same release — "bump both pins together" is a
-  failing test, not a convention.
+* the two spec pins (``terp-spec`` in pyproject.toml, ``@terpjs/spec`` in the
+  eslint-boundaries package) name the **same** ``X.Y.Z`` release, and the
+  lockfiles resolved that same release from the public registries — "bump
+  both pins together" is a failing test, not a convention.
 """
 
 from __future__ import annotations
@@ -58,8 +58,8 @@ def test_the_framework_never_reaches_into_spec_by_path() -> None:
         if _SPEC_PATH_ESCAPES.search(path.read_text(encoding="utf-8", errors="ignore"))
     ]
     assert offenders == [], (
-        "the spec is a dependency (terp-spec / @terp/spec), never a repo-relative path "
-        f"(ADR 0082) — construct it via terp_spec.spec_dir() or @terp/spec: {offenders}"
+        "the spec is a dependency (terp-spec / @terpjs/spec), never a repo-relative path "
+        f"(ADR 0082) — construct it via terp_spec.spec_dir() or @terpjs/spec: {offenders}"
     )
 
 
@@ -89,8 +89,11 @@ def test_the_spec_unit_stays_layer_neutral() -> None:
         "terp_spec must not import the framework"
     )
     root_pyproject = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'git = "https://github.com/AITT-NL/terp-spec"' in root_pyproject, (
-        "terp-spec resolves from its own repository (git/registry pin, ADR 0082)"
+    assert "terp-spec" not in root_pyproject.split("[tool.uv.sources]", 1)[-1].split(
+        "[dependency-groups]", 1
+    )[0], (
+        "terp-spec is a published distribution (ADR 0086) — it resolves from PyPI, "
+        "so it must NOT carry a [tool.uv.sources] override"
     )
 
 
@@ -106,28 +109,35 @@ def test_studio_is_not_a_workspace_member() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The spec pin: one release tag, named identically by both ecosystems
+# The spec pin: one published release, named identically by both ecosystems
 # --------------------------------------------------------------------------- #
 
-_RELEASE_TAG = re.compile(r"v\d+\.\d+\.\d+")
+_RELEASE = re.compile(r"\d+\.\d+\.\d+")
 
 
 def _python_spec_pin() -> str:
-    """The ``terp-spec`` release tag from the structured pyproject manifest."""
+    """The ``terp-spec`` release from the structured pyproject manifest."""
     pyproject = tomllib.loads(
         (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )
-    source = pyproject["tool"]["uv"]["sources"]["terp-spec"]
-    tag = source.get("tag", "")
-    assert _RELEASE_TAG.fullmatch(tag), (
-        "[tool.uv.sources] must pin terp-spec to a vX.Y.Z release tag "
-        f"(ADR 0082), got {source!r}"
+    requirements = [
+        requirement
+        for requirement in pyproject["dependency-groups"]["dev"]
+        if isinstance(requirement, str) and requirement.startswith("terp-spec")
+    ]
+    assert len(requirements) == 1, (
+        f"the dev group must declare terp-spec exactly once, got {requirements}"
     )
-    return tag
+    match = re.fullmatch(r"terp-spec==(\d+\.\d+\.\d+)", requirements[0])
+    assert match, (
+        "terp-spec must pin one exact published release (terp-spec==X.Y.Z, "
+        f"ADR 0086), got {requirements[0]!r}"
+    )
+    return match.group(1)
 
 
 def _js_spec_pin() -> str:
-    """The ``@terp/spec`` release tag from the eslint-boundaries manifest."""
+    """The ``@terpjs/spec`` release from the eslint-boundaries manifest."""
     manifest = json.loads(
         (
             _REPO_ROOT
@@ -138,21 +148,20 @@ def _js_spec_pin() -> str:
         ).read_text(encoding="utf-8")
     )
     declared = {
-        section: manifest.get(section, {}).get("@terp/spec", "")
+        section: manifest.get(section, {}).get("@terpjs/spec", "")
         for section in ("dependencies", "devDependencies", "peerDependencies")
     }
     values = {value for value in declared.values() if value}
-    assert values, "eslint-boundaries declares no @terp/spec dependency"
+    assert values, "eslint-boundaries declares no @terpjs/spec dependency"
     assert len(values) == 1, (
-        f"@terp/spec is declared inconsistently across sections: {declared}"
+        f"@terpjs/spec is declared inconsistently across sections: {declared}"
     )
     (value,) = values
-    match = re.fullmatch(r"github:AITT-NL/terp-spec#(v\d+\.\d+\.\d+)", value)
-    assert match, (
-        "@terp/spec must pin a release tag (github:AITT-NL/terp-spec#vX.Y.Z, "
-        f"ADR 0082), got {value!r}"
+    assert _RELEASE.fullmatch(value), (
+        "@terpjs/spec must pin one exact published release (X.Y.Z, ADR 0086), "
+        f"got {value!r} — a range would let the two ecosystems drift apart"
     )
-    return match.group(1)
+    return value
 
 
 def test_spec_pins_agree_across_both_manifests() -> None:
@@ -162,48 +171,43 @@ def test_spec_pins_agree_across_both_manifests() -> None:
     py_pin, js_pin = _python_spec_pin(), _js_spec_pin()
     assert py_pin == js_pin, (
         f"spec pin skew: pyproject.toml pins terp-spec {py_pin} but "
-        f"eslint-boundaries pins @terp/spec {js_pin} — bump both pins "
+        f"eslint-boundaries pins @terpjs/spec {js_pin} — bump both pins "
         "together (ADR 0082)"
     )
 
 
 def test_spec_lockfiles_resolved_the_pinned_release() -> None:
-    """Both lockfiles carry the pinned release AND the very same resolved
-    commit, so a manifest bump without a re-lock, a lockfile drifting to
-    another commit, or a retargeted upstream tag (same version string,
-    different commit) fails here instead of at install time."""
+    """Both lockfiles carry the pinned release, resolved from the public
+    registry — so a manifest bump without a re-lock, or a lockfile drifting
+    to another version, fails here instead of at install time."""
     pin = _python_spec_pin()
     lock = tomllib.loads((_REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
     entries = [p for p in lock.get("package", []) if p.get("name") == "terp-spec"]
     assert entries, "uv.lock carries no terp-spec entry — run `uv lock`"
-    git_source = entries[0].get("source", {}).get("git", "")
-    assert f"?tag={pin}#" in git_source, (
-        f"uv.lock resolved terp-spec from {git_source!r}, not the pinned "
-        f"{pin} — run `uv lock`"
+    assert entries[0].get("version") == pin, (
+        f"uv.lock resolved terp-spec {entries[0].get('version')!r}, not the "
+        f"pinned {pin} — run `uv lock`"
     )
-    uv_sha = re.search(r"#([0-9a-f]{40})$", git_source)
-    assert uv_sha, f"uv.lock's terp-spec source records no commit: {git_source!r}"
+    assert "registry" in entries[0].get("source", {}), (
+        "terp-spec must resolve from a package registry (ADR 0086), not a git "
+        f"checkout: {entries[0].get('source')!r}"
+    )
     npm_lock = json.loads(
         (_REPO_ROOT / "package-lock.json").read_text(encoding="utf-8")
     )
-    node = npm_lock.get("packages", {}).get("node_modules/@terp/spec")
+    node = npm_lock.get("packages", {}).get("node_modules/@terpjs/spec")
     assert node is not None, (
-        "package-lock.json carries no @terp/spec entry — run `npm install`"
+        "package-lock.json carries no @terpjs/spec entry — run `npm install`"
     )
-    locked_version = node.get("version", "")
-    assert f"v{locked_version}" == pin, (
-        f"package-lock.json resolved @terp/spec {locked_version!r}, not the "
-        f"pinned {pin} — run `npm install` after bumping the pin"
+    assert node.get("version") == pin, (
+        f"package-lock.json resolved @terpjs/spec {node.get('version')!r}, not "
+        f"the pinned {pin} — run `npm install` after bumping the pin"
     )
-    npm_sha = re.search(r"#([0-9a-f]{40})$", node.get("resolved", ""))
-    assert npm_sha, (
-        "package-lock.json's @terp/spec entry records no resolved commit: "
+    assert node.get("resolved", "").startswith("https://registry.npmjs.org/"), (
+        "@terpjs/spec must resolve from the npm registry (ADR 0086): "
         f"{node.get('resolved')!r}"
     )
-    assert uv_sha.group(1) == npm_sha.group(1), (
-        "the two lockfiles resolved DIFFERENT spec commits for the same "
-        f"release tag {pin}: uv.lock has {uv_sha.group(1)[:12]}, "
-        f"package-lock.json has {npm_sha.group(1)[:12]} — re-lock both "
-        "(`uv lock` + `npm install`); if the upstream tag moved, that is a "
-        "release-integrity incident, not a re-lock."
+    assert node.get("integrity"), (
+        "package-lock.json's @terpjs/spec entry records no integrity hash — "
+        "a registry install without one cannot be verified"
     )

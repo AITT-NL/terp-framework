@@ -57,6 +57,6 @@ decisions in [docs/decisions/](../docs/decisions/). The stack-neutral rule
 catalog + violation corpus (the Terp Standard, ADRs 0080/0081) lives in
 [AITT-NL/terp-spec](https://github.com/AITT-NL/terp-spec) — a new rule ships
 with a catalog entry there, and corpus cases shrink its `corpus/PENDING.json`.
-The spec is consumed as a package (`terp-spec` / `@terp/spec`, pinned by
-release tag — ADR 0082), never a repo-relative path.
+The spec is consumed as a package (`terp-spec` / `@terpjs/spec`, published from
+the spec repo per ADR 0086 and pinned here), never a repo-relative path (ADR 0082).
 Run the gate with `uv run pytest`.

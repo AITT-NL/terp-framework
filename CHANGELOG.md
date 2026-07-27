@@ -2,8 +2,9 @@
 
 All notable changes to the Terp platform. Terp releases **in lockstep**: every backend
 distribution (`terp-core`, `terp-arch`, `terp-cli`, `terp-migrations`, `terp-cap-*`) and
-every frontend package (`@terp/contract`, `@terp/react-core`, `@terp/eslint-boundaries`,
-`@terp/conformance`) carries the same version and publishes from the same tag
+every frontend package (`@terpjs/contract`, `@terpjs/react-core`,
+`@terpjs/eslint-boundaries`, `@terpjs/conformance`) carries the same version and
+publishes from the same tag
 (`v<version>`); the gate enforces the lockstep (`tests/architecture/test_release_versions.py`).
 
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per

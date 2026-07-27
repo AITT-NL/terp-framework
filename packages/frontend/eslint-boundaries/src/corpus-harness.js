@@ -4,7 +4,7 @@
  *
  * Shared by the certification test (corpus.test.js) and the scorecard emitter
  * (scorecard.js), so the two can never apply different corpus semantics. The spec
- * is resolved as a declared dependency (@terp/spec, ADR 0082) by the CALLER —
+ * is resolved as a declared dependency (@terpjs/spec, ADR 0082) by the CALLER —
  * this module takes paths, never resolves the spec itself.
  */
 

@@ -7,7 +7,7 @@
  * check `terp-boundaries-budget` runs) in one command, and publishes one **findings
  * envelope** on stdout:
  *
- *   { "terp_findings": 1, "tool": "@terp/eslint-boundaries",
+ *   { "terp_findings": 1, "tool": "@terpjs/eslint-boundaries",
  *     "rules": ["frontend/<rule>", …],          // every catalog rule this run evaluated
  *     "not_applicable": ["frontend/<rule>", …], // opt-in rules this app has not enabled
  *     "findings": [{ rule, path, line, message }, …],   // spec findings.schema.json shape
@@ -128,7 +128,7 @@ export function renderEnvelope(results, cwd = process.cwd(), options = {}) {
   return {
     envelope: {
       terp_findings: 1,
-      tool: "@terp/eslint-boundaries",
+      tool: "@terpjs/eslint-boundaries",
       rules: catalogRuleIds().filter((id) => !notApplicable.includes(id)),
       not_applicable: notApplicable,
       findings,

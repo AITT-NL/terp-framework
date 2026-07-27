@@ -69,9 +69,11 @@ GitHub Release (those legs stay tag-only). Use the same entry point later to **b
 a single distribution whose upload failed mid-release
 (`gh workflow run release.yml -f package=packages/backend/capabilities/<name>`).
 
-`terp-spec` / `@terp/spec` are **not** published from this repository — the framework
-consumes them as git-tag pins from AITT-NL/terp-spec (ADR 0082); registry publishing of
-the spec is deliberately out of scope until third-party checker consumption needs it.
+`terp-spec` / `@terpjs/spec` are **not** published from this repository — AITT-NL/terp-spec
+publishes them to PyPI and npm from its own release workflow (ADR 0086), and the framework
+consumes them as ordinary pinned dependencies. Adopting a new spec release means bumping
+both pins together (`pyproject.toml` dev group + `packages/frontend/eslint-boundaries`)
+and re-locking; `test_repo_split_readiness.py` fails the build if they skew.
 
 ### GitHub — the `release` environment
 

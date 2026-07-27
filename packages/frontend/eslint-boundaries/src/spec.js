@@ -9,13 +9,13 @@
 /**
  * The Terp Standard version this adapter is certified against — the `spec_version` a
  * check report (`app-check-report.schema.json`) carries. A constant rather than a runtime
- * `@terp/spec` read: the spec data package is a dev/certification dependency of the platform
+ * `@terpjs/spec` read: the spec data package is a dev/certification dependency of the platform
  * repo, not of a generated app, and the version is a property of the toolchain build. Held
  * equal to the pinned spec release by the framework gate (test_check_json.py — deliberately
  * NOT by this package's own suite, which certification runs against candidate spec releases
  * whose version is allowed to be newer).
  */
-export const SPEC_VERSION = "0.14.0";
+export const SPEC_VERSION = "0.15.0";
 
 export const BOUNDARY_SPEC = {
   /** App module files the boundary + frontend security defaults apply to. */

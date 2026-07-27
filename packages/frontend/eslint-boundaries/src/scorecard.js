@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Emit the Terp Standard conformance scorecard for `@terp/eslint-boundaries`
+ * Emit the Terp Standard conformance scorecard for `@terpjs/eslint-boundaries`
  * (the frontend checker).
  *
  * The scorecard (`scorecard.schema.json` in the spec) turns "certified against
@@ -9,7 +9,7 @@
  * residuals the adapter relies on (held to a subset of the spec's recorded
  * `corpus/RESIDUALS.json`). A consumer re-runs the corpus and reproduces it.
  *
- * A certification-context tool, not an app tool: it needs `@terp/spec` (a dev
+ * A certification-context tool, not an app tool: it needs `@terpjs/spec` (a dev
  * dependency of the platform repo) and runs the SAME harness the corpus test
  * uses (./corpus-harness.js), so the scorecard can never disagree with the
  * suite. Self-validates and refuses to write an invalid or failing scorecard
@@ -31,12 +31,12 @@ const require = createRequire(import.meta.url);
 const RULE_ID_RE = /^(backend\/[a-z0-9_]+|frontend\/[a-z0-9-]+)$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 
-/** The @terp/spec root — resolved lazily so importing this module never requires it. */
+/** The @terpjs/spec root — resolved lazily so importing this module never requires it. */
 function specRoot() {
-  return path.dirname(require.resolve("@terp/spec/package.json"));
+  return path.dirname(require.resolve("@terpjs/spec/package.json"));
 }
 
-/** Build the @terp/eslint-boundaries scorecard over the frontend corpus. */
+/** Build the @terpjs/eslint-boundaries scorecard over the frontend corpus. */
 export async function buildScorecard() {
   const root = specRoot();
   const catalogDir = path.join(root, "catalog", "frontend");
@@ -70,7 +70,7 @@ export async function buildScorecard() {
   }
   return {
     spec_version: fs.readFileSync(path.join(root, "VERSION"), "utf8").trim(),
-    checker: { tool: "@terp/eslint-boundaries", version: packageVersion },
+    checker: { tool: "@terpjs/eslint-boundaries", version: packageVersion },
     rules,
   };
 }

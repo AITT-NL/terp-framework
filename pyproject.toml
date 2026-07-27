@@ -53,9 +53,8 @@ terp-cap-sync = { workspace = true }
 terp-cap-tenancy = { workspace = true }
 terp-cap-users = { workspace = true }
 terp-cap-webhooks = { workspace = true }
-# The Terp Standard (ADR 0082): its own repository, pinned by release tag —
-# the split turned the workspace source into this git pin, zero code edits.
-terp-spec = { git = "https://github.com/AITT-NL/terp-spec", tag = "v0.14.0" }
+# The Terp Standard is a published distribution (ADR 0086), so it needs no
+# [tool.uv.sources] entry at all — the version pin in the dev group is the pin.
 
 [dependency-groups]
 dev = [
@@ -72,8 +71,9 @@ dev = [
     # Exercises the terp-core[secrets] sealing cipher (terp.core.secrets, design §5.4).
     "cryptography>=48.0.1",
     # The Terp Standard (ADR 0082): the certification tests locate the
-    # catalog/corpus through terp_spec.spec_dir(), never a repo path.
-    "terp-spec",
+    # catalog/corpus through terp_spec.spec_dir(), never a repo path. Pinned to
+    # one exact release (ADR 0086) so the Python and npm pins can be compared.
+    "terp-spec==0.15.0",
 ]
 # CI-only generic backstops (NOT part of the `pytest --cov=terp` gate; they
 # complement terp-arch, never replace it). Installed in CI; optional locally.
