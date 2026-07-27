@@ -9,7 +9,57 @@ every frontend package (`@terp/contract`, `@terp/react-core`, `@terp/eslint-boun
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## 0.1.0 — unreleased
+## 0.2.0 — 2026-07-27
+
+Second release: the enforcement harness grows fifteen rules, and the frontend
+stops leaking the host's chrome and locale into a themed app.
+
+### Added
+
+- **Fifteen new architecture rules in `terp.arch`**, each catalog-attributed to the
+  Terp Standard and each shipping its `uv run terp guide <rule>` fix recipe:
+  - *Time* — `no_naive_datetime` (a naive `datetime` is a silent bug in a
+    multi-region app) and `datetime_columns_are_timezone_aware` (a column that
+    drops the offset loses the fact permanently).
+  - *Optimistic concurrency* — `update_schemas_inherit_base_update_schema` and
+    `no_manual_version_assignment`, closing the two ways an app can bypass the
+    lost-update guard.
+  - *Query correctness* — `offset_queries_declare_ordering` (an unordered
+    `OFFSET` silently repeats and skips rows across pages) and
+    `path_id_params_are_uuid`.
+  - *Migrations* — `alembic_downgrades_not_empty`, so a downgrade path is real
+    rather than a stub that pretends to roll back.
+  - *Source hygiene* — `no_print`, `no_star_imports`, `no_eval_or_exec`,
+    `no_blocking_sleep`, `no_mutable_default_args`, `no_todo_fixme`,
+    `no_empty_tests` and `no_oversized_python_files`.
+
+### Changed
+
+- **Terp Standard pinned to v0.14.0** (from v0.13.0) in both consumers — the
+  `terp-spec` distribution and `@terpjs/eslint-boundaries` — with the
+  `SPEC_VERSION` constants moved in lockstep.
+- **npm publishing now uses Trusted Publishing (OIDC)**; the long-lived
+  `NPM_TOKEN` secret is gone from the release pipeline.
+
+### Fixed
+
+- **Native browser chrome now follows the token palette.** `color-scheme` is
+  declared for both themes, so the `<select>` option popup, natively-drawn
+  scrollbars and text carets stop rendering light chrome inside a dark app;
+  scrollbars are themed to match.
+- **Rows-per-page is a themed menu, not a native `<select>`** — the one control
+  in `DataView` that still opened OS-drawn chrome.
+- **A stray horizontal scrollbar in `DataViewTable`**, caused by the column
+  resize handle being offset past the table's own edge.
+
+### Upgrading from 0.1.0
+
+The fifteen new rules apply to your app the moment you bump. Expect
+`uv run terp check` to report findings that 0.1.0 never looked for — each names
+the file, the line and the fix recipe. Under 0.x this ships as a minor bump, but
+budget it as real migration work rather than a drop-in upgrade.
+
+## 0.1.0 — 2026-07-23
 
 First tagged release of the platform: the secure-by-default backend kernel
 (`terp.core`), the base-profile + opt-in capabilities, the `terp.arch` enforcement
@@ -19,7 +69,7 @@ conformance suite), the copier client template, the Docker dev workbench, and th
 production deployment profile (multi-stage wheel images + hardened compose profile +
 `docs/DEPLOYMENT.md`). See ADRs 0001–0082, including the new `terp-cap-redis` shared-store adapters for Redis-backed idempotency, throttling, and cache state.
 
-Late additions on the unreleased line:
+Late additions on that line:
 
 - **Background jobs preserve row ownership.** The ownership architecture rule
   now rejects a job-bearing app module whose declared CRUD service model omits
