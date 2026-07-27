@@ -187,7 +187,7 @@ describe("terpBoundaries", () => {
   });
 
   it("flags a deep import into a package's internals", async () => {
-    const code = 'import x from "@terp/react-core/src/secret";\nexport const W = () => null;';
+    const code = 'import x from "@terpjs/react-core/src/secret";\nexport const W = () => null;';
     expect(await lint(code)).toContain("no-restricted-imports");
   });
 

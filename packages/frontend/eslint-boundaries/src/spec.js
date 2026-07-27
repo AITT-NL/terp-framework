@@ -44,8 +44,17 @@ export const BOUNDARY_SPEC = {
    * guard); modules use the stack's `Link`. External `https://...` anchors stay allowed.
    */
   restrictInAppAnchors: true,
-  /** Package internals an app module must not deep-import (import from the package root). */
-  internalImportPatterns: ["@terp/*/src/*", "@terp/*/dist/*"],
+  /**
+   * Package internals an app module must not deep-import (import from the package root).
+   * The packages publish under `@terpjs/*`; the legacy `@terp/*` leg stays only while a
+   * supported spec release still ships corpus fixtures under the old scope.
+   */
+  internalImportPatterns: [
+    "@terpjs/*/src/*",
+    "@terpjs/*/dist/*",
+    "@terp/*/src/*",
+    "@terp/*/dist/*",
+  ],
   /** Module-authored stylesheets are refused — theming flows from the app's token source. */
   styleImportPatterns: [
     "*.css",

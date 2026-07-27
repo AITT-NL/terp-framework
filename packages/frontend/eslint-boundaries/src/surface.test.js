@@ -70,10 +70,12 @@ describe("structural parity: BOUNDARY_SPEC realises exactly the declared surface
 
   it("every declared deep-import segment is refused by the import patterns", () => {
     for (const segment of SURFACE.deepImportPathSegments) {
+      expect(BOUNDARY_SPEC.internalImportPatterns).toContain(`@terpjs/*/${segment}/*`);
+      // transitional: a pinned spec release may still ship fixtures on the legacy scope
       expect(BOUNDARY_SPEC.internalImportPatterns).toContain(`@terp/*/${segment}/*`);
     }
     expect(BOUNDARY_SPEC.internalImportPatterns).toHaveLength(
-      SURFACE.deepImportPathSegments.length,
+      SURFACE.deepImportPathSegments.length * 2,
     );
   });
 });
@@ -123,7 +125,7 @@ describe("behavioural parity: each declared primitive is refused with the right 
   for (const segment of SURFACE.deepImportPathSegments) {
     it(`deep import via /${segment}/ -> frontend/no-deep-imports`, async () => {
       expect(
-        await lintModuleSource(`import { x } from "@terp/react-core/${segment}/internal";\n`),
+        await lintModuleSource(`import { x } from "@terpjs/react-core/${segment}/internal";\n`),
       ).toContain("frontend/no-deep-imports");
     });
   }
@@ -148,7 +150,7 @@ const VIOLATION_SNIPPETS = {
   "frontend/no-inline-styling": 'export const W = () => <div className="x" />;',
   "frontend/router-links": 'export const W = () => <a href="/notes">go</a>;',
   "frontend/generated-client-only": 'export const ping = () => fetch("/healthz");',
-  "frontend/no-deep-imports": 'import { x } from "@terp/react-core/src/internal";',
+  "frontend/no-deep-imports": 'import { x } from "@terpjs/react-core/src/internal";',
   "frontend/no-style-imports": 'import "./widget.css";',
   "frontend/no-cross-module-imports": 'import { x } from "../other/thing";',
   "frontend/no-dom-html-injection": "export const W = (el, html) => { el.innerHTML = html; };",
