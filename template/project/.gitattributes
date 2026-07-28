@@ -1,0 +1,11 @@
+# Every file in a generated Terp app is stored and checked out with LF.
+#
+# The app's canonical toolchain is Linux: the gate, the agent and the whole
+# workbench run inside containers that write LF. A Windows checkout that
+# converts to CRLF therefore rewrites every line the moment a container touches
+# a file — a 7-line change lands as a 900-line diff, which defeats review and
+# `git blame`. Pinning eol=lf keeps the working copy byte-identical on every
+# platform, so a diff only ever shows what actually changed.
+#
+# `text=auto` still lets Git detect binaries and leave them alone.
+* text=auto eol=lf
