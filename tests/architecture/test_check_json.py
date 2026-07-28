@@ -27,7 +27,7 @@ from terp.arch import (  # noqa: E402  (import after sys.path setup)
     ungoverned_marker_violations,
 )
 from terp.arch.rules import _ALL_RULES  # noqa: E402
-from terp.cli import check_report, guide_topics, main  # noqa: E402
+from terp.cli import check_report, gate_root, guide_topics, main  # noqa: E402
 
 _EXAMPLE_ROOT = _REPO_ROOT / "apps" / "example"
 
@@ -197,6 +197,34 @@ def test_cli_check_json_exits_nonzero_on_violations(
     assert payload["ok"] is False
     fixes = {violation["fix"] for violation in payload["violations"]}
     assert "terp guide modules_declare_policy" in fixes
+
+
+# --------------------------------------------------------------------------- #
+# scope parity — the CLI and the test harness hold the app to the same files
+# --------------------------------------------------------------------------- #
+def test_gate_root_resolves_the_app_package_from_a_project_root(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    app.mkdir()
+    # --root as the project root resolves to the package the harness scans...
+    assert gate_root(tmp_path) == app
+    # ...and --root as the package dir itself is already the scan root.
+    assert gate_root(app) == app
+
+
+def test_cli_check_scopes_to_the_app_package_not_the_whole_project(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A project may hold code the gate does not govern (a standalone engine/,
+    # tooling scripts). `terp check --root <project>` must agree with
+    # `assert_app_clean("app")` about scope instead of scanning the whole tree.
+    _write(tmp_path / "app", "main.py", "value = 1\n")
+    _write(tmp_path / "engine", "probe.py", "print('hello')\n")
+    budget = tmp_path / "budget.json"
+    budget.write_text(json.dumps({}), encoding="utf-8")
+    main(["check", "--root", str(tmp_path), "--budget", str(budget), "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert "no_print" not in {violation["rule"] for violation in payload["violations"]}
 
 
 # --------------------------------------------------------------------------- #

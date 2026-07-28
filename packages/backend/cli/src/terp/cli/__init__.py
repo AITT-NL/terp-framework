@@ -683,6 +683,25 @@ def guide(topic: str | None = None) -> str:
     return _render_rule_guide(topic)
 
 
+def gate_root(root: str | pathlib.Path = ".", *, package: str = "app") -> pathlib.Path:
+    """Resolve the directory the architecture gate scans, from a CLI ``--root``.
+
+    The gate's unit of scope is the **app package** — the test harness calls
+    ``assert_app_clean("app")``, so ``app/`` is what the rules walk. A CLI ``--root``,
+    though, is naturally the *project* root (that is where every other ``terp``
+    command runs, and the default is ``.``), which also contains code the gate does
+    not govern: a standalone ``engine/``, ``conformance/``, tooling scripts. Scanning
+    that made the two entry points to the same gate disagree about scope.
+
+    So ``--root`` accepts either: if it contains the app package, the package dir is
+    the scan root; otherwise *root* is already the package dir and is used as-is.
+    Both spellings then hold the app to exactly the scope ``uv run pytest`` does.
+    """
+    path = pathlib.Path(root)
+    candidate = path / package
+    return candidate if candidate.is_dir() else path
+
+
 def check_report(
     root: str = ".", *, package: str = "app", budget_path: str | None = None
 ) -> dict[str, object]:
@@ -706,9 +725,10 @@ def check_report(
     from terp.arch import check_app, guide_topic_for, ungoverned_marker_violations
     from terp.arch.rules import GUIDE_TOPIC_BY_RULE
 
-    violations = list(check_app(root, package=package, budget_path=budget_path))
+    scan_root = gate_root(root, package=package)
+    violations = list(check_app(scan_root, package=package, budget_path=budget_path))
     if budget_path is None:
-        violations.extend(ungoverned_marker_violations(root, package=package))
+        violations.extend(ungoverned_marker_violations(scan_root, package=package))
     violations.sort(key=lambda violation: (violation.path, violation.line, violation.rule))
     rules = set(GUIDE_TOPIC_BY_RULE)
     if budget_path is None:
@@ -1349,7 +1369,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     check_parser = subcommands.add_parser("check", help="Run the architecture gate locally")
-    check_parser.add_argument("--root", default=".", help="App root (default: .)")
+    check_parser.add_argument(
+        "--root",
+        default=".",
+        help="Project root, or the app package itself; the gate scans the app package "
+        "(default: .)",
+    )
     check_parser.add_argument("--package", default="app", help="App package (default: app)")
     check_parser.add_argument(
         "--budget", default=None, help="Escape-hatch budget JSON (governs # arch-allow markers)"
@@ -1569,7 +1594,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             return
         from terp.arch import assert_app_clean
 
-        assert_app_clean(args.root, package=args.package, budget_path=args.budget)
+        assert_app_clean(
+            gate_root(args.root, package=args.package),
+            package=args.package,
+            budget_path=args.budget,
+        )
         print("terp.arch: app is clean")
         return
     if args.command == "verify":
@@ -1613,6 +1642,7 @@ __all__ = [
     "create_user_command",
     "dev_plan",
     "export_openapi",
+    "gate_root",
     "guide",
     "guide_topics",
     "guide_choices",
