@@ -83,6 +83,43 @@ def _literal_string(node: ast.expr) -> str | None:
     return None
 
 
+_ENUM_BASES = frozenset(
+    {"Enum", "StrEnum", "IntEnum", "IntFlag", "Flag", "ReprEnum", "TextChoices"}
+)
+
+
+def _self_naming_enum_member_lines(tree: ast.AST) -> set[int]:
+    """Lines of enum members whose value is just the member's own name.
+
+    ``SECRET_REFERENCE = "secret_reference"`` inside a ``StrEnum`` is vocabulary, not
+    a credential: the literal *is* the member name, so it carries no secret material.
+    Without this the rule pushed authors to spell the same vocabulary as ``auto()``
+    purely to dodge the check — a workaround that hides the wire value.
+    """
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if not any(base_name(base) in _ENUM_BASES for base in node.bases):
+            continue
+        for statement in node.body:
+            targets = (
+                statement.targets
+                if isinstance(statement, ast.Assign)
+                else [statement.target]
+                if isinstance(statement, ast.AnnAssign)
+                else []
+            )
+            value = getattr(statement, "value", None)
+            literal = _literal_string(value) if value is not None else None
+            if literal is None:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and literal.lower() == target.id.lower():
+                    lines.add(statement.lineno)
+    return lines
+
+
 def check_no_hardcoded_credentials(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
@@ -93,7 +130,9 @@ def check_no_hardcoded_credentials(
     rule also rejects common high-confidence secret literal formats anywhere in a
     module so leaked keys are caught even when assigned to a bland variable name.
     As a security rule this also scans ``tests/`` and ``migrations/`` dirs inside a
-    module — a real secret is a leak wherever it is committed.
+    module — a real secret is a leak wherever it is committed. One shape is exempt:
+    an enum member whose literal is its own name (``SECRET_REFERENCE =
+    "secret_reference"``) is vocabulary, carrying no secret material.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
@@ -102,8 +141,11 @@ def check_no_hardcoded_credentials(
             continue
         tree = parse(path)
         rel = _rel(path, root)
+        vocabulary_lines = _self_naming_enum_member_lines(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign | ast.AnnAssign):
+                if node.lineno in vocabulary_lines:
+                    continue
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 if node.value is not None:
                     for target in targets:

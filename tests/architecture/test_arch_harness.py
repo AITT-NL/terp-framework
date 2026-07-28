@@ -1655,6 +1655,33 @@ def test_no_hardcoded_credentials(tmp_path: pathlib.Path) -> None:
     assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
 
 
+def test_no_hardcoded_credentials_allows_self_naming_enum_members(tmp_path: pathlib.Path) -> None:
+    # An enum member whose literal IS its own name is vocabulary, not a credential:
+    # `SECRET_REFERENCE = "secret_reference"` names a parameter kind. Flagging it
+    # pushed authors to spell the same value as auto(), hiding the wire format.
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/billing/schemas.py",
+        "class ParameterType(StrEnum):\n"
+        "    TEXT = 'text'\n"
+        "    SECRET_REFERENCE = 'secret_reference'\n",
+    )
+    assert check_no_hardcoded_credentials(app) == []
+
+    # The exemption is exactly self-naming: a real value keeps failing...
+    _write(
+        app,
+        "modules/billing/schemas.py",
+        "class ParameterType(StrEnum):\n    SECRET_REFERENCE = 'hunter2'\n",
+    )
+    assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
+
+    # ...and so does a self-naming assignment outside an enum class body.
+    _write(app, "modules/billing/schemas.py", "password = 'password'\n")
+    assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
+
+
 
 def test_no_manual_scope_filtering(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
