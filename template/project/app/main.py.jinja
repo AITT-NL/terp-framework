@@ -10,11 +10,15 @@ is listed).
 
 from __future__ import annotations
 
+import functools
+import pathlib
+
 from terp.capabilities.audit import persist_audit
 {%- if use_events %}
 from terp.capabilities.eventbus import dispatch_in_process
 {%- endif %}
-from terp.core import create_app
+from terp.core import create_app, get_settings
+from terp.migrations import assert_migrations_current
 
 from app.auth import login_module, me_module, principal_provider{% if use_sso %}, oidc_module{% endif %}
 from control_plane import control_plane
@@ -38,6 +42,19 @@ def build():
         event_dispatcher=dispatch_in_process,
 {%- endif %}
         require_token_revocation=True,
+        # In production the app refuses to serve against a database that is behind
+        # the code, missing a module's history, or holding a revision this code no
+        # longer defines - a wrong schema fails loudly at boot instead of at the
+        # first request. Development keeps auto-applying migrations for you.
+        migration_check=(
+            functools.partial(
+                assert_migrations_current,
+                app_root=pathlib.Path(__file__).resolve().parent,
+                package="app",
+            )
+            if get_settings().is_production
+            else None
+        ),
     )
 
 

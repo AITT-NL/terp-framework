@@ -51,6 +51,17 @@ def test_runnable_app_skeleton_present() -> None:
     assert (_PROJECT / "AGENTS.md.jinja").exists()
 
 
+def test_generated_app_refuses_to_serve_against_a_wrong_schema() -> None:
+    # Every generated app installs the fail-closed migration boot guard in
+    # production, not just the example app: behind, missing, or holding a revision
+    # the code no longer defines all fail at boot rather than at the first request
+    # that touches the affected table.
+    main = (_PROJECT / "app" / "main.py.jinja").read_text()
+    assert "migration_check=" in main
+    assert "assert_migrations_current" in main
+    assert "get_settings().is_production" in main  # development still auto-applies
+
+
 def test_project_records_copier_answers_for_upgrades() -> None:
     # The answers file is what makes `copier update` — and the Studio's upgrade
     # flow plus its template-version stamping — possible: without it, a rendered
