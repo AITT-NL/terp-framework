@@ -18,6 +18,7 @@ from terp.cli.access import (
     render_access_graph,
 )
 from terp.cli.apidocs import api_docs
+from terp.cli.capabilities import render_capabilities
 from terp.cli.dev import dev_plan, run_dev_command
 from terp.cli.docker import run_docker_dev_command
 from terp.cli.jobs import (
@@ -86,12 +87,21 @@ Services (BaseService)
   conditions and CANNOT drop soft-delete / tenant scope:
       def business_filters(self):
           return (Invoice.status == "open",)
-- A per-call filter goes in a custom list() built on base_query():
-      def list(self, session, *, skip, limit, status=None):
-          q = self.base_query()
-          if status is not None:
-              q = q.where(Invoice.status == status)
-          return self._paginate(session, q, skip=skip, limit=limit)
+- A per-call filter/sort (a query parameter) is DECLARED, not hand-written. Name the
+  allowed columns on the service and pass the values through — an undeclared field is
+  refused (400), and the caller sends values, never operators:
+      class InvoiceService(BaseService[Invoice, InvoiceCreate, InvoiceUpdate]):
+          model = Invoice
+          filterable = (FilterField("status", Invoice.status),
+                        FilterField("q", Invoice.title, op="contains"))
+          sortable = (SortField("due_on", Invoice.due_on),)
+          default_sort = ("-due_on",)
+      # route: status: str | None = None  ->  typed, and it shows up in OpenAPI
+      rows, total = service.list(session, skip=..., limit=..., filters={"status": status},
+                                 sort=sort)
+  None values are dropped, so an absent optional parameter needs no branching. Filters
+  compose ON TOP of base_query(), so row scope and business_filters() still apply —
+  they cannot widen a read. Don't write a list() override to do this by hand.
 - On a large table, prefer keyset pagination: a route takes CursorPaginationDep and
   returns CursorPage[ReadDTO] from self.list_by_cursor(session, pagination=...) —
   no OFFSET scan, and the exact COUNT runs only when the caller asks
@@ -280,6 +290,103 @@ Background jobs (terp.core.enqueue + JobCatalog)
   needs terp-cap-scheduler-apscheduler) or via Celery beat — each cron tick enqueues through
   the same typed seam, so a scheduled job stays audited + system-actor stamped.
 """,
+    "outbox": """\
+Durable post-commit delivery (outbox capability)
+
+- The problem it solves: an in-process dispatcher runs the side effect AFTER the commit,
+  outside the transaction - so a crash between the two loses it, and a rollback after it
+  already fired published a lie. The outbox writes the INTENT to a table in the SAME
+  transaction as the row, and a separate worker delivers it afterwards.
+- terp-cap-outbox is a LIBRARY capability: it ships no router and nothing auto-mounts.
+  You swap the two seams at the composition root:
+      create_app(specs, ..., job_queue=OutboxJobQueue(),
+                 event_dispatcher=outbox_event_dispatcher)
+  It ships its own migrations, so add the dependency and run `terp migrate` before
+  switching the seams over.
+- Nothing in a module changes. You still enqueue(session, job=..., payload=...) and
+  still emit events through the catalog; the seam is swapped once, centrally, so a
+  module never knows whether delivery is in-process or durable.
+- A custom side effect joins the same atomic unit through the service's _after_write
+  hook (which runs inside the write transaction, before the commit):
+      def _after_write(self, session, entity, *, action):
+          enqueue(session, job=RUN_START, payload=RunStartPayload(run_id=entity.id))
+- Run the relay as its own process (not inside the API container):
+      terp jobs worker
+  It leases rows (claim_id + locked_until, SKIP LOCKED), delivers AT LEAST ONCE, retries
+  with exponential backoff, and dead-letters once max_attempts is exhausted. Every
+  handler must therefore be safe to run twice - see `terp guide idempotency`.
+- In production, refuse to boot on the in-process default:
+      create_app(..., job_queue=OutboxJobQueue(),
+                 require_durable_jobs=get_settings().is_production)
+""",
+    "idempotency": """\
+Idempotency (the Idempotency-Key header, terp.core.idempotency)
+
+- Already wired: create_app installs the idempotency middleware for every unsafe method
+  (POST/PUT/PATCH/DELETE). There is nothing to decorate and no per-route opt-in - the
+  CLIENT opts in per request by sending a header:
+      Idempotency-Key: <client-generated unique key>
+  A request without the header behaves exactly as it did before.
+- The semantics, all typed envelopes:
+      first call                -> executes; the response is stored under the key
+      retry, same body          -> the stored response is replayed
+                                   (response header idempotency-replayed: true)
+      same key, different body  -> 422 idempotency_key_mismatch
+      still executing           -> 409 idempotency_in_flight   (Retry-After: 1)
+      malformed key             -> 400 invalid_idempotency_key
+      store unavailable         -> 503 idempotency_unavailable (fail closed - never a
+                                   second write)
+- Use it wherever a retry must not create a second row: starting a run, submitting a
+  payment, POSTing a snapshot from a worker that retries on a network error. Document
+  the header on those routes so the caller actually sends one.
+- The default InMemoryIdempotencyStore is PER PROCESS - correct for dev and a single
+  replica, useless across replicas. A multi-replica deployment needs a shared store, and
+  should refuse to boot without one:
+      create_app(..., idempotency_store=RedisIdempotencyStore(...),
+                 require_shared_idempotency_store=get_settings().is_production)
+  Only a store that marks itself shared (mark_shared_idempotency_store) satisfies the
+  guard, so a load-balanced deployment cannot silently lose the guarantee.
+- Background work carries its own key: enqueue(..., idempotency_key="customers-2026-06-29").
+  Job delivery is at-least-once, so a handler must ALSO be safe to run twice on its own -
+  a natural unique constraint in the database is the strongest form of that.
+""",
+    "realtime": """\
+Realtime push (realtime capability)
+
+- Install terp-cap-realtime; it is a routed capability, so discovery mounts it:
+      create_app(specs, discover_capabilities=True,
+                 capability_names=(..., "realtime"))
+- Declare every channel ONCE at import time, with a typed outbound model and the
+  authorization it demands - never a bare topic string:
+      class RunProgress(BaseModel):
+          run_id: uuid.UUID
+          state: str = Field(max_length=32)
+          done: int = Field(ge=0)
+      RUN_PROGRESS = register_channel(
+          RealtimeChannel("runs.progress", RunProgress, requirement=Roles.VIEWER))
+  RealtimeChannel(name, outbound_model, mode="sse"|"websocket", requirement=...,
+                  inbound_requirement=..., inbound_model=..., on_message=...,
+                  audience=principal_audience | global_audience). The default audience is
+  the principal, so a message reaches only the user you address it to.
+- Publish from a service, an _after_write hook, or a job handler; the payload is
+  validated against the channel's outbound_model:
+      await publish(RUN_PROGRESS, RunProgress(...), audience=str(principal.id))
+- Wire the runtime seams once at the composition root:
+      configure_realtime(permission_enforcer=..., principal_validator=...,
+                         message_session_provider=...)
+  configure_broker / configure_ticket_store replace the in-memory defaults when you run
+  more than one replica (the in-memory ones are per process).
+- Transport is TICKET-based, never a token in a URL: the client POSTs
+  /api/v1/realtime/tickets, receives a one-use short-lived ticket, then connects to
+  /api/v1/realtime/sse/<channel>?ticket=... (or /ws/<channel> in websocket mode). The
+  channel's requirement is enforced when the ticket is minted.
+- Frontend: useRealtimeChannel({ channel: "runs.progress", validate }) from
+  @terpjs/react-core performs the whole dance. Never hand-roll EventSource or WebSocket -
+  the boundary lint refuses both.
+- Inbound (websocket) messages are size-capped, validated against inbound_model, gated by
+  inbound_requirement, and handled by on_message with a real session - so a client message
+  goes through the same audited service path as an HTTP write.
+""",
     "files": """\
 File objects (files capability, ADR 0056/0057)
 
@@ -325,6 +432,12 @@ Using capabilities
 
 - Capabilities are opt-in packages (terp-cap-*); the base profile is auth + access +
   identity + users (+ projects). Install the ones you need.
+- SEE WHAT EXISTS BEFORE YOU BUILD IT:
+      terp inspect capabilities
+  lists every maintained capability, whether this app already has it, the exact
+  `uv add` line and the composition-root wiring it expects. Durable delivery, realtime
+  push, tenancy, files, webhooks, scheduling and shared multi-replica state are all
+  already solved — hand-rolling one of them is a defect, not a shortcut.
 - A routed capability self-registers: create_app(specs, discover_capabilities=True)
   mounts it at /api/v1/<name> via its entry point — no composition-root edit.
 - A library capability (tenancy, eventbus) ships no router; you import and wire it
@@ -594,6 +707,7 @@ Golden rules (the gate enforces these — follow them and it stays green):
 More:  terp guide <topic>   (topics: {_TOPIC_NAMES})
     terp guide <rule>            (the exact rule's remediation and related pattern)
        terp guide rules             (every architecture rule the gate enforces, generated)
+       terp inspect capabilities    (what the platform offers: installed vs adoptable)
        terp inspect control-plane   (your roles / permissions / module authority map)
        terp inspect access          (the full access graph: modules, endpoints, data traits)
        terp check                   (run the full architecture gate locally)
@@ -1186,6 +1300,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default="text",
         help="Output format: text (human) or json (structured, for Studio; default: text)",
     )
+    capabilities_parser = inspect_subcommands.add_parser(
+        "capabilities",
+        help="Every maintained terp-cap-* package: installed here vs available to "
+        "adopt, with the `uv add` line and its composition-root wiring",
+    )
+    capabilities_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (human) or json (structured, for Studio; default: text)",
+    )
     schema_parser = inspect_subcommands.add_parser(
         "schema",
         help="The schema graph: every table with ownership, traits, and fail-visible "
@@ -1509,6 +1634,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "inspect" and args.inspect_command == "schema":
         print(inspect_schema(app_root=args.app_root, package=args.package, fmt=args.format))
+        return
+    if args.command == "inspect" and args.inspect_command == "capabilities":
+        print(render_capabilities(fmt=args.format))
         return
     if args.command == "guide":
         if args.topic is not None and args.topic not in guide_choices():
