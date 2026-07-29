@@ -18,7 +18,13 @@ RUN npm ci && npm run -w @terpjs-example/frontend build
 # --- Stage 2: non-root nginx runtime -------------------------------------------------
 FROM nginxinc/nginx-unprivileged:alpine
 
-COPY apps/example/frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# The config is a TEMPLATE: the nginx entrypoint runs envsubst over /etc/nginx/templates
+# at start-up. NGINX_ENVSUBST_FILTER limits substitution to API_UPSTREAM so nginx's own
+# $uri / $host / $http_upgrade variables are not blanked out. The default keeps compose
+# working unchanged; a co-located runtime (Azure Container Apps) overrides it.
+COPY apps/example/frontend/nginx.conf /etc/nginx/templates/default.conf.template
+ENV API_UPSTREAM=api:8000 \
+    NGINX_ENVSUBST_FILTER=^API_UPSTREAM$
 COPY --from=build /workspace/apps/example/frontend/dist /usr/share/nginx/html
 
 EXPOSE 8080

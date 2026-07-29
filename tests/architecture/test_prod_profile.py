@@ -122,9 +122,31 @@ def test_prod_nginx_serves_spa_fallback_and_same_origin_api() -> None:
     for path in (_NGINX_CONF, _TEMPLATE_NGINX_CONF):
         text = path.read_text(encoding="utf-8")
         assert "try_files $uri /index.html;" in text, "SPA fallback required"
-        assert "proxy_pass http://api:8000;" in text, "same-origin /api proxy required"
+        assert "proxy_pass http://${API_UPSTREAM};" in text, "same-origin /api proxy required"
         assert "proxy_set_header Upgrade $http_upgrade;" in text
         assert 'proxy_set_header Connection "upgrade";' in text
+
+
+def test_prod_nginx_upstream_is_substituted_with_a_compose_default() -> None:
+    """The /api upstream is a start-up substitution, not a baked-in hostname.
+
+    Compose reaches the API by service name; a runtime that co-locates the two
+    containers in one pod (Azure Container Apps) reaches it on localhost. One image
+    must serve both, so the name is an env var — with the compose default baked in so
+    `docker compose up` needs no extra configuration. The envsubst filter is part of
+    the contract: without it nginx's own $uri / $host / $http_upgrade would be
+    replaced with empty strings and the proxy would break in a way that only shows up
+    at runtime.
+    """
+    for path in (_PROD_WEB_DOCKERFILE, _TEMPLATE_PROD_WEB_DOCKERFILE):
+        text = path.read_text(encoding="utf-8")
+        assert "/etc/nginx/templates/default.conf.template" in text, (
+            f"{path} must install the config as an envsubst template"
+        )
+        assert "API_UPSTREAM=api:8000" in text, f"{path} must default to the compose service"
+        assert "NGINX_ENVSUBST_FILTER=^API_UPSTREAM$" in text, (
+            f"{path} must restrict substitution to API_UPSTREAM"
+        )
 
 
 def test_prod_smoke_exercises_websocket_through_nginx() -> None:
