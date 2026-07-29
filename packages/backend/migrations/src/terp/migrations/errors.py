@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 
 class MigrationError(RuntimeError):
@@ -49,6 +49,38 @@ class MissingMigrationsError(MigrationError):
         )
 
 
+class OrphanedRevisionsError(MigrationError):
+    """The database has applied a revision the code no longer defines.
+
+    Raised by :func:`terp.migrations.assert_no_orphaned_revisions` — the preflight
+    ``terp migrate upgrade`` and the boot guard both run. It means an *already
+    applied* migration was edited away or replaced by a fresh baseline: the schema in
+    front of you was built by a history that no longer exists, so Alembic cannot work
+    out what is left to do and every further upgrade fails. Autogenerate drift checks
+    cannot see this — they build a scratch database from head, where the rewritten
+    history is perfectly self-consistent — so the first symptom is otherwise an
+    unbootable deployment.
+
+    Both sanctioned recoveries are named, because which one is right depends on data:
+    a development database can be recreated, a database holding real data must be
+    re-baselined with ``terp migrate stamp`` once its schema is confirmed to match.
+    """
+
+    def __init__(self, orphaned: Mapping[str, Sequence[str]]) -> None:
+        self.orphaned = {label: tuple(revs) for label, revs in orphaned.items()}
+        joined = "; ".join(
+            f"{label} is at {', '.join(revs)}" for label, revs in self.orphaned.items()
+        )
+        super().__init__(
+            f"the database has applied migrations this code no longer defines: "
+            f"{joined}. A migration that was already applied has been rewritten or "
+            f"deleted. Recreate the database if it holds no data worth keeping, or — "
+            f"if it does — confirm its schema matches the models and re-baseline it "
+            f"with `terp migrate stamp <label> <revision>`. Never resolve this by "
+            f"editing history further."
+        )
+
+
 class MigrationDriftError(MigrationError):
     """Committed migrations do not match the models: autogenerate still finds changes.
 
@@ -71,5 +103,6 @@ __all__ = [
     "MigrationDriftError",
     "MigrationError",
     "MissingMigrationsError",
+    "OrphanedRevisionsError",
     "PendingMigrationsError",
 ]

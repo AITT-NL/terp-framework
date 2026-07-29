@@ -28,7 +28,11 @@ from terp.migrations._runtime import (
     unmapped_tables,
     unowned_tables,
 )
-from terp.migrations.errors import MigrationError, MissingMigrationsError
+from terp.migrations.errors import (
+    MigrationError,
+    MissingMigrationsError,
+    OrphanedRevisionsError,
+)
 
 # Import a real capability model so its table is registered for the ownership tests.
 import terp.capabilities.audit.models  # noqa: E402,F401
@@ -158,6 +162,53 @@ def test_heads_reports_divergence_and_merge_resolves_it(
 
     orchestrate.merge_heads("audit", "merge dev branches", db)
     assert len(orchestrate.heads(db)["audit"]) == 1
+
+
+def test_upgrade_refuses_a_database_holding_a_revision_the_code_lost(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The failure mode no drift check can see: a migration is applied, then the
+    # history is rewritten (regenerated as a fresh baseline). The scratch database a
+    # drift check builds is perfectly consistent; every *existing* database is now
+    # unbootable. Without the preflight this surfaces as a bare Alembic
+    # "Can't locate revision identified by '...'" from inside a container log.
+    versions = tmp_path / "migrations" / "versions"
+    versions.mkdir(parents=True)
+    _write_revision(versions, "applied001", None)
+    tree = MigrationTree("audit", "terp.capabilities.audit", tmp_path / "migrations")
+    monkeypatch.setattr(orchestrate, "resolve_migration_trees", lambda *a, **k: [tree])
+    db = f"sqlite:///{tmp_path / 'orphan.db'}"
+    orchestrate.upgrade(db, schema_layout="flat")
+    assert orchestrate.orphaned_revisions(db) == {}
+
+    versions.joinpath("applied001.py").unlink()  # history rewritten after the fact
+    _write_revision(versions, "rebaseline1", None)
+
+    assert orchestrate.orphaned_revisions(db) == {"audit": ("applied001",)}
+    with pytest.raises(OrphanedRevisionsError) as caught:
+        orchestrate.upgrade(db, schema_layout="flat")
+    message = str(caught.value)
+    assert "applied001" in message  # names what the database is stuck on
+    assert "terp migrate stamp" in message  # and the recovery for a database with data
+
+
+def test_a_database_merely_behind_head_is_not_reported_as_orphaned(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Being behind is normal and fixable by upgrading; only a *missing* revision is
+    # the unrecoverable case, so the two must never be conflated.
+    versions = tmp_path / "migrations" / "versions"
+    versions.mkdir(parents=True)
+    _write_revision(versions, "first00001", None)
+    tree = MigrationTree("audit", "terp.capabilities.audit", tmp_path / "migrations")
+    monkeypatch.setattr(orchestrate, "resolve_migration_trees", lambda *a, **k: [tree])
+    db = f"sqlite:///{tmp_path / 'behind.db'}"
+    orchestrate.upgrade(db, schema_layout="flat")
+
+    _write_revision(versions, "second0002", "first00001")  # code moves ahead
+
+    assert orchestrate.orphaned_revisions(db) == {}
+    orchestrate.upgrade(db, schema_layout="flat")  # and the upgrade still applies
 
 
 def test_merge_heads_requires_at_least_two_heads(
@@ -958,11 +1009,19 @@ def test_upgrade_routes_the_database_before_migrating_per_module(
 ) -> None:
     # Under the per-module layout, upgrade pins the database-level search_path
     # BEFORE any history runs, so the first created table already routes correctly.
+    # The orphaned-revision preflight sits between the two: routing is idempotent
+    # setup, but no history may run against a database whose applied revisions this
+    # code no longer defines.
     order: list[str] = []
     monkeypatch.setattr(
         orchestrate,
         "ensure_database_search_path",
         lambda url, app_root=None, *, package="app": order.append("route"),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "assert_no_orphaned_revisions",
+        lambda url, app_root=None, *, package="app": order.append("preflight"),
     )
     monkeypatch.setattr(
         orchestrate.command, "upgrade", lambda config, revision: order.append("migrate")
@@ -971,5 +1030,5 @@ def test_upgrade_routes_the_database_before_migrating_per_module(
         "postgresql://u:p@h/appdb", schema_layout="per-module"
     )
     assert applied  # the installed capabilities' labels
-    assert order[0] == "route"
+    assert order[:2] == ["route", "preflight"]
     assert order.count("migrate") == len(applied)

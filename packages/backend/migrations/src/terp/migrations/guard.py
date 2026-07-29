@@ -34,7 +34,7 @@ from terp.migrations.errors import (
     MissingMigrationsError,
     PendingMigrationsError,
 )
-from terp.migrations.orchestrate import migration_status
+from terp.migrations.orchestrate import assert_no_orphaned_revisions, migration_status
 
 
 def assert_no_missing_histories(
@@ -91,11 +91,17 @@ def assert_migrations_current(
     :func:`assert_no_missing_histories` — the runtime half of the
     ``tables_have_migrations`` rule, whose build-time half is the ``terp.arch``
     check), and a declared history that is behind its code head raises
-    :class:`PendingMigrationsError`. The FK-scoped homeless-table check (run at
+    :class:`PendingMigrationsError`. A database that ran a revision this code no
+    longer defines — an applied migration rewritten or deleted — raises
+    :class:`~terp.migrations.errors.OrphanedRevisionsError` *before* either, because
+    no amount of upgrading will fix it. The FK-scoped homeless-table check (run at
     ``terp migrate make``) additionally catches a mapped-but-unowned table that no
     package would ever create.
     """
     assert_no_missing_histories(app_root, package=package)
+    assert_no_orphaned_revisions(
+        engine.url.render_as_string(hide_password=False), app_root, package=package
+    )
     behind = [
         row.label
         for row in migration_status(engine, app_root, package=package)

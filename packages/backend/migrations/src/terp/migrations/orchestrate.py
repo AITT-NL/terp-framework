@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from alembic import command
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from alembic.util import CommandError
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.pool import NullPool
 
@@ -39,7 +40,7 @@ from terp.migrations._runtime import (
     order_trees_by_dependencies,
     owned_table_names,
 )
-from terp.migrations.errors import MigrationError
+from terp.migrations.errors import MigrationError, OrphanedRevisionsError
 
 
 def _effective_layout(schema_layout: str | None) -> str:
@@ -276,6 +277,7 @@ def upgrade(
     layout = _effective_layout(schema_layout)
     if layout == "per-module":
         ensure_database_search_path(database_url, app_root, package=package)
+    assert_no_orphaned_revisions(database_url, app_root, package=package)
     applied: list[str] = []
     for tree in order_trees_by_dependencies(
         resolve_migration_trees(app_root, package=package)
@@ -562,9 +564,68 @@ def migration_status(
     return rows
 
 
+def _revision_is_unknown(script: ScriptDirectory, revision: str) -> bool:
+    """True when *revision* is not a revision this package's history still defines."""
+    try:
+        return script.get_revision(revision) is None
+    except CommandError:
+        return True
+
+
+def orphaned_revisions(
+    database_url: str,
+    app_root: str | pathlib.Path | None = None,
+    *,
+    package: str = "app",
+) -> dict[str, tuple[str, ...]]:
+    """Per-package revisions the database has applied that the code no longer defines.
+
+    Empty for every healthy database, including an empty one (nothing applied yet)
+    and one merely behind head (the applied revision is still in the history — that
+    is :class:`PendingMigrationsError` territory, not this).
+    """
+    engine = create_engine(database_url, poolclass=NullPool)
+    orphaned: dict[str, tuple[str, ...]] = {}
+    try:
+        for tree in resolve_migration_trees(app_root, package=package):
+            script = ScriptDirectory.from_config(
+                alembic_config_for(tree, database_url, app_root=app_root, package=package)
+            )
+            with engine.connect() as connection:
+                context = MigrationContext.configure(
+                    connection, opts={"version_table": tree.version_table}
+                )
+                applied = context.get_current_heads()
+            unknown = tuple(rev for rev in applied if _revision_is_unknown(script, rev))
+            if unknown:
+                orphaned[tree.label] = unknown
+    finally:
+        engine.dispose()
+    return orphaned
+
+
+def assert_no_orphaned_revisions(
+    database_url: str,
+    app_root: str | pathlib.Path | None = None,
+    *,
+    package: str = "app",
+) -> None:
+    """Raise :class:`OrphanedRevisionsError` if the database ran history the code lost.
+
+    The preflight on every ``upgrade``: without it, a rewritten-after-applied
+    migration surfaces as a bare Alembic ``Can't locate revision identified by
+    '…'`` from deep inside a container log, with no statement of what happened or
+    how to recover.
+    """
+    orphaned = orphaned_revisions(database_url, app_root, package=package)
+    if orphaned:
+        raise OrphanedRevisionsError(orphaned)
+
+
 __all__ = [
     "MigrationStatus",
     "adopt_schemas",
+    "assert_no_orphaned_revisions",
     "database_search_path_statements",
     "downgrade",
     "ensure_database_search_path",
@@ -573,6 +634,7 @@ __all__ = [
     "make",
     "merge_heads",
     "migration_status",
+    "orphaned_revisions",
     "runtime_grant_statements",
     "stamp",
     "upgrade",
