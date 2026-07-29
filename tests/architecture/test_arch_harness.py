@@ -1682,6 +1682,16 @@ def test_no_hardcoded_credentials_allows_self_naming_enum_members(tmp_path: path
     _write(app, "modules/billing/schemas.py", "password = 'password'\n")
     assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
 
+    # An enum body carries members that hold no literal at all — an auto() value
+    # and a bare annotation. There is nothing to compare a name against, so they
+    # are simply not exemptions, and nothing about them is a credential either.
+    _write(
+        app,
+        "modules/billing/schemas.py",
+        "class ParameterType(StrEnum):\n    api_key: str\n    password = auto()\n",
+    )
+    assert check_no_hardcoded_credentials(app) == []
+
 
 
 def test_no_manual_scope_filtering(tmp_path: pathlib.Path) -> None:
