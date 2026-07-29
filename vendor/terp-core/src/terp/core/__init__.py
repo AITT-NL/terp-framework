@@ -32,6 +32,7 @@ from terp.core.base_models import (
     UUIDPrimaryKeyMixin,
 )
 from terp.core.base_service import BaseService
+from terp.core.filtering import FilterField, FilterOp, SortField
 from terp.core.cache import (
     CacheStore,
     InMemoryCacheStore,
@@ -176,6 +177,8 @@ __all__ = [
     "EventEnvelope",
     "EventError",
     "EventVisibility",
+    "FilterField",
+    "FilterOp",
     "IdempotencyStore",
     "InMemoryCacheStore",
     "InMemoryIdempotencyStore",
@@ -219,6 +222,7 @@ __all__ = [
     "SessionDep",
     "Settings",
     "SoftDeleteMixin",
+    "SortField",
     "StaleDataError",
     "StoredResponse",
     "ThrottleStore",

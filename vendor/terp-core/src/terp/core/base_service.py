@@ -30,7 +30,7 @@ are auto-honored traits) — create/update are inherited unchanged.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Generic, TypeVar
 
@@ -53,6 +53,12 @@ from terp.core.errors import (
     NotFoundError,
     PermissionDeniedError,
     StaleDataError,
+)
+from terp.core.filtering import (
+    FilterField,
+    SortField,
+    resolve_filters,
+    resolve_sort,
 )
 from terp.core.object_authz import apply_object_authz
 from terp.core.pagination import CursorPaginationParams, decode_cursor, encode_cursor
@@ -105,6 +111,21 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
 
     model: type[ModelT]
 
+    filterable: Sequence[FilterField] = ()
+    """Columns a caller may narrow a read by — see :mod:`terp.core.filtering`.
+
+    Declaring the allowance here (rather than building ``where`` clauses in a ``list``
+    override) is what makes a request-scoped filter inspectable and fail-closed: an
+    undeclared field is refused, and the caller supplies values, never operators.
+    """
+
+    sortable: Sequence[SortField] = ()
+    """Columns a caller may order a read by (``"-name"`` for descending)."""
+
+    default_sort: Sequence[str] = ()
+    """Order applied when the caller asks for none. Empty means oldest-first by
+    ``created_at`` — the framework default, which keeps pagination stable."""
+
     def business_filters(self) -> Sequence[ColumnElement[bool]]:
         """Extra read conditions, composed **on top of** the non-droppable row scope.
 
@@ -112,9 +133,10 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         — e.g. "only rows in an active state". You return *conditions*, not a query, so
         you can never drop the framework's soft-delete / tenant scope from here (that
         is the point): there is **no** ``super()`` to remember and no way to widen a
-        read. A per-call dynamic filter (a query parameter) belongs in a custom
-        ``list`` that builds on ``base_query().where(...)``. Default: no extra
-        conditions.
+        read. A per-call dynamic filter (a query parameter) is **not** written here and
+        does not need a ``list`` override either: declare it on :attr:`filterable` and
+        pass the value to ``list(..., filters=...)`` (see :mod:`terp.core.filtering`).
+        Default: no extra conditions.
         """
         return ()
 
@@ -147,11 +169,14 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         *,
         skip: int,
         limit: int,
+        sort: Sequence[str] | None = None,
     ) -> tuple[list[ModelT], int]:
         total = session.exec(select(func.count()).select_from(query.subquery())).one()
-        rows = session.exec(
-            query.order_by(self.model.created_at).offset(skip).limit(limit)
-        ).all()
+        terms = resolve_sort(self.sortable, sort or self.default_sort)
+        # Always break ties on the primary key: an ORDER BY that is not total makes
+        # OFFSET pagination non-deterministic and can drop or repeat a row across pages.
+        ordered = query.order_by(*terms, self.model.created_at, self.model.id)
+        rows = session.exec(ordered.offset(skip).limit(limit)).all()
         return list(rows), total
 
     def get(self, session: Session, entity_id: uuid.UUID) -> ModelT:
@@ -163,12 +188,35 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         return entity
 
     def list(
-        self, session: Session, *, skip: int, limit: int
+        self,
+        session: Session,
+        *,
+        skip: int,
+        limit: int,
+        filters: Mapping[str, object] | None = None,
+        sort: Sequence[str] | None = None,
     ) -> tuple[list[ModelT], int]:
-        return self._paginate(session, self.base_query(), skip=skip, limit=limit)
+        """Paginated read, optionally narrowed and ordered by the caller.
+
+        ``filters`` and ``sort`` may only name fields the service declared on
+        :attr:`filterable` / :attr:`sortable`; anything else raises
+        :class:`~terp.core.errors.ValidationFailedError` rather than being ignored.
+        ``None`` filter values are dropped, so a route can forward its optional query
+        parameters straight through. Everything composes on :meth:`base_query`, so row
+        scope, soft delete and :meth:`business_filters` still apply.
+        """
+        query = self.base_query()
+        conditions = resolve_filters(self.filterable, filters)
+        if conditions:
+            query = query.where(*conditions)
+        return self._paginate(session, query, skip=skip, limit=limit, sort=sort)
 
     def list_by_cursor(
-        self, session: Session, *, pagination: CursorPaginationParams
+        self,
+        session: Session,
+        *,
+        pagination: CursorPaginationParams,
+        filters: Mapping[str, object] | None = None,
     ) -> tuple[list[ModelT], str | None, int | None]:
         """Keyset-paginated list: rows after the cursor, a next cursor, an optional total.
 
@@ -181,8 +229,14 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         ``next_cursor`` is ``None`` on the last page, ``total`` is ``None`` unless
         requested. A tampered cursor raises the typed
         :class:`~terp.core.errors.ValidationFailedError` (400).
+
+        ``filters`` works exactly as on :meth:`list`. There is no ``sort``: the keyset
+        *is* the order, and a caller-chosen one would invalidate the cursor.
         """
         query = self.base_query()
+        conditions = resolve_filters(self.filterable, filters)
+        if conditions:
+            query = query.where(*conditions)
         total: int | None = None
         if pagination.include_total:
             total = session.exec(
