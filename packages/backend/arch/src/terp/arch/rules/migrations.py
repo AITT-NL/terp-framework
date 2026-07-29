@@ -146,6 +146,100 @@ def _has_comment_between(source: str, start: int, end: int) -> bool:
     return False
 
 
+def _module_constant(tree: ast.Module, name: str) -> tuple[object, int] | None:
+    """The value and line of a module-level ``name = <literal>`` assignment, if any."""
+    for statement in tree.body:
+        targets: list[ast.expr] = []
+        if isinstance(statement, ast.Assign):
+            targets = list(statement.targets)
+        elif isinstance(statement, ast.AnnAssign):
+            targets = [statement.target]
+        if not any(
+            isinstance(target, ast.Name) and target.id == name for target in targets
+        ):
+            continue
+        value = statement.value
+        if value is None:  # pragma: no cover - a bare annotation carries no revision
+            continue
+        try:
+            return ast.literal_eval(value), statement.lineno
+        except ValueError:  # pragma: no cover - a computed revision id is not a literal
+            return None
+    return None
+
+
+def _parent_revisions(down_revision: object) -> tuple[str, ...]:
+    """The parents *down_revision* names — one id, a merge's tuple of ids, or none."""
+    if isinstance(down_revision, str):
+        return (down_revision,)
+    if isinstance(down_revision, tuple | list):
+        return tuple(item for item in down_revision if isinstance(item, str))
+    return ()
+
+
+def check_migration_history_is_intact(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """Each migration history must be one unbroken chain from a single first revision.
+
+    A revision whose parent is missing, or a second revision that claims to be the
+    start of the history, means an already-authored migration was deleted or replaced.
+    Any database that applied the old revision can no longer be upgraded — the schema
+    in front of it was built by a history that no longer exists — and no drift check
+    can see it, because a database rebuilt from the rewritten history is perfectly
+    consistent. Add a new revision on top of the existing chain instead of editing a
+    revision that has already been applied anywhere.
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    histories: dict[pathlib.Path, list[tuple[pathlib.Path, ast.Module]]] = {}
+    for path in _migration_files(root):
+        histories.setdefault(path.parent, []).append((path, parse(path)))
+
+    for revisions in histories.values():
+        known: set[str] = set()
+        for _, tree in revisions:
+            found = _module_constant(tree, "revision")
+            if found and isinstance(found[0], str):
+                known.add(found[0])
+        roots: list[tuple[pathlib.Path, int]] = []
+        for path, tree in revisions:
+            rel = _rel(path, root)
+            found = _module_constant(tree, "down_revision")
+            if found is None:
+                continue
+            down, line = found
+            parents = _parent_revisions(down)
+            if not parents:
+                roots.append((path, line))
+                continue
+            for parent in parents:
+                if parent not in known:
+                    violations.append(
+                        ArchViolation(
+                            "migration_history_is_intact",
+                            rel,
+                            line,
+                            f"down_revision {parent!r} is not a revision in this "
+                            "history; the migration it builds on was deleted or "
+                            "renamed, which strands every database that applied it",
+                        )
+                    )
+        if len(roots) > 1:
+            for path, line in roots:
+                violations.append(
+                    ArchViolation(
+                        "migration_history_is_intact",
+                        _rel(path, root),
+                        line,
+                        "this history has more than one first revision; a rewritten "
+                        "or duplicated baseline leaves databases on the old chain "
+                        "unupgradable",
+                    )
+                )
+    return violations
+
+
 def check_alembic_downgrades_not_empty(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:

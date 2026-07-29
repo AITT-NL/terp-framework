@@ -34,6 +34,7 @@ from terp.arch import (
     check_no_adhoc_permission_literals,
     check_no_app_instantiation,
     check_alembic_downgrades_not_empty,
+    check_migration_history_is_intact,
     check_no_destructive_migrations,
     check_no_dynamic_sql,
     check_no_cross_module_imports,
@@ -2311,6 +2312,43 @@ def test_alembic_downgrades_not_empty(tmp_path: pathlib.Path) -> None:
         "def downgrade():\n    # irreversible data backfill; nothing to undo\n    pass\n",
     )
     assert check_alembic_downgrades_not_empty(app) == []
+
+
+def test_migration_history_is_intact(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    versions = "modules/notes/migrations/versions"
+    _write(app, f"{versions}/0001_base.py", "revision = 'aaa'\ndown_revision = None\n")
+    _write(app, f"{versions}/0002_next.py", "revision = 'bbb'\ndown_revision = 'aaa'\n")
+    assert check_migration_history_is_intact(app) == []
+
+    # The parent was deleted or renamed: every database that applied it is stranded.
+    _write(app, f"{versions}/0002_next.py", "revision = 'bbb'\ndown_revision = 'gone'\n")
+    assert _rule_names(check_migration_history_is_intact(app)) == {
+        "migration_history_is_intact"
+    }
+
+    # A second baseline is the same wound from the other side: two first revisions
+    # means the chain was rewritten rather than extended.
+    _write(app, f"{versions}/0002_next.py", "revision = 'bbb'\ndown_revision = None\n")
+    assert len(check_migration_history_is_intact(app)) == 2
+
+    # A merge revision names several parents; all of them must resolve.
+    _write(app, f"{versions}/0002_next.py", "revision = 'bbb'\ndown_revision = 'aaa'\n")
+    _write(app, f"{versions}/0003_merge.py", "revision = 'ccc'\ndown_revision = ('aaa', 'bbb')\n")
+    assert check_migration_history_is_intact(app) == []
+    _write(app, f"{versions}/0003_merge.py", "revision = 'ccc'\ndown_revision = ('aaa', 'gone')\n")
+    assert _rule_names(check_migration_history_is_intact(app)) == {
+        "migration_history_is_intact"
+    }
+
+    # Separate packages keep separate histories, each with its own first revision.
+    _write(app, f"{versions}/0003_merge.py", "revision = 'ccc'\ndown_revision = 'bbb'\n")
+    _write(
+        app,
+        "modules/tags/migrations/versions/0001_base.py",
+        "revision = 'zzz'\ndown_revision = None\n",
+    )
+    assert check_migration_history_is_intact(app) == []
 
 
 def test_session_imported_from_sqlmodel(tmp_path: pathlib.Path) -> None:

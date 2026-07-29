@@ -81,6 +81,7 @@ from terp.arch.rules.imports import (
 )
 from terp.arch.rules.migrations import (
     check_alembic_downgrades_not_empty,
+    check_migration_history_is_intact,
     check_no_destructive_migrations,
 )
 from terp.arch.rules.jobs import check_jobs_reference_catalog
@@ -174,6 +175,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_manual_table_schema": "migrations",
     "no_destructive_migrations": "migrations",
     "alembic_downgrades_not_empty": "migrations",
+    "migration_history_is_intact": "migrations",
     "no_unique_columns_on_soft_delete_models": "module",
     "canonical_module_shape": "module",
     "session_imported_from_sqlmodel": "service",
@@ -248,6 +250,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_manual_table_schema,
     check_no_destructive_migrations,
     check_alembic_downgrades_not_empty,
+    check_migration_history_is_intact,
     check_no_unique_columns_on_soft_delete_models,
     check_canonical_module_shape,
     check_session_imported_from_sqlmodel,
@@ -348,6 +351,7 @@ __all__ = [
     "GUIDE_TOPIC_BY_RULE",
     "assert_app_clean",
     "check_alembic_downgrades_not_empty",
+    "check_migration_history_is_intact",
     "check_app",
     "check_canonical_module_shape",
     "check_escape_hatch_budget",
