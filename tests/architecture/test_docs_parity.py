@@ -106,6 +106,23 @@ def test_rule_surface_fails_closed_on_an_unsurfaced_rule() -> None:
     }
 
 
+def test_generated_agents_md_lists_every_guide_topic() -> None:
+    # The topic list a *generated app's* AGENTS.md advertises is the only index an agent
+    # in that repo ever sees — and it was hand-written, so it silently fell behind the
+    # CLI: five shipped topics (access, files, jobs, layouts, passwords) existed that no
+    # agent could discover. A capability the author cannot find is a capability the
+    # author re-implements by hand. Pin the list to the live registry.
+    text = (_REPO_ROOT / "template" / "project" / "AGENTS.md.jinja").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r"(?ms)^  Topics: (.+?)\.$", text)
+    assert match is not None, "AGENTS.md.jinja no longer declares a `Topics:` list"
+    advertised = tuple(
+        sorted(topic.strip() for topic in match.group(1).replace("\n", " ").split(","))
+    )
+    assert advertised == guide_topics()
+
+
 # --------------------------------------------------------------------------- #
 # (2) no dangling claims — every rule-/test-reference resolves (design §8)
 # --------------------------------------------------------------------------- #

@@ -51,9 +51,15 @@ Run every backend command through **uv** (`uv run …`): the `terp` CLI and the
 project's Python live in the local `.venv`, not on the global PATH — a bare `terp`
 or `python` will not resolve.
 
-- **`uv run terp guide`** / **`uv run terp guide <topic>`** — the authoring guide
-  (module, service, policy, ownership, tenancy, events, capability, migrations, rules,
-  frontend, dataview, forms).
+- **`uv run terp guide`** / **`uv run terp guide <topic>`** — the authoring guide.
+  Topics: access, capability, dataview, events, files, forms, frontend, idempotency,
+  jobs, layouts, migrations, module, outbox, ownership, passwords, policy, realtime,
+  rules, service, tenancy.
+- **`uv run terp inspect capabilities`** — every maintained `terp-cap-*` package:
+  what this app already has, what it can adopt, the exact `uv add` line and the
+  composition-root wiring. **Read this before building infrastructure by hand** —
+  durable delivery, realtime push, background jobs, scheduling, file storage,
+  multi-tenancy, signed webhooks and shared multi-replica state are already solved.
 - **`uv run terp verify`** — the one-command gate: runs the declared verification
   profile (`--profile quick` for per-edit static checks, `--profile full` for the
   merge bar CI enforces, `--profile release` before shipping). `--list` shows what a
@@ -123,10 +129,14 @@ Two boundaries are never autonomous agent decisions:
 ## Golden rules
 
 1. Table models inherit `BaseTable`; never redeclare id/created_at/updated_at/version.
-2. Services subclass `BaseService`; add read filters via `business_filters()` — it
-   returns a *sequence of SQLAlchemy conditions* that are ANDed into every read
-   (e.g. `return (Model.archived == False,)`), never a dict or keyword map; never
-   override `base_query`.
+2. Services subclass `BaseService`; add *always-on* read filters via
+   `business_filters()` — it returns a *sequence of SQLAlchemy conditions* that are
+   ANDed into every read (e.g. `return (Model.archived == False,)`), never a dict or
+   keyword map; never override `base_query`. A *per-request* filter or sort (a query
+   parameter) is declared on the service with `filterable` / `sortable` and passed to
+   `list(..., filters=..., sort=...)` — an undeclared field is refused, and both
+   compose on top of `base_query()`. Never hand-write a `list()` override to do it
+   (`uv run terp guide service`).
 3. Every write goes through the service; never call `session.add`/`commit` yourself.
 4. Each module declares a `ModuleSpec` with a `Policy` (deny-by-default).
 5. Routes set `response_model` to a Read DTO (never the table model); paginate with `Page[T]`.

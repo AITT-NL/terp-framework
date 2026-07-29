@@ -17,14 +17,18 @@ fails closed with precise, fixable messages.
   your code is compliant; red names the fix.** Run it before and after each change.
 - **`terp inspect control-plane`** — your roles, permissions, and per-module
   authority map.
+- **`terp inspect capabilities`** — every maintained `terp-cap-*` package: what this
+  app already has, what it can adopt, and the wiring each expects. Read it before
+  building infrastructure by hand.
 
 ## Golden rules (the gate enforces these — follow them and it stays green)
 
 1. Table models inherit `BaseTable`; never redeclare `id` / `created_at` /
    `updated_at` / `version`.
-2. Services subclass `BaseService`; CRUD is inherited. Add read filters via
-   `business_filters()`; **never override `base_query`** (it would silently drop the
-   soft-delete / tenant scope).
+2. Services subclass `BaseService`; CRUD is inherited. Add always-on read filters via
+   `business_filters()`, and per-request ones by declaring `filterable` / `sortable`
+   and passing `list(..., filters=..., sort=...)`; **never override `base_query`** (it
+   would silently drop the soft-delete / tenant scope).
 3. Every write goes through the service (`create` / `update` / `delete`, or
    `self._save` / `self._remove`); never call `session.add` / `commit` / `execute`
    yourself — the audit trail is automatic and a raw write is refused at runtime.
