@@ -10,6 +10,42 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## 0.4.0 — 2026-07-29
+
+A wrong database schema stops being a silent failure. A migration history that was
+rewritten rather than extended is refused at build time, a database holding a revision
+the code no longer defines is refused at boot, and every generated app gets that boot
+guard instead of only the example app.
+
+### Added
+
+- **`backend/migration_history_is_intact`** — a migration history must be one unbroken
+  chain from a single first revision, with every revision reachable from it. A deleted
+  or renamed parent, a second baseline, and a closed cycle each strand every database
+  that applied the old chain, while a database rebuilt from the rewritten history stays
+  perfectly consistent with the models — so no drift check can see it.
+- **`assert_no_orphaned_revisions`** — the runtime half: an app refuses to serve against
+  a database holding a revision the code no longer defines, and reports that distinctly
+  from "behind on migrations", because the two need opposite fixes.
+
+### Fixed
+
+- **Generated apps install the migration boot guard.** `migration_check` was wired into
+  the example app only, so a rendered project served against a wrong schema until the
+  first request that touched the affected table.
+- **`terp check` is scoped to the app package** instead of also walking vendored and
+  tooling directories.
+- **Generated projects pin LF line endings.** On a Windows checkout Git rewrote every
+  container-written file to CRLF, turning a real 281/7 change into a 948/674 commit and
+  defeating review-by-diff and `git blame`.
+- **Self-naming enum members are no longer flagged as hardcoded credentials.**
+
+### Changed
+
+- **Pinned spec: 0.18.0**, whose migration-history rule requires a real baseline.
+- **One vitest major across the whole workspace**, and the high-severity frontend
+  advisories are cleared.
+
 ## 0.3.0 — 2026-07-27
 
 The Terp Standard becomes a dependency you install rather than a repository you

@@ -1,6 +1,6 @@
 {
   "name": "@terpjs/react-core",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Terp React stack core — typed @terpjs/contract client provider, auth session, capability gates, TanStack Router adapter, app shell, page archetypes, DataView and token-styled UI primitives. First frontend stack; see README.md for the component catalog.",
   "exports": {
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@tanstack/react-router": "^1.170.16",
-    "@terpjs/contract": "^0.3.0"
+    "@terpjs/contract": "^0.4.0"
   },
   "peerDependencies": {
     "react": "^18.3.0 || ^19.0.0",
