@@ -59,6 +59,7 @@ def test_generated_app_refuses_to_serve_against_a_wrong_schema() -> None:
     main = (_PROJECT / "app" / "main.py.jinja").read_text()
     assert "migration_check=" in main
     assert "assert_migrations_current" in main
+    assert "app_root=pathlib.Path(__file__).resolve().parent" in main
     assert "get_settings().is_production" in main  # development still auto-applies
 
 

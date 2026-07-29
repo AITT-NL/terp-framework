@@ -202,19 +202,29 @@ def check_migration_history_is_intact(
             found = _module_constant(tree, "revision")
             if found and isinstance(found[0], str):
                 known.add(found[0])
-        roots: list[tuple[pathlib.Path, int]] = []
+        roots: list[tuple[pathlib.Path, int, str]] = []
+        entries: list[tuple[pathlib.Path, int, str, tuple[str, ...]]] = []
+        broken_revisions: set[str] = set()
         for path, tree in revisions:
             rel = _rel(path, root)
+            revision_found = _module_constant(tree, "revision")
             found = _module_constant(tree, "down_revision")
-            if found is None:
+            if (
+                found is None
+                or revision_found is None
+                or not isinstance(revision_found[0], str)
+            ):
                 continue
             down, line = found
             parents = _parent_revisions(down)
+            revision = revision_found[0]
+            entries.append((path, line, revision, parents))
             if not parents:
-                roots.append((path, line))
+                roots.append((path, line, revision))
                 continue
             for parent in parents:
                 if parent not in known:
+                    broken_revisions.add(revision)
                     violations.append(
                         ArchViolation(
                             "migration_history_is_intact",
@@ -226,7 +236,7 @@ def check_migration_history_is_intact(
                         )
                     )
         if len(roots) > 1:
-            for path, line in roots:
+            for path, line, _ in roots:
                 violations.append(
                     ArchViolation(
                         "migration_history_is_intact",
@@ -237,6 +247,43 @@ def check_migration_history_is_intact(
                         "unupgradable",
                     )
                 )
+        elif entries and not roots:
+            path, line, _, _ = entries[0]
+            violations.append(
+                ArchViolation(
+                    "migration_history_is_intact",
+                    _rel(path, root),
+                    line,
+                    "this history has no first revision; its parent graph contains "
+                    "a cycle, so no database can start at a valid baseline",
+                )
+            )
+        elif len(roots) == 1:
+            children: dict[str, set[str]] = {revision: set() for revision in known}
+            for _, _, revision, parents in entries:
+                for parent in parents:
+                    if parent in known:
+                        children.setdefault(parent, set()).add(revision)
+            reachable: set[str] = set()
+            pending = [roots[0][2]]
+            while pending:
+                revision = pending.pop()
+                if revision in reachable:
+                    continue
+                reachable.add(revision)
+                pending.extend(children.get(revision, ()))
+            for path, line, revision, _ in entries:
+                if revision not in reachable and revision not in broken_revisions:
+                    violations.append(
+                        ArchViolation(
+                            "migration_history_is_intact",
+                            _rel(path, root),
+                            line,
+                            "this revision is not connected to the history's first "
+                            "revision; a disconnected cycle or rewritten chain leaves "
+                            "databases unupgradable",
+                        )
+                    )
     return violations
 
 

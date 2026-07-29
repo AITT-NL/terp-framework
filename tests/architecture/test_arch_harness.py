@@ -2342,6 +2342,19 @@ def test_migration_history_is_intact(tmp_path: pathlib.Path) -> None:
     _write(app, f"{versions}/0002_next.py", "revision = 'bbb'\ndown_revision = None\n")
     assert len(check_migration_history_is_intact(app)) == 2
 
+    # A cycle can name only revisions that exist and still have no usable baseline.
+    _write(app, f"{versions}/0001_base.py", "revision = 'aaa'\ndown_revision = 'bbb'\n")
+    _write(app, f"{versions}/0002_next.py", "revision = 'bbb'\ndown_revision = 'aaa'\n")
+    violations = check_migration_history_is_intact(app)
+    assert len(violations) == 1
+    assert "no first revision" in violations[0].message
+
+    # One valid root does not make a disconnected cycle part of that history.
+    _write(app, f"{versions}/0001_base.py", "revision = 'aaa'\ndown_revision = None\n")
+    _write(app, f"{versions}/0002_next.py", "revision = 'bbb'\ndown_revision = 'ccc'\n")
+    _write(app, f"{versions}/0003_cycle.py", "revision = 'ccc'\ndown_revision = 'bbb'\n")
+    assert len(check_migration_history_is_intact(app)) == 2
+
     # A merge revision names several parents; all of them must resolve.
     _write(app, f"{versions}/0002_next.py", "revision = 'bbb'\ndown_revision = 'aaa'\n")
     _write(app, f"{versions}/0003_merge.py", "revision = 'ccc'\ndown_revision = ('aaa', 'bbb')\n")
