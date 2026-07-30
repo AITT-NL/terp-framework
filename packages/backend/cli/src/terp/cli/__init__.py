@@ -37,6 +37,11 @@ from terp.cli.schema import (
     scan_declared_table_models,
 )
 from terp.cli.seed import run_seed_command
+from terp.cli.grants import (
+    grant_add_command,
+    grant_list_command,
+    grant_revoke_command,
+)
 from terp.cli.service_accounts import create_service_account_command
 from terp.cli.users import create_user_command
 from terp.cli.verify import profile_ids, run_verify_command, verify_manifest
@@ -1653,6 +1658,45 @@ def _build_parser() -> argparse.ArgumentParser:
         "--app-root", default=".", help="App root placed first on sys.path (default: .)"
     )
 
+    grant_parser = subcommands.add_parser(
+        "grant",
+        help="Assign, list and revoke a subject's permission grants (least privilege "
+        "without hand-writing an admin API call)",
+    )
+    grant_subcommands = grant_parser.add_subparsers(dest="grant_command", required=True)
+
+    _SUBJECT_HELP = (
+        "A user email, a service-account name, or a subject UUID"
+    )
+    for _name, _help in (
+        ("add", "Grant a permission to a subject (idempotent, audited)"),
+        ("revoke", "Revoke a permission from a subject"),
+    ):
+        _p = grant_subcommands.add_parser(_name, help=_help)
+        _p.add_argument("subject", help=_SUBJECT_HELP)
+        _p.add_argument("permission", help="The permission name the app declares")
+        _p.add_argument(
+            "--app",
+            default="app.main:app",
+            help="Dotted module:attribute of the FastAPI app (default: app.main:app)",
+        )
+        _p.add_argument(
+            "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+        )
+
+    grant_list_parser = grant_subcommands.add_parser(
+        "list", help="List every permission a subject holds, including via groups"
+    )
+    grant_list_parser.add_argument("subject", help=_SUBJECT_HELP)
+    grant_list_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app (default: app.main:app)",
+    )
+    grant_list_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+
     seed_parser = subcommands.add_parser(
         "seed", help="Run the app's seed routine (idempotent demo / bootstrap data; dev only)"
     )
@@ -1842,6 +1886,27 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
         return
+    if args.command == "grant":
+        _commands = {
+            "add": grant_add_command,
+            "revoke": grant_revoke_command,
+        }
+        if args.grant_command == "list":
+            print(
+                grant_list_command(
+                    args.subject, app_ref=args.app, app_root=args.app_root
+                )
+            )
+            return
+        print(
+            _commands[args.grant_command](
+                args.subject,
+                args.permission,
+                app_ref=args.app,
+                app_root=args.app_root,
+            )
+        )
+        return
     if args.command == "seed":
         print(run_seed_command(app_ref=args.app, app_root=args.app_root, seed_ref=args.seed))
         return
@@ -1861,6 +1926,9 @@ __all__ = [
     "check_report_envelope",
     "create_service_account_command",
     "create_user_command",
+    "grant_add_command",
+    "grant_list_command",
+    "grant_revoke_command",
     "dev_plan",
     "export_openapi",
     "gate_root",

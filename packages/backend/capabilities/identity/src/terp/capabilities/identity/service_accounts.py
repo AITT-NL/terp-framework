@@ -71,6 +71,17 @@ class ServiceAccountService(
             select(ServiceAccount).where(ServiceAccount.client_id == client_id)
         ).first()
 
+    def get_by_name(self, session: Session, name: str) -> ServiceAccount | None:
+        """Look an account up by its human-readable name.
+
+        For operator tooling only — never for authentication, which goes by client id.
+        The name is not unique (nothing stops two integrations being called "sync"),
+        so this returns the first match and is deliberately not a credential lookup.
+        """
+        return session.exec(
+            select(ServiceAccount).where(ServiceAccount.name == name)
+        ).first()
+
     def provision(
         self, session: Session, data: ServiceAccountCreate
     ) -> tuple[ServiceAccount, str]:
