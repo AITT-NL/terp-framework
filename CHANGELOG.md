@@ -10,6 +10,63 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## 0.5.0 — 2026-07-30
+
+Modules get a declared way to depend on each other, machines get a credential of their
+own, and least privilege gets cheaper than widening a role. Three questions an app used
+to answer by hand — "may this module import that one?", "is this caller a person?",
+"how do I grant one permission?" — become platform answers with a check behind them.
+
+### Added
+
+- **A module may declare a dependency on a sibling** (ADR 0087). `ModuleSpec.requires`
+  gains its second, larger meaning: the exhaustive list of siblings this module may
+  import. An undeclared sibling import stays refused
+  (`backend/no_cross_module_imports`); a declared one is allowed, but only into the
+  dependency's public surface (`backend/cross_module_imports_use_public_surface`) and
+  only if the graph stays acyclic (`backend/module_dependency_graph_is_acyclic`, also
+  refused at boot). The alternative was what every real app does instead: a
+  hand-rolled seam per edge, invisible to review.
+- **A machine is a first-class subject kind** (ADR 0088). Service accounts get a signed
+  `kind` claim and a client-credentials grant at `POST /token`, so which store answers
+  a token is decided by what the credential *is* rather than by lookup order. Machine
+  tokens are revocable on the same epoch mechanism as user sessions, and a credential
+  carries an end date by default.
+- **`terp grant`** (ADR 0089) — grant, list and revoke a permission by the name an
+  operator already uses (an email, a service-account name), validated against the app's
+  own catalog and written through the audited service. A grant below the permission's
+  minimum role warns loudly instead of storing a row that can never fire.
+- **`terp inspect capabilities`** — the adoptable-capability surface, marked with what
+  this app already has and what one `uv add` would add. The registry is pinned against
+  the real packages, so it cannot drift.
+- **Declared request-scoped filters and sorts on `BaseService`** — a service names the
+  columns a caller may narrow or order a read by, and the comparison each one permits.
+  Anything undeclared is refused rather than ignored, and no filter can widen past the
+  service's own scoping.
+- **`backend/table_ownership_is_not_split`** (ADR 0090) — a table's model and the
+  migration that creates it must live in the same package. Split them and per-package
+  scoping hides the table from *both* histories, so drift detection goes quiet on a
+  table nobody migrates.
+- **`terp guide permissions`** — when to reach for a permission instead of a role.
+
+### Fixed
+
+- **`terp verify` names the cause when `node_modules` came from another platform.** The
+  gate died with a raw Node stack naming neither cause nor fix; the lockfile already
+  records which optional binary belongs on which platform, so the diagnosis is exact.
+- **The production nginx `/api` upstream is substituted at start-up**, so one image
+  serves both compose (service name) and a runtime that co-locates the containers in
+  one pod (localhost).
+- **The 100 % coverage bar is restored.** Coverage only ran in CI, so a batch of work
+  accumulated 35 uncovered lines. Two of them turned out to be unreachable guards and
+  were removed rather than pragma'd.
+
+### Changed
+
+- **Pinned spec: 0.19.0**, which catalogs the three dependency rules and the owning-package rule.
+- **The advertised platform surface is drift-proof** — what the docs claim Terp offers
+  is checked against what it ships.
+
 ## 0.4.0 — 2026-07-29
 
 A wrong database schema stops being a silent failure. A migration history that was

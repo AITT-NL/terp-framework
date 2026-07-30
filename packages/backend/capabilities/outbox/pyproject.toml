@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-outbox"
-version = "0.4.0"
+version = "0.5.0"
 description = "Terp durable outbox — transactional, leased, retrying post-commit delivery for jobs and events."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.4.0",
+    "terp-core==0.5.0",
 ]
 
 # A LIBRARY capability: it owns the durable delivery mechanism (a table, a durable
