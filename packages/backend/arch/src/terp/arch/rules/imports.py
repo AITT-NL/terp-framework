@@ -12,11 +12,13 @@ import pathlib
 from terp.arch._ast import _SECURITY_SKIP_DIRS, iter_imports, iter_python_files, parse
 from terp.arch.rules._support import (
     ArchViolation,
+    _imported_modules,
     _module_parts,
     _module_under,
     _rel,
     _resolve_relative_import,
 )
+from terp.arch.rules.dependencies import declared_dependency_graph
 
 
 def check_no_internal_imports(
@@ -87,66 +89,50 @@ def check_session_imported_from_sqlmodel(
     return violations
 
 
-def _imported_modules(
-    tree: ast.Module, importing_parts: list[str]
-) -> list[tuple[str, int]]:
-    """Every imported absolute module in *tree*, with **relative** imports resolved.
-
-    ``import a.b`` yields ``a.b``; ``from a.b import c`` yields ``a.b``; and a
-    relative ``from ..sibling import x`` is resolved against *importing_parts* to
-    its absolute module — so relative imports can no longer evade the boundary
-    rules the way a bare ``iter_imports`` (absolute-only) would let them.
-    """
-    imported: list[tuple[str, int]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                imported.append((alias.name, node.lineno))
-        elif isinstance(node, ast.ImportFrom):
-            if node.level == 0:
-                if node.module:
-                    imported.append((node.module, node.lineno))
-                    for alias in node.names:
-                        imported.append((f"{node.module}.{alias.name}", node.lineno))
-            else:
-                resolved = _resolve_relative_import(importing_parts, node.level, node.module)
-                imported.append((resolved, node.lineno))
-                for alias in node.names:
-                    imported.append((f"{resolved}.{alias.name}", node.lineno))
-    return imported
-
-
 def check_no_cross_module_imports(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
-    """A module never imports a sibling module (leaf domains stay independent).
+    """A module imports a sibling only across an edge it declared (ADR 0087).
+
+    Modules are independent by default. When a real dependency exists, the
+    importing module names the sibling in its own
+    ``ModuleSpec(requires=("connections",))`` — one line in the manifest a reader
+    already consults — and the import is then allowed. What is refused is the
+    *undeclared* edge: coupling that exists in the import graph but appears
+    nowhere a reader would look.
 
     Both absolute (``from app.modules.tasks...``) and relative
     (``from ..tasks...``) sibling imports are caught — a relative import is
     resolved to its absolute module first, so renaming the import style does not
-    re-couple two leaf modules.
+    re-couple two leaf modules. Two sibling rules complete the contract:
+    ``cross_module_imports_use_public_surface`` bounds what an edge grants, and
+    ``module_dependency_graph_is_acyclic`` keeps the declared edges one-way.
     """
     root = pathlib.Path(app_root)
     prefix = f"{package}.modules."
     violations: list[ArchViolation] = []
+    graph = declared_dependency_graph(root, package=package)
     for path in iter_python_files(root):
         own = _module_under(path, package)
         if own is None:
             continue
+        allowed = graph.get(own, frozenset())
         tree = parse(path)
         rel = _rel(path, root)
         importing_parts = _module_parts(path, root)
         for module, line in _imported_modules(tree, importing_parts):
             if module.startswith(prefix):
                 target = module[len(prefix):].split(".")[0]
-                if target != own:
+                if target != own and target not in allowed:
                     violations.append(
                         ArchViolation(
                             "no_cross_module_imports",
                             rel,
                             line,
-                            f"module {own!r} imports sibling module {target!r}; "
-                            "modules must not import each other",
+                            f"module {own!r} imports sibling module {target!r} without "
+                            f"declaring it; add {target!r} to {own}'s "
+                            "ModuleSpec(requires=...) to make the dependency visible, or "
+                            "drop the import",
                         )
                     )
     return violations

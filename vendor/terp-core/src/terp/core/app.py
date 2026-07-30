@@ -412,7 +412,16 @@ def _freeze_app_route_registration(app: FastAPI) -> None:
 
 
 def _validate_requires(specs: Sequence[ModuleSpec]) -> None:
-    """Fail closed if any spec's declared ``requires`` are not present (design §4.3)."""
+    """Fail closed if any spec's declared ``requires`` are absent or cyclic.
+
+    ``requires`` carries two meanings (ADR 0087): the thing you depend on must be
+    installed, and — for a sibling module — the dependency must be one-way. A
+    cycle is the point at which two modules have quietly become one: neither can
+    be read, tested, deployed or removed without the other, and the direction that
+    would say which owns the shared concept no longer exists. The app refuses to
+    boot rather than run that shape, and ``module_dependency_graph_is_acyclic``
+    catches it at build time so it never reaches a boot.
+    """
     available = {spec.name for spec in specs}
     for spec in specs:
         missing = sorted(req for req in spec.requires if req not in available)
@@ -420,6 +429,41 @@ def _validate_requires(specs: Sequence[ModuleSpec]) -> None:
             raise BootError(
                 f"module {spec.name!r} requires {missing} which are not installed"
             )
+    cycle = _find_requires_cycle({spec.name: frozenset(spec.requires) for spec in specs})
+    if cycle is not None:
+        raise BootError(
+            f"declared dependencies form a cycle ({' -> '.join(cycle)}); requires must "
+            "be one-way — extract the shared concept, or invert the weaker direction "
+            "into an event subscription (fix recipe: terp guide dependencies)"
+        )
+
+
+def _find_requires_cycle(graph: Mapping[str, frozenset[str]]) -> list[str] | None:
+    """One cycle in *graph* as a node path (first node repeated last), or ``None``."""
+    WHITE, GREY, BLACK = 0, 1, 2
+    colour = dict.fromkeys(graph, WHITE)
+    stack: list[str] = []
+
+    def visit(node: str) -> list[str] | None:
+        colour[node] = GREY
+        stack.append(node)
+        for target in sorted(graph.get(node, frozenset())):
+            if colour.get(target, BLACK) == GREY:
+                return [*stack[stack.index(target):], target]
+            if colour.get(target, BLACK) == WHITE:
+                found = visit(target)
+                if found is not None:
+                    return found
+        colour[node] = BLACK
+        stack.pop()
+        return None
+
+    for name in sorted(graph):
+        if colour[name] == WHITE:
+            found = visit(name)
+            if found is not None:
+                return found
+    return None
 
 
 def _validate_unique_spec_names(specs: Sequence[ModuleSpec]) -> None:

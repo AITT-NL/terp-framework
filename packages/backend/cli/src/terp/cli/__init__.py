@@ -76,6 +76,49 @@ Add a module (the "10-minute module")
 
 Then run `terp check`. Policy.default() = authenticated; read VIEWER, write EDITOR.
 """,
+    "dependencies": """\
+One module needs another (declared edges)
+
+Modules are independent by default: an import of a sibling is refused. When a real
+dependency exists, DECLARE it — do not hand-roll dependency inversion.
+
+1) Name the sibling in the DEPENDING module's manifest:
+     # app/modules/catalogs/module.py
+     module = ModuleSpec(
+         name="catalogs",
+         router=router,
+         policy=Policy.default(),
+         requires=("connections",),   # <- the edge, in the manifest a reader consults
+     )
+
+2) Now import its published surface:
+     from app.modules.connections.service import ConnectionProfileService
+
+Three limits, each enforced:
+
+- DECLARED. An undeclared sibling import fails `no_cross_module_imports`. The point
+  is not to make coupling hard, it is to make coupling VISIBLE.
+- PUBLIC SURFACE ONLY. An edge grants models / schemas / service / events. Never the
+  dependency's router (that couples two modules through HTTP shapes and lets an
+  in-process call walk past the policy guarding those routes) and never an
+  underscore-prefixed internal. Import a named surface, not the bare package.
+- ONE-WAY. The declared graph must be acyclic — `terp check` reports the cycle and
+  the app refuses to boot on one. A cycle means the two modules are really one.
+
+When NOT to declare an edge:
+
+- You only need to REACT to the other module -> subscribe to its event
+  (`terp guide events`). An event keeps the direction one-way and the coupling loose.
+- BOTH directions want an edge -> the shared concept belongs in a third module that
+  both depend on. Inverting one direction by hand (a Protocol plus a global registry
+  plus a composition-root adapter) is the same coupling with more moving parts and
+  module-global mutable state; declare the edge or extract the concept.
+- The dependency is a capability (audit, files, users) -> that is not a module edge.
+  `requires=("audit",)` still means "must be installed"; capabilities are importable
+  by every module already.
+
+Check it: `terp check`  |  See the declared edges: `terp inspect control-plane`
+""",
     "service": """\
 Services (BaseService)
 
@@ -1110,6 +1153,7 @@ def _module_json(spec: ModuleSpec) -> dict[str, object]:
     return {
         "name": spec.name,
         "policy": policy,
+        "requires": list(spec.requires),
         "emits": [event.name for event in spec.emits],
         "subscribes": [event.name for event in spec.subscribes],
         "jobs": [job.name for job in spec.jobs],
@@ -1132,6 +1176,8 @@ def _render_text(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
         lines.append("  <none provided>")
     for spec in sorted(specs, key=lambda item: item.name):
         lines.append(f"  {spec.name}  {_policy_label(spec)}")
+        if spec.requires:
+            lines.append(f"    requires: {', '.join(sorted(spec.requires))}")
     lines.append("")
     lines.append("Audit")
     if plane.audit.enabled:

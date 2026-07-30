@@ -103,6 +103,10 @@ from terp.arch.rules.persistence import (
     check_table_models_use_base_table,
     check_tables_have_migrations,
 )
+from terp.arch.rules.dependencies import (
+    check_cross_module_imports_use_public_surface,
+    check_module_dependency_graph_is_acyclic,
+)
 from terp.arch.rules.secrets import (
     check_no_adhoc_config_decrypt,
     check_no_hardcoded_credentials,
@@ -126,7 +130,9 @@ from terp.arch.rules.traits import (
 # is locked by ``test_arch_harness`` / ``test_docs_parity`` meta-tests.
 GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_internal_imports": "module",
-    "no_cross_module_imports": "module",
+    "no_cross_module_imports": "dependencies",
+    "cross_module_imports_use_public_surface": "dependencies",
+    "module_dependency_graph_is_acyclic": "dependencies",
     "no_raw_outbound_http": "capability",
     "no_adhoc_background_runtime": "jobs",
     "modules_declare_policy": "policy",
@@ -202,6 +208,8 @@ def guide_topic_for(rule: str) -> str:
 _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_internal_imports,
     check_no_cross_module_imports,
+    check_cross_module_imports_use_public_surface,
+    check_module_dependency_graph_is_acyclic,
     check_no_raw_outbound_http,
     check_no_adhoc_background_runtime,
     check_modules_declare_policy,

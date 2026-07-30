@@ -38,6 +38,8 @@ from terp.arch import (
     check_no_destructive_migrations,
     check_no_dynamic_sql,
     check_no_cross_module_imports,
+    check_cross_module_imports_use_public_surface,
+    check_module_dependency_graph_is_acyclic,
     check_no_hardcoded_credentials,
     check_no_internal_imports,
     check_no_manual_actor_stamping,
@@ -131,6 +133,101 @@ def test_no_cross_module_imports(tmp_path: pathlib.Path) -> None:
 
     _write(app, "modules/a/service.py", "from .models import Thing\n")
     assert check_no_cross_module_imports(app) == []
+
+
+def _declare(app_root: pathlib.Path, name: str, requires: str) -> None:
+    """Write *name*'s manifest declaring *requires* (a literal tuple source)."""
+    _write(
+        app_root,
+        f"modules/{name}/module.py",
+        f'module = ModuleSpec(name="{name}", requires={requires})\n',
+    )
+
+
+def test_no_cross_module_imports_allows_a_declared_edge(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(app, "modules/a/service.py", "from app.modules.b.service import Thing\n")
+    _write(app, "modules/b/service.py", "from terp.core import BaseService\n")
+
+    # Undeclared: refused.
+    assert _rule_names(check_no_cross_module_imports(app)) == {"no_cross_module_imports"}
+
+    # Declared in the DEPENDING module's manifest: allowed.
+    _declare(app, "a", '("b",)')
+    assert check_no_cross_module_imports(app) == []
+
+    # The edge is one-way: b still may not import a.
+    _write(app, "modules/b/service.py", "from app.modules.a.service import Other\n")
+    assert _rule_names(check_no_cross_module_imports(app)) == {"no_cross_module_imports"}
+
+    # A declaration a static reader cannot resolve grants nothing (fail closed).
+    _write(app, "modules/b/service.py", "from terp.core import BaseService\n")
+    _write(
+        app,
+        "modules/a/module.py",
+        "module = ModuleSpec(name=\"a\", requires=_edges())\n",
+    )
+    assert _rule_names(check_no_cross_module_imports(app)) == {"no_cross_module_imports"}
+
+
+def test_cross_module_imports_use_public_surface(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(app, "modules/b/service.py", "from terp.core import BaseService\n")
+    _declare(app, "a", '("b",)')
+
+    # The edge grants the domain vocabulary.
+    for surface in ("models", "schemas", "service", "events"):
+        _write(app, "modules/a/service.py", f"from app.modules.b.{surface} import Thing\n")
+        assert check_cross_module_imports_use_public_surface(app) == []
+
+    # It does not grant the dependency's delivery surface or its internals.
+    for surface in ("router", "_private"):
+        _write(app, "modules/a/service.py", f"from app.modules.b.{surface} import Thing\n")
+        assert _rule_names(check_cross_module_imports_use_public_surface(app)) == {
+            "cross_module_imports_use_public_surface"
+        }
+
+    # Nor the bare package, whose shape nobody published.
+    _write(app, "modules/a/service.py", "from app.modules import b\n")
+    assert _rule_names(check_cross_module_imports_use_public_surface(app)) == {
+        "cross_module_imports_use_public_surface"
+    }
+
+    # An UNdeclared import is the sibling rule's business, not this one's.
+    _write(app, "modules/a/service.py", "from app.modules.c.router import Thing\n")
+    assert check_cross_module_imports_use_public_surface(app) == []
+
+
+def test_module_dependency_graph_is_acyclic(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _declare(app, "a", '("b",)')
+    _declare(app, "b", '("c",)')
+    _declare(app, "c", "()")
+    assert check_module_dependency_graph_is_acyclic(app) == []
+
+    # Close the loop: every participant is named, so the fix has somewhere to start.
+    _declare(app, "c", '("a",)')
+    violations = check_module_dependency_graph_is_acyclic(app)
+    assert _rule_names(violations) == {"module_dependency_graph_is_acyclic"}
+    assert {pathlib.Path(item.path).parent.name for item in violations} == {"a", "b", "c"}
+
+    # A module that requires itself is the shortest cycle there is.
+    _declare(app, "c", "()")
+    _declare(app, "a", '("a",)')
+    assert _rule_names(check_module_dependency_graph_is_acyclic(app)) == {
+        "module_dependency_graph_is_acyclic"
+    }
+
+    # A capability named in requires is not a module edge.
+    _declare(app, "a", '("audit", "b")')
+    assert check_module_dependency_graph_is_acyclic(app) == []
+
+    # Nor is a build artefact: __pycache__ is a directory under modules/ that holds
+    # no Python source, so it never becomes a node a requires entry could match.
+    (app / "modules" / "__pycache__").mkdir(parents=True, exist_ok=True)
+    (app / "modules" / "__pycache__" / "module.cpython-313.pyc").write_bytes(b"\x00")
+    _declare(app, "a", '("__pycache__", "b")')
+    assert check_module_dependency_graph_is_acyclic(app) == []
 
 
 def test_no_raw_outbound_http(tmp_path: pathlib.Path) -> None:

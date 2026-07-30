@@ -156,6 +156,13 @@ class ModuleSpec:
     requests under that prefix — and only there, so a body-carrying surface (a
     file upload) can accept more than the global cap without widening it for
     every other endpoint (ADR 0067). ``None`` (the default) keeps the global cap.
+
+    ``requires`` is this module's **declared dependency edges** (ADR 0087). Naming
+    a capability says "this must be installed"; naming a sibling module says that
+    *and* buys the one thing modules cannot otherwise do — import it. The edge is
+    one-way (a cycle refuses the boot), and it grants the dependency's ``models``,
+    ``schemas``, ``service`` and ``events`` only, never its router or its
+    internals. Recipe: ``terp guide dependencies``.
     """
 
     name: str

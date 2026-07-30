@@ -213,6 +213,35 @@ def _resolve_relative_import(
     return ".".join(base)
 
 
+def _imported_modules(
+    tree: ast.Module, importing_parts: list[str]
+) -> list[tuple[str, int]]:
+    """Every imported absolute module in *tree*, with **relative** imports resolved.
+
+    ``import a.b`` yields ``a.b``; ``from a.b import c`` yields ``a.b``; and a
+    relative ``from ..sibling import x`` is resolved against *importing_parts* to
+    its absolute module — so relative imports can no longer evade the boundary
+    rules the way a bare ``iter_imports`` (absolute-only) would let them.
+    """
+    imported: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported.append((alias.name, node.lineno))
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                if node.module:
+                    imported.append((node.module, node.lineno))
+                    for alias in node.names:
+                        imported.append((f"{node.module}.{alias.name}", node.lineno))
+            else:
+                resolved = _resolve_relative_import(importing_parts, node.level, node.module)
+                imported.append((resolved, node.lineno))
+                for alias in node.names:
+                    imported.append((f"{resolved}.{alias.name}", node.lineno))
+    return imported
+
+
 # Sequence containers whose element carries the input-cap obligation: a
 # ``list[str]`` / ``tuple[str, ...]`` field is as unbounded as a bare ``str``, so a
 # ``max_length`` (which bounds the collection's size) is still required. ``dict`` is
