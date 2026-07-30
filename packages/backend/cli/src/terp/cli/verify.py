@@ -255,9 +255,86 @@ def _reports_in(stdout: str) -> list[dict]:
     ]
 
 
+def _node_platform() -> tuple[str, str]:
+    """This machine as npm names it — ``process.platform`` / ``process.arch``."""
+    import platform as _platform
+
+    system = {"win32": "win32", "darwin": "darwin"}.get(sys.platform, "linux")
+    machine = _platform.machine().lower()
+    arch = {
+        "amd64": "x64",
+        "x86_64": "x64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+    }.get(machine, machine)
+    return system, arch
+
+
+def _node_modules_problem(root: pathlib.Path) -> str | None:
+    """Explain an unusable ``frontend/node_modules``, or None if it looks fine.
+
+    An npm install is platform-specific: the native binaries a bundler needs are
+    optional dependencies gated on ``os``/``cpu``, so a tree installed on the
+    Windows host has no Linux binary, and running the gate in the container dies
+    with a raw Node stack (``Cannot find module '@rolldown/binding-linux-x64-gnu'``)
+    that names neither the cause nor the fix. Every Terp failure states the fix, so
+    this is detected up front rather than left to the reader to decode.
+
+    The lockfile already records which optional packages belong on which platform,
+    so the check is exact and needs no list of native package names to maintain.
+    """
+    frontend = root / "frontend"
+    if not (frontend / "package.json").is_file():
+        return None
+    modules = frontend / "node_modules"
+    if not modules.is_dir():
+        return (
+            "frontend/node_modules is missing — the frontend checks cannot run.\n"
+            "  Fix: npm --prefix frontend ci"
+        )
+
+    lockfile = frontend / "package-lock.json"
+    if not lockfile.is_file():
+        return None
+    try:
+        packages = json.loads(lockfile.read_text(encoding="utf-8")).get("packages", {})
+    except (OSError, ValueError):
+        return None
+
+    system, arch = _node_platform()
+    missing = [
+        name
+        for name, entry in packages.items()
+        if name.startswith("node_modules/")
+        and isinstance(entry, dict)
+        # Only packages this platform is *supposed* to have: an entry with no os/cpu
+        # constraint is platform-neutral, and one constrained elsewhere is absent by
+        # design rather than by a bad install.
+        and system in (entry.get("os") or [system])
+        and arch in (entry.get("cpu") or [arch])
+        and (entry.get("os") or entry.get("cpu"))
+        and not (frontend / name).exists()
+    ]
+    if not missing:
+        return None
+    return (
+        f"frontend/node_modules was installed for a different platform: "
+        f"{len(missing)} package(s) this machine ({system}/{arch}) needs are absent, "
+        f"e.g. {missing[0].removeprefix('node_modules/')}.\n"
+        "  This happens when the tree is installed on the host and the gate runs in "
+        "a container (or vice versa); native binaries are per-platform optional "
+        "dependencies and do not travel.\n"
+        "  Fix: npm --prefix frontend ci   (run it where the gate runs)"
+    )
+
+
 def _run_subprocess(check: VerifyCheck, root: pathlib.Path) -> tuple[int, str]:
     """Run one manifest command (shell-less; ``&&`` composites never land here)."""
     argv = shlex.split(check.command)
+    if argv and argv[0] == "npm":
+        problem = _node_modules_problem(root)
+        if problem is not None:
+            return 1, problem
     executable = shutil.which(argv[0]) or argv[0]
     try:
         completed = subprocess.run(  # noqa: S603 - fixed manifest argv, shell=False
