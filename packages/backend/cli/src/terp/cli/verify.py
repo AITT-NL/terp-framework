@@ -270,6 +270,19 @@ def _node_platform() -> tuple[str, str]:
     return system, arch
 
 
+def _node_libc(system: str) -> str | None:
+    """This machine's libc flavour as npm names it, or None where npm ignores it.
+
+    npm gates Linux binaries on ``libc`` as well as ``os``/``cpu``: a x64 Linux
+    bundler ships a ``-gnu`` *and* a ``-musl`` binding and installs exactly one.
+    Reading only ``os``/``cpu`` therefore reports the flavour this machine is not,
+    turning a perfectly healthy tree red.
+    """
+    if system != "linux":
+        return None
+    return "musl" if any(pathlib.Path("/lib").glob("ld-musl-*.so.1")) else "glibc"
+
+
 def _node_modules_problem(root: pathlib.Path) -> str | None:
     """Explain an unusable ``frontend/node_modules``, or None if it looks fine.
 
@@ -302,17 +315,19 @@ def _node_modules_problem(root: pathlib.Path) -> str | None:
         return None
 
     system, arch = _node_platform()
+    libc = _node_libc(system)
     missing = [
         name
         for name, entry in packages.items()
         if name.startswith("node_modules/")
         and isinstance(entry, dict)
-        # Only packages this platform is *supposed* to have: an entry with no os/cpu
-        # constraint is platform-neutral, and one constrained elsewhere is absent by
-        # design rather than by a bad install.
+        # Only packages this platform is *supposed* to have: an entry with no
+        # os/cpu/libc constraint is platform-neutral, and one constrained elsewhere
+        # is absent by design rather than by a bad install.
         and system in (entry.get("os") or [system])
         and arch in (entry.get("cpu") or [arch])
-        and (entry.get("os") or entry.get("cpu"))
+        and (libc is None or libc in (entry.get("libc") or [libc]))
+        and (entry.get("os") or entry.get("cpu") or entry.get("libc"))
         and not (frontend / name).exists()
     ]
     if not missing:
