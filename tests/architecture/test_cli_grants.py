@@ -288,6 +288,64 @@ def test_a_grant_at_or_above_the_minimum_role_does_not_warn(
     assert "WARNING" not in out
 
 
+def test_an_app_without_a_control_plane_says_which_app_to_pass(
+    tmp_path: pathlib.Path,
+) -> None:
+    # The catalog is read off the composed app, so pointing the command at something
+    # that is merely a FastAPI app cannot be answered — and the answer has to name the
+    # fix, because "no control plane" means nothing to someone who mistyped --app.
+    (tmp_path / "bare_app.py").write_text(
+        "from fastapi import FastAPI\n\n\ndef build():\n    return FastAPI()\n",
+        encoding="utf-8",
+    )
+    if str(tmp_path) not in sys.path:
+        sys.path.insert(0, str(tmp_path))
+    sys.modules.pop("bare_app", None)
+
+    with pytest.raises(SystemExit, match="exposes no control plane"):
+        _run("bare_app", tmp_path, "grant", "add", "ops@acme.test", "invoices.export")
+
+
+def test_a_refused_write_names_the_subject_it_was_for(
+    app_module: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The store can refuse a write the CLI cannot foresee. The command must surface it
+    # as a plain failure naming both permission and subject, not an unhandled traceback.
+    from terp.capabilities.access import AccessService
+    from terp.core import AppError
+
+    account = _make_service_account(tmp_path, app_module, "nightly-sync")
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise AppError("the access store is read-only")
+
+    monkeypatch.setattr(AccessService, "grant", _refuse)
+
+    with pytest.raises(SystemExit, match="could not grant 'invoices.export'") as exc:
+        _run(app_module, tmp_path, "grant", "add", account, "invoices.export")
+    assert "nightly-sync" in str(exc.value)
+    assert "read-only" in str(exc.value)
+
+
+def test_a_refused_provisioning_reaches_the_operator_as_a_plain_failure(
+    app_module: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Provisioning writes through the audited service, which can refuse for reasons the
+    # CLI cannot foresee. The operator gets the account name and the reason, not a
+    # traceback out of a command that also prints a one-time secret.
+    from terp.capabilities.identity import ServiceAccountService
+    from terp.core import AppError
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise AppError("the identity store is read-only")
+
+    monkeypatch.setattr(ServiceAccountService, "provision", _refuse)
+
+    with pytest.raises(SystemExit, match="could not create service account") as exc:
+        _make_service_account(tmp_path, app_module, "nightly-sync")
+    assert "read-only" in str(exc.value)
+
+
 def test_role_rank_is_untouched_by_a_grant(
     app_module: str, tmp_path: pathlib.Path
 ) -> None:

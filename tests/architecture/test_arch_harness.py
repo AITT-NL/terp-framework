@@ -170,6 +170,15 @@ def test_no_cross_module_imports_allows_a_declared_edge(tmp_path: pathlib.Path) 
     )
     assert _rule_names(check_no_cross_module_imports(app)) == {"no_cross_module_imports"}
 
+    # Nor does a sequence whose elements are not all string literals: a reader that
+    # cannot say WHICH siblings are declared must grant none of them.
+    _write(
+        app,
+        "modules/a/module.py",
+        "module = ModuleSpec(name=\"a\", requires=(\"b\", SOME_NAME))\n",
+    )
+    assert _rule_names(check_no_cross_module_imports(app)) == {"no_cross_module_imports"}
+
 
 def test_cross_module_imports_use_public_surface(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
@@ -3052,6 +3061,21 @@ def test_table_ownership_is_not_split(tmp_path: pathlib.Path) -> None:
         app,
         "modules/notes/migrations/versions/0001_create.py",
         "def downgrade():\n    op.create_table('notes_note')\n",
+    )
+    assert check_table_ownership_is_not_split(app) == []
+
+    # Neither a model nor a history that sits outside a module/capability package has
+    # an owning package, so neither can claim a table. The rule is about which of two
+    # packages owns a table; code that belongs to no package is not one of the two.
+    _write(
+        app,
+        "models.py",
+        "class Loose(BaseTable, table=True):\n    __tablename__ = 'loose_thing'\n",
+    )
+    _write(
+        app,
+        "migrations/versions/0001_create.py",
+        "def upgrade():\n    op.create_table('loose_thing')\n",
     )
     assert check_table_ownership_is_not_split(app) == []
 

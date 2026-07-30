@@ -52,6 +52,10 @@ class _ItemService(BaseService[_Item, _ItemCreate, _ItemUpdate]):
 
     filterable = (
         FilterField("status", _Item.status),
+        FilterField("not_status", _Item.status, op="ne"),
+        FilterField("below_rank", _Item.rank, op="lt"),
+        FilterField("max_rank", _Item.rank, op="lte"),
+        FilterField("above_rank", _Item.rank, op="gt"),
         FilterField("min_rank", _Item.rank, op="gte"),
         FilterField("q", _Item.name, op="contains"),
         FilterField("status_in", _Item.status, op="in"),
@@ -113,6 +117,32 @@ def test_comparison_operators(session: Session, service: _ItemService) -> None:
         session, skip=0, limit=100, filters={"status_in": ["open", "closed"]}
     )
     assert total == 3
+
+
+def test_every_declared_comparison_narrows_the_way_it_reads(
+    session: Session, service: _ItemService
+) -> None:
+    # Rows are alpha (open, 3), beta (closed, 1) and "gamma 50%" (open, 2). Each op is
+    # pinned here because the service picks it and the caller cannot: a comparison that
+    # quietly behaved like another one would widen a read nobody reviewed.
+    def _total(**filters: object) -> int:
+        return service.list(session, skip=0, limit=100, filters=filters)[1]
+
+    assert _total(not_status="open") == 1
+    assert _total(below_rank=2) == 1
+    assert _total(max_rank=2) == 2
+    assert _total(above_rank=2) == 1
+
+
+def test_a_value_of_the_wrong_shape_is_refused_rather_than_coerced(
+    session: Session, service: _ItemService
+) -> None:
+    # "in" over a bare string would iterate its characters and "contains" over a number
+    # would stringify it — both silently answer a question nobody asked.
+    with pytest.raises(ValidationFailedError, match="list of values"):
+        service.list(session, skip=0, limit=100, filters={"status_in": "open"})
+    with pytest.raises(ValidationFailedError, match="expects text"):
+        service.list(session, skip=0, limit=100, filters={"q": 50})
 
 
 def test_contains_matches_wildcards_literally(

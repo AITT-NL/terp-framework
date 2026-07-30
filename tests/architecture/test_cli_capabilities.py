@@ -97,6 +97,26 @@ def test_text_output_separates_installed_from_adoptable_and_states_the_fix(
         assert capability.wiring in adoptable
 
 
+def test_an_uninstalled_distribution_reads_as_adoptable_not_as_an_error(
+    monkeypatch,
+) -> None:
+    # "Installed?" is answered by asking this environment, and the honest answer for a
+    # distribution that is not here is "no" — never a PackageNotFoundError escaping into
+    # a report whose whole job is to tell an app what it could adopt next.
+    from terp.cli.capabilities import _is_installed
+
+    installed = CAPABILITIES[0]
+    assert _is_installed(installed) is True
+
+    missing = installed.__class__(
+        name="does-not-exist",
+        summary="a capability this environment has never heard of",
+        kind="library",
+        wiring="n/a",
+    )
+    assert _is_installed(missing) is False
+
+
 def test_json_output_is_machine_readable() -> None:
     payload = json.loads(render_capabilities(fmt="json"))
     entries = payload["capabilities"]

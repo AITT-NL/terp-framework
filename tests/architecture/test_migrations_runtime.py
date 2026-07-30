@@ -1135,6 +1135,23 @@ def test_split_ownership_honours_the_governed_marker(
     ghost = MigrationTree("ghost", "terp.capabilities.zzz_missing", tmp_path / "g")
     assert _runtime._waives_split_ownership(ghost) is False
 
+    # A marker nobody can read is not a marker. A models module that resolves to no
+    # file at all (a namespace package), or to a file that has since gone, waives
+    # nothing - the opt-out has to be greppable to be governed.
+    class _Spec:
+        def __init__(self, origin: str | None) -> None:
+            self.origin = origin
+
+    with monkeypatch.context() as unreadable:
+        unreadable.setattr(_runtime.importlib.util, "find_spec", lambda name: _Spec(None))
+        assert _runtime._waives_split_ownership(owner) is False
+        unreadable.setattr(
+            _runtime.importlib.util,
+            "find_spec",
+            lambda name: _Spec(str(tmp_path / "vanished.py")),
+        )
+        assert _runtime._waives_split_ownership(owner) is False
+
     monkeypatch.setattr(
         _runtime, "resolve_all_migration_trees", lambda *a, **k: [owner, creator]
     )

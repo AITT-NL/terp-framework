@@ -80,18 +80,20 @@ def _literal_str_sequence(node: ast.expr) -> frozenset[str] | None:
 def _declared_requires(app_root: pathlib.Path, name: str) -> frozenset[str]:
     """The sibling names *name* declares in its ``ModuleSpec(requires=...)``.
 
-    Fails closed: a missing manifest, an unparseable one, a manifest with no
-    ``requires=``, or a ``requires=`` that is not a literal sequence of string
-    literals all declare **nothing** — so every sibling import stays refused
-    rather than being waved through by a declaration nobody can read.
+    Fails closed: a missing manifest, a manifest with no ``requires=``, or a
+    ``requires=`` that is not a literal sequence of string literals all declare
+    **nothing** — so every sibling import stays refused rather than being waved
+    through by a declaration nobody can read.
+
+    A manifest that does not *parse* is not handled here and does not need to be:
+    it is an ordinary Python file, so the rule's own source scan has already
+    raised on it. An unreadable-to-Python app fails the gate loudly, which is the
+    fail-closed answer, rather than quietly becoming a module with no edges.
     """
     path = _module_manifest_path(app_root, name)
     if not path.exists():
         return frozenset()
-    try:
-        tree = parse(path)
-    except SyntaxError:
-        return frozenset()
+    tree = parse(path)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue

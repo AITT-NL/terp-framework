@@ -124,6 +124,19 @@ def test_render_text_lists_declared_permissions() -> None:
     assert "billing.read  viewer+" in rendered
 
 
+def test_render_text_shows_a_modules_declared_dependencies() -> None:
+    # A declared sibling edge is authority-relevant (ADR 0087): it says this module's
+    # code may reach into another's domain, so the authority map has to show it.
+    from terp.cli import _render_text  # type: ignore[attr-defined]
+    from terp.core import ControlPlane, ModuleSpec
+
+    rendered = _render_text(
+        ControlPlane.default(),
+        [ModuleSpec(name="servicedesk", requires=("tickets", "audit"))],
+    )
+    assert "requires: audit, tickets" in rendered
+
+
 def test_render_mermaid_single_role_and_public_module() -> None:
     from terp.cli import _render_mermaid  # type: ignore[attr-defined]
     from terp.core import ControlPlane, ModuleSpec, PermissionModel, Policy, Role

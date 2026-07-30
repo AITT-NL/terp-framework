@@ -118,11 +118,9 @@ def _rank_shortfall(
     group has none, and for those the question belongs to whatever the id resolves to.
     """
     plane = app.state.terp_control_plane
-    declared = next(
-        (p for p in plane.permissions.permissions if p.name == permission), None
-    )
-    if declared is None:
-        return None
+    # The caller resolved *permission* against this same catalog, so the lookup cannot
+    # miss — an undeclared permission never reaches this point.
+    declared = next(p for p in plane.permissions.permissions if p.name == permission)
 
     rank: int | None = None
     if "@" in subject:

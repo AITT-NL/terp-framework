@@ -237,6 +237,91 @@ def _authenticate(session, email, password):  # pragma: no cover - never called
     return None
 
 
+def test_a_subject_of_no_known_kind_authorizes_nothing(session: Session) -> None:
+    # decode_access_token already refuses an unknown `kind`, so this branch is the
+    # second layer: whatever else ever hands the validator a claims object, a subject
+    # that is neither a user nor a machine is answered "no" rather than being tried
+    # against a store that might happen to hold that id.
+    class _Claims:
+        kind = None
+        subject = uuid.uuid4()
+        token_version = 0
+
+    identity = IdentityService(service_accounts=ServiceAccountService())
+    assert not identity.token_is_current(session, _Claims())
+
+
+def test_minting_for_an_account_that_is_gone_fails_rather_than_guessing_an_epoch(
+    session: Session,
+) -> None:
+    # Falling back to epoch 0 would mint a token that outlives the revocation it was
+    # supposed to respect, so absence is a loud failure, not a default.
+    service = ServiceAccountService()
+    account, secret = _provision(service, session)
+    principal = service.authenticate_client(session, account.client_id, secret)
+    assert principal is not None
+
+    session.delete(account)
+    session.flush()
+
+    with pytest.raises(AuthenticationError):
+        service.token_version_for(session, principal)
+
+
+def test_revoking_an_account_that_does_not_exist_reports_that_it_did_nothing(
+    session: Session,
+) -> None:
+    assert ServiceAccountService().revoke(session, uuid.uuid4()) is False
+
+
+def test_the_token_route_mints_for_a_real_credential_and_refuses_a_bad_one() -> None:
+    # The grant end to end: the route is the surface an integration actually calls, so
+    # it is pinned here rather than only at the service beneath it.
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy.pool import StaticPool
+
+    from terp.core.db import get_session
+
+    # The test client serves on its own thread, so the connection has to be shareable.
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    session = Session(engine)
+
+    service = ServiceAccountService()
+    account, secret = _provision(service, session)
+
+    app = FastAPI()
+    app.include_router(
+        build_login_router(
+            _authenticate,
+            authenticate_client=service.authenticate_client,
+            service_token_version_resolver=service.token_version_for,
+        )
+    )
+    app.dependency_overrides[get_session] = lambda: session
+    client = TestClient(app)
+
+    ok = client.post(
+        "/token", json={"client_id": account.client_id, "client_secret": secret}
+    )
+    assert ok.status_code == 200
+    claims = decode_access_token(ok.json()["access_token"])
+    assert claims.kind is SubjectKind.SERVICE
+    assert claims.subject == account.id
+
+    # This app is a bare router host without the platform's error handlers, so the
+    # typed refusal arrives as the exception itself rather than as its envelope.
+    with pytest.raises(AuthenticationError):
+        client.post(
+            "/token", json={"client_id": account.client_id, "client_secret": "wrong"}
+        )
+
+
 def test_the_token_route_is_mounted_only_when_the_seams_are_wired() -> None:
     bare = build_login_router(_authenticate)
     assert "/token" not in {route.path for route in bare.routes}

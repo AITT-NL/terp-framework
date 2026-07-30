@@ -228,6 +228,22 @@ def test_create_app_boots_when_requires_are_satisfied() -> None:
     assert app.title == "Terp app"
 
 
+def test_create_app_refuses_a_cycle_of_declared_dependencies() -> None:
+    # A cycle means neither module can be read, tested or removed without the other,
+    # so the app refuses to boot and the message names the two ways out. The cycle is
+    # found through an unrelated module, because the shape a real app grows into is a
+    # chain that loops back, not two modules pointing at each other.
+    specs = [
+        ModuleSpec(name="alerts", policy=Policy.default(), requires=("billing",)),
+        ModuleSpec(name="billing", policy=Policy.default(), requires=("invoices",)),
+        ModuleSpec(name="invoices", policy=Policy.default(), requires=("billing",)),
+    ]
+    with pytest.raises(BootError, match="cycle") as exc:
+        create_app(specs)
+    assert "billing -> invoices -> billing" in str(exc.value)
+    assert "terp guide dependencies" in str(exc.value)
+
+
 def test_create_app_rejects_duplicate_spec_names() -> None:
     with pytest.raises(BootError, match="declared more than once"):
         create_app(
