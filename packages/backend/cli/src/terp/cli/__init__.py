@@ -187,6 +187,56 @@ Authorization (Policy)
   min_role floor AND hold the grant.
 - Route-level extra check: dependencies=[Depends(require_permission("invoices.approve"))].
 - Authority is always a typed object (Role / Permission), never a bare string.
+- Choosing between a role and a permission, and the grant lifecycle: `terp guide permissions`.
+""",
+    "permissions": """\
+Permissions — when to add one, and how it reaches a subject
+
+WHEN A PERMISSION IS THE RIGHT ANSWER
+- The role ladder answers "how much of this app may you touch?" - VIEWER < EDITOR
+  < ADMIN, coarse and comparable. A permission answers "may you do this ONE thing?"
+  and is not comparable to anything.
+- Add a permission when the authority is NARROWER than a role and does not belong
+  on the ladder: an integration that may export invoices but must not edit them; a
+  finance user who may approve but is not an app admin.
+- Do NOT add a permission for something every EDITOR should be able to do - that is
+  the role, and a permission held by everyone is a checkbox nobody reads.
+- Do NOT model a role as three permissions. The ladder exists so authority stays
+  comparable; a bag of permissions cannot answer "is this account privileged?".
+
+DECLARE IT
+      from terp.core import EDITOR, Permission
+      APPROVE = Permission("invoices.approve", min_role=EDITOR)
+  min_role is a FLOOR, not a shortcut: the caller must clear it AND hold the grant.
+  Both checks are real - the floor stops a grant from smuggling authority to a
+  subject the app never intended to trust that far.
+- Enforce it on the module (Policy(write=APPROVE)) or on one route
+  (dependencies=[Depends(require_permission("invoices.approve"))]).
+- Wire the enforcer once, or the app refuses to boot (fail closed - a Permission
+  requirement with nothing to enforce it would silently pass):
+      create_app(..., permission_enforcer=terp.capabilities.access.enforce_permission)
+
+GRANT IT
+      terp grant add ops@acme.test invoices.approve
+      terp grant add nightly-sync invoices.export     # a service account, by name
+      terp grant list ops@acme.test                   # "why can it do that?"
+      terp grant revoke ops@acme.test invoices.approve
+  A subject is named the way you name it - a user email, a service-account name, or
+  a subject UUID. An unknown permission is refused WITH the app's catalog printed,
+  because a grant of a string the app never checks is a silent no-op, not a lenient
+  grant. Grants are stored per subject id with no foreign key, which is what lets a
+  user, a service account and a group all be granted the same way; a group grant
+  reaches every member (`terp guide access`).
+- Mind the floor: granting a permission to a subject BELOW its min_role stores a row
+  that the rank check will shadow. `terp grant add` warns when it sees this.
+- See the whole declared catalog and every module's policy:
+      terp inspect control-plane --app app.main:build
+
+THE FAILURE MODE THIS EXISTS TO PREVENT
+  An integration needs one narrow capability, granting looks like work, so someone
+  makes it an admin "for now". Least privilege loses to a ten-second workaround. If
+  you catch yourself widening a role to unblock one call, that call wants a
+  permission - and the grant is one command (ADR 0089).
 """,
     "access": """\
 The access model (three layers) — profiles + the access graph
@@ -219,6 +269,8 @@ The access model (three layers) — profiles + the access graph
   write authority, and warnings (e.g. OwnedMixin gates writes only). `--format json`
   is the stable Studio contract; declare services=(InvoiceService,) on the ModuleSpec
   so the data layer is visualizable — an undeclared data layer is a warning.
+- Narrowing authority below a role, and getting a permission to a subject:
+  `terp guide permissions` (declare it, enforce it, `terp grant add`).
 """,
     "ownership": """\
 Object-level (per-row) authorization (OwnedMixin)
