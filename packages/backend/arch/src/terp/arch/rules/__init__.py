@@ -1,4 +1,4 @@
-"""The Terp secure-by-default fitness rules (design §5.10), shipped as a dependency.
+"""The Terp secure-by-default fitness rules (design Â§5.10), shipped as a dependency.
 
 Each rule is a pure function that scans a client app's source tree and returns a
 list of :class:`ArchViolation`. They are the **build-time layer** of Terp's
@@ -82,6 +82,7 @@ from terp.arch.rules.imports import (
 from terp.arch.rules.migrations import (
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
+    check_table_ownership_is_not_split,
     check_no_destructive_migrations,
 )
 from terp.arch.rules.jobs import check_jobs_reference_catalog
@@ -182,6 +183,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_destructive_migrations": "migrations",
     "alembic_downgrades_not_empty": "migrations",
     "migration_history_is_intact": "migrations",
+    "table_ownership_is_not_split": "migrations",
     "no_unique_columns_on_soft_delete_models": "module",
     "canonical_module_shape": "module",
     "session_imported_from_sqlmodel": "service",
@@ -199,7 +201,7 @@ def guide_topic_for(rule: str) -> str:
     """The ``terp guide`` topic teaching the fix for *rule* (``rules`` if unmapped).
 
     The unmapped fallback is deliberate: a violation renderer must never crash on a
-    rule the mapping missed — the completeness meta-test catches the gap at build
+    rule the mapping missed â€” the completeness meta-test catches the gap at build
     time, and ``rules`` (the generated every-rule topic) is always a safe pointer.
     """
     return GUIDE_TOPIC_BY_RULE.get(rule, "rules")
@@ -259,6 +261,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_destructive_migrations,
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
+    check_table_ownership_is_not_split,
     check_no_unique_columns_on_soft_delete_models,
     check_canonical_module_shape,
     check_session_imported_from_sqlmodel,
@@ -281,7 +284,7 @@ def check_app(
     A justified ``# arch-allow-<rule>: <reason>`` comment on a violation's line
     suppresses it (an unjustified one is reported, never silently honoured). Pass
     *budget_path* to also enforce the escape-hatch budget ratchet over those
-    markers (design §8).
+    markers (design Â§8).
     """
     root = pathlib.Path(app_root)
     if not root.is_dir():
@@ -304,14 +307,14 @@ def assert_app_clean(
     """Raise ``AssertionError`` listing every architecture violation in *app_root*.
 
     Governed opt-out: if the app uses any ``# arch-allow-*`` marker but no
-    *budget_path* is supplied, this fails closed — an opt-out must be governed by a
+    *budget_path* is supplied, this fails closed â€” an opt-out must be governed by a
     checked-in escape-hatch budget, never used silently.
     """
     root = pathlib.Path(app_root)
     if budget_path is None and _scan_allow_markers(root):
         raise AssertionError(
             "terp.arch found '# arch-allow-*' opt-out marker(s) but no budget_path was "
-            "supplied; govern opt-outs with a checked-in escape-hatch budget — call "
+            "supplied; govern opt-outs with a checked-in escape-hatch budget â€” call "
             "assert_app_clean(app, budget_path='escape-hatch-budget.json')"
         )
     violations = check_app(root, package=package, budget_path=budget_path)
@@ -360,6 +363,7 @@ __all__ = [
     "assert_app_clean",
     "check_alembic_downgrades_not_empty",
     "check_migration_history_is_intact",
+    "check_table_ownership_is_not_split",
     "check_app",
     "check_canonical_module_shape",
     "check_escape_hatch_budget",
@@ -419,3 +423,4 @@ __all__ = [
     "guide_topic_for",
     "ungoverned_marker_violations",
 ]
+

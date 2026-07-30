@@ -586,6 +586,29 @@ Database migrations (terp migrate)
 - Destructive DDL (drop table/column or alter-column type changes) is refused by
   `terp check` unless the operation carries `# arch-allow-no-destructive-migrations:
   <reason>` on (or immediately above) its line, budgeted by the escape-hatch ratchet.
+- MOVING A MODEL TO ANOTHER MODULE is the one edit that looks free and is not. Just
+  moving the class emits NO ddl at all - the losing package stops owning the table so
+  its scoped autogenerate cannot propose a drop, and the gaining package diffs against
+  a database where the table already exists so it proposes no create. Your database
+  keeps upgrading; CI and staging stay green. Then the NEXT ordinary change to that
+  model (an added column) is authored into the gaining package's INDEPENDENT history,
+  which - with no foreign key between the two packages - a fresh install may run
+  BEFORE the history that creates the table: "no such table", months later, in a new
+  environment, blamed on an innocent add_column. Terp refuses the split at `terp
+  migrate make` and in the build-time guard. Move a table properly, expand/contract:
+      1. Give the new module its own model with its own __tablename__;
+         `terp migrate make <new>` creates it.
+      2. Copy the rows in that same release (a data migration, or a backfill job),
+         and write to both tables while the old one still has readers.
+      3. In a LATER release, once nothing reads the old table, drop it - with
+         `# arch-allow-no-destructive-migrations: <reason>` and a human reviewer.
+  Step 3 stays human-reviewed on purpose: dropping a populated table is a genuine,
+  irreversible risk, and the one place where a second pair of eyes is worth the
+  friction. If the model is simply in the wrong module and holds no data you care
+  about, the cheap fix is to move the class BACK and rename the module instead.
+  Already shipped the move and planning the expand/contract for a later release? The
+  owning package's models.py may carry `# arch-allow-table-ownership-is-not-split:
+  <reason>`, counted by the escape-hatch budget like any other opt-out.
 - Adopt Terp on an EXISTING database (built by create_all or by hand) without dropping
   data - baseline each history at head, then only genuinely new migrations apply:
       terp migrate stamp                   # records head, runs no DDL

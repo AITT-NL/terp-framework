@@ -16,7 +16,11 @@ layer-0 boundary.
 
 from __future__ import annotations
 
-from terp.migrations._runtime import unmapped_tables, unowned_tables
+from terp.migrations._runtime import (
+    misowned_tables,
+    unmapped_tables,
+    unowned_tables,
+)
 from terp.migrations.cli import migrate_main
 from terp.migrations.errors import (
     MigrationDriftError,
@@ -67,6 +71,7 @@ __all__ = [
     "merge_heads",
     "migrate_main",
     "migration_status",
+    "misowned_tables",
     "orphaned_revisions",
     "stamp",
     "unmapped_tables",

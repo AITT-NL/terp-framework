@@ -1032,3 +1032,113 @@ def test_upgrade_routes_the_database_before_migrating_per_module(
     assert applied  # the installed capabilities' labels
     assert order[:2] == ["route", "preflight"]
     assert order.count("migrate") == len(applied)
+
+
+# --------------------------------------------------------------------------- #
+# split table ownership (a model moved between packages)
+# --------------------------------------------------------------------------- #
+def _tree_creating(
+    tmp_path: pathlib.Path, label: str, import_path: str, table: str | None
+) -> MigrationTree:
+    """A tree whose history creates *table* (or ships no revision at all)."""
+    tree = MigrationTree(label, import_path, tmp_path / label / "migrations")
+    versions = tree.path / "versions"
+    versions.mkdir(parents=True)
+    if table is not None:
+        versions.joinpath("rev.py").write_text(
+            '"""rev"""\n'
+            "from alembic import op\n"
+            "revision = 'rev_" + label + "'\n"
+            "down_revision = None\n"
+            "def upgrade() -> None:\n"
+            "    op.create_table(" + repr(table) + ")\n"
+            "def downgrade() -> None:\n"
+            "    op.drop_table(" + repr(table) + ")\n",
+            encoding="utf-8",
+        )
+    return tree
+
+
+def test_tables_created_by_reads_only_upgrade_literals(tmp_path: pathlib.Path) -> None:
+    tree = _tree_creating(tmp_path, "audit", "terp.capabilities.audit", "audit_event")
+    assert _runtime._tables_created_by(tree) == frozenset({"audit_event"})
+    # A drop in downgrade is not a create, and a tree with no versions/ is silent.
+    empty = MigrationTree("x", "terp.capabilities.audit", tmp_path / "nowhere")
+    assert _runtime._tables_created_by(empty) == frozenset()
+    # An unparsable revision is skipped rather than crashing the guard.
+    (tree.path / "versions" / "broken.py").write_text("def (", encoding="utf-8")
+    assert _runtime._tables_created_by(tree) == frozenset({"audit_event"})
+
+
+def test_misowned_tables_reports_only_a_genuine_split(tmp_path: pathlib.Path) -> None:
+    # audit_event is owned by the audit package but created by identity's history:
+    # exactly the state a moved model leaves behind.
+    owner = _tree_creating(tmp_path, "audit", "terp.capabilities.audit", None)
+    creator = _tree_creating(
+        tmp_path, "identity", "terp.capabilities.identity", "audit_event"
+    )
+    assert _runtime.misowned_tables([owner, creator]) == {
+        "audit_event": ("audit", "identity")
+    }
+    # Owned-and-created by the same package is fine, and owned-but-not-yet-created
+    # is the normal state right before `terp migrate make` authors the revision.
+    aligned = _tree_creating(tmp_path, "aud2", "terp.capabilities.audit", "audit_event")
+    assert _runtime.misowned_tables([aligned]) == {}
+    assert _runtime.misowned_tables([owner]) == {}
+
+
+def test_split_ownership_guard_refuses_the_moved_model(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The regression for the silent, fresh-install-only failure: after a model moves,
+    # autogenerate emits NO ddl at all, so the next ordinary schema change is authored
+    # into a history a fresh install may run before the create. The guard refuses at
+    # authoring time and in the build-time drift check, and names both remedies.
+    owner = _tree_creating(tmp_path, "audit", "terp.capabilities.audit", None)
+    creator = _tree_creating(
+        tmp_path, "identity", "terp.capabilities.identity", "audit_event"
+    )
+    monkeypatch.setattr(
+        _runtime, "resolve_all_migration_trees", lambda *a, **k: [owner, creator]
+    )
+    monkeypatch.setattr(orchestrate, "resolve_migration_target", lambda *a, **k: owner)
+
+    with pytest.raises(MigrationError, match="split table ownership") as excinfo:
+        make("audit", "add a column", f"sqlite:///{tmp_path / 'm.db'}")
+    message = str(excinfo.value)
+    assert "'audit_event' is owned by 'audit' but created by 'identity'" in message
+    assert "move the model back" in message  # remedy 1
+    assert "copy the rows in a migration" in message  # remedy 2 (expand/contract)
+    assert "terp guide migrations" in message
+    assert "arch-allow-table-ownership-is-not-split" in message  # the governed hatch
+
+    # The build-time guard refuses the same way, before it looks for drift.
+    with pytest.raises(MigrationError, match="split table ownership"):
+        guard.assert_migrations_match_models(f"sqlite:///{tmp_path / 'g.db'}")
+
+    # Realigning ownership clears the refusal (no raise from the guard's own check).
+    monkeypatch.setattr(_runtime, "resolve_all_migration_trees", lambda *a, **k: [owner])
+    _runtime.assert_no_split_table_ownership(None, "app")
+
+
+def test_split_ownership_honours_the_governed_marker(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The opt-out for a move that has already shipped: a reasoned marker in the OWNING
+    # package's models module. A package without one, or with an unresolvable models
+    # module, waives nothing.
+    owner = _tree_creating(tmp_path, "audit", "terp.capabilities.audit", None)
+    creator = _tree_creating(
+        tmp_path, "identity", "terp.capabilities.identity", "audit_event"
+    )
+    assert _runtime._waives_split_ownership(owner) is False
+    ghost = MigrationTree("ghost", "terp.capabilities.zzz_missing", tmp_path / "g")
+    assert _runtime._waives_split_ownership(ghost) is False
+
+    monkeypatch.setattr(
+        _runtime, "resolve_all_migration_trees", lambda *a, **k: [owner, creator]
+    )
+    monkeypatch.setattr(
+        _runtime, "_waives_split_ownership", lambda tree: tree.label == "audit"
+    )
+    _runtime.assert_no_split_table_ownership(None, "app")  # waived, no raise

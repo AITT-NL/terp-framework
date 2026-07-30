@@ -37,6 +37,7 @@ from terp.migrations._config import alembic_config_for
 from terp.migrations._runtime import (
     _import_model_module,
     assert_no_homeless_tables,
+    assert_no_split_table_ownership,
     order_trees_by_dependencies,
     owned_table_names,
 )
@@ -428,6 +429,7 @@ def make(
     if autogenerate:
         resolved_root = str(app_root) if app_root is not None else None
         assert_no_homeless_tables(tree, resolved_root, package)
+        assert_no_split_table_ownership(resolved_root, package)
     versions = tree.versions_path
     created = [path for path in (versions.parent, versions) if not path.exists()]
     versions.mkdir(parents=True, exist_ok=True)

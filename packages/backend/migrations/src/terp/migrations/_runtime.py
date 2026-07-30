@@ -13,7 +13,10 @@ proposes another package's tables.
 
 from __future__ import annotations
 
+import ast
 import importlib
+import importlib.util
+import pathlib
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -233,6 +236,138 @@ def assert_no_homeless_tables(
             f"them: {mapped_unowned}; move each model under a migration-owning package, "
             f"or give its package a terp.migrations entry point or a migrations/ directory"
         )
+
+
+_SPLIT_OWNERSHIP_MARKER = "arch-allow-table-ownership-is-not-split:"
+
+
+def _waives_split_ownership(tree: MigrationTree) -> bool:
+    """True if *tree*'s models module carries a reasoned split-ownership marker.
+
+    The governed opt-out for an app that has ALREADY shipped the move and is deferring
+    the expand/contract to a later release. It lives in the owning package's models
+    module (next to the model that moved), so it is greppable and counted by the
+    escape-hatch ratchet like any other marker.
+    """
+    try:
+        spec = importlib.util.find_spec(tree.models_module)
+    except (ImportError, ValueError):
+        return False
+    if spec is None or spec.origin is None:
+        return False
+    try:
+        source = pathlib.Path(spec.origin).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return _SPLIT_OWNERSHIP_MARKER in source
+
+
+def _tables_created_by(tree: MigrationTree) -> frozenset[str]:
+    """Table names *tree*'s own revisions create, from a static scan of ``upgrade()``.
+
+    Only literal ``create_table("name", ...)`` calls inside ``upgrade`` count — a create
+    in ``downgrade`` is reverting a drop, not owning a table. A table the history creates
+    under one name and later renames is deliberately NOT reported (the current name has
+    no literal create), which keeps the caller conservative: it only ever fires on an
+    exact, statically provable creator.
+    """
+    created: set[str] = set()
+    versions = tree.path / "versions"
+    if not versions.is_dir():
+        return frozenset()
+    for path in sorted(versions.glob("*.py")):
+        try:
+            module = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        for function in ast.walk(module):
+            if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if function.name != "upgrade":
+                continue
+            for node in ast.walk(function):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "create_table"
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                ):
+                    created.add(node.args[0].value)
+    return frozenset(created)
+
+
+def misowned_tables(trees: Iterable[MigrationTree]) -> dict[str, tuple[str, str]]:
+    """``{table: (owning_label, creating_label)}`` for every split ownership.
+
+    A table is *owned* by the package whose models declare it and *created* by the
+    package whose history holds its ``create_table``. Moving a model between packages
+    silently splits the two: no DDL is generated at all (the losing package stops owning
+    the table, so its scoped autogenerate cannot propose a drop; the gaining package
+    diffs against a database where the table already exists, so it proposes no create).
+    The database in front of you keeps upgrading cleanly — and then the NEXT schema
+    change to that model is authored into the gaining package's history, which is an
+    INDEPENDENT history ordered only by foreign-key dependencies. With no FK between the
+    two packages the order falls back to label sort, so a fresh install can run the
+    ``add_column`` before the ``create_table`` and fail with "no such table".
+
+    That failure reaches only fresh installs — a new environment, a new developer, a
+    restore — long after the commit that caused it, which is why this is a fail-closed
+    check rather than a documented caveat. Callers must import every package's models
+    first so ownership is complete.
+    """
+    trees = list(trees)
+    creator_of: dict[str, str] = {}
+    for tree in trees:
+        for table in _tables_created_by(tree):
+            creator_of.setdefault(table, tree.label)
+    split: dict[str, tuple[str, str]] = {}
+    for tree in trees:
+        for table in owned_table_names(tree.import_path):
+            creator = creator_of.get(table)
+            if creator is not None and creator != tree.label:
+                split[table] = (tree.label, creator)
+    return split
+
+
+def assert_no_split_table_ownership(app_root: str | None, package: str) -> None:
+    """Fail closed when a package's models own a table another package's history creates.
+
+    See :func:`misowned_tables` for why this is silent and why it only bites a fresh
+    install. Raised at authoring time (``terp migrate make``) and in the build-time
+    guard, so the split is caught at the commit that creates it.
+    """
+    trees = resolve_all_migration_trees(app_root, package=package)
+    for tree in trees:
+        if _tree_has_models(tree):
+            _import_model_module(tree.models_module, required=False)
+    label_of = {tree.label: tree for tree in trees}
+    split = {
+        table: pair
+        for table, pair in misowned_tables(trees).items()
+        if not _waives_split_ownership(label_of[pair[0]])
+    }
+    if not split:
+        return
+    detail = "; ".join(
+        f"{table!r} is owned by {owner!r} but created by {creator!r}"
+        for table, (owner, creator) in sorted(split.items())
+    )
+    raise MigrationError(
+        f"split table ownership: {detail}. Each package's history is independent and "
+        f"ordered only by foreign keys, so the next schema change to this model is "
+        f"authored into a history that a fresh install may run BEFORE the one that "
+        f"creates the table - your existing database keeps working while new "
+        f"installs break. Either move the model back to the package whose history "
+        f"creates the table, or move the table properly: give the new package its own "
+        f"table (a new __tablename__), copy the rows in a migration, and retire the old "
+        f"table in a later release. See `terp guide migrations`. If the move has already "
+        f"shipped and the expand/contract is planned for a later release, the owning "
+        f"package's models module may carry a reasoned "
+        f"`# {_SPLIT_OWNERSHIP_MARKER} <reason>` marker, counted by the escape-hatch "
+        f"budget."
+    )
 
 
 def _dependency_edges(

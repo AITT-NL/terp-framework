@@ -323,3 +323,118 @@ def check_alembic_downgrades_not_empty(
                     )
                 )
     return violations
+
+
+def _owning_package(path: pathlib.Path) -> pathlib.Path | None:
+    """The package directory that owns *path* — the nearest module/capability root.
+
+    Ownership follows the import path, not the presence of a history: a package that has
+    just gained a model has no ``migrations/`` directory yet, and that is exactly the
+    state a move leaves behind.
+    """
+    for parent in path.parents:
+        if parent.parent.name in {"modules", "capabilities"}:
+            return parent
+    return None
+
+
+def _declared_tablenames(root: pathlib.Path) -> Iterator[tuple[str, pathlib.Path, int]]:
+    """Yield ``(table, file, line)`` for each ``__tablename__`` literal under *root*.
+
+    Revision files are skipped (they mention table names, they do not declare models);
+    everything else counts, so a package that splits its models across a ``models/``
+    sub-package is read the same way as one with a single ``models.py``.
+    """
+    for path in sorted(root.rglob("*.py")):
+        if "migrations" in path.parts:
+            continue
+        try:
+            tree = parse(path)
+        except (OSError, SyntaxError):  # pragma: no cover - unreadable source
+            continue
+        for node in ast.walk(tree):
+            targets: list[ast.expr] = []
+            if isinstance(node, ast.Assign):
+                targets = list(node.targets)
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+            else:
+                continue
+            if not any(
+                isinstance(t, ast.Name) and t.id == "__tablename__" for t in targets
+            ):
+                continue
+            value = node.value
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                yield value.value, path, node.lineno
+
+
+def _created_tables(path: pathlib.Path) -> set[str]:
+    """Table names the revision at *path* creates inside ``upgrade()``."""
+    created: set[str] = set()
+    try:
+        tree = parse(path)
+    except (OSError, SyntaxError):  # pragma: no cover - unreadable source
+        return created
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        if function.name != "upgrade":
+            continue
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "create_table"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                created.add(node.args[0].value)
+    return created
+
+
+def check_table_ownership_is_not_split(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """A table must be created by the package whose models declare it.
+
+    Moving a model to another package splits the two and emits no DDL at all: the losing
+    package no longer owns the table so its scoped autogenerate cannot propose a drop, and
+    the gaining package diffs against a database where the table already exists so it
+    proposes no create. Every existing database keeps upgrading and the build stays green.
+    The next ordinary schema change to that model is then authored into the gaining
+    package's INDEPENDENT history, which - with no foreign key between the two packages -
+    a fresh install may run before the history that creates the table. Only fresh installs
+    break, months later, blamed on an innocent add_column. Move the table with
+    expand/contract instead (see ADR 0090).
+    """
+    root = pathlib.Path(app_root)
+    creator_of: dict[str, pathlib.Path] = {}
+    for path in _migration_files(root):
+        owner = _owning_package(path)
+        if owner is None:
+            continue
+        for table in _created_tables(path):
+            creator_of.setdefault(table, owner)
+
+    violations: list[ArchViolation] = []
+    for table, path, line in _declared_tablenames(root):
+        creator = creator_of.get(table)
+        owner = _owning_package(path)
+        if creator is None or owner is None or creator == owner:
+            continue
+        violations.append(
+            ArchViolation(
+                "table_ownership_is_not_split",
+                _rel(path, root),
+                line,
+                f"table {table!r} is declared here but created by "
+                f"{_rel(creator, root)}'s migration history; each history is "
+                "independent and ordered only by foreign keys, so a fresh install "
+                "may run this package's next migration before the table exists. "
+                "Move the model back, or move the table with expand/contract (new "
+                "__tablename__, copy the rows, retire the old table later)",
+            )
+        )
+    return violations

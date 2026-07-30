@@ -1,8 +1,8 @@
 """Gate for ``terp.arch``: every rule fires on a violation and the example app is clean.
 
-The harness is Terp's build-time enforcement layer (design §5.10). These tests
+The harness is Terp's build-time enforcement layer (design Â§5.10). These tests
 prove each rule (1) catches the breach it targets and (2) does **not** fire on
-correct code — and that the real ``apps/example/app`` passes the whole suite,
+correct code â€” and that the real ``apps/example/app`` passes the whole suite,
 so the harness dogfoods against a genuine secure-CRUD app.
 """
 
@@ -35,6 +35,7 @@ from terp.arch import (
     check_no_app_instantiation,
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
+    check_table_ownership_is_not_split,
     check_no_destructive_migrations,
     check_no_dynamic_sql,
     check_no_cross_module_imports,
@@ -127,7 +128,7 @@ def test_no_cross_module_imports(tmp_path: pathlib.Path) -> None:
     _write(app, "modules/a/service.py", "from app.modules import b\n")
     assert _rule_names(check_no_cross_module_imports(app)) == {"no_cross_module_imports"}
 
-    # Importing one's own module is fine — absolute or relative.
+    # Importing one's own module is fine â€” absolute or relative.
     _write(app, "modules/a/service.py", "from app.modules.a.models import Thing\n")
     assert check_no_cross_module_imports(app) == []
 
@@ -332,7 +333,7 @@ def test_policy_refs_resolve(tmp_path: pathlib.Path) -> None:
     )
     assert _rule_names(check_policy_refs_resolve(app)) == {"policy_refs_resolve"}
 
-    # An undeclared authority name is a violation — module alias spelling.
+    # An undeclared authority name is a violation â€” module alias spelling.
     _write(
         tmp_path,
         "control_plane/permissions.py",
@@ -359,7 +360,7 @@ def test_policy_refs_resolve(tmp_path: pathlib.Path) -> None:
     )
     assert len(check_policy_refs_resolve(app)) == 2
 
-    # Declared names resolve — assignment, tuple/annotated targets, aliased
+    # Declared names resolve â€” assignment, tuple/annotated targets, aliased
     # from-import, and registry re-export.
     _write(
         tmp_path,
@@ -377,7 +378,7 @@ def test_policy_refs_resolve(tmp_path: pathlib.Path) -> None:
     )
     assert check_policy_refs_resolve(app) == []
 
-    # References the scan cannot trace to the registry are left to the boot check —
+    # References the scan cannot trace to the registry are left to the boot check â€”
     # kernel defaults, and expressions with no dotted-name root.
     _write(
         app,
@@ -505,7 +506,7 @@ def test_no_unique_columns_on_soft_delete_models(tmp_path: pathlib.Path) -> None
     )
     assert check_no_unique_columns_on_soft_delete_models(app) == []
 
-    # A unique on a NON-soft-delete model is fine (rows are truly gone on delete)…
+    # A unique on a NON-soft-delete model is fine (rows are truly gone on delete)â€¦
     _write(
         app,
         "modules/notes/models.py",
@@ -514,7 +515,7 @@ def test_no_unique_columns_on_soft_delete_models(tmp_path: pathlib.Path) -> None
     )
     assert check_no_unique_columns_on_soft_delete_models(app) == []
 
-    # …as is a soft-delete model without unique columns, and a non-table schema class.
+    # â€¦as is a soft-delete model without unique columns, and a non-table schema class.
     _write(
         app,
         "modules/notes/models.py",
@@ -567,7 +568,7 @@ def test_no_unique_columns_on_soft_delete_models_requires_every_verified_dialect
 ) -> None:
     app = tmp_path / "app"
     # A Postgres-only partial index compiles to a FULL unique index on SQLite (the
-    # dev/test dialect), reinstating the dead-row trap — so it must stay flagged.
+    # dev/test dialect), reinstating the dead-row trap â€” so it must stay flagged.
     _write(
         app,
         "modules/notes/models.py",
@@ -614,7 +615,7 @@ def test_no_adhoc_background_runtime(tmp_path: pathlib.Path) -> None:
             "no_adhoc_background_runtime"
         }, stmt
 
-    # A raw thread / process is ad-hoc background execution outside the jobs seam — flagged
+    # A raw thread / process is ad-hoc background execution outside the jobs seam â€” flagged
     # (a bare ``import threading`` can reach Thread; an explicit Thread/Process/pool name).
     for stmt in (
         "import threading",
@@ -629,7 +630,7 @@ def test_no_adhoc_background_runtime(tmp_path: pathlib.Path) -> None:
         }, stmt
 
     # A synchronization primitive imported by name is a correctness tool, not background
-    # execution — allowed (exactly what the users cap's last-admin lock imports).
+    # execution â€” allowed (exactly what the users cap's last-admin lock imports).
     for stmt in (
         "from threading import RLock",
         "from threading import Lock, Event, Condition",
@@ -848,7 +849,7 @@ def test_mutations_emit_audit(tmp_path: pathlib.Path) -> None:
     assert _rule_names(violations) == {"mutations_emit_audit"}
     assert len(violations) == 2
 
-    # A write smuggled through execute()/exec() with a DML statement is caught —
+    # A write smuggled through execute()/exec() with a DML statement is caught â€”
     # raw text and a chained update() both resolve to a DML chain-root.
     _write(
         app,
@@ -1087,7 +1088,7 @@ def test_no_naive_datetime(tmp_path: pathlib.Path) -> None:
         _write(app, "modules/notes/service.py", f"def run():\n    return {source}\n")
         assert _rule_names(check_no_naive_datetime(app)) == {"no_naive_datetime"}, source
 
-    # An explicit zone makes now() aware — positional or keyword.
+    # An explicit zone makes now() aware â€” positional or keyword.
     _write(app, "modules/notes/service.py", "stamp = datetime.now(UTC)\n")
     assert check_no_naive_datetime(app) == []
     _write(app, "modules/notes/service.py", "stamp = datetime.now(tz=timezone.utc)\n")
@@ -1217,7 +1218,7 @@ def test_no_oversized_python_files(tmp_path: pathlib.Path) -> None:
     assert _rule_names(violations) == {"no_oversized_python_files"}
     assert [violation.line for violation in violations] == [1]
 
-    # A file exactly at the cap is fine — the boundary is inclusive.
+    # A file exactly at the cap is fine â€” the boundary is inclusive.
     at_cap = "\n".join(f"CONSTANT_{i} = {i}" for i in range(1, 501)) + "\n"
     _write(app, "modules/notes/service.py", at_cap)
     assert check_no_oversized_python_files(app) == []
@@ -1404,7 +1405,7 @@ def test_update_schemas_inherit_base_update_schema(tmp_path: pathlib.Path) -> No
     assert check_update_schemas_inherit_base_update_schema(app) == []
 
     # A local class literally named like the OCC base is the base definition itself,
-    # not a DTO that must inherit it — it is skipped.
+    # not a DTO that must inherit it â€” it is skipped.
     _write(
         app,
         "modules/notes/schemas.py",
@@ -1412,7 +1413,7 @@ def test_update_schemas_inherit_base_update_schema(tmp_path: pathlib.Path) -> No
     )
     assert check_update_schemas_inherit_base_update_schema(app) == []
 
-    # A diamond of scanned bases that never reaches the OCC base is still refused — the
+    # A diamond of scanned bases that never reaches the OCC base is still refused â€” the
     # base-graph walk deduplicates revisited nodes and returns to report the DTO.
     _write(
         app,
@@ -1567,7 +1568,7 @@ def test_input_schemas_exclude_managed_columns(tmp_path: pathlib.Path) -> None:
 
 def test_events_reference_catalog(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
-    # Bare-string events anywhere they are named — emit / subscribe / ModuleSpec.
+    # Bare-string events anywhere they are named â€” emit / subscribe / ModuleSpec.
     _write(
         app,
         "modules/billing/service.py",
@@ -1608,7 +1609,7 @@ def test_events_reference_catalog(tmp_path: pathlib.Path) -> None:
     )
     assert check_events_reference_catalog(app) == []
 
-    # An inline EventDefinition(...) is drift too — it bypasses the catalog.
+    # An inline EventDefinition(...) is drift too â€” it bypasses the catalog.
     _write(
         app,
         "modules/billing/service.py",
@@ -1631,7 +1632,7 @@ def test_events_reference_catalog(tmp_path: pathlib.Path) -> None:
 
 def test_jobs_reference_catalog(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
-    # Bare-string jobs anywhere they are named — enqueue(job=) / ModuleSpec(jobs=).
+    # Bare-string jobs anywhere they are named â€” enqueue(job=) / ModuleSpec(jobs=).
     _write(
         app,
         "modules/billing/service.py",
@@ -1661,7 +1662,7 @@ def test_jobs_reference_catalog(tmp_path: pathlib.Path) -> None:
     )
     assert check_jobs_reference_catalog(app) == []
 
-    # An inline JobDefinition(...) is drift too — it bypasses the catalog.
+    # An inline JobDefinition(...) is drift too â€” it bypasses the catalog.
     _write(
         app,
         "modules/billing/service.py",
@@ -1672,7 +1673,7 @@ def test_jobs_reference_catalog(tmp_path: pathlib.Path) -> None:
 
 def test_no_adhoc_config_decrypt(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
-    # A module decrypting sealed config ad hoc is flagged — bare call and attribute form.
+    # A module decrypting sealed config ad hoc is flagged â€” bare call and attribute form.
     _write(
         app,
         "modules/billing/service.py",
@@ -1687,7 +1688,7 @@ def test_no_adhoc_config_decrypt(tmp_path: pathlib.Path) -> None:
     )
     assert _rule_names(check_no_adhoc_config_decrypt(app)) == {"no_adhoc_config_decrypt"}
 
-    # Masked rendering (and sealing) are freely usable — only decrypt is the chokepoint.
+    # Masked rendering (and sealing) are freely usable â€” only decrypt is the chokepoint.
     _write(
         app,
         "modules/billing/service.py",
@@ -1696,12 +1697,12 @@ def test_no_adhoc_config_decrypt(tmp_path: pathlib.Path) -> None:
     )
     assert check_no_adhoc_config_decrypt(app) == []
 
-    # The one sanctioned site is a justified, budgeted arch-allow opt-out (design §5.4).
+    # The one sanctioned site is a justified, budgeted arch-allow opt-out (design Â§5.4).
     _write(
         app,
         "main.py",
         "def read_sealed(value: str) -> str:\n"
-        "    return decrypt_config(value)  # arch-allow-no-adhoc-config-decrypt: the one §5.4 site\n",
+        "    return decrypt_config(value)  # arch-allow-no-adhoc-config-decrypt: the one Â§5.4 site\n",
     )
     assert "no_adhoc_config_decrypt" not in _rule_names(check_app(app))
 
@@ -1779,7 +1780,7 @@ def test_no_hardcoded_credentials_allows_self_naming_enum_members(tmp_path: path
     _write(app, "modules/billing/schemas.py", "password = 'password'\n")
     assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
 
-    # An enum body carries members that hold no literal at all — an auto() value
+    # An enum body carries members that hold no literal at all â€” an auto() value
     # and a bare annotation. There is nothing to compare a name against, so they
     # are simply not exemptions, and nothing about them is a credential either.
     _write(
@@ -1951,7 +1952,7 @@ def test_no_raw_file_references(tmp_path: pathlib.Path) -> None:
     assert _rule_names(check_no_raw_file_references(app)) == {"no_raw_file_references"}
     assert len(check_no_raw_file_references(app)) == 2
 
-    # Clean: the column is declared with FileRef(...) — greppable, runtime-verified by
+    # Clean: the column is declared with FileRef(...) â€” greppable, runtime-verified by
     # FileService.load_for, and served through the module's own authorized row.
     _write(
         app,
@@ -2035,8 +2036,8 @@ def test_reads_use_base_query(tmp_path: pathlib.Path) -> None:
         "class Public(BaseTable, table=True):\n"
         "    name: str = Field(max_length=50)\n",
     )
-    # A scope-trait model (TenantScopedMixin/SoftDeleteMixin) read via a raw select() —
-    # in ANY chain position (args, select_from, join, where) — drops soft-delete /
+    # A scope-trait model (TenantScopedMixin/SoftDeleteMixin) read via a raw select() â€”
+    # in ANY chain position (args, select_from, join, where) â€” drops soft-delete /
     # tenant scope (the F1 leak ADR 0017's override-ban missed). self.model and a
     # module-level select are resolved too. A primary-key session.get(Lead, id) is
     # caught too (it has no select() node); self.get(session, id) and a get() of a
@@ -2085,7 +2086,7 @@ def test_reads_use_base_query(tmp_path: pathlib.Path) -> None:
 
 def test_list_routes_paginate(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
-    # A bare list[...] response_model serializes an unbounded collection — must be Page[...].
+    # A bare list[...] response_model serializes an unbounded collection â€” must be Page[...].
     _write(
         app,
         "modules/notes/router.py",
@@ -2133,7 +2134,7 @@ def test_list_routes_paginate(tmp_path: pathlib.Path) -> None:
 def test_path_id_params_are_uuid(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     # A path param named like a resource id (id / *_id) that also appears in the route's
-    # URL template must be typed uuid.UUID — a bare int / str skips boundary validation.
+    # URL template must be typed uuid.UUID â€” a bare int / str skips boundary validation.
     _write(
         app,
         "modules/notes/router.py",
@@ -2205,7 +2206,7 @@ def test_safe_methods_are_read_only(tmp_path: pathlib.Path) -> None:
     # BaseService method: create/update/delete on a self/*service* receiver, or the
     # _save/_remove primitives. This covers a decorator route, a mixed-method api_route
     # (the GET path still runs at the read tier), an api_route defaulting to GET, and an
-    # imperative add_api_route (default GET or an explicit safe method) — six writes.
+    # imperative add_api_route (default GET or an explicit safe method) â€” six writes.
     _write(
         app,
         "modules/notes/router.py",
@@ -2267,7 +2268,7 @@ def test_no_raw_connection_access(tmp_path: pathlib.Path) -> None:
     )
     flagged = check_no_raw_connection_access(app)
     assert _rule_names(flagged) == {"no_raw_connection_access"}
-    assert len(flagged) == 2  # connection() and get_bind() — once each, no duplicate
+    assert len(flagged) == 2  # connection() and get_bind() â€” once each, no duplicate
 
     # Clean: a normal read needs no raw connection/engine, and an unrelated .connect()
     # on a domain object (websocket / cache / search client) is deliberately not flagged.
@@ -2333,7 +2334,7 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
     assert check_no_destructive_migrations(app) == []
 
     # execute() of non-destructive DDL, or of a statement the rule cannot resolve
-    # statically (a variable), stays clean — triggers/indexes destroy no row data.
+    # statically (a variable), stays clean â€” triggers/indexes destroy no row data.
     _write(
         app,
         "modules/notes/migrations/versions/0001_change.py",
@@ -2343,7 +2344,7 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
     assert check_no_destructive_migrations(app) == []
 
     # A reason-bearing standard marker on the operation's line (or immediately
-    # above) permits a reviewed destructive migration — the same governed escape
+    # above) permits a reviewed destructive migration â€” the same governed escape
     # hatch as every other rule, counted by the budget ratchet.
     _write(
         app,
@@ -2386,7 +2387,7 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
 
 def test_alembic_downgrades_not_empty(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
-    # An empty downgrade() makes a revision irreversible — a lone pass, an ellipsis, or
+    # An empty downgrade() makes a revision irreversible â€” a lone pass, an ellipsis, or
     # only a docstring all leave a rollback with nothing to run.
     empty_bodies = (
         "def downgrade():\n    pass\n",
@@ -2573,7 +2574,7 @@ def test_mutations_require_write_role(tmp_path: pathlib.Path) -> None:
     )
     assert check_mutations_require_write_role(app) == []
 
-    # Clean: the secure default (EDITOR write). A read-only module may sit at VIEWER —
+    # Clean: the secure default (EDITOR write). A read-only module may sit at VIEWER â€”
     # even one registered imperatively (add_api_route with a non-mutating methods=).
     _write(app, "modules/notes/module.py", "module = ModuleSpec(name='notes', policy=Policy.default())\n")
     assert check_mutations_require_write_role(app) == []
@@ -2636,7 +2637,7 @@ def test_schemas_exclude_sensitive_fields(tmp_path: pathlib.Path) -> None:
         "schemas_exclude_sensitive_fields"
     }
 
-    # An input DTO reused as a response_model is no longer exempt — it leaks too.
+    # An input DTO reused as a response_model is no longer exempt â€” it leaks too.
     _write(
         app,
         "modules/users/router.py",
@@ -2695,7 +2696,7 @@ def test_canonical_module_shape(tmp_path: pathlib.Path) -> None:
     assert any("'models.py'" in v.message for v in notes)
 
     # A dir that looks like a module (carries canonical files) but has NO module.py manifest
-    # is flagged for the missing manifest — otherwise it is invisible to this rule AND to
+    # is flagged for the missing manifest â€” otherwise it is invisible to this rule AND to
     # modules_declare_policy, so it could ship a router with no declared Policy unnoticed.
     _write(app, "modules/orphan/service.py", "# logic\n")
     _write(app, "modules/orphan/router.py", "router = APIRouter()\n")
@@ -2724,7 +2725,7 @@ def test_harness_registers_and_tests_every_rule() -> None:
 
     This is the drift/incompleteness guard for the harness itself: adding a
     ``check_*`` rule but forgetting to register it in ``check_app`` (so it never
-    runs) — or forgetting to test it — fails this meta-test.
+    runs) â€” or forgetting to test it â€” fails this meta-test.
     """
     import terp.arch.rules as rules_module
 
@@ -2735,7 +2736,7 @@ def test_harness_registers_and_tests_every_rule() -> None:
     }
     registered = {rule.__name__ for rule in rules_module._ALL_RULES}
     assert scanner_checks == registered, (
-        "every scanner rule must be wired into _ALL_RULES — "
+        "every scanner rule must be wired into _ALL_RULES â€” "
         f"unwired: {sorted(scanner_checks - registered)}; "
         f"stray: {sorted(registered - scanner_checks)}"
     )
@@ -2761,7 +2762,7 @@ def test_example_app_passes_the_whole_harness() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# escape-hatch opt-out: justified suppression + governed budget ratchet (§8)
+# escape-hatch opt-out: justified suppression + governed budget ratchet (Â§8)
 # --------------------------------------------------------------------------- #
 def test_justified_marker_suppresses_its_rule(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
@@ -2814,7 +2815,7 @@ def test_marker_inside_a_string_literal_is_inert(tmp_path: pathlib.Path) -> None
 def test_an_untokenizable_file_counts_no_markers(tmp_path: pathlib.Path) -> None:
     # Fail closed: a file the tokenizer refuses (here an unterminated triple-quote)
     # yields no comments at all, so a marker inside it is neither honoured nor
-    # counted toward the budget — even a marker on a line the tokenizer had
+    # counted toward the budget â€” even a marker on a line the tokenizer had
     # already passed is discarded with the file.
     app = tmp_path / "app"
     _write(
@@ -2849,7 +2850,7 @@ def test_escape_hatch_budget_accepts_exact_match(tmp_path: pathlib.Path) -> None
     budget = tmp_path / "escape-hatch-budget.json"
     budget.write_text(json.dumps({"arch-allow-no-internal-imports": 1}), encoding="utf-8")
     assert check_escape_hatch_budget(app, budget_path=budget) == []
-    # End to end: suppressed violation + matching budget ⇒ a clean app.
+    # End to end: suppressed violation + matching budget â‡’ a clean app.
     assert check_app(app, budget_path=budget) == []
     assert_app_clean(app, budget_path=budget)
 
@@ -2896,7 +2897,7 @@ def test_escape_hatch_budget_rejects_a_stale_entry(tmp_path: pathlib.Path) -> No
 
 def test_escape_hatch_budget_rejects_an_unknown_marker_name(tmp_path: pathlib.Path) -> None:
     # A typo, a stale name, or the governance rule's own token names no governed
-    # opt-out — it can never be budgeted into legitimacy.
+    # opt-out â€” it can never be budgeted into legitimacy.
     app = tmp_path / "app"
     _write(
         app,
@@ -2928,7 +2929,7 @@ def test_markers_require_a_budget_to_be_clean(tmp_path: pathlib.Path) -> None:
 
 def test_expired_review_by_token_is_surfaced(tmp_path: pathlib.Path) -> None:
     # The spec's escape-hatch contract: a reason MAY carry review-by:<YYYY-MM-DD>;
-    # a toolchain SHOULD surface expired dates — so a long-lived opt-out is
+    # a toolchain SHOULD surface expired dates â€” so a long-lived opt-out is
     # re-justified on schedule instead of staying silently eternal.
     import datetime
 
@@ -2961,7 +2962,7 @@ def test_expired_review_by_token_is_surfaced(tmp_path: pathlib.Path) -> None:
 
 def test_review_by_is_a_convention_not_a_gate(tmp_path: pathlib.Path) -> None:
     # A reason without the token is never rejected (the spec's MUST NOT), and a
-    # malformed date is not a well-formed token — neither fires, ever.
+    # malformed date is not a well-formed token â€” neither fires, ever.
     import datetime
 
     app = tmp_path / "app"
@@ -2984,6 +2985,73 @@ def test_review_by_is_a_convention_not_a_gate(tmp_path: pathlib.Path) -> None:
 
 def test_example_app_escape_hatch_budget_is_clean() -> None:
     # Dogfood: the example app's single opt-out (the journals read-visibility
-    # predicate's owner_id comparison, ADR 0061) is governed — the budget agrees exactly.
+    # predicate's owner_id comparison, ADR 0061) is governed â€” the budget agrees exactly.
     assert check_escape_hatch_budget(_EXAMPLE_APP, budget_path=_EXAMPLE_BUDGET) == []
     assert_app_clean(_EXAMPLE_APP, budget_path=_EXAMPLE_BUDGET)
+
+
+def test_table_ownership_is_not_split(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # Aligned: the package whose model declares the table is the one whose history
+    # creates it.
+    _write(
+        app,
+        "modules/notes/models.py",
+        "class Note(BaseTable, table=True):\n"
+        "    __tablename__ = 'notes_note'\n",
+    )
+    _write(
+        app,
+        "modules/notes/migrations/versions/0001_create.py",
+        "def upgrade():\n    op.create_table('notes_note')\n",
+    )
+    assert check_table_ownership_is_not_split(app) == []
+
+    # A second package that owns nothing of notes' is irrelevant.
+    _write(
+        app,
+        "modules/tasks/migrations/versions/0001_create.py",
+        "def upgrade():\n    op.create_table('tasks_task')\n",
+    )
+    assert check_table_ownership_is_not_split(app) == []
+
+    # Split: the model moved to tasks but notes' history still creates the table.
+    # This is the state that emits no ddl at all and breaks only fresh installs.
+    (app / "modules/notes/models.py").unlink()
+    _write(
+        app,
+        "modules/tasks/models.py",
+        "class Note(BaseTable, table=True):\n"
+        "    __tablename__ = 'notes_note'\n",
+    )
+    violations = check_table_ownership_is_not_split(app)
+    assert _rule_names(violations) == {"table_ownership_is_not_split"}
+    assert len(violations) == 1
+    assert "notes" in violations[0].message  # the creating package is named
+    assert "expand/contract" in violations[0].message  # the remedy is named
+
+    # A table declared but created by nobody yet is the normal pre-`make` state, and
+    # an annotated __tablename__ is read the same way as a plain assignment.
+    _write(
+        app,
+        "modules/tasks/models.py",
+        "class Task(BaseTable, table=True):\n"
+        "    __tablename__: str = 'tasks_pending'\n",
+    )
+    assert check_table_ownership_is_not_split(app) == []
+
+    # A create in downgrade (reverting a drop) is not a claim of ownership, and a
+    # computed __tablename__ is skipped rather than guessed at.
+    _write(
+        app,
+        "modules/tasks/models.py",
+        "class Note(BaseTable, table=True):\n"
+        "    __tablename__ = _name()\n",
+    )
+    _write(
+        app,
+        "modules/notes/migrations/versions/0001_create.py",
+        "def downgrade():\n    op.create_table('notes_note')\n",
+    )
+    assert check_table_ownership_is_not_split(app) == []
+

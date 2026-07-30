@@ -1,9 +1,9 @@
-"""terp.arch — the Terp enforcement harness, shipped as a versioned dependency.
+"""terp.arch â€” the Terp enforcement harness, shipped as a versioned dependency.
 
-The bespoke secure-by-default fitness rules (design §5.10): each is the
+The bespoke secure-by-default fitness rules (design Â§5.10): each is the
 **build-time layer** that pairs with a fail-closed runtime control in
 ``terp.core`` (or a capability). Clients *run* these rules against their own
-``app/`` but cannot edit them — the harness travels as a package.
+``app/`` but cannot edit them â€” the harness travels as a package.
 
 Typical use in a client repo::
 
@@ -13,7 +13,7 @@ Typical use in a client repo::
         assert_app_clean("app")
 
 Generic layering/boundary checks are delegated to Tach/import-linter and
-dependency hygiene to deptry/pip-audit (design §8); only the domain-specific
+dependency hygiene to deptry/pip-audit (design Â§8); only the domain-specific
 rules are hand-rolled here. Secure-by-default opt-outs are governed: a justified
 ``# arch-allow-<rule>: <reason>`` comment suppresses a single violation, and
 :func:`check_escape_hatch_budget` ratchets the marker counts against a checked-in
@@ -30,6 +30,7 @@ from terp.arch.rules import (
     check_base_query_not_overridden,
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
+    check_table_ownership_is_not_split,
     check_canonical_module_shape,
     check_escape_hatch_budget,
     check_events_reference_catalog,
@@ -93,7 +94,7 @@ from terp.arch.rules import (
     ungoverned_marker_violations,
 )
 
-#: The Terp Standard version this harness is certified against — the ``spec_version``
+#: The Terp Standard version this harness is certified against â€” the ``spec_version``
 #: a check report (``app-check-report.schema.json``) carries. A constant rather than a
 #: runtime ``terp_spec`` read: the spec data package is a certification dependency of
 #: the platform repo, not of a generated app, and the version is a property of the
@@ -108,6 +109,7 @@ __all__ = [
     "assert_app_clean",
     "check_alembic_downgrades_not_empty",
     "check_migration_history_is_intact",
+    "check_table_ownership_is_not_split",
     "check_app",
     "check_base_query_not_overridden",
     "check_canonical_module_shape",
@@ -172,3 +174,4 @@ __all__ = [
     "guide_topic_for",
     "ungoverned_marker_violations",
 ]
+

@@ -27,6 +27,7 @@ from terp.migrations._config import alembic_config_for
 from terp.migrations._runtime import (
     _import_model_module,
     _tree_has_models,
+    assert_no_split_table_ownership,
     owned_table_names,
 )
 from terp.migrations.errors import (
@@ -126,7 +127,15 @@ def assert_migrations_match_models(
     :class:`~terp.migrations.errors.MigrationDriftError`, so the drift is caught in CI,
     not in production. Pass *app_root* to include the app's own modules (not only
     installed capabilities); Terp's own gate runs this over the example app.
+
+    Also fails closed on *split table ownership* — a model whose table another package's
+    history creates. Autogenerate cannot see that split (each package's diff is scoped to
+    the tables it owns), so it produces no drift of its own; left alone it breaks fresh
+    installs only, long after the commit that caused it.
     """
+    assert_no_split_table_ownership(
+        str(app_root) if app_root is not None else None, package
+    )
     drifted: list[str] = []
     for tree in resolve_migration_trees(app_root, package=package):
         try:
