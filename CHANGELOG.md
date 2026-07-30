@@ -10,6 +10,19 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## 0.5.1 — 2026-07-30
+
+### Fixed
+
+- **`terp verify` reads the libc gate npm installs by.** The `node_modules` platform
+  diagnosis matched a lockfile entry on `os` and `cpu` only. A Linux bundler ships a
+  `-gnu` *and* a `-musl` binding for the same os/cpu and npm installs exactly one, so on
+  a glibc container the musl packages read as absent and the diagnosis failed all three
+  frontend checks on a perfectly healthy tree — before the real command ran, so it also
+  hid whatever the truth was, and its prescribed `npm ci` could never clear it. An entry
+  constrained to the other flavour is now absent by design, like any other
+  foreign-platform entry. A check that cries wolf is worse than no check.
+
 ## 0.5.0 — 2026-07-30
 
 Modules get a declared way to depend on each other, machines get a credential of their

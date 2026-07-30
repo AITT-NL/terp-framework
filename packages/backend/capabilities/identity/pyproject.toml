@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-identity"
-version = "0.5.0"
+version = "0.5.1"
 description = "Terp identity capability — persisted user store + the authentication backing."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.5.0",
-    "terp-cap-auth==0.5.0",
+    "terp-core==0.5.1",
+    "terp-cap-auth==0.5.1",
 ]
 
 # A library capability: it ships no router (user administration lives in
