@@ -96,10 +96,19 @@ class Principal:
     ``Roles`` enum is accepted and normalized, so a consumer can issue a principal
     bearing any role from its own permission model. *Authentication* (verifying
     credentials, issuing tokens) is the auth capability's job.
+
+    ``kind`` records **what** the caller is — a person (``"user"``, the default) or a
+    machine integration (``"service"``, ADR 0088). Authorization deliberately ignores
+    it: a service account is checked against the same role rank and the same permission
+    grants as anyone else, because a separate authorization path for machines is how
+    machines end up with more authority than anyone intended. It is carried so audit
+    and app code can *tell*, and so an app that genuinely must refuse one kind (a
+    human-consent action, say) can say so explicitly instead of inferring it.
     """
 
     id: uuid.UUID
     role: Role
+    kind: str = "user"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "role", as_role(self.role))

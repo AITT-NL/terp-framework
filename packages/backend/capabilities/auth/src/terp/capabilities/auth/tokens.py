@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import enum
 import uuid
 from dataclasses import dataclass
 from typing import Final
@@ -13,6 +14,25 @@ from terp.core import AuthenticationError, Role, Roles, as_role, settings
 
 _ALGORITHM = "HS256"
 DEFAULT_ACCESS_TOKEN_TTL = datetime.timedelta(minutes=15)
+
+
+class SubjectKind(enum.StrEnum):
+    """What the ``sub`` claim identifies — which store owns the subject (ADR 0088).
+
+    A Terp deployment has two kinds of principal: people, and the machines that
+    integrate with it. They authenticate differently and are revoked from
+    different tables, but they are authorized identically — the same guard, the
+    same role rank, the same permission grants.
+
+    Signing the kind is what keeps that honest. The revocation validator must know
+    which table holds the subject's epoch, and *inferring* it ("try users, then
+    try service accounts") would mean a subject id present in both tables
+    resolves by lookup order rather than by what the credential actually is. The
+    token says what it represents.
+    """
+
+    USER = "user"
+    SERVICE = "service"
 
 #: The ``iss`` / ``aud`` claims every Terp access token carries and every decode
 #: **requires** (ADR 0076): a JWT minted by any other issuer for any other audience
@@ -35,6 +55,7 @@ class AccessTokenClaims:
     role: Role
     tenant: uuid.UUID | None = None
     token_version: int = 0
+    kind: SubjectKind = SubjectKind.USER
 
 
 def create_access_token(
@@ -43,6 +64,7 @@ def create_access_token(
     role: Role | Roles,
     tenant: uuid.UUID | None = None,
     token_version: int = 0,
+    kind: SubjectKind = SubjectKind.USER,
     expires_in: datetime.timedelta = DEFAULT_ACCESS_TOKEN_TTL,
 ) -> str:
     """Issue a short-lived HS256 access token for *subject* with *role*.
@@ -59,6 +81,10 @@ def create_access_token(
     password of, or logging out a user invalidates their outstanding tokens at once —
     sign the user's current epoch here (default ``0`` = revocation inactive).
 
+    *kind* signs which store owns the subject (ADR 0088), so the revocation
+    validator reads the right table's epoch instead of guessing from a lookup
+    order. It defaults to a human user, which is what an unmarked legacy token is.
+
     Every token also signs the fixed :data:`TOKEN_ISSUER` / :data:`TOKEN_AUDIENCE`
     pair (ADR 0076), which :func:`decode_access_token` requires — scoping the
     credential to this framework's API even under a shared signing key. Signing
@@ -71,6 +97,7 @@ def create_access_token(
         "role": typed.name,
         "rank": typed.rank,
         "tv": token_version,
+        "kind": str(kind),
         "iss": TOKEN_ISSUER,
         "aud": TOKEN_AUDIENCE,
         "iat": now,
@@ -115,6 +142,12 @@ def decode_access_token(token: str) -> AccessTokenClaims:
     Verification is fail-closed on the registered claims: the signature (current
     key or a rotation fallback), the ``exp``/``iat`` lifetime, and the exact
     :data:`TOKEN_ISSUER` / :data:`TOKEN_AUDIENCE` pair must all hold.
+
+    A missing ``kind`` reads as :attr:`SubjectKind.USER` — what every token minted
+    before ADR 0088 is — so a key rotation is the only thing that ever invalidates
+    a token in flight. A ``kind`` this build does not know is **refused** rather
+    than coerced to a default, so a subject type only this framework can mint
+    never degrades into the one with the broadest reach.
     """
     payload = _verify(token)
     try:
@@ -124,6 +157,7 @@ def decode_access_token(token: str) -> AccessTokenClaims:
             role=Role(str(payload["role"]), int(payload["rank"])),
             tenant=uuid.UUID(raw_tenant) if raw_tenant is not None else None,
             token_version=int(payload.get("tv", 0)),
+            kind=SubjectKind(str(payload.get("kind", SubjectKind.USER))),
         )
     except (KeyError, ValueError, TypeError) as exc:
         raise AuthenticationError() from exc
@@ -134,6 +168,7 @@ __all__ = [
     "DEFAULT_ACCESS_TOKEN_TTL",
     "TOKEN_AUDIENCE",
     "TOKEN_ISSUER",
+    "SubjectKind",
     "create_access_token",
     "decode_access_token",
 ]

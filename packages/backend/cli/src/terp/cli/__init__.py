@@ -37,6 +37,7 @@ from terp.cli.schema import (
     scan_declared_table_models,
 )
 from terp.cli.seed import run_seed_command
+from terp.cli.service_accounts import create_service_account_command
 from terp.cli.users import create_user_command
 from terp.cli.verify import profile_ids, run_verify_command, verify_manifest
 
@@ -1619,6 +1620,39 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Env var holding the new password; prompts if unset (default: TERP_USER_PASSWORD)",
     )
 
+    sa_parser = subcommands.add_parser(
+        "service-account",
+        help="Manage machine credentials (so an integration never needs a person's login)",
+    )
+    sa_subcommands = sa_parser.add_subparsers(dest="service_account_command", required=True)
+    sa_create_parser = sa_subcommands.add_parser(
+        "create", help="Provision a service account and print its credentials once"
+    )
+    sa_create_parser.add_argument("name", help="Human-readable name of the integration")
+    sa_create_parser.add_argument(
+        "--role",
+        required=True,
+        help="viewer / editor / admin or an integer rank (required: an integration's "
+        "authority is chosen, never inherited)",
+    )
+    sa_create_parser.add_argument(
+        "--description", default=None, help="What this credential is for, and who owns it"
+    )
+    sa_create_parser.add_argument(
+        "--expires-in-days",
+        type=int,
+        default=365,
+        help="Days until the credential lapses; 0 means never (default: 365)",
+    )
+    sa_create_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app (default: app.main:app)",
+    )
+    sa_create_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+
     seed_parser = subcommands.add_parser(
         "seed", help="Run the app's seed routine (idempotent demo / bootstrap data; dev only)"
     )
@@ -1796,6 +1830,18 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
         return
+    if args.command == "service-account" and args.service_account_command == "create":
+        print(
+            create_service_account_command(
+                args.name,
+                role=args.role,
+                description=args.description,
+                expires_in_days=args.expires_in_days or None,
+                app_ref=args.app,
+                app_root=args.app_root,
+            )
+        )
+        return
     if args.command == "seed":
         print(run_seed_command(app_ref=args.app, app_root=args.app_root, seed_ref=args.seed))
         return
@@ -1813,6 +1859,7 @@ __all__ = [
     "api_docs",
     "check_report",
     "check_report_envelope",
+    "create_service_account_command",
     "create_user_command",
     "dev_plan",
     "export_openapi",

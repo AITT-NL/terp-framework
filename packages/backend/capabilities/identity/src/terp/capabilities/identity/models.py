@@ -14,6 +14,10 @@ refresh token, keyed by its keyed HMAC digest (never the raw token), grouped int
 ``(issuer, subject)`` pair — the stable OIDC identifier — unique so one external
 identity can never resolve to two users. ``hashed_password`` is nullable so an SSO-only
 user holds no local credential (password login refuses such users).
+
+``ServiceAccount`` is the non-human subject (ADR 0088): a machine credential that
+carries its own role, epoch and expiry, so an integration never has to borrow a
+person's account.
 """
 
 from __future__ import annotations
@@ -56,6 +60,38 @@ class RefreshToken(BaseTable, table=True):
     family_expires_at: datetime = Field(sa_type=DateTime(timezone=True), nullable=False)  # type: ignore[call-overload]
     used_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
     revoked_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
+
+
+class ServiceAccount(BaseTable, table=True):
+    """A non-human principal: an integration that calls the API in its own name (ADR 0088).
+
+    A machine has no email, no password and no browser, so it cannot use any of the
+    login paths above. Without a row of its own it has to borrow a person's account —
+    and since nobody wants to debug a permission error at 3am, the account it borrows
+    is an admin. This table exists so the honest option is also the easy one.
+
+    It is deliberately shaped like ``User`` where it matters: ``role``, ``is_active``
+    and ``token_version`` mean exactly the same thing and are enforced by exactly the
+    same code, so a service account is authorized and revoked like any other subject
+    rather than through a second, weaker path. ``hashed_secret`` holds the client
+    secret under the same password hasher; the plaintext exists once, at creation.
+
+    ``expires_at`` is the one thing users do not have. A machine credential outlives
+    the person who created it and the ticket that justified it, so it carries an end
+    date by default — a credential nobody remembers is a credential nobody revokes.
+    """
+
+    __tablename__ = "identity_service_account"
+
+    name: str = Field(max_length=128, nullable=False)
+    description: str | None = Field(default=None, max_length=512, nullable=True)
+    client_id: str = Field(max_length=64, index=True, unique=True, nullable=False)
+    hashed_secret: str = Field(max_length=256, nullable=False)
+    role: int = Field(default=int(Roles.VIEWER))
+    is_active: bool = Field(default=True)
+    token_version: int = Field(default=0, nullable=False)
+    expires_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
+    last_used_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
 
 
 class FederatedIdentity(BaseTable, table=True):

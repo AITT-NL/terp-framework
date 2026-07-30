@@ -30,11 +30,13 @@ from terp.capabilities.auth.refresh import (
 )
 from terp.capabilities.auth.router import (
     Authenticator,
+    ClientAuthenticator,
     CurrentUserResolver,
     LoginTenantResolver,
     PrincipalResolver,
     RefreshIssuer,
     RefreshRotator,
+    ServiceTokenVersionResolver,
     TokenRevoker,
     TokenVersionResolver,
     build_login_module,
@@ -42,12 +44,18 @@ from terp.capabilities.auth.router import (
     build_me_module,
     build_me_router,
 )
-from terp.capabilities.auth.schemas import AccessToken, CurrentUser, LoginRequest
+from terp.capabilities.auth.schemas import (
+    AccessToken,
+    ClientCredentialsRequest,
+    CurrentUser,
+    LoginRequest,
+)
 from terp.capabilities.auth.throttle import AccountLockedError, LoginThrottle
 from terp.capabilities.auth.tokens import (
     TOKEN_AUDIENCE,
     TOKEN_ISSUER,
     AccessTokenClaims,
+    SubjectKind,
     create_access_token,
     decode_access_token,
 )
@@ -57,6 +65,8 @@ __all__ = [
     "AccessTokenClaims",
     "AccountLockedError",
     "Authenticator",
+    "ClientAuthenticator",
+    "ClientCredentialsRequest",
     "CurrentUser",
     "CurrentUserResolver",
     "LoginRequest",
@@ -66,6 +76,8 @@ __all__ = [
     "RefreshIssuer",
     "RefreshRotation",
     "RefreshRotator",
+    "ServiceTokenVersionResolver",
+    "SubjectKind",
     "TOKEN_AUDIENCE",
     "TOKEN_ISSUER",
     "TokenRevoker",

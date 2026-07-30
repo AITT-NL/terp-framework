@@ -14,6 +14,18 @@ class LoginRequest(BaseSchema):
     password: str = Field(max_length=256)
 
 
+class ClientCredentialsRequest(BaseSchema):
+    """A machine integration's credential pair — the ``POST /token`` body (ADR 0088).
+
+    The non-interactive analog of :class:`LoginRequest`. Both fields are generated,
+    high-entropy strings; the caps are generous enough for a rotated-format secret and
+    still bound the input.
+    """
+
+    client_id: str = Field(max_length=128)
+    client_secret: str = Field(max_length=512)
+
+
 class AccessToken(BaseSchema):
     access_token: str  # arch-allow-schemas-exclude-sensitive-fields: the bearer token the login endpoint exists to mint
     token_type: str = "bearer"
@@ -35,4 +47,4 @@ class CurrentUser(BaseSchema):
     role_name: str
 
 
-__all__ = ["AccessToken", "CurrentUser", "LoginRequest"]
+__all__ = ["AccessToken", "ClientCredentialsRequest", "CurrentUser", "LoginRequest"]

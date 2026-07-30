@@ -68,7 +68,7 @@ def get_principal(connection: HTTPConnection) -> Principal | None:
         claims = decode_access_token(token)
     except AuthenticationError:
         return None
-    return Principal(id=claims.subject, role=claims.role)
+    return Principal(id=claims.subject, role=claims.role, kind=str(claims.kind))
 
 
 def build_get_principal(
@@ -99,7 +99,7 @@ def build_get_principal(
             return None
         if token_validator is not None and not token_validator(session, claims):
             return None
-        return Principal(id=claims.subject, role=claims.role)
+        return Principal(id=claims.subject, role=claims.role, kind=str(claims.kind))
 
     if token_validator is not None:
         mark_token_revocation_provider(get_principal)

@@ -41,9 +41,14 @@ from terp.capabilities.auth.refresh import (
     clear_refresh_cookie,
     set_refresh_cookie,
 )
-from terp.capabilities.auth.schemas import AccessToken, CurrentUser, LoginRequest
+from terp.capabilities.auth.schemas import (
+    AccessToken,
+    ClientCredentialsRequest,
+    CurrentUser,
+    LoginRequest,
+)
 from terp.capabilities.auth.throttle import LoginThrottle
-from terp.capabilities.auth.tokens import create_access_token
+from terp.capabilities.auth.tokens import SubjectKind, create_access_token
 
 Authenticator = Callable[[Session, str, str], Principal | None]
 LoginTenantResolver = Callable[[Session, Principal], uuid.UUID | None]
@@ -63,6 +68,11 @@ PrincipalResolver = Callable[[Session, uuid.UUID], Principal | None]
 # store (e.g. ``IdentityService.current_user``) so auth never imports where users live
 # (symmetric with the authenticate / tenant_resolver / revoke_sessions seams).
 CurrentUserResolver = Callable[[Session, Principal], CurrentUser]
+# Client-credentials seams (ADR 0088), app-wired to the service-account store. The
+# machine analog of ``authenticate`` / ``token_version_resolver``: verify a client id +
+# secret, and resolve that account's current token epoch. Wired together or not at all.
+ClientAuthenticator = Callable[[Session, str, str], Principal | None]
+ServiceTokenVersionResolver = Callable[[Session, Principal], int]
 
 
 def build_login_router(
@@ -75,9 +85,13 @@ def build_login_router(
     refresh_issuer: RefreshIssuer | None = None,
     refresh_rotator: RefreshRotator | None = None,
     principal_resolver: PrincipalResolver | None = None,
+    authenticate_client: ClientAuthenticator | None = None,
+    service_token_version_resolver: ServiceTokenVersionResolver | None = None,
     require_refresh: bool = False,
 ) -> APIRouter:
-    """Build a ``/login`` (+ optional ``/logout`` / ``/refresh``) router via *authenticate*.
+    """Build a ``/login`` (+ optional ``/logout`` / ``/refresh`` / ``/token``) router.
+
+    Built via *authenticate*.
 
     When *tenant_resolver* is supplied, the authenticated principal is mapped to a
     tenant and that tenant is signed into the token's ``tenant`` claim — so a
@@ -97,6 +111,13 @@ def build_login_router(
     ``/login`` / ``/logout`` set / clear the httpOnly refresh cookie. Wiring only some of
     the seams, omitting *revoke_sessions*, or passing *require_refresh* without them,
     raises at construction (fail-closed).
+
+    Client credentials (ADR 0088) are opt-in the same way: supply *authenticate_client*
+    and *service_token_version_resolver* together to mount ``POST /token``, the
+    non-interactive grant a machine integration uses instead of borrowing a person's
+    login. Supplying only one raises here — a machine token minted without the account's
+    current epoch would be signed stale and rejected by the very next request, which is
+    a failure mode nobody diagnoses correctly under time pressure.
     """
     router = APIRouter(tags=["auth"])
     active_throttle = throttle if throttle is not None else LoginThrottle()
@@ -130,19 +151,28 @@ def build_login_router(
         raise ValueError(
             "require_refresh=True but the refresh seams are not wired (ADR 0054)."
         )
+    if (authenticate_client is None) != (service_token_version_resolver is None):
+        raise ValueError(
+            "client credentials are half-wired: authenticate_client and "
+            "service_token_version_resolver must be supplied together, or a machine "
+            "token would be minted at a stale token epoch (ADR 0088)."
+        )
 
     def _mint_access_token(session: Session, principal: Principal) -> str:
         tenant = tenant_resolver(session, principal) if tenant_resolver is not None else None
-        token_version = (
-            token_version_resolver(session, principal)
-            if token_version_resolver is not None
-            else 0
+        kind = SubjectKind(principal.kind)
+        resolver = (
+            service_token_version_resolver
+            if kind is SubjectKind.SERVICE
+            else token_version_resolver
         )
+        token_version = resolver(session, principal) if resolver is not None else 0
         return create_access_token(
             subject=principal.id,
             role=principal.role,
             tenant=tenant,
             token_version=token_version,
+            kind=kind,
         )
 
     @router.post("/login", response_model=AccessToken)
@@ -161,6 +191,26 @@ def build_login_router(
             # bearer, so the session survives a reload and can outlive the access TTL.
             set_refresh_cookie(response, refresh_issuer(session, principal.id))
         return AccessToken(access_token=token)
+
+    if authenticate_client is not None:
+        verify_client = authenticate_client
+
+        @router.post("/token", response_model=AccessToken)
+        def token(
+            credentials: ClientCredentialsRequest, session: SessionDep
+        ) -> AccessToken:
+            # The non-interactive grant (ADR 0088). No throttle by account name: the
+            # credential is high-entropy and machine-held, so a lockout here would let
+            # anyone who learns a client id take an integration offline at will. No
+            # refresh cookie either — a machine holds a durable secret and simply
+            # re-authenticates, so there is nothing a refresh token would buy except
+            # another long-lived credential to leak.
+            principal = verify_client(
+                session, credentials.client_id, credentials.client_secret
+            )
+            if principal is None:
+                raise AuthenticationError()
+            return AccessToken(access_token=_mint_access_token(session, principal))
 
     if refresh_rotator is not None and principal_resolver is not None:
         rotate_token = refresh_rotator
@@ -217,9 +267,11 @@ def build_login_module(
     refresh_issuer: RefreshIssuer | None = None,
     refresh_rotator: RefreshRotator | None = None,
     principal_resolver: PrincipalResolver | None = None,
+    authenticate_client: ClientAuthenticator | None = None,
+    service_token_version_resolver: ServiceTokenVersionResolver | None = None,
     require_refresh: bool = False,
 ) -> ModuleSpec:
-    """Build the auth ``ModuleSpec`` (public login + optional logout / refresh endpoints).
+    """Build the auth ``ModuleSpec`` (public login + optional logout / refresh / token).
 
     When the refresh seams are wired, the configured refresh-cookie path must match where
     this module is mounted (``/api/v1/<name>``) — a path-scoped cookie the browser never
@@ -249,6 +301,8 @@ def build_login_module(
             refresh_issuer=refresh_issuer,
             refresh_rotator=refresh_rotator,
             principal_resolver=principal_resolver,
+            authenticate_client=authenticate_client,
+            service_token_version_resolver=service_token_version_resolver,
             require_refresh=require_refresh,
         ),
         policy=Policy.public_write(

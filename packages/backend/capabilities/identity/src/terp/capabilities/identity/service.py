@@ -23,6 +23,7 @@ from sqlmodel import Session, select
 from terp.capabilities.auth import (
     AccessTokenClaims,
     CurrentUser,
+    SubjectKind,
     build_get_principal,
     verify_password,
     verify_password_dummy,
@@ -30,11 +31,19 @@ from terp.capabilities.auth import (
 from terp.core import AuthenticationError, PermissionModel, Principal
 
 from terp.capabilities.identity.models import FederatedIdentity, User
+from terp.capabilities.identity.service_accounts import ServiceAccountService
 
 
 class IdentityService:
-    def __init__(self, permission_model: PermissionModel | None = None) -> None:
+    def __init__(
+        self,
+        permission_model: PermissionModel | None = None,
+        service_accounts: ServiceAccountService | None = None,
+    ) -> None:
         self._permission_model = permission_model or PermissionModel.default()
+        self._service_accounts = service_accounts or ServiceAccountService(
+            self._permission_model
+        )
 
     def get_by_email(self, session: Session, email: str) -> User | None:
         return session.exec(select(User).where(User.email == email)).first()
@@ -158,7 +167,16 @@ class IdentityService:
         user's **current** token epoch (a deactivate / demote / re-tenant / password-reset
         / logout bumps it, instantly invalidating older tokens). One indexed primary-key
         lookup answers all three.
+
+        A machine subject (ADR 0088) is routed to the service-account store by the token's
+        signed ``kind`` rather than by trying both tables, so which store answers is
+        decided by what the credential *is*, not by lookup order. An unrecognised kind
+        authorizes nothing.
         """
+        if claims.kind is SubjectKind.SERVICE:
+            return self._service_accounts.token_is_current(session, claims)
+        if claims.kind is not SubjectKind.USER:
+            return False
         user = self.get_by_id(session, claims.subject)
         return (
             user is not None
