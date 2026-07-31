@@ -39,6 +39,16 @@ fail a suite that is *deliberately* composed once at import — a legitimate des
 the platform will not break under anyone. New projects generated from the template
 start with it on, which is the cheap moment to adopt it.
 
+**And what strict mode still cannot see.** The reset runs *before* fixtures do, so an
+autouse fixture that installs a runtime for a whole package is invisible to it: every
+test gets a bus it never asked for, and strict mode agrees every time. A green strict
+run therefore does not mean your installs are precise, only that none of them happen
+before the suite. ``--terp-report-runtime-installs`` is the other half — it compares
+the state each test starts from with the state it ends with and reports, per seam, the
+tests that installed it. One or two test ids under a seam is a test installing what it
+needs; *every* test id under a seam is a fixture installing it for them, which is the
+thing to go and look at.
+
 It does not, and cannot, install a runtime the test needs — that is the app's own
 decision. Compose the app in a fixture (the pattern ``apps/example/tests/conftest.py``
 uses) when a test needs the whole runtime, or use :func:`terp_events` when a
@@ -48,7 +58,7 @@ service-level test needs only the event bus. See ``terp guide testing``.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import pytest
 
@@ -91,11 +101,22 @@ _STRICT_HELP = (
     "it installed itself."
 )
 
+_REPORT_FLAG = "--terp-report-runtime-installs"
+_REPORT_HELP = (
+    "After the run, report which tests installed which Terp runtime seam. Answers the "
+    "question strict isolation cannot: a seam installed by every test in a package is "
+    "an autouse installer handing tests a runtime they never asked for, which a strict "
+    "run agrees with every time because the install happens after the reset."
+)
+
+_INSTALLS_KEY: pytest.StashKey[dict[str, list[str]]] = pytest.StashKey()
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """Declare the strict-isolation switch (pytest hook, called when the plugin loads)."""
+    """Declare the isolation switches (pytest hook, called when the plugin loads)."""
     parser.addini(_STRICT_INI, help=_STRICT_HELP, type="bool", default=False)
     parser.addoption(_STRICT_FLAG, action="store_true", default=False, help=_STRICT_HELP)
+    parser.addoption(_REPORT_FLAG, action="store_true", default=False, help=_REPORT_HELP)
 
 
 def _strict(config: pytest.Config) -> bool:
@@ -103,8 +124,32 @@ def _strict(config: pytest.Config) -> bool:
     return bool(config.getoption(_STRICT_FLAG) or config.getini(_STRICT_INI))
 
 
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
+    """Print the runtime-install report (pytest hook; silent unless asked for).
+
+    Grouped by seam rather than by test, because the shape of the answer is the point:
+    one or two test ids under a seam is a test installing what it needs, and *every*
+    test id under a seam is a fixture installing it for the whole package — the case a
+    green strict run cannot rule out, since strict resets before fixtures run.
+    """
+    installs = terminalreporter.config.stash.get(_INSTALLS_KEY, None)
+    if installs is None:
+        return
+    terminalreporter.write_sep("=", "terp runtime installs")
+    if not installs:
+        terminalreporter.write_line("No test installed a Terp runtime seam.")
+        return
+    for seam_name in sorted(installs):
+        node_ids = installs[seam_name]
+        terminalreporter.write_line(f"{seam_name}: installed by {len(node_ids)} test(s)")
+        for node_id in node_ids:
+            terminalreporter.write_line(f"  {node_id}")
+
+
 @pytest.fixture(autouse=True)
-def terp_runtime_isolation(pytestconfig: pytest.Config) -> Iterator[None]:
+def terp_runtime_isolation(
+    pytestconfig: pytest.Config, request: pytest.FixtureRequest
+) -> Iterator[None]:
     """Restore every process-global Terp runtime to its pre-test state (autouse).
 
     Snapshots each seam registered in :mod:`terp.core.runtime` before the test and puts
@@ -114,16 +159,43 @@ def terp_runtime_isolation(pytestconfig: pytest.Config) -> Iterator[None]:
     Under ``terp_strict_isolation`` the snapshot is followed by a reset, so the test
     also cannot inherit a runtime that was installed before the suite began — the one
     leak a faithful restore reproduces instead of removing. See the module docstring.
+
+    Under ``--terp-report-runtime-installs`` the snapshot is compared with the state at
+    teardown, so the run can say which test installed which seam. That is the tooling
+    half of the same problem: strict mode resets *before* fixtures run, so it cannot
+    see an autouse installer, and only the comparison can.
     """
     from terp.core.runtime import capture_runtimes, reset_runtimes, restore_runtimes
 
     state = capture_runtimes()
+    reporting = bool(pytestconfig.getoption(_REPORT_FLAG))
     if _strict(pytestconfig):
         reset_runtimes()
+    # What the test actually starts from: under strict mode that is the baseline, not
+    # the snapshot, so comparing against the snapshot would report the reset itself.
+    started = capture_runtimes() if reporting else state
     try:
         yield
     finally:
+        _record_installs(pytestconfig, request.node.nodeid, started)
         restore_runtimes(state)
+
+
+def _record_installs(config: pytest.Config, node_id: str, started: dict[str, Any]) -> None:
+    """Note every seam this test left holding something other than what it started with.
+
+    "Installed by this test" means installed by the test *or any of its fixtures*, and
+    that is the useful reading: when the same seam shows up under every test in a
+    package, the installer is a fixture, not the tests.
+    """
+    if not config.getoption(_REPORT_FLAG):
+        return
+    from terp.core.runtime import capture_runtimes
+
+    installs = config.stash.setdefault(_INSTALLS_KEY, {})
+    for name, snapshot in capture_runtimes().items():
+        if name not in started or snapshot != started[name]:
+            installs.setdefault(name, []).append(node_id)
 
 
 @pytest.fixture

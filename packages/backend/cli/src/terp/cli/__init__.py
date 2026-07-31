@@ -421,9 +421,12 @@ AND READ THE GREEN HONESTLY. Strict mode resets BEFORE fixtures run, so it can o
 installs that happen before the suite. An autouse fixture that installs a runtime for a
 whole package is invisible to it - every test gets a bus it never asked for, and strict
 mode agrees with you every time. So: a green strict run does NOT mean your installs are
-precise, only that none of them happen before the suite. To find out whether a test needs
-what it is given, make the installer NAMED and non-autouse, and let the tests that emit
-request it. The ones that then fail were the ones being carried.
+precise, only that none of them happen before the suite. Ask the other half instead:
+      uv run pytest --terp-report-runtime-installs
+which reports, per seam, the tests that installed it. Read the SHAPE of the answer: one or
+two ids under a seam is a test installing what it needs; every id in a package under one
+seam is a fixture installing it for them. Then make that installer NAMED and non-autouse,
+and let the tests that emit request it. The ones that then fail were the ones being carried.
 
 TWO FIXTURES, ONE SEAM. A seam holds one runtime, so the last install wins - and pytest
 decides "last" from the FIXTURE GRAPH, not from the order of your test's parameters. A tap
