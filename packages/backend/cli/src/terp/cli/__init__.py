@@ -372,25 +372,8 @@ Domain events (eventbus capability)
     "testing": """\
 Testing a Terp app (process-global runtime isolation)
 
-- create_app installs SIX process globals per app: the audit policy+sink, the event
-  catalog+dispatcher, the job catalog+queue, the schedule catalog, the password policy,
-  and the decrypt call site. In a test process they outlive the app that installed them.
-- You get isolation for free. terp-core ships a pytest plugin (terp.core.testing,
-  registered under pytest11) whose autouse fixture SNAPSHOTS every runtime before a
-  test and RESTORES it after. No conftest.py line, no opt-in. Without it a suite goes
-  order-dependent: green together, red alone - the sharpest failure mode there is,
-  because the green is the wrong answer.
-- Restoring is faithful, which is also its blind spot: a runtime installed BEFORE the
-  first test (a stray `import app.main` at collection time, a module-scope create_app())
-  is part of the snapshot, so it is restored before every test and covers every test
-  equally - green together, red alone, with nothing having leaked. Turn on strict mode
-  and the snapshot is followed by a RESET, so every test starts from the platform
-  baseline and a test that only ever passed on ambient state fails where it stands:
-      [tool.pytest.ini_options]
-      terp_strict_isolation = true          # or: pytest --terp-strict-isolation
-  New projects start with it on. Switching it on in an existing suite can turn a green
-  red - that red is the finding, not the regression.
-- Isolation does not INSTALL a runtime your test needs - that is your decision:
+WHAT YOU MUST STILL DO YOURSELF. The platform UNDOES a runtime; it never INSTALLS the
+one your test needs. That distinction is the whole of testing on Terp:
       * whole runtime -> compose the app in a fixture (see apps/example/tests/conftest.py,
         where db_engine + app_db are function-scoped and build() runs per test)
       * only the event bus -> the `terp_events` fixture, which installs a catalog
@@ -401,8 +384,38 @@ Testing a Terp app (process-global runtime isolation)
       * asserting on what was written to a FAKE/bare session -> `terp_default_runtime`,
         which states the baseline instead of assuming it. Without it a composed app's
         durable audit sink quietly adds audit rows to the session under assertion.
-- If a test passes in the suite and fails alone (or vice versa), it is reading a
-  runtime it never installed. Install it explicitly; never re-order the suite.
+Deleting a conftest that INSTALLS something is not part of adopting the plugin.
+
+WHAT YOU GET FOR FREE. terp-core ships a pytest plugin (terp.core.testing, registered
+under pytest11) whose autouse fixture SNAPSHOTS every runtime before a test and
+RESTORES it after. No conftest.py line, no opt-in. Without it a suite goes
+order-dependent: green together, red alone - the sharpest failure mode there is,
+because the green is the wrong answer.
+
+THE SIX SEAMS. create_app installs six process globals per app; in a test process they
+outlive the app that installed them. Restored automatically -- but installed by you:
+
+      seam         what create_app installs        who installs it in a test
+      audit        audit policy + durable sink     compose the app, else the log-only
+                                                   default (terp_default_runtime)
+      events       event catalog + dispatcher      compose the app, or `terp_events`
+      jobs         job catalog + queue             compose the app
+      scheduling   schedule catalog                compose the app
+      passwords    password policy                 compose the app, else the default
+      secrets      the decrypt call site           compose the app (a secrets capability)
+
+STRICT MODE. Restoring is faithful, which is also its blind spot: a runtime installed
+BEFORE the first test (a stray `import app.main` at collection time, a module-scope
+create_app()) is part of the snapshot, so it is restored before every test and covers
+every test equally - green together, red alone, with nothing having leaked. Strict mode
+follows the snapshot with a RESET, so every test starts from the platform baseline and
+a test that only ever passed on ambient state fails where it stands:
+      [tool.pytest.ini_options]
+      terp_strict_isolation = true          # or: pytest --terp-strict-isolation
+New projects start with it on, and the framework runs its own suites that way. Switching
+it on in an existing suite can turn a green red - that red is the finding, not the
+regression: the test was reading a runtime it never installed. Install it explicitly;
+never re-order the suite.
 """,
     "jobs": """\
 Background jobs (terp.core.enqueue + JobCatalog)
