@@ -10,11 +10,18 @@ Deleting the fixture from here is the point, not an accident: if the shipped plu
 ever regressed, these suites would go order-dependent exactly like an app's would.
 
 The one difference from an app: an app pip-installs ``terp-core``, so pytest discovers
-the plugin through its ``pytest11`` entry point with nothing to declare. This repo runs
-from source on ``pythonpath``, where entry points are never read — hence the explicit
-``pytest_plugins`` below. It loads the same module an app loads.
+the plugin through its ``pytest11`` entry point with nothing to declare. This repo is
+run both ways — installed (CI) and straight from source on ``pythonpath`` (a local venv
+where entry points are never read) — so the plugin is named explicitly *only* when the
+entry point is not there. Declaring it unconditionally makes pytest register one module
+under two names and refuse to start.
 """
 
 from __future__ import annotations
 
-pytest_plugins = ("terp.core.testing",)
+from importlib.metadata import entry_points
+
+_PLUGIN = "terp.core.testing"
+_VIA_ENTRY_POINT = any(ep.value == _PLUGIN for ep in entry_points(group="pytest11"))
+
+pytest_plugins = () if _VIA_ENTRY_POINT else (_PLUGIN,)
