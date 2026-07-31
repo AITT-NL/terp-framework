@@ -22,6 +22,19 @@ import pathlib
 import subprocess
 import sys
 import textwrap
+from importlib.metadata import entry_points
+
+_PLUGIN = "terp.core.testing"
+
+# Same rule as the repo-root conftest: this repo is run both installed (CI, where the
+# ``pytest11`` entry point loads the plugin) and straight from source (a local venv,
+# where entry points are never read). Naming it unconditionally registers one module
+# under two names and pytest refuses to start.
+_NAME_THE_PLUGIN = (
+    ()
+    if any(ep.value == _PLUGIN for ep in entry_points(group="pytest11"))
+    else ("-p", _PLUGIN)
+)
 
 _AMBIENT_CONFTEST = '''\
 """Installs an event runtime at import time — the leak a restore reproduces."""
@@ -64,7 +77,7 @@ def _write_project(root: pathlib.Path, *, strict: bool) -> None:
 
 def _run(root: pathlib.Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "pytest", "-p", "terp.core.testing", "-q", *args],
+        [sys.executable, "-m", "pytest", *_NAME_THE_PLUGIN, "-q", *args],
         cwd=root,
         capture_output=True,
         text=True,
