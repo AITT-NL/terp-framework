@@ -38,6 +38,7 @@ from typing import Any
 from sqlmodel import Session
 
 from terp.core.logging import get_request_id
+from terp.core.runtime import register_runtime_seam
 
 
 def _is_dotted_token(value: str) -> bool:
@@ -210,6 +211,25 @@ def reset_events_runtime() -> None:
     global _active_catalog, _active_dispatcher
     _active_catalog = EventCatalog.default()
     _active_dispatcher = _noop_dispatcher
+
+
+def _capture_events_runtime() -> tuple[EventCatalog, EventDispatcher]:
+    """Snapshot the installed catalog + dispatcher (the runtime-seam capture hook)."""
+    return (_active_catalog, _active_dispatcher)
+
+
+def _restore_events_runtime(state: tuple[EventCatalog, EventDispatcher]) -> None:
+    """Put back a :func:`_capture_events_runtime` snapshot (the runtime-seam restore hook)."""
+    global _active_catalog, _active_dispatcher
+    _active_catalog, _active_dispatcher = state
+
+
+register_runtime_seam(
+    "events",
+    capture=_capture_events_runtime,
+    restore=_restore_events_runtime,
+    reset=reset_events_runtime,
+)
 
 
 def _validate_payload(

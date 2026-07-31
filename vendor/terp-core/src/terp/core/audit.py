@@ -36,6 +36,7 @@ from typing import Any, Final
 from sqlmodel import Session
 
 from terp.core.logging import get_request_id
+from terp.core.runtime import register_runtime_seam
 
 _logger = logging.getLogger("terp.core.audit")
 
@@ -231,6 +232,25 @@ def reset_audit_runtime() -> None:
     global _active_policy, _active_sink
     _active_policy = AuditPolicy.default()
     _active_sink = _log_sink
+
+
+def _capture_audit_runtime() -> tuple[AuditPolicy, AuditSink]:
+    """Snapshot the installed policy + sink (the runtime-seam capture hook)."""
+    return (_active_policy, _active_sink)
+
+
+def _restore_audit_runtime(state: tuple[AuditPolicy, AuditSink]) -> None:
+    """Put back a :func:`_capture_audit_runtime` snapshot (the runtime-seam restore hook)."""
+    global _active_policy, _active_sink
+    _active_policy, _active_sink = state
+
+
+register_runtime_seam(
+    "audit",
+    capture=_capture_audit_runtime,
+    restore=_restore_audit_runtime,
+    reset=reset_audit_runtime,
+)
 
 
 def emit_audit(

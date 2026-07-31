@@ -346,6 +346,31 @@ Domain events (eventbus capability)
           event_map = LifecycleEventMap(created=NOTE_CREATED)
 - Subscribe with @subscribe(NOTE_CREATED). Reference catalog constants only (the gate
   enforces no-drift). Wire create_app(..., event_dispatcher=dispatch_in_process).
+- Switching the bus on in a service-level test: the `terp_events` fixture, never a
+  direct configure_events (see `terp guide testing`).
+""",
+    "testing": """\
+Testing a Terp app (process-global runtime isolation)
+
+- create_app installs SIX process globals per app: the audit policy+sink, the event
+  catalog+dispatcher, the job catalog+queue, the schedule catalog, the password policy,
+  and the decrypt call site. In a test process they outlive the app that installed them.
+- You get isolation for free. terp-core ships a pytest plugin (terp.core.testing,
+  registered under pytest11) whose autouse fixture SNAPSHOTS every runtime before a
+  test and RESTORES it after. No conftest.py line, no opt-in. Without it a suite goes
+  order-dependent: green together, red alone - the sharpest failure mode there is,
+  because the green is the wrong answer.
+- Isolation does not INSTALL a runtime your test needs - that is your decision:
+      * whole runtime -> compose the app in a fixture (see apps/example/tests/conftest.py,
+        where db_engine + app_db are function-scoped and build() runs per test)
+      * only the event bus -> the `terp_events` fixture, which installs a catalog
+        (and dispatcher) for the duration of one test:
+            terp_events(event_catalog, dispatcher=dispatch_in_process)
+      * asserting on what was written to a FAKE/bare session -> `terp_default_runtime`,
+        which states the baseline instead of assuming it. Without it a composed app's
+        durable audit sink quietly adds audit rows to the session under assertion.
+- If a test passes in the suite and fails alone (or vice versa), it is reading a
+  runtime it never installed. Install it explicitly; never re-order the suite.
 """,
     "jobs": """\
 Background jobs (terp.core.enqueue + JobCatalog)

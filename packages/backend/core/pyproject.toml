@@ -19,6 +19,13 @@ dependencies = [
 [project.optional-dependencies]
 secrets = ["cryptography>=48.0.1"]
 
+# Terp ships its own pytest plugin (terp.core.testing) so every app inherits
+# process-global runtime isolation without a conftest.py line. The hazard it guards
+# — an order-dependent green suite — is invisible until it bites, so it is not opt-in.
+# The module imports pytest lazily via this entry point; pytest is not a runtime dep.
+[project.entry-points.pytest11]
+terp = "terp.core.testing"
+
 # PEP 420 namespace package: `terp` is shared across distributions, so there is
 # NO src/terp/__init__.py. This distribution owns only `terp.core`.
 [tool.hatch.build.targets.wheel]

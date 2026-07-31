@@ -36,6 +36,7 @@ from typing import Any
 from sqlmodel import Session
 
 from terp.core.jobs import JobCatalog, JobDefinition, enqueue
+from terp.core.runtime import register_runtime_seam
 
 
 def _is_dotted_token(value: str) -> bool:
@@ -181,6 +182,25 @@ def reset_schedules_runtime() -> None:
     """Restore the empty schedule catalog (the per-app / test baseline)."""
     global _active_schedule_catalog
     _active_schedule_catalog = ScheduleCatalog.default()
+
+
+def _capture_schedules_runtime() -> ScheduleCatalog:
+    """Snapshot the installed schedule catalog (the runtime-seam capture hook)."""
+    return _active_schedule_catalog
+
+
+def _restore_schedules_runtime(state: ScheduleCatalog) -> None:
+    """Put back a :func:`_capture_schedules_runtime` snapshot (the runtime-seam restore hook)."""
+    global _active_schedule_catalog
+    _active_schedule_catalog = state
+
+
+register_runtime_seam(
+    "schedules",
+    capture=_capture_schedules_runtime,
+    restore=_restore_schedules_runtime,
+    reset=reset_schedules_runtime,
+)
 
 
 def trigger_schedule(session: Session, schedule: ScheduleDefinition) -> str:

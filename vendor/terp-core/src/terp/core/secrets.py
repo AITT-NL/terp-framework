@@ -32,6 +32,7 @@ from typing import Final
 
 from terp.core.config import get_settings
 from terp.core.errors import AppError
+from terp.core.runtime import register_runtime_seam
 
 #: The rendering of every masked configuration value. A constant (never a prefix
 #: or suffix of the real value, never its length) so a masked surface leaks nothing.
@@ -127,6 +128,28 @@ def reset_decrypt_call_site_runtime() -> None:
     """Clear the registered call site (the composition-root/test baseline)."""
     global _decrypt_call_site
     _decrypt_call_site = None
+
+
+def _capture_decrypt_call_site_runtime() -> Callable[..., object] | None:
+    """Snapshot the registered call site (the runtime-seam capture hook)."""
+    return _decrypt_call_site
+
+
+def _restore_decrypt_call_site_runtime(state: Callable[..., object] | None) -> None:
+    """Put back a :func:`_capture_decrypt_call_site_runtime` snapshot (restore hook)."""
+    global _decrypt_call_site
+    _decrypt_call_site = state
+
+
+# Registered as a per-app runtime seam so a test that registers a call site cannot
+# leak it: the next test registering a *different* callable would otherwise hit the
+# one-call-site-per-process guard and fail for a reason that has nothing to do with it.
+register_runtime_seam(
+    "decrypt_call_site",
+    capture=_capture_decrypt_call_site_runtime,
+    restore=_restore_decrypt_call_site_runtime,
+    reset=reset_decrypt_call_site_runtime,
+)
 
 
 def decrypt_config(sealed: str) -> str:

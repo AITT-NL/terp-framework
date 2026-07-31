@@ -398,7 +398,9 @@ class _FailingAfterWriteService(BaseService):  # type: ignore[type-arg]
         raise RuntimeError("side effect failed")
 
 
-def test_nested_save_commits_once_at_the_outermost_write() -> None:
+def test_nested_save_commits_once_at_the_outermost_write(
+    terp_default_runtime: None,
+) -> None:
     """A nested ``_save`` joins the unit: one commit, the inner write only flushes (ADR 0038)."""
     session = _CountingSession()
     trigger = SimpleNamespace(id=uuid.uuid4(), name="trigger")

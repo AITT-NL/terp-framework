@@ -1,35 +1,20 @@
-"""Repo-root pytest fixtures shared by every suite (``tests`` + ``apps/example``).
+"""Repo-root pytest configuration for every suite (``tests`` + ``apps/example``).
 
-The responsibility is **process-global runtime isolation**: the audit sink, the
-event dispatcher, the job runtime, and the password policy are process-global seams
-(``terp.core.audit`` / ``terp.core.events`` / ``terp.core.jobs`` / ``terp.core.passwords``),
-installed per app by ``create_app``. A test that composes the example app installs the
-durable audit sink and the in-process event dispatcher; a unit test that drives
-``BaseService`` against a bare engine must not inherit them. This autouse fixture
-resets each runtime to its safe default (log-only audit sink, empty event catalog +
-no-op dispatcher, empty job catalog + in-process queue, default password policy) after
-every test, so suites stay order-independent.
+Process-global runtime isolation used to live here, as a hand-maintained autouse
+fixture naming each seam. It now ships **with the platform** — ``terp-core``
+registers :mod:`terp.core.testing` under pytest's ``pytest11`` entry point — so this
+repo receives it the same way every app on Terp does. The framework no longer holds
+a protection its users had to rediscover.
+
+Deleting the fixture from here is the point, not an accident: if the shipped plugin
+ever regressed, these suites would go order-dependent exactly like an app's would.
+
+The one difference from an app: an app pip-installs ``terp-core``, so pytest discovers
+the plugin through its ``pytest11`` entry point with nothing to declare. This repo runs
+from source on ``pythonpath``, where entry points are never read — hence the explicit
+``pytest_plugins`` below. It loads the same module an app loads.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
-import pytest
-
-from terp.core.audit import reset_audit_runtime
-from terp.core.events import reset_events_runtime
-from terp.core.jobs import reset_jobs_runtime
-from terp.core.passwords import reset_password_policy_runtime
-from terp.core.scheduling import reset_schedules_runtime
-
-
-@pytest.fixture(autouse=True)
-def _isolate_runtime() -> Iterator[None]:
-    """Restore the default audit + event + job + schedule + password-policy runtimes after each test."""
-    yield
-    reset_audit_runtime()
-    reset_events_runtime()
-    reset_jobs_runtime()
-    reset_schedules_runtime()
-    reset_password_policy_runtime()
+pytest_plugins = ("terp.core.testing",)

@@ -50,6 +50,7 @@ from sqlmodel import Session
 
 from terp.core.audit import audit_actor_ctx
 from terp.core.logging import get_request_id
+from terp.core.runtime import register_runtime_seam
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import of the type
     from collections.abc import Iterable, Mapping
@@ -401,6 +402,27 @@ def reset_jobs_runtime() -> None:
     _active_catalog = JobCatalog.default()
     _active_queue = InProcessJobQueue()
     _system_actor_id = None
+
+
+def _capture_jobs_runtime() -> tuple[JobCatalog, JobQueue, uuid.UUID | None]:
+    """Snapshot the installed catalog + queue + system actor (the runtime-seam capture hook)."""
+    return (_active_catalog, _active_queue, _system_actor_id)
+
+
+def _restore_jobs_runtime(
+    state: tuple[JobCatalog, JobQueue, uuid.UUID | None],
+) -> None:
+    """Put back a :func:`_capture_jobs_runtime` snapshot (the runtime-seam restore hook)."""
+    global _active_catalog, _active_queue, _system_actor_id
+    _active_catalog, _active_queue, _system_actor_id = state
+
+
+register_runtime_seam(
+    "jobs",
+    capture=_capture_jobs_runtime,
+    restore=_restore_jobs_runtime,
+    reset=reset_jobs_runtime,
+)
 
 
 def reset_job_tenant_context() -> None:

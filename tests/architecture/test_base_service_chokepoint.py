@@ -39,7 +39,9 @@ class _Service(BaseService):  # type: ignore[type-arg]
     """Concrete BaseService; ``_remove`` does not touch ``model``."""
 
 
-def test_hard_delete_constraint_violation_maps_to_conflict() -> None:
+def test_hard_delete_constraint_violation_maps_to_conflict(
+    terp_default_runtime: None,
+) -> None:
     session = _CommitFailsSession()
     entity = SimpleNamespace(id=uuid.uuid4())
     with pytest.raises(ConflictError):

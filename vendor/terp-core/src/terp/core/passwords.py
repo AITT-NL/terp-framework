@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from terp.core.errors import AppError
+from terp.core.runtime import register_runtime_seam
 
 # A small, cheap denylist of common / breached-shaped passwords (lowercased). Not a
 # full breach corpus — that is a product concern an app layers on; this is the
@@ -167,6 +168,25 @@ def reset_password_policy_runtime() -> None:
     """Restore the safe default policy (the composition-root/test baseline)."""
     global _active_policy
     _active_policy = PasswordPolicy.default()
+
+
+def _capture_password_policy_runtime() -> PasswordPolicy:
+    """Snapshot the installed password policy (the runtime-seam capture hook)."""
+    return _active_policy
+
+
+def _restore_password_policy_runtime(state: PasswordPolicy) -> None:
+    """Put back a :func:`_capture_password_policy_runtime` snapshot (the restore hook)."""
+    global _active_policy
+    _active_policy = state
+
+
+register_runtime_seam(
+    "password_policy",
+    capture=_capture_password_policy_runtime,
+    restore=_restore_password_policy_runtime,
+    reset=reset_password_policy_runtime,
+)
 
 
 def active_password_policy() -> PasswordPolicy:
