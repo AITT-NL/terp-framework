@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import { injectTerpStyles } from "./styles";
+import { useNavLink } from "./navLink";
 import { useStrings, useUiText } from "./uiText";
 import type { UiText } from "./uiText";
 
@@ -20,7 +21,11 @@ export type RenderBreadcrumbLink = (item: { label: string; to: string }) => Reac
 export interface BreadcrumbsProps {
   /** The trail, outermost first; the last item is the current page. */
   items: readonly BreadcrumbItem[];
-  /** Link renderer for ancestor crumbs (default: a plain `<a href>`); pass the stack's `Link`. */
+  /**
+   * Link renderer for ancestor crumbs. Defaults to the surrounding router's `Link`
+   * (published by `buildAppRouter`), falling back to a plain `<a href>` only outside a
+   * Terp router — a crumb inside an app must never full-page-reload.
+   */
   renderLink?: RenderBreadcrumbLink;
 }
 
@@ -69,7 +74,7 @@ function ChevronSeparator() {
   );
 }
 
-const defaultRenderLink: RenderBreadcrumbLink = (item) => <a href={item.to}>{item.label}</a>;
+const anchorRenderLink: RenderBreadcrumbLink = (item) => <a href={item.to}>{item.label}</a>;
 
 /**
  * The breadcrumb trail every page shows through the remaining layers (shell -> overview ->
@@ -77,7 +82,13 @@ const defaultRenderLink: RenderBreadcrumbLink = (item) => <a href={item.to}>{ite
  * list, and `aria-current="page"` on the final crumb. Router-agnostic — `renderLink` turns
  * an ancestor crumb into the active stack's link, exactly like `AppShell`'s `renderLink`.
  */
-export function Breadcrumbs({ items, renderLink = defaultRenderLink }: BreadcrumbsProps) {
+export function Breadcrumbs({ items, renderLink }: BreadcrumbsProps) {
+  const navLink = useNavLink();
+  const renderCrumbLink =
+    renderLink ??
+    (navLink === null
+      ? anchorRenderLink
+      : (item: { label: string; to: string }) => navLink({ to: item.to, children: item.label }));
   const strings = useStrings();
   const resolve = useUiText();
   return (
@@ -89,7 +100,7 @@ export function Breadcrumbs({ items, renderLink = defaultRenderLink }: Breadcrum
           return (
             <li key={`${index}-${label}`} style={listStyle}>
               {!isLast && item.to !== undefined ? (
-                renderLink({ label, to: item.to })
+                renderCrumbLink({ label, to: item.to })
               ) : (
                 <span aria-current={isLast ? "page" : undefined} style={isLast ? currentStyle : undefined}>
                   {label}

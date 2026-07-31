@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Page } from "./Page";
 import type { PageProps } from "./Page";
 import { useLayoutContract, verifySlotChildren } from "./layoutContract";
+import { useNavLink } from "./navLink";
 import { injectTerpStyles } from "./styles";
 import { useUiText } from "./uiText";
 import type { UiText } from "./uiText";
@@ -157,7 +158,7 @@ const linkStyle: CSSProperties = {
   minHeight: 0,
 };
 
-const defaultRenderLink: RenderHubCardLink = ({ to, children }) => (
+const anchorRenderLink: RenderHubCardLink = ({ to, children }) => (
   <a href={to} data-terp="hubcard-link" style={linkStyle}>
     {children}
   </a>
@@ -166,7 +167,8 @@ const defaultRenderLink: RenderHubCardLink = ({ to, children }) => (
 /**
  * A single navigable card inside a {@link HubPage}: icon + title, a short description of
  * the area, and an optional live `stat`. The whole card is one link, rendered through
- * `renderLink` so the hub stays router-agnostic.
+ * `renderLink` so the hub stays router-agnostic — defaulting to the surrounding router's
+ * `Link`, and to a plain anchor only outside a Terp router.
  */
 export function HubCard({
   to,
@@ -174,12 +176,22 @@ export function HubCard({
   description,
   icon,
   stat,
-  renderLink = defaultRenderLink,
+  renderLink,
 }: HubCardProps) {
+  const navLink = useNavLink();
+  const renderCardLink =
+    renderLink ??
+    (navLink === null
+      ? anchorRenderLink
+      : ({ to: href, children }: { to: string; children: ReactNode }) => (
+          <span data-terp="hubcard-link" style={linkStyle}>
+            {navLink({ to: href, children })}
+          </span>
+        ));
   const resolve = useUiText();
   return (
     <li data-terp="hubcard" style={cardStyle}>
-      {renderLink({
+      {renderCardLink({
         to,
         children: (
           <span data-terp="hubcard-body" style={cardBodyStyle}>

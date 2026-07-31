@@ -85,6 +85,100 @@ describe("buildAppRouter", () => {
     expect(screen.queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
   });
 
+  it("mounts a parameterised route in BOTH spellings the contract documents", async () => {
+    // The manifest is stack-agnostic and documents `:id`; TanStack wants `$id`. Passing
+    // the documented spelling through untranslated built a route that never matched —
+    // and nothing caught it: not the lint, not typecheck, not the build. Pin both.
+    for (const [path, entry] of [
+      ["/things/:thingId", "/things/abc"],
+      ["/legacy/$thingId", "/legacy/abc"],
+    ] as const) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>(async (input) => {
+          const url = (input as Request).url;
+          if (url.endsWith("/api/v1/auth/login")) {
+            return jsonResponse({ access_token: "t", token_type: "bearer" });
+          }
+          return jsonResponse({
+            id: "1",
+            email: "editor@example.com",
+            role_rank: 20,
+            role_name: "editor",
+          });
+        }),
+      );
+      const router = buildAppRouter([{ name: "things", routes: [{ path, view: "Thing" }] }], {
+        views: { Thing: () => <Page title="Thing view">thing body</Page> },
+        title: "Terp",
+        history: createMemoryHistory({ initialEntries: [entry] }),
+      });
+      render(
+        <TerpProvider baseUrl="https://api.test">
+          <LogInOnMount />
+          <RouterProvider router={router} />
+        </TerpProvider>,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: "Thing view" })).toBeInTheDocument(),
+      );
+      cleanup();
+    }
+  });
+
+  it("gives breadcrumbs and hub cards the router's link without being asked", async () => {
+    // A crumb rendered without `renderLink` used to fall back to a raw <a href>: a full
+    // page reload, silently, with nothing to catch it. Inside a Terp router the default
+    // is the router's own Link, so the trail navigates client-side.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = (input as Request).url;
+        if (url.endsWith("/api/v1/auth/login")) {
+          return jsonResponse({ access_token: "t", token_type: "bearer" });
+        }
+        return jsonResponse({ id: "1", email: "editor@example.com", role_rank: 20, role_name: "editor" });
+      }),
+    );
+    const router = buildAppRouter(
+      [
+        {
+          name: "notes",
+          routes: [
+            { path: "/notes", view: "NotesList" },
+            { path: "/notes/:noteId", view: "NoteDetail" },
+          ],
+          nav: [],
+        },
+      ],
+      {
+        views: {
+          NotesList: () => <Page title="Notes view">notes body</Page>,
+          NoteDetail: () => (
+            <Page title="Note view" breadcrumbs={[{ label: "Notes", to: "/notes" }]}>
+              note body
+            </Page>
+          ),
+        },
+        title: "Terp",
+        history: createMemoryHistory({ initialEntries: ["/notes/1"] }),
+      },
+    );
+
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+
+    const crumb = await screen.findByRole("link", { name: "Notes" });
+    fireEvent.click(crumb);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Notes view" })).toBeInTheDocument(),
+    );
+  });
+
   it("navigates home through the product brand", async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input) => {
       const url = (input as Request).url;

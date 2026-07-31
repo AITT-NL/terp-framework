@@ -13,7 +13,14 @@
 export type RoleName = string;
 
 export interface ModuleRoute {
-  /** URL path the route mounts at, e.g. "/billing" or "/billing/:id". */
+  /**
+   * URL path the route mounts at, e.g. `/billing` or `/billing/:id`.
+   *
+   * Parameters are spelled the stack-agnostic way (`:id`) — each adapter translates
+   * into its own router's dialect (`$id` for TanStack Router, `[id]` for SvelteKit).
+   * The React adapter also accepts `$id` directly, which is what shipped before the
+   * translation existed.
+   */
   path: string;
   /** Stack-agnostic view identifier the adapter resolves to a component. */
   view: string;

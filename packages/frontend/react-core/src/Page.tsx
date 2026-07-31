@@ -19,7 +19,7 @@ export interface PageProps {
   title: UiText;
   /** Ancestor breadcrumb trail, outermost first; the current page's crumb is appended automatically. */
   breadcrumbs?: readonly BreadcrumbItem[];
-  /** Link renderer for ancestor crumbs; pass the stack's `Link` (see {@link Breadcrumbs}). */
+  /** Link renderer for ancestor crumbs; defaults to the surrounding router's `Link` (see {@link Breadcrumbs}). */
   renderLink?: RenderBreadcrumbLink;
   /** Optional page-level actions, rendered on the heading row (e.g. a primary `Button`). */
   actions?: ReactNode;

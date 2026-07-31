@@ -16,6 +16,7 @@ import { AppShell } from "./AppShell";
 import { ProfileView } from "./ProfileView";
 import { LAYOUT_CONTRACTS, LayoutContractContext } from "./layoutContract";
 import { visibleNav } from "./nav";
+import { NavLinkContext } from "./navLink";
 import { PageMarkerContext } from "./pageMarker";
 import { useAuth } from "./TerpProvider";
 import { UserMenu } from "./UserMenu";
@@ -30,6 +31,21 @@ export const DEFAULT_ROLE_RANKS: Record<string, number> = {
 
 /** The built-in profile / settings route (an app manifest claiming the path wins). */
 export const PROFILE_PATH = "/profile";
+
+/**
+ * Translate a manifest path into TanStack Router's dialect.
+ *
+ * `ModuleManifest` is stack-agnostic (the same manifest is meant to drive a SvelteKit
+ * adapter, where a param is `[id]`), so it spells a parameter the neutral way: `:id`.
+ * TanStack wants `$id`. Passing the manifest path through untranslated produced the
+ * worst possible failure — a route that simply never matches, caught by nothing: not
+ * the boundary lint, not typecheck, not the build, just a 404 at runtime for anyone who
+ * followed the documented example. Both spellings are accepted (`$id` is what shipped
+ * before this translation existed and what existing apps wrote); `:id` is canonical.
+ */
+export function routerPath(path: string): string {
+  return path.replace(/(^|\/):([A-Za-z_][A-Za-z0-9_]*)/g, "$1$$$2");
+}
 
 export interface BuildAppRouterOptions {
   /** Maps a manifest route's `view` id to the component that renders it. */
@@ -115,6 +131,10 @@ export function buildAppRouter(
     const rank = useAuth().currentUser()?.role_rank ?? null;
     const nav = visibleNav(manifests, (role) => allows(roleRanks, rank, role));
     return (
+      // Publish the router's Link so every layout component that renders an in-app link
+      // (Breadcrumbs, HubCard) navigates client-side by default. Forgetting `renderLink`
+      // used to degrade the app silently: a raw anchor, a full page reload, no error.
+      <NavLinkContext.Provider value={({ to, children }) => <Link to={to}>{children}</Link>}>
       <AppShell
         title={options.title}
         logo={options.logo}
@@ -144,6 +164,7 @@ export function buildAppRouter(
       >
         <Outlet />
       </AppShell>
+      </NavLinkContext.Provider>
     );
   }
 
@@ -200,7 +221,7 @@ export function buildAppRouter(
     }
     return createRoute({
       getParentRoute: () => rootRoute,
-      path,
+      path: routerPath(path),
       component: RouteComponent,
     });
   }
