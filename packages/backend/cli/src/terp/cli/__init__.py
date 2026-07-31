@@ -416,6 +416,23 @@ New projects start with it on, and the framework runs its own suites that way. S
 it on in an existing suite can turn a green red - that red is the finding, not the
 regression: the test was reading a runtime it never installed. Install it explicitly;
 never re-order the suite.
+
+AND READ THE GREEN HONESTLY. Strict mode resets BEFORE fixtures run, so it can only see
+installs that happen before the suite. An autouse fixture that installs a runtime for a
+whole package is invisible to it - every test gets a bus it never asked for, and strict
+mode agrees with you every time. So: a green strict run does NOT mean your installs are
+precise, only that none of them happen before the suite. To find out whether a test needs
+what it is given, make the installer NAMED and non-autouse, and let the tests that emit
+request it. The ones that then fail were the ones being carried.
+
+TWO FIXTURES, ONE SEAM. A seam holds one runtime, so the last install wins - and pytest
+decides "last" from the FIXTURE GRAPH, not from the order of your test's parameters. A tap
+that installs a recording dispatcher after the catalog fixture must DEPEND on it:
+      @pytest.fixture
+      def emitted(events_runtime: None, terp_events: InstallEvents) -> list[object]:
+          ...
+Getting it the wrong way round is silent: the tap installs first, the catalog fixture
+overwrites it, and the recorder simply records nothing.
 """,
     "jobs": """\
 Background jobs (terp.core.enqueue + JobCatalog)

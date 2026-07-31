@@ -22,9 +22,28 @@ the first module: model, migration, service, policy, router and a typed frontend
 `uv run terp dev` refreshes the OpenAPI contract, then runs uvicorn (`--reload`) and the
 Vite dev server side by side; stop either with Ctrl+C. Prefer them apart? `uv run uvicorn
 app.main:app --reload` and `npm --prefix frontend run dev`. Without Docker the settings
-default to an in-memory SQLite database — for data that survives a restart set
-`DATABASE_URL=sqlite:///./dev.db` in `.env` and run `uv run terp migrate upgrade` once (the
-Compose workbench below does all of this with Postgres instead).
+default to an in-memory SQLite database, which the app can boot on but no migration can
+act on — `uv run terp migrate upgrade` refuses it rather than report success against a
+database that disappears with the process. So set `DATABASE_URL=sqlite:///./dev.db` in
+`.env` and run `uv run terp migrate upgrade` once (the Compose workbench below does all of
+this with Postgres instead).
+
+## Upgrading Terp
+
+Terp releases in lockstep: every `terp-*` pin and every `@terpjs/*` dependency moves to the
+same version together. Bump them all, then re-lock **with a fresh index read**:
+
+```bash
+uv sync --refresh                     # --refresh: see below
+npm --prefix frontend install
+uv run terp verify --profile full
+```
+
+A release publishes its distributions one at a time, so a cached index can hold a version
+gap for minutes after the tag. uv reports that gap as `no version of terp-cap-<x>==<v>` —
+indistinguishable from "this package was never released", and `uv run <anything>` re-resolves
+first, so every command you reach for to diagnose it fails the same way with no output.
+`--refresh` is the fix; suspect the cache before you suspect the release.
 
 ## Run with Docker
 
