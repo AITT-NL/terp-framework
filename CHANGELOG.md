@@ -10,6 +10,71 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## 0.5.2 — 2026-07-31
+
+Four things an app could get wrong with no failure to look at. A declaration that
+reality does not back, a reality no declaration mentions, and a test suite whose green
+depends on collection order all share one shape: nothing breaks, so nobody looks. This
+release turns each of them into a refusal at the earliest moment the answer is complete.
+
+### Added
+
+- **Process-global runtime isolation ships with the platform.** `terp-core` now
+  registers a pytest plugin (`terp.core.testing`, under `pytest11`), so every app gets
+  the `terp_runtime_isolation` autouse fixture without a `conftest.py` line — plus
+  `terp_events` (switch the bus on for one test) and `terp_default_runtime` (state the
+  baseline instead of inheriting it). `create_app` installs six runtimes into process
+  globals, and in a test process the last app composed is still installed when the next
+  test runs: a unit test against a bare engine inherits a durable audit sink, and a test
+  asserting an event was emitted can pass only because an earlier import configured the
+  bus. The framework had always carried the fixture in its own repo-root `conftest.py`
+  and never shipped it, so every app had to first meet the hazard as a suite that passes
+  together and fails alone. The fixture snapshots and restores rather than resetting, so
+  an existing suite pays nothing. Seams register themselves
+  (`terp.core.runtime`), and the gate holds the registry against the kernel's own
+  `reset_*_runtime` functions so a seventh seam cannot be added and quietly left out.
+
+- **A declaration no base reads is refused** — at class definition (`TypeError`) and
+  again at boot (`BootError`). A service that sets `event_map` but forgot to inherit
+  `EventEmittingService` is real, correct, reviewed, and does nothing. A base names what
+  it consumes (`consumes_declarations`); the kernel needs no knowledge of any
+  capability's declaration to spot an inert one. The boot check is not redundant with
+  the class check: `__init_subclass__` can only compare against the bases imported so
+  far, and "forgot to inherit the base" is usually "never imported the capability", so
+  boot is the first point where the answer is complete.
+
+- **A subscription with no handler is refused at boot.** `ModuleSpec.subscribes` says
+  the module reacts to an event, while the handler registers as a side effect of
+  importing its file. Forget that import — the most ordinary refactor there is — and the
+  manifest keeps claiming the subscription while the module hears nothing: no error, no
+  log line, just work that never happens. The event-bus registry now reports what it is
+  listening for, and `create_app` refuses a claim nothing backs.
+
+- **`backend/emitted_events_are_declared`** (Terp Standard 0.20.0) — a module emits only
+  the events its `ModuleSpec` declares. The `emits` list is the module's published
+  contract: what the control plane validates, what an operator reads, what another team
+  subscribes against. An undeclared emit makes it quietly untrue — the event really does
+  go out. Build-time only by recorded decision: an emit call carries no module identity,
+  so only the source layout knows which manifest owed the declaration.
+
+### Fixed
+
+- **`terp guide events` names its own package.** The recipe used `EventEmittingService`
+  and `LifecycleEventMap` without saying they live in a separate distribution; it now
+  gives the line (`uv add terp-cap-eventbus`). It also shows the compliant *conditional*
+  emit — the lifecycle map only answers "every write of this shape emits this event",
+  and with no shape written down for a state transition the tempting move is to emit
+  from a router or a task, outside the write's transaction. Extend `_after_write`, where
+  the map already lives.
+
+- **Coverage is measured from process start.** `pytest --cov` instruments after pytest
+  has loaded its `pytest11` entry-point plugins, so the kernel imported by terp-core's
+  new testing plugin ran untraced and the gate read 89 %. The gate now runs
+  `coverage run -m pytest`, and the plugin keeps its own `terp.core` imports inside the
+  fixtures so it is never the thing that forces the issue.
+
+- **Pinned spec: 0.20.0**, which catalogs `emitted_events_are_declared`.
+
 ## 0.5.1 — 2026-07-30
 
 ### Fixed
