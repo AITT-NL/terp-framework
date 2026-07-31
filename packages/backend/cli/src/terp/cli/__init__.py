@@ -771,14 +771,26 @@ Data collections (DataView)
   refused by the boundary lint. It gives search, sorting, pagination, column management,
   selection + batch actions, row actions, expandable rows, and persisted view
   preferences, driven by a repository port.
-- Client-side (small collections — rows already in memory):
-      const repo = useMemo(() => new InMemoryDataViewRepository(rows), [rows]);
-      <DataView repository={repo} columns={columns} keyField="id" />
+- Client-side (small collections — rows already in memory). The repository owns row
+  identity and value access; the component never reads a field itself:
+      const repo = useMemo(
+        () =>
+          new InMemoryDataViewRepository(rows, {
+            getRowId: (r) => r.id,
+            getValue: (r, col) => r[col as keyof Row],
+            searchFields: ["title", "status"],
+          }),
+        [rows],
+      );
+      <DataView repository={repo} columns={columns} viewId="notes.list" />
 - Server-side (large collections — let the backend paginate/sort/filter):
       const repo = useMemo(() => new HttpDataViewRepository({...}), [client]);
   and keep query state in the URL with useServerDataView.
-- Columns declare {key, header, render?}; header text is UiText. Row actions and batch
-  actions are declared as data (the component renders the token-styled controls).
+- Columns declare {id, header, accessor?, cell?, enableSorting?, meta?} — `id` is the
+  column key the repository's getValue receives, `accessor` reads the value and `cell`
+  renders it; header text is UiText. There is no `keyField` prop: row identity is
+  `getRowId` on the repository. Row actions and batch actions are declared as data
+  (the component renders the token-styled controls).
 - Persist per-user view preferences via the ViewStateRepository seam
   (LocalStorageViewStateRepository for the browser; InMemoryViewStateRepository in tests).
 - For a simple titled CRUD list (no tables), ResourceList over useResource is the
