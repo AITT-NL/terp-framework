@@ -12,7 +12,8 @@
 
 **Snapshot — 2026-07-05:** **1097 tests passing** (+ the env-gated PostgreSQL
 conformance lane, ADR 0069), **100% framework line coverage**
-(`.\.venv\Scripts\python.exe -m pytest --cov=terp`). A shipped `terp-core`
+(`.\.venv\Scripts\python.exe -m coverage run -m pytest` + `... -m coverage report`).
+A shipped `terp-core`
 kernel + the `terp-arch` harness; Phase 2 (capabilities) is in progress, and the
 control-plane refinement has landed Phases A/B-keystone + **Phase C (security
 middleware + structured logging, ADR 0005)**, hardened (ADR 0006), **Phase D

@@ -40,9 +40,11 @@ import pytest
 __all__ = ["terp_default_runtime", "terp_events", "terp_runtime_isolation"]
 
 # Imports of terp.core live INSIDE the fixtures, deliberately. pytest loads a pytest11
-# plugin before coverage instrumentation starts, so importing the kernel here would
-# execute every module-level statement in it untraced — silently erasing the import-time
-# coverage of whatever this module touches, in every project that measures it.
+# plugin before `pytest --cov` starts instrumenting, so importing the kernel here runs
+# its module-level statements untraced and their lines read as missed. A suite that
+# measures coverage should start it from process start (`coverage run -m pytest`, as
+# this repo's gate does); keeping the plugin's own imports lazy keeps it from being
+# the thing that forces the issue.
 
 
 @pytest.fixture(autouse=True)

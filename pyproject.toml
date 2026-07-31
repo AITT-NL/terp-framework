@@ -90,7 +90,10 @@ pythonpath = ["apps/example"]
 addopts = "-q"
 
 # Coverage gate: the full suite must hold 100% line coverage of the framework
-# (`terp.*`). Run it with `pytest --cov=terp` (CI does); `fail_under` then trips
+# (`terp.*`). Run it as `coverage run -m pytest` followed by `coverage report`
+# (CI does) — NOT `pytest --cov`, which starts instrumenting after pytest has
+# already loaded its entry-point plugins, so whatever terp-core's shipped plugin
+# (ADR 0091) imports runs untraced and reads as missed. `fail_under` then trips
 # the build if any framework line is unexercised. A plain `pytest` (no --cov)
 # stays fast for subset/dev runs. Genuinely-unreachable lines opt out with an
 # explicit, greppable `# pragma: no cover`.

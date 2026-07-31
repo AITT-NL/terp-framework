@@ -33,8 +33,13 @@ jobs:
       - name: Set up Python
         run: uv python install 3.14
 
+      # `coverage run -m pytest`, not `pytest --cov`: coverage must start before
+      # pytest loads its entry-point plugins, or the kernel imported by terp-core's
+      # own pytest plugin executes untraced and its import-time lines read as missed.
       - name: Run the gate (tests + arch rules + 100% coverage)
-        run: uv run pytest --cov=terp
+        run: |
+          uv run coverage run -m pytest
+          uv run coverage report
 
       # The verifiable certification artifact (scorecard.schema.json): the
       # terp-arch scorecard over the violation corpus, emitted by the same

@@ -83,7 +83,10 @@ jobs:
           grep -q "^version = \"$version\"" packages/backend/core/pyproject.toml \
             || { echo "tag $GITHUB_REF_NAME != package version"; exit 1; }
       - name: Run the gate
-        run: uv run pytest --cov=terp
+        # See ci.yml: coverage starts before pytest loads its entry-point plugins.
+        run: |
+          uv run coverage run -m pytest
+          uv run coverage report
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"

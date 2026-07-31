@@ -89,6 +89,16 @@ without anyone noticing.
 deleted, not kept alongside. If the shipped plugin regressed, Terp's own suites would go
 order-dependent exactly like an app's would.
 
+**8. Coverage is measured from process start.** Shipping an entry-point plugin changed
+what `pytest --cov` can see: pytest loads `pytest11` plugins *before* pytest-cov begins
+instrumenting, so everything the plugin imports executes untraced and its import-time
+lines read as missed. The framework's own gate fell from 100% to 89% with all 1802 tests
+still passing — a coverage number that silently stops meaning what it says is worse than
+one that fails. The gate therefore runs `coverage run -m pytest` + `coverage report`
+(ADR 0003), which starts measuring before pytest exists. The plugin additionally defers
+its `terp.core` imports into the fixture bodies, so it is not the module that forces a
+consuming project to discover this the hard way.
+
 ## Consequences
 
 An app author no longer needs to know that Terp has process globals at all. The hazard

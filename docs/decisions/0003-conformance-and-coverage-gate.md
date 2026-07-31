@@ -33,18 +33,21 @@ fail-closed control plus a build-time check:
    cannot silently become incomplete.
 
 3. **100% line-coverage gate.** The full suite enforces 100% line coverage of the
-   framework (`terp.*`) via `pytest --cov=terp` with `fail_under = 100`
-   (`[tool.coverage.report]`). Unexercised framework code fails the build.
-   Genuinely-unreachable defensive lines opt out only with an explicit, greppable
-   `# pragma: no cover`. A plain `pytest` (no `--cov`) stays fast for subset/dev
-   runs; the gate run and CI add `--cov`.
+   framework (`terp.*`) via `coverage run -m pytest` + `coverage report` with
+   `fail_under = 100` (`[tool.coverage.report]`). Unexercised framework code fails
+   the build. Genuinely-unreachable defensive lines opt out only with an explicit,
+   greppable `# pragma: no cover`. A plain `pytest` stays fast for subset/dev runs.
+   Coverage is started from **process start**, not by `pytest --cov`: pytest loads
+   entry-point plugins (terp-core ships one, ADR 0091) before `pytest-cov` begins
+   instrumenting, so anything such a plugin imports would run untraced and read as
+   missed — an 11-point drop with every test still passing.
 
 4. **Authority-map visualization.** `terp inspect control-plane` renders the live
    permission model + each module's policy requirements as either text or a
    Mermaid `flowchart` (`--format mermaid`). This is the remote-audit surface from
    ADR 0002 §9.4: a reviewer reads one authority map instead of spelunking routes.
 
-CI (`.github/workflows/ci.yml`) runs the whole gate (`uv run pytest --cov=terp`)
+CI (`.github/workflows/ci.yml`) runs the whole gate (`uv run coverage run -m pytest`)
 on every push and pull request, so enforcement does not depend on a developer
 remembering to run it.
 
@@ -79,9 +82,9 @@ control plane, and that the enforcement suite itself is complete.
 ## Gate command
 
 ```bash
-uv run pytest --cov=terp          # full gate: tests + arch rules + 100% coverage
+uv run coverage run -m pytest && uv run coverage report   # tests + arch rules + 100% coverage
 # local (no uv):
-.venv/Scripts/python -m pytest --cov=terp
+.venv/Scripts/python -m coverage run -m pytest && .venv/Scripts/python -m coverage report
 ```
 
 Status: **Accepted** — 141 tests green, 100% line coverage enforced.
