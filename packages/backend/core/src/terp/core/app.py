@@ -47,8 +47,13 @@ from terp.core.errors import (
     PermissionDeniedError,
     build_error_envelope,
 )
+from terp.core.base_service import inert_declarations
 from terp.core.cache import CacheStore, configure_cache, is_shared_cache_store
-from terp.core.events import EventDispatcher, configure_events
+from terp.core.events import (
+    EventDispatcher,
+    configure_events,
+    subscribed_event_names,
+)
 from terp.core.health import build_health_router
 from terp.core.idempotency import (
     IdempotencyStore,
@@ -487,6 +492,49 @@ def _validate_unique_spec_names(specs: Sequence[ModuleSpec]) -> None:
                 "shadow another router"
             )
         seen[spec.name] = repr(spec)
+
+
+def _validate_no_inert_declarations(specs: Sequence[ModuleSpec]) -> None:
+    """Fail closed on a service declaration no base it inherits reads.
+
+    ``BaseService.__init_subclass__`` already refuses this, but it can only compare
+    against the bases imported when the class body runs — and "forgot to inherit the
+    base" often means "never imported the capability". Boot is the first point where
+    every capability is loaded, so the same question gets a complete answer here.
+    """
+    for spec in specs:
+        for service in spec.services:
+            inert = inert_declarations(service)
+            if inert:
+                names = ", ".join(repr(name) for name in inert)
+                raise BootError(
+                    f"module {spec.name!r} service {service.__name__} declares {names}, "
+                    "which no base it inherits reads; the declaration is silently "
+                    "ignored — inherit the service base that consumes it (e.g. "
+                    "EventEmittingService for 'event_map') or drop the declaration"
+                )
+
+
+def _validate_subscriptions_have_handlers(specs: Sequence[ModuleSpec]) -> None:
+    """Fail closed when a module declares a subscription nothing is listening for.
+
+    ``ModuleSpec.subscribes`` says the module reacts to an event; the handler lives in
+    another file, registered as a side effect of importing it. Forget that import — the
+    single most ordinary refactor there is — and the declaration keeps claiming the
+    subscription while the module hears nothing. There is no failure to observe: no
+    error, no log line, just work that never happens. So the boot refuses instead.
+    """
+    listening = subscribed_event_names()
+    for spec in specs:
+        for definition in spec.subscribes:
+            if definition.name not in listening:
+                raise BootError(
+                    f"module {spec.name!r} subscribes to event {definition.name!r} "
+                    "but no handler is registered for it; import the module file that "
+                    "declares the @subscribe handler from its manifest (registration is "
+                    "an import side effect), install an event-bus capability, or drop "
+                    "the declaration"
+                )
 
 
 def _request_size_override_map(
@@ -1148,6 +1196,8 @@ def create_app(
     if plane_errors:
         raise BootError("; ".join(plane_errors))
     _validate_permission_enforcement(collected, permission_enforcer)
+    _validate_subscriptions_have_handlers(collected)
+    _validate_no_inert_declarations(collected)
     _validate_token_revocation(principal_provider, require_token_revocation)
     _validate_policy_write_tiers(collected)
     _validate_public_modules_read_only(collected)

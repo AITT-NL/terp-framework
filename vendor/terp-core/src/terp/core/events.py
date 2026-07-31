@@ -232,6 +232,30 @@ register_runtime_seam(
 )
 
 
+# Who is actually listening. A ``ModuleSpec.subscribes`` entry is a *declaration*;
+# whether a handler exists for it is known only to the event-bus capability that owns
+# the handler registry. A capability reports its registry here at import (like a scope
+# predicate, this outlives any one composed app), and ``create_app`` cross-checks every
+# declaration against it — so "declared a subscription, never imported the handler
+# module" fails the boot instead of producing an app that quietly hears nothing.
+SubscriptionSource = Callable[[], Iterable[str]]
+
+_subscription_sources: list[SubscriptionSource] = []
+
+
+def register_subscription_source(source: SubscriptionSource) -> None:
+    """Report an event-handler registry to the kernel (idempotent, by identity)."""
+    if source not in _subscription_sources:
+        _subscription_sources.append(source)
+
+
+def subscribed_event_names() -> frozenset[str]:
+    """Every event name some registered handler is listening for, across all sources."""
+    return frozenset(
+        name for source in _subscription_sources for name in source()
+    )
+
+
 def _validate_payload(
     definition: EventDefinition, payload: Any | None
 ) -> dict[str, Any]:

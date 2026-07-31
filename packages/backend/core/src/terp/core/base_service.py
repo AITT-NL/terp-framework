@@ -32,7 +32,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Generic, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar
 
 from sqlalchemy import ColumnElement, func
 from sqlalchemy.exc import IntegrityError
@@ -100,6 +100,31 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+# Every class-level declaration name any service base has claimed to consume (see
+# ``BaseService.consumes_declarations``). A declaration is only meaningful because
+# some base *reads* it; this set is what lets the kernel tell a live declaration
+# from an inert one without knowing what any capability's declaration means.
+_CONSUMED_DECLARATIONS: set[str] = set()
+
+
+def inert_declarations(service: type) -> list[str]:
+    """Declaration names *service* sets that no base in its MRO reads.
+
+    ``__init_subclass__`` refuses this at class definition, but only against the bases
+    imported so far — and the failure it guards is precisely "never imported the base",
+    so a module that skips the capability entirely can define its class before anything
+    claims the name. ``create_app`` re-runs the same question once every capability is
+    loaded, which is the first moment the answer is complete.
+    """
+    consumed = {
+        name
+        for klass in service.__mro__
+        for name in getattr(klass, "consumes_declarations", ())
+    }
+    declared = {name for klass in service.__mro__ for name in vars(klass)}
+    return sorted(declared & _CONSUMED_DECLARATIONS - consumed)
+
+
 class BaseService(Generic[ModelT, CreateT, UpdateT]):
     """Canonical CRUD for a :class:`~terp.core.BaseTable` model.
 
@@ -110,6 +135,32 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
     """
 
     model: type[ModelT]
+
+    consumes_declarations: ClassVar[frozenset[str]] = frozenset()
+    """Class-level declaration names *this base actually reads* (e.g. ``event_map``).
+
+    A declarative mixin sets this to name the attributes it consumes. The kernel then
+    refuses a subclass that sets one of those names without inheriting a base that
+    consumes it — the failure mode where a service declares an ``event_map`` but
+    forgot ``EventEmittingService``, so the declaration is real, correct, reviewed,
+    and silently does nothing.
+    """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        _CONSUMED_DECLARATIONS.update(cls.consumes_declarations)
+        inert = sorted(
+            name
+            for name in cls.__dict__.keys() & _CONSUMED_DECLARATIONS
+            if name not in cls.consumes_declarations
+        )
+        if inert:
+            names = ", ".join(repr(name) for name in inert)
+            raise TypeError(
+                f"{cls.__name__} declares {names}, which no base it inherits reads; "
+                "the declaration would be silently ignored — inherit the service "
+                "base that consumes it (e.g. EventEmittingService for 'event_map')"
+            )
 
     filterable: Sequence[FilterField] = ()
     """Columns a caller may narrow a read by — see :mod:`terp.core.filtering`.

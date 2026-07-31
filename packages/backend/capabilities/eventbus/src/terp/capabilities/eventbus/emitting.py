@@ -66,6 +66,14 @@ class EventEmittingService(BaseService[ModelT, CreateT, UpdateT]):
 
     event_map: ClassVar[LifecycleEventMap]
 
+    consumes_declarations: ClassVar[frozenset[str]] = frozenset({"event_map"})
+    """Claims ``event_map`` as a live declaration.
+
+    Only a class inheriting *this* base emits from its map, so the kernel refuses an
+    ``event_map`` set on a service that inherits plain ``BaseService`` instead of
+    letting the declaration sit there doing nothing.
+    """
+
     def _after_write(self, session: Session, entity: ModelT, action: AuditAction) -> None:
         super()._after_write(session, entity, action)
         definition = self.event_map.for_action(action)

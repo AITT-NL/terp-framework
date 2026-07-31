@@ -16,11 +16,16 @@ from pydantic import BaseModel
 
 from terp.core import (
     AuditAction,
+    BaseService,
     EventCatalog,
     EventDefinition,
     EventEnvelope,
     EventVisibility,
+    ModuleSpec,
+    Policy,
+    create_app,
 )
+from terp.core.app import BootError
 from terp.core.events import EventDispatcher, configure_events, reset_events_runtime
 
 from terp.capabilities.eventbus import EventEmittingService, LifecycleEventMap
@@ -118,3 +123,43 @@ def test_event_payload_is_overridable_for_a_computed_payload() -> None:
     entity = SimpleNamespace(id=uuid.uuid4(), title="ignored")
     _CustomService()._save(_SpySession(), entity, AuditAction.CREATED)  # type: ignore[arg-type]
     assert seen[0].payload["title"] == "OVERRIDDEN"
+
+
+def test_an_event_map_without_the_emitting_base_is_refused_at_class_definition() -> None:
+    """The declaration is real, correct, reviewed — and inert. Refuse it, loudly.
+
+    Forgetting ``EventEmittingService`` leaves a service whose ``event_map`` nothing
+    reads: the module believes it publishes, every test of the module passes, and the
+    events simply never happen. Nothing downstream can detect the difference between
+    "no subscriber ran" and "no event was ever emitted", so the kernel refuses the
+    class itself.
+    """
+    with pytest.raises(TypeError, match="which no base it inherits reads"):
+
+        class _ForgotTheBase(BaseService):
+            event_map = LifecycleEventMap(created=_CREATED)
+
+
+def test_the_declaration_is_live_on_a_class_that_inherits_the_emitting_base() -> None:
+    assert "event_map" in EventEmittingService.consumes_declarations
+    assert _NoteService.event_map.created is _CREATED
+
+
+def test_an_inert_declaration_is_refused_at_boot_even_if_the_class_slipped_through() -> (
+    None
+):
+    """The class-definition refusal only sees the bases imported so far.
+
+    "Forgot the emitting base" and "never imported the eventbus capability" are the
+    same mistake, so the class body can run before anything claims ``event_map``.
+    Boot is the first moment the answer is complete, so it asks again.
+    """
+
+    class _Slipped(BaseService):
+        pass
+
+    _Slipped.event_map = LifecycleEventMap(created=_CREATED)  # type: ignore[attr-defined]
+    spec = ModuleSpec(name="notes", policy=Policy.default(), services=[_Slipped])
+    with pytest.raises(BootError, match="which no base it inherits reads"):
+        create_app([spec])
+

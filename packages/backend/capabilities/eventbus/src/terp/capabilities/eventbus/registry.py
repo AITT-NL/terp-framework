@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from terp.core import EventDefinition, EventEnvelope
+from terp.core.events import register_subscription_source
 
 # A handler reacts to one already-validated event fact. It runs synchronously in
 # the producer's transaction (see :func:`dispatch_in_process`), so it must not
@@ -54,6 +55,16 @@ def registered_handlers() -> dict[str, list[HandlerFn]]:
 def clear_handlers() -> None:
     """Drop every registered handler (diagnostics / test isolation)."""
     _HANDLERS.clear()
+
+
+def _subscribed_names() -> list[str]:
+    """The event names this registry is listening for (the kernel's boot cross-check)."""
+    return list(_HANDLERS)
+
+
+# Report the registry to the kernel so ``create_app`` can refuse a module that declares
+# a subscription no handler was ever registered for (a forgotten handler-module import).
+register_subscription_source(_subscribed_names)
 
 
 __all__ = [

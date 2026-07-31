@@ -14,8 +14,19 @@ from collections.abc import Iterator
 import pytest
 from pydantic import BaseModel
 
-from terp.core import EventCatalog, EventDefinition, EventEnvelope, EventVisibility, emit
-from terp.core.events import reset_events_runtime
+from terp.core import (
+    ControlPlane,
+    EventCatalog,
+    EventDefinition,
+    EventEnvelope,
+    EventVisibility,
+    ModuleSpec,
+    Policy,
+    create_app,
+    emit,
+)
+from terp.core.app import BootError
+from terp.core.events import reset_events_runtime, subscribed_event_names
 
 from terp.capabilities.eventbus import (
     clear_handlers,
@@ -152,3 +163,45 @@ def test_current_event_session_outside_a_dispatch_fails_closed() -> None:
     # rather than handing back a wrong / None session.
     with pytest.raises(RuntimeError, match="in-process event dispatch"):
         current_event_session()
+
+
+# --------------------------------------------------------------------------- #
+# the boot cross-check: a declared subscription must have a registered handler
+# --------------------------------------------------------------------------- #
+def test_a_declared_subscription_without_a_handler_is_refused_at_boot() -> None:
+    """Declaring `subscribes` and forgetting the handler import must fail the boot.
+
+    The handler registers as a side effect of importing its module. Drop that import
+    and the manifest still claims the subscription while nothing listens — an app that
+    is wrong in a way no request, log line or test of the module can reveal.
+    """
+    spec = ModuleSpec(
+        name="widgets", policy=Policy.default(), subscribes=[_CREATED]
+    )
+    with pytest.raises(BootError, match="no handler is registered"):
+        create_app(
+            [spec],
+            control_plane=ControlPlane(events=EventCatalog([_CREATED])),
+        )
+
+
+def test_a_declared_subscription_with_a_registered_handler_boots() -> None:
+    @subscribe(_CREATED)
+    def handler(envelope: EventEnvelope) -> None:  # pragma: no cover - never dispatched
+        return None
+
+    spec = ModuleSpec(
+        name="widgets", policy=Policy.default(), subscribes=[_CREATED]
+    )
+    create_app(
+        [spec],
+        control_plane=ControlPlane(events=EventCatalog([_CREATED])),
+    )
+
+
+def test_the_registry_reports_its_subscriptions_to_the_kernel() -> None:
+    @subscribe(_CREATED)
+    def handler(envelope: EventEnvelope) -> None:  # pragma: no cover - never dispatched
+        return None
+
+    assert _CREATED.name in subscribed_event_names()
