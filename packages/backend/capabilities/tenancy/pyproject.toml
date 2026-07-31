@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-tenancy"
-version = "0.5.2"
+version = "0.5.3"
 description = "Terp tenancy capability — tenant isolation by construction (session-level filter + insert stamp)."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.5.2",
+    "terp-core==0.5.3",
     "starlette>=0.37",
 ]
 

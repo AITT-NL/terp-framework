@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-eventbus"
-version = "0.5.2"
+version = "0.5.3"
 description = "Terp event-bus capability — the in-process dispatcher + handler registry for the core event seam."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.5.2",
+    "terp-core==0.5.3",
 ]
 
 # A *library* capability: no `terp.capabilities` entry point (nothing to mount)

@@ -10,7 +10,10 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## Unreleased
+## 0.5.3 — 2026-07-31
+
+Four findings from the first app to adopt 0.5.2's shipped test isolation, fixed where
+they belong: three in the isolation story itself, one in `terp migrate`.
 
 ### Added
 

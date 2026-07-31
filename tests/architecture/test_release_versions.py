@@ -31,7 +31,7 @@ _TEMPLATE_FRONTEND_MANIFEST = (
     _REPO_ROOT / "template" / "project" / "frontend" / "package.json.jinja"
 )
 
-_RELEASE_VERSION = "0.5.2"
+_RELEASE_VERSION = "0.5.3"
 
 
 def _pyproject_version(path: pathlib.Path) -> str:
