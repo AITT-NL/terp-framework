@@ -5,10 +5,18 @@ import type { UiText } from "../uiText";
 
 export type BadgeTone = "neutral" | "info" | "success" | "warning" | "danger";
 
-export interface BadgeProps {
-  label: UiText;
-  tone?: BadgeTone;
-}
+/**
+ * The pill's content, either way round.
+ *
+ * Every other component in the catalog takes children, so `<Badge tone="success">No
+ * drift</Badge>` is the obvious first guess — it used to be a typecheck error, for no
+ * reason a caller could see. Both spellings work; `label` stays for call sites that
+ * already use it, and either accepts a `UiText` so the string still translates.
+ */
+export type BadgeProps = { tone?: BadgeTone } & (
+  | { label: UiText; children?: never }
+  | { children: UiText; label?: never }
+);
 
 const toneColor: Record<BadgeTone, string> = {
   neutral: "var(--color-neutral-600)",
@@ -41,8 +49,8 @@ const badgeStyle = (tone: BadgeTone): CSSProperties => ({
 });
 
 /** Small token-styled status pill — flat soft tint with a matching text colour. */
-export function Badge({ label, tone = "neutral" }: BadgeProps) {
+export function Badge({ label, children, tone = "neutral" }: BadgeProps) {
   const resolve = useUiText();
-  return <span style={badgeStyle(tone)}>{resolve(label)}</span>;
+  return <span style={badgeStyle(tone)}>{resolve((label ?? children) as UiText)}</span>;
 }
 

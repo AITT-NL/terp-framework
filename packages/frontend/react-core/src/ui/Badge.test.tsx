@@ -11,4 +11,9 @@ describe("Badge", () => {
     render(<Badge label="Active" tone="success" />);
     expect(screen.getByText("Active").style.color).toContain("var(--color-status-success)");
   });
+
+  it("takes its text as children too, the way every other component does", () => {
+    render(<Badge tone="danger">No drift</Badge>);
+    expect(screen.getByText("No drift").style.color).toContain("var(--color-status-danger)");
+  });
 });

@@ -70,7 +70,7 @@ runtime, fail closed (ADR 0059), so every screen keeps the breadcrumb/title/erro
 | `HubPage`, `HubCard` | Responsive `auto-fit` landing grid. Cards share equal outer and internal tracks even when descriptions/stats differ; nested hubs use the ordinary breadcrumb contract via `parents`. |
 | `OverviewPage` | A module's top-level listing screen (level 2); detail pages crumb back to it. |
 | `DetailPage` | One record's screen (level 3); breadcrumb trail = ancestors + record title. |
-| `Breadcrumbs` | The trail itself (used by the archetypes; rarely composed directly). |
+| `Breadcrumbs` | The trail itself (used by the archetypes; rarely composed directly). Ancestor crumbs use the router's `Link` by default — `renderLink` is only for rendering outside a Terp router. |
 | `ModuleNav` | Secondary horizontal tabs for intra-module sub-pages (real routes, not state). |
 | `PageActions` | Primary action + overflow menu for a page header. |
 
@@ -131,7 +131,7 @@ marker, counted by the escape-hatch budget.
 | `Radio`, `RadioGroup` | Labelled radio and accessible grouped radio options with controlled or uncontrolled value. |
 | `Switch` | Labelled boolean toggle (`role="switch"`) with `checked` / `defaultChecked` and boolean `onChange`. |
 | `Tabs` | In-page (non-routed) tab set with `tablist` / `tab` / `tabpanel` roles, arrow-key navigation, and controlled or uncontrolled value. |
-| `Badge` | Small status pill (`tone`: neutral / info / success / warning / danger). |
+| `Badge` | Small status pill: `<Badge tone="success">Synced</Badge>` (or `label="Synced"`); `tone`: neutral / info / success / warning / danger. |
 | `Tooltip` | Accessible focus/hover tooltip that describes its trigger with `aria-describedby`. |
 | `Popover`, `Menu`, `MenuItem` | Shared anchored overlay and dropdown-menu primitives: body-portaled, viewport-aware panels that escape scroll/table clipping, with outside-click/Escape close, focus return, selected-item semantics, and roving keyboard navigation. |
 | `Alert` | Inline banner for persistent feedback (`tone`: neutral / info / success / warning / danger); warnings and danger announce as `alert`, others as `status`. |
