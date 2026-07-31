@@ -19,6 +19,7 @@ from terp.arch import (
     check_base_query_not_overridden,
     check_canonical_module_shape,
     check_escape_hatch_budget,
+    check_emitted_events_are_declared,
     check_events_reference_catalog,
     check_input_schemas_exclude_managed_columns,
     check_input_str_fields_have_max_length,
@@ -1637,6 +1638,71 @@ def test_events_reference_catalog(tmp_path: pathlib.Path) -> None:
     violations = check_events_reference_catalog(app)
     assert _rule_names(violations) == {"events_reference_catalog"}
     assert len(violations) == 1  # only created='...'; updated=None + deleted=BILLING_PAID are clean
+
+
+def test_emitted_events_are_declared(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # The manifest declares one event; the service emits a second one it never named.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "from control_plane.events import BILLING_PAID\n"
+        "module = ModuleSpec(name='billing', emits=[BILLING_PAID])\n",
+    )
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from control_plane import events\n"
+        "def settle(session) -> None:\n    emit(session, event=events.BILLING_REFUNDED)\n",
+    )
+    violations = check_emitted_events_are_declared(app)
+    assert _rule_names(violations) == {"emitted_events_are_declared"}
+    assert len(violations) == 1
+    assert "BILLING_REFUNDED" in violations[0].message
+
+    # Declaring it makes the contract true again â€” and the declaration is matched by
+    # the constant's own identifier, so each file may import it however it likes.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "from control_plane.events import BILLING_PAID, BILLING_REFUNDED\n"
+        "module = ModuleSpec(name='billing', emits=[BILLING_PAID, BILLING_REFUNDED])\n",
+    )
+    assert check_emitted_events_are_declared(app) == []
+
+    # A LifecycleEventMap emits just as much as an explicit emit() call does.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from control_plane.events import BILLING_VOIDED\n"
+        "m = LifecycleEventMap(created=None, deleted=BILLING_VOIDED)\n",
+    )
+    violations = check_emitted_events_are_declared(app)
+    assert _rule_names(violations) == {"emitted_events_are_declared"}
+    assert "BILLING_VOIDED" in violations[0].message
+
+    # Each module answers for its own manifest: a neighbour's declaration is not cover.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from control_plane.events import BILLING_PAID\n"
+        "def settle(session) -> None:\n    emit(session, event=BILLING_PAID)\n",
+    )
+    _write(
+        app,
+        "modules/ledger/module.py",
+        "module = ModuleSpec(name='ledger')\n",
+    )
+    _write(
+        app,
+        "modules/ledger/service.py",
+        "from control_plane.events import BILLING_PAID\n"
+        "def post(session) -> None:\n    emit(session, event=BILLING_PAID)\n",
+    )
+    violations = check_emitted_events_are_declared(app)
+    assert len(violations) == 1
+    assert "ledger" in violations[0].path and "'ledger'" in violations[0].message
+
 
 
 def test_jobs_reference_catalog(tmp_path: pathlib.Path) -> None:

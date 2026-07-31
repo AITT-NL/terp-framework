@@ -33,6 +33,7 @@ from terp.arch.rules import (
     check_table_ownership_is_not_split,
     check_canonical_module_shape,
     check_escape_hatch_budget,
+    check_emitted_events_are_declared,
     check_events_reference_catalog,
     check_input_schemas_exclude_managed_columns,
     check_input_str_fields_have_max_length,
@@ -100,7 +101,7 @@ from terp.arch.rules import (
 #: the platform repo, not of a generated app, and the version is a property of the
 #: toolchain build. Held equal to the pinned ``terp-spec`` release by the framework
 #: gate (``tests/architecture/test_check_json.py``), so it cannot drift silently.
-SPEC_VERSION = "0.19.0"
+SPEC_VERSION = "0.20.0"
 
 __all__ = [
     "ArchViolation",
@@ -114,6 +115,7 @@ __all__ = [
     "check_base_query_not_overridden",
     "check_canonical_module_shape",
     "check_escape_hatch_budget",
+    "check_emitted_events_are_declared",
     "check_events_reference_catalog",
     "check_input_schemas_exclude_managed_columns",
     "check_input_str_fields_have_max_length",

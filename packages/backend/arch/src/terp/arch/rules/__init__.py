@@ -59,7 +59,10 @@ from terp.arch.rules.hygiene import (
     check_no_todo_fixme,
 )
 from terp.arch.rules.size import check_no_oversized_python_files
-from terp.arch.rules.events import check_events_reference_catalog
+from terp.arch.rules.events import (
+    check_emitted_events_are_declared,
+    check_events_reference_catalog,
+)
 from terp.arch.rules.http import (
     check_list_routes_paginate,
     check_no_adhoc_logging_config,
@@ -163,6 +166,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_empty_tests": "rules",
     "mutations_emit_audit": "service",
     "events_reference_catalog": "events",
+    "emitted_events_are_declared": "events",
     "jobs_reference_catalog": "jobs",
     "no_adhoc_config_decrypt": "capability",
     "no_hardcoded_credentials": "capability",
@@ -241,6 +245,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_empty_tests,
     check_mutations_emit_audit,
     check_events_reference_catalog,
+    check_emitted_events_are_declared,
     check_jobs_reference_catalog,
     check_no_adhoc_config_decrypt,
     check_no_hardcoded_credentials,
@@ -368,6 +373,7 @@ __all__ = [
     "check_canonical_module_shape",
     "check_escape_hatch_budget",
     "check_events_reference_catalog",
+    "check_emitted_events_are_declared",
     "check_list_routes_paginate",
     "check_input_str_fields_have_max_length",
     "check_jobs_reference_catalog",

@@ -11,7 +11,21 @@ import ast
 import pathlib
 
 from terp.arch._ast import base_name, iter_python_files, parse
-from terp.arch.rules._support import ArchViolation, _rel
+from terp.arch.rules._support import ArchViolation, _module_under, _rel
+
+
+def _terminal_name(value: ast.expr) -> str | None:
+    """The constant's own identifier: ``NOTE_CREATED`` / ``events.NOTE_CREATED``.
+
+    Comparing declarations by terminal identifier is what makes this rule readable
+    from source alone — the manifest and the emit site name the same constant, however
+    each file chose to import it.
+    """
+    if isinstance(value, ast.Name):
+        return value.id
+    if isinstance(value, ast.Attribute):
+        return value.attr
+    return None
 
 
 def _event_ref_violation(
@@ -93,4 +107,78 @@ def check_events_reference_catalog(
                 violation = _event_ref_violation(value, rel, where)
                 if violation is not None:
                     violations.append(violation)
+    return violations
+
+
+def check_emitted_events_are_declared(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """A module emits only the events its ``ModuleSpec`` declares in ``emits``.
+
+    ``ModuleSpec.emits`` is the module's published contract: it is what the control
+    plane validates, what an operator reads to know what this module produces, and
+    what another team subscribes against. An emit the manifest never declared makes
+    that contract quietly untrue — the event really does go out, so nothing fails,
+    while the document everyone reasons from says it cannot happen.
+
+    ``emit()`` takes no module identity at the call site, so the running system has no
+    way to attribute an emit to a manifest; the association exists only in the source
+    layout (which module package the call lives in). That makes this a build-time rule
+    by construction, not by preference.
+    """
+    root = pathlib.Path(app_root)
+    declared: dict[str, set[str]] = {}
+    emitted: list[tuple[str, str, str, int]] = []
+    for path in iter_python_files(root):
+        module = _module_under(path, package)
+        if module is None:
+            continue
+        tree = parse(path)
+        rel = _rel(path, root)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = base_name(node.func)
+            if name == "ModuleSpec":
+                for keyword in node.keywords:
+                    if keyword.arg == "emits" and isinstance(
+                        keyword.value, ast.List | ast.Tuple
+                    ):
+                        for element in keyword.value.elts:
+                            terminal = _terminal_name(element)
+                            if terminal is not None:
+                                declared.setdefault(module, set()).add(terminal)
+                continue
+            references: list[ast.expr] = []
+            if name == "emit":
+                references += [
+                    keyword.value
+                    for keyword in node.keywords
+                    if keyword.arg == "event"
+                ]
+            elif name == "LifecycleEventMap":
+                references += [
+                    keyword.value
+                    for keyword in node.keywords
+                    if keyword.arg in {"created", "updated", "deleted"}
+                ]
+            for reference in references:
+                terminal = _terminal_name(reference)
+                if terminal is not None:
+                    emitted.append((module, terminal, rel, reference.lineno))
+
+    violations: list[ArchViolation] = []
+    for module, terminal, rel, lineno in emitted:
+        if terminal in declared.get(module, frozenset()):
+            continue
+        violations.append(
+            ArchViolation(
+                "emitted_events_are_declared",
+                rel,
+                lineno,
+                f"module {module!r} emits {terminal} but its ModuleSpec does not "
+                f"declare it; add {terminal} to ModuleSpec(emits=[...]) so the "
+                "module's published contract matches what it actually produces",
+            )
+        )
     return violations
