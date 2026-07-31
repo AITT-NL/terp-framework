@@ -337,13 +337,33 @@ Password strength (PasswordPolicy, Tier-B)
     "events": """\
 Domain events (eventbus capability)
 
+- The capability is a separate distribution — nothing below exists until you add it:
+      uv add terp-cap-eventbus
+  Then import from terp.capabilities.eventbus (EventEmittingService, LifecycleEventMap,
+  subscribe, dispatch_in_process).
 - Declare typed events in your control plane (never bare strings):
       NOTE_CREATED = EventDefinition("note.created", payload_schema=NoteCreatedPayload)
       event_catalog = EventCatalog([NOTE_CREATED])
+- Declare what the module produces in its manifest. The emits list is the module's
+  published contract, so the gate refuses an event you emit without naming it here:
+      module = ModuleSpec(name="notes", emits=[NOTE_CREATED, NOTE_ARCHIVED])
 - Emit declaratively from a service (atomic with the write):
       class NoteService(EventEmittingService[Note, NoteCreate, NoteUpdate]):
           model = Note
           event_map = LifecycleEventMap(created=NOTE_CREATED)
+- The map covers "every write of this shape emits this event". When the decision is
+  CONDITIONAL — a state transition, one event for some updates and none for others —
+  extend the same hook rather than emitting from a router or a task:
+      class NoteService(EventEmittingService[Note, NoteCreate, NoteUpdate]):
+          model = Note
+          event_map = LifecycleEventMap(created=NOTE_CREATED)
+
+          def _after_write(self, session, entity, action) -> None:
+              super()._after_write(session, entity, action)
+              if action is AuditAction.UPDATED and entity.status == "archived":
+                  emit(session, event=NOTE_ARCHIVED, payload=NoteArchivedPayload(id=entity.id))
+  _after_write runs inside the write's transaction, so a conditional emit is still
+  atomic with the row it describes — which is the whole reason the map lives there.
 - Subscribe with @subscribe(NOTE_CREATED). Reference catalog constants only (the gate
   enforces no-drift). Wire create_app(..., event_dispatcher=dispatch_in_process).
 - Switching the bus on in a service-level test: the `terp_events` fixture, never a

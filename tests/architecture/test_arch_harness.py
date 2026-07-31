@@ -1704,7 +1704,6 @@ def test_emitted_events_are_declared(tmp_path: pathlib.Path) -> None:
     assert "ledger" in violations[0].path and "'ledger'" in violations[0].message
 
 
-
 def test_jobs_reference_catalog(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     # Bare-string jobs anywhere they are named â€” enqueue(job=) / ModuleSpec(jobs=).
