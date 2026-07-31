@@ -10,6 +10,22 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## Unreleased
+
+### Added
+
+- **Strict test isolation (`terp_strict_isolation`).** Snapshot-and-restore is faithful,
+  and that is its blind spot: a runtime installed *before* the first test — a stray
+  `import app.main` at collection time, a module-scope `create_app()` — is part of the
+  snapshot, so it is restored before every test and covers every test equally. The suite
+  stays green together and red alone, and 0.5.2's autouse fixture could not see it,
+  because nothing had leaked. Set `terp_strict_isolation = true` (or pass
+  `--terp-strict-isolation`) and the snapshot is followed by a reset: every test starts
+  from the platform baseline, so a test that only ever passed on ambient state fails
+  where it stands. It is opt-in because a suite may *deliberately* compose once at
+  import, and the platform does not break that under anyone; new projects from the
+  template start with it on, and the framework now runs its own suites that way.
+
 ## 0.5.2 — 2026-07-31
 
 Four things an app could get wrong with no failure to look at. A declaration that

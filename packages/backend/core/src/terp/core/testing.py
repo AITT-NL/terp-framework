@@ -25,6 +25,20 @@ than per test, as ``apps/example`` does) keeps working, while anything a test in
 mid-run is still undone. Isolation therefore costs an existing suite nothing and can
 only turn an order-dependent green into a deterministic result.
 
+**What snapshot-and-restore does not catch, and how to catch it.** Restoring is
+faithful, which cuts both ways: a runtime that was already installed when the first
+test started — a stray ``import app.main`` at collection time, a module-scope
+``create_app()`` — is part of the snapshot, so it is restored before every test and
+covers every test equally. The suite stays green together and red alone, and the
+fixture cannot tell the difference, because from its point of view nothing leaked.
+Set ``terp_strict_isolation = true`` (or pass ``--terp-strict-isolation``) and the
+snapshot is followed by a reset, so every test starts from the platform baseline and a
+test that was only ever passing on ambient state fails where it stands instead of
+where the collection order happens to put it. It is opt-in because turning it on can
+fail a suite that is *deliberately* composed once at import — a legitimate design that
+the platform will not break under anyone. New projects generated from the template
+start with it on, which is the cheap moment to adopt it.
+
 It does not, and cannot, install a runtime the test needs — that is the app's own
 decision. Compose the app in a fixture (the pattern ``apps/example/tests/conftest.py``
 uses) when a test needs the whole runtime, or use :func:`terp_events` when a
@@ -46,18 +60,44 @@ __all__ = ["terp_default_runtime", "terp_events", "terp_runtime_isolation"]
 # this repo's gate does); keeping the plugin's own imports lazy keeps it from being
 # the thing that forces the issue.
 
+_STRICT_INI = "terp_strict_isolation"
+_STRICT_FLAG = "--terp-strict-isolation"
+_STRICT_HELP = (
+    "Reset every Terp runtime to the platform baseline before each test, instead of "
+    "only restoring it afterwards. Fails a test that passes on a runtime installed "
+    "before the suite started (a stray import at collection time) rather than on one "
+    "it installed itself."
+)
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Declare the strict-isolation switch (pytest hook, called when the plugin loads)."""
+    parser.addini(_STRICT_INI, help=_STRICT_HELP, type="bool", default=False)
+    parser.addoption(_STRICT_FLAG, action="store_true", default=False, help=_STRICT_HELP)
+
+
+def _strict(config: pytest.Config) -> bool:
+    """Whether this run resets to the baseline as well as restoring."""
+    return bool(config.getoption(_STRICT_FLAG) or config.getini(_STRICT_INI))
+
 
 @pytest.fixture(autouse=True)
-def terp_runtime_isolation() -> Iterator[None]:
+def terp_runtime_isolation(pytestconfig: pytest.Config) -> Iterator[None]:
     """Restore every process-global Terp runtime to its pre-test state (autouse).
 
     Snapshots each seam registered in :mod:`terp.core.runtime` before the test and puts
     it back afterwards, so no test can inherit — or leak — a composed app's audit sink,
     event dispatcher, job queue, schedule catalog, password policy or decrypt call site.
+
+    Under ``terp_strict_isolation`` the snapshot is followed by a reset, so the test
+    also cannot inherit a runtime that was installed before the suite began — the one
+    leak a faithful restore reproduces instead of removing. See the module docstring.
     """
-    from terp.core.runtime import capture_runtimes, restore_runtimes
+    from terp.core.runtime import capture_runtimes, reset_runtimes, restore_runtimes
 
     state = capture_runtimes()
+    if _strict(pytestconfig):
+        reset_runtimes()
     try:
         yield
     finally:

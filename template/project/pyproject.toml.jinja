@@ -52,6 +52,12 @@ packages = ["app", "control_plane"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+# terp-core ships the runtime-isolation plugin; strict mode additionally resets every
+# runtime to the platform baseline before each test, so a test can only pass on a
+# runtime it installed itself -- never on one a stray import installed at collection
+# time. A new project starts clean, which is the one cheap moment to adopt it; turning
+# it off later means accepting that a suite can be green together and red alone.
+terp_strict_isolation = true
 
 # The delegated generic AppSec baseline (ADR 0085): ruff's bandit-derived `S`
 # rules cover the vulnerability classes the Terp Standard deliberately does NOT

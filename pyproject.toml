@@ -88,6 +88,11 @@ lint = [
 testpaths = ["tests", "apps/example/tests"]
 pythonpath = ["apps/example"]
 addopts = "-q"
+# The framework runs its own suites the way it tells a generated project to run theirs
+# (`template/project/pyproject.toml.jinja`): every test starts from the platform
+# baseline, so nothing here can pass on a runtime a stray collection-time import
+# happened to install. If this ever has to be turned off, the reason belongs here.
+terp_strict_isolation = true
 
 # Coverage gate: the full suite must hold 100% line coverage of the framework
 # (`terp.*`). Run it as `coverage run -m pytest` followed by `coverage report`

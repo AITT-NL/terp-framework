@@ -380,6 +380,16 @@ Testing a Terp app (process-global runtime isolation)
   test and RESTORES it after. No conftest.py line, no opt-in. Without it a suite goes
   order-dependent: green together, red alone - the sharpest failure mode there is,
   because the green is the wrong answer.
+- Restoring is faithful, which is also its blind spot: a runtime installed BEFORE the
+  first test (a stray `import app.main` at collection time, a module-scope create_app())
+  is part of the snapshot, so it is restored before every test and covers every test
+  equally - green together, red alone, with nothing having leaked. Turn on strict mode
+  and the snapshot is followed by a RESET, so every test starts from the platform
+  baseline and a test that only ever passed on ambient state fails where it stands:
+      [tool.pytest.ini_options]
+      terp_strict_isolation = true          # or: pytest --terp-strict-isolation
+  New projects start with it on. Switching it on in an existing suite can turn a green
+  red - that red is the finding, not the regression.
 - Isolation does not INSTALL a runtime your test needs - that is your decision:
       * whole runtime -> compose the app in a fixture (see apps/example/tests/conftest.py,
         where db_engine + app_db are function-scoped and build() runs per test)
