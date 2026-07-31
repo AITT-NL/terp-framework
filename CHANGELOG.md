@@ -26,6 +26,16 @@ decision, 0001 onwards.
   import, and the platform does not break that under anyone; new projects from the
   template start with it on, and the framework now runs its own suites that way.
 
+### Changed
+
+- **`terp_events` carries a real signature.** The fixture that exists so an app never
+  has to import the non-public `configure_events` was handing back a
+  `Callable[..., None]` wrapper typed `(catalog: object, *, dispatcher: object | None)`
+  — no completion, and no type error for the wrong catalog. It now *is*
+  `configure_events`, typed as the exported `InstallEvents` protocol
+  (`EventCatalog`, `EventDispatcher | None`), so the app pays nothing for the
+  indirection. Annotate the fixture parameter `InstallEvents`.
+
 ## 0.5.2 — 2026-07-31
 
 Four things an app could get wrong with no failure to look at. A declaration that

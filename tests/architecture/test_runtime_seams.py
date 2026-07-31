@@ -16,6 +16,7 @@ registration that is *meant* to outlive a composed app (``reset_job_tenant_conte
 from __future__ import annotations
 
 import importlib
+import inspect
 import pkgutil
 
 import terp.core
@@ -27,6 +28,7 @@ from terp.core.runtime import (
     restore_runtimes,
     runtime_seams,
 )
+from terp.core.testing import InstallEvents
 
 
 def _reset_runtime_functions() -> set[str]:
@@ -90,9 +92,13 @@ def test_registering_a_conflicting_seam_name_is_refused() -> None:
 
 
 def test_terp_events_fixture_installs_a_catalog_for_one_test(
-    terp_events: object,
+    terp_events: InstallEvents,
 ) -> None:
     """The sanctioned way to switch the bus on without composing the whole app.
+
+    Annotated with the exported :class:`InstallEvents`, which is the point of the
+    protocol: a test that must not import ``configure_events`` should not have to pay
+    for that with an untyped ``object`` either.
 
     That the *next* test does not inherit it is what the autouse isolation fixture
     guarantees; :func:`test_registered_seams_round_trip_their_state` pins the mechanism.
@@ -101,3 +107,15 @@ def test_terp_events_fixture_installs_a_catalog_for_one_test(
     assert callable(terp_events)
     terp_events(catalog)
     assert capture_runtimes()["events"][0] is catalog
+
+
+def test_terp_events_fixture_carries_the_real_signature(terp_events: InstallEvents) -> None:
+    """The fixture hands over ``configure_events`` itself, not a loosely typed shim.
+
+    A wrapper taking ``(catalog: object, *, dispatcher: object | None)`` gives the app
+    no completion and no type error for the wrong catalog — worse than the private
+    function it exists to replace.
+    """
+    from terp.core.events import configure_events
+
+    assert inspect.signature(terp_events) == inspect.signature(configure_events)

@@ -396,6 +396,8 @@ Testing a Terp app (process-global runtime isolation)
       * only the event bus -> the `terp_events` fixture, which installs a catalog
         (and dispatcher) for the duration of one test:
             terp_events(event_catalog, dispatcher=dispatch_in_process)
+        Annotate it `InstallEvents` (exported from terp.core.testing) - it carries
+        configure_events' real signature, so a wrong catalog is a type error.
       * asserting on what was written to a FAKE/bare session -> `terp_default_runtime`,
         which states the baseline instead of assuming it. Without it a composed app's
         durable audit sink quietly adds audit rows to the session under assertion.

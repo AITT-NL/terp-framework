@@ -47,11 +47,33 @@ service-level test needs only the event bus. See ``terp guide testing``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Protocol
 
 import pytest
 
-__all__ = ["terp_default_runtime", "terp_events", "terp_runtime_isolation"]
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from terp.core.events import EventCatalog, EventDispatcher
+
+__all__ = [
+    "InstallEvents",
+    "terp_default_runtime",
+    "terp_events",
+    "terp_runtime_isolation",
+]
+
+
+class InstallEvents(Protocol):
+    """What :func:`terp_events` hands a test: ``configure_events``' own signature.
+
+    Exported so an app's ``conftest.py`` can annotate a wrapper without importing the
+    non-public ``configure_events`` — the fixture exists precisely to keep that import
+    out of app code, and a fixture that costs its callers a type is a poor trade.
+    """
+
+    def __call__(
+        self, catalog: EventCatalog, *, dispatcher: EventDispatcher | None = None
+    ) -> None: ...
 
 # Imports of terp.core live INSIDE the fixtures, deliberately. pytest loads a pytest11
 # plugin before `pytest --cov` starts instrumenting, so importing the kernel here runs
@@ -125,7 +147,7 @@ def terp_default_runtime(terp_runtime_isolation: None) -> None:
 
 
 @pytest.fixture
-def terp_events() -> Callable[..., None]:
+def terp_events() -> InstallEvents:
     """Install an event *catalog* (and optional dispatcher) for the duration of one test.
 
     The sanctioned way for a service-level test to switch the event bus on without
@@ -136,10 +158,11 @@ def terp_events() -> Callable[..., None]:
     ``configure_events`` is deliberately not part of the ``terp.core`` public surface —
     installing the runtime is ``create_app``'s job in production, and this fixture is
     the one place a test may do it instead. :func:`terp_runtime_isolation` undoes it.
+
+    The fixture *is* ``configure_events``, typed as :class:`InstallEvents`: the test
+    gets the real signature — completion, and a type error for the wrong catalog —
+    without the import.
     """
     from terp.core.events import configure_events
 
-    def _install(catalog: object, *, dispatcher: object | None = None) -> None:
-        configure_events(catalog, dispatcher=dispatcher)  # type: ignore[arg-type]
-
-    return _install
+    return configure_events
