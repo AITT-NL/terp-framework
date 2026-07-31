@@ -37,14 +37,12 @@ from collections.abc import Callable, Iterator
 
 import pytest
 
-from terp.core.events import (
-    EventCatalog,
-    EventDispatcher,
-    configure_events,
-)
-from terp.core.runtime import capture_runtimes, reset_runtimes, restore_runtimes
-
 __all__ = ["terp_default_runtime", "terp_events", "terp_runtime_isolation"]
+
+# Imports of terp.core live INSIDE the fixtures, deliberately. pytest loads a pytest11
+# plugin before coverage instrumentation starts, so importing the kernel here would
+# execute every module-level statement in it untraced — silently erasing the import-time
+# coverage of whatever this module touches, in every project that measures it.
 
 
 @pytest.fixture(autouse=True)
@@ -53,8 +51,10 @@ def terp_runtime_isolation() -> Iterator[None]:
 
     Snapshots each seam registered in :mod:`terp.core.runtime` before the test and puts
     it back afterwards, so no test can inherit — or leak — a composed app's audit sink,
-    event dispatcher, job queue, schedule catalog or password policy.
+    event dispatcher, job queue, schedule catalog, password policy or decrypt call site.
     """
+    from terp.core.runtime import capture_runtimes, restore_runtimes
+
     state = capture_runtimes()
     try:
         yield
@@ -77,6 +77,8 @@ def terp_default_runtime(terp_runtime_isolation: None) -> None:
     default password policy. It depends on :func:`terp_runtime_isolation`, so the
     snapshot is taken *before* the reset and the process is left exactly as it was found.
     """
+    from terp.core.runtime import reset_runtimes
+
     reset_runtimes()
 
 
@@ -87,18 +89,15 @@ def terp_events() -> Callable[..., None]:
     The sanctioned way for a service-level test to switch the event bus on without
     composing the whole app::
 
-        def test_publishing_a_snapshot_reports_drift(terp_events, session):
-            terp_events(event_catalog, dispatcher=dispatch_in_process)
-            ...
+        terp_events(event_catalog, dispatcher=dispatch_in_process)
 
     ``configure_events`` is deliberately not part of the ``terp.core`` public surface —
     installing the runtime is ``create_app``'s job in production, and this fixture is
     the one place a test may do it instead. :func:`terp_runtime_isolation` undoes it.
     """
+    from terp.core.events import configure_events
 
-    def _install(
-        catalog: EventCatalog, *, dispatcher: EventDispatcher | None = None
-    ) -> None:
-        configure_events(catalog, dispatcher=dispatcher)
+    def _install(catalog: object, *, dispatcher: object | None = None) -> None:
+        configure_events(catalog, dispatcher=dispatcher)  # type: ignore[arg-type]
 
     return _install
