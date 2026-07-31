@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-auth"
-version = "0.5.3"
+version = "0.5.4"
 description = "Terp auth capability — Argon2 password hashing, JWT access tokens, and the get_principal seam."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.5.3",
+    "terp-core==0.5.4",
     "pwdlib[argon2]>=0.2",
     "pyjwt>=2.8",
 ]

@@ -10,6 +10,47 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## 0.5.4 — 2026-07-31
+
+Five findings from the first app to build real screens on the frontend surface, plus the
+tooling half of 0.5.3's isolation story. Every one of them was silent: a documented route
+that never matched, a link that reloaded the page, an envelope field CI keys off that was
+never a count, a guide teaching an API that does not compile, and a green strict run that
+proved less than it looked like.
+
+### Added
+
+- **`--terp-report-runtime-installs`.** Strict isolation resets *before* fixtures run, so
+  an autouse installer in a project's own `conftest.py` hands every test a runtime it
+  never asked for and a strict run agrees every time — the blind spot 0.5.3 could only
+  warn about in prose. The flag compares the state each test starts from with the state
+  it ends with and reports, per seam, the tests that installed it. Read the shape of the
+  answer: one or two test ids under a seam is a test installing what it needs; every id
+  in a package under one seam is a fixture installing it for them.
+- **`routerPath()` (`@terpjs/react-core`).** The route spelling the contract documents
+  (`/things/:id`) now mounts, alongside TanStack's own `$id`.
+- **`NavLinkContext` / `useNavLink()` (`@terpjs/react-core`).** Published by
+  `buildAppRouter`, so framework chrome can link through the router.
+
+### Changed
+
+- **`Breadcrumbs` and `HubCard` link through the router by default.** They previously
+  emitted a raw `<a href>` — the construct the boundary lint refuses in module code — so
+  every crumb click was a full page reload. Passing `renderLink` still overrides; outside
+  a Terp router the anchor remains the fallback.
+- **`Badge` takes its text as children**, the way every other component in the catalog
+  does. `label` keeps working; the two are mutually exclusive in the type.
+- **The boundary lint's machine envelope states the verdict** (`"ok": true | false`).
+  `terp_findings` was always a *format version* (ADR 0083), but a field named like a
+  count, sitting next to `findings`, was read as one by every first reader — including
+  CI. The version stays; the answer is now next to it.
+- **`terp guide dataview` teaches the real API.** Three of its lines did not compile
+  (`InMemoryDataViewRepository` options, a `keyField` prop that never existed, column
+  keys). The guide's snippets are now a typechecked `.tsx` fixture pinned to the guide
+  text by a test, so neither half can move without the other.
+- **`@terpjs/contract`'s `ModuleRoute.path` documents the translation** each adapter
+  performs, instead of an example that only worked in one of them.
+
 ## 0.5.3 — 2026-07-31
 
 Four findings from the first app to adopt 0.5.2's shipped test isolation, fixed where
