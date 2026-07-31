@@ -190,6 +190,7 @@ function main() {
       JSON.stringify({
         terp_findings: 1,
         tool: "terp-boundaries-budget",
+        ok: problems.length === 0,
         rules: ["frontend/escape-hatch"],
         findings: problems.map((problem) => ({
           rule: "frontend/escape-hatch",

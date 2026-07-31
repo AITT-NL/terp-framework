@@ -8,10 +8,18 @@
  * envelope** on stdout:
  *
  *   { "terp_findings": 1, "tool": "@terpjs/eslint-boundaries",
+ *     "ok": true,                                // did this run pass? (no findings)
  *     "rules": ["frontend/<rule>", …],          // every catalog rule this run evaluated
  *     "not_applicable": ["frontend/<rule>", …], // opt-in rules this app has not enabled
  *     "findings": [{ rule, path, line, message }, …],   // spec findings.schema.json shape
  *     "unattributed": [{ path, line, message, reported_as }, …] }
+ *
+ * `terp_findings: 1` is the envelope's **format version**, not a count — it is the
+ * discriminator a consumer matches on (the same role `terp_check_report: 1` plays for
+ * the check report) and it stays 1 whether the run found zero problems or twenty. The
+ * count lives in `findings.length`, and the verdict in `ok`. Reading the marker as a
+ * finding count is a real reported misread, which is why `ok` is there: a consumer that
+ * wants "did this pass" should never have to interpret a version number.
  *
  * `rules` is the evaluated-rule inventory ({@link catalogRuleIds}, minus the opt-in
  * rules listed under `not_applicable` — today `frontend/layout-contract` when the app
@@ -129,6 +137,9 @@ export function renderEnvelope(results, cwd = process.cwd(), options = {}) {
     envelope: {
       terp_findings: 1,
       tool: "@terpjs/eslint-boundaries",
+      // The verdict, stated: `terp_findings` is a format version and reads like a
+      // count, so leaving "did it pass" implicit invites the wrong answer.
+      ok: findings.length === 0,
       rules: catalogRuleIds().filter((id) => !notApplicable.includes(id)),
       not_applicable: notApplicable,
       findings,

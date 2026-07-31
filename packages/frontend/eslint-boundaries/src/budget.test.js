@@ -178,6 +178,7 @@ describe("terp-boundaries-budget --format json (the findings envelope)", () => {
     expect(envelope.findings[0].rule).toBe("frontend/escape-hatch");
     expect(envelope.findings[0].path).toBe("escape-hatch-budget.json");
     expect(envelope.findings[0].message).toMatch(/unbudgeted marker/);
+    expect(envelope.ok).toBe(false);
     expect(run.stderr).toMatch(/unbudgeted marker/);
   });
 
@@ -188,6 +189,9 @@ describe("terp-boundaries-budget --format json (the findings envelope)", () => {
     const envelope = JSON.parse(run.stdout);
     expect(envelope.rules).toEqual(["frontend/escape-hatch"]);
     expect(envelope.findings).toEqual([]);
+    // The version marker stays 1 on a clean run — `ok` is what says it passed.
+    expect(envelope.terp_findings).toBe(1);
+    expect(envelope.ok).toBe(true);
   });
 
   it("still reads a positional budget path alongside the flag", () => {

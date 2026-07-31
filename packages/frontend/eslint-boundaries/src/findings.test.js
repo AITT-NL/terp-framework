@@ -81,6 +81,29 @@ describe("renderEnvelope", () => {
     expect(human.length).toBe(envelope.findings.length);
   });
 
+  it("states the verdict, so the format version is never read as a count", async () => {
+    // `terp_findings: 1` is a discriminator; it stays 1 whatever the run found. A
+    // reported misread ("0 findings but terp_findings says 1") cost an app a cycle,
+    // so the envelope answers "did this pass" outright.
+    const clean = await lintModule("export function View() {\n  return null;\n}\n");
+    const cleanEnvelope = renderEnvelope(clean, path.resolve("."), {
+      layoutContract: true,
+    }).envelope;
+    expect(cleanEnvelope.findings).toEqual([]);
+    expect(cleanEnvelope.terp_findings).toBe(1);
+    expect(cleanEnvelope.ok).toBe(true);
+
+    const dirty = await lintModule(
+      'export function View() {\n  return <button style={{ color: "#fff" }}>x</button>;\n}\n',
+    );
+    const dirtyEnvelope = renderEnvelope(dirty, path.resolve("."), {
+      layoutContract: true,
+    }).envelope;
+    expect(dirtyEnvelope.findings.length).toBeGreaterThan(1);
+    expect(dirtyEnvelope.terp_findings).toBe(1);
+    expect(dirtyEnvelope.ok).toBe(false);
+  });
+
   it("publishes an un-opted-in layout contract as not_applicable, never as passing", async () => {
     // The opt-in rule is inert without a checked-in layout-contract.json; keeping it
     // in `rules` would let a consumer render "evaluated, zero findings" = green for a

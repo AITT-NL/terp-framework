@@ -42,12 +42,18 @@ that inventory (fail closed: no inventory → no verdict, never green).
    one findings envelope on stdout, humans on stderr:
 
    ```json
-   { "terp_findings": 1, "tool": "@terp/eslint-boundaries",
+   { "terp_findings": 1, "tool": "@terp/eslint-boundaries", "ok": true,
      "rules": ["frontend/…"], "not_applicable": ["frontend/…"],
      "findings": [{ "rule", "path", "line", "message" }],
      "unattributed": [{ "path", "line", "message", "reported_as" }] }
    ```
 
+   `terp_findings: 1` is the envelope's **format version**, the discriminator a
+   consumer matches on — not a finding count. It reads like one, and an app team
+   did read it as one (0 findings next to `terp_findings: 1` looked like a
+   contradiction and cost them an investigation), so the envelope states **`ok`**
+   outright: nobody should have to interpret a version number to learn whether
+   the run passed.
    `rules` is `catalogRuleIds()` (parity with `catalog/frontend/` is locked by
    findings.test.js) minus the opt-in rules the app has not enabled, which move
    to **`not_applicable`** (today: `frontend/layout-contract` without a
