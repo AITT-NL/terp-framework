@@ -36,6 +36,22 @@ decision, 0001 onwards.
   (`EventCatalog`, `EventDispatcher | None`), so the app pays nothing for the
   indirection. Annotate the fixture parameter `InstallEvents`.
 
+- **`terp migrate` refuses an in-memory database.** With no `DATABASE_URL` configured,
+  the settings default is in-memory SQLite — so `terp migrate upgrade` printed
+  `upgraded: [...]` against a database that ceased to exist when the process did, and
+  `terp migrate check`, one line later in the same shell, reported the app behind its
+  code. Both outputs were true; the pair was actively misleading, which is worse than
+  either failure alone. The stateful commands (`upgrade`, `downgrade`, `stamp`,
+  `status`, `check`, `adopt-schemas`, `grant-runtime`) now refuse an in-memory URL —
+  any spelling of it — and name the fix. The script-tree half (`make`, `merge`,
+  `heads`, `upgrade --sql`) never needed a database and is unaffected.
+
+- **`terp guide testing` leads with what you must still do yourself.** The topic opened
+  with "you get isolation for free — no conftest.py line, no opt-in" and only reached
+  "isolation does not *install* a runtime your test needs" in the fourth bullet. That
+  distinction is the entire migration, and the headline read as "delete your conftest".
+  Inverted, with a per-seam table (all six: restored automatically vs installed by you).
+
 ## 0.5.2 — 2026-07-31
 
 Four things an app could get wrong with no failure to look at. A declaration that

@@ -13,6 +13,7 @@ import sys
 from collections.abc import Sequence
 
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 
 from terp.core import get_settings
 from terp.migrations.errors import MigrationError, PendingMigrationsError
@@ -29,6 +30,48 @@ from terp.migrations.orchestrate import (
     upgrade,
     upgrade_sql,
 )
+
+
+# The commands whose ANSWER is about the database itself: applying, recording or
+# reporting persistent state. The rest of the CLI works on the script tree (`make`,
+# `merge`, `heads`) or emits SQL for someone else to run (`upgrade --sql`), and stays
+# usable without a database to point at.
+_STATEFUL_COMMANDS = frozenset(
+    {"upgrade", "downgrade", "stamp", "status", "check", "adopt-schemas", "grant-runtime"}
+)
+
+
+def _is_in_memory(database_url: str) -> bool:
+    """Whether *database_url* names a database that dies with this process."""
+    url = make_url(database_url)
+    if url.get_backend_name() != "sqlite":
+        return False
+    if url.query.get("mode") == "memory":
+        return True
+    return url.database in (None, "", ":memory:")
+
+
+def _refuse_in_memory(database_url: str, *, explicit: bool) -> None:
+    """Fail closed on an in-memory database, which no stateful migration command can mean.
+
+    Without a configured ``DATABASE_URL`` the settings default is in-memory SQLite, so
+    ``terp migrate upgrade`` used to print ``upgraded: [...]`` against a database that
+    ceased to exist when the process did — and ``terp migrate check``, one line later
+    in the same shell, reported the app behind its code. Both outputs were true and the
+    pair was actively misleading, which is worse than either failure alone.
+    """
+    if not _is_in_memory(database_url):
+        return
+    source = "--database-url" if explicit else "DATABASE_URL"
+    print(
+        f"{source} points at an in-memory SQLite database ({database_url!r}), which "
+        "exists only for the lifetime of this process: an upgrade applied here is "
+        "discarded on exit, and nothing can ever be reported current against it.\n"
+        "Point it at a database that outlives the command — a local file "
+        "(DATABASE_URL=sqlite:///./app.db) or the Postgres URL from your environment.",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 
 
 def _resolve_app_root(value: str | None) -> pathlib.Path | None:
@@ -163,6 +206,9 @@ def migrate_main(argv: Sequence[str] | None = None) -> None:
     """Entry point for ``terp migrate`` / the ``terp-migrate`` console script."""
     args = _build_parser().parse_args(argv)
     database_url = args.database_url or get_settings().DATABASE_URL
+    command = args.migrate_command or "check"
+    if command in _STATEFUL_COMMANDS and not (command == "upgrade" and args.sql):
+        _refuse_in_memory(database_url, explicit=args.database_url is not None)
     try:
         app_root = _resolve_app_root(args.app_root)
     except MigrationError as exc:

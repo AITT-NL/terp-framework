@@ -15,6 +15,7 @@ import os
 import pathlib
 import uuid
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pytest
 from alembic import command
@@ -391,7 +392,13 @@ def test_cli_explicit_bad_app_root_fails_closed(tmp_path: pathlib.Path) -> None:
     missing = tmp_path / "typo-app"
     with pytest.raises(SystemExit) as excinfo:
         migrate_main(
-            ["check", "--database-url", "sqlite://", "--app-root", str(missing)]
+            [
+                "check",
+                "--database-url",
+                f"sqlite:///{tmp_path / 'a.db'}",
+                "--app-root",
+                str(missing),
+            ]
         )
     assert excinfo.value.code == 2
 
@@ -509,12 +516,77 @@ def test_cli_adopt_schemas_reports_the_moves(
 
 
 def test_cli_adopt_schemas_fails_closed_off_postgres(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], tmp_path: pathlib.Path
 ) -> None:
+    """A real (file) SQLite URL: the refusal under test is "not PostgreSQL", not
+    "in-memory" — those are two different failures and each gets its own test."""
     with pytest.raises(SystemExit) as excinfo:
-        migrate_main(["adopt-schemas", "--database-url", "sqlite://"])
+        migrate_main(["adopt-schemas", "--database-url", f"sqlite:///{tmp_path / 'a.db'}"])
     assert excinfo.value.code == 1
     assert "PostgreSQL" in capsys.readouterr().err
+
+
+def test_cli_refuses_an_in_memory_database_for_a_stateful_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``upgrade`` against ``sqlite://`` used to succeed and be discarded on exit.
+
+    It printed ``upgraded: [...]`` while ``check``, one line later in the same shell,
+    reported the app behind its code. Both were true; the pair was misleading.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        migrate_main(["upgrade", "--database-url", "sqlite://"])
+    assert excinfo.value.code == 2
+    assert "in-memory" in capsys.readouterr().err
+
+
+def test_cli_refuses_an_in_memory_database_for_check_too(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The other half of the misleading pair — the same refusal, not a "behind" report."""
+    with pytest.raises(SystemExit) as excinfo:
+        migrate_main(["check", "--database-url", "sqlite:///:memory:"])
+    assert excinfo.value.code == 2
+    assert "in-memory" in capsys.readouterr().err
+
+
+def test_cli_refuses_the_shared_cache_spelling_of_in_memory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``?mode=memory`` is the same database with a different spelling."""
+    with pytest.raises(SystemExit) as excinfo:
+        migrate_main(["status", "--database-url", "sqlite:///x?mode=memory"])
+    assert excinfo.value.code == 2
+
+
+def test_cli_in_memory_refusal_names_the_setting_it_came_from(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Falling back to the settings default is the common case — name DATABASE_URL, not
+    the flag the developer never passed."""
+    monkeypatch.setattr(
+        migrate_cli, "get_settings", lambda: SimpleNamespace(DATABASE_URL="sqlite://")
+    )
+    with pytest.raises(SystemExit):
+        migrate_main(["upgrade"])
+    assert "DATABASE_URL points at" in capsys.readouterr().err
+
+
+def test_cli_allows_an_in_memory_database_for_a_script_tree_command(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``make`` / ``merge`` / ``heads`` / ``upgrade --sql`` work on files, not on state.
+
+    Refusing them would cost a developer with no database configured the one half of
+    the CLI that never needed one.
+    """
+    monkeypatch.setattr(
+        migrate_cli,
+        "upgrade_sql",
+        lambda *a, **k: "-- ddl\n",
+    )
+    migrate_main(["upgrade", "--sql", "--database-url", "sqlite://"])
+    assert "-- ddl" in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------- #
