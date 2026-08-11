@@ -10,6 +10,54 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## 0.5.5 — 2026-08-11
+
+A CLI that can answer "which Terp is this?", a gate that refuses to answer anything when
+the install is incoherent, and a release pipeline that can no longer half-publish. The
+theme is the same in all three: the platform knew something and only said it where nobody
+was listening.
+
+### Added
+
+- **`terp --version`.** Reports the whole lockstep set, not one number — every installed
+  `terp-*` distribution, discovered from the environment rather than a hand-kept list, and
+  any package that disagrees named with the fix. Terp is pinned by hand across two
+  manifests, so the natural failure is a forgotten pin leaving one package a release
+  behind, and until now nothing detected it.
+- **`terp guide changelog`.** This file, from an installed app: an upgrade you cannot read
+  about is one you will not take.
+- **`terp upgrade --check`.** Whether a newer Terp exists, without editing a manifest to
+  find out.
+- **`terp inspect capabilities` reports each capability's version**, so a mixed install is
+  visible from the surface that lists what is installed.
+- **`platform-install` check in every `terp verify` profile.** A mixed set is a forgotten
+  pin, not a supported combination, so a gate run against it proves nothing in either
+  direction — a green is not evidence and a red may belong to the mismatch. `terp
+  --version` had warned about this since earlier in this release; a warning inside a
+  command nobody runs before shipping is not a control. It now refuses, first, and the
+  generated project's CI runs the same check before spending the gate.
+- **`forwarded_filters_are_declared`.** A filter forwarded to a service that never
+  declared it silently returned unfiltered rows. Enforced at runtime *and* build time.
+
+### Fixed
+
+- **A read filter named but valued `None` no longer skips its own declaration check.** The
+  name was checked after the value, so the fail-open path was reachable with an empty
+  filter.
+- **The release can no longer publish to one registry and not the other.** PyPI and npm
+  are both immutable, so a version only one accepted can neither be completed nor
+  withdrawn — it is burned while still being pinnable, and a lockstep release burns it for
+  all sixteen distributions at once. `publish-npm` now runs after `publish-pypi`, the leg
+  that builds an artifact and can therefore fail on one, so a rejection leaves nothing
+  published and the version free to re-cut. The PyPI publisher pin also moved forward: it
+  was frozen at a digest whose bundled twine rejects the metadata today's build backend
+  emits, which is exactly how `terp-spec` 0.21.0 was lost.
+- **The backend build contexts carry the files the packages force-include.** `terp-core`
+  force-includes the repo-root `CHANGELOG.md` (so `terp guide changelog` works from an
+  installed app), which fails the image build outright in a context that copies only
+  `packages/`. Nothing local catches this: neither the gate nor CI's gate job builds a
+  wheel.
+
 ## 0.5.4 — 2026-07-31
 
 Five findings from the first app to build real screens on the frontend surface, plus the

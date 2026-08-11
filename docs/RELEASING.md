@@ -129,6 +129,13 @@ failed jobs from the same tag run: the PyPI upload (`skip-existing`), the npm lo
 (version-exists check), and the GitHub Release step are all idempotent, so a re-run
 publishes only what is still missing.
 
+The two registry legs run in sequence, PyPI first, so a failure there leaves npm
+untouched. That ordering is deliberate and load-bearing: both registries are immutable,
+so a version only one of them accepted can neither be completed nor withdrawn — the
+number is burned for all sixteen distributions while still being pinnable. PyPI goes
+first because it is the leg that publishes a built artifact and can therefore fail on
+one. (`terp-spec` 0.21.0 is the worked example of the alternative.)
+
 ## Version bumps
 
 Bump **every** backend `pyproject.toml`, every frontend `package.json`, the template
