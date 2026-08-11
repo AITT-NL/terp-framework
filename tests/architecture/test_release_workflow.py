@@ -175,13 +175,31 @@ def test_tag_release_dependency_graph_stays_fail_closed() -> None:
     jobs = _workflow()["jobs"]
     assert jobs["build-pypi"]["needs"] == "verify"
     assert jobs["publish-pypi"]["needs"] == "build-pypi"
-    assert jobs["publish-npm"]["needs"] == "verify"
     assert jobs["publish-images"]["needs"] == "verify"
     assert set(jobs["github-release"]["needs"]) == {
         "publish-pypi",
         "publish-npm",
         "publish-images",
     }
+
+
+def test_the_two_registry_legs_cannot_half_publish_a_version() -> None:
+    """PyPI and npm are both immutable, so a version only one of them accepted
+    can never be completed or withdrawn — the number is burned while still
+    being pinnable, and a lockstep release burns it for all 16 distributions
+    at once. Run in parallel, any one-sided failure reaches that state; ordered,
+    a failure leaves nothing published and the version free to re-cut. PyPI goes
+    first because it is the leg that publishes a built artifact and can fail on
+    one. terp-spec 0.21.0 is the worked example: npm accepted it, PyPI refused
+    the wheel. Images are deliberately not in this chain — GHCR tags can be
+    replaced, so an image ahead of a failed release is recoverable."""
+    needs = _workflow()["jobs"]["publish-npm"]["needs"]
+    assert "publish-pypi" in needs, (
+        "publish-npm must require publish-pypi — published alongside it, a "
+        "distribution PyPI refuses still leaves the release published on npm, "
+        "where it can neither be completed nor withdrawn"
+    )
+    assert "verify" in needs, "publish-npm must still start after verification"
 
 
 def test_release_actions_are_immutably_pinned() -> None:

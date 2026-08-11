@@ -179,13 +179,27 @@ jobs:
       # re-run of a partially failed release idempotent — critical because the
       # lockstep `==` pins make a partial publish uninstallable until completed.
       - name: Publish to PyPI (trusted publishing)
-        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # release/v1
+        # Keep this pin moving with the build backend above. The build resolves
+        # hatchling unpinned, so the metadata version it writes floats forward,
+        # while this action's bundled twine is frozen at the digest. terp-spec
+        # 0.21.0 died in exactly that gap (hatchling wrote Metadata-Version 2.5,
+        # the pinned twine called it invalid) — with 12 distributions riding on
+        # one upload, this workflow had the same failure waiting for it.
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist
           skip-existing: true
 
   publish-npm:
-    needs: verify
+    # Ordered AFTER PyPI rather than run alongside it. Both registries are
+    # immutable, so a version only one of them accepted can never be completed
+    # or withdrawn — the number is burned while still being pinnable, and a
+    # lockstep release burns it for all 16 distributions at once. PyPI is the
+    # half that can fail on an artifact, so it goes first: its failure now
+    # leaves nothing published and the version free to re-cut. Serialising
+    # costs one registry round-trip and no extra approval (the environment is
+    # approved per run, not per job).
+    needs: [verify, publish-pypi]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release
