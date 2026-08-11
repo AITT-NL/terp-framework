@@ -34,6 +34,12 @@ jobs:
 
       - run: npm ci
 
+      # @terpjs/conformance publishes compiled JavaScript (Playwright loads it from
+      # node_modules, where Node refuses to strip types), so the example app's e2e specs
+      # import dist/ through the workspace symlink and it has to exist first.
+      - name: Build @terpjs/conformance
+        run: npm run -w @terpjs/conformance build
+
       - name: Install Playwright (Chromium + OS deps)
         run: npx playwright install --with-deps chromium
 

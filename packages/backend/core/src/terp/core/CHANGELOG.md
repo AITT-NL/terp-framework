@@ -10,6 +10,27 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## Unreleased
+
+Three defects an app found that this repo structurally could not: each one is invisible
+in-house and only fires in a generated project.
+
+### Fixed
+
+- **`@terpjs/conformance` now publishes compiled JavaScript.** It exported `./src/index.ts`
+  like its siblings, but unlike them it is loaded by Playwright's runner from inside
+  `node_modules`, where Node refuses to strip types at all — so an installing app got
+  "No tests found" while this repo, whose own suite imports `../src`, saw nothing wrong.
+  `prepack` builds the artifact and CI asserts it exists.
+- **A generated app's CI generates its typed client before type-checking.** The client is a
+  build artifact and git-ignored, so a fresh checkout has none; Vite erases type-only
+  imports, so `build` passed and only `tsc` failed — invisible on the blank scaffold and a
+  permanent failure the moment a module first calls the API.
+- **The lockstep ratchet reads every template manifest, not one named path.** The
+  conformance suite pins `@terpjs/conformance` in a second `package.json.jinja` that no
+  test looked at; it sat four releases stale. Manifests are now discovered, and a test
+  asserts the discovery is not quietly empty.
+
 ## 0.5.5 — 2026-08-11
 
 A CLI that can answer "which Terp is this?", a gate that refuses to answer anything when
