@@ -272,6 +272,40 @@ The access model (three layers) — profiles + the access graph
 - Narrowing authority below a role, and getting a permission to a subject:
   `terp guide permissions` (declare it, enforce it, `terp grant add`).
 """,
+    "soft-delete": """\
+Recoverable deletes (SoftDeleteMixin)
+
+- Compose the trait into the model and the framework owns BOTH halves — a module
+  writes no soft-delete code, and the gate refuses it if you try:
+      from terp.core import BaseTable, SoftDeleteMixin
+      class Connection(BaseTable, SoftDeleteMixin, table=True):
+          name: str = Field(max_length=200)
+- WRITE: BaseService.delete stamps deleted_at at the audited chokepoint instead of
+  issuing a DELETE. The route is unchanged (still 204, still 404 afterwards) and the
+  audit record still reads DELETED — at the boundary the row IS gone. Rows that point
+  at it (a run log, a snapshot) keep their referent, which is the point of the trait.
+- READ: apply_row_scope adds `deleted_at IS NULL` to every read of the model. It is
+  composed by base_query AND re-applied by the request session to a bare
+  select(model), so the filter is not something you can forget. Never write the
+  predicate yourself (no_manual_scope_filtering refuses it); narrow further with
+  business_filters(), never by overriding base_query.
+- UNIQUENESS is the one thing the trait cannot decide for you. A plain unique column
+  lets a deleted row hold its value forever, so "prod-erp" could never be recreated.
+  Declare a partial unique index — for EVERY dialect you run on, because a
+  Postgres-only predicate compiles to a FULL unique index on SQLite and silently
+  restores the trap (no_unique_columns_on_soft_delete_models enforces both halves):
+      __table_args__ = (
+          Index("uq_connection_name_live", "name", unique=True,
+                postgresql_where=text("deleted_at IS NULL"),
+                sqlite_where=text("deleted_at IS NULL")),
+      )
+  A duplicate among the live rows then surfaces as the uniform 409 ConflictError, the
+  same as any other integrity conflict — you do not map it.
+- UNDELETE is not sanctioned yet: BaseService has delete but no restore, and writing
+  your own would mean touching deleted_at, which the gate refuses. Today the trait
+  preserves the row and the history that cites it; bringing one back is an operator
+  action, not an app one.
+""",
     "ownership": """\
 Object-level (per-row) authorization (OwnedMixin)
 

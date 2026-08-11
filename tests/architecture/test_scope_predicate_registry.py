@@ -24,6 +24,7 @@ from terp.core import (
 )
 from terp.core._internal.session_guard import WriteGuardedSession
 from terp.core.scoping import (
+    apply_row_scope,
     register_scope_predicate,
     registered_scope_predicates,
     reset_scope_predicates,
@@ -163,3 +164,37 @@ def test_request_session_rescopes_a_raw_select(isolated_registry: None) -> None:
             assert {row.name for row in all_rows} == {"kept", "gone"}
     finally:
         engine.dispose()
+
+
+def test_the_trait_docstring_does_not_retract_the_guarantee_it_documents() -> None:
+    """``SoftDeleteMixin``'s own docstring must describe the scope the kernel enforces.
+
+    Until 0.5.6 it said core installs *no* global filter and "the caller filters
+    ``deleted_at IS NULL`` explicitly" � true when the trait was written, false since
+    :func:`apply_row_scope` took the filter over, and actively harmful: it instructs
+    the reader to hand-write the exact predicate ``no_manual_scope_filtering`` refuses.
+    An agent composing the mixin reads the mixin; documentation that contradicts an
+    enforced rule sends it to write code the gate will reject.
+
+    So the two halves are pinned together. The behaviour is asserted above and again
+    here (the filter is real), and the docstring may not carry the retraction � which
+    is the only claim it can make that the rest of this file disproves.
+    """
+    doc = " ".join((SoftDeleteMixin.__doc__ or "").split())
+
+    assert issubclass(_Doc, SoftDeleteMixin)
+    scoped = apply_row_scope(_Doc, select(_Doc))
+    assert "deleted_at IS NULL" in str(scoped).replace("\n", " ")
+
+    for retraction in (
+        "installs no global filter",
+        "installs **no** global filter",
+        "The caller filters",
+        "a naive query still returns deleted rows",
+    ):
+        assert retraction.lower() not in doc.lower(), (
+            f"SoftDeleteMixin's docstring claims {retraction!r}, but apply_row_scope "
+            "filters soft-deleted rows on every read and no_manual_scope_filtering "
+            "forbids the module writing that predicate itself."
+        )
+    assert "apply_row_scope" in doc  # it must name the seam that does own the filter

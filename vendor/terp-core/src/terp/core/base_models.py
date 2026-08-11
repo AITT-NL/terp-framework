@@ -83,12 +83,32 @@ class TimestampMixin(SQLModel):
 
 
 class SoftDeleteMixin(SQLModel):
-    """Adds a nullable ``deleted_at`` column for opt-in soft-delete semantics.
+    """Adds a nullable ``deleted_at`` column: a delete stamps the row instead of destroying it.
 
-    Core installs **no** global filter: a naive query still returns deleted
-    rows. The caller filters ``deleted_at IS NULL`` explicitly. (A soft-delete /
-    tenancy capability may later add a session-level filter; the core stays
-    free of that policy.)
+    An opt-in *lifecycle* trait (ADR 0010), **auto-honored** on both sides — a
+    module writes no soft-delete code at all:
+
+    * **Writing** — :meth:`~terp.core.BaseService.delete` stamps ``deleted_at``
+      through the audited chokepoint (the audit record still reads ``DELETED``,
+      because at the boundary the row is gone) instead of issuing a DELETE.
+    * **Reading** — :func:`~terp.core.scoping.apply_row_scope` adds
+      ``deleted_at IS NULL`` to every read of this model. It is composed by
+      :meth:`~terp.core.BaseService.base_query` **and** re-applied by the request
+      session to any ``select(model)`` a custom read issues directly, so the
+      filter cannot be dropped by forgetting it.
+
+    Do **not** hand-write ``deleted_at IS NULL`` (or set the column yourself): the
+    ``no_manual_scope_filtering`` rule refuses it, precisely because a filter the
+    module owns is a filter the module can forget. Narrow a read further with
+    ``business_filters()``; never by overriding ``base_query``.
+
+    Uniqueness needs care: a plain unique column would let a soft-deleted row hold
+    its value forever, so it can never be recreated. Declare a partial unique index
+    predicated on ``deleted_at IS NULL`` — for **every** dialect you run on, since a
+    Postgres-only predicate silently compiles to a full unique index elsewhere. The
+    ``no_unique_columns_on_soft_delete_models`` rule enforces both halves.
+
+    Recipe: ``terp guide soft-delete``.
     """
 
     deleted_at: datetime | None = Field(  # type: ignore[call-overload]
