@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import tomllib
 
 import yaml
 
@@ -109,6 +110,54 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
         assert not any("--reload" in line for line in code_lines)
         assert "HEALTHCHECK" in text
         assert '"uvicorn[standard]"' in text, f"{path.name} must serve WebSockets"
+
+
+def _force_included_from_outside_the_package() -> set[str]:
+    """Repo-root-relative paths that a backend package force-includes from OUTSIDE
+    its own directory — the files a build context must carry beyond ``packages/``."""
+    outside: set[str] = set()
+    for pyproject in (_REPO_ROOT / "packages" / "backend").rglob("pyproject.toml"):
+        config = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        forced = (
+            config.get("tool", {})
+            .get("hatch", {})
+            .get("build", {})
+            .get("targets", {})
+            .get("wheel", {})
+            .get("force-include", {})
+        )
+        for source in forced:
+            resolved = (pyproject.parent / source).resolve()
+            if _REPO_ROOT in resolved.parents:
+                relative = resolved.relative_to(_REPO_ROOT)
+                if relative.parts[0] != "packages":
+                    outside.add(relative.as_posix())
+    return outside
+
+
+def test_backend_build_contexts_carry_every_force_included_file() -> None:
+    """A package that force-includes a file from outside ``packages/`` makes that file
+    part of the build, not just of the repo. hatchling fails the whole wheel build with
+    "Forced include not found" when the context lacks it — so a Dockerfile that copies
+    ``packages/`` and nothing else breaks the image the moment such an include is added,
+    which no test that never builds a wheel can see. Derived from the packages' own
+    force-include tables, so a new include is covered without touching this test."""
+    required = _force_included_from_outside_the_package()
+    assert required, "no force-includes found — the discovery above has stopped working"
+    builders = [
+        path
+        for path in (_REPO_ROOT / "apps").rglob("Dockerfile*")
+        if "packages/backend/" in path.read_text(encoding="utf-8")
+    ]
+    assert builders, "no Dockerfile builds the backend packages — discovery is stale"
+    for path in builders:
+        text = path.read_text(encoding="utf-8")
+        for source in sorted(required):
+            assert re.search(rf"^COPY +{re.escape(source)}\b", text, re.MULTILINE), (
+                f"{path.relative_to(_REPO_ROOT).as_posix()} builds the backend packages "
+                f"but never copies {source}, which a package force-includes into its "
+                f"wheel — the build fails with 'Forced include not found'"
+            )
 
 
 def test_prod_web_images_build_the_bundle_and_serve_nonroot() -> None:

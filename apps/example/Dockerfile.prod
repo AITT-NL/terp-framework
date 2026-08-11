@@ -16,6 +16,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 WORKDIR /build
 COPY packages/ packages/
+# terp-core force-includes the repo-root CHANGELOG into its wheel, so `terp
+# guide changelog` works from an installed app. A context that copies only
+# packages/ fails the build outright (hatchling: "Forced include not found").
+COPY CHANGELOG.md CHANGELOG.md
 
 # Build every backend distribution into /build/dist (sdist skipped: wheels only).
 RUN set -eux; \

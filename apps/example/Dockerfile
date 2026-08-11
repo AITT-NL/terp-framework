@@ -18,6 +18,9 @@ WORKDIR /workspace
 # Install the framework packages editable (so `docker compose watch` picks up source edits
 # under uvicorn --reload without a rebuild) plus the ASGI server and the Postgres driver.
 COPY packages/ packages/
+# terp-core force-includes the repo-root CHANGELOG into its wheel (see
+# Dockerfile.prod) — the build backend runs for editable installs too.
+COPY CHANGELOG.md CHANGELOG.md
 RUN uv pip install --system --no-cache \
     -e packages/backend/core \
     -e packages/backend/arch \
