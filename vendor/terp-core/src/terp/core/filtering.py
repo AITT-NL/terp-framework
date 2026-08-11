@@ -31,15 +31,17 @@ Three properties follow, and they are the point:
 * **Fail closed.** An undeclared field or sort key raises
   :class:`~terp.core.errors.ValidationFailedError` — it is never silently ignored, so a
   client can never believe a filter applied when it did not, and can never probe a
-  column the service did not expose.
+  column the service did not expose. The name is checked before the value, so a
+  *misspelled* filter is caught too, rather than passing as "absent" forever.
 * **No expression at the boundary.** Callers supply *values*, never operators; the
   comparison is fixed by the declaration. There is no query-language surface to inject
   into and no way to reach a column the service did not name.
 * **Composed, never substituted.** Everything still lands on ``base_query()``, so row
   scope, soft delete and ``business_filters`` are applied first and cannot be dropped.
 
-``None`` values are dropped, so an absent optional query parameter simply means "no
-filter" and the route needs no branching.
+``None`` values are dropped **after** the name is checked, so an absent optional query
+parameter simply means "no filter" and the route needs no branching — without letting a
+typo in the forwarded dict hide behind that same allowance.
 """
 
 from __future__ import annotations
@@ -119,23 +121,30 @@ def resolve_filters(
 ) -> tuple[ColumnElement[bool], ...]:
     """Turn *requested* values into conditions, refusing anything undeclared.
 
-    ``None`` values are dropped (an absent optional query parameter is not a filter).
-    An unknown key raises rather than being ignored: silently dropping it would let a
-    caller believe a narrowing applied when the read was in fact wide open.
+    Every key is checked against the declaration **before** ``None`` values are
+    dropped, and the order is the whole guarantee. A route forwards optional query
+    parameters unbranched, so a mistyped key is ``None`` on every request that does
+    not happen to set it: checking the value first would leave the typo unreachable
+    *and* unraisable, the read silently wide open, and every test that omits that
+    parameter still green. The name is a fact about the code, so it is validated
+    even when the caller sent nothing for it.
+
+    A declared key whose value is ``None`` is then dropped: an absent optional query
+    parameter is not a filter, which is what lets the route stay branch-free.
     """
     if not requested:
         return ()
     by_name = {field.name: field for field in declared}
     conditions: list[ColumnElement[bool]] = []
     for name, value in requested.items():
-        if value is None:
-            continue
         field = by_name.get(name)
         if field is None:
             allowed = ", ".join(sorted(by_name)) or "none"
             raise ValidationFailedError(
                 f"Unknown filter {name!r}. Filterable fields: {allowed}."
             )
+        if value is None:
+            continue
         conditions.append(field.condition(value))
     return tuple(conditions)
 

@@ -110,6 +110,24 @@ def test_none_values_are_dropped(session: Session, service: _ItemService) -> Non
     assert len(rows) == 3
 
 
+def test_a_misspelled_filter_is_refused_even_when_the_caller_sent_nothing_for_it(
+    session: Session, service: _ItemService
+) -> None:
+    """The name is checked before the value, and that order is the guarantee.
+
+    Because a route forwards optional query parameters unbranched, a typo in the
+    forwarded dict is ``None`` on every request that does not happen to set that
+    parameter. Dropping ``None`` first would make the typo unreachable *and*
+    unraisable: the filter would look alive, the read would in fact be wide open,
+    and every test that omits the parameter would still pass. The declaration is a
+    fact about the code, so it is validated whether or not a value arrived.
+    """
+    with pytest.raises(ValidationFailedError) as excinfo:
+        service.list(session, skip=0, limit=100, filters={"stauts": None})
+    assert "stauts" in str(excinfo.value)
+    assert "status" in str(excinfo.value)  # names what it could have meant
+
+
 def test_comparison_operators(session: Session, service: _ItemService) -> None:
     _, total = service.list(session, skip=0, limit=100, filters={"min_rank": 2})
     assert total == 2
