@@ -665,3 +665,79 @@ def check_no_unique_columns_on_soft_delete_models(
                         )
                     )
     return violations
+
+
+def _declared_filter_names(root: pathlib.Path) -> frozenset[str]:
+    """Every name declared by a ``FilterField("name", ...)`` in the app tree.
+
+    Collected tree-wide rather than per-module on purpose: which service a route
+    calls is not decidable from the AST, so a per-module comparison would have to
+    *guess* the pairing and would call a correct filter undeclared whenever it
+    guessed wrong. A misspelling matches nothing anywhere, so the wider set costs
+    nothing in detection and removes the whole class of false positives.
+    """
+    names: set[str] = set()
+    for path in iter_python_files(root):
+        for node in ast.walk(parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and base_name(node.func) == "FilterField"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                names.add(node.args[0].value)
+    return frozenset(names)
+
+
+def check_forwarded_filters_are_declared(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """Every key forwarded in ``filters={...}`` names a declared ``FilterField``.
+
+    A route forwards its optional query parameters unbranched, so a misspelled key
+    is ``None`` on every request that does not happen to set that parameter. The
+    filter reads as applied, the read is in fact unnarrowed, and every test that
+    omits the parameter still passes — the mistake is invisible in exactly the
+    cases that normally catch mistakes.
+
+    ``resolve_filters`` refuses an undeclared name at runtime, which is the
+    fail-closed control; this is the build-time half, and it fails on a file no
+    request ever reached. Only literal keys in a literal dict are checked — a
+    filters mapping built elsewhere is not statically knowable, and guessing at
+    one would flag correct code.
+    """
+    root = pathlib.Path(app_root)
+    declared = _declared_filter_names(root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        if _module_under(path, package) is None:
+            continue
+        tree = parse(path)
+        rel = _rel(path, root)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg != "filters" or not isinstance(keyword.value, ast.Dict):
+                    continue
+                for key in keyword.value.keys:
+                    if (
+                        not isinstance(key, ast.Constant)
+                        or not isinstance(key.value, str)
+                        or key.value in declared
+                    ):
+                        continue
+                    allowed = ", ".join(sorted(declared)) or "none"
+                    violations.append(
+                        ArchViolation(
+                            "forwarded_filters_are_declared",
+                            rel,
+                            key.lineno,
+                            f"filter {key.value!r} is forwarded but no service declares "
+                            f"it; declared FilterField names: {allowed}. An undeclared "
+                            "key never narrows the read, and stays silent for as long as "
+                            "the caller omits that parameter",
+                        )
+                    )
+    return violations

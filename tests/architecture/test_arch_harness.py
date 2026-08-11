@@ -65,6 +65,7 @@ from terp.arch import (
     check_no_raw_outbound_http,
     check_no_raw_session_construction,
     check_offset_queries_declare_ordering,
+    check_forwarded_filters_are_declared,
     check_path_id_params_are_uuid,
     check_policy_refs_resolve,
     check_public_modules_are_read_only,
@@ -2272,6 +2273,87 @@ def test_offset_queries_declare_ordering(tmp_path: pathlib.Path) -> None:
         "    return session.exec(select(Note)).all()\n",
     )
     assert check_offset_queries_declare_ordering(app) == []
+
+
+def test_forwarded_filters_are_declared(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # A route forwards its optional query parameters unbranched, so a typo'd key is
+    # None on every request that omits that parameter: the read is never narrowed and
+    # nothing says so. Two misspellings, both flagged at the key's own line.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "class NoteService(BaseService):\n"
+        "    filterable = (\n"
+        "        FilterField('connection_id', Note.connection_id),\n"
+        "        FilterField('captured_from', Note.captured_at, op='gte'),\n"
+        "    )\n",
+    )
+    _write(
+        app,
+        "modules/notes/router.py",
+        "def list_notes(session, connection_id=None, captured_from=None):\n"
+        "    return service.list(\n"
+        "        session,\n"
+        "        filters={'connection_id': connection_id, 'captured_frm': captured_from},\n"
+        "    )\n"
+        "def other(session):\n"
+        "    return service.list(session, filters={'nope': 1})\n",
+    )
+    flagged = check_forwarded_filters_are_declared(app)
+    assert _rule_names(flagged) == {"forwarded_filters_are_declared"}
+    assert len(flagged) == 2
+    # The message names the near-miss, matching what resolve_filters raises at runtime.
+    assert "captured_from" in flagged[0].message
+
+    # Clean: declared keys pass, and so does anything not statically knowable — a
+    # filters mapping built elsewhere, or a computed key. Guessing at those would flag
+    # correct code, which is the one failure this rule must not have.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "def list_notes(session, connection_id=None):\n"
+        "    return service.list(session, filters={'connection_id': connection_id})\n"
+        "def dynamic(session, chosen, built):\n"
+        "    service.list(session, filters=built)\n"
+        "    service.list(session, filters={chosen: 1})\n"
+        "    service.list(session, skip=0, limit=10)\n",
+    )
+    assert check_forwarded_filters_are_declared(app) == []
+
+
+def test_forwarded_filters_declaration_scan_is_tree_wide_and_literal(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Which service a route calls is not decidable from the AST, so the declared
+    set is collected tree-wide: a name declared in *any* service satisfies *any*
+    route. A misspelling matches nothing anywhere, so nothing is lost — and the
+    rule can never call a correct filter undeclared by mispairing the two."""
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/other/service.py",
+        "filterable = (FilterField('owner_id', Other.owner_id),)\n",
+    )
+    _write(
+        app,
+        "modules/notes/router.py",
+        "service.list(session, filters={'owner_id': owner_id})\n",
+    )
+    assert check_forwarded_filters_are_declared(app) == []
+
+    # A non-literal filter name declares nothing this rule can read, so a route
+    # forwarding it is reported rather than silently accepted.
+    _write(app, "modules/other/service.py", "f = (FilterField(NAME, Other.owner_id),)\n")
+    assert _rule_names(check_forwarded_filters_are_declared(app)) == {
+        "forwarded_filters_are_declared"
+    }
+
+    # Files outside a module are not the surface this rule guards (the composition
+    # root wires modules together; it declares no service filters of its own).
+    _write(app, "modules/other/service.py", "f = (FilterField('owner_id', C.owner_id),)\n")
+    _write(app, "main.py", "call(filters={'whatever': 1})\n")
+    assert check_forwarded_filters_are_declared(app) == []
 
 
 def test_safe_methods_are_read_only(tmp_path: pathlib.Path) -> None:
