@@ -26,6 +26,7 @@ from terp.cli.verify import (  # noqa: E402
     VerifyCheck,
     _json_documents,
     _run_api_docs_drift,
+    _run_platform_install,
     _run_subprocess,
 )
 
@@ -72,6 +73,7 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
     # the source of truth" a lie.
     ids = {check.id for check in PROFILES["full"]}
     assert ids == {
+        "platform-install",
         "architecture",
         "backend-tests",
         "appsec-baseline",
@@ -79,6 +81,68 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         "frontend-typecheck",
         "frontend-build",
     }
+
+
+def test_the_template_ci_runs_the_platform_install_check() -> None:
+    """The claim above is an equivalence, so a check the profile gained must reach
+    CI too. CI installs from the app's ``==`` pins exactly as a developer does, so
+    a forgotten pin produces the same mixed install there — silently, and with the
+    gate's green stamped on it."""
+    workflow = (
+        _REPO_ROOT / "template" / "project" / ".github" / "workflows" / "ci.yml.jinja"
+    ).read_text(encoding="utf-8")
+    assert "--only platform-install" in workflow, (
+        "the generated CI must verify the platform install before running the "
+        "gate — otherwise CI blesses a combination that was never released"
+    )
+
+
+def test_a_mixed_install_fails_the_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lockstep (ADR 0063) makes a disagreeing set a forgotten pin, not a supported
+    combination — so it is refused, not reported. `terp --version` already warned
+    about this, but a warning in a command nobody runs before shipping is not a
+    control."""
+    import terp.cli.version as version_module
+
+    monkeypatch.setattr(
+        version_module,
+        "installed_terp_versions",
+        lambda: {"terp-core": "0.5.4", "terp-cli": "0.5.4", "terp-cap-oidc": "0.5.3"},
+    )
+    exit_code, output = _run_platform_install()
+    assert exit_code == 1
+    assert "terp-cap-oidc" in output, "the failure must name the package that disagrees"
+    assert "0.5.4" in output, "and the version the rest of the set is on"
+
+    monkeypatch.setattr(
+        version_module,
+        "installed_terp_versions",
+        lambda: {"terp-core": "0.5.4", "terp-cli": "0.5.4"},
+    )
+    assert _run_platform_install()[0] == 0
+
+
+def test_an_undescribable_environment_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The CLI running the check is itself a ``terp-*`` distribution, so an empty set
+    means the environment cannot describe itself. Passing would make the check
+    weakest exactly where the install is most broken."""
+    import terp.cli.version as version_module
+
+    monkeypatch.setattr(version_module, "installed_terp_versions", dict)
+    assert _run_platform_install()[0] == 1
+
+
+def test_the_platform_install_check_runs_in_process(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """It reads installed metadata, so it costs no subprocess and no toolchain —
+    which is why it can lead every profile, including the cheapest."""
+    monkeypatch.setitem(PROFILES, "quick", (PROFILES["quick"][0],))
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "quick", "--root", str(tmp_path), "--format", "json"])
+    assert excinfo.value.code == 0
+    (check,) = json.loads(capsys.readouterr().out)["checks"]
+    assert check["id"] == "platform-install" and check["ok"] is True
 
 
 # --------------------------------------------------------------------------- #

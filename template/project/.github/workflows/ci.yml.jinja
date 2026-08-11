@@ -11,6 +11,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
+      # Lockstep (ADR 0063): a terp-* set at two versions is a pin someone forgot, not a
+      # supported combination — so every verdict below would be about a platform that was
+      # never released, in either direction. Refuse before spending the gate on it.
+      - run: uv run terp verify --profile quick --only platform-install
       # The architecture gate is the source of truth (== `terp check`).
       - run: uv run pytest
       # The delegated generic AppSec baseline (ADR 0085): ruff bandit (`S`) covers the

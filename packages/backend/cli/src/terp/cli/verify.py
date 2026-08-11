@@ -63,8 +63,24 @@ class VerifyCheck:
     requires: str = ""
     #: In-process checks (the architecture gate) run as a callable instead of a
     #: subprocess — same verdict surface, no interpreter round-trip.
-    runner: str = "subprocess"  # "subprocess" | "architecture" | "api-docs-drift"
+    runner: str = "subprocess"  # "subprocess" | "architecture" | "api-docs-drift" | "platform-install"
 
+
+# Runs first in every profile, because it decides whether the rest of the run
+# means anything. Terp ships as a lockstep set pinned by hand, so the natural
+# failure is a forgotten pin leaving one package a release behind — and a gate
+# run against a combination that was never released proves nothing about the
+# app: a green is not evidence, and a red may belong to the mismatch rather than
+# to the code. `terp --version` already detects this and warns; a warning inside
+# a command nobody runs before shipping is not a control, so the verdict lands
+# here, where it can fail.
+_PLATFORM_INSTALL = VerifyCheck(
+    id="platform-install",
+    category="architecture",
+    command="terp --version",
+    scope=("pyproject.toml", "uv.lock"),
+    runner="platform-install",
+)
 
 _ARCHITECTURE = VerifyCheck(
     id="architecture",
@@ -147,8 +163,14 @@ _CONFORMANCE = VerifyCheck(
 
 #: The profiles, cheapest first; each is a superset of the previous.
 PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
-    "quick": (_ARCHITECTURE, _FRONTEND_BOUNDARIES, _FRONTEND_TYPECHECK),
+    "quick": (
+        _PLATFORM_INSTALL,
+        _ARCHITECTURE,
+        _FRONTEND_BOUNDARIES,
+        _FRONTEND_TYPECHECK,
+    ),
     "full": (
+        _PLATFORM_INSTALL,
         _ARCHITECTURE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
@@ -157,6 +179,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _FRONTEND_BUILD,
     ),
     "release": (
+        _PLATFORM_INSTALL,
         _ARCHITECTURE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
@@ -379,6 +402,36 @@ def _run_architecture(root: pathlib.Path) -> tuple[int, str, list[dict]]:
     return (0 if ok else 1), summary, [envelope]
 
 
+def _run_platform_install() -> tuple[int, str]:
+    """Fail when the installed ``terp-*`` set disagrees with itself.
+
+    Terp is versioned in lockstep (ADR 0063), so a set at two versions is not a
+    supported combination — it is a pin someone forgot, and it fails in whatever
+    way the skipped release happened to change. Verifying an app on such an
+    install produces a verdict about a platform that was never released, in
+    either direction, so this refuses rather than reports.
+
+    Reads the live environment (never a declared list), so a capability adopted
+    after this was written is policed too. ``terp-spec`` is excluded by
+    ``installed_terp_versions``: it is released on its own cadence.
+    """
+    from terp.cli.version import installed_terp_versions, platform_version, render_version
+
+    versions = installed_terp_versions()
+    if not versions:
+        # The CLI running this is itself a terp-* distribution, so an empty set
+        # means the environment cannot describe itself — not that Terp is absent.
+        return 1, (
+            "no terp-* distribution is visible in this environment, yet the terp "
+            "CLI is running — its metadata is unreadable, so the platform version "
+            "cannot be established.\n"
+            "  Fix: uv sync --refresh"
+        )
+    if len(set(versions.values())) > 1:
+        return 1, render_version()
+    return 0, f"terp {platform_version(versions)} ({len(versions)} distributions, consistent)"
+
+
 def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
     """Regenerate the API reference and fail on drift from the committed copy.
 
@@ -512,6 +565,8 @@ def run_verify_command(
         reports: list[dict] = []
         if check.runner == "architecture":
             exit_code, output, reports = _run_architecture(project_root)
+        elif check.runner == "platform-install":
+            exit_code, output = _run_platform_install()
         elif check.runner == "api-docs-drift":
             exit_code, output = _run_api_docs_drift(project_root)
         else:
