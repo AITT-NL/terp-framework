@@ -19,14 +19,16 @@ from types import SimpleNamespace
 
 import pytest
 from alembic import command
+from alembic.util import CommandError
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import NullPool
 
 from terp.core import ModuleSpec, Policy, create_app
-from terp.core.migrations import resolve_migration_trees
+from terp.core.migrations import MigrationTree, resolve_migration_trees
 from terp.migrations import (
+    DatabaseBehindForAutogenerateError,
     MigrationDriftError,
     MigrationError,
     PendingMigrationsError,
@@ -42,6 +44,7 @@ from terp.migrations import (
     upgrade_sql,
 )
 from terp.migrations import cli as migrate_cli
+from terp.migrations import orchestrate
 from terp.migrations._config import alembic_config_for
 from terp.migrations.cli import migrate_main
 
@@ -243,7 +246,12 @@ def test_cli_make_dispatches_without_app_root(
     fake = MigrationTree("widgets", "app.modules.widgets", tmp_path / "migrations")
     monkeypatch.setattr(migrate_cli, "make", lambda *a, **k: fake)
     # No --app-root: resolves to ./app which is absent here -> app_root None branch.
-    migrate_main(["make", "widgets", "-m", "create widgets", "--database-url", "sqlite://"])
+    # --no-autogenerate: without it `make` needs a live database, so the in-memory URL
+    # is refused before dispatch ever happens (which is the point of this file's
+    # in-memory tests further down).
+    migrate_main(
+        ["make", "widgets", "-m", "create widgets", "--no-autogenerate", "--database-url", "sqlite://"]
+    )
     assert "widgets" in capsys.readouterr().out
 
 
@@ -261,7 +269,7 @@ def test_cli_make_message_defaults_to_label(
 
     monkeypatch.setattr(migrate_cli, "make", _fake_make)
     # No -m: the message defaults to a label-derived one (`terp migrate make <label>`).
-    migrate_main(["make", "widgets", "--database-url", "sqlite://"])
+    migrate_main(["make", "widgets", "--no-autogenerate", "--database-url", "sqlite://"])
     assert seen["message"] == "update widgets"
     assert "widgets" in capsys.readouterr().out
 
@@ -575,10 +583,13 @@ def test_cli_in_memory_refusal_names_the_setting_it_came_from(
 def test_cli_allows_an_in_memory_database_for_a_script_tree_command(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """``make`` / ``merge`` / ``heads`` / ``upgrade --sql`` work on files, not on state.
+    """``make --no-autogenerate`` / ``merge`` / ``heads`` / ``upgrade --sql`` work on
+    files, not on state.
 
     Refusing them would cost a developer with no database configured the one half of
-    the CLI that never needed one.
+    the CLI that never needed one. Autogenerating ``make`` is the exception and is
+    covered below: it diffs the live database, so it is stateful in every sense that
+    matters to the author.
     """
     monkeypatch.setattr(
         migrate_cli,
@@ -587,6 +598,119 @@ def test_cli_allows_an_in_memory_database_for_a_script_tree_command(
     )
     migrate_main(["upgrade", "--sql", "--database-url", "sqlite://"])
     assert "-- ddl" in capsys.readouterr().out
+
+
+def test_cli_refuses_an_in_memory_database_for_autogenerating_make(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The first command a new module author runs must not answer in raw Alembic.
+
+    ``terp new module x`` then ``terp migrate make x`` is the documented workflow, and
+    on the settings default (in-memory SQLite) it used to fail in a 25-line Alembic
+    traceback ending in "Target database is not up to date." — which names neither the
+    cause nor the fix, and never mentions DATABASE_URL. ``make`` was classified as a
+    script-tree command because *authoring* a revision is one; autogenerating it is not.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        migrate_main(["make", "widgets", "--database-url", "sqlite://"])
+    assert excinfo.value.code == 2
+    assert "in-memory" in capsys.readouterr().err
+
+
+def test_cli_still_authors_a_revision_by_hand_without_a_database(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The refusal above is scoped to the diff, not to the command.
+
+    ``--no-autogenerate`` writes an empty revision from the script tree alone, so the
+    escape the error message offers has to actually work with no database configured.
+    """
+    from terp.core.migrations import MigrationTree
+
+    fake = MigrationTree("widgets", "app.modules.widgets", tmp_path / "migrations")
+    monkeypatch.setattr(migrate_cli, "make", lambda *a, **k: fake)
+    migrate_main(["make", "widgets", "--no-autogenerate", "--database-url", "sqlite://"])
+    assert "widgets" in capsys.readouterr().out
+
+
+def test_make_translates_alembics_out_of_date_refusal_into_the_fix(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A real (file-backed) database that is merely behind gets a directive message.
+
+    The in-memory refusal covers the unconfigured case; this covers the configured one,
+    where Alembic's own ``CommandError`` is correct but unreadable. The CLI must print
+    the typed error and stop, not re-raise a traceback the author has to read Alembic
+    to interpret — and the message must name the command that fixes it.
+    """
+
+    def _raise(*a: object, **k: object) -> None:
+        raise DatabaseBehindForAutogenerateError("widgets", "sqlite:///app.db")
+
+    monkeypatch.setattr(migrate_cli, "make", _raise)
+    db = f"sqlite:///{tmp_path / 'app.db'}"
+    with pytest.raises(SystemExit) as excinfo:
+        migrate_main(["make", "widgets", "--database-url", db])
+    assert excinfo.value.code == 1
+    err = capsys.readouterr().err
+    assert "terp migrate upgrade" in err
+    assert "DATABASE_URL" in err
+    assert "--no-autogenerate" in err
+
+
+def test_make_raises_the_typed_error_from_the_orchestrator_itself(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The translation lives in ``make``, not in the CLI, so the API half gets it too.
+
+    An app calling ``terp.migrations.make`` directly (Studio does) would otherwise still
+    surface the raw Alembic error to its user.
+    """
+
+    def _raise(*a: object, **k: object) -> None:
+        raise CommandError("Target database is not up to date.")
+
+    monkeypatch.setattr(orchestrate.command, "revision", _raise)
+    monkeypatch.setattr(
+        orchestrate,
+        "resolve_migration_target",
+        lambda *a, **k: MigrationTree("widgets", "app.modules.widgets", tmp_path / "m"),
+    )
+    monkeypatch.setattr(orchestrate, "assert_no_homeless_tables", lambda *a, **k: None)
+    monkeypatch.setattr(orchestrate, "assert_no_split_table_ownership", lambda *a, **k: None)
+
+    with pytest.raises(DatabaseBehindForAutogenerateError) as excinfo:
+        orchestrate.make("widgets", "m", f"sqlite:///{tmp_path / 'app.db'}")
+    assert "terp migrate upgrade" in str(excinfo.value)
+    # The failed-make cleanup still ran: no empty versions/ left to be mistaken for
+    # an (empty, falsely "current") runnable history.
+    assert not (tmp_path / "m").exists()
+
+
+def test_make_leaves_every_other_alembic_error_alone(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the one condition with a known fix is translated.
+
+    Swallowing the rest into a friendlier wrapper would trade a readable Alembic error
+    for a vaguer Terp one, which is the opposite of the point.
+    """
+
+    def _raise(*a: object, **k: object) -> None:
+        raise CommandError("No such revision or branch 'nope'")
+
+    monkeypatch.setattr(orchestrate.command, "revision", _raise)
+    monkeypatch.setattr(
+        orchestrate,
+        "resolve_migration_target",
+        lambda *a, **k: MigrationTree("widgets", "app.modules.widgets", tmp_path / "m"),
+    )
+    monkeypatch.setattr(orchestrate, "assert_no_homeless_tables", lambda *a, **k: None)
+    monkeypatch.setattr(orchestrate, "assert_no_split_table_ownership", lambda *a, **k: None)
+
+    with pytest.raises(CommandError, match="No such revision"):
+        orchestrate.make("widgets", "m", f"sqlite:///{tmp_path / 'app.db'}")
+    assert not (tmp_path / "m").exists()
 
 
 # --------------------------------------------------------------------------- #

@@ -33,12 +33,27 @@ from terp.migrations.orchestrate import (
 
 
 # The commands whose ANSWER is about the database itself: applying, recording or
-# reporting persistent state. The rest of the CLI works on the script tree (`make`,
-# `merge`, `heads`) or emits SQL for someone else to run (`upgrade --sql`), and stays
-# usable without a database to point at.
+# reporting persistent state. The rest of the CLI works on the script tree (`merge`,
+# `heads`) or emits SQL for someone else to run (`upgrade --sql`), and stays usable
+# without a database to point at.
+#
+# `make` is in the set *conditionally* (see `_needs_a_live_database`): authoring a
+# revision is a script-tree job, but AUTOGENERATING one diffs the live database and is
+# the very first command a new module author runs. Leaving it out meant the documented
+# workflow — `terp new module x` then `terp migrate make x` — failed out of the box on
+# the default in-memory URL, in a raw Alembic traceback that never said DATABASE_URL.
 _STATEFUL_COMMANDS = frozenset(
     {"upgrade", "downgrade", "stamp", "status", "check", "adopt-schemas", "grant-runtime"}
 )
+
+
+def _needs_a_live_database(command: str, args: argparse.Namespace) -> bool:
+    """Whether *command*, as invoked, reads or writes a database that must outlive it."""
+    if command == "upgrade" and args.sql:
+        return False  # emits SQL for someone else to run
+    if command == "make":
+        return not args.no_autogenerate  # autogenerate diffs the live database
+    return command in _STATEFUL_COMMANDS
 
 
 def _is_in_memory(database_url: str) -> bool:
@@ -207,7 +222,7 @@ def migrate_main(argv: Sequence[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
     database_url = args.database_url or get_settings().DATABASE_URL
     command = args.migrate_command or "check"
-    if command in _STATEFUL_COMMANDS and not (command == "upgrade" and args.sql):
+    if _needs_a_live_database(command, args):
         _refuse_in_memory(database_url, explicit=args.database_url is not None)
     try:
         app_root = _resolve_app_root(args.app_root)
@@ -251,15 +266,22 @@ def migrate_main(argv: Sequence[str] | None = None) -> None:
         print(f"downgraded: {reverted}")
         return
     if args.migrate_command == "make":
-        tree = make(
-            args.label,
-            args.message or f"update {args.label}",
-            database_url,
-            app_root,
-            package=args.package,
-            autogenerate=not args.no_autogenerate,
-            schema_layout=args.schema_layout,
-        )
+        try:
+            tree = make(
+                args.label,
+                args.message or f"update {args.label}",
+                database_url,
+                app_root,
+                package=args.package,
+                autogenerate=not args.no_autogenerate,
+                schema_layout=args.schema_layout,
+            )
+        except MigrationError as exc:
+            # `make` is the first command a new module author runs; a typed failure
+            # here is directive, so print it and stop rather than raising a traceback
+            # the author has to read Alembic to interpret.
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(1) from exc
         print(f"created revision for {tree.label} in {tree.versions_path}")
         return
     if args.migrate_command == "adopt-schemas":

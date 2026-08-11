@@ -49,6 +49,34 @@ class MissingMigrationsError(MigrationError):
         )
 
 
+class DatabaseBehindForAutogenerateError(MigrationError):
+    """``make`` was asked to autogenerate against a database that is not at head.
+
+    Alembic refuses this for a good reason — it diffs the models against the *live*
+    schema, so a database behind its own history produces a revision that re-creates
+    what earlier revisions already create. Its own message ("Target database is not up
+    to date.") arrives as a 25-line traceback that names neither the fix nor the far
+    likelier cause: no ``DATABASE_URL``, so the command reached an empty database that
+    has never had a migration applied to it. This is the first command a new module
+    author runs, and ``terp migrate status`` \u2014 one word away in the same command group
+    \u2014 already answers precisely; ``make`` should not be the one that answers in raw
+    Alembic.
+    """
+
+    def __init__(self, label: str, database_url: str) -> None:
+        self.label = label
+        super().__init__(
+            f"cannot autogenerate a revision for {label!r}: the database at "
+            f"{database_url!r} is not at head, so a diff against it would re-create "
+            "tables that existing revisions already create.\n"
+            "Run `terp migrate status` to see which packages are behind, then "
+            "`terp migrate upgrade` to bring the database to head and retry.\n"
+            "If that database should not be empty, check DATABASE_URL is pointing "
+            "where you think it is \u2014 an unset one falls back to a local default.\n"
+            "To author an empty revision and fill it in by hand, pass --no-autogenerate."
+        )
+
+
 class OrphanedRevisionsError(MigrationError):
     """The database has applied a revision the code no longer defines.
 

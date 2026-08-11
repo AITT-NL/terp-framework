@@ -23,6 +23,7 @@ from terp.migrations._runtime import (
 )
 from terp.migrations.cli import migrate_main
 from terp.migrations.errors import (
+    DatabaseBehindForAutogenerateError,
     MigrationDriftError,
     MigrationError,
     MissingMigrationsError,
@@ -52,6 +53,7 @@ from terp.migrations.orchestrate import (
 )
 
 __all__ = [
+    "DatabaseBehindForAutogenerateError",
     "MigrationDriftError",
     "MigrationError",
     "MigrationStatus",

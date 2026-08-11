@@ -41,7 +41,11 @@ from terp.migrations._runtime import (
     order_trees_by_dependencies,
     owned_table_names,
 )
-from terp.migrations.errors import MigrationError, OrphanedRevisionsError
+from terp.migrations.errors import (
+    DatabaseBehindForAutogenerateError,
+    MigrationError,
+    OrphanedRevisionsError,
+)
 
 
 def _effective_layout(schema_layout: str | None) -> str:
@@ -445,6 +449,13 @@ def make(
             message=message,
             autogenerate=autogenerate,
         )
+    except CommandError as exc:
+        for path in reversed(created):
+            if path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
+        if "not up to date" in str(exc):
+            raise DatabaseBehindForAutogenerateError(label, database_url) from exc
+        raise
     except BaseException:
         for path in reversed(created):
             if path.is_dir() and not any(path.iterdir()):
