@@ -189,12 +189,21 @@ jobs:
         working-directory: /tmp/acceptance-app
         env:
           UV_FIND_LINKS: /tmp/terp-wheels
+          # Autogenerating a revision diffs a live database, so it needs one that
+          # outlives the command. The settings default is in-memory SQLite, which
+          # would let autogenerate diff against an empty schema every time and
+          # re-emit the whole model as if it were new; `terp migrate make` refuses
+          # it for that reason. A file gives the acceptance run the same shape a
+          # developer has.
+          DATABASE_URL: sqlite:///./acceptance.db
         run: |
           set -eux
           uv run terp new module records
           # Mount it in the composition root (the gate refuses unmounted modules).
           sed -i 's/^from control_plane import control_plane$/from control_plane import control_plane\nfrom app.modules.records.module import module as records_module/' app/main.py
           sed -i 's/modules = \[login_module, me_module\]/modules = [login_module, me_module, records_module]/' app/main.py
+          # Autogenerate only diffs meaningfully from head; bring the file up first.
+          uv run terp migrate upgrade
           uv run terp migrate make records -m "create records table"
           uv run pytest
           uv run terp check
