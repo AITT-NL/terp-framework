@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import pkgutil
+from typing import TYPE_CHECKING, cast
 
 import terp.core
 from terp.core.events import EventCatalog
@@ -28,7 +29,10 @@ from terp.core.runtime import (
     restore_runtimes,
     runtime_seams,
 )
-from terp.core.testing import InstallEvents
+from terp.core.testing import InstallAudit, InstallEvents
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from sqlmodel import Session
 
 
 def _reset_runtime_functions() -> set[str]:
@@ -119,3 +123,46 @@ def test_terp_events_fixture_carries_the_real_signature(terp_events: InstallEven
     from terp.core.events import configure_events
 
     assert inspect.signature(terp_events) == inspect.signature(configure_events)
+
+
+def test_terp_audit_fixture_installs_a_sink_for_one_test(terp_audit: InstallAudit) -> None:
+    """The audit twin of ``terp_events`` � and the seam whose absence produced a false green.
+
+    An app author asserting on a durable audit trail from a service-level test found
+    ``select(AuditEvent)`` returning ``[]``: the default sink only logs, so nothing was
+    ever written � and an assertion *about an empty result* passes. The test reported
+    that audit worked and had established only that no sink was installed. Events had a
+    first-class fixture for exactly this; audit had none, so the asymmetry did the harm.
+
+    The sink here is a local recorder rather than the capability's, because the kernel
+    sits below the capability that owns the durable one � which is also why the fixture
+    takes the sink as an argument instead of defaulting to it.
+    """
+    from terp.core.audit import AuditAction, AuditPolicy, DurableAuditSink, emit_audit
+
+    written: list[str] = []
+    sink = DurableAuditSink(
+        name="recorder", sink=lambda session, record, policy: written.append(record.action.value)
+    )
+
+    assert callable(terp_audit)
+    terp_audit(AuditPolicy.default(), sink=sink)
+    assert capture_runtimes()["audit"][1] is sink
+
+    # The point of installing it: the trail is now observable, so an assertion about
+    # it can actually fail. Under the log-only default this list stays empty and a
+    # test asserting emptiness passes while proving nothing.
+    emit_audit(
+        cast("Session", None),
+        action=AuditAction.CREATED,
+        target_type="doc",
+        target_id="1",
+    )
+    assert written == ["created"]
+
+
+def test_terp_audit_fixture_carries_the_real_signature(terp_audit: InstallAudit) -> None:
+    """It hands over ``configure_audit`` itself, for the reason ``terp_events`` does."""
+    from terp.core.audit import configure_audit
+
+    assert inspect.signature(terp_audit) == inspect.signature(configure_audit)

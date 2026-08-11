@@ -51,8 +51,9 @@ thing to go and look at.
 
 It does not, and cannot, install a runtime the test needs — that is the app's own
 decision. Compose the app in a fixture (the pattern ``apps/example/tests/conftest.py``
-uses) when a test needs the whole runtime, or use :func:`terp_events` when a
-service-level test needs only the event bus. See ``terp guide testing``.
+uses) when a test needs the whole runtime, or use :func:`terp_events` /
+:func:`terp_audit` when a service-level test needs only the event bus or only the
+durable audit sink. See ``terp guide testing``.
 """
 
 from __future__ import annotations
@@ -63,10 +64,13 @@ from typing import TYPE_CHECKING, Any, Protocol
 import pytest
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from terp.core.audit import AuditPolicy, AuditSink
     from terp.core.events import EventCatalog, EventDispatcher
 
 __all__ = [
+    "InstallAudit",
     "InstallEvents",
+    "terp_audit",
     "terp_default_runtime",
     "terp_events",
     "terp_runtime_isolation",
@@ -84,6 +88,17 @@ class InstallEvents(Protocol):
     def __call__(
         self, catalog: EventCatalog, *, dispatcher: EventDispatcher | None = None
     ) -> None: ...
+
+
+class InstallAudit(Protocol):
+    """What :func:`terp_audit` hands a test: ``configure_audit``' own signature.
+
+    The audit twin of :class:`InstallEvents`, and exported for the same reason — so an
+    app's ``conftest.py`` can annotate a wrapper without importing the non-public
+    ``configure_audit``.
+    """
+
+    def __call__(self, policy: AuditPolicy, *, sink: AuditSink | None = None) -> None: ...
 
 # Imports of terp.core live INSIDE the fixtures, deliberately. pytest loads a pytest11
 # plugin before `pytest --cov` starts instrumenting, so importing the kernel here runs
@@ -238,3 +253,33 @@ def terp_events() -> InstallEvents:
     from terp.core.events import configure_events
 
     return configure_events
+
+
+@pytest.fixture
+def terp_audit() -> InstallAudit:
+    """Install an audit *policy* and *sink* for the duration of one test.
+
+    The audit twin of :func:`terp_events`, and it exists because its absence had a
+    sharp edge. The default sink only *logs*, so a service-level test that writes a
+    row and then asserts on ``select(AuditEvent)`` reads an empty table — and an
+    assertion about an empty result **passes**. The test reported that audit worked;
+    what it actually established was that no durable sink was installed. Events had a
+    first-class seam for exactly this and audit did not, so the asymmetry was doing
+    the damage::
+
+        from terp.capabilities.audit import persist_audit
+        terp_audit(AuditPolicy.default(), sink=persist_audit)
+
+    ``configure_audit`` is deliberately not on the ``terp.core`` public surface —
+    installing the runtime is ``create_app``'s job in production, and this fixture is
+    the one place a test may do it instead. :func:`terp_runtime_isolation` undoes it.
+
+    The durable sink itself comes from ``terp.capabilities.audit``: the kernel cannot
+    name it (a capability sits above core), which is why the sink is the caller's
+    argument rather than a default. Passing none reinstalls the log-only sink, which
+    is the state that produced the empty table — so if your assertion still finds
+    nothing, the sink is what to check first.
+    """
+    from terp.core.audit import configure_audit
+
+    return configure_audit

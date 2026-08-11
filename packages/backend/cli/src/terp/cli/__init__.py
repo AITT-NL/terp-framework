@@ -415,6 +415,14 @@ one your test needs. That distinction is the whole of testing on Terp:
             terp_events(event_catalog, dispatcher=dispatch_in_process)
         Annotate it `InstallEvents` (exported from terp.core.testing) - it carries
         configure_events' real signature, so a wrong catalog is a type error.
+      * only the DURABLE AUDIT SINK -> the `terp_audit` fixture (annotate it
+        `InstallAudit`), because the default sink only LOGS:
+            from terp.capabilities.audit import persist_audit
+            terp_audit(AuditPolicy.default(), sink=persist_audit)
+        Without it, `select(AuditEvent)` returns [] and an assertion about an empty
+        result PASSES - the test reports that audit works and has established only
+        that nothing was installed. If a durable-audit assertion is passing suspiciously
+        quietly, the sink is the first thing to check.
       * asserting on what was written to a FAKE/bare session -> `terp_default_runtime`,
         which states the baseline instead of assuming it. Without it a composed app's
         durable audit sink quietly adds audit rows to the session under assertion.
@@ -430,8 +438,7 @@ THE SIX SEAMS. create_app installs six process globals per app; in a test proces
 outlive the app that installed them. Restored automatically -- but installed by you:
 
       seam         what create_app installs        who installs it in a test
-      audit        audit policy + durable sink     compose the app, else the log-only
-                                                   default (terp_default_runtime)
+      audit        audit policy + durable sink     compose the app, or `terp_audit`
       events       event catalog + dispatcher      compose the app, or `terp_events`
       jobs         job catalog + queue             compose the app
       scheduling   schedule catalog                compose the app
