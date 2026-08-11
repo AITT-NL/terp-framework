@@ -112,10 +112,10 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
         assert '"uvicorn[standard]"' in text, f"{path.name} must serve WebSockets"
 
 
-def _force_included_from_outside_the_package() -> set[str]:
-    """Repo-root-relative paths that a backend package force-includes from OUTSIDE
-    its own directory — the files a build context must carry beyond ``packages/``."""
-    outside: set[str] = set()
+def _force_included_from_outside_the_package() -> dict[str, str]:
+    """Every backend force-include whose SOURCE escapes its own package directory,
+    mapped to the package that declares it."""
+    outside: dict[str, str] = {}
     for pyproject in (_REPO_ROOT / "packages" / "backend").rglob("pyproject.toml"):
         config = tomllib.loads(pyproject.read_text(encoding="utf-8"))
         forced = (
@@ -126,38 +126,31 @@ def _force_included_from_outside_the_package() -> set[str]:
             .get("wheel", {})
             .get("force-include", {})
         )
+        package = pyproject.parent
         for source in forced:
-            resolved = (pyproject.parent / source).resolve()
-            if _REPO_ROOT in resolved.parents:
-                relative = resolved.relative_to(_REPO_ROOT)
-                if relative.parts[0] != "packages":
-                    outside.add(relative.as_posix())
+            if package.resolve() not in (package / source).resolve().parents:
+                outside[source] = package.relative_to(_REPO_ROOT).as_posix()
     return outside
 
 
-def test_backend_build_contexts_carry_every_force_included_file() -> None:
-    """A package that force-includes a file from outside ``packages/`` makes that file
-    part of the build, not just of the repo. hatchling fails the whole wheel build with
-    "Forced include not found" when the context lacks it — so a Dockerfile that copies
-    ``packages/`` and nothing else breaks the image the moment such an include is added,
-    which no test that never builds a wheel can see. Derived from the packages' own
-    force-include tables, so a new include is covered without touching this test."""
-    required = _force_included_from_outside_the_package()
-    assert required, "no force-includes found — the discovery above has stopped working"
-    builders = [
-        path
-        for path in (_REPO_ROOT / "apps").rglob("Dockerfile*")
-        if "packages/backend/" in path.read_text(encoding="utf-8")
-    ]
-    assert builders, "no Dockerfile builds the backend packages — discovery is stale"
-    for path in builders:
-        text = path.read_text(encoding="utf-8")
-        for source in sorted(required):
-            assert re.search(rf"^COPY +{re.escape(source)}\b", text, re.MULTILINE), (
-                f"{path.relative_to(_REPO_ROOT).as_posix()} builds the backend packages "
-                f"but never copies {source}, which a package force-includes into its "
-                f"wheel — the build fails with 'Forced include not found'"
-            )
+def test_no_backend_package_force_includes_a_file_outside_itself() -> None:
+    """A force-include is resolved when the WHEEL is built, and the wheel that
+    reaches PyPI is built from the sdist — which contains only the package. A
+    source reaching outside it therefore resolves against the unpacked sdist and
+    hatchling aborts with "Forced include not found", on the publishing path
+    alone: the local gate, CI's gate job and a plain editable install all build
+    from the full checkout and never notice.
+
+    So this is not a portability nicety, it is the difference between a
+    releasable package and one that fails at the last step. Ship the file inside
+    the package (checked in, held to its source by a test) instead.
+
+    Cost of learning this the other way: v0.5.5, whose build-pypi job died here."""
+    offenders = _force_included_from_outside_the_package()
+    assert not offenders, "; ".join(
+        f"{package} force-includes {source!r} from outside its own directory"
+        for source, package in sorted(offenders.items())
+    )
 
 
 def test_prod_web_images_build_the_bundle_and_serve_nonroot() -> None:

@@ -32,11 +32,15 @@ terp = "terp.core.testing"
 sources = ["src"]
 only-include = ["src/terp/core"]
 
-# The release notes travel WITH the platform, so `terp guide changelog` answers
-# offline, in the app's own checkout. An app that cannot read what changed
-# cannot judge an upgrade — and the template's pyproject already pointed at
-# "the platform CHANGELOG", which until now was a dead reference to a file that
-# shipped nowhere. force-include rather than a checked-in copy: one file, one
-# source of truth, no mirror to drift.
-[tool.hatch.build.targets.wheel.force-include]
-"../../../CHANGELOG.md" = "terp/core/CHANGELOG.md"
+# The release notes travel WITH the platform (src/terp/core/CHANGELOG.md), so
+# `terp guide changelog` answers offline, in the app's own checkout. An app that
+# cannot read what changed cannot judge an upgrade.
+#
+# That copy is checked in rather than force-included from the repo root, which
+# was the first attempt: a force-include reaching OUTSIDE the package directory
+# cannot survive the sdist round-trip. uv builds the wheel *from the sdist*, and
+# the sdist contains only this package — so hatchling resolves "../../../" against
+# the unpacked sdist and dies with "Forced include not found", on PyPI's build
+# path only. Nothing local sees it: no local check builds a wheel.
+# The mirror this creates is held to the root by
+# test_the_shipped_release_notes_match_the_repository_changelog.

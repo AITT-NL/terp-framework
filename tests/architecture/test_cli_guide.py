@@ -74,6 +74,29 @@ def test_changelog_topic_reports_the_release_notes_and_the_current_version() -> 
     assert "Changelog" in text
 
 
+def test_the_shipped_release_notes_match_the_repository_changelog() -> None:
+    """The notes ship as a checked-in copy inside terp-core, because a
+    force-include reaching outside the package cannot survive the sdist round-trip
+    the PyPI wheel is built from (see test_prod_profile). A copy can drift, so it
+    is held to its source here — the objection to a mirror is answerable with a
+    test; the objection to the force-include was not answerable at all.
+
+    Refresh with: Copy-Item CHANGELOG.md packages/backend/core/src/terp/core/
+    """
+    root = pathlib.Path(__file__).resolve().parents[2]
+    shipped = root / "packages" / "backend" / "core" / "src" / "terp" / "core" / "CHANGELOG.md"
+    assert shipped.is_file(), (
+        "terp-core must ship the release notes — `terp guide changelog` is the "
+        "only way an installed app can read what changed"
+    )
+    assert shipped.read_text(encoding="utf-8") == (root / "CHANGELOG.md").read_text(
+        encoding="utf-8"
+    ), (
+        "the release notes shipped in terp-core have drifted from CHANGELOG.md — "
+        "copy the root file over packages/backend/core/src/terp/core/CHANGELOG.md"
+    )
+
+
 def test_the_shipped_copy_wins_over_the_checkout_walk(tmp_path: pathlib.Path) -> None:
     """The wheel copy is the delivery path for every consumer; the upward walk is
     only a convenience for the platform's own checkout. If the walk could win, a
