@@ -578,6 +578,9 @@ Idempotency (the Idempotency-Key header, terp.core.idempotency)
                  require_shared_idempotency_store=get_settings().is_production)
   Only a store that marks itself shared (mark_shared_idempotency_store) satisfies the
   guard, so a load-balanced deployment cannot silently lose the guarantee.
+  Until you opt in, a production boot logs a WARNING saying idempotency is deduplicated
+  per worker - the property is stated where you can read it before scaling, because
+  after scaling the only symptom is duplicate rows with nothing to connect them to.
 - Background work carries its own key: enqueue(..., idempotency_key="customers-2026-06-29").
   Job delivery is at-least-once, so a handler must ALSO be safe to run twice on its own -
   a natural unique constraint in the database is the strongest form of that.

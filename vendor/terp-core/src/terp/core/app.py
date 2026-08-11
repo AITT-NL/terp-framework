@@ -777,6 +777,36 @@ def _validate_shared_idempotency_store(
         )
 
 
+def _warn_unshared_idempotency_in_production(
+    idempotency_store: IdempotencyStore | None, require_shared_idempotency_store: bool
+) -> None:
+    """Say out loud, once, that idempotency is per-worker in this production deployment.
+
+    The boot guard above is opt-in for a good reason: a per-instance store is *correct*
+    for a single-instance production app, so refusing it outright would break a
+    deployment that is not wrong. But the failure mode when that stops being true is
+    the worst kind — scaling to a second replica silently converts "this mutation runs
+    once" into "this mutation runs once per worker a retry happens to land on", with no
+    error, no failed request and nothing in the logs to connect the duplicate rows back
+    to the `--scale` that caused them. The promise breaks; nothing announces it.
+
+    So production states the property it is actually running with, and names the flag
+    that turns it into a boot-time refusal. An author who reads this line before scaling
+    has the whole problem; one who reads it afterwards has the explanation.
+    """
+    if require_shared_idempotency_store or is_shared_idempotency_store(idempotency_store):
+        return
+    _logger.warning(
+        "idempotency keys are deduplicated PER WORKER in this deployment: the "
+        "configured idempotency_store is not a shared, multi-instance backend. This is "
+        "correct for a single instance; run more than one and a client's retry landing "
+        "on another worker re-executes the mutation, silently. Wire a shared store "
+        "marked via terp.core.mark_shared_idempotency_store(...) and pass "
+        "create_app(require_shared_idempotency_store=True) to make that a boot-time "
+        "guarantee instead of a warning."
+    )
+
+
 def _validate_durable_jobs(
     job_queue: JobQueue | None, require_durable_jobs: bool
 ) -> None:
@@ -1209,6 +1239,9 @@ def create_app(
 
     settings = get_settings()
     if settings.is_production:
+        _warn_unshared_idempotency_in_production(
+            idempotency_store, require_shared_idempotency_store
+        )
         security_problems = resolved_plane.security.production_problems()
         if security_problems:
             raise BootError(

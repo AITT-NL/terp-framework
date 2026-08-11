@@ -17,17 +17,22 @@ import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from terp.core import (
+    AuditPolicy,
     BeginOutcome,
     BootError,
+    ControlPlane,
+    CorsPolicy,
     IdempotencyStore,
     InMemoryIdempotencyStore,
     ModuleSpec,
     Policy,
+    SecurityConfig,
     StoredResponse,
     create_app,
     is_shared_idempotency_store,
     mark_shared_idempotency_store,
 )
+from terp.core.config import settings
 from terp.core._internal.middleware import IdempotencyMiddleware
 
 _RESPONSE = StoredResponse(status_code=201, headers=(("content-type", "application/json"),), body=b"{}")
@@ -550,3 +555,56 @@ def test_boot_refuses_an_unmarked_store_when_a_shared_one_is_required() -> None:
 def test_boot_accepts_a_marked_shared_store() -> None:
     shared = mark_shared_idempotency_store(InMemoryIdempotencyStore())
     create_app([_spec()], idempotency_store=shared, require_shared_idempotency_store=True)
+
+
+def _prod_plane() -> ControlPlane:
+    # Security/audit made explicitly production-safe so only the idempotency store
+    # can produce output � isolating the control under test.
+    return ControlPlane(
+        security=SecurityConfig(cors=CorsPolicy.disabled(reason="api only")),
+        audit=AuditPolicy.disabled(reason="trail not required for this probe"),
+    )
+
+
+def test_production_says_out_loud_that_dedup_is_per_worker(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The opt-in guard is right, but its absence must not be silent.
+
+    A per-instance store is *correct* for a single production instance, so boot cannot
+    refuse it outright. What it can do is state the property it is running with: scaling
+    to a second replica turns "this mutation runs once" into "once per worker a retry
+    lands on", and the only symptom is duplicate rows with nothing to connect them back
+    to the --scale that caused them.
+    """
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    with caplog.at_level("WARNING", logger="terp.core"):
+        create_app([_spec()], control_plane=_prod_plane())
+    message = "\n".join(record.getMessage() for record in caplog.records)
+    assert "PER WORKER" in message
+    # It names the way out, not just the condition.
+    assert "require_shared_idempotency_store=True" in message
+
+
+def test_a_shared_store_in_production_warns_about_nothing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A deployment that already holds the guarantee must not be nagged about it.
+
+    A warning that fires when the thing it warns about is not true is how a log line
+    stops being read at all.
+    """
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    shared = mark_shared_idempotency_store(InMemoryIdempotencyStore())
+    with caplog.at_level("WARNING", logger="terp.core"):
+        create_app([_spec()], idempotency_store=shared, control_plane=_prod_plane())
+    assert "PER WORKER" not in "\n".join(r.getMessage() for r in caplog.records)
+
+
+def test_development_is_not_warned_about_a_deployment_property(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Local runs are single-process by definition; the warning would be pure noise."""
+    with caplog.at_level("WARNING", logger="terp.core"):
+        create_app([_spec()])
+    assert "PER WORKER" not in "\n".join(r.getMessage() for r in caplog.records)
