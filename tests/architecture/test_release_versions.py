@@ -27,8 +27,12 @@ _FRONTEND_MANIFESTS = sorted(
     pathlib.Path(_REPO_ROOT / "packages" / "frontend").glob("*/package.json")
 )
 _TEMPLATE_PYPROJECT = _REPO_ROOT / "template" / "project" / "pyproject.toml.jinja"
-_TEMPLATE_FRONTEND_MANIFEST = (
-    _REPO_ROOT / "template" / "project" / "frontend" / "package.json.jinja"
+#: *Every* manifest a generated app ships, not just the frontend's. The conformance
+#: suite pins @terpjs/conformance in a second manifest, and a test that named only the
+#: frontend one left it outside the ratchet — where it sat four releases stale until an
+#: app installed it. A lockstep guarantee is only as wide as the files it reads.
+_TEMPLATE_FRONTEND_MANIFESTS = sorted(
+    (_REPO_ROOT / "template" / "project").rglob("package.json.jinja")
 )
 
 _RELEASE_VERSION = "0.5.5"
@@ -111,12 +115,52 @@ def test_frontend_internal_dependencies_are_lockstep_ranged(path: pathlib.Path) 
                 assert range_ == f"^{_RELEASE_VERSION}"
 
 
-def test_template_frontend_dependencies_are_lockstep_ranged() -> None:
-    text = _TEMPLATE_FRONTEND_MANIFEST.read_text(encoding="utf-8")
+@pytest.mark.parametrize(
+    "path", _TEMPLATE_FRONTEND_MANIFESTS, ids=lambda p: p.parent.name
+)
+def test_template_frontend_dependencies_are_lockstep_ranged(path: pathlib.Path) -> None:
+    text = path.read_text(encoding="utf-8")
     for name in _FRONTEND_INTERNAL:
         match = re.search(rf'"{re.escape(name)}": "([^"]+)"', text)
         if match:
             assert match.group(1) == f"^{_RELEASE_VERSION}"
+
+
+def test_every_template_manifest_is_covered() -> None:
+    """The parametrisation above must actually reach every manifest.
+
+    Named paths are how the conformance manifest went stale unnoticed. Discovery closes
+    that, but discovery that quietly finds nothing is the same hole with fewer symptoms,
+    so the count is asserted: a new manifest joins the ratchet or this fails.
+    """
+    names = {path.parent.name for path in _TEMPLATE_FRONTEND_MANIFESTS}
+    assert {"frontend", "conformance"} <= names, names
+
+
+def test_the_conformance_package_publishes_runnable_javascript() -> None:
+    """@terpjs/conformance ships compiled JS, unlike its source-publishing siblings.
+
+    react-core and contract are imported by an app's Vite build, which compiles
+    TypeScript, so exporting ``./src/index.ts`` costs them nothing. This package is
+    imported by Playwright's runner from inside ``node_modules``, where Node refuses to
+    strip types outright — a raw-TypeScript export is not merely unidiomatic there, it
+    is unloadable, and the failure lands in a consuming app's CI ("No tests found")
+    rather than in this repo, whose own suite imports ``../src`` and never notices.
+    """
+    path = _REPO_ROOT / "packages" / "frontend" / "conformance" / "package.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    entry = data["exports"]["."]
+    assert entry["default"].endswith(".js"), entry
+    assert entry["types"].endswith(".d.ts"), entry
+    assert data["main"].endswith(".js"), data["main"]
+    assert data["types"].endswith(".d.ts"), data["types"]
+
+    # The build is what makes those paths exist, and ``prepack`` is what makes a publish
+    # run it — without the hook the manifest would promise a dist that a hand-rolled
+    # ``npm publish`` never produced, which is a worse failure than the one being fixed.
+    assert data["scripts"]["prepack"] == "npm run build"
+    assert "dist" in data["files"]
 
 
 def test_changelog_records_the_release_version() -> None:
