@@ -88,7 +88,9 @@ def test_text_output_separates_installed_from_adoptable_and_states_the_fix(
     for capability in CAPABILITIES:
         assert capability.distribution in text
 
-    monkeypatch.setattr(capabilities_module, "_is_installed", lambda capability: False)
+    monkeypatch.setattr(
+        capabilities_module, "_installed_version", lambda capability: None
+    )
     adoptable = render_capabilities()
     assert "(none)" in adoptable  # nothing installed
     for capability in CAPABILITIES:
@@ -97,16 +99,48 @@ def test_text_output_separates_installed_from_adoptable_and_states_the_fix(
         assert capability.wiring in adoptable
 
 
+def test_the_adopt_line_is_pinned_to_the_lockstep_version(monkeypatch) -> None:
+    """An unpinned ``uv add`` resolves to whatever is newest, which is exactly how an
+    app ends up one release ahead of the rest of the set. This report is the surface
+    that hands out the command, so it is the surface that must pin it."""
+    from terp.cli.version import platform_version
+
+    version = platform_version()
+    assert version is not None
+    # Every capability is installed in this repo's venv, so the adopt list — the half
+    # that carries the command — is empty here. Force it.
+    monkeypatch.setattr(
+        capabilities_module, "_installed_version", lambda capability: None
+    )
+    text = render_capabilities()
+    assert "lockstep" in text
+    for capability in CAPABILITIES:
+        assert f"uv add {capability.distribution}=={version}" in text
+
+
+def test_installed_capabilities_report_their_version(monkeypatch) -> None:
+    """"You're on 0.5.3" is the first half of "0.5.4 is out", and this surface — the one
+    an app reads to see its platform profile — printed no version at all."""
+    monkeypatch.setattr(
+        capabilities_module, "_installed_version", lambda capability: "9.9.9"
+    )
+    text = render_capabilities()
+    assert "9.9.9" in text
+    payload = json.loads(render_capabilities(fmt="json"))
+    assert payload["capabilities"][0]["version"] == "9.9.9"
+    assert payload["capabilities"][0]["installed"] is True
+
+
 def test_an_uninstalled_distribution_reads_as_adoptable_not_as_an_error(
     monkeypatch,
 ) -> None:
     # "Installed?" is answered by asking this environment, and the honest answer for a
     # distribution that is not here is "no" — never a PackageNotFoundError escaping into
     # a report whose whole job is to tell an app what it could adopt next.
-    from terp.cli.capabilities import _is_installed
+    from terp.cli.capabilities import _installed_version
 
     installed = CAPABILITIES[0]
-    assert _is_installed(installed) is True
+    assert _installed_version(installed) is not None
 
     missing = installed.__class__(
         name="does-not-exist",
@@ -114,11 +148,13 @@ def test_an_uninstalled_distribution_reads_as_adoptable_not_as_an_error(
         kind="library",
         wiring="n/a",
     )
-    assert _is_installed(missing) is False
+    assert _installed_version(missing) is None
 
 
 def test_json_output_is_machine_readable() -> None:
     payload = json.loads(render_capabilities(fmt="json"))
+    # The lockstep version the adopt lines pin to, so a tool need not parse the text.
+    assert payload["platform_version"]
     entries = payload["capabilities"]
     assert len(entries) == len(CAPABILITIES)
     for entry in entries:
@@ -131,6 +167,7 @@ def test_json_output_is_machine_readable() -> None:
             "wiring",
             "guide",
             "installed",
+            "version",
         }
         assert isinstance(entry["installed"], bool)
 

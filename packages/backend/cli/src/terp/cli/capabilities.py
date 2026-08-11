@@ -179,13 +179,16 @@ CAPABILITIES: tuple[Capability, ...] = (
 )
 
 
-def _is_installed(capability: Capability) -> bool:
-    """Whether *capability*'s distribution is resolvable in this environment."""
+def _installed_version(capability: Capability) -> str | None:
+    """*capability*'s installed version, or ``None`` when it is not installed.
+
+    One lookup answers both questions the report asks — whether the app has it,
+    and which release — so the two can never disagree.
+    """
     try:
-        metadata.distribution(capability.distribution)
+        return metadata.distribution(capability.distribution).version
     except metadata.PackageNotFoundError:
-        return False
-    return True
+        return None
 
 
 def render_capabilities(*, fmt: str = "text") -> str:
@@ -195,11 +198,20 @@ def render_capabilities(*, fmt: str = "text") -> str:
     capabilities are listed first so the reader sees the current profile, then the
     adoptable ones with the exact ``uv add`` line and wiring shape — no package index
     search, no guessing at a name.
+
+    Versions are shown, and the ``uv add`` line is **pinned**, because Terp releases in
+    lockstep: an unpinned adopt resolves to whatever is newest, which is precisely how
+    an app ends up with one package a release ahead of the rest. This surface was the
+    natural place to notice that and said nothing.
     """
-    rows = [(cap, _is_installed(cap)) for cap in CAPABILITIES]
+    from terp.cli.version import platform_version
+
+    rows = [(cap, _installed_version(cap)) for cap in CAPABILITIES]
+    pin = platform_version()
     if fmt == "json":
         return json.dumps(
             {
+                "platform_version": pin,
                 "capabilities": [
                     {
                         "name": cap.name,
@@ -209,16 +221,18 @@ def render_capabilities(*, fmt: str = "text") -> str:
                         "kind": cap.kind,
                         "wiring": cap.wiring,
                         "guide": cap.guide,
-                        "installed": installed,
+                        "installed": version is not None,
+                        "version": version,
                     }
-                    for cap, installed in rows
-                ]
+                    for cap, version in rows
+                ],
             },
             indent=2,
         )
 
-    installed = [cap for cap, present in rows if present]
-    available = [cap for cap, present in rows if not present]
+    installed = [(cap, version) for cap, version in rows if version is not None]
+    available = [cap for cap, version in rows if version is None]
+    requirement = f"=={pin}" if pin else ""
     lines = [
         "Capabilities",
         "",
@@ -227,19 +241,23 @@ def render_capabilities(*, fmt: str = "text") -> str:
         "the composition root. Adopting one is always: add the dependency, wire it, run",
         "`uv run terp migrate` if it ships tables.",
         "",
+        "Terp releases in lockstep, so every terp-* package carries the same version",
+        "and the `uv add` lines below are pinned to it. `terp --version` reports the",
+        "whole set and names any package that has drifted out of step.",
+        "",
         f"Installed in this app ({len(installed)})",
         "",
     ]
-    for cap in installed:
-        lines.append(f"  {cap.distribution:<32} {cap.kind}")
+    for cap, version in installed:
+        lines.append(f"  {cap.distribution:<32} {version:<10} {cap.kind}")
         lines.append(f"      {cap.summary}")
     if not installed:
         lines.append("  (none)")
     lines += ["", f"Available to adopt ({len(available)})", ""]
     for cap in available:
-        lines.append(f"  {cap.distribution:<32} {cap.kind}")
+        lines.append(f"  {cap.distribution:<32} {'—':<10} {cap.kind}")
         lines.append(f"      {cap.summary}")
-        lines.append(f"      uv add {cap.distribution}")
+        lines.append(f"      uv add {cap.distribution}{requirement}")
         lines.append(f"      {cap.wiring}")
         if cap.guide is not None:
             lines.append(f"      uv run terp guide {cap.guide}")

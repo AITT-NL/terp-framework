@@ -858,7 +858,7 @@ Layout contracts (slot-typed layouts, ADR 0079)
 """,}
 
 # Topics whose body is generated from a live registry (not a static recipe above).
-_GENERATED_TOPICS: tuple[str, ...] = ("rules",)
+_GENERATED_TOPICS: tuple[str, ...] = ("changelog", "rules")
 
 _RULE_GUIDE_DETAILS: dict[str, str] = {
      "no_raw_outbound_http": """\
@@ -933,6 +933,9 @@ Golden rules (the gate enforces these — follow them and it stays green):
 More:  terp guide <topic>   (topics: {_TOPIC_NAMES})
     terp guide <rule>            (the exact rule's remediation and related pattern)
        terp guide rules             (every architecture rule the gate enforces, generated)
+       terp --version               (which platform you are on; warns on mixed pins)
+       terp guide changelog         (what changed — read this before and after a bump)
+       terp upgrade --check         (is there a newer release for the whole set?)
        terp inspect capabilities    (what the platform offers: installed vs adoptable)
        terp inspect control-plane   (your roles / permissions / module authority map)
        terp inspect access          (the full access graph: modules, endpoints, data traits)
@@ -973,6 +976,60 @@ def _render_rules_topic() -> str:
         lines.append(f"  - {rule.__name__.removeprefix('check_')}")
         lines.append(f"      {_rule_headline(rule)}")
     return "\n".join(lines) + "\n"
+
+
+def _read_release_notes(
+    shipped_dir: pathlib.Path, search_from: pathlib.Path
+) -> str | None:
+    """The release-notes text: the shipped copy first, the checkout copy second.
+
+    Split out from the topic renderer so both legs are reachable in a test. The
+    order matters: *shipped_dir* is the real delivery path for every consumer,
+    and the upward walk exists only for the platform's own checkout, where
+    terp-core is used from source and no wheel was ever built. If the walk could
+    win, a developer here would read notes the installed platform does not carry.
+    """
+    shipped = shipped_dir / "CHANGELOG.md"
+    if shipped.is_file():
+        return shipped.read_text(encoding="utf-8")
+    for parent in [search_from, *search_from.parents]:
+        candidate = parent / "CHANGELOG.md"
+        if candidate.is_file():
+            return candidate.read_text(encoding="utf-8")
+    return None
+
+
+def _render_changelog_topic() -> str:
+    """The platform's release notes, read from the installed ``terp-core``.
+
+    An app cannot judge an upgrade it cannot read about. The notes ship inside
+    the wheel (``force-include`` in terp-core's pyproject) precisely so this
+    answers **offline, in the app's own checkout** — no repository to clone, no
+    index to reach. Until this existed the template's own pyproject pointed at
+    "the platform CHANGELOG", a document that shipped nowhere: the one pointer
+    the code gave was a dead reference.
+    """
+    from terp.cli.version import platform_version
+
+    # terp-core is a hard dependency of the CLI, so its location is always known.
+    import terp.core
+
+    shipped_dir = pathlib.Path(terp.core.__file__).parent
+    text = _read_release_notes(shipped_dir, pathlib.Path(__file__).resolve().parent)
+    if text is None:
+        return (
+            "Release notes are not available in this environment.\n\n"
+            "They ship inside the terp-core wheel; an editable or partial install "
+            "may not carry them.\nSee the platform repository's CHANGELOG.md.\n"
+        )
+
+    version = platform_version()
+    header = (
+        f"Terp release notes (this app is on {version})\n"
+        if version
+        else "Terp release notes\n"
+    )
+    return header + "\n" + text
 
 
 def _render_rule_guide(rule_name: str) -> str:
@@ -1018,6 +1075,8 @@ def guide(topic: str | None = None) -> str:
         return _GUIDE_OVERVIEW
     if topic == "rules":
         return _render_rules_topic()
+    if topic == "changelog":
+        return _render_changelog_topic()
     if topic in _GUIDE_TOPICS:
         return _GUIDE_TOPICS[topic]
     return _render_rule_guide(topic)
@@ -1464,8 +1523,34 @@ def _render_mermaid(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
     return "\n".join(lines)
 
 
+class _VersionAction(argparse.Action):
+    """Print the platform version and exit, before the required subcommand bites.
+
+    ``argparse`` refuses a bare ``terp`` because ``command`` is required, so a
+    plain flag would never be reached — an action that exits during parsing is
+    what makes ``terp --version`` work at all. Not ``action="version"``: the text
+    is computed from the live environment (and may carry a mixed-install
+    warning), which the built-in's static string cannot express.
+    """
+
+    def __init__(self, option_strings, dest, **kwargs):  # type: ignore[no-untyped-def]
+        super().__init__(option_strings, dest, nargs=0, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):  # type: ignore[no-untyped-def]
+        from terp.cli.version import render_version
+
+        print(render_version())
+        parser.exit()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="terp")
+    parser.add_argument(
+        "--version",
+        "-V",
+        action=_VersionAction,
+        help="Show the installed platform version (and flag a mixed install)",
+    )
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     inspect_parser = subcommands.add_parser("inspect")
@@ -1572,6 +1657,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional topic or exact architecture rule for a focused recipe "
         "(validated on dispatch, so the rule registry stays off the common CLI path)",
+    )
+
+    upgrade_parser = subcommands.add_parser(
+        "upgrade",
+        help="Check whether a newer Terp release is available for the whole set",
+    )
+    upgrade_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Report the available release and the bump recipe (the only mode: "
+        "Terp reports, it does not edit your manifests)",
     )
 
     migrate_parser = subcommands.add_parser(
@@ -1946,6 +2042,18 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "for the topic list or `terp guide rules` for every rule name"
             )
         print(guide(args.topic))
+        return
+    if args.command == "upgrade":
+        from terp.cli.version import render_upgrade_check
+
+        if not args.check:
+            raise SystemExit(
+                "terp upgrade: run `terp upgrade --check`. Terp reports what is "
+                "available and how to bump; it does not edit your manifests, because "
+                "a lockstep bump spans pyproject.toml and frontend/package.json and "
+                "must be reviewed as one change."
+            )
+        print(render_upgrade_check())
         return
     if args.command == "migrate":
         from terp.migrations import migrate_main

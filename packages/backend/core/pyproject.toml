@@ -31,3 +31,12 @@ terp = "terp.core.testing"
 [tool.hatch.build.targets.wheel]
 sources = ["src"]
 only-include = ["src/terp/core"]
+
+# The release notes travel WITH the platform, so `terp guide changelog` answers
+# offline, in the app's own checkout. An app that cannot read what changed
+# cannot judge an upgrade — and the template's pyproject already pointed at
+# "the platform CHANGELOG", which until now was a dead reference to a file that
+# shipped nowhere. force-include rather than a checked-in copy: one file, one
+# source of truth, no mirror to drift.
+[tool.hatch.build.targets.wheel.force-include]
+"../../../CHANGELOG.md" = "terp/core/CHANGELOG.md"

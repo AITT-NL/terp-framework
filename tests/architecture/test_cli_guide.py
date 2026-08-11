@@ -60,6 +60,74 @@ def test_recipes_carry_their_key_markers() -> None:
     assert "no_manual_ownership_checks" in guide("rules")
 
 
+def test_changelog_topic_reports_the_release_notes_and_the_current_version() -> None:
+    """An app cannot judge an upgrade it cannot read about.
+
+    Before this, the only pointer the platform gave an app was the template's
+    "see the platform CHANGELOG" — a dead reference to a document that shipped
+    nowhere. The notes are now answered in the app's own checkout, headed by the
+    version that checkout is actually on.
+    """
+    text = guide("changelog")
+    assert "Terp release notes" in text
+    assert "in lockstep" in text
+    assert "Changelog" in text
+
+
+def test_the_shipped_copy_wins_over_the_checkout_walk(tmp_path: pathlib.Path) -> None:
+    """The wheel copy is the delivery path for every consumer; the upward walk is
+    only a convenience for the platform's own checkout. If the walk could win, a
+    developer would be reading notes the installed platform does not carry."""
+    from terp.cli import _read_release_notes
+
+    shipped = tmp_path / "shipped"
+    shipped.mkdir()
+    (shipped / "CHANGELOG.md").write_text("from the wheel", encoding="utf-8")
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "CHANGELOG.md").write_text("from the checkout", encoding="utf-8")
+
+    assert _read_release_notes(shipped, checkout) == "from the wheel"
+    empty = tmp_path / "no-wheel-copy"
+    empty.mkdir()
+    assert _read_release_notes(empty, checkout) == "from the checkout"
+
+
+def test_absent_release_notes_say_so_instead_of_failing(tmp_path: pathlib.Path) -> None:
+    from terp.cli import _read_release_notes
+
+    assert _read_release_notes(tmp_path, tmp_path) is None
+
+
+def test_a_partial_install_without_notes_names_the_cause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guide must degrade to an explanation, never to a traceback — an
+    editable or partial install is exactly when someone is already debugging."""
+    import terp.cli
+
+    monkeypatch.setattr(terp.cli, "_read_release_notes", lambda *_: None)
+    text = guide("changelog")
+    assert "not available" in text
+    assert "terp-core wheel" in text
+
+
+def test_the_release_notes_travel_inside_the_wheel() -> None:
+    """The fallback for the platform's own checkout must not become the delivery
+    mechanism: an installed app has no repository to walk up into, so terp-core
+    force-includes the notes. Pinned here because losing that line would leave
+    the topic silently working for us and broken for every consumer."""
+    pyproject = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "packages"
+        / "backend"
+        / "core"
+        / "pyproject.toml"
+    ).read_text(encoding="utf-8")
+    assert "force-include" in pyproject
+    assert "terp/core/CHANGELOG.md" in pyproject
+
+
 def test_outbound_http_rule_guide_is_truthful_and_preserves_the_feature() -> None:
     text = guide("no_raw_outbound_http")
     assert "SSRF protection, allowlists, egress auditing, and timeout" in text
