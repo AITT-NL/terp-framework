@@ -36,7 +36,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # The typed client is generated, never committed (.gitignore), so CI has to
+      # produce it before anything reads it — the app's live OpenAPI document, then
+      # openapi-typescript into frontend/src/api/schema.d.ts. Vite erases type-only
+      # imports, so `build` would pass without it and only `tsc` would fail: without
+      # these steps the frontend half of the gate silently stops working the moment a
+      # module actually calls the API, which is to say as soon as the app is an app.
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+        working-directory: .
+      - run: uv run terp openapi
+        working-directory: .
       - run: npm install
+      - run: npm run generate
       - run: npm run typecheck
       # The boundary lint + escape-hatch budget: the frontend half of the gate. A violation
       # fails CI; a governed opt-out is a justified `terp-allow-*` marker counted in

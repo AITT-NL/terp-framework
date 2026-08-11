@@ -252,6 +252,24 @@ def test_frontend_ships_typed_client_codegen() -> None:
     assert "frontend/src/api/" in (_PROJECT / ".gitignore").read_text()
 
 
+def test_project_ci_generates_the_typed_client_before_type_checking() -> None:
+    """CI must produce the client it git-ignores, or the frontend gate is theatre.
+
+    The two rules above are individually right and jointly a trap: the typed client is a
+    build artifact (git-ignored), so a fresh checkout does not have one. Vite erases
+    type-only imports, so `npm run build` passes regardless and only `tsc` fails — which
+    means the omission is invisible on the blank scaffold and becomes a permanent CI
+    failure the moment a module first imports the client. Generating it is what makes
+    the frontend half of the gate a check rather than a formality.
+    """
+    ci = (_PROJECT / ".github" / "workflows" / "ci.yml.jinja").read_text()
+    assert "terp openapi" in ci, "CI must write openapi.json from the live app"
+    assert "npm run generate" in ci, "CI must generate frontend/src/api/schema.d.ts"
+    assert ci.index("npm run generate") < ci.index("npm run typecheck"), (
+        "the client has to exist before tsc looks for it"
+    )
+
+
 def test_project_ships_a_docker_workbench() -> None:
     # The generated repo runs the "right way": a Postgres-backed Compose workbench that seeds
     # itself and live-reloads, mirroring the (live-proven) apps/example workbench.
