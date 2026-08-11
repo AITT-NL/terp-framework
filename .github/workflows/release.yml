@@ -99,6 +99,9 @@ jobs:
           npm run -w @terpjs/react-core typecheck
           npm run -w @terpjs/react-core test
           npm run -w @terpjs/eslint-boundaries test
+          # The artifact @terpjs/conformance actually publishes (prepack builds it
+          # again at publish time; this is the tag refusing to release a broken one).
+          npm run -w @terpjs/conformance build
           npm run -w @terpjs-example/frontend typecheck
           npm run -w @terpjs-example/frontend lint
           npm run -w @terpjs-example/frontend build

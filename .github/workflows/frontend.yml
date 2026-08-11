@@ -60,6 +60,15 @@ jobs:
       - name: Test @terpjs/eslint-boundaries (the boundary rules fire)
         run: npm run -w @terpjs/eslint-boundaries test
 
+      # @terpjs/conformance publishes compiled JavaScript, because Playwright loads it
+      # from node_modules with no bundler in front of it. Its own suite imports ../src,
+      # so nothing else here would notice a broken build until an app installed it.
+      - name: Build @terpjs/conformance (the published artifact)
+        run: |
+          npm run -w @terpjs/conformance build
+          test -f packages/frontend/conformance/dist/index.js
+          test -f packages/frontend/conformance/dist/index.d.ts
+
       # The verifiable certification artifact (scorecard.schema.json): the
       # adapter's scorecard over the violation corpus, emitted by the same
       # harness the suite above just proved green. Self-validating.

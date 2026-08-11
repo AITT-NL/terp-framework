@@ -1,0 +1,21 @@
+// The published build. The base config is a type-check config (noEmit, and it pulls in
+// this package's own Playwright suite); publishing needs the opposite: emit, sources only.
+//
+// This package is unlike its siblings on purpose. @terpjs/react-core and @terpjs/contract
+// are imported by an app's Vite build, which compiles TypeScript, so they publish sources.
+// This one is imported by Playwright's runner from inside node_modules, where Node refuses
+// to strip types at all ("Stripping types is currently unsupported for files under
+// node_modules") — a package of raw .ts is simply unloadable there. So it ships JavaScript
+// plus declarations, and `prepack` builds it so a publish cannot forget.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}
