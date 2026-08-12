@@ -71,6 +71,18 @@ def test_prod_secrets_have_no_dev_fallback() -> None:
         assert ":?" in db_env["POSTGRES_PASSWORD"], "POSTGRES_PASSWORD must be required"
 
 
+def test_prod_database_url_reads_from_the_environment() -> None:
+    """The external-database seam: the bundled `db` service is the *default*,
+    and a deployment can point the app at a PostgreSQL it operates itself by
+    setting DATABASE_URL. Both backend services must honour it, or an
+    external-database deploy would silently keep writing to the sidecar."""
+    for data in _both_composes():
+        for name in ("migrate", "api"):
+            url = data["services"][name]["environment"]["DATABASE_URL"]
+            assert url.startswith("${DATABASE_URL:-"), f"{name} must read the seam"
+            assert "@db:5432/" in url, f"{name} must default to the bundled db"
+
+
 def test_prod_api_serves_immutable_code() -> None:
     """No --reload and no source watch: production images are immutable."""
     for data in _both_composes():

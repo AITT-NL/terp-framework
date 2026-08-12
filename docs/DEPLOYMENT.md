@@ -55,7 +55,7 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | `SECRET_KEY` | yes | ≥ 32 chars; JWT signing + config sealing (ADR 0055) |
 | `SECRET_KEY_FALLBACKS` | no | Previous keys (JSON list) for zero-downtime rotation (ADR 0076); each ≥ 32 chars |
 | `POSTGRES_PASSWORD` | yes | Bundled Postgres; compose fails fast when unset |
-| `DATABASE_URL` | derived | Set explicitly for a managed database |
+| `DATABASE_URL` | derived | Defaults to the bundled `db` service. Set it to run on a managed/external PostgreSQL — then also drop the `db` service (and the `depends_on` waiting on it) with a compose override |
 | `BACKEND_CORS_ORIGINS` | no | Deny-by-default; only for cross-origin SPAs, never `*` |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` / `DB_POOL_RECYCLE` | no | Pool tuning (ADR 0024) |
 | `REFRESH_TOKEN_TTL_SECONDS` / `REFRESH_FAMILY_TTL_SECONDS` | no | Session windows (ADR 0054) |

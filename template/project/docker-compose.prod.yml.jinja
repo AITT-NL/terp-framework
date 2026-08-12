@@ -10,6 +10,9 @@
 #     SQLite, permissive CORS, or an insecure refresh cookie (terp.core.config).
 #   - Secrets come from the environment only — there is NO dev fallback; compose fails
 #     fast when SECRET_KEY / POSTGRES_PASSWORD are unset.
+#   - The database is the bundled `db` service by default. Set DATABASE_URL to run
+#     against an external PostgreSQL instead (managed cloud, on-prem cluster) and add
+#     an override that removes `db` to drop the then-unused sidecar.
 #   - No `seed` service: seed data is dev/demo only (`terp seed` refuses production).
 #     Bootstrap the first administrator instead with:
 #       docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \
@@ -27,7 +30,9 @@ x-backend: &backend
     - path: .app.env
       required: false
   environment: &backend-env
-    DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/app
+    # Unset: the bundled `db` service. Set: any external PostgreSQL — the seam an
+    # external-database deployment overrides (nothing else in the profile changes).
+    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:${POSTGRES_PASSWORD}@db:5432/app}
     SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}
     ENVIRONMENT: production
     BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-[]}'
