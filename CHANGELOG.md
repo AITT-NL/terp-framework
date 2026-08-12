@@ -12,11 +12,66 @@ decision, 0001 onwards.
 
 ## Unreleased
 
-Three defects an app found that this repo structurally could not: each one is invisible
-in-house and only fires in a generated project.
+## 0.5.6 — 2026-08-12
+
+Deployments get a database they can choose, and four silences get a voice. The thread
+running through it: the platform already knew the thing, and only said it somewhere
+nobody was standing — or, in three cases, said nothing at all until an app hit it.
+
+### Added
+
+- **The production profile reads `DATABASE_URL` from a seam.** It was hardcoded to the
+  bundled `db` sidecar, so the only supported topology was the one the profile shipped
+  with, and a client who already operates PostgreSQL — a cluster, a DBA, a managed cloud
+  database with its own backup and DR regime — had to fork the profile, which moves a
+  deployment concern into application source and diverges forever. One line changes:
+  `DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://…@db:5432/…}`. Unset is
+  byte-identical to before (`docker compose up` by hand still works with nothing else
+  configured); set points the app at any PostgreSQL, and an override drops the
+  then-unused sidecar. `POSTGRES_PASSWORD` keeps its fail-fast `:?` guard where it
+  belongs — on the `db` service — so a bundled deployment still refuses to start without
+  it. Pinned in both the template and the example profile by
+  `tests/architecture/test_prod_profile.py`.
+- **Production says out loud when idempotency is per worker.** A per-instance store is
+  *correct* for a single production instance, so refusing it outright would break a
+  deployment that is not wrong — but its absence was silent, and the failure when the
+  assumption stops holding is the worst kind: scaling to a second replica turns "this
+  mutation runs once" into "once per worker a retry happens to land on", with no error,
+  no failed request, and nothing connecting the duplicate rows back to the `--scale` that
+  caused them. Boot now states the property it is actually running with and names
+  `create_app(require_shared_idempotency_store=True)` as the flag that turns it into a
+  refusal. A deployment that already holds the guarantee is not nagged, and local runs
+  say nothing.
+- **`terp_audit`, the test seam events already had.** A service-level test asserting on a
+  durable audit trail found `select(AuditEvent)` returning `[]` — the default sink only
+  logs, so nothing was ever written, and *an assertion about an empty result passes*. The
+  test reported that audit worked; what it had established was that no sink was
+  installed. `terp_audit` (typed `InstallAudit`, the twin of `InstallEvents`) closes the
+  asymmetry, and `terp guide testing` now says what an empty audit assertion actually
+  proves.
+- **`terp guide soft-delete`.** `OwnedMixin` has `ownership` and `TenantScopedMixin` has
+  `tenancy`; the third trait had no topic at all, so its rules were only findable after
+  you had already made the mistake.
 
 ### Fixed
 
+- **`terp migrate make` no longer answers the first question in raw Alembic.** `terp new
+  module x` then `terp migrate make x` is the documented workflow, and on the settings
+  default (in-memory SQLite) it failed in a 25-line traceback ending in "Target database
+  is not up to date" — which names neither the cause nor the fix, and never says
+  `DATABASE_URL`. Authoring a revision is a script-tree job, but *autogenerating* one
+  diffs the live database; the stateful-command set is now conditional, so
+  `make --no-autogenerate` still works with no database configured while the default
+  gets the same readable refusal `upgrade` and `check` already give. A
+  configured-but-behind database gets `DatabaseBehindForAutogenerateError`, raised in the
+  orchestrator so a direct `terp.migrations.make` caller (Studio) gets it too.
+- **`SoftDeleteMixin` stops telling you to write the filter the gate refuses.** Its
+  docstring still said core installs no global filter and "the caller filters
+  `deleted_at IS NULL` explicitly" — true when the trait was written, false since
+  `apply_row_scope` took the filter over, and the worst kind of stale: an agent composing
+  the mixin reads the mixin, and this one sent it to hand-write the exact predicate
+  `no_manual_scope_filtering` refuses. A test pins the docstring to the behaviour
+  asserted in the same file.
 - **`@terpjs/conformance` now publishes compiled JavaScript.** It exported `./src/index.ts`
   like its siblings, but unlike them it is loaded by Playwright's runner from inside
   `node_modules`, where Node refuses to strip types at all — so an installing app got
