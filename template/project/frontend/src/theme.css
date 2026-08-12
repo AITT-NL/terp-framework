@@ -1,0 +1,14 @@
+/* Studio-managed theme overlay.
+ *
+ * This file starts empty: the project renders with @terpjs/contract's
+ * default design tokens (imported in main.tsx right before this file) until
+ * a theme is applied from the Studio's Themes settings screen. Applying a
+ * theme overwrites this file with a `:root { --token: value; ... }` block
+ * that redefines only the tokens it customises — the normal CSS cascade
+ * falls back to the framework default for everything a theme doesn't set.
+ *
+ * Hand edits are safe (Studio only applies a theme when the workspace has
+ * no uncommitted changes, and the change lands as a normal, reviewable
+ * edit — never auto-committed) but will be overwritten the next time a
+ * theme is applied to this project.
+ */

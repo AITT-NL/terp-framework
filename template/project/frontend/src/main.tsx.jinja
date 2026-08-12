@@ -2,6 +2,9 @@
 // light and dark palettes; the shell header's theme toggle (light/dark/system)
 // switches them via <html data-theme> with no per-module changes.
 import "@terpjs/contract/tokens.css";
+// A Studio-managed styling overlay — empty by default, filled in when a theme
+// is applied from the Studio's Themes settings screen (see theme.css).
+import "./theme.css";
 import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terpjs/react-core";
 
 // The whole app: discover the modules and mount. baseUrl defaults to same-origin so the
