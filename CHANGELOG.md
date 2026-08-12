@@ -12,6 +12,24 @@ decision, 0001 onwards.
 
 ## Unreleased
 
+## 0.5.7 — 2026-08-12
+
+A seam for a feature that lives one layer up: Terp Studio's Themes settings screen
+needs a file to write a chosen theme into, and until now there wasn't one.
+
+### Added
+
+- **The frontend starter ships an empty `theme.css` overlay, imported right after
+  `@terpjs/contract`'s tokens.** Studio applies a theme to a scaffolded project by
+  overwriting one file with a `:root { --token: value; ... }` block; without a
+  dedicated file, applying a theme meant hand-editing `main.tsx` or inventing a
+  per-project convention. `theme.css` starts empty — the project renders with the
+  framework's default tokens until a theme is applied — and only ever redefines the
+  tokens a theme customises, so the normal CSS cascade covers everything else. Hand
+  edits are safe: Studio only applies a theme when the workspace has no uncommitted
+  changes, and the change lands as a normal, reviewable edit, never an auto-commit —
+  but they are overwritten the next time a theme is applied.
+
 ## 0.5.6 — 2026-08-12
 
 Deployments get a database they can choose, and four silences get a voice. The thread
