@@ -64,6 +64,7 @@ from terp.arch.rules.events import (
     check_events_reference_catalog,
 )
 from terp.arch.rules.http import (
+    check_declared_read_only_routes_do_not_write,
     check_list_routes_paginate,
     check_no_adhoc_logging_config,
     check_no_adhoc_middleware,
@@ -151,6 +152,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "list_routes_paginate": "service",
     "path_id_params_are_uuid": "module",
     "safe_methods_are_read_only": "module",
+    "declared_read_only_routes_do_not_write": "module",
     "no_raw_session_construction": "service",
     "no_raw_connection_access": "service",
     "no_dynamic_sql": "service",
@@ -231,6 +233,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_list_routes_paginate,
     check_path_id_params_are_uuid,
     check_safe_methods_are_read_only,
+    check_declared_read_only_routes_do_not_write,
     check_no_raw_session_construction,
     check_no_raw_connection_access,
     check_no_dynamic_sql,
@@ -423,6 +426,7 @@ __all__ = [
     "check_reads_use_base_query",
     "check_response_model_not_table_model",
     "check_routes_declare_response_model",
+    "check_declared_read_only_routes_do_not_write",
     "check_safe_methods_are_read_only",
     "check_schemas_exclude_sensitive_fields",
     "check_session_imported_from_sqlmodel",

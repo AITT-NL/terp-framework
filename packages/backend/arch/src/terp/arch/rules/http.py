@@ -536,6 +536,70 @@ def check_safe_methods_are_read_only(
     return violations
 
 
+def _declares_read_only(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Is this handler decorated with ``terp.core.routing.read_only``?
+
+    Matched on the decorator's final name, so ``@read_only``, ``@core.read_only``
+    and ``@routing.read_only`` all count — the import spelling is the module
+    author's business, and requiring one of them would make the rule a style
+    preference instead of a guarantee.
+    """
+    for decorator in node.decorator_list:
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        if isinstance(target, ast.Name) and target.id == "read_only":
+            return True
+        if isinstance(target, ast.Attribute) and target.attr == "read_only":
+            return True
+    return False
+
+
+def check_declared_read_only_routes_do_not_write(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """A handler declared ``@read_only`` must not mutate.
+
+    ``terp.core.routing.read_only`` is how a route says "unsafe verb, pure
+    computation" — the ``POST`` that validates a candidate document or previews an
+    import, which is a ``POST`` because its input is a body and not because it
+    writes. Without the declaration such a route is pure only by the *absence* of
+    a write: a guarantee made of missing code, which holds until an edit adds a
+    line and which no rule and no reviewer is prompted to check. The declaration
+    turns that into something enforceable, and this is the build-time half — the
+    runtime half is ``create_app``'s read-only binder, which marks the request
+    read-only so the ``BaseService`` chokepoint refuses the write in any case.
+
+    Fix it by removing the write (put it behind its own route) or by removing the
+    ``@read_only`` declaration — whichever the route was actually meant to be.
+    Never both: a decorated handler that writes is a promise the platform is
+    holding two answers to.
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        tree = parse(path)
+        rel = _rel(path, root)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if not _declares_read_only(node):
+                continue
+            for sub in ast.walk(node):
+                if _is_mutating_service_call(sub):
+                    method = sub.func.attr  # type: ignore[attr-defined]
+                    violations.append(
+                        ArchViolation(
+                            "declared_read_only_routes_do_not_write",
+                            rel,
+                            sub.lineno,
+                            f"route {node.name!r} is declared @read_only but calls the "
+                            f"mutating service method {method!r}; drop the write or drop "
+                            "the declaration — a route cannot both promise to compute "
+                            "only and persist",
+                        )
+                    )
+    return violations
+
+
 def check_no_app_instantiation(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:

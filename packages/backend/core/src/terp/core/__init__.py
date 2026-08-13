@@ -120,6 +120,7 @@ from terp.core.permissions import (
     Role,
     as_role,
 )
+from terp.core.routing import read_only
 from terp.core.scheduling import (
     ScheduleCatalog,
     ScheduleDefinition,
@@ -264,6 +265,7 @@ __all__ = [
     "mark_shared_throttle_store",
     "mark_token_revocation_provider",
     "mask_config",
+    "read_only",
     "register_decrypt_call_site",
     "register_job_tenant_context",
     "register_object_authz_predicate",

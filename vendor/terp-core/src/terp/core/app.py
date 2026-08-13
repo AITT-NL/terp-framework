@@ -69,6 +69,7 @@ from terp.core._internal.middleware import install_security_middleware
 from terp.core._internal.session_guard import read_only_request
 from terp.core.module_spec import ModuleSpec, Policy
 from terp.core.passwords import configure_password_policy
+from terp.core.routing import is_read_only
 from terp.core.throttling import (
     InMemoryThrottleStore,
     ThrottleStore,
@@ -248,6 +249,14 @@ def build_read_only_request_binder() -> Callable[..., AsyncIterator[None]]:
     the build-time ``safe_methods_are_read_only`` rule. Like the audit-actor binder it
     is **async** (so the flag is set once and propagates into the threadpooled sync
     route) and request-scoped (set on entry, reset on exit).
+
+    A handler may also *declare* itself pure with
+    :func:`terp.core.routing.read_only`, which earns the same treatment under an
+    unsafe verb — the route whose method is ``POST`` only because its input is a
+    body (validating a candidate document, previewing an import) and which
+    computes rather than persists. Authorization is untouched: such a route is
+    still authorized at the write tier, because declaring purity narrows what the
+    handler may do, never what the caller must hold.
     """
 
     async def binder(connection: HTTPConnection) -> AsyncIterator[None]:
@@ -255,7 +264,8 @@ def build_read_only_request_binder() -> Callable[..., AsyncIterator[None]]:
         method = getattr(connection, "method", None) or scope.get(
             "method", "POST" if scope.get("type") == "websocket" else "GET"
         )
-        with read_only_request(method.upper() in _SAFE_METHODS):
+        declared = is_read_only(scope.get("endpoint"))
+        with read_only_request(declared or method.upper() in _SAFE_METHODS):
             yield
 
     return binder

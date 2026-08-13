@@ -1011,6 +1011,9 @@ Golden rules (the gate enforces these — follow them and it stays green):
   4. Every module declares a ModuleSpec with a Policy (deny-by-default); a truly public
      route opts in with Policy.public(reason="...").
   5. Routes set response_model to a Read DTO (never the table model); paginate lists (Page[T]).
+     A POST that computes and never writes (validate, preview, cost) declares
+     @read_only under its route decorator — the gate and the chokepoint then hold it to
+     that, instead of it being pure only until someone adds a line.
   6. Cap every input string: Field(max_length=...).
   7. Import only the terp.core public surface + your declared capabilities — never
      terp.core._internal, never a sibling module.

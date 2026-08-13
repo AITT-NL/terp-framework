@@ -72,6 +72,7 @@ from terp.arch import (
     check_reads_use_base_query,
     check_response_model_not_table_model,
     check_routes_declare_response_model,
+    check_declared_read_only_routes_do_not_write,
     check_safe_methods_are_read_only,
     check_schemas_exclude_sensitive_fields,
     check_session_imported_from_sqlmodel,
@@ -621,6 +622,40 @@ def test_no_unique_columns_on_soft_delete_models_requires_every_verified_dialect
     assert _rule_names(check_no_unique_columns_on_soft_delete_models(app)) == {
         "no_unique_columns_on_soft_delete_models"
     }
+
+
+def test_declared_read_only_routes_do_not_write(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # A handler decorated @read_only promises to compute and never persist. Any mutating
+    # BaseService call inside one breaks that promise, whatever the decorator's import
+    # spelling (@read_only, @core.read_only) and whichever write primitive it reaches for.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "@router.post('/validation')\n"
+        "@read_only\n"
+        "def validate(session, data):\n    return _service.create(session, data)\n"
+        "@router.post('/preview')\n"
+        "@core.read_only\n"
+        "def preview(session, data):\n    _service._save(session, data)\n",
+    )
+    flagged = check_declared_read_only_routes_do_not_write(app)
+    assert _rule_names(flagged) == {"declared_read_only_routes_do_not_write"}
+    assert len(flagged) == 2
+
+    # Clean: a declared route that only reads, and an ordinary undeclared write route.
+    # This rule is about the declaration, never about writing as such.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "@router.post('/validation')\n"
+        "@read_only\n"
+        "def validate(session, data):\n"
+        "    return _service.list(session, skip=0, limit=10)\n"
+        "@router.post('/')\n"
+        "def create_note(session, data):\n    return _service.create(session, data)\n",
+    )
+    assert check_declared_read_only_routes_do_not_write(app) == []
 
 
 def test_no_app_instantiation(tmp_path: pathlib.Path) -> None:

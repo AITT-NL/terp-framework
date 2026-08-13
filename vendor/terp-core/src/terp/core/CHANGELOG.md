@@ -36,6 +36,20 @@ every reason at once, not the first — had to fight an API built for the abort 
   data without widening what a caller may see; `get` is now `find(...)` plus the
   raise. Reach for `get` when absence ends the request, `find` when it is one input
   among several.
+- **`@read_only` declares "unsafe verb, pure computation".** Terp derives write
+  authority from the HTTP method, which is right for almost every route and blind to
+  one: the handler that is a `POST` because its *input* is a body, not because it
+  writes — validating a candidate document, previewing an import, costing a plan.
+  Such a route was pure only by the absence of a write, a guarantee made of missing
+  code that holds until an edit adds a line and that no rule and no reviewer is
+  prompted to check. `terp.core.read_only` states the intent and both halves of the
+  platform enforce it: the new `declared_read_only_routes_do_not_write` rule refuses a
+  decorated handler that calls a mutating service method, and `create_app`'s read-only
+  binder marks the request read-only so the `BaseService` chokepoint refuses a write
+  the rule could not see statically. The same argument `append_only = True` answers for
+  a table, answered for a route. Authorization is deliberately untouched — a decorated
+  `POST` is still authorized at the write tier, because declaring purity narrows what
+  the handler may do, never what the caller must hold.
 
 ## 0.5.8 — 2026-08-13
 
