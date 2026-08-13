@@ -12,8 +12,9 @@ decision, 0001 onwards.
 
 ## Unreleased
 
-Three pieces of friction reported from building a module on Terp, all of the same
-shape: the platform knew the answer and made the author find it.
+Friction reported from building two modules on Terp, all of the same shape: the
+platform knew the answer and made the author find it. Every fix here moves a message
+from diagnosis to prescription.
 
 ### Added
 
@@ -24,6 +25,15 @@ shape: the platform knew the answer and made the author find it.
   puts the refusal at the write chokepoint instead: `update` / `delete` and any
   bespoke `_save` of an existing row fail closed with the uniform 409, whatever the
   route surface looks like. The wrong thing is no longer the easy thing.
+- **`terp fmt` formats the files this change touched, not the whole tree.** `ruff
+  format .` is the right formatter with the wrong blast radius: on a project whose
+  history predates the current ruff version it rewrites files the change never
+  touched, so the review diff arrives half signal and half churn and the author's only
+  recourse is to `git checkout` each unrelated file — a manual step at exactly the
+  moment they were automating one. `terp fmt` defaults to the git-changed set
+  (modified, staged, untracked), takes `--check` for the CI shape, and keeps `--all`
+  for the deliberate whole-tree pass. Outside a git work tree it formats nothing
+  rather than everything.
 
 ### Changed
 
@@ -36,12 +46,40 @@ shape: the platform knew the answer and made the author find it.
   guide never mentioned). The chokepoint knows the column types, so it now dumps
   exactly the JSON-backed fields in `json` mode and leaves every other column its
   native Python value.
-- **`terp migrate make` answers the in-memory refusal instead of only diagnosing it.**
+- **`terp migrate make` answers both of its walls, in one paste.**
   Autogenerate needs a database at head to diff against, and the settings default is
   in-memory SQLite, so every module author meets this refusal once per module —
   forever, and the recipe was theirs to invent. It now prints the exact two commands
   that work against a throwaway file database (with the PowerShell spelling), names
   the label they passed, and points at `--no-autogenerate` for the hand-authored case.
+  The *second* wall got the same treatment: the file database the first refusal sends
+  you to is empty, therefore behind head, so `make` failed again — and answering with
+  "run `terp migrate status`" would have made one intent cost three round trips. The
+  behind-head error now leads with `upgrade` then `make`, spelled against the database
+  URL the author is already using. Both recipes are in `terp guide migrations`, so an
+  author who reads first meets neither.
+- **`no_oversized_python_files` proposes a cut, not just a number.** Naming the cap
+  leaves the expensive half — finding the seam — to the author, using information the
+  checker already has: it parsed the file, so the connected components of its
+  top-level definitions are free. The violation now names the largest group of
+  definitions that nothing outside it references, which is a group that can move as a
+  unit without leaving a dangling name behind. When a file's definitions all reference
+  one another there is no honest seam, and the message stays the bare cap rather than
+  inventing a cut that would produce two coupled files instead of one long one.
+- **`module_dependency_graph_is_acyclic` reads real imports, not only declarations.**
+  A cycle closed by an import whose `ModuleSpec(requires=...)` entry had not been added
+  yet was invisible to the gate and surfaced at app startup as a circular-import
+  traceback — which names files, not the design mistake, and arrives minutes after the
+  edit that caused it. The graph is now declared edges *union* actual imports, so the
+  cycle is reported the moment it is written; the message names the cycle path and
+  offers an app-level contracts module as the place to lift the vocabulary the two
+  modules disagree over.
+- **`terp guide service` prices the cost of a pure validator.** A validator that needs
+  a fact from another module's table is the common case, and with no pattern written
+  down the tempting answer is to hand the validator a session — putting a read outside
+  the chokepoint and making it untestable without a database. The guide now shows the
+  constructor-threading shape: the calling service looks the fact up, the validator
+  stays pure, and the sibling dependency is visible in the manifest as a declared edge.
 
 ## 0.5.7 — 2026-08-12
 

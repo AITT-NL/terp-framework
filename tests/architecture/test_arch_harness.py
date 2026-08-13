@@ -242,6 +242,36 @@ def test_module_dependency_graph_is_acyclic(tmp_path: pathlib.Path) -> None:
     assert check_module_dependency_graph_is_acyclic(app) == []
 
 
+def test_module_cycle_is_seen_through_real_imports_not_only_declarations(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A cycle closed by an import is reported before it becomes a boot-time traceback.
+
+    While an edge is being written the manifest lags the code by a few minutes. If
+    the check read only declarations, the author would learn about the cycle from a
+    circular-import error at app startup — which names files, not the design mistake.
+    """
+    app = tmp_path / "app"
+    _declare(app, "a", '("b",)')
+    _declare(app, "b", '("c",)')
+    _declare(app, "c", "()")
+    assert check_module_dependency_graph_is_acyclic(app) == []
+
+    # c reaches back to a in code only — nothing was added to any requires tuple.
+    _write(app, "modules/c/service.py", "from app.modules.a.models import Thing\n")
+    violations = check_module_dependency_graph_is_acyclic(app)
+    assert _rule_names(violations) == {"module_dependency_graph_is_acyclic"}
+    assert {pathlib.Path(item.path).parent.name for item in violations} == {"a", "b", "c"}
+
+    # The message names the cycle AND a place to put the shared vocabulary.
+    assert "a -> b -> c -> a" in violations[0].message
+    assert "contracts" in violations[0].message
+
+    # An import of one's own module is not an edge.
+    _write(app, "modules/c/service.py", "from app.modules.c.models import Thing\n")
+    assert check_module_dependency_graph_is_acyclic(app) == []
+
+
 def test_no_raw_outbound_http(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     for stmt in (
@@ -1238,6 +1268,41 @@ def test_no_oversized_python_files(tmp_path: pathlib.Path) -> None:
     _write(app, "tests/test_big.py", oversized)
     _write(app, "modules/notes/migrations/0001_big.py", oversized)
     assert check_no_oversized_python_files(app) == []
+
+
+def test_oversized_file_message_proposes_a_seam(tmp_path: pathlib.Path) -> None:
+    """The cap names a number; the expensive half is finding the cut, so it names that too.
+
+    The checker already parses the file, so the connected components of its
+    top-level definitions are free information. Withholding them makes the author
+    re-derive by hand what the tool computed — the one consistent friction.
+    """
+    app = tmp_path / "app"
+    body = "\n".join(f"    x{i} = {i}" for i in range(520))
+
+    # Two groups that never mention each other: one is liftable as a unit.
+    source = (
+        "def alpha_one():\n" + body + "\n\n"
+        "def alpha_two():\n    return alpha_one()\n\n"
+        "def beta_one():\n    return 1\n\n"
+        "def beta_two():\n    return beta_one()\n"
+    )
+    _write(app, "modules/notes/service.py", source)
+    violations = check_no_oversized_python_files(app)
+    assert _rule_names(violations) == {"no_oversized_python_files"}
+    message = violations[0].message
+    assert "alpha_one" in message and "alpha_two" in message
+    assert "beta_one" not in message  # the smaller group is not the proposal
+
+    # A file whose definitions all reference one another has no honest seam, so the
+    # message stays the bare cap rather than inventing a cut that would couple two files.
+    welded = "def root():\n" + body + "\n\n" + "".join(
+        f"def leaf_{i}():\n    return root()\n\n" for i in range(5)
+    )
+    _write(app, "modules/notes/service.py", welded)
+    welded_violations = check_no_oversized_python_files(app)
+    assert _rule_names(welded_violations) == {"no_oversized_python_files"}
+    assert "largest group" not in welded_violations[0].message
 
 
 

@@ -598,6 +598,28 @@ def test_cli_in_memory_refusal_for_make_prints_the_working_command(
     assert "--no-autogenerate" in err
 
 
+def test_database_behind_for_autogenerate_names_both_commands_against_this_url() -> None:
+    """The second wall in a row must not be answered with a third prompt.
+
+    The in-memory refusal sends the author to a file database, which is then empty
+    and therefore behind head. If this error only diagnosed, they would meet
+    ``terp migrate status``, then ``upgrade``, then ``make`` — three round trips for
+    one intent. It leads with the two commands that satisfy both walls, pointed at
+    the database the author is already using.
+    """
+    from terp.migrations.errors import DatabaseBehindForAutogenerateError
+
+    message = str(
+        DatabaseBehindForAutogenerateError("widgets", "sqlite:///./.migrate-scratch.db")
+    )
+    assert 'DATABASE_URL="sqlite:///./.migrate-scratch.db" terp migrate upgrade' in message
+    assert (
+        'DATABASE_URL="sqlite:///./.migrate-scratch.db" terp migrate make widgets' in message
+    )
+    assert "$env:DATABASE_URL" in message  # the PowerShell spelling, not left as an exercise
+    assert "--no-autogenerate" in message
+
+
 def test_cli_allows_an_in_memory_database_for_a_script_tree_command(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -38,6 +38,32 @@ def test_each_topic_returns_a_nonempty_recipe(topic: str) -> None:
     assert guide(topic).strip()
 
 
+def test_migrations_topic_carries_the_autogenerate_recipe() -> None:
+    """The wall an author hits twice must be answered once, in the guide.
+
+    ``terp migrate make`` on a fresh checkout fails on the in-memory default, then
+    on "not at head". Both errors now print the fix, but an author who reads the
+    guide first should never meet either.
+    """
+    text = guide("migrations")
+    assert "sqlite:///./.migrate-scratch.db" in text
+    assert "terp migrate upgrade" in text
+    assert "$env:DATABASE_URL" in text  # the Windows spelling is not left as an exercise
+
+
+def test_service_topic_shows_how_a_validator_reaches_another_module_s_fact() -> None:
+    """Purity has a cost; the guide prices it instead of leaving it to be rediscovered.
+
+    A validator that needs a published vocabulary from a sibling table is the
+    common case. Without the pattern written down, the tempting answer is to hand
+    the validator a session — which puts a read outside the chokepoint and makes it
+    untestable without a database.
+    """
+    text = guide("service")
+    assert "another module" in text.lower()
+    assert "ModuleSpec(requires=...)" in text
+
+
 @pytest.mark.parametrize("rule", sorted(set(guide_choices()) - set(_TOPICS)))
 def test_each_rule_returns_an_exact_nonempty_recipe(rule: str) -> None:
     text = guide(rule)

@@ -61,6 +61,11 @@ class DatabaseBehindForAutogenerateError(MigrationError):
     author runs, and ``terp migrate status`` \u2014 one word away in the same command group
     \u2014 already answers precisely; ``make`` should not be the one that answers in raw
     Alembic.
+
+    It is also the *second* wall in a row: the in-memory refusal sends the author to a
+    file database, which is then empty and therefore behind. Answering with a diagnosis
+    would make them meet a third prompt. So the message leads with the two commands
+    that satisfy both walls at once, against the database they are already pointing at.
     """
 
     def __init__(self, label: str, database_url: str) -> None:
@@ -69,8 +74,13 @@ class DatabaseBehindForAutogenerateError(MigrationError):
             f"cannot autogenerate a revision for {label!r}: the database at "
             f"{database_url!r} is not at head, so a diff against it would re-create "
             "tables that existing revisions already create.\n"
-            "Run `terp migrate status` to see which packages are behind, then "
-            "`terp migrate upgrade` to bring the database to head and retry.\n"
+            "Bring it to head first \u2014 these two, in this order:\n"
+            f'  DATABASE_URL="{database_url}" terp migrate upgrade\n'
+            f'  DATABASE_URL="{database_url}" terp migrate make {label}\n'
+            "(PowerShell: $env:DATABASE_URL='"
+            f"{database_url}')\n"
+            "`terp migrate status` shows which packages are behind if you want to look "
+            "first.\n"
             "If that database should not be empty, check DATABASE_URL is pointing "
             "where you think it is \u2014 an unset one falls back to a local default.\n"
             "To author an empty revision and fill it in by hand, pass --no-autogenerate."

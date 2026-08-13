@@ -150,10 +150,50 @@ def _find_cycle(graph: dict[str, frozenset[str]]) -> list[str] | None:
     return None
 
 
+def imported_dependency_graph(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> dict[str, frozenset[str]]:
+    """Each module's *actual* sibling edges, read from its import statements.
+
+    The declared graph is what the manifests promise; this is what the code does.
+    They coincide in a green app — an undeclared sibling import is refused by
+    ``no_cross_module_imports`` — but they diverge in exactly the moment that
+    matters: while the edge is being written. A cycle closed by an import whose
+    declaration has not been added yet is still a cycle, and the author should
+    learn that from the gate rather than from an import error at boot.
+    """
+    root = pathlib.Path(app_root)
+    prefix = f"{package}.modules."
+    edges: dict[str, set[str]] = {name: set() for name in _module_names(root)}
+    for path in iter_python_files(root):
+        own = _module_under(path, package)
+        if own is None or own not in edges:
+            continue
+        for module, _line in _imported_modules(parse(path), _module_parts(path, root)):
+            if not module.startswith(prefix):
+                continue
+            target = module[len(prefix):].split(".")[0]
+            if target != own and target in edges:
+                edges[own].add(target)
+    return {name: frozenset(targets) for name, targets in edges.items()}
+
+
+def _merged_dependency_graph(
+    app_root: pathlib.Path, *, package: str
+) -> dict[str, frozenset[str]]:
+    """Declared edges union real imports — every way one module can reach another."""
+    declared = declared_dependency_graph(app_root, package=package)
+    imported = imported_dependency_graph(app_root, package=package)
+    return {
+        name: declared.get(name, frozenset()) | imported.get(name, frozenset())
+        for name in set(declared) | set(imported)
+    }
+
+
 def check_module_dependency_graph_is_acyclic(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
-    """Declared module edges form a DAG — no module depends on itself, directly or not.
+    """Module edges form a DAG — no module depends on itself, directly or not.
 
     A cycle is the point at which two "independent" modules have quietly become
     one: neither can be read, tested, deployed or removed without the other, and
@@ -161,21 +201,30 @@ def check_module_dependency_graph_is_acyclic(
     exists. Terp refuses the cycle rather than the coupling, so the fix is the
     real one — extract the shared concept, or turn the weaker direction into an
     event subscription.
+
+    The graph is declared edges *union* real imports, because a cycle closed by an
+    import that has not been declared yet is a cycle the author is standing in
+    right now. Reading only the manifests would defer it to the next boot, where
+    it arrives as a circular-import traceback that names files rather than the
+    design mistake.
     """
     root = pathlib.Path(app_root)
-    graph = declared_dependency_graph(root, package=package)
+    graph = _merged_dependency_graph(root, package=package)
     cycle = _find_cycle(graph)
     if cycle is None:
         return []
     path = " -> ".join(cycle)
+    shared = " and ".join(sorted(set(cycle))[:2])
     return [
         ArchViolation(
             "module_dependency_graph_is_acyclic",
             _rel(_module_manifest_path(root, node), root),
             1,
-            f"declared module dependencies form a cycle ({path}); module edges must "
-            "be one-way — extract the shared concept into its own module, or invert "
-            "the weaker direction into an event subscription",
+            f"module dependencies form a cycle ({path}); module edges must "
+            "be one-way — extract the shared concept into its own module, lift the "
+            f"vocabulary {shared} disagree over into an app-level contracts module "
+            f"that both import, or invert the weaker direction into an event "
+            "subscription",
         )
         for node in sorted(set(cycle))
     ]
