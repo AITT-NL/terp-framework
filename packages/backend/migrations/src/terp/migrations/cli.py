@@ -66,7 +66,9 @@ def _is_in_memory(database_url: str) -> bool:
     return url.database in (None, "", ":memory:")
 
 
-def _refuse_in_memory(database_url: str, *, explicit: bool) -> None:
+def _refuse_in_memory(
+    database_url: str, *, explicit: bool, command: str, label: str | None = None
+) -> None:
     """Fail closed on an in-memory database, which no stateful migration command can mean.
 
     Without a configured ``DATABASE_URL`` the settings default is in-memory SQLite, so
@@ -74,18 +76,37 @@ def _refuse_in_memory(database_url: str, *, explicit: bool) -> None:
     ceased to exist when the process did — and ``terp migrate check``, one line later
     in the same shell, reported the app behind its code. Both outputs were true and the
     pair was actively misleading, which is worse than either failure alone.
+
+    Diagnosis is not enough for ``make``: every module author meets this once per
+    module, and the answer is always the same throwaway file database. So ``make``
+    gets the exact commands to paste, not just the reason it stopped.
     """
     if not _is_in_memory(database_url):
         return
     source = "--database-url" if explicit else "DATABASE_URL"
-    print(
+    lines = [
         f"{source} points at an in-memory SQLite database ({database_url!r}), which "
         "exists only for the lifetime of this process: an upgrade applied here is "
-        "discarded on exit, and nothing can ever be reported current against it.\n"
-        "Point it at a database that outlives the command — a local file "
-        "(DATABASE_URL=sqlite:///./app.db) or the Postgres URL from your environment.",
-        file=sys.stderr,
-    )
+        "discarded on exit, and nothing can ever be reported current against it.",
+    ]
+    if command == "make":
+        target = label or "<name>"
+        lines.append(
+            "Autogenerate needs a database at head to diff against. A throwaway file "
+            "database is enough — run these two, then delete the file:\n"
+            '  DATABASE_URL="sqlite:///./.migrate-scratch.db" terp migrate upgrade\n'
+            f'  DATABASE_URL="sqlite:///./.migrate-scratch.db" terp migrate make {target}\n'
+            "(PowerShell: $env:DATABASE_URL='sqlite:///./.migrate-scratch.db')\n"
+            "Point it at your real Postgres URL instead when the new revision must "
+            "diff against real schema, or pass --no-autogenerate to author an empty "
+            "revision by hand."
+        )
+    else:
+        lines.append(
+            "Point it at a database that outlives the command — a local file "
+            "(DATABASE_URL=sqlite:///./app.db) or the Postgres URL from your environment."
+        )
+    print("\n".join(lines), file=sys.stderr)
     raise SystemExit(2)
 
 
@@ -223,7 +244,12 @@ def migrate_main(argv: Sequence[str] | None = None) -> None:
     database_url = args.database_url or get_settings().DATABASE_URL
     command = args.migrate_command or "check"
     if _needs_a_live_database(command, args):
-        _refuse_in_memory(database_url, explicit=args.database_url is not None)
+        _refuse_in_memory(
+            database_url,
+            explicit=args.database_url is not None,
+            command=command,
+            label=getattr(args, "label", None),
+        )
     try:
         app_root = _resolve_app_root(args.app_root)
     except MigrationError as exc:

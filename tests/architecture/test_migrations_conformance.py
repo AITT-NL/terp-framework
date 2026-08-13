@@ -580,6 +580,24 @@ def test_cli_in_memory_refusal_names_the_setting_it_came_from(
     assert "DATABASE_URL points at" in capsys.readouterr().err
 
 
+def test_cli_in_memory_refusal_for_make_prints_the_working_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Every module author meets this once per module — so ``make`` gives the answer.
+
+    Diagnosis alone ("that database dies with the process") leaves the author to
+    invent the throwaway-file recipe themselves. The refusal names the label they
+    passed and the two commands that work.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        migrate_main(["make", "widgets", "--database-url", "sqlite://"])
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "terp migrate upgrade" in err
+    assert "terp migrate make widgets" in err
+    assert "--no-autogenerate" in err
+
+
 def test_cli_allows_an_in_memory_database_for_a_script_tree_command(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

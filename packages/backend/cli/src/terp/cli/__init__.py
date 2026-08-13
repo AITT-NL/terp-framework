@@ -168,6 +168,19 @@ Services (BaseService)
   created_by_id / modified_by_id from the request actor on every write — never set them
   by hand (the no_manual_actor_stamping rule forbids it). A Read DTO may still expose
   them to surface "who created / last changed this".
+- A table nothing may change after insert (a ledger row, an immutable revision, a
+  snapshot) DECLARES it — immutability that lives in "we didn't mount an update route"
+  evaporates the day someone mounts one:
+      class SyncRevisionService(BaseService[SyncRevision, ..., ...]):
+          model = SyncRevision
+          append_only = True
+  update() / delete() and any bespoke _save of an existing row then fail closed with a
+  uniform 409, at the write chokepoint, whatever the route surface looks like.
+- A JSON column takes a typed value object with no extra annotation: the write
+  chokepoint dumps exactly the JSON-backed fields in pydantic's json mode, so a UUID /
+  datetime / Enum inside the document is encoded rather than dying at flush with
+  "Object of type UUID is not JSON serializable". Non-JSON columns still receive their
+  native Python value.
 - Dropping to raw SQL? Keep the text(...) argument a STATIC literal and pass data
   through bound parameters — a dynamically built statement (f-string, concatenation,
   .format, %, or a variable) is refused by the no_dynamic_sql rule (SQL injection):

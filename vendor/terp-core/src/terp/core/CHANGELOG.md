@@ -12,6 +12,37 @@ decision, 0001 onwards.
 
 ## Unreleased
 
+Three pieces of friction reported from building a module on Terp, all of the same
+shape: the platform knew the answer and made the author find it.
+
+### Added
+
+- **`append_only = True` on a service states that a table is immutable once written.**
+  A ledger row, an immutable revision, a captured snapshot achieved immutability by
+  *not mounting an update route* — a guarantee that lives in the absence of code and
+  evaporates the day someone adds one, with nothing to review against. Declaring it
+  puts the refusal at the write chokepoint instead: `update` / `delete` and any
+  bespoke `_save` of an existing row fail closed with the uniform 409, whatever the
+  route surface looks like. The wrong thing is no longer the easy thing.
+
+### Changed
+
+- **The write chokepoint dumps JSON-column fields in JSON mode.** A typed value object
+  stored in a JSON column — the natural shape for a document a module validates once
+  and stores whole — was dumped in pydantic's *python* mode, so a `UUID` / `datetime` /
+  `Enum` inside it reached the JSON serializer as a Python object and died at `flush`
+  with `TypeError: Object of type UUID is not JSON serializable`: a message naming
+  neither the field, nor the column, nor the fix (a `PlainSerializer` annotation the
+  guide never mentioned). The chokepoint knows the column types, so it now dumps
+  exactly the JSON-backed fields in `json` mode and leaves every other column its
+  native Python value.
+- **`terp migrate make` answers the in-memory refusal instead of only diagnosing it.**
+  Autogenerate needs a database at head to diff against, and the settings default is
+  in-memory SQLite, so every module author meets this refusal once per module —
+  forever, and the recipe was theirs to invent. It now prints the exact two commands
+  that work against a throwaway file database (with the PowerShell spelling), names
+  the label they passed, and points at `--no-autogenerate` for the hand-authored case.
+
 ## 0.5.7 — 2026-08-12
 
 A seam for a feature that lives one layer up: Terp Studio's Themes settings screen

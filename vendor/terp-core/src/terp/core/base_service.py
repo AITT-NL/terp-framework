@@ -34,7 +34,9 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, ClassVar, Generic, TypeVar
 
+from sqlalchemy import JSON as SAJSON
 from sqlalchemy import ColumnElement, func
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError as ORMStaleDataError
 from sqlmodel import Session, SQLModel, select
@@ -98,6 +100,29 @@ _MANAGED_INPUT_COLUMNS: frozenset[str] = frozenset(
 def _utc_now() -> datetime:
     """UTC ``now`` provider for the soft-delete stamp (private so tests can patch it)."""
     return datetime.now(UTC)
+
+
+_JSON_COLUMN_FIELDS: dict[type, frozenset[str]] = {}
+
+
+def _json_column_fields(model: type[BaseTable]) -> frozenset[str]:
+    """Names of *model*'s columns whose database type is JSON (incl. Postgres JSONB).
+
+    The write chokepoint knows the column types, so it can dump exactly those fields
+    in pydantic's ``json`` mode instead of leaving every module to discover — from a
+    ``TypeError: Object of type UUID is not JSON serializable`` raised deep inside
+    ``flush`` — that a typed value object needs a ``PlainSerializer`` annotation.
+    """
+    cached = _JSON_COLUMN_FIELDS.get(model)
+    if cached is not None:
+        return cached
+    fields = frozenset(
+        column.key
+        for column in sa_inspect(model).columns
+        if isinstance(column.type, SAJSON)
+    )
+    _JSON_COLUMN_FIELDS[model] = fields
+    return fields
 
 
 # Every class-level declaration name any service base has claimed to consume (see
@@ -176,6 +201,30 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
     default_sort: Sequence[str] = ()
     """Order applied when the caller asks for none. Empty means oldest-first by
     ``created_at`` — the framework default, which keeps pagination stable."""
+
+    append_only: ClassVar[bool] = False
+    """Declare the model **immutable once written**: rows may be created, never changed.
+
+    A ledger row, an immutable revision, a captured snapshot: the guarantee is real
+    only when it is *stated*. Without this, immutability is achieved by not exposing an
+    update route — a guarantee that lives in the absence of code and evaporates the day
+    someone adds one. Set ``append_only = True`` and the write chokepoint refuses every
+    non-``CREATED`` write (``update`` / ``delete`` and any bespoke ``_save``) with a
+    uniform 409, so the wrong thing is no longer the easy thing.
+    """
+
+    def _refuse_if_append_only(self, action: AuditAction) -> None:
+        """Fail closed on any post-insert write to an :attr:`append_only` model."""
+        if self.append_only and action is not AuditAction.CREATED:
+            model = getattr(type(self), "model", None)
+            raise ConflictError(
+                "This record is append-only: it can be created but never changed "
+                "or deleted.",
+                log_context={
+                    "model": getattr(model, "__name__", type(self).__name__),
+                    "action": action.value,
+                },
+            )
 
     def business_filters(self) -> Sequence[ColumnElement[bool]]:
         """Extra read conditions, composed **on top of** the non-droppable row scope.
@@ -376,6 +425,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         if isinstance(entity, OwnedMixin) and action is AuditAction.CREATED:
             entity.owner_id = audit_actor_ctx.get()
         if action is not AuditAction.CREATED:
+            self._refuse_if_append_only(action)
             self._authorize_object_write(entity, action)
         with enter_write_unit() as outermost:
             try:
@@ -423,6 +473,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
 
     def _remove(self, session: Session, entity: ModelT) -> None:
         """Hard-delete *entity*, emitting its ``DELETED`` audit record in the same transaction."""
+        self._refuse_if_append_only(AuditAction.DELETED)
         self._authorize_object_write(entity, AuditAction.DELETED)
         with enter_write_unit() as outermost:
             try:
@@ -479,11 +530,28 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         """
         return {key: value for key, value in data.items() if key not in _MANAGED_INPUT_COLUMNS}
 
+    def _dump(self, data: SQLModel, *, exclude_unset: bool = False) -> dict[str, object]:
+        """Dump an input schema, rendering JSON-column fields in JSON mode.
+
+        Python mode keeps ``UUID`` / ``datetime`` / ``Enum`` as objects, which the JSON
+        serializer of a JSON column cannot encode — so a typed document died at flush
+        with a ``TypeError`` naming neither the field nor the fix. Fields backed by a
+        JSON column are dumped in ``json`` mode instead; everything else is unchanged,
+        so a plain column still receives its native Python value.
+        """
+        payload = data.model_dump(exclude_unset=exclude_unset)
+        json_fields = _json_column_fields(self.model) & payload.keys()
+        if json_fields:
+            encoded = data.model_dump(mode="json", exclude_unset=exclude_unset)
+            payload.update({field: encoded[field] for field in json_fields})
+        return self._without_managed_columns(payload)
+
     def create(self, session: Session, data: CreateT) -> ModelT:
-        entity = self.model(**self._without_managed_columns(data.model_dump()))
+        entity = self.model(**self._dump(data))
         return self._save(session, entity, AuditAction.CREATED)
 
     def update(self, session: Session, entity_id: uuid.UUID, data: UpdateT) -> ModelT:
+        self._refuse_if_append_only(AuditAction.UPDATED)
         entity = self.get(session, entity_id)
         # Authorize the per-row write *before* the concurrency check, so a caller who
         # may not write this row is refused (403) whatever version they sent -- never a
@@ -494,7 +562,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         # Optimistic concurrency: reject a stale write; never assign the client version.
         if entity.version != data.version:
             raise StaleDataError()
-        patch = self._without_managed_columns(data.model_dump(exclude_unset=True))
+        patch = self._dump(data, exclude_unset=True)
         for key, value in patch.items():
             setattr(entity, key, value)
         return self._save(session, entity, AuditAction.UPDATED)
@@ -509,6 +577,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         through ``_remove``. Either way the mutation is audited and the module writes
         no soft-delete code of its own.
         """
+        self._refuse_if_append_only(AuditAction.DELETED)
         entity = self.get(session, entity_id)
         if issubclass(self.model, SoftDeleteMixin):
             entity.deleted_at = _utc_now()  # type: ignore[attr-defined]
