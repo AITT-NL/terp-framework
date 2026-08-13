@@ -49,8 +49,6 @@ def changed_python_files(root: str | pathlib.Path = ".") -> list[pathlib.Path]:
         return []
     paths: list[pathlib.Path] = []
     for line in result.stdout.splitlines():
-        if len(line) < 4:
-            continue
         status, name = line[:2], line[3:]
         if "D" in status:
             continue
