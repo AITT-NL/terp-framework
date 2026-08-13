@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## Unreleased
+## 0.5.8 — 2026-08-13
 
 Friction reported from building two modules on Terp, all of the same shape: the
 platform knew the answer and made the author find it. Every fix here moves a message
