@@ -10,6 +10,33 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## Unreleased
+
+Friction reported from building FAST-Sync's publish validator on Terp. Both fixes are
+the same shape: code that *reports* rather than aborts — a validator owing the caller
+every reason at once, not the first — had to fight an API built for the abort case.
+
+### Added
+
+- **`ErrorDetail` puts structured reasons in the error envelope.** An `AppError`'s
+  `code` classifies the refusal; it cannot also classify each *reason* for it. A
+  validator that reported three problems at once therefore flattened three stable
+  codes and three document paths into one English `detail`, and the only way for a UI
+  to highlight the field that failed was to substring-match prose — a contract nobody
+  promised and every message edit breaks. `AppError(..., details=[ErrorDetail(code,
+  loc, msg), ...])` now renders a `details` array beside `detail`, shaped like
+  FastAPI's own 422 entries so a frontend handles both in one branch. Strictly
+  additive: an error carrying no details renders exactly the three documented keys, so
+  every existing client is unaffected.
+- **`BaseService.find` resolves a row without raising.** Asking "does this id resolve
+  *for this caller*?" was spelled `try: … get(…) … except NotFoundError: return None`,
+  re-implemented in every service that composes a sibling — and an `except` that later
+  grows to span two lookups starts swallowing the wrong one with no sign. `find`
+  returns `Model | None` through the *same* `base_query` as `get`, so absence becomes
+  data without widening what a caller may see; `get` is now `find(...)` plus the
+  raise. Reach for `get` when absence ends the request, `find` when it is one input
+  among several.
+
 ## 0.5.8 — 2026-08-13
 
 Friction reported from building two modules on Terp, all of the same shape: the

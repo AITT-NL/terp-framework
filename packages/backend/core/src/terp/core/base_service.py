@@ -279,10 +279,30 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         rows = session.exec(ordered.offset(skip).limit(limit)).all()
         return list(rows), total
 
-    def get(self, session: Session, entity_id: uuid.UUID) -> ModelT:
-        entity = session.exec(
+    def find(self, session: Session, entity_id: uuid.UUID) -> ModelT | None:
+        """The row *entity_id* names, or ``None`` when it does not resolve.
+
+        Identical to :meth:`get` in what it may see — the same ``base_query``,
+        so the same row scope and the same visibility rules; a caller can no
+        more reach a hidden row through this than through ``get``. The only
+        difference is what "absent" is: a value here, an exception there.
+
+        That distinction is the point. Code that *reports* rather than aborts —
+        a validator collecting every finding before refusing, a pre-flight
+        listing what a run would skip — reads absence as data. Spelling it as
+        ``try: … except NotFoundError: return None`` works, but every service
+        composing a sibling reinvents it, and an ``except`` that grows to span
+        two lookups starts swallowing the wrong one silently.
+
+        Reach for :meth:`get` when absence means the request is over, and for
+        ``find`` when the answer is one input among several.
+        """
+        return session.exec(
             self.base_query().where(self.model.id == entity_id)
         ).first()
+
+    def get(self, session: Session, entity_id: uuid.UUID) -> ModelT:
+        entity = self.find(session, entity_id)
         if entity is None:
             raise NotFoundError()
         return entity

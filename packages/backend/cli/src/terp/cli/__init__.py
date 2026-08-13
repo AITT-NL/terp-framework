@@ -131,6 +131,10 @@ Services (BaseService)
 
 - Subclass BaseService[Model, Create, Update] and set `model`. You get
   create/update/delete/get/list — all audited, OCC-checked and scope-honored.
+- `get` raises NotFoundError; `find` returns Model | None through the SAME row scope.
+  Use `find` when absence is one input among several — a validator collecting every
+  finding, a pre-flight report — instead of try/except around `get`:
+      snapshot = self._snapshots.find(session, snapshot_id)   # None is an answer
 - A bespoke mutation must route through self._save(...) / self._remove(...) (never a
   raw session write), so it stays audited.
 - Add an always-on read filter by overriding business_filters() — it returns
