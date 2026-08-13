@@ -103,7 +103,7 @@ from terp.arch.rules import (
 #: the platform repo, not of a generated app, and the version is a property of the
 #: toolchain build. Held equal to the pinned ``terp-spec`` release by the framework
 #: gate (``tests/architecture/test_check_json.py``), so it cannot drift silently.
-SPEC_VERSION = "0.21.1"
+SPEC_VERSION = "0.22.0"
 
 __all__ = [
     "ArchViolation",

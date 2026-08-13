@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-redis"
-version = "0.5.8"
+version = "0.5.9"
 description = "Terp Redis store adapters — shared idempotency, throttling, and cache state for multi-replica deployments."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.5.8",
+    "terp-core==0.5.9",
     "redis>=5",
 ]
 
@@ -17,11 +17,11 @@ dependencies = [
 # another capability: shared throttling/idempotency/cache must not drag in a
 # self-registering transport (realtime) or an SSO stack (oidc).
 [project.optional-dependencies]
-realtime = ["terp-cap-realtime==0.5.8"]
-oidc = ["terp-cap-oidc==0.5.8"]
+realtime = ["terp-cap-realtime==0.5.9"]
+oidc = ["terp-cap-oidc==0.5.9"]
 all = [
-    "terp-cap-realtime==0.5.8",
-    "terp-cap-oidc==0.5.8",
+    "terp-cap-realtime==0.5.9",
+    "terp-cap-oidc==0.5.9",
 ]
 
 # A LIBRARY (store-adapter) capability: it provides Redis-backed implementations of

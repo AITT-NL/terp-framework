@@ -10,11 +10,13 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## Unreleased
+## 0.5.9 — 2026-08-13
 
-Friction reported from building FAST-Sync's publish validator on Terp. Both fixes are
-the same shape: code that *reports* rather than aborts — a validator owing the caller
-every reason at once, not the first — had to fight an API built for the abort case.
+Friction reported from building FAST-Sync's publish validator on Terp. All three fixes
+share a shape: a platform default that is right for most code and slightly wrong for
+code that **reports** rather than aborts — a validator owing its caller every reason at
+once, and a route that judges a document instead of storing one. Each moves a guarantee
+out of prose or absent code and into something the platform states and enforces.
 
 ### Added
 
