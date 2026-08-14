@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## Unreleased
+## 0.6.1 — 2026-08-14
 
 Friction reported from an app weighing — and then taking — the 0.6.0 upgrade:
 the notes that are supposed to justify an upgrade could not be read until after
@@ -86,6 +86,8 @@ that only surfaced against a real schema graph.
   answers it in one step; the npm packages already carried `repository`, and the
   release gate now holds both halves
   (`tests/architecture/test_release_versions.py`).
+
+  Requires spec `0.24.0`.
 
 ## 0.6.0 — 2026-08-14
 

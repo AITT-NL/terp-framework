@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-groups"
-version = "0.6.0"
+version = "0.6.1"
 description = "Terp groups capability — admin-managed user groups that bundle access-grant permissions."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.6.0",
-    "terp-cap-access==0.6.0",
-    "terp-cap-identity==0.6.0",
+    "terp-core==0.6.1",
+    "terp-cap-access==0.6.1",
+    "terp-cap-identity==0.6.1",
 ]
 
 # Self-registering: the kernel discovers this ModuleSpec via the entry point,
