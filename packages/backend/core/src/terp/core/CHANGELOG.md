@@ -14,6 +14,28 @@ decision, 0001 onwards.
 
 ### Added
 
+- **A schema field can no longer cross the wire as a positional tuple
+  (`backend/schemas_avoid_positional_tuples`).** A tuple-annotated field serialises
+  into the contract as an array whose element types are positional (`prefixItems`, or
+  the list form of `items`), and client generators disagree on that shape — so an app
+  that exposes a tuple anywhere in its API cannot type its own calls against its own
+  API. The reason this earns a rule is the failure mode, not the frequency: the error
+  surfaces at the *call site* as an opaque generic mismatch, nowhere near the field
+  that caused it, naming two types that print identically unless error truncation is
+  disabled. It is a one-line fix per field once you know, and an afternoon until you
+  do. Compliant shapes are a nested schema with named fields (when the positions
+  differ in meaning) or a homogeneous `list[...]` (when they do not).
+
+  Two layers, and each catches what the other cannot. The build-time half
+  (`terp.arch`) reads the annotation and follows a tuple through unions, containers
+  and mapping values, so `list[tuple[str, str]]` is caught as readily as a bare one.
+  The runtime half walks the composed route table at boot and refuses a positional
+  array in the generated document — which also covers a tuple arriving through a type
+  alias, a generic parameter, or a custom `__get_pydantic_core_schema__`, none of
+  which a source scan can see. Scope is the API boundary only: a DTO, or any model
+  used as a request body or response; a tuple in service-internal code is untouched.
+  Requires spec `0.23.0`.
+
 - **Route paths and params are checked at compile time, from generated types (ADR 0092).**
   0.5.10 closed half of this: `useRouteParam` stopped a typo'd param from silently reading
   `undefined` *at runtime*. The other half is why the ADR exists — the router is built at

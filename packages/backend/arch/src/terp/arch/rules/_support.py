@@ -270,6 +270,42 @@ def _is_str_annotation(annotation: ast.expr | None) -> bool:
     return False
 
 
+# Tuple spellings that reach the contract as a positional array. ``typing.Tuple``
+# is included: the deprecated alias serializes identically, so allowing it would
+# leave the hole open under a different name.
+_TUPLE_ANNOTATION_NAMES = frozenset({"tuple", "Tuple"})
+
+
+def _tuple_annotation_name(annotation: ast.expr | None) -> str | None:
+    """The tuple spelling *annotation* carries, at any nesting depth, else ``None``.
+
+    A tuple is contract-visible wherever it sits in the annotation — bare
+    (``tuple[str, str]``), wrapped in a container (``list[tuple[str, int]]``), behind
+    a union (``tuple[str, str] | None``), or as a mapping's value — because the
+    positional array shape reaches the generated client either way. Returning the
+    spelling (rather than a bool) lets the violation message quote what the author
+    actually wrote.
+    """
+    if annotation is None:
+        return None
+    if isinstance(annotation, ast.Name | ast.Attribute):
+        name = base_name(annotation)
+        return name if name in _TUPLE_ANNOTATION_NAMES else None
+    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+        return _tuple_annotation_name(annotation.left) or _tuple_annotation_name(
+            annotation.right
+        )
+    if isinstance(annotation, ast.Subscript):
+        if (name := base_name(annotation.value)) in _TUPLE_ANNOTATION_NAMES:
+            return name
+        slice_ = annotation.slice
+        elements = slice_.elts if isinstance(slice_, ast.Tuple) else [slice_]
+        for element in elements:
+            if found := _tuple_annotation_name(element):
+                return found
+    return None
+
+
 def _has_max_length(value: ast.expr | None) -> bool:
     """True when *value* is a ``Field(..., max_length=...)`` call."""
     if not isinstance(value, ast.Call) or base_name(value.func) != "Field":

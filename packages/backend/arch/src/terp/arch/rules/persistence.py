@@ -28,6 +28,7 @@ from terp.arch.rules._support import (
     _rel,
     _request_body_model_names,
     _response_model_names,
+    _tuple_annotation_name,
 )
 
 
@@ -342,6 +343,56 @@ def check_input_str_fields_have_max_length(
                             "cap every input string (use Field(max_length=...))",
                         )
                     )
+    return violations
+
+
+def check_schemas_avoid_positional_tuples(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """A schema field never crosses the wire as a positional tuple.
+
+    A fixed-length tuple annotation serializes into the contract as an array whose
+    element types are positional (``prefixItems``, or the list form of ``items``).
+    Client generators disagree on that shape -- one emits the positional form, one
+    the widened element array -- so the two descriptions of the same field come out
+    structurally unrelated and the app cannot type its own calls against its own
+    API. The failure lands at the call site as an opaque generic-instantiation
+    mismatch, nowhere near the field that caused it, and is only legible with error
+    truncation disabled. A tuple is a poor contract regardless: the positions carry
+    meaning no name records. Name the shape instead -- a nested model when the
+    positions differ in meaning, a homogeneous ``list[...]`` when they do not.
+    """
+    root = pathlib.Path(app_root)
+    parsed = [(_rel(path, root), parse(path)) for path in iter_python_files(root)]
+    trees = [tree for _, tree in parsed]
+    contract_models = _request_body_model_names(trees) | _response_model_names(trees)
+    violations: list[ArchViolation] = []
+    for rel, tree in parsed:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            bases = {base_name(base) for base in node.bases}
+            is_dto = bool(bases & {"BaseSchema", "BaseUpdateSchema"}) or node.name in contract_models
+            if not is_dto:
+                continue
+            for stmt in node.body:
+                if not isinstance(stmt, ast.AnnAssign):
+                    continue
+                spelling = _tuple_annotation_name(stmt.annotation)
+                if spelling is None:
+                    continue
+                field = stmt.target.id if isinstance(stmt.target, ast.Name) else "<field>"
+                violations.append(
+                    ArchViolation(
+                        "schemas_avoid_positional_tuples",
+                        rel,
+                        stmt.lineno,
+                        f"{node.name}.{field}: {spelling}[...] reaches the API contract as a "
+                        "positional array, which generated clients type incompatibly (the "
+                        "call site fails with an unrelated-generic mismatch). Declare a "
+                        "nested schema with named fields, or a homogeneous list[...]",
+                    )
+                )
     return violations
 
 
