@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## Unreleased
+## 0.6.0 — 2026-08-14
 
 ### Added
 

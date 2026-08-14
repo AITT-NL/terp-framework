@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-oidc"
-version = "0.5.10"
+version = "0.6.0"
 description = "Terp OIDC capability — pluggable SSO via the OpenID Connect code flow with PKCE."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.5.10",
-    "terp-cap-auth==0.5.10",
+    "terp-core==0.6.0",
+    "terp-cap-auth==0.6.0",
     # The token-endpoint exchange + discovery/JWKS fetches (like the webhooks delivery
     # client, the outbound HTTP client lives only inside the capability).
     "httpx>=0.27",
