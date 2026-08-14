@@ -231,6 +231,10 @@ jobs:
           # The route table the template ships must be exactly what this app's own
           # generator produces (ADR 0092) — otherwise every generated app fails its own
           # CI on step one, and the committed artifact would be a lie about the manifests.
+          # The hub variant scaffolded a module after render, so it first regenerates the
+          # table exactly as `terp new module` instructs; --check then proves the
+          # generator is idempotent and the artifact is a pure function of the manifests.
+          if [ "${{ matrix.variant }}" = "hub-all-capabilities" ]; then npm run routes; fi
           npm run routes -- --check
           npm run typecheck
           npm run build

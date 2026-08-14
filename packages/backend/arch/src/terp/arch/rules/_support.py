@@ -276,7 +276,7 @@ def _is_str_annotation(annotation: ast.expr | None) -> bool:
 _TUPLE_ANNOTATION_NAMES = frozenset({"tuple", "Tuple"})
 
 
-def _tuple_annotation_name(annotation: ast.expr | None) -> str | None:
+def _tuple_annotation_name(annotation: ast.expr) -> str | None:
     """The tuple spelling *annotation* carries, at any nesting depth, else ``None``.
 
     A tuple is contract-visible wherever it sits in the annotation — bare
@@ -286,8 +286,6 @@ def _tuple_annotation_name(annotation: ast.expr | None) -> str | None:
     spelling (rather than a bool) lets the violation message quote what the author
     actually wrote.
     """
-    if annotation is None:
-        return None
     if isinstance(annotation, ast.Name | ast.Attribute):
         name = base_name(annotation)
         return name if name in _TUPLE_ANNOTATION_NAMES else None

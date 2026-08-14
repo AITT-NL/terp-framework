@@ -205,3 +205,92 @@ def test_no_preflight_skips_the_route_types_too(tmp_path: pathlib.Path) -> None:
     )
 
     assert regenerated == []
+
+
+def test_an_unreadable_manifest_reads_as_unadopted(tmp_path: pathlib.Path) -> None:
+    # A package.json that will not parse cannot be *proof* the app opted in, so the
+    # offer is skipped rather than spawning npm against a manifest nobody can read.
+    from terp.cli.routes import routes_script_wired
+
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text("{ not json", encoding="utf-8")
+    assert routes_script_wired(frontend) is False
+
+
+def test_the_runner_reports_the_exit_code_and_the_combined_output(
+    tmp_path: pathlib.Path,
+) -> None:
+    # The one place the CLI actually spawns a process. Both streams have to reach the
+    # caller: the generator prints its refusal on stderr and its fix hint on stdout,
+    # and a message split across two channels would arrive half-missing.
+    from terp.cli.routes import _run_npm
+
+    exit_code, output = _run_npm(
+        [sys.executable, "-c", "import sys; print('out'); print('err', file=sys.stderr)"],
+        tmp_path,
+    )
+    assert exit_code == 0
+    assert "out" in output and "err" in output
+
+
+def test_the_drift_check_needs_an_installed_frontend_before_it_spawns_anything(
+    tmp_path: pathlib.Path,
+) -> None:
+    # Without node_modules the generator dies in a raw Node stack that names neither
+    # cause nor fix, so the check names both itself instead of shelling out.
+    from terp.cli.verify import _run_routes_drift
+
+    _frontend(tmp_path)
+    exit_code, output = _run_routes_drift(tmp_path)
+    assert exit_code == 1
+    assert "node_modules is missing" in output
+
+
+def test_the_drift_check_carries_the_generators_verdict_out(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The adopted, installed path: whatever the generator says under --check is the
+    # check's verdict, both streams included.
+    import subprocess
+
+    from terp.cli.verify import _run_routes_drift
+
+    frontend = _frontend(tmp_path)
+    (frontend / "node_modules").mkdir()
+
+    class _Completed:
+        returncode = 1
+        stdout = "src/routes.gen.d.ts is stale"
+        stderr = " - regenerate it"
+
+    seen: dict[str, object] = {}
+
+    def fake_run(argv: list[str], **kwargs: object) -> _Completed:
+        seen["argv"] = argv
+        seen["cwd"] = kwargs.get("cwd")
+        return _Completed()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    exit_code, output = _run_routes_drift(tmp_path)
+    assert exit_code == 1
+    assert output == "src/routes.gen.d.ts is stale - regenerate it"
+    assert seen["argv"][1:] == ["--prefix", "frontend", "run", "routes", "--", "--check"]
+    assert seen["cwd"] == tmp_path
+
+
+def test_the_profile_dispatches_the_routes_drift_runner(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The check reaches its own runner rather than being shelled out like an ordinary
+    # command -- that dispatch is what makes the no-op-until-adopted verdict possible.
+    from terp.cli.verify import _ROUTES_DRIFT, PROFILES
+
+    monkeypatch.setitem(PROFILES, "quick", (_ROUTES_DRIFT,))
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "quick", "--root", str(tmp_path), "--format", "json"])
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    (check,) = envelope["checks"]
+    assert check["ok"] is True
+    assert "not applicable" in check["output_tail"]

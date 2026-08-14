@@ -11,7 +11,9 @@ imperative ``add_api_route`` registration, and nested, included routers):
 * ``schemas_exclude_sensitive_fields`` -- a response DTO never exposes a
   credential-shaped field;
 * ``list_routes_paginate`` -- a list route returns a capped ``Page[T]``, never a
-  bare ``list[...]``.
+  bare ``list[...]``;
+* ``schemas_avoid_positional_tuples`` -- no model on the wire declares a tuple-typed
+  field, which would reach the contract as a positional array.
 
 Each is the fail-closed *runtime* half pairing with the same-named build-time
 ``terp.arch`` rule (``tests/architecture/test_arch_harness.py``); the mirrored
@@ -326,3 +328,63 @@ def test_runtime_constants_match_the_arch_harness() -> None:
     # builtins / ABCs), so the name sets must correspond exactly.
     runtime_names = {tp.__name__ for tp in core_app._UNPAGINATED_COLLECTION_TYPES}
     assert runtime_names | {"List"} == set(arch_http._COLLECTION_RESPONSE_TYPES)
+
+
+# --------------------------------------------------------------------------- #
+# schemas_avoid_positional_tuples -- the boot half
+# --------------------------------------------------------------------------- #
+class _TupleRead(BaseSchema):
+    """A Read DTO whose coordinate pair crosses the wire positionally."""
+
+    id: uuid.UUID
+    coordinates: tuple[float, float]
+
+
+class _TupleCreate(BaseSchema):
+    """The same shape on the way in, nested inside a container."""
+
+    tags: list[tuple[str, str]]
+
+
+class _NamedPoint(BaseSchema):
+    lat: float
+    lon: float
+
+
+class _NamedRead(BaseSchema):
+    """The compliant spelling: named fields, and a homogeneous list."""
+
+    id: uuid.UUID
+    coordinates: _NamedPoint
+    tag_names: list[str]
+
+
+def test_boot_rejects_a_tuple_typed_response_field() -> None:
+    router = APIRouter()
+
+    @router.get("/{thing_id}", response_model=_TupleRead)
+    def get_thing(thing_id: uuid.UUID) -> _TupleRead: ...
+
+    with pytest.raises(BootError, match="backend/schemas_avoid_positional_tuples"):
+        create_app([_spec(router)])
+
+
+def test_boot_rejects_a_tuple_arriving_through_the_request_body() -> None:
+    # The request half of the same contract: a generated client has to construct the
+    # body type too, so a tuple there is the identical failure one direction earlier.
+    router = APIRouter()
+
+    @router.post("/", response_model=_NamedRead)
+    def create_thing(body: _TupleCreate) -> _NamedRead: ...
+
+    with pytest.raises(BootError, match="coordinates|tags"):
+        create_app([_spec(router)])
+
+
+def test_boot_accepts_named_fields_and_homogeneous_lists() -> None:
+    router = APIRouter()
+
+    @router.get("/{thing_id}", response_model=_NamedRead)
+    def get_thing(thing_id: uuid.UUID) -> _NamedRead: ...
+
+    assert isinstance(create_app([_spec(router)]), FastAPI)

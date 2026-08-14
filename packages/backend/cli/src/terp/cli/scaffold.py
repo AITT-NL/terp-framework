@@ -334,6 +334,11 @@ def new_module_message(
         steps.append(
             "  npm --prefix frontend run generate   # openapi.json -> frontend/src/api/schema.d.ts (typed client)"
         )
+        # The new manifest declares a route, so the committed route table is now a
+        # stale statement about this app's manifests and `terp verify` says so.
+        steps.append(
+            f"  uv run terp routes                # regenerate src/routes.gen.d.ts (it now declares /{name})"
+        )
     steps.append("  uv run terp check                 # run the architecture gate locally")
     notes = "".join(f"\nNote: {note}" for note in module_profile.notes)
     return (
