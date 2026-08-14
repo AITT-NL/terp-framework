@@ -10,6 +10,69 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## Unreleased
+
+### Added
+
+- **A schema field can no longer cross the wire as a positional tuple
+  (`backend/schemas_avoid_positional_tuples`).** A tuple-annotated field serialises
+  into the contract as an array whose element types are positional (`prefixItems`, or
+  the list form of `items`), and client generators disagree on that shape — so an app
+  that exposes a tuple anywhere in its API cannot type its own calls against its own
+  API. The reason this earns a rule is the failure mode, not the frequency: the error
+  surfaces at the *call site* as an opaque generic mismatch, nowhere near the field
+  that caused it, naming two types that print identically unless error truncation is
+  disabled. It is a one-line fix per field once you know, and an afternoon until you
+  do. Compliant shapes are a nested schema with named fields (when the positions
+  differ in meaning) or a homogeneous `list[...]` (when they do not).
+
+  Two layers, and each catches what the other cannot. The build-time half
+  (`terp.arch`) reads the annotation and follows a tuple through unions, containers
+  and mapping values, so `list[tuple[str, str]]` is caught as readily as a bare one.
+  The runtime half walks the composed route table at boot and refuses a positional
+  array in the generated document — which also covers a tuple arriving through a type
+  alias, a generic parameter, or a custom `__get_pydantic_core_schema__`, none of
+  which a source scan can see. Scope is the API boundary only: a DTO, or any model
+  used as a request body or response; a tuple in service-internal code is untouched.
+  Requires spec `0.23.0`.
+
+- **Route paths and params are checked at compile time, from generated types (ADR 0092).**
+  0.5.10 closed half of this: `useRouteParam` stopped a typo'd param from silently reading
+  `undefined` *at runtime*. The other half is why the ADR exists — the router is built at
+  runtime from the module manifests, so TanStack's type registry is empty and **nothing**
+  could check a route path or a param name; a typo'd path was a dead link that shipped
+  green, against the platform's own line that a red typecheck means the app does not work.
+  The manifests are static data, so the check is now generated from them:
+  - `terp routes` (a `terp-routes` bin from `@terpjs/contract`) parses each
+    `src/modules/<name>/module.tsx`, reads the `path` literals out of every
+    `defineModuleManifest(...)`, and writes a **committed** `src/routes.gen.d.ts` that
+    augments `TerpRouteTable` — deduped, sorted, LF-only, so a committed artifact diffs
+    cleanly.
+  - Three checked seams consume it: `useRouteParams("/records/:recordId")` (exact, per
+    route), `useRouteParam(name)` (checked against every declared param name), and
+    `useTerpNavigate()` (an undeclared path is a type error; a parameterised route requires
+    its params, in the manifest's `:id` spelling, translated to the router's `$id`).
+  - `routes-drift` gates it in every verify profile, ordered **before** the typecheck: a
+    stale table otherwise reads as a pile of errors in the app's own screens when the real
+    fault is one unregenerated artifact. `--check` re-renders and compares, so it needs no
+    git, catches a hand-edit, and prints the command that fixes it. `terp dev` regenerates
+    as a preflight beside the OpenAPI export.
+  - Extraction fails closed: a `path` that is not a plain string literal is refused with
+    its file and line, never skipped. A partial table is worse than none — it turns a real
+    path into a type error and teaches authors to distrust the check.
+  - Opt-in for an existing app: with no `routes` script wired, the preflight and the gate
+    are no-op successes carrying the adoption hint (the shape `api-docs-drift` has for an
+    uncommitted `docs/`), so upgrading the framework cannot break `terp dev` or turn a gate
+    red. The template ships the script, the committed table and the CI step, so a new app
+    is gated from its first commit.
+
+  Two things this deliberately does not do. The table covers the app's own manifests only,
+  so it never drifts because a dependency's internals changed; packaged-area screens (the
+  admin area) read their params through an internal untyped helper, since an app that
+  declares no params of its own must not fail on framework code it does not own. And the
+  guarantee is itself gated — a compile-time assertion in the example app fails if the
+  check ever stops being a check, because that failure is otherwise invisible.
+
 ## 0.5.10 — 2026-08-14
 
 Friction reported from building registry and catalog modules on Terp — the

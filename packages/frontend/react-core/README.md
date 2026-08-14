@@ -72,9 +72,45 @@ runtime, fail closed (ADR 0059), so every screen keeps the breadcrumb/title/erro
 | `DetailPage` | One record's screen (level 3); breadcrumb trail = ancestors + record title. |
 | `Breadcrumbs` | The trail itself (used by the archetypes; rarely composed directly). Ancestor crumbs use the router's `Link` by default — `renderLink` is only for rendering outside a Terp router. |
 | `NavLinkContext`, `useNavLink` | The ambient link renderer `buildAppRouter` publishes (and the layout components default to); provide it yourself in a standalone story/test tree or a bespoke shell. |
-| `useRouteParam` | Read one route param, fail closed: the declared param comes back as a string, an undeclared name throws a directive error instead of silently yielding `undefined`. Routes are realised at runtime from manifests, so TanStack's type registry cannot check param names in any app — this replaces the unchecked `useParams({ strict: false }) as {…}` cast (ADR 0092). |
+| `useRouteParam` | Read one route param, fail closed: the declared param comes back as a string, an undeclared name throws a directive error instead of silently yielding `undefined`. Replaces the unchecked `useParams({ strict: false }) as {…}` cast (ADR 0092). Checked against the generated route table when the app has one. |
+| `useRouteParams` | Read a whole declared route's params, typed exactly: `const { recordId } = useRouteParams("/records/:recordId")`. With a generated route table, a typo in the path *or* a param name is a typecheck error. |
+| `useTerpNavigate` | Navigate by manifest path: `navigate({ to: "/records/:recordId", params: { recordId } })`. An undeclared path is a typecheck error and a parameterised route requires its params — a typo'd path used to be a dead link that shipped green. Takes the manifest's `:id` spelling and translates to the router's `$id`. |
 | `ModuleNav` | Secondary horizontal tabs for intra-module sub-pages (real routes, not state). |
 | `PageActions` | Primary action + overflow menu for a page header. |
+
+### Typed route paths and params (generated, ADR 0092)
+
+`buildAppRouter` realises routes at runtime from manifest data, which leaves TanStack
+Router's type registry empty: nothing checks a route path or a param name, so a typo'd
+path is a dead link and a typo'd param silently reads `undefined`. The manifests are
+static data, so the check is generated from them:
+
+```bash
+npm --prefix frontend run routes     # or: uv run terp routes
+```
+
+`terp-routes` reads every `src/modules/<name>/module.tsx` manifest and writes a
+**committed** `src/routes.gen.d.ts` that augments `TerpRouteTable`:
+
+```ts
+declare module "@terpjs/react-core" {
+  interface TerpRouteTable {
+    "/records": Record<never, never>;
+    "/records/:recordId": { recordId: string };
+  }
+}
+```
+
+From then on `useRouteParams("/records/:recordId")` is exact, `useRouteParam` refuses a
+param no route declares, and `useTerpNavigate` refuses an undeclared path. Regenerate
+after changing a manifest route — `terp verify`'s `routes-drift` check refuses a stale
+table and names the command (it runs before the typecheck, so a stale table reads as
+"regenerate", not as errors in your own screens). A route whose `path` is not a plain
+string literal is refused with its file and line rather than silently omitted: a partial
+table would turn a real path into a type error. Routes a packaged area mounts (the admin
+area) are not keyed — the file stays a pure function of the app's own manifests. Without
+a generated file every helper falls back to `string`, so adopting is opt-in: add the
+`routes` script, generate, commit.
 
 ### Slot-typed layout contracts (opt-in, ADR 0079)
 

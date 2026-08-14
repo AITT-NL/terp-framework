@@ -23,6 +23,7 @@ from terp.arch import (
     check_events_reference_catalog,
     check_input_schemas_exclude_managed_columns,
     check_input_str_fields_have_max_length,
+    check_schemas_avoid_positional_tuples,
     check_jobs_reference_catalog,
     check_list_routes_paginate,
     check_modules_declare_policy,
@@ -1538,6 +1539,45 @@ def test_update_schemas_inherit_base_update_schema(tmp_path: pathlib.Path) -> No
         "update_schemas_inherit_base_update_schema"
     }
 
+
+
+def test_schemas_avoid_positional_tuples(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/schemas.py",
+        "class NoteRead(BaseSchema):\n    coordinates: tuple[float, float]\n",
+    )
+    assert _rule_names(check_schemas_avoid_positional_tuples(app)) == {
+        "schemas_avoid_positional_tuples"
+    }
+
+    # A tuple nested in a container still reaches the contract positionally.
+    _write(
+        app,
+        "modules/notes/schemas.py",
+        "class NoteCreate(BaseSchema):\n    tags: list[tuple[str, str]]\n",
+    )
+    assert _rule_names(check_schemas_avoid_positional_tuples(app)) == {
+        "schemas_avoid_positional_tuples"
+    }
+
+    # A named nested model and a homogeneous list are the compliant shapes.
+    _write(
+        app,
+        "modules/notes/schemas.py",
+        "class Point(BaseSchema):\n    lat: float\n    lon: float\n"
+        "class NoteRead(BaseSchema):\n    coordinates: Point\n    tag_names: list[str]\n",
+    )
+    assert check_schemas_avoid_positional_tuples(app) == []
+
+    # A tuple on a plain (non-DTO) class never crosses the boundary: exempt.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "class NoteIndex:\n    spans: list[tuple[int, int]]\n",
+    )
+    assert check_schemas_avoid_positional_tuples(app) == []
 
 
 def test_input_str_fields_have_max_length(tmp_path: pathlib.Path) -> None:

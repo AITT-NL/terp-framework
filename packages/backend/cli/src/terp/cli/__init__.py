@@ -29,6 +29,7 @@ from terp.cli.jobs import (
     run_worker_command,
 )
 from terp.cli.openapi import _load_app, export_openapi
+from terp.cli.routes import run_routes_command
 from terp.cli.profiles import DEFAULT_PROFILE, profile_names
 from terp.cli.scaffold import new_module, new_module_message
 from terp.cli.schema import (
@@ -845,6 +846,18 @@ Frontend module screens (@terpjs/react-core)
 - Every routed view renders a page archetype (Page / OverviewPage / DetailPage / HubPage);
   buildAppRouter refuses an unframed view at runtime, fail closed. An app can ratchet
   further with an opt-in slot-typed layout contract (terp guide layouts).
+- Route paths and params are CHECKED, from generated types (ADR 0092). The router is built
+  at runtime from the manifests, so nothing type-checks a path or a param name until you
+  generate the table from those manifests:
+      uv run terp routes            -> writes the committed frontend/src/routes.gen.d.ts
+  Then read and navigate through the checked seams:
+      const { recordId } = useRouteParams("/records/:recordId");   // exact, per route
+      const recordId = useRouteParam("recordId");                  // one param
+      navigate({ to: "/records/:recordId", params: { recordId } }); // useTerpNavigate()
+  Paths use the manifest spelling (":id", not "$id"). Regenerate after changing a manifest
+  route — `terp verify` refuses a stale table (the routes-drift check) and names the
+  command. A path that is not a plain string literal is refused, with its file and line:
+  a partial table would turn a real path into a type error.
 - User-facing text props are UiText (a plain string, or {id, message} for localization).
 - Data always flows through the generated client: useTerpClient() (typed from the backend
   OpenAPI export) and unwrap(...) which throws a typed ApiError carrying code/status.
@@ -1879,9 +1892,25 @@ def _build_parser() -> argparse.ArgumentParser:
         "--app-root", default=".", help="App root placed first on sys.path (default: .)"
     )
 
+    routes_parser = subcommands.add_parser(
+        "routes",
+        help="Regenerate the frontend's route types from the module manifests (ADR 0092)",
+    )
+    routes_parser.add_argument(
+        "--root", default=".", help="Project root the frontend is resolved against (default: .)"
+    )
+    routes_parser.add_argument(
+        "--frontend-dir", default="frontend", help="Frontend app directory (default: frontend)"
+    )
+    routes_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Refuse a stale committed route table instead of rewriting it (the CI shape)",
+    )
+
     dev_parser = subcommands.add_parser(
         "dev",
-        help="Run the backend + frontend dev servers together (with an OpenAPI preflight)",
+        help="Run the backend + frontend dev servers together (with the codegen preflight)",
     )
     dev_parser.add_argument(
         "--app",
@@ -2213,6 +2242,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "openapi":
         print(f"wrote {export_openapi(args.app, out=args.out, app_root=args.app_root)}")
         return
+    if args.command == "routes":
+        print(
+            run_routes_command(
+                root=args.root, frontend_dir=args.frontend_dir, check=args.check
+            )
+        )
+        return
     if args.command == "dev":
         print(
             run_dev_command(
@@ -2347,6 +2383,7 @@ __all__ = [
     "run_docker_dev_command",
     "run_fmt_command",
     "run_job_command",
+    "run_routes_command",
     "run_scheduler_command",
     "run_seed_command",
     "run_verify_command",

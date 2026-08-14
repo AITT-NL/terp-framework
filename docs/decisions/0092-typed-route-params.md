@@ -33,41 +33,64 @@ already checked in — `manifest.routes` is static data.
 
 Two steps, shipped at different speeds.
 
-**1. `useRouteParam` (shipped with this ADR).** The sanctioned param read in
+**1. `useRouteParam` (shipped first).** The sanctioned param read in
 `@terpjs/react-core`: `useRouteParam("recordId")` returns the declared param as a
 string and **throws a directive error** — naming the param, the params actually
 present, and where params are declared — when the current route did not declare it.
 The raw cast silently yields `undefined` and renders a broken screen; the sanctioned
 read fails closed at the moment of the mistake, which is the best a runtime check can
 do and strictly better than the status quo. The in-tree admin detail screens adopt it,
-deleting their casts.
+deleting their casts. It remains the right read for a single param, and step 2 adds the
+compile-time check on top of it.
 
-**2. Generated route types (the full fix, next).** Follow the committed-artifact
-pattern `terp openapi` established — generate, commit, gate the diff:
+**2. Generated route types (shipped).** The committed-artifact pattern `terp openapi`
+established — generate, commit, gate:
 
-- a generator extracts each module manifest's route literals (`defineModuleManifest`
-  calls under `src/modules/*/module.tsx`) and emits a committed
-  `src/routes.gen.d.ts`: a `TerpRouteParams` interface mapping each route path to its
-  param object (`"/syncs/:syncId"` → `{ syncId: string }`);
-- `useRouteParam` and a typed navigation helper pick the types up via interface
-  augmentation, so a wrong path or param name goes red in any app that generated;
-- drift is gated, not trusted: a verify check diffs the regenerated artifact, exactly
-  like `api-docs-drift`, and `terp dev` regenerates as a preflight;
-- extraction is fail-closed: the manifests are data, but they live in TypeScript, so
-  the generator refuses (lists, does not skip) a route whose path is not a string
-  literal rather than silently emitting a partial map.
-
-The generator is deliberately **not** shipped in the same change as the stopgap: it
-needs a TS-extraction seam, template wiring, and a verify check, and rushing those in
-one batch is how a half-right contract ships. This ADR records the design so the next
-change implements it against a decided shape.
+- **The generator.** `terp-routes` (a bin from `@terpjs/contract`, which owns the manifest
+  contract) parses every `src/modules/<name>/module.tsx` with the TypeScript compiler API,
+  reads the `path` literals out of each `defineModuleManifest(...)` call, and writes
+  `src/routes.gen.d.ts` — a `declare module "@terpjs/react-core"` augmentation of the
+  `TerpRouteTable` interface, mapping each path to its params (`"/records/:recordId"` →
+  `{ recordId: string }`). Output is deduped, sorted, LF-only: a committed artifact has to
+  diff cleanly to be gate-able. `terp routes` wraps it, and the same command is what
+  `terp dev` runs as a preflight beside the OpenAPI export.
+- **Consumption.** `useRouteParams("/records/:recordId")` returns that route's params
+  exactly; `useRouteParam(name)` is checked against every declared param name;
+  `useTerpNavigate()` refuses an undeclared path and requires a parameterised route's
+  params, in the manifest's `:id` spelling (it translates to the router's `$id`). With no
+  generated file the table is empty, every helper falls back to `string`, and behavior is
+  exactly what it was — generating is what turns the checks on.
+- **Fail-closed extraction.** A route whose `path` is not a plain string literal (a
+  template literal, a constant, a spread) is named with its file and line and the run is
+  refused. A partial table is worse than none: it turns a real path into a type error and
+  teaches authors to distrust the check.
+- **The gate.** `terp-routes --check` re-renders in memory and compares with the committed
+  file — no git, so it also catches a hand-edit, and it reports the regeneration command.
+  It runs as the `routes-drift` verify check in every profile, ordered **before**
+  `frontend-typecheck` because a stale table otherwise surfaces as a pile of type errors
+  in the app's own screens when the real fault is one unregenerated artifact.
+- **Scope: the app's own manifests.** Routes a packaged area mounts (react-core's admin
+  area) are deliberately not keyed, so the artifact is a pure function of the app's own
+  source and never drifts because a dependency's internals changed. The packaged screens
+  therefore read their own params through an internal untyped helper, not the app-facing
+  `useRouteParam` — otherwise an app that declares no params of its own would fail on
+  framework code it does not own.
+- **Adopt-forward, not break-on-upgrade.** Route types are opt-in for an existing app: with
+  no `routes` script wired, the `terp dev` preflight and the `routes-drift` check are
+  no-op successes carrying the two-step hint, exactly as `api-docs-drift` is a no-op until
+  a project commits `docs/`. The template ships the script, the committed table, and a CI
+  step, so new apps are gated from the first commit.
 
 ## Consequences
 
-- Route params stop being silently wrong today (`useRouteParam` throws where the cast
-  guessed), and stop being a runtime concern at all once the generated map lands.
-- Until step 2 lands, `navigate({ to })` paths remain unchecked — the stopgap
-  deliberately covers only the param read, which is where both in-tree casts and both
-  reported app-side casts lived.
-- `@tanstack/react-router` stays a direct app dependency; nothing here wraps or hides
-  the router. The generated types narrow the existing API instead of replacing it.
+- The failure mode this ADR exists for can now go red: an undeclared path, a param no
+  route declares, and a paramless route handed params are all typecheck errors. A
+  compile-time assertion in the example app (`src/routeTable.check.ts`) fails if that
+  stops being true — the guarantee is itself gated, because its absence is invisible.
+- A manifest route change now has a second step: regenerate. That is the cost of the
+  check, and it is why the gate reports the exact command rather than only the diff.
+- `@tanstack/react-router` stays a direct app dependency; nothing wraps or hides the
+  router. The generated types narrow the existing API instead of replacing it.
+- `@terpjs/contract` gains `typescript` as a runtime dependency — the generator needs a
+  parser, and a hand-rolled scanner could not honestly tell a non-literal path from a
+  literal one, which is the fail-closed rule above.

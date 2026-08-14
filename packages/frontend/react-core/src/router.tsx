@@ -4,6 +4,7 @@ import {
   createRouter,
   Link,
   Outlet,
+  useNavigate,
   useParams,
   useRouter,
   type AnyRoute,
@@ -15,6 +16,12 @@ import type { ModuleManifest } from "@terpjs/contract";
 
 import { AppShell } from "./AppShell";
 import { ProfileView } from "./ProfileView";
+import type {
+  TerpNavigateTarget,
+  TerpRouteParamName,
+  TerpRouteParams,
+  TerpRoutePath,
+} from "./routeTypes";
 import { LAYOUT_CONTRACTS, LayoutContractContext } from "./layoutContract";
 import { visibleNav } from "./nav";
 import { NavLinkContext } from "./navLink";
@@ -48,31 +55,121 @@ export function routerPath(path: string): string {
   return path.replace(/(^|\/):([A-Za-z_][A-Za-z0-9_]*)/g, "$1$$$2");
 }
 
+/** Read the router's params bag, whatever route matched (a hook: it reads router state). */
+function useCurrentParams(): Record<string, string | undefined> {
+  return useParams({ strict: false }) as Record<string, string | undefined>;
+}
+
+/** The shared refusal both param reads raise, phrased as a directive. */
+function missingParam(name: string, params: Record<string, string | undefined>): Error {
+  const seen = Object.keys(params);
+  return new Error(
+    `Route param "${name}" is not present on the current route (params seen: ` +
+      `${seen.length > 0 ? seen.join(", ") : "none"}). A param is declared in the ` +
+      `module manifest's route path (e.g. "/records/:${name}") and must be read ` +
+      "under that route — check the name against the manifest, and run `terp routes` " +
+      "if the manifest changed.",
+  );
+}
+
+/**
+ * Read one route param by name, fail closed — the untyped core.
+ *
+ * Internal on purpose. The app-facing {@link useRouteParam} checks the name against the
+ * app's generated route table, and this package's own packaged screens (the admin area)
+ * must NOT be checked against it: their routes come from this package's manifest, not
+ * from the app's, so constraining them to the app's declared params would fail an app
+ * that simply declares no params of its own. A packaged screen's route correctness is
+ * this package's own test surface.
+ */
+export function useDeclaredParam(name: string): string {
+  const params = useCurrentParams();
+  const value = params[name];
+  if (value === undefined) {
+    throw missingParam(name, params);
+  }
+  return value;
+}
+
 /**
  * Read one route param, fail closed when it is absent.
  *
- * {@link buildAppRouter} realises routes at runtime from manifest data, so TanStack's
- * type-level route registry is empty for every Terp app: `useParams` cannot check a
- * param name anywhere, and the raw idiom is an unchecked cast —
- * `useParams({ strict: false }) as { recordId?: string }` — whose typo typechecks
- * green and renders a broken screen. Until route params are generated as types
- * (ADR 0092), this is the sanctioned read: the param the manifest route path declared
- * (`/records/:recordId`) comes back as a string, and a name the current route did not
- * declare throws a directive error instead of silently yielding undefined.
+ * The name is checked against the app's generated route table when there is one
+ * ({@link TerpRouteParamName} — every param name any manifest route declares), and is
+ * a plain `string` before `terp routes` has generated. Either way a name the *current*
+ * route did not declare throws a directive error instead of silently yielding
+ * `undefined`, which is what the raw `useParams({ strict: false }) as {…}` cast did.
+ *
+ * Reach for {@link useRouteParams} when you want the exact, per-route check: keyed by
+ * the route path, it refuses a param that route does not declare, not merely one no
+ * route declares.
  */
-export function useRouteParam(name: string): string {
-  const params = useParams({ strict: false }) as Record<string, string | undefined>;
-  const value = params[name];
-  if (value === undefined) {
-    const seen = Object.keys(params);
-    throw new Error(
-      `Route param "${name}" is not present on the current route (params seen: ` +
-        `${seen.length > 0 ? seen.join(", ") : "none"}). A param is declared in the ` +
-        `module manifest's route path (e.g. "/records/:${name}") and must be read ` +
-        "under that route — check the name against the manifest.",
-    );
+export function useRouteParam(name: TerpRouteParamName): string {
+  return useDeclaredParam(name);
+}
+
+/**
+ * Read a declared route's params as a typed object — the exact read (ADR 0092).
+ *
+ * ```tsx
+ * const { recordId } = useRouteParams("/records/:recordId");
+ * ```
+ *
+ * Once `terp routes` has generated the app's route table, the path must be one the
+ * manifests declare and the returned object carries exactly that route's params, so a
+ * typo in either the path or a param name is a typecheck error rather than a runtime
+ * surprise. Before generating, the path is a plain `string` and the result is a
+ * string-keyed record.
+ *
+ * The path is the manifest's stack-agnostic spelling (`:recordId`). Every declared
+ * param must be present at runtime; a missing one fails closed, which is how a stale
+ * generated table (manifest changed, `terp routes` not re-run) surfaces as an error
+ * naming the param instead of `undefined` flowing into a request.
+ */
+export function useRouteParams<P extends TerpRoutePath>(path: P): TerpRouteParams<P> {
+  const params = useCurrentParams();
+  const declared = declaredParamNames(path);
+  const resolved: Record<string, string> = {};
+  for (const name of declared) {
+    const value = params[name];
+    if (value === undefined) {
+      throw missingParam(name, params);
+    }
+    resolved[name] = value;
   }
-  return value;
+  return resolved as TerpRouteParams<P>;
+}
+
+/** The param names a manifest path declares, in declaration order (`:name` segments). */
+function declaredParamNames(path: string): string[] {
+  return [...path.matchAll(/(?:^|\/)[:$]([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => match[1]!);
+}
+
+/**
+ * Navigate to a declared route, with that route's params (ADR 0092).
+ *
+ * ```tsx
+ * const navigate = useTerpNavigate();
+ * void navigate({ to: "/records/:recordId", params: { recordId: row.id } });
+ * ```
+ *
+ * The reason to prefer this over the router's own `navigate`: once the route table is
+ * generated, an undeclared path is a typecheck error, a parameterised route *requires*
+ * its params, and the param names are the manifest's. A typo'd path was previously a
+ * dead link that shipped green — nothing checked it, because the route tree is built at
+ * runtime. Paths are written in the manifest spelling and translated to the router's
+ * dialect here ({@link routerPath}), so callers never hold two spellings.
+ */
+export function useTerpNavigate(): (target: TerpNavigateTarget) => Promise<void> {
+  const navigate = useNavigate();
+  return (target: TerpNavigateTarget) =>
+    navigate({
+      to: routerPath(target.to),
+      // The reducer form, not a bare object: on a router whose route tree is built at
+      // runtime TanStack types `params` as a reducer (or `true`), and merging over the
+      // previous params is also the honest semantic for an in-place param change.
+      params: (previous: Record<string, unknown>) => ({ ...previous, ...(target.params ?? {}) }),
+    });
 }
 
 export interface BuildAppRouterOptions {

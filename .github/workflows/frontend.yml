@@ -51,6 +51,9 @@ jobs:
           npm run -w @terpjs/contract tokens
           git diff --exit-code -- packages/frontend/contract/src/tokens.css
 
+      - name: Test @terpjs/contract (the route-types generator)
+        run: npm run -w @terpjs/contract test
+
       - name: Type-check @terpjs/react-core
         run: npm run -w @terpjs/react-core typecheck
 
@@ -83,6 +86,12 @@ jobs:
         run: |
           npm run -w @terpjs-example/frontend generate
           git diff --exit-code -- apps/example/frontend/src/api/schema.d.ts
+
+      # The route table is extracted from the example's module manifests and committed
+      # (ADR 0092), so a manifest route added without regenerating fails here — before the
+      # typecheck, where a stale table shows up as errors in the app's own screens.
+      - name: Refuse a stale committed route table
+        run: npm run -w @terpjs-example/frontend routes -- --check
 
       - name: Type-check the example frontend
         run: npm run -w @terpjs-example/frontend typecheck

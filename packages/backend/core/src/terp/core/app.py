@@ -1041,7 +1041,9 @@ def _validate_router_response_models(router: APIRouter) -> None:
       (``routes_declare_response_model``);
     * not expose a credential-shaped DTO field
       (``schemas_exclude_sensitive_fields``);
-    * paginate a list response through ``Page[T]`` (``list_routes_paginate``).
+    * paginate a list response through ``Page[T]`` (``list_routes_paginate``);
+    * not put a tuple-typed field on the wire
+      (``schemas_avoid_positional_tuples``).
 
     Each check is the fail-closed runtime half of the same-named build-time
     ``terp.arch`` rule (the two-layer story, ADR 0084).
@@ -1059,6 +1061,63 @@ def _validate_router_response_models(router: APIRouter) -> None:
                 )
         _validate_schemas_exclude_sensitive_fields(route)
         _validate_list_routes_paginate(route)
+        _reject_positional_tuple_schemas(route)
+
+
+def _annotation_contains_tuple(annotation: object) -> bool:
+    """True when *annotation* carries a ``tuple`` at any nesting depth."""
+    origin = get_origin(annotation)
+    if origin is tuple or annotation is tuple:
+        return True
+    return any(_annotation_contains_tuple(arg) for arg in get_args(annotation))
+
+
+def _reject_positional_tuple_schemas(route: APIRoute) -> None:
+    """Boot half of ``backend/schemas_avoid_positional_tuples`` (Terp Standard).
+
+    A tuple-annotated field on a model the route puts on the wire serializes into the
+    OpenAPI document as a positional array (``prefixItems``, or the list form of
+    ``items``). Client generators do not agree on that shape, so the app ends up
+    unable to type its own calls against its own API -- and the failure surfaces at
+    the call site as an opaque generic mismatch, far from the field that caused it.
+
+    Runs over the composed route table, so it catches a tuple that reaches the
+    contract through a type alias, a generic parameter, or a custom
+    ``__get_pydantic_core_schema__`` -- exactly the vectors the build-time source
+    scan cannot see. A framework-owned DTO (``terp.*``) is exempt: the framework
+    tree runs the same rule in its own gate.
+    """
+    seen: set[type] = set()
+    pending = [tp for tp in _referenced_response_types(route.response_model)]
+    if (body_field := getattr(route, "body_field", None)) is not None:
+        # FastAPI's ModelField wrapper has moved its annotation attribute across
+        # versions; read whichever this one exposes rather than pinning to one.
+        body_annotation = getattr(body_field, "type_", None)
+        if body_annotation is None:
+            body_annotation = getattr(getattr(body_field, "field_info", None), "annotation", None)
+        if body_annotation is not None:
+            pending.append(body_annotation)
+    while pending:
+        tp = pending.pop()
+        if not (isinstance(tp, type) and issubclass(tp, BaseModel)) or tp in seen:
+            continue
+        seen.add(tp)
+        if tp.__module__.partition(".")[0] == "terp":
+            continue
+        for field_name, field in tp.model_fields.items():
+            annotation = field.annotation
+            if _annotation_contains_tuple(annotation):
+                raise BootError(
+                    f"route {route.path!r} schema {tp.__name__!r} declares the "
+                    f"tuple-typed field {field_name!r}; a tuple reaches the API "
+                    "contract as a positional array, which generated clients type "
+                    "incompatibly -- declare a nested schema with named fields, or a "
+                    "homogeneous list[...] "
+                    "[Terp Standard backend/schemas_avoid_positional_tuples]"
+                )
+            pending.extend(
+                arg for arg in (annotation, *get_args(annotation)) if isinstance(arg, type)
+            )
 
 
 def create_app(

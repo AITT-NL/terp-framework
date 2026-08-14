@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModuleManifest } from "@terpjs/contract";
 
-import { buildAppRouter, useRouteParam } from "./router";
+import { buildAppRouter, useRouteParam, useRouteParams, useTerpNavigate } from "./router";
 import { Page } from "./Page";
 import { TerpProvider, useAuth } from "./TerpProvider";
 
@@ -13,6 +13,22 @@ function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "content-type": "application/json" },
+  });
+}
+
+/** The login + session-probe fetch a routed test needs to reach a guarded view. */
+function sessionFetch() {
+  return vi.fn<typeof fetch>(async (input) => {
+    const url = (input as Request).url;
+    if (url.endsWith("/api/v1/auth/login")) {
+      return jsonResponse({ access_token: "t", token_type: "bearer" });
+    }
+    return jsonResponse({
+      id: "1",
+      email: "editor@example.com",
+      role_rank: 20,
+      role_name: "editor",
+    });
   });
 }
 
@@ -185,6 +201,106 @@ describe("buildAppRouter", () => {
     // The view throws before it can render; the screen never shows the wrong body.
     await waitFor(() => expect(console.error).toHaveBeenCalled());
     expect(screen.queryByRole("heading", { name: /Wrong/ })).not.toBeInTheDocument();
+  });
+
+  it("useRouteParams reads a whole declared route's params, and refuses a stale one", async () => {
+    // The exact read (ADR 0092): keyed by the manifest path, every param that path
+    // declares must be present. A generated table that no longer matches the manifest
+    // therefore fails closed naming the param, instead of leaking undefined into a request.
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", sessionFetch());
+
+    function PairView() {
+      const { spaceId, itemId } = useRouteParams("/spaces/:spaceId/items/:itemId");
+      return <Page title={`${spaceId}/${itemId}`}>pair body</Page>;
+    }
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider
+          router={buildAppRouter(
+            [{ name: "spaces", routes: [{ path: "/spaces/:spaceId/items/:itemId", view: "Pair" }] }],
+            {
+              views: { Pair: PairView },
+              title: "Terp",
+              history: createMemoryHistory({ initialEntries: ["/spaces/s1/items/i9"] }),
+            },
+          )}
+        />
+      </TerpProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "s1/i9" })).toBeInTheDocument(),
+    );
+    cleanup();
+
+    // The same view under a route that declares only one of the two params.
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider
+          router={buildAppRouter(
+            [{ name: "spaces", routes: [{ path: "/spaces/:spaceId", view: "Pair" }] }],
+            {
+              views: { Pair: PairView },
+              title: "Terp",
+              history: createMemoryHistory({ initialEntries: ["/spaces/s1"] }),
+            },
+          )}
+        />
+      </TerpProvider>,
+    );
+    await waitFor(() => expect(console.error).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: /s1/ })).not.toBeInTheDocument();
+  });
+
+  it("useTerpNavigate navigates by the manifest's path spelling, carrying params", async () => {
+    // The manifest spells a param `:id`; TanStack wants `$id`. useTerpNavigate takes the
+    // manifest spelling (what the generated table is keyed by) and translates, so a caller
+    // never holds two spellings — and the params ride along.
+    vi.stubGlobal("fetch", sessionFetch());
+
+    function ListView() {
+      const navigate = useTerpNavigate();
+      return (
+        <Page title="Things view">
+          <button type="button" onClick={() => void navigate({ to: "/things/:thingId", params: { thingId: "abc" } })}>
+            open abc
+          </button>
+        </Page>
+      );
+    }
+    function DetailView() {
+      return <Page title={`Thing ${useRouteParam("thingId")}`}>thing body</Page>;
+    }
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider
+          router={buildAppRouter(
+            [
+              {
+                name: "things",
+                routes: [
+                  { path: "/things", view: "ThingsList" },
+                  { path: "/things/:thingId", view: "ThingDetail" },
+                ],
+              },
+            ],
+            {
+              views: { ThingsList: ListView, ThingDetail: DetailView },
+              title: "Terp",
+              history: createMemoryHistory({ initialEntries: ["/things"] }),
+            },
+          )}
+        />
+      </TerpProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "open abc" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Thing abc" })).toBeInTheDocument(),
+    );
   });
 
   it("gives breadcrumbs and hub cards the router's link without being asked", async () => {

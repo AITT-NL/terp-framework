@@ -10,18 +10,23 @@
     "./tokens.css": "./src/tokens.css"
   },
   "types": "./src/index.ts",
+  "bin": {
+    "terp-routes": "./bin/terp-routes.js"
+  },
   "scripts": {
     "generate": "openapi-typescript ./openapi.json --output ./src/schema.d.ts",
     "tokens": "node scripts/build-tokens.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "openapi-typescript": "^7.13.0",
     "style-dictionary": "^5.5.0",
-    "typescript": "^5.9.3"
+    "vitest": "^4.1.9"
   },
   "dependencies": {
-    "openapi-fetch": "^0.17.0"
+    "openapi-fetch": "^0.17.0",
+    "typescript": "^5.9.3"
   },
   "license": "Apache-2.0",
   "repository": {

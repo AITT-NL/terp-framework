@@ -116,8 +116,24 @@ export { Field } from "./Field";
 export type { FieldProps } from "./Field";
 export { Stack, DetailList } from "./layout";
 export type { StackProps, DetailListProps, DetailItem, SpaceToken } from "./layout";
-export { buildAppRouter, DEFAULT_ROLE_RANKS, PROFILE_PATH, useRouteParam } from "./router";
+export {
+  buildAppRouter,
+  DEFAULT_ROLE_RANKS,
+  PROFILE_PATH,
+  useRouteParam,
+  useRouteParams,
+  useTerpNavigate,
+} from "./router";
 export type { BuildAppRouterOptions } from "./router";
+// The generated `routes.gen.d.ts` augments TerpRouteTable (ADR 0092); the derived types
+// are exported so an app can name a route path or a param object in its own signatures.
+export type {
+  TerpNavigateTarget,
+  TerpRouteParamName,
+  TerpRouteParams,
+  TerpRoutePath,
+  TerpRouteTable,
+} from "./routeTypes";
 export { LoginView } from "./LoginView";
 export type { DevCredentials, LoginViewProps } from "./LoginView";
 export {

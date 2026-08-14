@@ -78,9 +78,31 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         "backend-tests",
         "appsec-baseline",
         "frontend-boundaries",
+        "routes-drift",
         "frontend-typecheck",
         "frontend-build",
     }
+
+
+def test_the_routes_drift_check_runs_before_the_typecheck() -> None:
+    """A stale route table (ADR 0092) fails the *typecheck*, on the app's own screens,
+    when the real fault is one unregenerated artifact. Ordering the drift check first
+    means the author reads "regenerate the route table" instead of a pile of type
+    errors in code they just wrote."""
+    for profile, checks in PROFILES.items():
+        ids = [check.id for check in checks]
+        if "routes-drift" in ids and "frontend-typecheck" in ids:
+            assert ids.index("routes-drift") < ids.index("frontend-typecheck"), profile
+
+
+def test_the_template_ci_checks_the_committed_route_table() -> None:
+    """The full profile's equivalence with template CI, for the routes half: the
+    generated app's CI must refuse a stale committed table, before its typecheck."""
+    workflow = (
+        _REPO_ROOT / "template" / "project" / ".github" / "workflows" / "ci.yml.jinja"
+    ).read_text(encoding="utf-8")
+    assert "npm run routes -- --check" in workflow
+    assert workflow.index("npm run routes -- --check") < workflow.index("npm run typecheck")
 
 
 def test_the_template_ci_runs_the_platform_install_check() -> None:

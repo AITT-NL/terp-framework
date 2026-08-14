@@ -12,7 +12,7 @@ import { DataView, HttpDataViewRepository } from "../dataview";
 import type { DataViewColumn } from "../dataview";
 import { DetailList, Stack } from "../layout";
 import { PageActions } from "../PageActions";
-import { useRouteParam } from "../router";
+import { useDeclaredParam } from "../router";
 import { useRecord } from "../useRecord";
 import { useToast } from "../toast";
 import { Button } from "../ui/Button";
@@ -40,7 +40,7 @@ const SEARCH_DEBOUNCE_MS = 250;
  * backend resolved for them.
  */
 export function GroupDetail() {
-  const groupId = useRouteParam("groupId");
+  const groupId = useDeclaredParam("groupId");
   const client = useTerpClient();
   const navigate = useNavigate();
   const toast = useToast();
