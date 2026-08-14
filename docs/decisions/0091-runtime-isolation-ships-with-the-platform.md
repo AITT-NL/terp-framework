@@ -32,7 +32,7 @@ fixture resetting each seam after every test, with a docstring naming the respon
 ("process-global runtime isolation … so suites stay order-independent"). It was never
 shipped. So Terp solved the problem for Terp and left every app on Terp to rediscover
 the hazard from the symptom, then re-derive the fixture — and to know, unprompted, which
-globals exist. This was found by dogfooding: fast-sync's event suite passed for exactly
+globals exist. This was found by dogfooding: a real app's event suite passed for exactly
 this reason, and the app author's report ("this is the sharpest thing on this list") was
 correct.
 

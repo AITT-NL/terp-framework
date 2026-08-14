@@ -19,7 +19,7 @@ The intent was sound — modules are independent, so a monolith cannot condense 
 of them by accident — but the rule had no legal outcome for a dependency that is
 *real*.
 
-Dogfooding surfaced the consequence. Building `fast-sync`, a catalogs module
+Dogfooding surfaced the consequence. In a real app, a catalogs module
 needed to assert that a connection profile exists before publishing a snapshot
 against it — an unremarkable, genuinely one-way dependency on a sibling. The
 platform's only sanctioned answer was to invert it, so the app grew:

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-arch"
-version = "0.5.9"
+version = "0.5.10"
 description = "Terp enforcement harness — secure-by-default fitness rules, shipped as a dependency clients run but cannot edit."
 requires-python = ">=3.13"
 license = "Apache-2.0"

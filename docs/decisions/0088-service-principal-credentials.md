@@ -29,7 +29,7 @@ account looks like:
   makes anyone renew it.
 - It is **indistinguishable in the audit log** from the person it is named after.
 
-We watched exactly this happen while building fast-sync: the engine authenticated
+We watched exactly this happen while dogfooding a real app: the engine authenticated
 as a human operator and, because a per-module grant would have had to be worked
 out by hand, that operator was an administrator. The platform did not force this;
 it simply offered nothing else.

@@ -10,9 +10,9 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## Unreleased
+## 0.5.10 — 2026-08-14
 
-Friction reported from building FAST-Sync's registry/catalog modules on Terp — the
+Friction reported from building registry and catalog modules on Terp — the
 frontend batch. The common shape: the platform had the right opinion and made the
 author work around it — a sanctioned component the contract refused, a singleton read
 spelled as a one-element list, a normal state spelled as exception control flow, and a
@@ -86,7 +86,7 @@ whole class of routing mistakes no layer could turn red.
 
 ## 0.5.9 — 2026-08-13
 
-Friction reported from building FAST-Sync's publish validator on Terp. All three fixes
+Friction reported from building a publish validator on Terp. All three fixes
 share a shape: a platform default that is right for most code and slightly wrong for
 code that **reports** rather than aborts — a validator owing its caller every reason at
 once, and a route that judges a document instead of storing one. Each moves a guarantee
