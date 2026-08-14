@@ -178,7 +178,7 @@ def test_docs_teach_venv_correct_commands() -> None:
     # "Python is not installed". Every command the generated docs teach must run
     # through `uv run`, which resolves the project venv from anywhere.
     bare_terp = re.compile(
-        r"(?<!uv run )\bterp (?:guide|check|dev|new|inspect|migrate|openapi|docker|user)\b"
+        r"(?<!uv run )\bterp (?:guide|check|dev|new|inspect|migrate|openapi|routes|docker|user)\b"
     )
     for doc in ("AGENTS.md.jinja", "README.md.jinja"):
         text = (_PROJECT / doc).read_text()
@@ -249,6 +249,15 @@ def test_frontend_ships_typed_client_codegen() -> None:
     package = (_PROJECT / "frontend" / "package.json.jinja").read_text()
     assert "openapi-typescript" in package
     assert '"generate"' in package
+    # The routes half of the codegen pair (ADR 0092): the script that extracts the
+    # module manifests, plus the committed table a fresh app's gate checks against —
+    # without the checked-in file the generated app's own CI would fail on step one.
+    assert '"routes": "terp-routes"' in package
+    committed_table = _PROJECT / "frontend" / "src" / "routes.gen.d.ts.jinja"
+    assert committed_table.is_file(), "a generated app must ship its route table committed"
+    table = committed_table.read_text(encoding="utf-8")
+    assert 'declare module "@terpjs/react-core"' in table
+    assert '"/": Record<never, never>;' in table, "the home module's route must be keyed"
     assert "frontend/src/api/" in (_PROJECT / ".gitignore").read_text()
 
 

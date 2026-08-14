@@ -49,6 +49,11 @@ jobs:
         working-directory: .
       - run: npm install
       - run: npm run generate
+      # The route types are extracted from the module manifests and committed (ADR 0092),
+      # so `--check` refuses a table that no longer matches them. It runs before the
+      # typecheck deliberately: a stale table fails the typecheck on the app's own
+      # screens, where the real fault is one unregenerated artifact.
+      - run: npm run routes -- --check
       - run: npm run typecheck
       # The boundary lint + escape-hatch budget: the frontend half of the gate. A violation
       # fails CI; a governed opt-out is a justified `terp-allow-*` marker counted in

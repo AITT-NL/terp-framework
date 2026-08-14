@@ -7,7 +7,7 @@ import { Field } from "../Field";
 import { Icon } from "../icons";
 import { DetailList } from "../layout";
 import { PageActions } from "../PageActions";
-import { useRouteParam } from "../router";
+import { useDeclaredParam } from "../router";
 import { useTerpClient } from "../TerpProvider";
 import { useRecord } from "../useRecord";
 import { useToast } from "../toast";
@@ -27,7 +27,7 @@ type PendingLifecycle =
 
 /** Dedicated account detail and lifecycle page (`/admin/users/$userId`). */
 export function UserDetail() {
-  const userId = useRouteParam("userId");
+  const userId = useDeclaredParam("userId");
   const client = useTerpClient();
   const strings = useStrings();
   const toast = useToast();

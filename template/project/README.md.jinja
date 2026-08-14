@@ -83,6 +83,7 @@ generate the typed client from your backend and pass its `paths` to `useTerpClie
 
 ```bash
 uv run terp openapi                 # write openapi.json from the live app
+uv run terp routes                  # write frontend/src/routes.gen.d.ts from the manifests
 npm --prefix frontend run generate  # openapi.json -> frontend/src/api/schema.d.ts
 ```
 

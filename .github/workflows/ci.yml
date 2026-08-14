@@ -228,6 +228,10 @@ jobs:
           set -eux
           npm install /tmp/terp-npm/*.tgz
           npm install
+          # The route table the template ships must be exactly what this app's own
+          # generator produces (ADR 0092) — otherwise every generated app fails its own
+          # CI on step one, and the committed artifact would be a lie about the manifests.
+          npm run routes -- --check
           npm run typecheck
           npm run build
 

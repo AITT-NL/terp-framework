@@ -1,9 +1,10 @@
-"""``terp dev`` — run the backend and frontend dev servers together (with an OpenAPI preflight).
+"""``terp dev`` — run the backend and frontend dev servers together (with the codegen preflight).
 
 The full-stack dev loop of design §7: one command boots the API (uvicorn ``--reload``) and the
-frontend dev server side by side, after refreshing the OpenAPI document the frontend contract is
-generated from — so the typed client's source is current before the servers start. A repo with no
-``frontend/`` directory (a backend-only app) runs just the API server.
+frontend dev server side by side, after refreshing both derived frontend artifacts — the OpenAPI
+document the typed client is generated from, and the route types extracted from the module
+manifests (ADR 0092) — so a route or endpoint added a minute ago is current before the servers
+start. A repo with no ``frontend/`` directory (a backend-only app) runs just the API server.
 
 The command is a pure planner (:func:`dev_plan`, which computes the two process commands) plus a
 thin executor (:func:`run_dev_command`) with the process spawn/supervise primitives injected, so
@@ -21,6 +22,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from terp.cli.openapi import export_openapi
+from terp.cli.routes import run_routes_command
 
 _POLL_SECONDS = 0.2
 
@@ -109,18 +111,21 @@ def run_dev_command(
     openapi_out: str = "openapi.json",
     preflight: bool = True,
     export: Callable[..., pathlib.Path] = export_openapi,
+    regenerate_routes: Callable[..., str] = run_routes_command,
     spawn: Spawn = _spawn,
     supervise: Supervise = _supervise,
 ) -> str:
-    """Run the backend + frontend dev servers together, after an OpenAPI preflight.
+    """Run the backend + frontend dev servers together, after the codegen preflight.
 
-    The preflight writes the live app's OpenAPI document (the frontend contract's codegen source)
-    so the typed client is current before the servers start; pass ``preflight=False`` to skip it.
+    The preflight regenerates both derived artifacts so the frontend is current before the servers
+    start: the live app's OpenAPI document (the typed client's codegen source) and — when the repo
+    has a frontend — the route types extracted from the module manifests (ADR 0092), so a route
+    added a minute ago is navigable and checked. Pass ``preflight=False`` to skip both.
     uvicorn (``--reload``) and the frontend dev server then run side by side until one exits or is
     interrupted, when the other is stopped too. A repo without ``<frontend_dir>/`` runs backend-only.
 
-    *export* / *spawn* / *supervise* are injected so the orchestration is testable without launching
-    real servers. Returns a one-line summary of what was stopped.
+    *export* / *regenerate_routes* / *spawn* / *supervise* are injected so the orchestration is
+    testable without launching real servers. Returns a one-line summary of what was stopped.
     """
     root_path = pathlib.Path(root).resolve()
     backend, frontend = dev_plan(
@@ -129,6 +134,14 @@ def run_dev_command(
     if preflight:
         destination = export(app_ref, out=root_path / openapi_out, app_root=root_path)
         print(f"terp dev — OpenAPI preflight wrote {destination}")
+        # Offered, not imposed: an app that has not adopted route types (no `routes`
+        # script) is skipped with the hint, so upgrading the framework never breaks
+        # `terp dev`. A wired app's generator failure IS surfaced — it is the author's
+        # own manifest that cannot be read.
+        summary = regenerate_routes(
+            root=root_path, frontend_dir=frontend_dir, optional=True
+        )
+        print(f"terp dev — routes preflight: {summary}")
 
     commands = [backend]
     if frontend.cwd.is_dir():

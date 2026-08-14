@@ -199,4 +199,15 @@ Add a module: `uv run terp new module <name>` → fill the slots → **mount it 
 `app/main.py`** (import its `module`, add it to the `modules` list — unmounted
 modules serve no routes) → `uv run terp migrate make <name>` →
 `uv run terp openapi && npm --prefix frontend run generate` (typed client) →
-`uv run terp check`.
+`uv run terp routes` (route types — see below) → `uv run terp check`.
+
+Route paths and params are type-checked from **generated** types (ADR 0092): the router
+is built at runtime from the module manifests, so nothing checks a path or a param name
+until `uv run terp routes` extracts them into the committed
+`frontend/src/routes.gen.d.ts`. Read and navigate through the checked seams —
+`useRouteParams("/records/:recordId")` (exact, per route), `useRouteParam("recordId")`
+(one param), and `useTerpNavigate()` for `navigate({ to: "/records/:recordId", params })`
+— using the manifest's `:id` spelling. **Regenerate after changing a manifest route**:
+`uv run terp verify` refuses a stale table (the `routes-drift` check, before the
+typecheck) and prints the command. A route whose `path` is not a plain string literal is
+refused by name, because a partial table would make a real path look wrong.

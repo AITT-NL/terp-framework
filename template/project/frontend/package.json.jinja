@@ -9,7 +9,8 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/typecheck.tsbuildinfo",
     "lint": "terp-boundaries-lint",
-    "generate": "openapi-typescript ../openapi.json --output ./src/api/schema.d.ts"
+    "generate": "openapi-typescript ../openapi.json --output ./src/api/schema.d.ts",
+    "routes": "terp-routes"
   },
   "dependencies": {
     "@tanstack/react-router": "^1.170.16",

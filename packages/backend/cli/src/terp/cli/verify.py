@@ -63,7 +63,8 @@ class VerifyCheck:
     requires: str = ""
     #: In-process checks (the architecture gate) run as a callable instead of a
     #: subprocess — same verdict surface, no interpreter round-trip.
-    runner: str = "subprocess"  # "subprocess" | "architecture" | "api-docs-drift" | "platform-install"
+    # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift" | "platform-install"
+    runner: str = "subprocess"
 
 
 # Runs first in every profile, because it decides whether the rest of the run
@@ -95,6 +96,18 @@ _FRONTEND_BOUNDARIES = VerifyCheck(
     category="frontend-boundaries",
     command="npm --prefix frontend run lint -- --format check-report",
     scope=("frontend/**", "escape-hatch-budget.json"),
+)
+
+# The routes half of generate-commit-gate (ADR 0092), and the reason it runs BEFORE the
+# typecheck: a stale route table makes the typecheck fail on the app's own screens, where
+# the real fault is one unregenerated artifact. `--check` compares the rendered table with
+# the committed file, so it needs no git and reports the regeneration command.
+_ROUTES_DRIFT = VerifyCheck(
+    id="routes-drift",
+    category="build",
+    command="npm --prefix frontend run routes -- --check",
+    scope=("frontend/**",),
+    runner="routes-drift",
 )
 
 _FRONTEND_TYPECHECK = VerifyCheck(
@@ -167,6 +180,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ARCHITECTURE,
         _FRONTEND_BOUNDARIES,
+        _ROUTES_DRIFT,
         _FRONTEND_TYPECHECK,
     ),
     "full": (
@@ -175,6 +189,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
         _FRONTEND_BOUNDARIES,
+        _ROUTES_DRIFT,
         _FRONTEND_TYPECHECK,
         _FRONTEND_BUILD,
     ),
@@ -186,6 +201,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _DEPENDENCY_AUDIT_PYTHON,
         _DEPENDENCY_AUDIT_NPM,
         _FRONTEND_BOUNDARIES,
+        _ROUTES_DRIFT,
         _FRONTEND_TYPECHECK,
         _FRONTEND_BUILD,
         _API_DOCS_DRIFT,
@@ -227,7 +243,9 @@ def verify_manifest(profile: str) -> dict[str, object]:
     """
     checks = PROFILES.get(profile)
     if checks is None:
-        raise SystemExit(f"unknown profile {profile!r}; expected one of {profile_ids()}")
+        raise SystemExit(
+            f"unknown profile {profile!r}; expected one of {profile_ids()}"
+        )
     return {
         "terp_verify_manifest": 1,
         "profile": profile,
@@ -386,7 +404,9 @@ def _run_subprocess(check: VerifyCheck, root: pathlib.Path) -> tuple[int, str]:
         )
     except FileNotFoundError:
         return 127, f"{argv[0]}: executable not found on PATH"
-    return completed.returncode, completed.stdout + ("\n" + completed.stderr if completed.stderr else "")
+    return completed.returncode, completed.stdout + (
+        "\n" + completed.stderr if completed.stderr else ""
+    )
 
 
 def _run_architecture(root: pathlib.Path) -> tuple[int, str, list[dict]]:
@@ -415,7 +435,11 @@ def _run_platform_install() -> tuple[int, str]:
     after this was written is policed too. ``terp-spec`` is excluded by
     ``installed_terp_versions``: it is released on its own cadence.
     """
-    from terp.cli.version import installed_terp_versions, platform_version, render_version
+    from terp.cli.version import (
+        installed_terp_versions,
+        platform_version,
+        render_version,
+    )
 
     versions = installed_terp_versions()
     if not versions:
@@ -429,7 +453,42 @@ def _run_platform_install() -> tuple[int, str]:
         )
     if len(set(versions.values())) > 1:
         return 1, render_version()
-    return 0, f"terp {platform_version(versions)} ({len(versions)} distributions, consistent)"
+    return (
+        0,
+        f"terp {platform_version(versions)} ({len(versions)} distributions, consistent)",
+    )
+
+
+def _run_routes_drift(root: pathlib.Path) -> tuple[int, str]:
+    """Refuse a committed route table that no longer matches the module manifests.
+
+    A no-op success until the app adopts route types (ADR 0092) — the same shape
+    ``api-docs-drift`` has for an uncommitted ``docs/``. Upgrading the framework must not
+    turn an app's gate red for a feature it has not wired yet; adding the ``routes``
+    script is what turns the gate on.
+    """
+    from terp.cli.routes import ADOPT_HINT, routes_argv, routes_script_wired
+
+    frontend = root / "frontend"
+    if not frontend.is_dir():
+        return 0, "no frontend/ - route types not applicable"
+    if not routes_script_wired(frontend):
+        return 0, f"route types not adopted - drift check skipped ({ADOPT_HINT})"
+    problem = _node_modules_problem(root)
+    if problem is not None:
+        return 1, problem
+    argv = routes_argv(check=True)
+    executable = shutil.which(argv[0]) or argv[0]
+    completed = subprocess.run(  # noqa: S603 - fixed manifest argv, shell=False
+        [executable, *argv[1:]],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    return completed.returncode, f"{completed.stdout}{completed.stderr}"
 
 
 def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
@@ -460,9 +519,13 @@ def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
         errors="replace",
         check=False,
     )
-    output = "\n".join(["\n".join(f"wrote {path}" for path in written), completed.stdout])
+    output = "\n".join(
+        ["\n".join(f"wrote {path}" for path in written), completed.stdout]
+    )
     if completed.returncode != 0:
-        output += "\napi docs drifted from the committed copy - commit the regenerated docs/"
+        output += (
+            "\napi docs drifted from the committed copy - commit the regenerated docs/"
+        )
     return completed.returncode, output
 
 
@@ -496,7 +559,9 @@ def assurance_document(results: list[dict[str, object]]) -> dict[str, object]:
         lanes.append({"id": lane_id, "status": status, "checks": list(check_ids)})
     try:
         version = importlib.metadata.version("terp-cli")
-    except importlib.metadata.PackageNotFoundError:  # a source checkout (the platform repo)
+    except (
+        importlib.metadata.PackageNotFoundError
+    ):  # a source checkout (the platform repo)
         version = "0"
     return {
         "terp_assurance": 1,
@@ -569,6 +634,8 @@ def run_verify_command(
             exit_code, output = _run_platform_install()
         elif check.runner == "api-docs-drift":
             exit_code, output = _run_api_docs_drift(project_root)
+        elif check.runner == "routes-drift":
+            exit_code, output = _run_routes_drift(project_root)
         else:
             exit_code, output = _run_subprocess(check, project_root)
             reports = _reports_in(output)
