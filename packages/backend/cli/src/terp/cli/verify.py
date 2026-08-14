@@ -79,7 +79,7 @@ _PLATFORM_INSTALL = VerifyCheck(
     id="platform-install",
     category="architecture",
     command="terp --version",
-    scope=("pyproject.toml", "uv.lock"),
+    scope=("pyproject.toml", "uv.lock", "**/package.json", "**/package-lock.json"),
     runner="platform-install",
 )
 
@@ -422,8 +422,76 @@ def _run_architecture(root: pathlib.Path) -> tuple[int, str, list[dict]]:
     return (0 if ok else 1), summary, [envelope]
 
 
-def _run_platform_install() -> tuple[int, str]:
-    """Fail when the installed ``terp-*`` set disagrees with itself.
+#: Shares the ``@terpjs/`` scope but is not part of the lockstep set: the npm
+#: mirror of ``terp-spec``, released from the spec's own repository on its own
+#: cadence (ADR 0082/0086) — the same exclusion ``installed_terp_versions``
+#: makes for the backend spelling.
+_INDEPENDENTLY_VERSIONED_NPM = frozenset({"@terpjs/spec"})
+
+#: Directories whose package.json files describe someone else's package, not an
+#: app manifest this gate should hold to the lockstep.
+_MANIFEST_SKIP_DIRS = frozenset({"node_modules", ".venv", ".git", "dist", "build"})
+
+_NPM_DEPENDENCY_KEYS = ("dependencies", "devDependencies", "peerDependencies")
+
+
+def _terp_frontend_manifests(project_root: pathlib.Path) -> list[pathlib.Path]:
+    """Every package.json in the app that declares a ``@terpjs/*`` dependency.
+
+    Discovered, never a named list: the template ships ``@terpjs/*`` pins in TWO
+    manifests (``frontend/package.json`` and ``conformance/package.json``), and a
+    check that named only the frontend one would leave the other outside the
+    ratchet — the exact hole the release gate already patched for its own tree.
+    """
+    manifests: list[pathlib.Path] = []
+    for path in sorted(project_root.rglob("package.json")):
+        if _MANIFEST_SKIP_DIRS & set(path.parts):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue  # someone else's manifest problem, not a lockstep verdict
+        if any(
+            name.startswith("@terpjs/")
+            for key in _NPM_DEPENDENCY_KEYS
+            for name in (data.get(key) or {})
+        ):
+            manifests.append(path)
+    return manifests
+
+
+def _frontend_lockstep_problems(project_root: pathlib.Path, platform: str) -> list[str]:
+    """Every ``@terpjs/*`` declaration or installation not at *platform*."""
+    problems: list[str] = []
+    accepted = {f"^{platform}", platform}
+    for manifest in _terp_frontend_manifests(project_root):
+        rel = manifest.relative_to(project_root).as_posix()
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        for key in _NPM_DEPENDENCY_KEYS:
+            for name, declared in sorted((data.get(key) or {}).items()):
+                if not name.startswith("@terpjs/") or name in _INDEPENDENTLY_VERSIONED_NPM:
+                    continue
+                if declared not in accepted:
+                    problems.append(
+                        f"{rel}: {name} is declared at {declared!r} — pin ^{platform}"
+                    )
+                installed_manifest = (
+                    manifest.parent / "node_modules" / name / "package.json"
+                )
+                if installed_manifest.is_file():
+                    installed = json.loads(
+                        installed_manifest.read_text(encoding="utf-8")
+                    ).get("version")
+                    if installed != platform:
+                        problems.append(
+                            f"{rel}: {name} is installed at {installed} — refresh "
+                            "node_modules after repinning (npm install)"
+                        )
+    return problems
+
+
+def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
+    """Fail when the installed platform disagrees with itself — either half.
 
     Terp is versioned in lockstep (ADR 0063), so a set at two versions is not a
     supported combination — it is a pin someone forgot, and it fails in whatever
@@ -431,9 +499,15 @@ def _run_platform_install() -> tuple[int, str]:
     install produces a verdict about a platform that was never released, in
     either direction, so this refuses rather than reports.
 
-    Reads the live environment (never a declared list), so a capability adopted
-    after this was written is policed too. ``terp-spec`` is excluded by
-    ``installed_terp_versions``: it is released on its own cadence.
+    The backend half reads the live environment (never a declared list), so a
+    capability adopted after this was written is policed too. The frontend half
+    reads every app manifest that declares a ``@terpjs/*`` package, plus the
+    installed copy under its ``node_modules`` when present — because a frontend
+    package left behind is the same mixed install by another route, and a check
+    that read only ``metadata.distributions()`` passed it green: an app with
+    ``@terpjs/react-core`` a release behind ``terp-core`` sailed through both
+    this gate and the full profile. ``terp-spec`` / ``@terpjs/spec`` are
+    excluded: released on their own cadence.
     """
     from terp.cli.version import (
         installed_terp_versions,
@@ -453,9 +527,24 @@ def _run_platform_install() -> tuple[int, str]:
         )
     if len(set(versions.values())) > 1:
         return 1, render_version()
+    platform = platform_version(versions)
+    frontend_problems = _frontend_lockstep_problems(project_root, platform)
+    if frontend_problems:
+        return 1, (
+            f"the backend is consistent at terp {platform}, but the frontend half "
+            "of the lockstep disagrees:\n"
+            + "".join(f"  {problem}\n" for problem in frontend_problems)
+            + "Terp releases backend and frontend packages from one tag; a "
+            "@terpjs/* package left behind is a mixed install by another route, "
+            "and it fails in whatever way the skipped release changed.\n"
+            f"  Fix: pin every @terpjs/* package to ^{platform} in every manifest "
+            "that declares one, then reinstall that manifest's node_modules."
+        )
+    manifest_count = len(_terp_frontend_manifests(project_root))
     return (
         0,
-        f"terp {platform_version(versions)} ({len(versions)} distributions, consistent)",
+        f"terp {platform} ({len(versions)} distributions and "
+        f"{manifest_count} frontend manifest(s), consistent)",
     )
 
 
@@ -631,7 +720,7 @@ def run_verify_command(
         if check.runner == "architecture":
             exit_code, output, reports = _run_architecture(project_root)
         elif check.runner == "platform-install":
-            exit_code, output = _run_platform_install()
+            exit_code, output = _run_platform_install(project_root)
         elif check.runner == "api-docs-drift":
             exit_code, output = _run_api_docs_drift(project_root)
         elif check.runner == "routes-drift":

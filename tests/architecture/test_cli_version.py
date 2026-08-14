@@ -175,6 +175,9 @@ def test_a_release_that_covers_the_whole_set_is_offered_with_the_recipe(
     # the target version rather than pointing at a copy that cannot contain them.
     assert "uvx --from terp-cli==0.6.0 terp guide changelog" in text
     assert "the copy installed here ends at 0.5.4" in text
+    # Step 3 must name every manifest that pins @terpjs/*: the template ships two,
+    # and a recipe naming only frontend/package.json left conformance stale.
+    assert "conformance/package.json" in text
     assert "WARNING" not in text
 
 

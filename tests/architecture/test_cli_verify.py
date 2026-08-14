@@ -119,7 +119,9 @@ def test_the_template_ci_runs_the_platform_install_check() -> None:
     )
 
 
-def test_a_mixed_install_fails_the_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_mixed_install_fails_the_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """Lockstep (ADR 0063) makes a disagreeing set a forgotten pin, not a supported
     combination — so it is refused, not reported. `terp --version` already warned
     about this, but a warning in a command nobody runs before shipping is not a
@@ -131,7 +133,7 @@ def test_a_mixed_install_fails_the_gate(monkeypatch: pytest.MonkeyPatch) -> None
         "installed_terp_versions",
         lambda: {"terp-core": "0.5.4", "terp-cli": "0.5.4", "terp-cap-oidc": "0.5.3"},
     )
-    exit_code, output = _run_platform_install()
+    exit_code, output = _run_platform_install(tmp_path)
     assert exit_code == 1
     assert "terp-cap-oidc" in output, "the failure must name the package that disagrees"
     assert "0.5.4" in output, "and the version the rest of the set is on"
@@ -141,17 +143,135 @@ def test_a_mixed_install_fails_the_gate(monkeypatch: pytest.MonkeyPatch) -> None
         "installed_terp_versions",
         lambda: {"terp-core": "0.5.4", "terp-cli": "0.5.4"},
     )
-    assert _run_platform_install()[0] == 0
+    assert _run_platform_install(tmp_path)[0] == 0
 
 
-def test_an_undescribable_environment_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_undescribable_environment_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """The CLI running the check is itself a ``terp-*`` distribution, so an empty set
     means the environment cannot describe itself. Passing would make the check
     weakest exactly where the install is most broken."""
     import terp.cli.version as version_module
 
     monkeypatch.setattr(version_module, "installed_terp_versions", dict)
-    assert _run_platform_install()[0] == 1
+    assert _run_platform_install(tmp_path)[0] == 1
+
+
+def _backend_consistent_at(monkeypatch: pytest.MonkeyPatch, version: str) -> None:
+    import terp.cli.version as version_module
+
+    monkeypatch.setattr(
+        version_module,
+        "installed_terp_versions",
+        lambda: {"terp-core": version, "terp-cli": version},
+    )
+
+
+def _write_manifest(path: pathlib.Path, dependencies: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"name": "x", "dependencies": dependencies}), encoding="utf-8")
+
+
+def test_a_frontend_package_left_behind_fails_the_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The mixed install by the other route, which used to pass green.
+
+    The check read only ``metadata.distributions()`` — backend wheels — so an app
+    with ``@terpjs/react-core`` pinned a release behind ``terp-core`` sailed
+    through this gate AND the full profile: a fresh CI install would build the
+    frontend against a platform combination that was never released, with a
+    green gate as evidence. The changelog's lockstep claim was, for an app,
+    unenforced.
+    """
+    _backend_consistent_at(monkeypatch, "0.6.0")
+    _write_manifest(
+        tmp_path / "frontend" / "package.json", {"@terpjs/react-core": "^0.5.7"}
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "frontend/package.json" in output
+    assert "@terpjs/react-core" in output
+    assert "^0.6.0" in output, "the failure must state the fix"
+
+    _write_manifest(
+        tmp_path / "frontend" / "package.json", {"@terpjs/react-core": "^0.6.0"}
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 0
+    assert "1 frontend manifest" in output
+
+
+def test_every_manifest_declaring_terpjs_is_covered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The template ships @terpjs/* pins in TWO manifests; a check that named
+    only frontend/package.json would leave conformance/package.json to go stale
+    — the recipe's step 3 made exactly that mistake, so the gate discovers."""
+    _backend_consistent_at(monkeypatch, "0.6.0")
+    _write_manifest(
+        tmp_path / "frontend" / "package.json", {"@terpjs/react-core": "^0.6.0"}
+    )
+    _write_manifest(
+        tmp_path / "conformance" / "package.json", {"@terpjs/conformance": "^0.5.7"}
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "conformance/package.json" in output
+
+
+def test_a_stale_installed_copy_fails_even_when_the_range_is_right(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Repinning without reinstalling leaves node_modules on the old release —
+    the declared range then reads correct while the build still uses the mix."""
+    _backend_consistent_at(monkeypatch, "0.6.0")
+    _write_manifest(
+        tmp_path / "frontend" / "package.json", {"@terpjs/react-core": "^0.6.0"}
+    )
+    installed = (
+        tmp_path / "frontend" / "node_modules" / "@terpjs" / "react-core" / "package.json"
+    )
+    installed.parent.mkdir(parents=True)
+    installed.write_text(
+        json.dumps({"name": "@terpjs/react-core", "version": "0.5.7"}), encoding="utf-8"
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "installed at 0.5.7" in output
+
+
+def test_an_unreadable_manifest_is_not_a_lockstep_verdict(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A package.json this gate cannot parse says nothing about the lockstep.
+
+    ``rglob`` walks the whole app, so it meets manifests the gate does not own —
+    a fixture's deliberately broken JSON, a half-written file. Failing on them
+    would report someone else's problem as a platform-mix failure; the walk
+    skips them and keeps judging the manifests it could read.
+    """
+    _backend_consistent_at(monkeypatch, "0.6.0")
+    _write_manifest(
+        tmp_path / "frontend" / "package.json", {"@terpjs/react-core": "^0.6.0"}
+    )
+    broken = tmp_path / "fixtures" / "package.json"
+    broken.parent.mkdir(parents=True)
+    broken.write_text("{not json", encoding="utf-8")
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 0
+    assert "1 frontend manifest" in output
+
+
+def test_the_independently_released_spec_mirror_is_not_a_missed_pin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """@terpjs/spec is the npm mirror of terp-spec: its own cadence, its own
+    version — the same exclusion the backend half already makes."""
+    _backend_consistent_at(monkeypatch, "0.6.0")
+    _write_manifest(tmp_path / "frontend" / "package.json", {"@terpjs/spec": "^0.24.0"})
+    assert _run_platform_install(tmp_path)[0] == 0
 
 
 def test_the_platform_install_check_runs_in_process(
