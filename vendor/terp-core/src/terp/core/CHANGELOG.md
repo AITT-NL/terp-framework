@@ -47,6 +47,21 @@ that only surfaced against a real schema graph.
   every offending location in a single error, so the whole cleanup is priced
   before the first edit.
 
+- **The lockstep gate now covers the frontend half.** `platform-install` read
+  only `metadata.distributions()` — backend wheels — so an app with
+  `@terpjs/react-core` pinned a release behind `terp-core` passed the gate and
+  the full profile green: a fresh CI install would build the frontend against a
+  platform combination that was never released, with the gate as evidence. The
+  changelog's "the gate enforces the lockstep" claim was, for an app,
+  unenforced on the npm side. The check now also reads **every** app manifest
+  that declares a `@terpjs/*` package (discovered, never a named list — the
+  template ships pins in both `frontend/package.json` and
+  `conformance/package.json`) plus the installed copy under `node_modules` when
+  present, so repinning without reinstalling is caught too. `@terpjs/spec` is
+  excluded on the same grounds as `terp-spec`: its own release cadence. The
+  upgrade recipe's step 3 now names both manifests instead of only the frontend
+  one.
+
 - **`terp upgrade --check` now says how to read the *target's* notes, not the
   installed ones.** The release notes ship inside the terp-core wheel so that
   `terp guide changelog` answers offline — which also means the installed copy
