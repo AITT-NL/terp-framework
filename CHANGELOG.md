@@ -12,10 +12,40 @@ decision, 0001 onwards.
 
 ## Unreleased
 
-Friction reported from an app weighing the 0.6.0 upgrade: the notes that are
-supposed to justify an upgrade could not be read until after it.
+Friction reported from an app weighing — and then taking — the 0.6.0 upgrade:
+the notes that are supposed to justify an upgrade could not be read until after
+it, and the release's new rule was simultaneously over- and under-broad in ways
+that only surfaced against a real schema graph.
 
 ### Fixed
+
+- **`schemas_avoid_positional_tuples` now judges the wire shape, not the
+  spelling — and reports every offence in one boot.** Three defects in the
+  0.6.0 rule, found together:
+
+  *The runtime half missed the exact shape it exists for.* Its walk over model
+  annotations kept only bare classes, so a discriminated-union member — not
+  `isinstance(_, type)` — stopped the walk dead, and a `prefixItems` field
+  inside that member sailed through unflagged. The boot check now validates the
+  **generated OpenAPI document itself**: whatever route a type takes into the
+  contract — a union member, a type alias, a generic parameter, a custom
+  `__get_pydantic_core_schema__` — its schema is in the document, and a
+  positional array shape (`prefixItems`, or the list form of `items`) is
+  refused there. That is also what this rule's runtime half was documented to
+  do all along.
+
+  *It refused variadic tuples, which are not positional.* `tuple[X, ...]` emits
+  byte-identical JSON Schema to `list[X]` — it is the immutable spelling of a
+  homogeneous sequence, the natural annotation for a frozen value object — so
+  refusing it forced source rewrites with provably zero wire effect while the
+  message asserted something false. Both halves now exempt it (the document
+  check gets this for free: nothing positional is emitted); a fixed tuple
+  nested *inside* one (`tuple[tuple[str, int], ...]`) is still refused.
+
+  *The runtime half raised on the first offence.* An app with many offending
+  fields was handed fix-one-reboot-repeat, once per field. One boot now names
+  every offending location in a single error, so the whole cleanup is priced
+  before the first edit.
 
 - **`terp upgrade --check` now says how to read the *target's* notes, not the
   installed ones.** The release notes ship inside the terp-core wheel so that

@@ -277,27 +277,37 @@ _TUPLE_ANNOTATION_NAMES = frozenset({"tuple", "Tuple"})
 
 
 def _tuple_annotation_name(annotation: ast.expr) -> str | None:
-    """The tuple spelling *annotation* carries, at any nesting depth, else ``None``.
+    """The *fixed-length* tuple spelling *annotation* carries, at any depth.
 
-    A tuple is contract-visible wherever it sits in the annotation — bare
-    (``tuple[str, str]``), wrapped in a container (``list[tuple[str, int]]``), behind
-    a union (``tuple[str, str] | None``), or as a mapping's value — because the
-    positional array shape reaches the generated client either way. Returning the
-    spelling (rather than a bool) lets the violation message quote what the author
-    actually wrote.
+    Only the fixed-length form is an offence, because only it serialises as a
+    positional array (``prefixItems``). A variadic ``tuple[X, ...]`` emits
+    byte-identical schema to ``list[X]`` — it is the immutable spelling of a
+    homogeneous sequence — and a bare ``tuple`` emits an untyped homogeneous
+    array; neither is positional, so neither is flagged. Their *element* types
+    are still walked: ``tuple[tuple[str, int], ...]`` hides a positional shape
+    inside a compliant one.
+
+    A fixed tuple is contract-visible wherever it sits — wrapped in a container
+    (``list[tuple[str, int]]``), behind a union (``tuple[str, str] | None``), or
+    as a mapping's value — because the positional shape reaches the generated
+    client either way. Returning the spelling (rather than a bool) lets the
+    violation message quote what the author actually wrote.
     """
-    if isinstance(annotation, ast.Name | ast.Attribute):
-        name = base_name(annotation)
-        return name if name in _TUPLE_ANNOTATION_NAMES else None
     if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
         return _tuple_annotation_name(annotation.left) or _tuple_annotation_name(
             annotation.right
         )
     if isinstance(annotation, ast.Subscript):
-        if (name := base_name(annotation.value)) in _TUPLE_ANNOTATION_NAMES:
-            return name
         slice_ = annotation.slice
         elements = slice_.elts if isinstance(slice_, ast.Tuple) else [slice_]
+        if (name := base_name(annotation.value)) in _TUPLE_ANNOTATION_NAMES:
+            variadic = (
+                len(elements) == 2
+                and isinstance(elements[-1], ast.Constant)
+                and elements[-1].value is Ellipsis
+            )
+            if not variadic:
+                return name
         for element in elements:
             if found := _tuple_annotation_name(element):
                 return found

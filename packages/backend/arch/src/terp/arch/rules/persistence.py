@@ -358,9 +358,16 @@ def check_schemas_avoid_positional_tuples(
     structurally unrelated and the app cannot type its own calls against its own
     API. The failure lands at the call site as an opaque generic-instantiation
     mismatch, nowhere near the field that caused it, and is only legible with error
-    truncation disabled. A tuple is a poor contract regardless: the positions carry
-    meaning no name records. Name the shape instead -- a nested model when the
-    positions differ in meaning, a homogeneous ``list[...]`` when they do not.
+    truncation disabled. A fixed tuple is a poor contract regardless: the positions
+    carry meaning no name records. Name the shape instead -- a nested model when the
+    positions differ in meaning, a homogeneous sequence when they do not.
+
+    Scope is the *positional* shape only. A variadic ``tuple[X, ...]`` emits
+    byte-identical schema to ``list[X]`` -- it is the immutable spelling of a
+    homogeneous sequence (a natural fit for a frozen value object) and forcing it
+    to ``list`` changes nothing on the wire, so it is exempt. Its element types
+    are still checked: ``tuple[tuple[str, int], ...]`` hides a positional shape
+    inside a compliant one.
     """
     root = pathlib.Path(app_root)
     parsed = [(_rel(path, root), parse(path)) for path in iter_python_files(root)]
@@ -387,10 +394,12 @@ def check_schemas_avoid_positional_tuples(
                         "schemas_avoid_positional_tuples",
                         rel,
                         stmt.lineno,
-                        f"{node.name}.{field}: {spelling}[...] reaches the API contract as a "
-                        "positional array, which generated clients type incompatibly (the "
-                        "call site fails with an unrelated-generic mismatch). Declare a "
-                        "nested schema with named fields, or a homogeneous list[...]",
+                        f"{node.name}.{field}: a fixed-length {spelling}[...] reaches the API "
+                        "contract as a positional array, which generated clients type "
+                        "incompatibly (the call site fails with an unrelated-generic "
+                        "mismatch). Declare a nested schema with named fields, or a "
+                        "homogeneous sequence (list[...], or tuple[X, ...] which "
+                        "serialises identically)",
                     )
                 )
     return violations

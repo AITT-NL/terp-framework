@@ -1579,6 +1579,26 @@ def test_schemas_avoid_positional_tuples(tmp_path: pathlib.Path) -> None:
     )
     assert check_schemas_avoid_positional_tuples(app) == []
 
+    # A variadic tuple is the immutable spelling of a homogeneous sequence —
+    # tuple[X, ...] and list[X] emit byte-identical schema — so nothing positional
+    # reaches the wire and refusing it would force source churn with zero effect.
+    _write(
+        app,
+        "modules/notes/schemas.py",
+        "class NoteRead(BaseSchema):\n    fingerprint: tuple[str, ...]\n",
+    )
+    assert check_schemas_avoid_positional_tuples(app) == []
+
+    # ...but a fixed tuple hiding inside a variadic one is still positional.
+    _write(
+        app,
+        "modules/notes/schemas.py",
+        "class NoteRead(BaseSchema):\n    spans: tuple[tuple[int, int], ...]\n",
+    )
+    assert _rule_names(check_schemas_avoid_positional_tuples(app)) == {
+        "schemas_avoid_positional_tuples"
+    }
+
 
 def test_input_str_fields_have_max_length(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
