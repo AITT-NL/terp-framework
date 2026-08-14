@@ -12,8 +12,11 @@ imperative ``add_api_route`` registration, and nested, included routers):
   credential-shaped field;
 * ``list_routes_paginate`` -- a list route returns a capped ``Page[T]``, never a
   bare ``list[...]``;
-* ``schemas_avoid_positional_tuples`` -- no model on the wire declares a tuple-typed
-  field, which would reach the contract as a positional array.
+* ``schemas_avoid_positional_tuples`` -- the generated OpenAPI document carries no
+  positional array shape (``prefixItems``, or the list form of ``items``); this one
+  validates the document itself after composition, not the annotations, so it judges
+  the wire truth (variadic ``tuple[X, ...]`` passes; a tuple behind a discriminated
+  union does not hide) and reports every offence in one boot.
 
 Each is the fail-closed *runtime* half pairing with the same-named build-time
 ``terp.arch`` rule (``tests/architecture/test_arch_harness.py``); the mirrored
@@ -24,10 +27,12 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import Annotated, Literal
 
 import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import StreamingResponse
+from pydantic import Field as PydanticField
 from sqlmodel import Field
 
 from terp.core import BaseSchema, BaseTable, ModuleSpec, Page, Policy, create_app
@@ -388,3 +393,74 @@ def test_boot_accepts_named_fields_and_homogeneous_lists() -> None:
     def get_thing(thing_id: uuid.UUID) -> _NamedRead: ...
 
     assert isinstance(create_app([_spec(router)]), FastAPI)
+
+
+class _JoinStage(BaseSchema):
+    """The member that hides the positional shape behind a discriminator."""
+
+    kind: Literal["join"] = "join"
+    on: tuple[str, str]
+
+
+class _FilterStage(BaseSchema):
+    kind: Literal["filter"] = "filter"
+    field: str
+
+
+class _PipelineRead(BaseSchema):
+    stages: list[Annotated[_JoinStage | _FilterStage, PydanticField(discriminator="kind")]]
+
+
+def test_boot_rejects_a_tuple_hiding_behind_a_discriminated_union() -> None:
+    """The vector that blinded this check's earlier annotation walk.
+
+    A union is not ``isinstance(_, type)``, so a walk over model annotations
+    stopped dead at it and the ``prefixItems`` inside the member — the literal
+    shape the rule is named after — sailed through. The document check cannot be
+    blinded: however a type reaches the contract, its schema is in the document.
+    """
+    router = APIRouter()
+
+    @router.get("/", response_model=_PipelineRead)
+    def get_pipeline() -> _PipelineRead: ...
+
+    with pytest.raises(BootError, match="_JoinStage"):
+        create_app([_spec(router)])
+
+
+class _FingerprintRead(BaseSchema):
+    """The immutable spelling of a homogeneous sequence — compliant."""
+
+    id: uuid.UUID
+    fingerprint: tuple[str, ...]
+
+
+def test_boot_accepts_a_variadic_tuple() -> None:
+    """``tuple[X, ...]`` emits byte-identical schema to ``list[X]``: nothing
+    positional reaches the wire, so refusing it forces a source rewrite with
+    provably zero wire effect while the message asserts something false."""
+    router = APIRouter()
+
+    @router.get("/{thing_id}", response_model=_FingerprintRead)
+    def get_thing(thing_id: uuid.UUID) -> _FingerprintRead: ...
+
+    assert isinstance(create_app([_spec(router)]), FastAPI)
+
+
+def test_boot_reports_every_positional_shape_in_one_error() -> None:
+    """Raise-on-first hands the author fix-one-reboot-repeat, once per offending
+    field; the gate must price the whole cleanup in a single boot."""
+    router = APIRouter()
+
+    @router.get("/a", response_model=_TupleRead)
+    def get_a() -> _TupleRead: ...
+
+    @router.post("/b", response_model=_NamedRead)
+    def create_b(body: _TupleCreate) -> _NamedRead: ...
+
+    with pytest.raises(BootError) as excinfo:
+        create_app([_spec(router)])
+    message = str(excinfo.value)
+    assert "coordinates" in message
+    assert "tags" in message
+    assert "backend/schemas_avoid_positional_tuples" in message

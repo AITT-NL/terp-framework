@@ -1041,12 +1041,14 @@ def _validate_router_response_models(router: APIRouter) -> None:
       (``routes_declare_response_model``);
     * not expose a credential-shaped DTO field
       (``schemas_exclude_sensitive_fields``);
-    * paginate a list response through ``Page[T]`` (``list_routes_paginate``);
-    * not put a tuple-typed field on the wire
-      (``schemas_avoid_positional_tuples``).
+    * paginate a list response through ``Page[T]`` (``list_routes_paginate``).
 
     Each check is the fail-closed runtime half of the same-named build-time
-    ``terp.arch`` rule (the two-layer story, ADR 0084).
+    ``terp.arch`` rule (the two-layer story, ADR 0084). The positional-tuple rule
+    (``schemas_avoid_positional_tuples``) is *not* a per-route check: it validates
+    the generated OpenAPI document after the whole app is composed
+    (:func:`_reject_positional_tuple_schemas`), because the wire shape is the
+    offence and the document is where the wire shape lives.
     """
     for route in _iter_api_routes(router.routes):
         _validate_routes_declare_response_model(route)
@@ -1061,63 +1063,71 @@ def _validate_router_response_models(router: APIRouter) -> None:
                 )
         _validate_schemas_exclude_sensitive_fields(route)
         _validate_list_routes_paginate(route)
-        _reject_positional_tuple_schemas(route)
 
 
-def _annotation_contains_tuple(annotation: object) -> bool:
-    """True when *annotation* carries a ``tuple`` at any nesting depth."""
-    origin = get_origin(annotation)
-    if origin is tuple or annotation is tuple:
-        return True
-    return any(_annotation_contains_tuple(arg) for arg in get_args(annotation))
+#: Keys whose contents are data values, not schema — a payload in ``examples``
+#: may legitimately contain a ``prefixItems`` *property name* without the
+#: contract carrying a positional shape.
+_OPENAPI_VALUE_KEYS = frozenset({"example", "examples", "default", "const", "enum"})
 
 
-def _reject_positional_tuple_schemas(route: APIRoute) -> None:
+def _positional_array_locations(node: object, path: str = "") -> list[str]:
+    """Every location in an OpenAPI fragment whose array shape is positional.
+
+    Positional means ``prefixItems`` (OpenAPI 3.1) or the list form of ``items``
+    (3.0) — the shapes client generators disagree on. A homogeneous array
+    (``items`` as a single schema), which is also what a variadic ``tuple[X, ...]``
+    serialises to, is not positional and passes.
+    """
+    found: list[str] = []
+    if isinstance(node, dict):
+        if "prefixItems" in node or isinstance(node.get("items"), list):
+            found.append(path or "<document root>")
+        for key, value in node.items():
+            if key in _OPENAPI_VALUE_KEYS:
+                continue
+            found.extend(_positional_array_locations(value, f"{path}/{key}" if path else key))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            found.extend(_positional_array_locations(value, f"{path}/{index}"))
+    return found
+
+
+def _reject_positional_tuple_schemas(app: FastAPI) -> None:
     """Boot half of ``backend/schemas_avoid_positional_tuples`` (Terp Standard).
 
-    A tuple-annotated field on a model the route puts on the wire serializes into the
-    OpenAPI document as a positional array (``prefixItems``, or the list form of
-    ``items``). Client generators do not agree on that shape, so the app ends up
-    unable to type its own calls against its own API -- and the failure surfaces at
-    the call site as an opaque generic mismatch, far from the field that caused it.
+    A fixed-length tuple annotation serialises into the OpenAPI document as a
+    positional array (``prefixItems``, or the list form of ``items``). Client
+    generators do not agree on that shape, so the app ends up unable to type its
+    own calls against its own API -- and the failure surfaces at the call site as
+    an opaque generic mismatch, far from the field that caused it.
 
-    Runs over the composed route table, so it catches a tuple that reaches the
-    contract through a type alias, a generic parameter, or a custom
-    ``__get_pydantic_core_schema__`` -- exactly the vectors the build-time source
-    scan cannot see. A framework-owned DTO (``terp.*``) is exempt: the framework
-    tree runs the same rule in its own gate.
+    This validates the **generated document itself**, not the annotations that
+    produced it, for three reasons a source or annotation walk cannot deliver:
+
+    * it judges the wire shape, so a variadic ``tuple[X, ...]`` -- which emits
+      byte-identical schema to ``list[X]`` -- is rightly not an offence;
+    * it cannot be blinded by how a type reaches the contract: a discriminated-
+      union member, a type alias, a generic parameter, or a custom
+      ``__get_pydantic_core_schema__`` all end up in the document (an earlier
+      annotation walk stopped dead at unions, missing the exact shape this rule
+      exists for);
+    * it reports **every** offence in one boot instead of raising on the first --
+      fix-one-reboot-repeat is a workflow nobody should be handed by a gate.
     """
-    seen: set[type] = set()
-    pending = [tp for tp in _referenced_response_types(route.response_model)]
-    if (body_field := getattr(route, "body_field", None)) is not None:
-        # FastAPI's ModelField wrapper has moved its annotation attribute across
-        # versions; read whichever this one exposes rather than pinning to one.
-        body_annotation = getattr(body_field, "type_", None)
-        if body_annotation is None:
-            body_annotation = getattr(getattr(body_field, "field_info", None), "annotation", None)
-        if body_annotation is not None:
-            pending.append(body_annotation)
-    while pending:
-        tp = pending.pop()
-        if not (isinstance(tp, type) and issubclass(tp, BaseModel)) or tp in seen:
-            continue
-        seen.add(tp)
-        if tp.__module__.partition(".")[0] == "terp":
-            continue
-        for field_name, field in tp.model_fields.items():
-            annotation = field.annotation
-            if _annotation_contains_tuple(annotation):
-                raise BootError(
-                    f"route {route.path!r} schema {tp.__name__!r} declares the "
-                    f"tuple-typed field {field_name!r}; a tuple reaches the API "
-                    "contract as a positional array, which generated clients type "
-                    "incompatibly -- declare a nested schema with named fields, or a "
-                    "homogeneous list[...] "
-                    "[Terp Standard backend/schemas_avoid_positional_tuples]"
-                )
-            pending.extend(
-                arg for arg in (annotation, *get_args(annotation)) if isinstance(arg, type)
-            )
+    locations = _positional_array_locations(app.openapi())
+    if locations:
+        listing = "\n".join(f"  {location}" for location in sorted(locations))
+        raise BootError(
+            f"the generated API contract carries {len(locations)} positional array "
+            "schema(s) (prefixItems, or the list form of items):\n"
+            f"{listing}\n"
+            "generated clients type a positional array incompatibly, so the app "
+            "cannot type its own calls against its own API -- declare a nested "
+            "schema with named fields, or a homogeneous sequence (list[...], or "
+            "tuple[X, ...] which serialises identically) "
+            "[Terp Standard backend/schemas_avoid_positional_tuples]"
+        )
 
 
 def create_app(
@@ -1393,6 +1403,10 @@ def create_app(
                 ],
             )
     app.include_router(build_health_router(), prefix="/health")
+    # The contract-shape gate runs against the finished document — after every
+    # module router, capability router, and the health router are mounted — so
+    # nothing that serialises into the contract can arrive after it looked.
+    _reject_positional_tuple_schemas(app)
     # Introspection seam (a view, never a control — ADR 0011): record the specs this
     # app actually mounted (client modules AND every discovered capability router) and
     # its resolved control plane, so ``terp inspect access --app`` can project the WHOLE
