@@ -242,6 +242,28 @@ def test_a_stale_installed_copy_fails_even_when_the_range_is_right(
     assert "installed at 0.5.7" in output
 
 
+def test_an_unreadable_manifest_is_not_a_lockstep_verdict(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A package.json this gate cannot parse says nothing about the lockstep.
+
+    ``rglob`` walks the whole app, so it meets manifests the gate does not own —
+    a fixture's deliberately broken JSON, a half-written file. Failing on them
+    would report someone else's problem as a platform-mix failure; the walk
+    skips them and keeps judging the manifests it could read.
+    """
+    _backend_consistent_at(monkeypatch, "0.6.0")
+    _write_manifest(
+        tmp_path / "frontend" / "package.json", {"@terpjs/react-core": "^0.6.0"}
+    )
+    broken = tmp_path / "fixtures" / "package.json"
+    broken.parent.mkdir(parents=True)
+    broken.write_text("{not json", encoding="utf-8")
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 0
+    assert "1 frontend manifest" in output
+
+
 def test_the_independently_released_spec_mirror_is_not_a_missed_pin(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
