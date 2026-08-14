@@ -71,6 +71,8 @@ runtime, fail closed (ADR 0059), so every screen keeps the breadcrumb/title/erro
 | `OverviewPage` | A module's top-level listing screen (level 2); detail pages crumb back to it. |
 | `DetailPage` | One record's screen (level 3); breadcrumb trail = ancestors + record title. |
 | `Breadcrumbs` | The trail itself (used by the archetypes; rarely composed directly). Ancestor crumbs use the router's `Link` by default — `renderLink` is only for rendering outside a Terp router. |
+| `NavLinkContext`, `useNavLink` | The ambient link renderer `buildAppRouter` publishes (and the layout components default to); provide it yourself in a standalone story/test tree or a bespoke shell. |
+| `useRouteParam` | Read one route param, fail closed: the declared param comes back as a string, an undeclared name throws a directive error instead of silently yielding `undefined`. Routes are realised at runtime from manifests, so TanStack's type registry cannot check param names in any app — this replaces the unchecked `useParams({ strict: false }) as {…}` cast (ADR 0092). |
 | `ModuleNav` | Secondary horizontal tabs for intra-module sub-pages (real routes, not state). |
 | `PageActions` | Primary action + overflow menu for a page header. |
 
@@ -82,11 +84,13 @@ An app can ratchet the archetype control further with a named **layout contract*
 `terp/layout-contract` lint half — keep the two in sync; the project template generates
 both). Each governed archetype's body slot then accepts **only** the contract's
 components — `standard`: hub bodies hold `HubCard` only; overview bodies hold
-`DataView` / `ResourceList` / `ModuleNav` / `Stack` plus the framework states
+`DataView` / `ResourceList` / `ModuleNav` / `Stack` / `Card` plus the framework states
 (`EmptyState` / `ErrorState` / `LoadingState` / `Alert`) and `ConfirmDialog`; detail
-bodies hold `DetailList` / `Stack` / `Tabs` / `ModuleNav` / `DataView` plus the same
-states. The plain `Page` stays unconstrained (the sanctioned home for a bespoke
-screen). Enforcement is two-layer and fail-closed: the lint rule checks static JSX
+bodies hold `DetailList` / `Stack` / `Tabs` / `ModuleNav` / `DataView` / `Card` plus
+the same states. The plain `Page` stays unconstrained (the sanctioned home for a
+bespoke screen). Only the slot's **direct** children are governed — an allowed
+container's own subtree (a `Card` body, a `Stack` of rows) is the app's to compose.
+Enforcement is two-layer and fail-closed: the lint rule checks static JSX
 children; the archetypes verify the rendered DOM (sanctioned components stamp a
 `data-terp` marker) and refuse a non-conforming view with the **same directive
 message** — contract, slot, what was found, what is allowed, and the fix — so a
@@ -103,9 +107,10 @@ marker, counted by the escape-hatch budget.
 | `InMemoryDataViewRepository`, `HttpDataViewRepository` | Data repositories (client-side / server-side); `useServerDataView` keeps server query state in the URL. |
 | `InMemoryViewStateRepository`, `LocalStorageViewStateRepository` | Preference persistence seam. |
 | `useResource` | An async collection: rows + loading/error + reload + create-then-reload. |
+| `useRecord` | The singleton counterpart of `useResource` — the one record a detail screen shows: `item` (or `null`) + loading/error + reload + mutate. Deletes the one-element-list wart (`list: async () => [unwrap(…)]` then `items[0]`). |
 | `useRealtimeChannel` | The sanctioned typed SSE/WebSocket seam for the optional realtime capability: mints a short-lived one-use ticket via the authenticated generated client, validates every inbound JSON payload with the channel's runtime type guard, and exposes connection state / last message / WebSocket send. App modules never touch raw transports. |
 | `ResourceList` | The standard simple CRUD list screen: titled section, write-gated create form, loading/error/empty states. Composable — screens needing more render their own React. |
-| `unwrap`, `ApiError` | Turn a generated-client result into data-or-throw; `ApiError` carries the envelope's `code` / `status` / `requestId`. |
+| `unwrap`, `unwrapOptional`, `ApiError` | Turn a generated-client result into data-or-throw; `ApiError` carries the envelope's `code` / `status` / `requestId`. `unwrapOptional` returns `null` on a 404 instead — for resources whose absence is a normal state (a `/latest` snapshot not yet published), the client-side analog of `BaseService.find` beside `get`. |
 | `FileUpload`, `useFileDownload` | The files-capability surface (ADR 0056/0057): a token-styled attachment picker that uploads through the typed client, and an authenticated download helper (a raw `<a href>` would carry no bearer token). |
 
 ## Feedback & states

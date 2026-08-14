@@ -4,22 +4,32 @@ import type {
   DataViewResult,
 } from "../types";
 
-/** How {@link InMemoryDataViewRepository} reads and matches rows. */
-export interface InMemoryDataViewRepositoryOptions<T> {
+/**
+ * How {@link InMemoryDataViewRepository} reads and matches rows.
+ *
+ * `TField` is the union of field names `getValue` understands. Annotate getValue's
+ * field parameter (`(row, field: keyof Ticket & string) => row[field]`) and
+ * `searchFields` is checked against it at compile time — without the annotation a
+ * misspelled entry resolves to `undefined` for every row, so search silently never
+ * matches it (no error at any layer). Leaving the parameter untyped keeps today's
+ * unchecked `string` behavior.
+ */
+export interface InMemoryDataViewRepositoryOptions<T, TField extends string = string> {
   /** Stable row identity. */
   getRowId: (row: T) => string;
   /** The raw sortable/filterable value of a column for a row. */
-  getValue: (row: T, columnId: string) => unknown;
+  getValue: (row: T, columnId: TField) => unknown;
   /**
    * Column ids the free-text search matches against (case-insensitive substring).
-   * Omit to disable search (`capabilities.search` becomes false).
+   * Omit to disable search (`capabilities.search` becomes false). Checked against
+   * getValue's declared field union (`NoInfer` keeps a typo here from widening it).
    */
-  searchFields?: string[];
+  searchFields?: NoInfer<TField>[];
   /**
    * Custom filter match; the default is faceted equality (`value` is the filter value or,
    * when an array, any-of).
    */
-  matchesFilter?: (row: T, columnId: string, value: unknown) => boolean;
+  matchesFilter?: (row: T, columnId: TField, value: unknown) => boolean;
 }
 
 function defaultMatchesFilter(cell: unknown, value: unknown): boolean {
@@ -57,18 +67,21 @@ function compareValues(a: unknown, b: unknown): number {
  * ```ts
  * const repo = new InMemoryDataViewRepository(tickets, {
  *   getRowId: (t) => t.id,
- *   getValue: (t, col) => t[col as keyof Ticket],
+ *   // Annotating the field parameter makes searchFields compile-checked.
+ *   getValue: (t, col: keyof Ticket & string) => t[col],
  *   searchFields: ["title", "assignee"],
  * });
  * ```
  */
-export class InMemoryDataViewRepository<T> implements DataViewRepository<T> {
+export class InMemoryDataViewRepository<T, TField extends string = string>
+  implements DataViewRepository<T>
+{
   readonly capabilities: DataViewRepository<T>["capabilities"];
 
   private rows: T[];
-  private readonly options: InMemoryDataViewRepositoryOptions<T>;
+  private readonly options: InMemoryDataViewRepositoryOptions<T, TField>;
 
-  constructor(rows: T[], options: InMemoryDataViewRepositoryOptions<T>) {
+  constructor(rows: T[], options: InMemoryDataViewRepositoryOptions<T, TField>) {
     this.rows = rows;
     this.options = options;
     this.capabilities = {
@@ -87,11 +100,21 @@ export class InMemoryDataViewRepository<T> implements DataViewRepository<T> {
     this.rows = rows;
   }
 
+  /**
+   * Query ids arrive as plain strings ({@link DataViewQuery} is column-agnostic); the
+   * `TField` union is an authoring-time contract for the options, so the one narrowing
+   * lives here rather than at every call site. (Deliberately not named `valueOf` —
+   * that shadows `Object.prototype.valueOf`, which JS calls with no arguments.)
+   */
+  private fieldValue(row: T, columnId: string): unknown {
+    return this.options.getValue(row, columnId as TField);
+  }
+
   /** Distinct values of one column across the full (unfiltered) data set. */
   getFacetedValues(columnId: string): unknown[] {
     const seen = new Set<unknown>();
     for (const row of this.rows) {
-      seen.add(this.options.getValue(row, columnId));
+      seen.add(this.fieldValue(row, columnId));
     }
     return [...seen];
   }
@@ -102,9 +125,9 @@ export class InMemoryDataViewRepository<T> implements DataViewRepository<T> {
     for (const filter of q.filters) {
       result = result.filter((row) => {
         if (this.options.matchesFilter !== undefined) {
-          return this.options.matchesFilter(row, filter.id, filter.value);
+          return this.options.matchesFilter(row, filter.id as TField, filter.value);
         }
-        return defaultMatchesFilter(this.options.getValue(row, filter.id), filter.value);
+        return defaultMatchesFilter(this.fieldValue(row, filter.id), filter.value);
       });
     }
 
@@ -113,7 +136,7 @@ export class InMemoryDataViewRepository<T> implements DataViewRepository<T> {
     if (search !== "" && searchFields.length > 0) {
       result = result.filter((row) =>
         searchFields.some((field) =>
-          String(this.options.getValue(row, field) ?? "")
+          String(this.fieldValue(row, field) ?? "")
             .toLowerCase()
             .includes(search),
         ),
@@ -124,8 +147,8 @@ export class InMemoryDataViewRepository<T> implements DataViewRepository<T> {
       result = [...result].sort((a, b) => {
         for (const sort of q.sorting) {
           const order = compareValues(
-            this.options.getValue(a, sort.id),
-            this.options.getValue(b, sort.id),
+            this.fieldValue(a, sort.id),
+            this.fieldValue(b, sort.id),
           );
           if (order !== 0) {
             return sort.desc ? -order : order;

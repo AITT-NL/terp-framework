@@ -12,6 +12,8 @@ export { Authorized, useCan } from "./Authorized";
 export type { AuthorizedProps } from "./Authorized";
 export { useResource } from "./useResource";
 export type { Resource, ResourceSource } from "./useResource";
+export { useRecord } from "./useRecord";
+export type { RecordResource, RecordSource } from "./useRecord";
 export { useRealtimeChannel } from "./realtime";
 export type {
   RealtimeChannelOptions,
@@ -19,7 +21,7 @@ export type {
   RealtimeStatus,
   RealtimeTransport,
 } from "./realtime";
-export { unwrap, ApiError } from "./unwrap";
+export { unwrap, unwrapOptional, ApiError } from "./unwrap";
 export type { FetchResult } from "./unwrap";
 export { ResourceList } from "./ResourceList";
 export type { ResourceListProps } from "./ResourceList";
@@ -44,6 +46,10 @@ export type { IconProps, NavIconProps } from "./icons";
 export { ProfileView } from "./ProfileView";
 export { Breadcrumbs } from "./Breadcrumbs";
 export type { BreadcrumbItem, BreadcrumbsProps, RenderBreadcrumbLink } from "./Breadcrumbs";
+// Published by buildAppRouter; exported so a standalone story/test tree (or a bespoke
+// shell) can provide the ambient link renderer the layout components default to.
+export { NavLinkContext, useNavLink } from "./navLink";
+export type { NavLinkRenderer } from "./navLink";
 export { Page } from "./Page";
 export type { PageProps } from "./Page";
 export { LAYOUT_CONTRACTS } from "./layoutContract";
@@ -110,7 +116,7 @@ export { Field } from "./Field";
 export type { FieldProps } from "./Field";
 export { Stack, DetailList } from "./layout";
 export type { StackProps, DetailListProps, DetailItem, SpaceToken } from "./layout";
-export { buildAppRouter, DEFAULT_ROLE_RANKS, PROFILE_PATH } from "./router";
+export { buildAppRouter, DEFAULT_ROLE_RANKS, PROFILE_PATH, useRouteParam } from "./router";
 export type { BuildAppRouterOptions } from "./router";
 export { LoginView } from "./LoginView";
 export type { DevCredentials, LoginViewProps } from "./LoginView";

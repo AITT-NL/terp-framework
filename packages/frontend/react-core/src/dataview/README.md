@@ -36,7 +36,11 @@ const columns: DataViewColumn<Ticket>[] = [
 
 const repository = new InMemoryDataViewRepository(tickets, {
   getRowId: (t) => t.id,
-  getValue: (t, col) => t[col as keyof Ticket],
+  // Annotate the field parameter and `searchFields` is checked at compile time —
+  // a misspelled entry otherwise resolves to undefined for every row, so search
+  // silently never matches it. searchFields entries are the names getValue
+  // understands (typically column ids).
+  getValue: (t, col: keyof Ticket & string) => t[col],
   searchFields: ["title", "status"],
 });
 
@@ -115,6 +119,12 @@ versioned envelope; corrupt data falls back to defaults) and
 - **Column resizing**: drag the header handle; widths update live with no persistence
   writes per pointermove and are persisted once, on pointer-up. Width precedence:
   pinned system columns → user-resized → static `meta.width` hint → auto.
+- **Row tone**: `getRowTone={(row) => tone | null}` marks the *row* as being in a
+  state (a refused link, a failed run) — the right altitude when the verdict belongs
+  to the record, not to one of its cells. The row/card is tinted with the tone's soft
+  token (the same one `Badge` uses) and stamped `data-tone`; a toned row's tint
+  outranks the selection tint. Keep cell-level `Badge`s for statuses that belong to a
+  column.
 - **Select-all-across-pages**: after selecting the whole page the toolbar offers
   "Select all N results"; batch actions then invoke their `onSelectAll` variant. The
   mode resets whenever the page selection is broken.

@@ -21,6 +21,7 @@ import {
 import { OverviewPage } from "./OverviewPage";
 import { Page } from "./Page";
 import { DetailList, Stack } from "./layout";
+import { Card } from "./ui/Card";
 
 afterEach(cleanup);
 
@@ -120,6 +121,7 @@ describe("runtime slot enforcement", () => {
   it("passes a DetailPage of record sections and refuses a rogue one", async () => {
     underContract(
       <DetailPage title="Record 1" parents={[{ label: "Records", to: "/records" }]}>
+        <Card title="A section">the sanctioned visual separation, directly in the slot</Card>
         <Stack>
           <DetailList items={[{ label: "Status", value: "open" }]} />
         </Stack>

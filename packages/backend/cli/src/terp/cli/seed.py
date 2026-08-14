@@ -7,6 +7,11 @@ decides what "seeded" means. The example's seed provisions users and a little co
 through the real audited services, so seeding dogfoods audit, events, actor-stamping,
 ownership, and tenancy.
 
+``--seed`` selects the callable, which makes it a *stage* selector, not just a location
+override: an app may expose several entry points (``app.seed:seed`` for the baseline,
+``app.demo:install`` for demo content) and a caller runs exactly the stage it needs —
+a workbench that already seeded the baseline never needs a second full pass.
+
 Fail-closed: it refuses to run when ``ENVIRONMENT=production`` — seed data must never touch
 a production store; a real deployment bootstraps its first admin with ``terp user create``.
 """

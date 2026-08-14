@@ -74,6 +74,26 @@ describe("InMemoryDataViewRepository", () => {
     expect(repo().getFacetedValues("status")).toEqual(["open", "closed"]);
   });
 
+  it("compile-checks searchFields against getValue's declared field union", async () => {
+    // With getValue's field parameter annotated, a misspelled searchFields entry is a
+    // typecheck error instead of a search that silently never matches (the field would
+    // resolve to undefined for every row, with no error at any layer).
+    const checked = new InMemoryDataViewRepository(TICKETS, {
+      getRowId: (t) => t.id,
+      getValue: (t, col: keyof Ticket & string) => t[col],
+      searchFields: ["title", "status"],
+    });
+    const result = await checked.query(query({ search: "open" }));
+    expect(result.totalCount).toBe(3);
+
+    void new InMemoryDataViewRepository(TICKETS, {
+      getRowId: (t) => t.id,
+      getValue: (t, col: keyof Ticket & string) => t[col],
+      // @ts-expect-error — "titel" is not a field getValue understands
+      searchFields: ["titel"],
+    });
+  });
+
   it("advertises client-side capabilities (search only when fields are configured)", () => {
     expect(repo().capabilities).toEqual({ serverSide: false, search: true, searchScope: false });
     const noSearch = new InMemoryDataViewRepository(TICKETS, {

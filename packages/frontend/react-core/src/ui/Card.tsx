@@ -52,9 +52,11 @@ const descriptionStyle: CSSProperties = {
 
 /**
  * A token-styled surface that groups one block of a page — the sanctioned way to give
- * sections visual separation (border + background + padding) without module CSS. An
- * optional header row carries a semantic `<h3>` title, a muted description and an
- * `actions` slot; the body stacks its children on the token spacing scale.
+ * sections visual separation (border + background + padding) without module CSS, and
+ * allowed directly in `OverviewPage` / `DetailPage` body slots under the `standard`
+ * layout contract. An optional header row carries a semantic `<h3>` title, a muted
+ * description and an `actions` slot; the body stacks its children on the token
+ * spacing scale.
  */
 export function Card({
   title,

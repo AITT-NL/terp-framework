@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import { injectTerpStyles } from "../styles";
+import type { BadgeTone } from "../ui/Badge";
+import { toneSoftColors } from "../ui/Badge";
 import type { UiText } from "../uiText";
 import { DataViewExpandToggle, DataViewExpandableRow } from "./DataViewExpandableRow";
 import { DataViewRowActions } from "./DataViewRowActions";
@@ -20,6 +22,7 @@ export interface DataViewTableProps<T> {
   getRowId: (row: T) => string;
   onRowClick?: (row: T) => void;
   getRowLabel?: (row: T) => UiText;
+  getRowTone?: (row: T) => BadgeTone | null;
   isMobile: boolean;
   // Sorting
   sorting: { id: string; desc: boolean }[];
@@ -275,15 +278,24 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
           const rowId = props.getRowId(row);
           const expanded = props.isExpanded(rowId);
           const clickable = props.onRowClick !== undefined;
+          const tone = props.getRowTone?.(row) ?? null;
           return (
             <RowGroup key={rowId}>
               <tr
                 onClick={clickable ? () => props.onRowClick?.(row) : undefined}
                 data-terp={clickable ? "dataview-row" : undefined}
                 data-selected={props.isSelected(rowId) || undefined}
+                data-tone={tone ?? undefined}
                 style={{
                   cursor: clickable ? "pointer" : undefined,
-                  background: props.isSelected(rowId) ? "var(--color-neutral-50)" : undefined,
+                  // A row's own state outranks the selection tint — selection still
+                  // shows via the checkbox and data-selected.
+                  background:
+                    tone !== null
+                      ? toneSoftColors[tone]
+                      : props.isSelected(rowId)
+                        ? "var(--color-neutral-50)"
+                        : undefined,
                 }}
               >
                 {hasExpand && (

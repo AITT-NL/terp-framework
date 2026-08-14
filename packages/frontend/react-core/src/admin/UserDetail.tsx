@@ -1,4 +1,3 @@
-import { useParams } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { components } from "@terpjs/contract";
 
@@ -8,8 +7,9 @@ import { Field } from "../Field";
 import { Icon } from "../icons";
 import { DetailList } from "../layout";
 import { PageActions } from "../PageActions";
+import { useRouteParam } from "../router";
 import { useTerpClient } from "../TerpProvider";
-import { useResource } from "../useResource";
+import { useRecord } from "../useRecord";
 import { useToast } from "../toast";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
@@ -27,8 +27,7 @@ type PendingLifecycle =
 
 /** Dedicated account detail and lifecycle page (`/admin/users/$userId`). */
 export function UserDetail() {
-  const params = useParams({ strict: false }) as { userId?: string };
-  const userId = params.userId ?? "";
+  const userId = useRouteParam("userId");
   const client = useTerpClient();
   const strings = useStrings();
   const toast = useToast();
@@ -47,26 +46,25 @@ export function UserDetail() {
     setResetting(false);
   }, [userId]);
 
-  const user = useResource<UserRead>(
+  const user = useRecord<UserRead>(
     {
-      list: async () => [
+      get: async () =>
         unwrap(
           await client.GET("/api/v1/users/{user_id}", {
             params: { path: { user_id: userId } },
           }),
         ),
-      ],
     },
     [userId],
   );
-  const record = user.items[0];
+  const record = user.item;
 
   function failed(error: unknown): void {
     toast.warning(error instanceof Error ? error.message : strings.requestFailed);
   }
 
   async function onConfirmLifecycle() {
-    if (record === undefined || pendingLifecycle === null) return;
+    if (record === null || pendingLifecycle === null) return;
     setMutating(true);
     try {
       if (pendingLifecycle.kind === "role") {
@@ -93,7 +91,7 @@ export function UserDetail() {
   }
 
   async function onConfirmReset() {
-    if (record === undefined || resetPassword.trim() === "") return;
+    if (record === null || resetPassword.trim() === "") return;
     setResetting(true);
     try {
       unwrap(
@@ -132,7 +130,7 @@ export function UserDetail() {
       renderLink={renderAdminCrumb}
       isLoading={user.loading}
       error={user.cause ?? user.error ?? undefined}
-      actions={record !== undefined ? (
+      actions={record !== null ? (
         <PageActions
           secondary={
             <Button
@@ -166,7 +164,7 @@ export function UserDetail() {
         />
       ) : undefined}
     >
-      {record !== undefined && (
+      {record !== null && (
         <DetailList
           items={[
             { label: strings.email, value: record.email },

@@ -30,6 +30,8 @@ export interface DataViewResult<T> {
  * ```ts
  * const repo = new InMemoryDataViewRepository(tickets, {
  *   getRowId: (t) => t.id,
+ *   // Annotating the field parameter makes searchFields compile-checked.
+ *   getValue: (t, col: keyof Ticket & string) => t[col],
  *   searchFields: ["title", "assignee"],
  * });
  * <DataView repository={repo} columns={columns} />

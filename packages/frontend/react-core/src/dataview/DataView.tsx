@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { EmptyState } from "../EmptyState";
 import { ErrorState } from "../ErrorState";
+import type { BadgeTone } from "../ui/Badge";
 import type { UiText } from "../uiText";
 import { DataViewCardList } from "./DataViewCardList";
 import { DataViewPagination } from "./DataViewPagination";
@@ -49,6 +50,14 @@ interface DataViewBaseProps<T> {
   pageSizeOptions?: number[];
   initialPageSize?: number;
   renderExpanded?: (row: T) => ReactNode;
+  /**
+   * Row-level status tone: the *row* is in that state (a refused link, a failed run),
+   * not one of its cells — the right altitude for a validation-driven table, where a
+   * Badge cell would misattribute the verdict to a column. Tints the row/card with the
+   * tone's soft token (the same one `Badge` uses) and stamps `data-tone` on it;
+   * `null`/`undefined` leaves the row untinted.
+   */
+  getRowTone?: (row: T) => BadgeTone | null;
   /** Fully custom cards in the responsive card layout. */
   renderCard?: (row: T) => ReactNode;
   /** Custom filter controls, rendered in the toolbar. */
@@ -303,6 +312,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
           getRowId={getRowId}
           onRowClick={props.onRowClick}
           getRowLabel={props.getRowLabel}
+          getRowTone={props.getRowTone}
           renderCard={props.renderCard}
           selectionEnabled={props.enableSelection === true}
           isSelected={(id) => selectedIds.has(id)}
@@ -322,6 +332,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
           getRowId={getRowId}
           onRowClick={props.onRowClick}
           getRowLabel={props.getRowLabel}
+          getRowTone={props.getRowTone}
           isMobile={isMobile}
           sorting={state.sorting}
           onToggleSort={state.toggleSort}

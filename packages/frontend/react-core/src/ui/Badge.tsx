@@ -26,7 +26,11 @@ const toneColor: Record<BadgeTone, string> = {
   danger: "var(--color-status-danger)",
 };
 
-const toneSoft: Record<BadgeTone, string> = {
+/**
+ * Soft tint per tone — exported (not via the package barrel) so DataView's row/card
+ * tinting resolves a tone to the exact same tokens the Badge pill uses.
+ */
+export const toneSoftColors: Record<BadgeTone, string> = {
   neutral: "var(--color-neutral-100)",
   info: "var(--color-status-info-soft)",
   success: "var(--color-status-success-soft)",
@@ -37,11 +41,11 @@ const toneSoft: Record<BadgeTone, string> = {
 const badgeStyle = (tone: BadgeTone): CSSProperties => ({
   display: "inline-flex",
   alignItems: "center",
-  border: `1px solid ${toneSoft[tone]}`,
+  border: `1px solid ${toneSoftColors[tone]}`,
   borderRadius: "var(--radius-full)",
   padding: "2px var(--space-2)",
   color: toneColor[tone],
-  background: toneSoft[tone],
+  background: toneSoftColors[tone],
   fontSize: "var(--font-size-xs)",
   fontWeight: "var(--font-weight-semibold)" as never,
   lineHeight: 1.4,

@@ -12,6 +12,10 @@
  * Both halves phrase the SAME agent-directive message (see {@link slotViolationMessage}),
  * so a failing check *tells the author how to build the screen*, wherever it fires.
  *
+ * Both halves govern the slot's DIRECT children only: an allowed container's own
+ * subtree (a Card's body, a Stack's rows) is the app's to compose — nesting content
+ * inside an allowed component is sanctioned composition, not an escape hatch.
+ *
  * Contracts are opt-in and backwards compatible: no checked-in `layout-contract.json`
  * (and no `layoutContract` option at runtime) means today's behavior. The react-core
  * runtime carries a TypeScript mirror of this table (src/layoutContract.ts); a parity
@@ -32,8 +36,9 @@ export const LAYOUT_CONTRACTS = {
       "The standard three-level shape: hub bodies are card grids (HubCard only), " +
       "overview bodies are data collections (DataView / ResourceList + framework " +
       "states), detail bodies are record sections (DetailList / Stack / Tabs + " +
-      "framework states). A bespoke screen composes the plain Page, which the " +
-      "contract deliberately leaves unconstrained.",
+      "framework states); Card is allowed in overview and detail bodies as the " +
+      "sanctioned visual separation between sections. A bespoke screen composes " +
+      "the plain Page, which the contract deliberately leaves unconstrained.",
     slots: {
       HubPage: {
         components: { HubCard: "hubcard" },
@@ -44,6 +49,7 @@ export const LAYOUT_CONTRACTS = {
           ResourceList: "resource-list",
           ModuleNav: "module-nav",
           Stack: "stack",
+          Card: "card",
           EmptyState: "empty-state",
           ErrorState: "error-state",
           LoadingState: "loading-state",
@@ -58,6 +64,7 @@ export const LAYOUT_CONTRACTS = {
           Tabs: "tabs",
           ModuleNav: "module-nav",
           DataView: "dataview",
+          Card: "card",
           EmptyState: "empty-state",
           ErrorState: "error-state",
           LoadingState: "loading-state",

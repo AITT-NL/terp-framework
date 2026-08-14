@@ -9,6 +9,10 @@ import { createContext, useContext } from "react";
  * a `data-terp` marker on its root — and refuses the view, fail closed, with the same
  * agent-directive message the `terp/layout-contract` lint rule phrases.
  *
+ * Both halves govern the slot's DIRECT children only: an allowed container's own
+ * subtree (a Card's body, a Stack's rows) is the app's to compose — nesting content
+ * inside an allowed component is sanctioned composition, not an escape hatch.
+ *
  * This table is the TypeScript mirror of the spec-as-data source in
  * `@terpjs/eslint-boundaries/src/layouts.js` (react-core ships standalone, so it cannot
  * import a lint package); the parity test in ./layoutContract.test.tsx keeps the two
@@ -33,8 +37,9 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
       "The standard three-level shape: hub bodies are card grids (HubCard only), " +
       "overview bodies are data collections (DataView / ResourceList + framework " +
       "states), detail bodies are record sections (DetailList / Stack / Tabs + " +
-      "framework states). A bespoke screen composes the plain Page, which the " +
-      "contract deliberately leaves unconstrained.",
+      "framework states); Card is allowed in overview and detail bodies as the " +
+      "sanctioned visual separation between sections. A bespoke screen composes " +
+      "the plain Page, which the contract deliberately leaves unconstrained.",
     slots: {
       HubPage: {
         components: { HubCard: "hubcard" },
@@ -45,6 +50,7 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
           ResourceList: "resource-list",
           ModuleNav: "module-nav",
           Stack: "stack",
+          Card: "card",
           EmptyState: "empty-state",
           ErrorState: "error-state",
           LoadingState: "loading-state",
@@ -59,6 +65,7 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
           Tabs: "tabs",
           ModuleNav: "module-nav",
           DataView: "dataview",
+          Card: "card",
           EmptyState: "empty-state",
           ErrorState: "error-state",
           LoadingState: "loading-state",

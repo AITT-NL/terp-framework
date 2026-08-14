@@ -4,6 +4,7 @@ import {
   createRouter,
   Link,
   Outlet,
+  useParams,
   useRouter,
   type AnyRoute,
   type RouterHistory,
@@ -45,6 +46,33 @@ export const PROFILE_PATH = "/profile";
  */
 export function routerPath(path: string): string {
   return path.replace(/(^|\/):([A-Za-z_][A-Za-z0-9_]*)/g, "$1$$$2");
+}
+
+/**
+ * Read one route param, fail closed when it is absent.
+ *
+ * {@link buildAppRouter} realises routes at runtime from manifest data, so TanStack's
+ * type-level route registry is empty for every Terp app: `useParams` cannot check a
+ * param name anywhere, and the raw idiom is an unchecked cast —
+ * `useParams({ strict: false }) as { recordId?: string }` — whose typo typechecks
+ * green and renders a broken screen. Until route params are generated as types
+ * (ADR 0092), this is the sanctioned read: the param the manifest route path declared
+ * (`/records/:recordId`) comes back as a string, and a name the current route did not
+ * declare throws a directive error instead of silently yielding undefined.
+ */
+export function useRouteParam(name: string): string {
+  const params = useParams({ strict: false }) as Record<string, string | undefined>;
+  const value = params[name];
+  if (value === undefined) {
+    const seen = Object.keys(params);
+    throw new Error(
+      `Route param "${name}" is not present on the current route (params seen: ` +
+        `${seen.length > 0 ? seen.join(", ") : "none"}). A param is declared in the ` +
+        `module manifest's route path (e.g. "/records/:${name}") and must be read ` +
+        "under that route — check the name against the manifest.",
+    );
+  }
+  return value;
 }
 
 export interface BuildAppRouterOptions {

@@ -40,6 +40,22 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * {@link unwrap} for a resource whose absence is a normal state, not a failure: returns
+ * the data on success, `null` on a 404, and throws the same {@link ApiError} for every
+ * other failure. The client-side analog of the backend's `BaseService.find` beside
+ * `get` — reach for `unwrap` when a missing record ends the request, `unwrapOptional`
+ * when "not there yet" is an answer (a `/latest` snapshot that has not been published,
+ * an optional singleton). Without it, expressing that state means exception control
+ * flow around `unwrap` at every call site.
+ */
+export function unwrapOptional<T>(result: FetchResult<T>): T | null {
+  if (result.response.status === 404) {
+    return null;
+  }
+  return unwrap(result);
+}
+
 /** Return the result's `data` on success, or throw an {@link ApiError} describing the failure. */
 export function unwrap<T>(result: FetchResult<T>): T {
   if (result.error !== undefined || !result.response.ok) {

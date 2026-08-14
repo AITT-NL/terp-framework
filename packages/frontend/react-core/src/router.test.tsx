@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModuleManifest } from "@terpjs/contract";
 
-import { buildAppRouter } from "./router";
+import { buildAppRouter, useRouteParam } from "./router";
 import { Page } from "./Page";
 import { TerpProvider, useAuth } from "./TerpProvider";
 
@@ -124,6 +124,67 @@ describe("buildAppRouter", () => {
       );
       cleanup();
     }
+  });
+
+  it("useRouteParam reads a declared param and refuses an undeclared name, fail closed", async () => {
+    // buildAppRouter realises routes at runtime, so TanStack's type registry cannot
+    // check a param name for any app — useRouteParam is the sanctioned read: the
+    // declared param comes back, an undeclared name throws a directive error instead
+    // of silently yielding undefined (the failure mode of the raw `as {...}` cast).
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = (input as Request).url;
+      if (url.endsWith("/api/v1/auth/login")) {
+        return jsonResponse({ access_token: "t", token_type: "bearer" });
+      }
+      return jsonResponse({ id: "1", email: "editor@example.com", role_rank: 20, role_name: "editor" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function ThingView() {
+      const thingId = useRouteParam("thingId");
+      return <Page title={`Thing ${thingId}`}>thing body</Page>;
+    }
+    const router = buildAppRouter(
+      [{ name: "things", routes: [{ path: "/things/:thingId", view: "Thing" }], nav: [] }],
+      {
+        views: { Thing: ThingView },
+        title: "Terp",
+        history: createMemoryHistory({ initialEntries: ["/things/abc"] }),
+      },
+    );
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Thing abc" })).toBeInTheDocument(),
+    );
+    cleanup();
+
+    function WrongParamView() {
+      const nope = useRouteParam("thisParamDoesNotExist");
+      return <Page title={`Wrong ${nope}`}>wrong body</Page>;
+    }
+    const wrongRouter = buildAppRouter(
+      [{ name: "things", routes: [{ path: "/things/:thingId", view: "Thing" }], nav: [] }],
+      {
+        views: { Thing: WrongParamView },
+        title: "Terp",
+        history: createMemoryHistory({ initialEntries: ["/things/abc"] }),
+      },
+    );
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={wrongRouter} />
+      </TerpProvider>,
+    );
+    // The view throws before it can render; the screen never shows the wrong body.
+    await waitFor(() => expect(console.error).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: /Wrong/ })).not.toBeInTheDocument();
   });
 
   it("gives breadcrumbs and hub cards the router's link without being asked", async () => {
