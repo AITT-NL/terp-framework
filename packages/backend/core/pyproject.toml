@@ -44,3 +44,10 @@ only-include = ["src/terp/core"]
 # path only. Nothing local sees it: no local check builds a wheel.
 # The mirror this creates is held to the root by
 # test_the_shipped_release_notes_match_the_repository_changelog.
+
+# Where this package comes from. The shipped changelog (`terp guide changelog`)
+# ends at the installed version; the notes for a release you do not have yet
+# live at these URLs, which `pip show` and the index page both surface.
+[project.urls]
+Repository = "https://github.com/AITT-NL/terp-framework"
+Changelog = "https://github.com/AITT-NL/terp-framework/blob/main/CHANGELOG.md"

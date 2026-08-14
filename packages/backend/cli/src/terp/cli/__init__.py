@@ -1128,8 +1128,13 @@ def _render_changelog_topic() -> str:
         )
 
     version = platform_version()
+    # The notes travel with the installed wheel, so they end at the installed
+    # version. A reader weighing an upgrade needs the *target's* copy — served by
+    # an ephemeral CLI at that version, which never touches this app's pins.
     header = (
         f"Terp release notes (this app is on {version})\n"
+        f"These notes end at {version}. For a release this app does not have yet:\n"
+        f"  uvx --from terp-cli==<version> terp guide changelog\n"
         if version
         else "Terp release notes\n"
     )

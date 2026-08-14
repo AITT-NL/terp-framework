@@ -170,7 +170,11 @@ def test_a_release_that_covers_the_whole_set_is_offered_with_the_recipe(
     # same mixed install by another route.
     assert "==0.6.0" in text
     assert "^0.6.0" in text
-    assert "terp guide changelog" in text
+    # Step 1 must be executable *before* the upgrade: the installed changelog ends
+    # at 0.5.4, so the recipe reaches the 0.6.0 notes through an ephemeral CLI at
+    # the target version rather than pointing at a copy that cannot contain them.
+    assert "uvx --from terp-cli==0.6.0 terp guide changelog" in text
+    assert "the copy installed here ends at 0.5.4" in text
     assert "WARNING" not in text
 
 

@@ -93,11 +93,19 @@ def test_changelog_topic_reports_the_release_notes_and_the_current_version() -> 
     "see the platform CHANGELOG" — a dead reference to a document that shipped
     nowhere. The notes are now answered in the app's own checkout, headed by the
     version that checkout is actually on.
+
+    The header must also say where the notes *end*: the shipped copy cannot
+    describe a release newer than itself, and a reader weighing an upgrade who
+    is not told that reads 0.5.x notes as if they covered 0.6.0 — or goes
+    hunting for the repository. The escape hatch (an ephemeral CLI at the
+    target version) is printed right there.
     """
     text = guide("changelog")
     assert "Terp release notes" in text
     assert "in lockstep" in text
     assert "Changelog" in text
+    assert "These notes end at" in text
+    assert "uvx --from terp-cli==<version> terp guide changelog" in text
 
 
 def test_the_shipped_release_notes_match_the_repository_changelog() -> None:
