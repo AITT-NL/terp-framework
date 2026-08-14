@@ -89,6 +89,33 @@ def test_backend_internal_dependencies_are_lockstep_pinned(path: pathlib.Path) -
             assert dependency == f"{name}=={_RELEASE_VERSION}"
 
 
+@pytest.mark.parametrize("path", _BACKEND_PYPROJECTS, ids=lambda p: p.parent.name)
+def test_backend_distributions_say_where_they_come_from(path: pathlib.Path) -> None:
+    """Every wheel names its repository and changelog in ``[project.urls]``.
+
+    The release notes ship inside the terp-core wheel, so they end at the
+    *installed* version — the notes for a release an app does not have yet are
+    only reachable through the repository. Before these URLs existed, installed
+    metadata was silent about where the packages come from, and "read what
+    changed before upgrading" started with a search instead of ``pip show``.
+    """
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    urls = data["project"].get("urls", {})
+    assert urls.get("Repository") == "https://github.com/AITT-NL/terp-framework"
+    assert (
+        urls.get("Changelog")
+        == "https://github.com/AITT-NL/terp-framework/blob/main/CHANGELOG.md"
+    )
+
+
+@pytest.mark.parametrize("path", _FRONTEND_MANIFESTS, ids=lambda p: p.parent.name)
+def test_frontend_packages_say_where_they_come_from(path: pathlib.Path) -> None:
+    """The npm packages carry the same provenance pointer as the wheels."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    repository = data.get("repository") or {}
+    assert repository.get("url") == "git+https://github.com/AITT-NL/terp-framework.git"
+
+
 def test_template_backend_dependencies_are_lockstep_pinned() -> None:
     for dependency in _template_dependencies(_TEMPLATE_PYPROJECT):
         name = re.split(r"[<>=!~;\\[]", dependency, maxsplit=1)[0]

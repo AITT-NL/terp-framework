@@ -10,6 +10,38 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## Unreleased
+
+Friction reported from an app weighing the 0.6.0 upgrade: the notes that are
+supposed to justify an upgrade could not be read until after it.
+
+### Fixed
+
+- **`terp upgrade --check` now says how to read the *target's* notes, not the
+  installed ones.** The release notes ship inside the terp-core wheel so that
+  `terp guide changelog` answers offline — which also means the installed copy
+  ends at the installed version and structurally cannot describe the release the
+  upgrade recipe asks you to judge. Step 1 of the recipe said "read what
+  changed" and pointed at that copy; on an app at 0.5.x with 0.6.0 available,
+  the step was impossible at the exact moment it mattered, and the reader's only
+  move was to go hunting for the repository. Step 1 now prints
+  `uvx --from terp-cli==<target> terp guide changelog`: an ephemeral CLI
+  resolved from the same index (terp-cli pins terp-core exactly, so the target's
+  CHANGELOG comes with it) that prints the target's notes without touching the
+  app's environment or its pins. `terp guide changelog` itself now states where
+  its notes end and prints the same escape hatch, for the reader who starts
+  there instead of at the upgrade check.
+
+### Added
+
+- **Every distribution now says where it comes from.** No terp-\* wheel carried
+  `[project.urls]`, so "where do these packages come from" — the first question
+  of the hunt above — was answerable only by searching. Every backend pyproject
+  now declares `Repository` and `Changelog` URLs, so `pip show terp-core`
+  answers it in one step; the npm packages already carried `repository`, and the
+  release gate now holds both halves
+  (`tests/architecture/test_release_versions.py`).
+
 ## 0.6.0 — 2026-08-14
 
 ### Added

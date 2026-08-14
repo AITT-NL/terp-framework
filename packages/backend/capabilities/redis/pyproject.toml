@@ -35,3 +35,10 @@ all = [
 [tool.hatch.build.targets.wheel]
 sources = ["src"]
 only-include = ["src/terp/capabilities/redis"]
+
+# Where this package comes from. The shipped changelog (`terp guide changelog`)
+# ends at the installed version; the notes for a release you do not have yet
+# live at these URLs, which `pip show` and the index page both surface.
+[project.urls]
+Repository = "https://github.com/AITT-NL/terp-framework"
+Changelog = "https://github.com/AITT-NL/terp-framework/blob/main/CHANGELOG.md"

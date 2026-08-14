@@ -229,11 +229,18 @@ def render_upgrade_check() -> str:
             lines.append(f"  {name:<32} newest available {at}")
         return "\n".join(lines)
 
+    # Step 1 must be possible *before* step 2. The notes for `target` ship inside
+    # the `target` wheel, so the installed copy (`uv run terp guide changelog`)
+    # ends at `current` and structurally cannot describe the release it is meant
+    # to help judge. `uvx --from terp-cli==target` resolves an ephemeral CLI from
+    # the same index (terp-cli pins terp-core exactly, so the right CHANGELOG
+    # comes with it) without touching this app's environment or its pins.
     lines += [
         "",
         f"All {len(landing)} packages can move to {target} together:",
         "",
-        "  1. Read what changed:  uv run terp guide changelog",
+        f"  1. Read what changed:  uvx --from terp-cli=={target} terp guide changelog",
+        f"     (the {target} notes; the copy installed here ends at {current}).",
         f"  2. Pin every terp-* dependency to =={target} in pyproject.toml",
         "     (including the dev group — a forgotten pin is a mixed install).",
         f"  3. Pin every @terpjs/* package to ^{target} in frontend/package.json.",
