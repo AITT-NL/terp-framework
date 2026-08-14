@@ -10,6 +10,80 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## Unreleased
+
+Friction reported from building FAST-Sync's registry/catalog modules on Terp — the
+frontend batch. The common shape: the platform had the right opinion and made the
+author work around it — a sanctioned component the contract refused, a singleton read
+spelled as a one-element list, a normal state spelled as exception control flow, and a
+whole class of routing mistakes no layer could turn red.
+
+### Added
+
+- **`useRouteParam` — the fail-closed route-param read (ADR 0092).** `buildAppRouter`
+  realises routes at runtime from manifests, so TanStack's type registry is empty in
+  every Terp app: no route path or param name is checked anywhere, and the idiomatic
+  read was an unchecked cast — `useParams({ strict: false }) as { recordId?: string }`
+  — carried by the framework's own admin detail screens. A typo silently yielded
+  `undefined` and shipped green, against the platform's own "a red typecheck means the
+  app does not work". `useRouteParam("recordId")` returns the declared param and throws
+  a directive error for an undeclared name; both admin screens adopt it. The full fix —
+  a committed, drift-gated `routes.gen.d.ts` in the `terp openapi` shape — is designed
+  in ADR 0092 and lands separately.
+- **`useRecord` — the singleton counterpart of `useResource`.** Every detail screen
+  spelled its one record as a one-element collection (`list: async () =>
+  [unwrap(await client.GET(...))]`, then `items[0]`) — including both packaged admin
+  detail screens, now converted. `useRecord({ get }, deps)` returns
+  `{ item, loading, error, cause, reload, mutate }`, implemented over `useResource` so
+  the two state machines cannot drift. A `get` resolving `null` is a normal absent
+  state, not an error — compose with `unwrapOptional`.
+- **`unwrapOptional` — absence as data on the client.** `GET .../latest` answering 404
+  is a normal state for a snapshot nobody published yet, but expressing it meant
+  `try/catch` around `unwrap` filtering on `status === 404` at every call site.
+  `unwrapOptional` returns the data, or `null` on a 404, and throws the same `ApiError`
+  for every other failure — `BaseService.find` (0.5.9) beside `get`, answered for the
+  client.
+- **`DataView` rows carry their own state: `getRowTone`.** A validation-driven table
+  could only express "this row is refused" as a Badge inside some column — the wrong
+  altitude; the *row* is in that state, not one of its cells. `getRowTone={(row) =>
+  tone | null}` tints the row/card with the tone's soft token (the exact tokens `Badge`
+  uses, so the vocabulary stays one) and stamps `data-tone`; a toned row outranks the
+  selection tint.
+
+### Changed
+
+- **`Card` is now allowed directly in `OverviewPage` / `DetailPage` body slots
+  (`standard` layout contract).** The README called `Card` "the sanctioned visual
+  separation between sections" while the contract refused it in every governed body
+  slot — the two disagreed, and the workaround (wrap it in a `Stack`) cost one
+  structure-free element. The allowlists now include it, and the previously
+  undocumented nesting rule is stated where the contract lives: both halves govern the
+  slot's **direct children only**; an allowed container's subtree is the app's to
+  compose.
+- **`InMemoryDataViewRepository.searchFields` is compile-checked against `getValue`.**
+  A misspelled entry resolved to `undefined` for every row, so search silently never
+  matched it — no error at any layer. The options are now generic over the field union:
+  annotate `getValue`'s field parameter (`(row, field: keyof Ticket & string) =>
+  row[field]`) and `searchFields` is checked at compile time (`NoInfer` keeps a typo
+  from widening the union). An unannotated `getValue` keeps today's unchecked-`string`
+  behavior, so no existing code changes. A runtime dead-field warning was considered
+  and rejected: a legitimately optional field that is `undefined` for every current row
+  is indistinguishable from a typo.
+
+### Fixed
+
+- **`NavLinkContext` / `useNavLink` are actually importable.** 0.5.4's changelog listed
+  them as published, but they were never exported from the package barrel — an app
+  could not import what the changelog promised. Exported, with `NavLinkRenderer`.
+- **The `DataViewRepository` doc example compiles.** The JSDoc example omitted the
+  required `getValue` option; it (and the quick-start) now show the annotated pattern
+  that makes `searchFields` compile-checked.
+- **`terp seed --seed` says what it is.** The help read as "override where the seed
+  lives"; it is a *stage selector* — point it at any `callable(session)` the app
+  exposes (`terp seed --seed app.demo:install`) to run only that stage. Help text and
+  module docstring now say so; a workbench that already seeded the baseline never needs
+  a second full pass.
+
 ## 0.5.9 — 2026-08-13
 
 Friction reported from building FAST-Sync's publish validator on Terp. All three fixes

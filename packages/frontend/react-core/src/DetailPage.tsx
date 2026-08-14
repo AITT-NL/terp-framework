@@ -17,7 +17,7 @@ export interface DetailPageProps extends Omit<PageProps, "breadcrumbs"> {
  * `Page` whose breadcrumb trail is the ancestor layers plus the record itself (`title`), so
  * users can always navigate back up — the shell -> overview -> detail layering by construction.
  * With a layout contract active (ADR 0079), the body slot accepts only the contract's record
- * components (e.g. `DetailList` / `Stack` / `Tabs`) — refused fail closed otherwise.
+ * components (e.g. `DetailList` / `Stack` / `Tabs` / `Card`) — refused fail closed otherwise.
  */
 export function DetailPage({ parents, ...page }: DetailPageProps) {
   return (

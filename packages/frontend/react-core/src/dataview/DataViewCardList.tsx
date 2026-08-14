@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 
+import type { BadgeTone } from "../ui/Badge";
+import { toneSoftColors } from "../ui/Badge";
 import type { UiText } from "../uiText";
 
 import { DataViewExpandToggle } from "./DataViewExpandableRow";
@@ -13,6 +15,7 @@ export interface DataViewCardListProps<T> {
   getRowId: (row: T) => string;
   onRowClick?: (row: T) => void;
   getRowLabel?: (row: T) => UiText;
+  getRowTone?: (row: T) => BadgeTone | null;
   /** Escape hatch for fully custom cards. */
   renderCard?: (row: T) => ReactNode;
   // Selection
@@ -70,16 +73,18 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
         const rowId = props.getRowId(row);
         const expanded = props.isExpanded(rowId);
         const clickable = props.onRowClick !== undefined;
+        const tone = props.getRowTone?.(row) ?? null;
         return (
           <li key={rowId}>
             <div
               onClick={clickable ? () => props.onRowClick?.(row) : undefined}
               data-terp={clickable ? "dataview-card" : undefined}
+              data-tone={tone ?? undefined}
               style={{
                 display: "grid",
                 gap: "var(--space-2)",
                 padding: "var(--space-3)",
-                background: "var(--color-neutral-0)",
+                background: tone !== null ? toneSoftColors[tone] : "var(--color-neutral-0)",
                 border: "1px solid var(--color-neutral-200)",
                 borderRadius: "var(--radius-lg)",
                 boxShadow: "var(--shadow-sm)",

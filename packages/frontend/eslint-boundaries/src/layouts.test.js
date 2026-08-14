@@ -50,10 +50,10 @@ describe("terp/layout-contract", () => {
 
   it("passes a conforming hub / overview / detail composition", async () => {
     const code = [
-      'import { DataView, DetailList, HubCard, HubPage, OverviewPage, DetailPage, Stack } from "@terpjs/react-core";',
+      'import { Card, DataView, DetailList, HubCard, HubPage, OverviewPage, DetailPage, Stack } from "@terpjs/react-core";',
       "export const H = () => <HubPage title='x'><HubCard to='/a' title='a' /></HubPage>;",
-      "export const O = () => <OverviewPage title='x'><DataView /></OverviewPage>;",
-      "export const D = () => <DetailPage title='x' parents={[]}><Stack><DetailList items={[]} /></Stack></DetailPage>;",
+      "export const O = () => <OverviewPage title='x'><Card title='open'><DataView /></Card></OverviewPage>;",
+      "export const D = () => <DetailPage title='x' parents={[]}><Card title='a section'>body</Card><Stack><DetailList items={[]} /></Stack></DetailPage>;",
     ].join("\n");
     expect((await lint(code, configWithContract("standard"))).map((m) => m.ruleId)).toEqual([]);
   });

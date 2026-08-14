@@ -69,6 +69,20 @@ describe("DataView states", () => {
     render(<DataView repository={failing} columns={COLUMNS} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not load data.");
   });
+
+  it("tints and stamps a row whose getRowTone returns a tone (row-level state)", async () => {
+    render(
+      <DataView
+        repository={inMemoryRepo()}
+        columns={COLUMNS}
+        getRowTone={(t) => (t.status === "closed" ? "danger" : null)}
+      />,
+    );
+    const toned = (await screen.findByText("VPN access")).closest("tr");
+    expect(toned).toHaveAttribute("data-tone", "danger");
+    const untinted = screen.getByText("Broken printer").closest("tr");
+    expect(untinted).not.toHaveAttribute("data-tone");
+  });
 });
 
 describe("DataView server-side mode", () => {

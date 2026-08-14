@@ -924,12 +924,15 @@ Layout contracts (slot-typed layouts, ADR 0079)
   and fix screens by following the enforcement messages).
 - The "standard" contract governs the body slot of each archetype:
       HubPage      -> HubCard only (a card grid landing)
-      OverviewPage -> DataView / ResourceList / ModuleNav / Stack + the framework
-                      states (EmptyState / ErrorState / LoadingState / Alert) and
-                      ConfirmDialog
-      DetailPage   -> DetailList / Stack / Tabs / ModuleNav / DataView + the same
-                      framework states and ConfirmDialog
+      OverviewPage -> DataView / ResourceList / ModuleNav / Stack / Card + the
+                      framework states (EmptyState / ErrorState / LoadingState /
+                      Alert) and ConfirmDialog
+      DetailPage   -> DetailList / Stack / Tabs / ModuleNav / DataView / Card + the
+                      same framework states and ConfirmDialog
   The plain Page stays unconstrained — it is the sanctioned home for a bespoke screen.
+  Only the slot's DIRECT children are governed: an allowed container's own subtree
+  (a Card's body, a Stack's rows) is yours to compose — nesting content inside an
+  allowed component is sanctioned composition, not an escape.
 - Enforcement (never lint-only):
       build time  -> the terp/layout-contract ESLint rule checks the static JSX
                      children of each governed archetype (npm --prefix frontend run lint)
@@ -2088,7 +2091,12 @@ def _build_parser() -> argparse.ArgumentParser:
     seed_parser.add_argument(
         "--seed",
         default="app.seed:seed",
-        help="Dotted module:attribute of the seed callable (default: app.seed:seed)",
+        help=(
+            "Dotted module:attribute of the seed callable(session) to run — a stage "
+            "selector, not just a location override: point it at any callable the app "
+            "exposes (e.g. app.demo:install) to run only that stage "
+            "(default: app.seed:seed)"
+        ),
     )
 
     docker_parser = subcommands.add_parser(

@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import type { components } from "@terpjs/contract";
@@ -12,7 +12,8 @@ import { DataView, HttpDataViewRepository } from "../dataview";
 import type { DataViewColumn } from "../dataview";
 import { DetailList, Stack } from "../layout";
 import { PageActions } from "../PageActions";
-import { useResource } from "../useResource";
+import { useRouteParam } from "../router";
+import { useRecord } from "../useRecord";
 import { useToast } from "../toast";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
@@ -39,8 +40,7 @@ const SEARCH_DEBOUNCE_MS = 250;
  * backend resolved for them.
  */
 export function GroupDetail() {
-  const params = useParams({ strict: false }) as { groupId?: string };
-  const groupId = params.groupId ?? "";
+  const groupId = useRouteParam("groupId");
   const client = useTerpClient();
   const navigate = useNavigate();
   const toast = useToast();
@@ -75,16 +75,14 @@ export function GroupDetail() {
     setRevoking(false);
   }, [groupId]);
 
-  const group = useResource<GroupRead>(
+  const group = useRecord<GroupRead>(
     {
-      list: async () => {
-        const row = unwrap(
+      get: async () =>
+        unwrap(
           await client.GET("/api/v1/groups/{group_id}", {
             params: { path: { group_id: groupId } },
           }),
-        );
-        return [row];
-      },
+        ),
     },
     // Reload when navigating between group detail pages in place.
     [groupId],
@@ -306,7 +304,7 @@ export function GroupDetail() {
     }
   }
 
-  const record = group.items[0];
+  const record = group.item;
   return (
     <DetailPage
       title={record?.name ?? strings.adminGroups}
@@ -317,7 +315,7 @@ export function GroupDetail() {
       renderLink={renderAdminCrumb}
       isLoading={group.loading}
       error={group.cause ?? group.error ?? undefined}
-      actions={record !== undefined ? (
+      actions={record !== null ? (
         <PageActions
           overflow={[
             {
@@ -331,7 +329,7 @@ export function GroupDetail() {
       ) : undefined}
     >
       <Stack gap={6}>
-        {record !== undefined && (
+        {record !== null && (
           <DetailList
             items={[
               { label: strings.description, value: record.description || "-" },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ApiError, unwrap } from "./unwrap";
+import { ApiError, unwrap, unwrapOptional } from "./unwrap";
 
 function response(status: number): Response {
   return new Response(null, { status });
@@ -63,5 +63,36 @@ describe("unwrap", () => {
     expect(apiError.status).toBe(409);
     expect(apiError.requestId).toBe("req-1");
     expect(apiError.message).toBe("Row changed.");
+  });
+});
+
+describe("unwrapOptional", () => {
+  it("returns the data on a 2xx result, like unwrap", () => {
+    expect(unwrapOptional({ data: { id: "s1" }, response: response(200) })).toEqual({
+      id: "s1",
+    });
+  });
+
+  it("returns null on a 404 — absence is a normal state, not a failure", () => {
+    expect(
+      unwrapOptional({
+        error: { code: "not_found", detail: "No snapshot published yet." },
+        response: response(404),
+      }),
+    ).toBeNull();
+  });
+
+  it("throws the same ApiError as unwrap for every other failure", () => {
+    let caught: unknown;
+    try {
+      unwrapOptional({
+        error: { code: "permission_denied", detail: "You do not have permission." },
+        response: response(403),
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ApiError);
+    expect((caught as ApiError).status).toBe(403);
   });
 });
