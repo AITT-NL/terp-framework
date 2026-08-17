@@ -74,6 +74,7 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
     ids = {check.id for check in PROFILES["full"]}
     assert ids == {
         "platform-install",
+        "env-seams",
         "architecture",
         "backend-tests",
         "appsec-baseline",
@@ -117,6 +118,38 @@ def test_the_template_ci_runs_the_platform_install_check() -> None:
         "the generated CI must verify the platform install before running the "
         "gate — otherwise CI blesses a combination that was never released"
     )
+
+
+def test_the_template_ci_runs_the_env_seams_check() -> None:
+    """Same equivalence, for the env-seam half.
+
+    The check reads environment.schema.json and the compose files as data, so it costs
+    CI nothing and needs no daemon — and CI is where it matters most: a variable whose
+    declaration is dead produces no failure until something uses the value, which is
+    typically in a deployed environment rather than on the branch that broke it."""
+    workflow = (
+        _REPO_ROOT / "template" / "project" / ".github" / "workflows" / "ci.yml.jinja"
+    ).read_text(encoding="utf-8")
+    assert "--only env-seams" in workflow
+
+
+def test_an_adoption_hint_is_readable_in_text_mode(tmp_path: pathlib.Path) -> None:
+    """A check that passes by SKIPPING has to say so where people look.
+
+    `routes-drift` passes on an app that has not adopted route types (ADR 0092) and
+    carried the "add the routes script" hint only in `--format json`'s output_tail — an
+    opt-in announced in machine mode does not get adopted. The `note:` prefix marks
+    output worth reading on a PASS; everything else stays quiet, because a passing
+    check's output is otherwise a whole test log.
+    """
+    from terp.cli.verify import NOTE_PREFIX, _run_routes_drift
+
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "frontend" / "package.json").write_text('{"scripts": {}}', encoding="utf-8")
+    exit_code, output = _run_routes_drift(tmp_path)
+    assert exit_code == 0, "an unadopted generator must not fail the gate"
+    assert output.startswith(NOTE_PREFIX)
+    assert "terp-routes" in output
 
 
 def test_a_mixed_install_fails_the_gate(

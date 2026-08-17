@@ -15,6 +15,12 @@ jobs:
       # supported combination — so every verdict below would be about a platform that was
       # never released, in either direction. Refuse before spending the gate on it.
       - run: uv run terp verify --profile quick --only platform-install
+      # Which seam actually supplies each declared variable. Compose resolves
+      # `environment:` over `env_file:`, so a variable named in both is taken from the
+      # developer's .env and the .app.env Studio renders never arrives — in every
+      # environment, and invisibly, because nothing fails until the value is used. Reads
+      # environment.schema.json and the compose files as data: no daemon, no containers.
+      - run: uv run terp verify --profile quick --only env-seams
       # The architecture gate is the source of truth (== `terp check`).
       - run: uv run pytest
       # The delegated generic AppSec baseline (ADR 0085): ruff bandit (`S`) covers the

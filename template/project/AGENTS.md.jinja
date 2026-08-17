@@ -52,9 +52,10 @@ project's Python live in the local `.venv`, not on the global PATH — a bare `t
 or `python` will not resolve.
 
 - **`uv run terp guide`** / **`uv run terp guide <topic>`** — the authoring guide.
-  Topics: access, capability, changelog, dataview, dependencies, events, files, forms,
-  frontend, idempotency, jobs, layouts, migrations, module, outbox, ownership, passwords,
-  permissions, policy, realtime, rules, service, soft-delete, tenancy, testing.
+  Topics: access, capability, changelog, dataview, dependencies, environment, events,
+  files, forms, frontend, idempotency, jobs, layouts, migrations, module, outbox,
+  ownership, passwords, permissions, policy, realtime, rules, service, soft-delete,
+  tenancy, testing.
 - **`uv run terp --version`** — which platform this app is on, and a named warning
   when the lockstep pins disagree.
 - **`uv run terp upgrade --check`** — whether a newer release covers the *whole*
@@ -95,9 +96,27 @@ variable, update the manifest in the same change:
   `BACKEND_CORS_ORIGINS`; never put frontend build-time `VITE_*` values here.
 - Mark tokens, passwords, API keys and client secrets with `"format": "secret"`.
   Never write secret values into the manifest, `.env`, source, tests, prompts or logs.
-- Do not create/edit `.app.env`; Studio owns environment-specific values and renders it.
+- **Never also list a declared variable in a compose `environment:` block.** Compose
+  resolves `environment:` over `env_file:`, so the `.app.env` value would never reach
+  the container — in every environment, including one with no `.env` at all, where
+  `${VAR:-}` still wins with an empty string. One owner per variable: either the app
+  declares it (`.app.env` is its seam) or compose owns it, never both.
+  `uv run terp verify --only env-seams` fails on that overlap.
+- Set `"resolvedBy"` on any variable holding an address — it cannot be inferred from
+  the name or type, and getting it wrong fails at run time far from the cause:
+  - `container` — a service on the compose network dials it. Use the **service name**
+    (`http://api:8000`). A loopback address here is the container itself.
+  - `host` — your shell dials it, outside the network (`http://127.0.0.1:8000`).
+  - `browser` — the user's browser is sent there; a host address is correct
+    (this is why `OIDC_REDIRECT_URI` is a `.env` forward and not a declaration).
+- Do not create/edit `.app.env` in a Studio-managed environment; Studio owns
+  environment-specific values and renders it there. Locally, `cp .app.env.example
+  .app.env` — running the inner loop on the deployed seam is how divergence surfaces
+  here rather than in production.
 - Add concise titles/descriptions; use `required` only when the app cannot operate
   without the variable. Validate the JSON and run the relevant gate after editing.
+
+Full explanation of the two seams and their precedence: `uv run terp guide environment`.
 
 ## Definition of done
 
