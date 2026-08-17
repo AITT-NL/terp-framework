@@ -22,34 +22,98 @@ const here = (name) => fileURLToPath(new URL(name, import.meta.url));
 const manifest = JSON.parse(fs.readFileSync(here("./tokens.manifest.json"), "utf8"));
 const tokensCss = fs.readFileSync(here("./tokens.css"), "utf8");
 const pairsSource = JSON.parse(fs.readFileSync(here("../token-pairs.json"), "utf8"));
+const registry = JSON.parse(fs.readFileSync(here("../themes.json"), "utf8"));
 
 const rules = parseRules(tokensCss);
 const declarationsFor = (selector) =>
   rules.find((rule) => rule.selector === selector).declarations;
-const light = declarationsFor(":root");
-const dark = declarationsFor("[data-theme='dark']");
+const base = declarationsFor(":root");
+
+/** Each theme's own block: the base on `:root`, every other on its attribute selector. */
+const blocks = new Map(
+  registry.themes.map((theme) => [
+    theme.name,
+    theme.name === registry.base ? base : declarationsFor(`[data-theme='${theme.name}']`),
+  ]),
+);
+
+const tokenByName = new Map(manifest.tokens.map((token) => [token.name, token]));
 
 describe("token manifest", () => {
-  it("names exactly the tokens the light root declares", () => {
+  it("names exactly the tokens the base root declares", () => {
     // Either direction is a real failure: a token missing from the manifest is invisible to
     // every tool that reads it, and a token in the manifest that the sheet does not declare
     // is a control that would silently do nothing.
     const manifestNames = manifest.tokens.map((token) => token.name).sort();
-    expect(manifestNames).toEqual([...light.keys()].sort());
+    expect(manifestNames).toEqual([...base.keys()].sort());
   });
 
-  it("records the light value each token actually resolves to", () => {
-    for (const token of manifest.tokens) {
-      expect(token.light, token.name).toBe(light.get(token.name));
+  it("publishes the theme list the sheet was generated from", () => {
+    // This is the list a consumer builds a theme picker from, and the set of keys a `values`
+    // map is allowed to use. A manifest naming a theme the sheet has no block for would hand
+    // a tool a theme it cannot apply.
+    expect(manifest.base).toBe(registry.base);
+    expect(manifest.systemDark).toBe(registry.systemDark);
+    expect(manifest.themes).toEqual(
+      registry.themes.map(({ name, label, appearance, description }) => ({
+        name,
+        label,
+        appearance,
+        description,
+      })),
+    );
+    for (const theme of manifest.themes) {
+      expect(blocks.has(theme.name), `${theme.name} has no block in the sheet`).toBe(true);
     }
   });
 
-  it("marks a token themeable exactly when the dark block overrides it", () => {
+  it("records the value each token resolves to, in every theme", () => {
+    // `values` carries only the themes that declare the token; a theme absent from it inherits
+    // the base value. That is the cascade stated as data, so both halves are checked: a
+    // recorded value must match the theme's own block, and an omission must mean the block
+    // really does not declare it.
+    for (const token of manifest.tokens) {
+      for (const [name, block] of blocks) {
+        const recorded = token.values[name];
+        if (recorded === undefined) {
+          expect(
+            block.has(token.name),
+            `${token.name} is omitted for ${name} but ${name} declares it`,
+          ).toBe(false);
+        } else {
+          expect(recorded, `${token.name} in ${name}`).toBe(block.get(token.name));
+        }
+      }
+      // The base value is never omitted: it is what every other theme falls back to.
+      expect(token.values[registry.base], `${token.name} base value`).toBe(
+        base.get(token.name),
+      );
+      expect(Object.keys(token.values)[0], `${token.name} value order`).toBe(registry.base);
+    }
+  });
+
+  it("names no theme in a values map that the theme list omits", () => {
+    const known = new Set(manifest.themes.map((theme) => theme.name));
+    for (const token of manifest.tokens) {
+      expect(
+        Object.keys(token.values).filter((name) => !known.has(name)),
+        token.name,
+      ).toEqual([]);
+    }
+  });
+
+  it("marks a token themeable exactly when some non-base theme overrides it", () => {
     // This is the flag an editor uses to decide whether to offer a per-theme control, so
     // getting it wrong means either a missing control or one that has no effect.
+    const overlays = registry.themes.filter((theme) => theme.name !== registry.base);
     for (const token of manifest.tokens) {
-      expect(token.themeable, `${token.name} themeable`).toBe(dark.has(token.name));
-      expect(token.dark, `${token.name} dark value`).toBe(dark.get(token.name) ?? null);
+      const overridden = overlays.some((theme) => blocks.get(theme.name).has(token.name));
+      expect(token.themeable, `${token.name} themeable`).toBe(overridden);
+      // Geometry is declared once and inherited, so a non-themeable token carries exactly one
+      // value. A themeable one carries every theme's, because each theme is a full colour set.
+      expect(Object.keys(token.values), `${token.name} values`).toHaveLength(
+        overridden ? registry.themes.length : 1,
+      );
     }
   });
 
@@ -72,8 +136,8 @@ describe("token manifest", () => {
 
   it("references only tokens that exist, in both directions of every pairing", () => {
     for (const pair of manifest.textPairs) {
-      expect(light.has(pair.fg), `${pair.id} fg ${pair.fg}`).toBe(true);
-      expect(light.has(pair.bg), `${pair.id} bg ${pair.bg}`).toBe(true);
+      expect(tokenByName.has(pair.fg), `${pair.id} fg ${pair.fg}`).toBe(true);
+      expect(tokenByName.has(pair.bg), `${pair.id} bg ${pair.bg}`).toBe(true);
     }
   });
 

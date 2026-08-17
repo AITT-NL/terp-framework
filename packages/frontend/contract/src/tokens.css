@@ -5,7 +5,7 @@
 :root {
   /* Opts native chrome (scrollbars, the <select> option popup, form controls,
      text-field carets) into the light palette so it never renders as foreign
-     OS-light chrome. The dark blocks below flip it to dark. */
+     OS-dark chrome. Each theme block below sets its own. */
   color-scheme: light;
   --color-brand-primary: #2563eb;
   --color-brand-primary-contrast: #ffffff;
@@ -120,7 +120,8 @@
   --font-letter-spacing-wide: 0.08em;
 }
 
-/* Dark theme: an explicit user/app choice via <html data-theme="dark">. */
+/* Dark: an explicit choice via <html data-theme="dark">.
+   The slate-neutral dark counterpart to light, and the theme the OS dark preference selects. */
 [data-theme='dark'] {
   color-scheme: dark;
   --color-brand-primary: #3b82f6;
@@ -173,9 +174,171 @@
   --color-chart-5: #f472b6;
 }
 
-/* Dark theme: the OS preference, unless the app pinned light explicitly. */
+/* Midnight: an explicit choice via <html data-theme="midnight">.
+   A near-black dark for low light and OLED displays: cooler neutrals, a deeper canvas than dark, and a deeper accent that holds a white label at AA. */
+[data-theme='midnight'] {
+  color-scheme: dark;
+  --color-brand-primary: #1f6feb;
+  --color-brand-primary-contrast: #ffffff;
+  --color-brand-primary-hover: #388bfd;
+  --color-brand-primary-soft: #0c2d6b;
+  --color-neutral-0: #0d1117;
+  --color-neutral-50: #010409;
+  --color-neutral-100: #161b22;
+  --color-neutral-200: #21262d;
+  --color-neutral-300: #30363d;
+  --color-neutral-400: #484f58;
+  --color-neutral-500: #6e7681;
+  --color-neutral-600: #9aa4b2;
+  --color-neutral-700: #c9d1d9;
+  --color-neutral-800: #e6edf3;
+  --color-neutral-900: #f0f6fc;
+  --color-status-success: #3fb950;
+  --color-status-success-soft: #0c2417;
+  --color-status-warning: #d29922;
+  --color-status-warning-soft: #271a06;
+  --color-status-danger: #f85149;
+  --color-status-danger-soft: #2b0d0d;
+  --color-status-info: #58a6ff;
+  --color-status-info-soft: #0b2545;
+  --color-focus-ring: rgba(56,139,253,0.5);
+  --color-bg-canvas: #010409;
+  --color-bg-surface: #0d1117;
+  --color-bg-raised: #161b22;
+  --color-bg-inset: #010409;
+  --color-fg-default: #f0f6fc;
+  --color-fg-muted: #9aa4b2;
+  --color-fg-subtle: #8b949e;
+  --color-fg-on-brand: #ffffff;
+  --color-border-default: #30363d;
+  --color-border-strong: #484f58;
+  --color-border-subtle: #21262d;
+  --color-interactive-hover: #161b22;
+  --color-interactive-active: #21262d;
+  --color-interactive-selected: #0c2d6b;
+  --color-sidebar-bg: #0d1117;
+  --color-sidebar-fg: #f0f6fc;
+  --color-sidebar-muted: #9aa4b2;
+  --color-sidebar-accent: #21262d;
+  --color-sidebar-border: #21262d;
+  --color-chart-1: #58a6ff;
+  --color-chart-2: #3fb950;
+  --color-chart-3: #d29922;
+  --color-chart-4: #bc8cff;
+  --color-chart-5: #f778ba;
+}
+
+/* Twilight: an explicit choice via <html data-theme="twilight">.
+   A warm violet-tinted dark. Its neutrals sit in a different hue family from dark and midnight, which is what proves a theme is a palette rather than a lightness setting. */
+[data-theme='twilight'] {
+  color-scheme: dark;
+  --color-brand-primary: #7c5cd6;
+  --color-brand-primary-contrast: #ffffff;
+  --color-brand-primary-hover: #9375e6;
+  --color-brand-primary-soft: #332a5c;
+  --color-neutral-0: #241f31;
+  --color-neutral-50: #1a1622;
+  --color-neutral-100: #2d2740;
+  --color-neutral-200: #3a3350;
+  --color-neutral-300: #4d4468;
+  --color-neutral-400: #6b5f8a;
+  --color-neutral-500: #8f82ab;
+  --color-neutral-600: #b9aecd;
+  --color-neutral-700: #d8d0e6;
+  --color-neutral-800: #ece7f3;
+  --color-neutral-900: #f6f3fa;
+  --color-status-success: #5ed49a;
+  --color-status-success-soft: #14322a;
+  --color-status-warning: #e8b04b;
+  --color-status-warning-soft: #332612;
+  --color-status-danger: #f58a92;
+  --color-status-danger-soft: #3a1a25;
+  --color-status-info: #7cb8f0;
+  --color-status-info-soft: #1a2c44;
+  --color-focus-ring: rgba(147,117,230,0.5);
+  --color-bg-canvas: #1a1622;
+  --color-bg-surface: #241f31;
+  --color-bg-raised: #2d2740;
+  --color-bg-inset: #1a1622;
+  --color-fg-default: #f6f3fa;
+  --color-fg-muted: #b9aecd;
+  --color-fg-subtle: #a294bd;
+  --color-fg-on-brand: #ffffff;
+  --color-border-default: #3a3350;
+  --color-border-strong: #4d4468;
+  --color-border-subtle: #2d2740;
+  --color-interactive-hover: #2d2740;
+  --color-interactive-active: #3a3350;
+  --color-interactive-selected: #332a5c;
+  --color-sidebar-bg: #241f31;
+  --color-sidebar-fg: #f6f3fa;
+  --color-sidebar-muted: #b9aecd;
+  --color-sidebar-accent: #3a3350;
+  --color-sidebar-border: #3a3350;
+  --color-chart-1: #9375e6;
+  --color-chart-2: #5ed49a;
+  --color-chart-3: #e8b04b;
+  --color-chart-4: #7cb8f0;
+  --color-chart-5: #f58ac8;
+}
+
+/* High contrast: an explicit choice via <html data-theme="contrast">.
+   A high-contrast light theme: white surfaces, near-black text, darkened accents and visible borders. Every declared text pairing reaches AAA, not just AA. Not wired to `prefers-contrast: more` — that needs a dark high-contrast counterpart first, or a user who asked for both more contrast and dark would be handed a light theme. */
+[data-theme='contrast'] {
+  color-scheme: light;
+  --color-brand-primary: #0842a0;
+  --color-brand-primary-contrast: #ffffff;
+  --color-brand-primary-hover: #05275a;
+  --color-brand-primary-soft: #e8f0fe;
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #ffffff;
+  --color-neutral-100: #f2f2f2;
+  --color-neutral-200: #595959;
+  --color-neutral-300: #404040;
+  --color-neutral-400: #303030;
+  --color-neutral-500: #1f1f1f;
+  --color-neutral-600: #141414;
+  --color-neutral-700: #0a0a0a;
+  --color-neutral-800: #000000;
+  --color-neutral-900: #000000;
+  --color-status-success: #0a5c2b;
+  --color-status-success-soft: #e6f4ea;
+  --color-status-warning: #6b3800;
+  --color-status-warning-soft: #fdf1e0;
+  --color-status-danger: #96000c;
+  --color-status-danger-soft: #fce8e8;
+  --color-status-info: #0b4a8f;
+  --color-status-info-soft: #e5f0fb;
+  --color-focus-ring: rgba(8,66,160,0.7);
+  --color-bg-canvas: #ffffff;
+  --color-bg-surface: #ffffff;
+  --color-bg-raised: #ffffff;
+  --color-bg-inset: #f2f2f2;
+  --color-fg-default: #000000;
+  --color-fg-muted: #141414;
+  --color-fg-subtle: #1f1f1f;
+  --color-fg-on-brand: #ffffff;
+  --color-border-default: #595959;
+  --color-border-strong: #000000;
+  --color-border-subtle: #767676;
+  --color-interactive-hover: #f2f2f2;
+  --color-interactive-active: #e0e0e0;
+  --color-interactive-selected: #e8f0fe;
+  --color-sidebar-bg: #ffffff;
+  --color-sidebar-fg: #000000;
+  --color-sidebar-muted: #141414;
+  --color-sidebar-accent: #e8f0fe;
+  --color-sidebar-border: #595959;
+  --color-chart-1: #0842a0;
+  --color-chart-2: #00564a;
+  --color-chart-3: #6b3800;
+  --color-chart-4: #4b1f79;
+  --color-chart-5: #8c0a4d;
+}
+
+/* Dark: the OS preference, unless the app pinned any theme explicitly. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
+  :root:not([data-theme]) {
     color-scheme: dark;
     --color-brand-primary: #3b82f6;
     --color-brand-primary-contrast: #ffffff;

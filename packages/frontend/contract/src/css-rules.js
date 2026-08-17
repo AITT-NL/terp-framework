@@ -14,8 +14,14 @@
  * `@import`, `@layer a, b;` — declares no block and is skipped; without that, its trailing
  * `;` would let the scan run on to the *next* rule's brace and silently merge two rules.
  *
+ * Each rule carries its custom properties as `declarations` and *every* declaration —
+ * standard properties included — as `properties`. The two are separate because the token
+ * gates want only custom properties nearly everywhere (a theme block is a set of tokens),
+ * and exactly one gate wants a standard one: `color-scheme`, which every theme block must
+ * declare and which is invisible to a custom-property reader.
+ *
  * @param {string} css
- * @returns {{ selector: string, declarations: Map<string, string> }[]}
+ * @returns {{ selector: string, declarations: Map<string, string>, properties: Map<string, string> }[]}
  */
 export function parseRules(css) {
   const source = stripComments(css);
@@ -53,7 +59,11 @@ export function parseRules(css) {
     if (selector.startsWith("@")) {
       rules.push(...parseRules(body));
     } else if (selector) {
-      rules.push({ selector, declarations: parseDeclarations(body) });
+      rules.push({
+        selector,
+        declarations: parseDeclarations(body),
+        properties: parseProperties(body),
+      });
     }
     index = cursor;
   }
@@ -72,6 +82,23 @@ export function parseDeclarations(body) {
     declarations.set(match[1], match[2].trim());
   }
   return declarations;
+}
+
+/**
+ * Every declaration directly in a rule body, standard properties included, in source order.
+ *
+ * Only `color-scheme` is read through this today, but a reader that special-cased that one
+ * name would quietly stop working the moment a second standard property mattered.
+ *
+ * @param {string} body
+ * @returns {Map<string, string>}
+ */
+export function parseProperties(body) {
+  const properties = new Map();
+  for (const match of body.matchAll(/([a-zA-Z-][\w-]*)\s*:\s*([^;]+);/g)) {
+    properties.set(match[1], match[2].trim());
+  }
+  return properties;
 }
 
 /** `css` with `/* … *\/` comments removed. */

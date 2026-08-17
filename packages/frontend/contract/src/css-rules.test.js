@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDeclarations, parseRules, stripComments } from "./css-rules.js";
+import {
+  parseDeclarations,
+  parseProperties,
+  parseRules,
+  stripComments,
+} from "./css-rules.js";
 
 // The reader the two token gates are built on. Every case here is a shape that made an
 // earlier, naive version of this code assert about a fragment of a rule while still
@@ -58,6 +63,32 @@ describe("parseRules", () => {
   it("returns nothing for a sheet with no rules", () => {
     expect(parseRules("")).toEqual([]);
     expect(parseRules("/* just a comment */")).toEqual([]);
+  });
+});
+
+describe("parseProperties", () => {
+  it("reads standard properties alongside custom ones", () => {
+    // `color-scheme` is the reason this exists: every theme block must declare it, and a
+    // custom-property reader cannot see it, so the gate that checks it would pass vacuously.
+    const properties = parseProperties("color-scheme: dark; --a: 1;");
+    expect([...properties]).toEqual([
+      ["color-scheme", "dark"],
+      ["--a", "1"],
+    ]);
+  });
+
+  it("does not read a property name out of a value", () => {
+    // A value containing a colon — a `url(https://…)`, a media condition — would otherwise
+    // register as a second property and the caller would be reading noise.
+    expect([...parseProperties("background: url(https://x/y.png);").keys()]).toEqual([
+      "background",
+    ]);
+  });
+
+  it("is exposed on every rule the reader returns", () => {
+    const [rule] = parseRules(":root { color-scheme: light; --a: 1; }");
+    expect([...rule.declarations.keys()]).toEqual(["--a"]);
+    expect(rule.properties.get("color-scheme")).toBe("light");
   });
 });
 

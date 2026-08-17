@@ -1,0 +1,43 @@
+{
+  "$comment": "The shipped themes, as data. `scripts/build-tokens.mjs` compiles one stylesheet block per entry and publishes the same list in the token manifest; `src/tokens.themes.test.js` holds every entry to completeness and `src/tokens.contrast.test.js` holds every entry to WCAG AA, or to `minimumContrast` where an entry sets a higher floor. Registration is explicit rather than a glob over `tokens.*.json`, because four things about a theme cannot be inferred from its file: which theme the OS dark preference selects, whether a theme reads as light or dark to native chrome, what contrast it promises, and what to call it. A theme is added by writing its overlay and adding it here — nothing else, and the gates refuse it if the overlay is incomplete or illegible.",
+  "base": "light",
+  "systemDark": "dark",
+  "themes": [
+    {
+      "name": "light",
+      "label": "Light",
+      "appearance": "light",
+      "source": "tokens.json",
+      "description": "The default. Carries every token, including the geometry the other themes inherit."
+    },
+    {
+      "name": "dark",
+      "label": "Dark",
+      "appearance": "dark",
+      "source": "tokens.dark.json",
+      "description": "The slate-neutral dark counterpart to light, and the theme the OS dark preference selects."
+    },
+    {
+      "name": "midnight",
+      "label": "Midnight",
+      "appearance": "dark",
+      "source": "tokens.midnight.json",
+      "description": "A near-black dark for low light and OLED displays: cooler neutrals, a deeper canvas than dark, and a deeper accent that holds a white label at AA."
+    },
+    {
+      "name": "twilight",
+      "label": "Twilight",
+      "appearance": "dark",
+      "source": "tokens.twilight.json",
+      "description": "A warm violet-tinted dark. Its neutrals sit in a different hue family from dark and midnight, which is what proves a theme is a palette rather than a lightness setting."
+    },
+    {
+      "name": "contrast",
+      "label": "High contrast",
+      "appearance": "light",
+      "source": "tokens.contrast.json",
+      "minimumContrast": 7,
+      "description": "A high-contrast light theme: white surfaces, near-black text, darkened accents and visible borders. Every declared text pairing reaches AAA, not just AA. Not wired to `prefers-contrast: more` — that needs a dark high-contrast counterpart first, or a user who asked for both more contrast and dark would be handed a light theme."
+    }
+  ]
+}

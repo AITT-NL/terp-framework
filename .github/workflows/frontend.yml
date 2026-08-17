@@ -46,7 +46,7 @@ jobs:
           npm run -w @terpjs/contract generate
           git diff --exit-code -- packages/frontend/contract/src/schema.d.ts
 
-      - name: Rebuild design tokens and fail on drift from tokens.json
+      - name: Rebuild design tokens and fail on drift from the theme sources
         run: |
           npm run -w @terpjs/contract tokens
           git diff --exit-code -- packages/frontend/contract/src/tokens.css packages/frontend/contract/src/tokens.manifest.json

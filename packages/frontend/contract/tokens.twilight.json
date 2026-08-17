@@ -1,0 +1,70 @@
+{
+  "color": {
+    "brand": {
+      "primary": { "value": "#7c5cd6" },
+      "primaryContrast": { "value": "#ffffff" },
+      "primaryHover": { "value": "#9375e6" },
+      "primarySoft": { "value": "#332a5c" }
+    },
+    "neutral": {
+      "0": { "value": "#241f31" },
+      "50": { "value": "#1a1622" },
+      "100": { "value": "#2d2740" },
+      "200": { "value": "#3a3350" },
+      "300": { "value": "#4d4468" },
+      "400": { "value": "#6b5f8a" },
+      "500": { "value": "#8f82ab" },
+      "600": { "value": "#b9aecd" },
+      "700": { "value": "#d8d0e6" },
+      "800": { "value": "#ece7f3" },
+      "900": { "value": "#f6f3fa" }
+    },
+    "status": {
+      "success": { "value": "#5ed49a" },
+      "successSoft": { "value": "#14322a" },
+      "warning": { "value": "#e8b04b" },
+      "warningSoft": { "value": "#332612" },
+      "danger": { "value": "#f58a92" },
+      "dangerSoft": { "value": "#3a1a25" },
+      "info": { "value": "#7cb8f0" },
+      "infoSoft": { "value": "#1a2c44" }
+    },
+    "focusRing": { "value": "rgba(147,117,230,0.5)" },
+    "bg": {
+      "canvas": { "value": "#1a1622" },
+      "surface": { "value": "#241f31" },
+      "raised": { "value": "#2d2740" },
+      "inset": { "value": "#1a1622" }
+    },
+    "fg": {
+      "default": { "value": "#f6f3fa" },
+      "muted": { "value": "#b9aecd" },
+      "subtle": { "value": "#a294bd" },
+      "onBrand": { "value": "#ffffff" }
+    },
+    "border": {
+      "default": { "value": "#3a3350" },
+      "strong": { "value": "#4d4468" },
+      "subtle": { "value": "#2d2740" }
+    },
+    "interactive": {
+      "hover": { "value": "#2d2740" },
+      "active": { "value": "#3a3350" },
+      "selected": { "value": "#332a5c" }
+    },
+    "sidebar": {
+      "bg": { "value": "#241f31" },
+      "fg": { "value": "#f6f3fa" },
+      "muted": { "value": "#b9aecd" },
+      "accent": { "value": "#3a3350" },
+      "border": { "value": "#3a3350" }
+    },
+    "chart": {
+      "1": { "value": "#9375e6" },
+      "2": { "value": "#5ed49a" },
+      "3": { "value": "#e8b04b" },
+      "4": { "value": "#7cb8f0" },
+      "5": { "value": "#f58ac8" }
+    }
+  }
+}
