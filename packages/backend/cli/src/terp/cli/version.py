@@ -18,6 +18,7 @@ called out by name, with the fix.
 from __future__ import annotations
 
 import json
+import pathlib
 import re
 import subprocess
 from importlib import metadata
@@ -184,8 +185,73 @@ def _version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) if part.isdigit() else 0 for part in re.split(r"[._-]", version))
 
 
-def render_upgrade_check() -> str:
+#: Copier writes the template ref it rendered from into this file at scaffold time.
+_ANSWERS_FILES = (".copier-answers.yml", ".copier-answers.yaml")
+
+
+def scaffold_ref(root: pathlib.Path) -> str | None:
+    """The template ref this app's scaffolding was rendered from, if it records one.
+
+    Read with a line scan rather than a YAML parser to keep this module dependency-free
+    (the file is generated, and ``_commit`` is a plain scalar). ``None`` for an app that
+    was never scaffolded from the template.
+    """
+    for name in _ANSWERS_FILES:
+        answers = root / name
+        try:
+            text = answers.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            if line.startswith("_commit:"):
+                return line.split(":", 1)[1].strip().strip("'\"") or None
+    return None
+
+
+def _scaffold_lines(root: pathlib.Path, platform: str) -> list[str]:
+    """Report how far the app's *scaffolding* is behind its *packages*.
+
+    The two move independently and only one of them is gated. Package drift already fails
+    closed (``terp verify --only platform-install`` reads every ``@terpjs/*`` manifest and
+    its installed ``node_modules``); the template ref is checked by nothing, so an app can
+    run current libraries against scaffolding many releases old and stay green throughout.
+    That is not hypothetical: the observable symptom is a stale ``AGENTS.md`` briefing every
+    agent from a narrower layout contract than the one actually shipping, and workarounds
+    for restrictions a later release lifted.
+
+    Deliberately a report and not a gate. Scaffolding legitimately lags — an app need not
+    re-render on every release — so a failure on any gap would be noise. This says how far
+    behind it is and leaves the judgement where the rest of this command leaves it.
+    """
+    ref = scaffold_ref(root)
+    if ref is None:
+        return []
+    match = re.fullmatch(r"v?(\d+(?:\.\d+)*)", ref)
+    if match is None:
+        # A raw commit sha, or a branch: report it without inventing a comparison.
+        return [
+            "",
+            f"Scaffolding: rendered from template {ref} (not a release tag, so how far "
+            "behind\nit is cannot be read from the ref alone).",
+        ]
+    rendered = match.group(1)
+    if _version_key(rendered) >= _version_key(platform):
+        return ["", f"Scaffolding: rendered from template {ref}, level with the packages."]
+    return [
+        "",
+        f"Scaffolding: rendered from template {ref}, while the packages are on "
+        f"{platform}.",
+        "Files the template owns — main.tsx, theme.css, index.html, layout-contract.json,",
+        "AGENTS.md — are still the older release's. Nothing gates this, so it stays green;",
+        "a stale AGENTS.md in particular briefs every agent from the wrong rulebook.",
+        "  Re-render:  copier update  (or the Studio's upgrade flow, which records the",
+        "              answers file it needs).",
+    ]
+
+
+def render_upgrade_check(root: pathlib.Path | None = None) -> str:
     """Report whether the whole lockstep set can move, and to what."""
+    project_root = pathlib.Path(".") if root is None else root
     installed = installed_terp_versions()
     current = platform_version(installed)
     if not installed or current is None:
@@ -205,7 +271,12 @@ def render_upgrade_check() -> str:
 
     upgrades = _terp_upgrades(packages or [])
     if not upgrades:
-        return f"Up to date: all {len(installed)} terp-* packages are on {current}."
+        # The most valuable place to say this: packages current, so nothing else in the
+        # toolchain will mention the scaffolding again.
+        return "\n".join(
+            [f"Up to date: all {len(installed)} terp-* packages are on {current}."]
+            + _scaffold_lines(project_root, current)
+        )
 
     # The lockstep question: after this upgrade, does every package land on the
     # same version? A package whose newest release is older than the target is
@@ -254,4 +325,5 @@ def render_upgrade_check() -> str:
         "release did not change something this app should adopt — step 1 is the only",
         "thing that answers that.",
     ]
+    lines += _scaffold_lines(project_root, target)
     return "\n".join(lines)

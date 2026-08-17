@@ -256,6 +256,65 @@ def test_the_check_reads_uv_rather_than_reaching_the_index_itself() -> None:
         assert f"import {networking}" not in source
 
 
+def _answers(root: pathlib.Path, commit: str) -> pathlib.Path:
+    """An app root whose copier answers record ``commit`` as the rendered template."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / ".copier-answers.yml").write_text(
+        f"_commit: {commit}\n_src_path: /opt/terp/template\nproject_name: Demo\n",
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_scaffolding_behind_the_packages_is_reported(tmp_path: pathlib.Path) -> None:
+    """The one drift nothing else catches.
+
+    Package drift already fails closed (``verify --only platform-install`` reads every
+    ``@terpjs/*`` manifest and its installed ``node_modules``). The template ref is checked
+    by nothing, so an app runs current libraries against old scaffolding and stays green —
+    with a stale ``AGENTS.md`` briefing every agent from a superseded layout contract.
+    """
+    lines = version_mod._scaffold_lines(_answers(tmp_path / "app", "v0.5.7"), "0.6.1")
+    report = "\n".join(lines)
+    assert "v0.5.7" in report and "0.6.1" in report
+    assert "AGENTS.md" in report
+    assert "copier update" in report
+
+
+def test_scaffolding_level_with_the_packages_says_so_and_stops(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Level is worth one line, not a recipe — an app that re-rendered wants confirmation,
+    not instructions for work it already did."""
+    lines = version_mod._scaffold_lines(_answers(tmp_path / "app", "v0.6.1"), "0.6.1")
+    assert "level with the packages" in "\n".join(lines)
+    assert "copier update" not in "\n".join(lines)
+
+
+def test_a_non_release_template_ref_is_reported_without_a_comparison(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A commit sha carries no ordering, so claiming a gap would be an invention."""
+    root = _answers(tmp_path / "app", "112a8c1c6918deadbeef")
+    report = "\n".join(version_mod._scaffold_lines(root, "0.6.1"))
+    assert "112a8c1c6918deadbeef" in report
+    assert "behind" in report
+    assert "copier update" not in report
+
+
+def test_an_app_without_copier_answers_is_not_lectured(tmp_path: pathlib.Path) -> None:
+    """An app that was never scaffolded from the template has no scaffolding to update,
+    and a report about one would be noise in every run."""
+    assert version_mod._scaffold_lines(tmp_path, "0.6.1") == []
+
+
+def test_the_scaffolding_report_never_orders_a_downgrade(tmp_path: pathlib.Path) -> None:
+    """Numeric comparison, because 0.10.0 sorts below 0.9.0 as text — the same trap
+    ``_version_key`` exists for. Scaffolding *ahead* of the packages is not drift to fix."""
+    lines = version_mod._scaffold_lines(_answers(tmp_path / "app", "v0.10.0"), "0.9.0")
+    assert "level with the packages" in "\n".join(lines)
+
+
 def test_uv_is_invoked_without_a_shell(monkeypatch: pytest.MonkeyPatch) -> None:
     """A fixed argv list, never a shell string: this runs in whatever directory
     the app lives in, and a shell would make that path an injection surface."""
