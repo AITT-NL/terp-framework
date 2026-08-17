@@ -1,5 +1,13 @@
 import "@terpjs/contract/tokens.css";
 
+import {
+  LOCALE_EN,
+  LOCALE_NL,
+  LOCALE_STORAGE_KEY,
+  LocaleProvider,
+  THEME_STORAGE_KEY,
+  ThemeProvider,
+} from "@terpjs/react-core";
 import { createRoot } from "react-dom/client";
 import type { CSSProperties } from "react";
 
@@ -34,6 +42,19 @@ function requestedTheme(): Theme {
 
 const theme = requestedTheme();
 document.documentElement.setAttribute("data-theme", theme);
+
+// `ThemeProvider` and `LocaleProvider` are mounted below so the chrome specimens
+// (`ThemeToggle`, `LanguageSwitcher`) have the context they need — both render nothing
+// without it. Both providers restore a previous choice from `localStorage`, which would
+// override the theme the URL just asked for and make a baseline depend on whatever the last
+// visit picked. Clearing the two keys first makes `defaultTheme` authoritative, so the
+// address still fully determines the render.
+try {
+  window.localStorage.removeItem(THEME_STORAGE_KEY);
+  window.localStorage.removeItem(LOCALE_STORAGE_KEY);
+} catch {
+  // A browser with storage denied is fine here: nothing was persisted to override.
+}
 
 const pageStyle: CSSProperties = {
   background: "var(--color-neutral-50)",
@@ -127,4 +148,10 @@ function Workbench() {
 
 const container = document.getElementById("root");
 if (!container) throw new Error("workbench: #root is missing from index.html");
-createRoot(container).render(<Workbench />);
+createRoot(container).render(
+  <ThemeProvider defaultTheme={theme}>
+    <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }} defaultLocale="en">
+      <Workbench />
+    </LocaleProvider>
+  </ThemeProvider>,
+);

@@ -1,0 +1,95 @@
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+import { ALL_SPECIMENS } from "../src/specimens";
+
+// Automated accessibility over every component, in both themes.
+//
+// The Terp Standard recommends an `a11y` lane — "automated accessibility checks over the
+// running app (e.g. axe)" — and nothing realised it. The design notes also promise
+// conformance proves "the same a11y landmarks"; that check did not exist either.
+//
+// Scoped per specimen, for the same reason the screenshots are: a page-wide run reports a
+// list of violations with no owner, and the first thing anyone does with an unattributed
+// list is stop reading it. One run per specimen means a violation names the component.
+//
+// Contrast is included deliberately even though `tokens.contrast.test.js` already measures
+// the token pairings. That test reads the declared pairs; axe reads what the browser actually
+// painted, including a pairing nobody declared. The two disagreeing is information.
+
+const THEMES = ["light", "dark"] as const;
+
+/** WCAG 2.0/2.1 A and AA — the levels the Standard's lane is written against. */
+const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+
+/**
+ * The one rule with known outstanding failures, and the `<theme>/<specimen>` keys that fail
+ * it today.
+ *
+ * These are the same token pairings `tokens.contrast.test.js` measures — axe reaching the
+ * same conclusion from the painted pixels is corroboration, not duplication, and it found
+ * more surfaces than the declared-pairs list does. Fixing them means changing token values,
+ * which repaints every app, so it belongs to the semantic token layer and not to the suite
+ * that found it.
+ *
+ * A ratchet in both directions: a key that stops failing must be removed, and a specimen that
+ * starts failing is refused outright. Every other rule is held at zero with no allowance at
+ * all — the list is a statement about *one* known defect class, not a general amnesty.
+ */
+const KNOWN_CONTRAST_FAILURES = new Set([
+  // The dark primary button label, at 3.68:1 — so every specimen that contains one.
+  "dark/button-variants",
+  "dark/button-with-icon",
+  "dark/empty-state",
+  "dark/page-actions",
+  // The dark tab set.
+  "dark/tabs",
+  // The light badge tones, at 3.07:1 to 4.41:1 — so every specimen that renders a Badge.
+  "light/badge-tones",
+  "light/detail-list",
+  "light/stack-directions",
+  // Light muted/danger body copy.
+  "light/error-state",
+]);
+
+test.describe("component accessibility", () => {
+  for (const theme of THEMES) {
+    test.describe(theme, () => {
+      for (const specimen of ALL_SPECIMENS) {
+        test(`${specimen.groupId}/${specimen.id}`, async ({ page }) => {
+          await page.goto(`/?theme=${theme}`);
+          const selector = `[data-specimen="${specimen.id}"]`;
+          await page.locator(selector).waitFor({ state: "visible" });
+          const results = await new AxeBuilder({ page })
+            .include(selector)
+            .withTags(TAGS)
+            .analyze();
+          const key = `${theme}/${specimen.id}`;
+          // The message carries rule id, impact and the offending markup, because a bare
+          // count tells a reader nothing about what to fix.
+          const describe = (rules: typeof results.violations) =>
+            rules.map((violation) => ({
+              rule: violation.id,
+              impact: violation.impact,
+              nodes: violation.nodes.map((node) => node.html),
+            }));
+
+          const contrast = results.violations.filter((v) => v.id === "color-contrast");
+          const everythingElse = results.violations.filter((v) => v.id !== "color-contrast");
+
+          // No allowance for anything but contrast.
+          expect(describe(everythingElse), key).toEqual([]);
+
+          if (KNOWN_CONTRAST_FAILURES.has(key)) {
+            expect(
+              describe(contrast),
+              `${key} no longer fails contrast — remove it from KNOWN_CONTRAST_FAILURES`,
+            ).not.toEqual([]);
+          } else {
+            expect(describe(contrast), key).toEqual([]);
+          }
+        });
+      }
+    });
+  }
+});

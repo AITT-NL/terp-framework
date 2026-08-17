@@ -11,10 +11,13 @@ a diff).
 
 ```bash
 npm run dev        # the workbench at http://localhost:5175
-npm run visual     # compare against the committed baselines
-npm run visual:update   # re-record them, after an intended change
+npm run visual     # screenshots + axe, against the committed baselines
+npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
+
+31 specimens in 7 groups, each rendered in both themes: 62 screenshot comparisons, 62 axe
+runs, and one check that every specimen is present exactly once.
 
 ## Why it is not inside react-core
 
@@ -65,6 +68,27 @@ Verified by mutation rather than assumed: changing `--color-brand-primary` from 
 `#dc2626` fails `light-button-variants` on 2679 pixels (ratio 0.03). The dark baseline
 correctly passes, because the dark block declares its own brand colour — the two themes are
 genuinely independent.
+
+## Accessibility
+
+`visual/a11y.spec.ts` runs axe over every specimen in both themes at WCAG 2.0/2.1 A and AA —
+realising the `a11y` lane the Terp Standard recommends and nothing implemented. Scoped per
+specimen for the same reason the screenshots are: a page-wide run produces a list of
+violations with no owner, and the first thing anyone does with an unattributed list is stop
+reading it.
+
+Every rule is held at zero except `color-contrast`, which has a recorded, shrink-only list of
+known-failing specimens. Those are the same token pairings `tokens.contrast.test.js` measures
+— axe reaching the same verdict from the painted pixels is corroboration, not duplication, and
+it reaches further: the declared-pairs list names five pairings, and axe finds them in nine
+specimens, because every specimen containing a primary button fails in dark and every specimen
+containing a `Badge` fails in light. Emptying both lists is the semantic token layer's
+acceptance criterion.
+
+Writing this found a defect in the workbench rather than the framework: three specimens
+rendered `Input`, `Select` and `Textarea` bare, with no accessible name, which is a genuine
+WCAG failure. `field-states` passed throughout, because a `Field` supplies the name — so the
+suite was right and the specimens were wrong. They now carry `aria-label`.
 
 ## Running the browser on a locked-down Windows machine
 

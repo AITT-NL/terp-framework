@@ -1,6 +1,8 @@
 import {
   Alert,
+  AppShell,
   Badge,
+  Breadcrumbs,
   Button,
   Card,
   Checkbox,
@@ -13,7 +15,9 @@ import {
   Icon,
   InlineSpinner,
   Input,
+  LanguageSwitcher,
   LoadingState,
+  PageActions,
   Popover,
   Radio,
   RadioGroup,
@@ -22,8 +26,10 @@ import {
   Switch,
   Tabs,
   Textarea,
+  ThemeToggle,
   Tooltip,
 } from "@terpjs/react-core";
+import type { NavItem } from "@terpjs/contract";
 import type { ReactNode } from "react";
 
 // The specimen registry: every component the framework ships, in every variant it has, as
@@ -66,6 +72,15 @@ const SELECT_OPTIONS = [
   { value: "draft", label: "Draft" },
   { value: "published", label: "Published" },
   { value: "archived", label: "Archived" },
+];
+
+// `AppShell` takes `renderLink` as a prop precisely so it does not depend on a router, which
+// is what lets the shell render here at all — a plain anchor is enough for a still image.
+const SHELL_NAV: readonly NavItem[] = [
+  { label: "Overview", to: "/", icon: "home" },
+  { label: "Records", to: "/records", icon: "list" },
+  { label: "Reports", to: "/reports", icon: "layers" },
+  { label: "Admin", to: "/admin", icon: "shield" },
 ];
 
 export const SPECIMEN_GROUPS: SpecimenGroup[] = [
@@ -219,17 +234,25 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       {
         id: "text-inputs",
         title: "Input, Select, Textarea — resting",
+        // `aria-label` on each control, because a bare input with no accessible name is a
+        // real WCAG failure and the a11y suite is right to refuse it. In an app the name
+        // comes from a wrapping `Field` (see `field-states`); a specimen showing the control
+        // alone has to supply one itself.
         node: (
           <Stack gap={3}>
-            <Input defaultValue="A single line of text" />
-            <Select defaultValue="published">
+            <Input aria-label="Single-line text" defaultValue="A single line of text" />
+            <Select aria-label="Status" defaultValue="published">
               {SELECT_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </Select>
-            <Textarea rows={3} defaultValue={"Several lines\nof text."} />
+            <Textarea
+              aria-label="Multi-line text"
+              rows={3}
+              defaultValue={"Several lines\nof text."}
+            />
           </Stack>
         ),
       },
@@ -238,22 +261,22 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         title: "Input, Select, Textarea — disabled",
         node: (
           <Stack gap={3}>
-            <Input defaultValue="Not editable" disabled />
-            <Select defaultValue="draft" disabled>
+            <Input aria-label="Single-line text" defaultValue="Not editable" disabled />
+            <Select aria-label="Status" defaultValue="draft" disabled>
               {SELECT_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </Select>
-            <Textarea rows={2} defaultValue="Not editable" disabled />
+            <Textarea aria-label="Multi-line text" rows={2} defaultValue="Not editable" disabled />
           </Stack>
         ),
       },
       {
         id: "text-inputs-invalid",
         title: "Input — flagged invalid",
-        node: <Input defaultValue="not-an-email" aria-invalid />,
+        node: <Input aria-label="Contact email" defaultValue="not-an-email" aria-invalid />,
       },
       {
         id: "field-states",
@@ -411,6 +434,76 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               </Stack>
             ))}
           </Stack>
+        ),
+      },
+    ],
+  },
+  {
+    id: "chrome",
+    title: "Chrome",
+    specimens: [
+      {
+        id: "theme-toggle",
+        title: "ThemeToggle — both variants, closed",
+        node: (
+          <Stack direction="row" gap={4} align="center">
+            <ThemeToggle variant="stacked" />
+            <ThemeToggle variant="inline" />
+          </Stack>
+        ),
+      },
+      {
+        id: "language-switcher",
+        title: "LanguageSwitcher — both variants, closed",
+        node: (
+          <Stack direction="row" gap={4} align="center">
+            <LanguageSwitcher variant="stacked" />
+            <LanguageSwitcher variant="inline" />
+          </Stack>
+        ),
+      },
+      {
+        id: "breadcrumbs",
+        title: "Breadcrumbs — three levels",
+        node: (
+          <Breadcrumbs
+            items={[
+              { label: "Records", to: "/records" },
+              { label: "Sync definitions", to: "/records/syncs" },
+              { label: "Customer master" },
+            ]}
+          />
+        ),
+      },
+      {
+        id: "page-actions",
+        title: "PageActions — primary, secondary and overflow",
+        node: (
+          <PageActions
+            primary={<Button variant="primary">Publish</Button>}
+            secondary={<Button variant="secondary">Save draft</Button>}
+            overflow={[
+              { label: "Duplicate", onSelect: () => {} },
+              { label: "Delete", onSelect: () => {} },
+            ]}
+          />
+        ),
+      },
+      {
+        id: "app-shell",
+        title: "AppShell — sidebar, header and content",
+        node: (
+          // Height-constrained rather than full-viewport: the shell is flex-based, so a fixed
+          // box renders the same composition deterministically inside a specimen card.
+          <div style={{ height: "24rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              renderLink={(item, children) => <a href={item.to}>{children}</a>}
+            >
+              <p style={{ margin: 0 }}>Page content renders in the main region.</p>
+            </AppShell>
+          </div>
         ),
       },
     ],
