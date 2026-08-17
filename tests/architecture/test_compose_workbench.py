@@ -10,6 +10,7 @@ required (this parses the file, it does not run it).
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 import tomllib
@@ -19,6 +20,7 @@ import yaml
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _COMPOSE = _REPO_ROOT / "apps" / "example" / "docker-compose.yml"
 _TEMPLATE_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.yml.jinja"
+_TEMPLATE_PROD_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.prod.yml.jinja"
 _EXAMPLE_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile"
 _TEMPLATE_DOCKERFILE = _REPO_ROOT / "template" / "project" / "Dockerfile"
 _WORKBENCH_SERVICES = {"db", "migrate", "seed", "api", "web"}
@@ -42,6 +44,12 @@ def _template_compose() -> dict:
     text = _JINJA_IF_BLOCK.sub("", text)
     assert "{%" not in text, "unstripped Jinja block in the template compose"
     return yaml.safe_load(text)
+
+
+def _template_prod_compose() -> dict:
+    text = _TEMPLATE_PROD_COMPOSE.read_text(encoding="utf-8")
+    text = text.replace("{{ project_slug }}", "app").replace("{{ project_name }}", "App")
+    return yaml.safe_load(_JINJA_IF_BLOCK.sub("", text))
 
 
 def _depends_conditions(service: dict) -> dict:
@@ -132,6 +140,52 @@ def test_workbench_backend_forwards_app_declared_env() -> None:
             assert data["services"][name].get("env_file") == seam, (
                 f"{name} must read the optional .app.env (app-declared variables)"
             )
+
+
+def test_no_declared_variable_is_also_forwarded_through_compose() -> None:
+    """The seam Studio owns must not be overridden by the one it does not.
+
+    Compose resolves `environment:` over `env_file:`, so a variable named in BOTH is
+    supplied by the developer's `.env` and the rendered `.app.env` is discarded — and not
+    only when `.env` sets it: with no `.env` at all, `${VAR:-}` still wins with an empty
+    string, so there is no configuration in which the declared value arrives.
+
+    This is the template's own regression test for that; `terp verify --only env-seams`
+    is the same verdict for an app. Both read files, so CI needs no Docker daemon.
+    """
+    declared = set(
+        json.loads(
+            (_REPO_ROOT / "template" / "project" / "environment.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )["properties"]
+    )
+    for label, services in (
+        ("workbench", _template_compose()["services"]),
+        ("production", _template_prod_compose()["services"]),
+    ):
+        for name, service in services.items():
+            forwarded = set(service.get("environment") or {}) & declared
+            assert not forwarded, (
+                f"{label} service {name!r} sets {sorted(forwarded)} in `environment:`, "
+                "which overrides the .app.env value Studio renders for it"
+            )
+
+
+def test_the_workbench_ships_an_app_env_example_so_the_seam_is_exercised_locally() -> None:
+    """`.app.env` does not exist in a fresh checkout and `env_file` is `required: false`,
+    so its absence is invisible: all of local development ran on `.env` plus compose
+    defaults, and the first time a value actually diverged was in a Studio-managed
+    environment — the worst place to meet the precedence rule. Shipping an example makes
+    the production seam the one the inner loop uses."""
+    example = _REPO_ROOT / "template" / "project" / ".app.env.example"
+    assert example.is_file(), "the template must ship .app.env.example"
+    text = example.read_text(encoding="utf-8")
+    assert "cp .app.env.example .app.env" in text
+    # It has to explain the precedence, because that is the thing nobody could see.
+    assert "environment:" in text and "env_file:" in text
+    for party in ("container", "host", "browser"):
+        assert party in text, f"the example must name the {party}-resolved class"
 
 
 # --------------------------------------------------------------------------- #

@@ -44,6 +44,12 @@ from dataclasses import dataclass
 #: on unbounded output; enough to show the actual errors).
 _OUTPUT_TAIL_CHARS = 20_000
 
+#: Marks output a check wants read even though it PASSED — an adoption hint, a skip
+#: with a reason. A passing check is otherwise silent in text mode (its output is a
+#: whole test log), which is how the routes-drift adoption hint came to be announced
+#: only in `--format json`: an opt-in nobody is told about does not get adopted.
+NOTE_PREFIX = "note: "
+
 
 @dataclass(frozen=True)
 class VerifyCheck:
@@ -63,7 +69,8 @@ class VerifyCheck:
     requires: str = ""
     #: In-process checks (the architecture gate) run as a callable instead of a
     #: subprocess — same verdict surface, no interpreter round-trip.
-    # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift" | "platform-install"
+    # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
+    # | "platform-install" | "env-seams"
     runner: str = "subprocess"
 
 
@@ -81,6 +88,19 @@ _PLATFORM_INSTALL = VerifyCheck(
     command="terp --version",
     scope=("pyproject.toml", "uv.lock", "**/package.json", "**/package-lock.json"),
     runner="platform-install",
+)
+
+# Runs early and costs a file read: it answers "will this app's configuration reach it at
+# all", which decides what a later red means. Compose resolves `environment:` over
+# `env_file:`, so a declared variable named in both is supplied by the developer's `.env`
+# (or a compose default) and never by the `.app.env` Studio renders — silently, in every
+# environment, with the app's own docs asserting the opposite.
+_ENV_SEAMS = VerifyCheck(
+    id="env-seams",
+    category="architecture",
+    command="terp verify --only env-seams",
+    scope=("environment.schema.json", "docker-compose*.yml"),
+    runner="env-seams",
 )
 
 _ARCHITECTURE = VerifyCheck(
@@ -178,6 +198,7 @@ _CONFORMANCE = VerifyCheck(
 PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
     "quick": (
         _PLATFORM_INSTALL,
+        _ENV_SEAMS,
         _ARCHITECTURE,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
@@ -185,6 +206,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
     ),
     "full": (
         _PLATFORM_INSTALL,
+        _ENV_SEAMS,
         _ARCHITECTURE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
@@ -195,6 +217,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
     ),
     "release": (
         _PLATFORM_INSTALL,
+        _ENV_SEAMS,
         _ARCHITECTURE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
@@ -562,7 +585,13 @@ def _run_routes_drift(root: pathlib.Path) -> tuple[int, str]:
     if not frontend.is_dir():
         return 0, "no frontend/ - route types not applicable"
     if not routes_script_wired(frontend):
-        return 0, f"route types not adopted - drift check skipped ({ADOPT_HINT})"
+        # A note, not silence: this passes by SKIPPING, and the reader is the only one
+        # who can turn it on. Announcing that only in `--format json` is how the opt-in
+        # stayed unadopted.
+        return (
+            0,
+            f"{NOTE_PREFIX}route types not adopted - drift check skipped ({ADOPT_HINT})",
+        )
     problem = _node_modules_problem(root)
     if problem is not None:
         return 1, problem
@@ -725,6 +754,10 @@ def run_verify_command(
             exit_code, output = _run_api_docs_drift(project_root)
         elif check.runner == "routes-drift":
             exit_code, output = _run_routes_drift(project_root)
+        elif check.runner == "env-seams":
+            from terp.cli.envseams import run_env_seams_check
+
+            exit_code, output = run_env_seams_check(project_root)
         else:
             exit_code, output = _run_subprocess(check, project_root)
             reports = _reports_in(output)
@@ -734,7 +767,7 @@ def run_verify_command(
             f"verify: {check.id} {'ok' if ok else f'FAILED (exit {exit_code})'}",
             file=sys.stderr,
         )
-        if not ok and fmt == "text":
+        if fmt == "text" and (not ok or output.startswith(NOTE_PREFIX)):
             print(output[-_OUTPUT_TAIL_CHARS:], file=sys.stderr)
         results.append(
             {
