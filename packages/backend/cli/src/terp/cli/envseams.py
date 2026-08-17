@@ -69,6 +69,10 @@ class EnvSeamFinding:
     #: Compose services carrying the override; empty for a non-compose source.
     services: tuple[str, ...]
     detail: str
+    #: ``shadowed`` (a compose block outranks .app.env) or ``loopback`` (the value
+    #: names this container). They have different fixes, so the report must not offer
+    #: one of them for the other.
+    kind: str = "shadowed"
 
 
 def _load_compose(path: pathlib.Path) -> dict:
@@ -246,6 +250,7 @@ def _loopback_findings(
                         "service name (e.g. http://api:8000); a host address belongs in "
                         'a "resolvedBy": "host" variable'
                     ),
+                    kind="loopback",
                 )
             )
             break  # The first seam that supplies a value is the one that lands.
@@ -293,16 +298,19 @@ def run_env_seams_check(project_root: pathlib.Path) -> tuple[int, str]:
             lines.append(f"    {finding.variable}: {finding.detail}")
             if finding.services:
                 lines.append(f"      in: {', '.join(finding.services)}")
-    lines += [
-        "",
-        "Compose resolves `environment:` over `env_file:`, so a name in both is supplied",
-        f"by the developer's .env (or a compose default) and never by the {APP_ENV_FILE}",
-        "Studio renders -- in every environment, including one with no .env at all, where",
-        "`${VAR:-}` still wins with an empty string.",
-        "",
-        f"Fix: remove the variable from that `environment:` block -- {APP_ENV_FILE} is its",
-        "seam. Keep it in compose only if the app owns the value there, and then drop it",
-        f"from {APP_ENV_SCHEMA_FILE} (one owner per variable).",
-        "See: terp guide environment",
-    ]
+    # The two kinds have different fixes; offering the precedence recipe for a loopback
+    # value would be a confident answer to a question nobody asked.
+    if any(finding.kind == "shadowed" for finding in findings):
+        lines += [
+            "",
+            "Compose resolves `environment:` over `env_file:`, so a name in both is",
+            f"supplied by the developer's .env (or a compose default) and never by the",
+            f"{APP_ENV_FILE} Studio renders -- in every environment, including one with no",
+            ".env at all, where `${VAR:-}` still wins with an empty string.",
+            "",
+            f"Fix: remove the variable from that `environment:` block -- {APP_ENV_FILE} is",
+            "its seam. Keep it in compose only if the app owns the value there, and then",
+            f"drop it from {APP_ENV_SCHEMA_FILE} (one owner per variable).",
+        ]
+    lines.append("See: terp guide environment")
     return 1, "\n".join(lines)

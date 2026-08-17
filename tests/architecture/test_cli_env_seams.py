@@ -192,6 +192,23 @@ def test_a_loopback_default_in_the_manifest_is_refused(tmp_path: pathlib.Path) -
     assert run_env_seams_check(root)[0] == 1
 
 
+def test_a_loopback_finding_does_not_offer_the_precedence_recipe(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The two findings have different fixes. Printing "remove it from that
+    `environment:` block" for a value that is merely pointed at the wrong host would be
+    a confident answer to a question nobody asked — the failure mode this whole check
+    exists to stop."""
+    root = _project(
+        tmp_path, declared={"API_URL": {"type": "string", "resolvedBy": "container"}}
+    )
+    (root / ".app.env").write_text("API_URL=http://127.0.0.1:8000\n", encoding="utf-8")
+    _, output = run_env_seams_check(root)
+    assert "loopback" in output
+    assert "remove the variable from that" not in output
+    assert "terp guide environment" in output
+
+
 def test_loopback_recognises_the_forms_an_address_takes() -> None:
     assert _is_loopback("http://127.0.0.1:8000")
     assert _is_loopback("http://localhost:8000/path")
