@@ -6,7 +6,8 @@
   "license": "Apache-2.0",
   "workspaces": [
     "packages/frontend/*",
-    "apps/example/frontend"
+    "apps/example/frontend",
+    "apps/workbench"
   ],
   "overrides": {
     "js-yaml": "4.3.0",
