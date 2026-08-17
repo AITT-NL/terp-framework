@@ -1,9 +1,9 @@
 {
   "color": {
     "brand": {
-      "primary": { "value": "#1f6feb" },
-      "primaryContrast": { "value": "#ffffff" },
-      "primaryHover": { "value": "#388bfd" },
+      "primary": { "value": "#58a6ff" },
+      "primaryContrast": { "value": "#010409" },
+      "primaryHover": { "value": "#79c0ff" },
       "primarySoft": { "value": "#0c2d6b" }
     },
     "neutral": {
@@ -13,7 +13,7 @@
       "200": { "value": "#21262d" },
       "300": { "value": "#30363d" },
       "400": { "value": "#484f58" },
-      "500": { "value": "#6e7681" },
+      "500": { "value": "#7d8590" },
       "600": { "value": "#9aa4b2" },
       "700": { "value": "#c9d1d9" },
       "800": { "value": "#e6edf3" },
@@ -29,7 +29,7 @@
       "info": { "value": "#58a6ff" },
       "infoSoft": { "value": "#0b2545" }
     },
-    "focusRing": { "value": "rgba(56,139,253,0.5)" },
+    "focusRing": { "value": "rgba(88,166,255,0.5)" },
     "bg": {
       "canvas": { "value": "#010409" },
       "surface": { "value": "#0d1117" },
@@ -40,7 +40,7 @@
       "default": { "value": "#f0f6fc" },
       "muted": { "value": "#9aa4b2" },
       "subtle": { "value": "#8b949e" },
-      "onBrand": { "value": "#ffffff" }
+      "onBrand": { "value": "#010409" }
     },
     "border": {
       "default": { "value": "#30363d" },

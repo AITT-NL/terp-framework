@@ -178,9 +178,9 @@
    A near-black dark for low light and OLED displays: cooler neutrals, a deeper canvas than dark, and a deeper accent that holds a white label at AA. */
 [data-theme='midnight'] {
   color-scheme: dark;
-  --color-brand-primary: #1f6feb;
-  --color-brand-primary-contrast: #ffffff;
-  --color-brand-primary-hover: #388bfd;
+  --color-brand-primary: #58a6ff;
+  --color-brand-primary-contrast: #010409;
+  --color-brand-primary-hover: #79c0ff;
   --color-brand-primary-soft: #0c2d6b;
   --color-neutral-0: #0d1117;
   --color-neutral-50: #010409;
@@ -188,7 +188,7 @@
   --color-neutral-200: #21262d;
   --color-neutral-300: #30363d;
   --color-neutral-400: #484f58;
-  --color-neutral-500: #6e7681;
+  --color-neutral-500: #7d8590;
   --color-neutral-600: #9aa4b2;
   --color-neutral-700: #c9d1d9;
   --color-neutral-800: #e6edf3;
@@ -201,7 +201,7 @@
   --color-status-danger-soft: #2b0d0d;
   --color-status-info: #58a6ff;
   --color-status-info-soft: #0b2545;
-  --color-focus-ring: rgba(56,139,253,0.5);
+  --color-focus-ring: rgba(88,166,255,0.5);
   --color-bg-canvas: #010409;
   --color-bg-surface: #0d1117;
   --color-bg-raised: #161b22;
@@ -209,7 +209,7 @@
   --color-fg-default: #f0f6fc;
   --color-fg-muted: #9aa4b2;
   --color-fg-subtle: #8b949e;
-  --color-fg-on-brand: #ffffff;
+  --color-fg-on-brand: #010409;
   --color-border-default: #30363d;
   --color-border-strong: #484f58;
   --color-border-subtle: #21262d;
@@ -232,9 +232,9 @@
    A warm violet-tinted dark. Its neutrals sit in a different hue family from dark and midnight, which is what proves a theme is a palette rather than a lightness setting. */
 [data-theme='twilight'] {
   color-scheme: dark;
-  --color-brand-primary: #7c5cd6;
-  --color-brand-primary-contrast: #ffffff;
-  --color-brand-primary-hover: #9375e6;
+  --color-brand-primary: #a78bfa;
+  --color-brand-primary-contrast: #1a1622;
+  --color-brand-primary-hover: #c4b0ff;
   --color-brand-primary-soft: #332a5c;
   --color-neutral-0: #241f31;
   --color-neutral-50: #1a1622;
@@ -242,7 +242,7 @@
   --color-neutral-200: #3a3350;
   --color-neutral-300: #4d4468;
   --color-neutral-400: #6b5f8a;
-  --color-neutral-500: #8f82ab;
+  --color-neutral-500: #9d90b8;
   --color-neutral-600: #b9aecd;
   --color-neutral-700: #d8d0e6;
   --color-neutral-800: #ece7f3;
@@ -255,7 +255,7 @@
   --color-status-danger-soft: #3a1a25;
   --color-status-info: #7cb8f0;
   --color-status-info-soft: #1a2c44;
-  --color-focus-ring: rgba(147,117,230,0.5);
+  --color-focus-ring: rgba(167,139,250,0.5);
   --color-bg-canvas: #1a1622;
   --color-bg-surface: #241f31;
   --color-bg-raised: #2d2740;
@@ -263,7 +263,7 @@
   --color-fg-default: #f6f3fa;
   --color-fg-muted: #b9aecd;
   --color-fg-subtle: #a294bd;
-  --color-fg-on-brand: #ffffff;
+  --color-fg-on-brand: #1a1622;
   --color-border-default: #3a3350;
   --color-border-strong: #4d4468;
   --color-border-subtle: #2d2740;
@@ -275,7 +275,7 @@
   --color-sidebar-muted: #b9aecd;
   --color-sidebar-accent: #3a3350;
   --color-sidebar-border: #3a3350;
-  --color-chart-1: #9375e6;
+  --color-chart-1: #a78bfa;
   --color-chart-2: #5ed49a;
   --color-chart-3: #e8b04b;
   --color-chart-4: #7cb8f0;

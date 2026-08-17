@@ -80,10 +80,12 @@ for in-page tab sets and `Markdown` for safe rich text).
    `eval()` / `new Function()` are refused; `javascript:` URLs in `href`/`src` are
    refused; a static `target="_blank"` link needs `rel="noopener"`.
 9. Theming and language are platform concerns, already wired: the token stylesheet
-   carries light *and* dark palettes (the built-in sidebar `UserMenu` offers the
-   light/dark/system toggle), and `renderTerpApp({ locales })` declares the language
-   catalogs (the menu shows a picker once a second locale exists). Keep user-facing
-   text as `UiText` props so it follows the language switch.
+   carries five palettes — `light`, `dark`, `midnight`, `twilight` and `contrast` (the
+   built-in sidebar `UserMenu` offers all of them plus `system`), and
+   `renderTerpApp({ locales })` declares the language catalogs (the menu shows a picker
+   once a second locale exists). Keep user-facing text as `UiText` props so it follows
+   the language switch. To ship on a palette other than the default, pass
+   `defaultTheme` — do not restyle to imitate one.
 
 There are no lint modes: every violation is an error. The one governed opt-out is a
 justified `// terp-allow-<rule>: <reason>` marker on (or above) the violating line, whose

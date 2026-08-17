@@ -1,6 +1,6 @@
 # @terpjs/workbench
 
-Every component `@terpjs/react-core` ships, in every variant it has, in both themes, on one
+Every component `@terpjs/react-core` ships, in every variant it has, in every theme, on one
 page — plus the visual baselines taken from it.
 
 Private and never published. It exists because two things were missing: a catalog (the
@@ -16,8 +16,10 @@ npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
 
-31 specimens in 7 groups, each rendered in both themes: 62 screenshot comparisons, 62 axe
-runs, and one check that every specimen is present exactly once.
+31 specimens in 7 groups. The accessibility lane runs them in **every** shipped theme (155
+axe runs across five palettes); the screenshots cover the **two default** themes (62
+comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
+present exactly once, and one that the contrast allowance list has not grown a new theme.
 
 ## Why it is not inside react-core
 
@@ -31,7 +33,7 @@ typecheck against the real component props, which is the surface doing its job.
 
 Add an entry to `SPECIMEN_GROUPS` in `src/specimens.tsx`. The page and the visual suite both
 render from that list, so there is nothing else to wire — a new entry gets a section on the
-page and a baseline in each theme.
+page, a baseline in each default theme, and an axe run in every theme.
 
 Three rules, because both consumers depend on them:
 
@@ -49,10 +51,31 @@ write and the wrong thing to have: any change anywhere re-records it, so the dif
 a component and reviewers learn to accept the update. Per-specimen shots mean a `Card`
 padding change fails `card-titled` and `card-bare` in both themes and nothing else.
 
-**The theme is in the URL.** The page reads `?theme=light|dark` and sets `data-theme` on
+**The theme is in the URL.** The page reads `?theme=<name>` and sets `data-theme` on
 `<html>` directly rather than going through `ThemeProvider`, which persists to
 `localStorage` — a toggled theme would leak between runs and make a baseline depend on run
-order. An address that fully determines the render is the whole trick.
+order. An address that fully determines the render is the whole trick. The theme names come
+from the contract's published token manifest (`src/themes.ts`), so a theme added there is
+renderable here with no edit to this app.
+
+## Which themes get which lane
+
+The two lanes cover different theme sets on purpose, and the asymmetry is the point.
+
+**axe runs in every theme.** A new palette is exactly where an undeclared foreground/background
+pairing goes wrong, and the static gate in `@terpjs/contract` can only measure pairings someone
+thought to declare. This lane earned that scope immediately: it found five real defects in the
+themes added in Phase 2c that the static gate could not see — the accent used as *text* on a
+surface (selected tabs, active nav, the spinner) and `--color-neutral-500` as muted copy. Both
+were fixed in the palettes rather than recorded as allowances.
+
+**Screenshots cover the base theme and the OS-dark theme only** — what an app renders when
+nobody chooses. Named themes differ from those in colour values alone; markup and geometry are
+identical. A third, fourth and fifth set of per-specimen shots would therefore re-prove the
+geometry the first two already prove, while tripling what a reviewer has to accept for a
+one-line padding change — the same argument that made these shots per-specimen instead of
+per-page. Widening it is a one-word change in `src/themes.ts` if Phase 3 turns out to need
+per-theme geometry evidence.
 
 **No retries.** A visual test that passes on retry is a flaky baseline, and hiding that behind
 a retry is how a suite stops being evidence.
@@ -71,7 +94,8 @@ genuinely independent.
 
 ## Accessibility
 
-`visual/a11y.spec.ts` runs axe over every specimen in both themes at WCAG 2.0/2.1 A and AA —
+`visual/a11y.spec.ts` runs axe over every specimen in every shipped theme at WCAG 2.0/2.1 A
+and AA —
 realising the `a11y` lane the Terp Standard recommends and nothing implemented. Scoped per
 specimen for the same reason the screenshots are: a page-wide run produces a list of
 violations with no owner, and the first thing anyone does with an unattributed list is stop

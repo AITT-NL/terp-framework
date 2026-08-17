@@ -10,8 +10,10 @@ import {
 } from "@terpjs/react-core";
 import { createRoot } from "react-dom/client";
 import type { CSSProperties } from "react";
+import type { Theme } from "@terpjs/react-core";
 
 import { ALL_SPECIMENS, SPECIMEN_GROUPS } from "./specimens";
+import { BASE_THEME, THEMES } from "./themes";
 
 // The component workbench: every shipped component, every variant, both themes, on one page.
 //
@@ -26,18 +28,16 @@ import { ALL_SPECIMENS, SPECIMEN_GROUPS } from "./specimens";
 // react-core by package name exactly as an app does, so it exercises the public export
 // surface rather than reaching into `src/`.
 //
-// The theme comes from `?theme=light|dark`, applied to `<html>` directly rather than through
+// The theme comes from `?theme=<name>`, applied to `<html>` directly rather than through
 // `ThemeProvider`. That is for the visual suite: the provider persists to localStorage, so a
 // toggled theme would leak between runs and make a baseline depend on run order. A URL that
-// fully determines the render is the whole trick.
+// fully determines the render is the whole trick. The list of names comes from the contract's
+// token manifest (see `./themes`), so a theme added there is renderable here immediately.
 
-const THEMES = ["light", "dark"] as const;
-type Theme = (typeof THEMES)[number];
-
-/** The requested theme, defaulting to light for a bare visit. */
+/** The requested theme, falling back to the base theme for a bare or unrecognised visit. */
 function requestedTheme(): Theme {
   const value = new URLSearchParams(window.location.search).get("theme");
-  return THEMES.includes(value as Theme) ? (value as Theme) : "light";
+  return THEMES.includes(value as Theme) ? (value as Theme) : BASE_THEME;
 }
 
 const theme = requestedTheme();
@@ -103,7 +103,6 @@ const linkStyle: CSSProperties = {
 };
 
 function Workbench() {
-  const other: Theme = theme === "light" ? "dark" : "light";
   return (
     <div style={pageStyle}>
       <header style={headerStyle}>
@@ -122,11 +121,16 @@ function Workbench() {
             the <code>{theme}</code> theme.
           </p>
         </div>
-        {/* A plain anchor, not a router link and not a toggle: the theme must stay a
-            property of the URL so a screenshot is reproducible from it alone. */}
-        <a style={linkStyle} href={`?theme=${other}`}>
-          Switch to {other}
-        </a>
+        {/* Plain anchors, not a router link and not a toggle: the theme must stay a
+            property of the URL so a screenshot is reproducible from it alone. One per
+            shipped theme, because comparing them is the point of having more than two. */}
+        <nav style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-3)" }}>
+          {THEMES.filter((name) => name !== theme).map((name) => (
+            <a key={name} style={linkStyle} href={`?theme=${name}`}>
+              {name}
+            </a>
+          ))}
+        </nav>
       </header>
 
       {SPECIMEN_GROUPS.map((group) => (

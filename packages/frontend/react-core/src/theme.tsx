@@ -7,16 +7,37 @@ import { useStrings } from "./uiText";
 
 /**
  * The visual theme: an explicit choice, or "system" to follow the OS preference.
- * The token stylesheet (`@terpjs/contract/tokens.css`) carries both palettes: it applies
- * the dark colours under `<html data-theme="dark">` and — with no attribute — under
- * `@media (prefers-color-scheme: dark)`, so "system" simply removes the attribute.
+ *
+ * The token stylesheet (`@terpjs/contract/tokens.css`) carries every palette: it applies
+ * each named theme's colours under `<html data-theme="<name>">` and — with no attribute —
+ * applies the dark palette under `@media (prefers-color-scheme: dark)`, so "system" simply
+ * removes the attribute.
+ *
+ * The names are the stylesheet's, so this union is a restatement of a published contract
+ * and could drift from it silently — a theme the sheet ships that no app can select, or one
+ * this offers that resolves to nothing. `theme.themes.test.ts` holds it against the token
+ * manifest. The union is written out rather than derived from the manifest at runtime because
+ * react-core publishes unbuilt source and imports nothing but React: resolving a JSON module
+ * from a sibling package would add a requirement to every consumer's bundler and tsconfig,
+ * which is the consumption-model change the framework spends real effort avoiding.
  */
-export type Theme = "light" | "dark" | "system";
+export type Theme = "light" | "dark" | "midnight" | "twilight" | "contrast" | "system";
 
-const THEMES: readonly Theme[] = ["light", "dark", "system"];
+const THEMES: readonly Theme[] = [
+  "light",
+  "dark",
+  "midnight",
+  "twilight",
+  "contrast",
+  "system",
+];
+
 const THEME_ICONS: Record<Theme, string> = {
   light: "sun",
   dark: "moon",
+  midnight: "moon-stars",
+  twilight: "sunset",
+  contrast: "contrast",
   system: "monitor",
 };
 
@@ -46,10 +67,13 @@ export interface ThemeProviderProps {
 }
 
 /**
- * Owns the light/dark theme choice: applies it as `data-theme` on `<html>` (the token
- * stylesheet does the rest — no component changes anywhere) and persists it in
- * `localStorage`. `renderTerpApp` mounts one for every app; pair with {@link ThemeToggle}
- * (the default {@link UserMenu} already includes it).
+ * Owns the theme choice: applies it as `data-theme` on `<html>` (the token stylesheet does
+ * the rest — no component changes anywhere) and persists it in `localStorage`.
+ * `renderTerpApp` mounts one for every app; pair with {@link ThemeToggle} (the default
+ * {@link UserMenu} already includes it).
+ *
+ * `defaultTheme` is how an app ships on a named theme — `defaultTheme="midnight"` and
+ * nothing else — since it applies until the user chooses otherwise.
  */
 export function ThemeProvider({ defaultTheme = "system", children }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(() => {
@@ -93,8 +117,8 @@ export interface ThemeToggleProps {
 }
 
 /**
- * The standard theme control: a token-themed light/dark/system menu. Renders nothing
- * outside a {@link ThemeProvider}, so shared chrome (the shell header) can
+ * The standard theme control: a token-themed menu over every shipped theme plus "system".
+ * Renders nothing outside a {@link ThemeProvider}, so shared chrome (the shell header) can
  * include it unconditionally.
  */
 export function ThemeToggle({ variant = "stacked" }: ThemeToggleProps) {
@@ -106,6 +130,9 @@ export function ThemeToggle({ variant = "stacked" }: ThemeToggleProps) {
   const labels: Record<Theme, string> = {
     light: strings.themeLight,
     dark: strings.themeDark,
+    midnight: strings.themeMidnight,
+    twilight: strings.themeTwilight,
+    contrast: strings.themeContrast,
     system: strings.themeSystem,
   };
   const menu = (

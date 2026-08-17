@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { ALL_SPECIMENS } from "../src/specimens";
+import { SCREENSHOT_THEMES } from "../src/themes";
 
 // One screenshot per specimen per theme, rather than one per page.
 //
@@ -12,11 +13,16 @@ import { ALL_SPECIMENS } from "../src/specimens";
 // The theme is a URL parameter the page reads, so each case is a fresh navigation with the
 // theme fully determined by the address — no toggling, no localStorage, no run-order
 // dependence.
-
-const THEMES = ["light", "dark"] as const;
+//
+// Two themes, not all of them, and on purpose: `SCREENSHOT_THEMES` is the base theme plus the
+// one the OS dark preference selects — what an app renders when nobody chooses. The named
+// themes differ from these only in colour values, so a third set of per-specimen shots would
+// re-prove the geometry the first two already prove while tripling what a reviewer has to
+// accept for a one-line padding change. Their legibility is measured instead, statically over
+// every declared pairing and by axe over every painted specimen. See `src/themes.ts`.
 
 test.describe("component specimens", () => {
-  for (const theme of THEMES) {
+  for (const theme of SCREENSHOT_THEMES) {
     test.describe(theme, () => {
       for (const specimen of ALL_SPECIMENS) {
         test(`${specimen.groupId}/${specimen.id}`, async ({ page }) => {

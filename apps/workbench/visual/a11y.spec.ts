@@ -2,8 +2,9 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 import { ALL_SPECIMENS } from "../src/specimens";
+import { THEMES } from "../src/themes";
 
-// Automated accessibility over every component, in both themes.
+// Automated accessibility over every component, in every shipped theme.
 //
 // The Terp Standard recommends an `a11y` lane — "automated accessibility checks over the
 // running app (e.g. axe)" — and nothing realised it. The design notes also promise
@@ -16,8 +17,12 @@ import { ALL_SPECIMENS } from "../src/specimens";
 // Contrast is included deliberately even though `tokens.contrast.test.js` already measures
 // the token pairings. That test reads the declared pairs; axe reads what the browser actually
 // painted, including a pairing nobody declared. The two disagreeing is information.
-
-const THEMES = ["light", "dark"] as const;
+//
+// This is the lane every shipped theme runs in, and it is the one that matters most for a theme
+// added after the declared-pairings list was written: the static gate can only measure pairings
+// somebody thought to declare, and a new palette is exactly where an undeclared pairing goes
+// wrong. The per-specimen *screenshots* stay on the two default themes — see `src/themes.ts`
+// for why colour-only variants do not need their own geometry baselines.
 
 /** WCAG 2.0/2.1 A and AA — the levels the Standard's lane is written against. */
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
@@ -35,6 +40,12 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
  * A ratchet in both directions: a key that stops failing must be removed, and a specimen that
  * starts failing is refused outright. Every other rule is held at zero with no allowance at
  * all — the list is a statement about *one* known defect class, not a general amnesty.
+ *
+ * Every key names `light` or `dark`, the two themes that shipped before this lane existed. The
+ * themes added since carry none, and `holds no allowance for a theme added after the lane` below
+ * refuses one: a palette authored against a working contrast gate has no reason to paint an
+ * illegible surface, so an allowance for a new theme would be a design mistake being filed as
+ * history.
  */
 const KNOWN_CONTRAST_FAILURES = new Set([
   // The dark primary button label, at 3.68:1 — so every specimen that contains one.
@@ -51,6 +62,20 @@ const KNOWN_CONTRAST_FAILURES = new Set([
   // Light muted/danger body copy.
   "light/error-state",
 ]);
+
+test("holds no allowance for a theme added after the lane", () => {
+  // The two themes that predate this list are allowed to carry known defects; nothing else is.
+  // Without this, the cheapest way to make a new theme green would be to add its failures here,
+  // which is precisely the move the ratchet exists to prevent.
+  const grandfathered = new Set(["light", "dark"]);
+  const themeOf = (key: string) => key.slice(0, key.indexOf("/"));
+  expect([...KNOWN_CONTRAST_FAILURES].filter((key) => !grandfathered.has(themeOf(key)))).toEqual(
+    [],
+  );
+  // And the lane has to actually be running in more than those two, or the assertion above is
+  // true for a reason that has nothing to do with the new themes being legible.
+  expect(THEMES.length).toBeGreaterThan(grandfathered.size);
+});
 
 test.describe("component accessibility", () => {
   for (const theme of THEMES) {

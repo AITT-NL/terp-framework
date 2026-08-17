@@ -77,6 +77,30 @@ export const ICON_GLYPHS: Record<string, ReactNode> = {
       <path d="M8 21h8M12 17v4" />
     </svg>
   ),
+  // The three glyphs below exist for the named themes. `moon` and `sun` were already
+  // taken by dark and light, and a theme picker where two entries share a glyph is a
+  // picker whose icons carry no information.
+  "moon-stars": (
+    <svg {...svgProps}>
+      <path d="M20.5 15.6A8 8 0 0 1 9.4 4.5 8.4 8.4 0 1 0 20.5 15.6Z" />
+      <path d="M17 3v3M15.5 4.5h3M20.5 8v2M19.5 9h2" />
+    </svg>
+  ),
+  sunset: (
+    <svg {...svgProps}>
+      <path d="M12 4v2M5.6 7.6l1.4 1.4M17 9l1.4-1.4M3 15h1.5M19.5 15H21" />
+      <path d="M8 15a4 4 0 0 1 8 0" />
+      <path d="M3 19h18" />
+    </svg>
+  ),
+  contrast: (
+    <svg {...svgProps}>
+      <circle cx="12" cy="12" r="9" />
+      {/* Filled half, so the glyph reads as contrast rather than as a plain circle.
+          Stroked shapes elsewhere use `currentColor`; so does this fill. */}
+      <path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor" stroke="none" />
+    </svg>
+  ),
   document: (
     <svg {...svgProps}>
       <path d="M6 3h8l4 4v14H6Z" />

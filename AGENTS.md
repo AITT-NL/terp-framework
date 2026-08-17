@@ -58,6 +58,13 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
 - **Data collections render via `DataView`** (repository-driven; see
   [packages/frontend/react-core/src/dataview/README.md](packages/frontend/react-core/src/dataview/README.md)).
 - **Design tokens, not inline colours**; user-facing text props are `UiText`.
+- **Five themes ship**, not two: `light`, `dark`, `midnight`, `twilight` and `contrast`, plus
+  `system` to follow the OS preference. They are registered in
+  [packages/frontend/contract/themes.json](packages/frontend/contract/themes.json) and
+  published in the token manifest, so a tool or an agent can read the list rather than guess
+  it. An app ships on one with `defaultTheme` — never by restyling to imitate it. Every theme
+  is a complete colour set held to WCAG AA on every declared text pairing (`contrast` to AAA);
+  geometry is declared once in `:root` and inherited.
 - **No `style={}`, no `className`, no module-authored stylesheets in app modules** — layout
   comes from the react-core primitives (`Stack`, `DetailList`, the page archetypes); theming
   from the token source.

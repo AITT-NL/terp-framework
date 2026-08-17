@@ -41,8 +41,8 @@
       "values": {
         "light": "#2563eb",
         "dark": "#3b82f6",
-        "midnight": "#1f6feb",
-        "twilight": "#7c5cd6",
+        "midnight": "#58a6ff",
+        "twilight": "#a78bfa",
         "contrast": "#0842a0"
       },
       "themeable": true
@@ -53,8 +53,8 @@
       "values": {
         "light": "#ffffff",
         "dark": "#ffffff",
-        "midnight": "#ffffff",
-        "twilight": "#ffffff",
+        "midnight": "#010409",
+        "twilight": "#1a1622",
         "contrast": "#ffffff"
       },
       "themeable": true
@@ -65,8 +65,8 @@
       "values": {
         "light": "#1d4ed8",
         "dark": "#60a5fa",
-        "midnight": "#388bfd",
-        "twilight": "#9375e6",
+        "midnight": "#79c0ff",
+        "twilight": "#c4b0ff",
         "contrast": "#05275a"
       },
       "themeable": true
@@ -161,8 +161,8 @@
       "values": {
         "light": "#64748b",
         "dark": "#94a3b8",
-        "midnight": "#6e7681",
-        "twilight": "#8f82ab",
+        "midnight": "#7d8590",
+        "twilight": "#9d90b8",
         "contrast": "#1f1f1f"
       },
       "themeable": true
@@ -317,8 +317,8 @@
       "values": {
         "light": "rgba(37,99,235,0.35)",
         "dark": "rgba(96,165,250,0.45)",
-        "midnight": "rgba(56,139,253,0.5)",
-        "twilight": "rgba(147,117,230,0.5)",
+        "midnight": "rgba(88,166,255,0.5)",
+        "twilight": "rgba(167,139,250,0.5)",
         "contrast": "rgba(8,66,160,0.7)"
       },
       "themeable": true
@@ -413,8 +413,8 @@
       "values": {
         "light": "#ffffff",
         "dark": "#ffffff",
-        "midnight": "#ffffff",
-        "twilight": "#ffffff",
+        "midnight": "#010409",
+        "twilight": "#1a1622",
         "contrast": "#ffffff"
       },
       "themeable": true
@@ -558,7 +558,7 @@
         "light": "#2563eb",
         "dark": "#60a5fa",
         "midnight": "#58a6ff",
-        "twilight": "#9375e6",
+        "twilight": "#a78bfa",
         "contrast": "#0842a0"
       },
       "themeable": true

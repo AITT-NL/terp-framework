@@ -100,6 +100,12 @@ export interface TerpStrings {
   themeLight: string;
   /** {@link ThemeToggle} option: the dark theme. */
   themeDark: string;
+  /** {@link ThemeToggle} option: the near-black dark theme. */
+  themeMidnight: string;
+  /** {@link ThemeToggle} option: the violet-tinted dark theme. */
+  themeTwilight: string;
+  /** {@link ThemeToggle} option: the high-contrast theme. */
+  themeContrast: string;
   /** {@link ThemeToggle} option: follow the OS preference. */
   themeSystem: string;
   /** Label of the {@link LanguageSwitcher} select. */
@@ -239,6 +245,9 @@ export const DEFAULT_STRINGS: TerpStrings = {
   theme: "Theme",
   themeLight: "Light",
   themeDark: "Dark",
+  themeMidnight: "Midnight",
+  themeTwilight: "Twilight",
+  themeContrast: "High contrast",
   themeSystem: "System",
   language: "Language",
   admin: "Admin",

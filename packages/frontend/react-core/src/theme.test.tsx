@@ -34,6 +34,45 @@ describe("ThemeProvider + ThemeToggle", () => {
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
   });
 
+  it("applies a named theme beyond light and dark", () => {
+    // The named themes are the reason the semantic token layer exists. They are compiled,
+    // contrast-gated and published, and none of that reaches a user unless the control can
+    // actually pin one — so the whole path is exercised for one of them.
+    render(
+      <ThemeProvider>
+        <ThemeToggle />
+      </ThemeProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Theme" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Midnight" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("midnight");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("midnight");
+  });
+
+  it("offers every shipped theme, not only light and dark", () => {
+    // `theme.themes.test.ts` proves the list matches the contract's; this proves the list
+    // reaches the menu, which is a different failure — a name in `THEMES` that never renders.
+    render(
+      <ThemeProvider>
+        <ThemeToggle />
+      </ThemeProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Theme" }));
+    for (const label of ["Light", "Dark", "Midnight", "Twilight", "High contrast", "System"]) {
+      expect(screen.getByRole("menuitemradio", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("accepts a named theme as the app default", () => {
+    // How an app ships on a named theme: one prop, no other change anywhere.
+    render(
+      <ThemeProvider defaultTheme="contrast">
+        <ThemeToggle />
+      </ThemeProvider>,
+    );
+    expect(document.documentElement.getAttribute("data-theme")).toBe("contrast");
+  });
+
   it("restores a persisted choice over the app default", () => {
     window.localStorage.setItem(THEME_STORAGE_KEY, "light");
     render(
