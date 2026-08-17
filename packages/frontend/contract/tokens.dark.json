@@ -29,6 +29,42 @@
       "info": { "value": "#38bdf8" },
       "infoSoft": { "value": "#12303f" }
     },
-    "focusRing": { "value": "rgba(96,165,250,0.45)" }
+    "focusRing": { "value": "rgba(96,165,250,0.45)" },
+    "bg": {
+      "canvas": { "value": "#0f172a" },
+      "surface": { "value": "#1e293b" },
+      "raised": { "value": "#263449" },
+      "inset": { "value": "#0f172a" }
+    },
+    "fg": {
+      "default": { "value": "#f1f5f9" },
+      "muted": { "value": "#b4c0d0" },
+      "subtle": { "value": "#94a3b8" },
+      "onBrand": { "value": "#ffffff" }
+    },
+    "border": {
+      "default": { "value": "#334155" },
+      "strong": { "value": "#475569" },
+      "subtle": { "value": "#263449" }
+    },
+    "interactive": {
+      "hover": { "value": "#263449" },
+      "active": { "value": "#334155" },
+      "selected": { "value": "#1e3a5f" }
+    },
+    "sidebar": {
+      "bg": { "value": "#1e293b" },
+      "fg": { "value": "#f1f5f9" },
+      "muted": { "value": "#b4c0d0" },
+      "accent": { "value": "#334155" },
+      "border": { "value": "#334155" }
+    },
+    "chart": {
+      "1": { "value": "#60a5fa" },
+      "2": { "value": "#2dd4bf" },
+      "3": { "value": "#fbbf24" },
+      "4": { "value": "#a78bfa" },
+      "5": { "value": "#f472b6" }
+    }
   }
 }

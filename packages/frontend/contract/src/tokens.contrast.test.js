@@ -54,6 +54,19 @@ const TEXT_PAIRS = [
   },
   { label: "danger badge", fg: "--color-status-danger", bg: "--color-status-danger-soft" },
   { label: "info badge", fg: "--color-status-info", bg: "--color-status-info-soft" },
+
+  // The semantic layer. These name the same surfaces the primitive pairs above describe by
+  // position, and they are gated separately because the two layers can drift: a theme may
+  // remap `--color-bg-surface` without touching `--color-neutral-0`, and once components read
+  // the semantic names the primitive pairs stop describing what anyone actually sees.
+  { label: "body text on a surface", fg: "--color-fg-default", bg: "--color-bg-surface" },
+  { label: "body text on the canvas", fg: "--color-fg-default", bg: "--color-bg-canvas" },
+  { label: "body text on a raised surface", fg: "--color-fg-default", bg: "--color-bg-raised" },
+  { label: "muted text on a surface", fg: "--color-fg-muted", bg: "--color-bg-surface" },
+  { label: "muted text on the canvas", fg: "--color-fg-muted", bg: "--color-bg-canvas" },
+  { label: "subtle text on a surface", fg: "--color-fg-subtle", bg: "--color-bg-surface" },
+  { label: "sidebar text", fg: "--color-sidebar-fg", bg: "--color-sidebar-bg" },
+  { label: "sidebar muted text", fg: "--color-sidebar-muted", bg: "--color-sidebar-bg" },
 ];
 
 /**
