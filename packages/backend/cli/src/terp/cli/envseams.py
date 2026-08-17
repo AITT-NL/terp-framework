@@ -231,12 +231,21 @@ def _loopback_findings(
     for variable, prop in sorted(declared.items()):
         if prop.get("resolvedBy") != "container":
             continue
-        for source, value in (
-            (APP_ENV_FILE, app_env.get(variable)),
-            (".env", dot_env.get(variable)),
-            (f"{APP_ENV_SCHEMA_FILE} default", prop.get("default")),
-        ):
-            if not isinstance(value, str) or not _is_loopback(value):
+        # The FIRST seam that supplies a value is the one that lands, and it is the only
+        # one worth judging: a correct .app.env with a host address left in .env is a
+        # developer running CLIs against the workbench, not a defect. Testing every seam
+        # and reporting whichever happened to look wrong would flag exactly that.
+        supplied = [
+            (source, value)
+            for source, value in (
+                (APP_ENV_FILE, app_env.get(variable)),
+                (".env", dot_env.get(variable)),
+                (f"{APP_ENV_SCHEMA_FILE} default", prop.get("default")),
+            )
+            if isinstance(value, str) and value.strip()
+        ]
+        for source, value in supplied[:1]:
+            if not _is_loopback(value):
                 continue
             findings.append(
                 EnvSeamFinding(

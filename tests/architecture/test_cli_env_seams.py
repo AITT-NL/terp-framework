@@ -177,6 +177,20 @@ def test_a_container_resolved_service_name_passes(tmp_path: pathlib.Path) -> Non
     assert run_env_seams_check(root)[0] == 0
 
 
+def test_a_correct_app_env_is_not_condemned_by_a_host_address_in_dot_env(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A host address in `.env` alongside a correct `.app.env` is a developer running
+    CLIs against the workbench — the legitimate use of that seam, not a defect. Only the
+    value that actually lands is judged."""
+    root = _project(
+        tmp_path, declared={"API_URL": {"type": "string", "resolvedBy": "container"}}
+    )
+    (root / ".app.env").write_text("API_URL=http://api:8000\n", encoding="utf-8")
+    (root / ".env").write_text("API_URL=http://127.0.0.1:8000\n", encoding="utf-8")
+    assert run_env_seams_check(root)[0] == 0
+
+
 def test_a_loopback_default_in_the_manifest_is_refused(tmp_path: pathlib.Path) -> None:
     """The manifest's own default lands when no seam supplies a value."""
     root = _project(
