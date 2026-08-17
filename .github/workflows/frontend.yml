@@ -49,7 +49,7 @@ jobs:
       - name: Rebuild design tokens and fail on drift from tokens.json
         run: |
           npm run -w @terpjs/contract tokens
-          git diff --exit-code -- packages/frontend/contract/src/tokens.css
+          git diff --exit-code -- packages/frontend/contract/src/tokens.css packages/frontend/contract/src/tokens.manifest.json
 
       - name: Test @terpjs/contract (the route-types generator)
         run: npm run -w @terpjs/contract test

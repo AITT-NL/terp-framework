@@ -1,0 +1,124 @@
+{
+  "$comment": "Foreground/background pairings the framework renders as text, as data. Two consumers read this: tokens.contrast.test.js holds each pairing to WCAG 2.1 AA, and the generated token manifest publishes them so a theme editor or an agent can tell which tokens must stay legible against which. Decorative boundaries are deliberately absent — WCAG sets no ratio for a divider, and asserting one would teach the next reader to ignore this file. Names are CSS custom properties because that is the vocabulary a theme author writes and a manifest consumer reads.",
+  "textPairs": [
+    {
+      "id": "body-on-card",
+      "label": "body text on a card",
+      "fg": "--color-neutral-900",
+      "bg": "--color-neutral-0",
+      "layer": "primitive"
+    },
+    {
+      "id": "body-on-canvas-primitive",
+      "label": "body text on the canvas",
+      "fg": "--color-neutral-900",
+      "bg": "--color-neutral-50",
+      "layer": "primitive"
+    },
+    {
+      "id": "muted-on-card",
+      "label": "muted text on a card",
+      "fg": "--color-neutral-600",
+      "bg": "--color-neutral-0",
+      "layer": "primitive"
+    },
+    {
+      "id": "muted-on-canvas-primitive",
+      "label": "muted text on the canvas",
+      "fg": "--color-neutral-600",
+      "bg": "--color-neutral-50",
+      "layer": "primitive"
+    },
+    {
+      "id": "primary-button-label",
+      "label": "primary button label",
+      "fg": "--color-brand-primary-contrast",
+      "bg": "--color-brand-primary",
+      "layer": "primitive"
+    },
+    {
+      "id": "success-badge",
+      "label": "success badge",
+      "fg": "--color-status-success",
+      "bg": "--color-status-success-soft",
+      "layer": "primitive"
+    },
+    {
+      "id": "warning-badge",
+      "label": "warning badge",
+      "fg": "--color-status-warning",
+      "bg": "--color-status-warning-soft",
+      "layer": "primitive"
+    },
+    {
+      "id": "danger-badge",
+      "label": "danger badge",
+      "fg": "--color-status-danger",
+      "bg": "--color-status-danger-soft",
+      "layer": "primitive"
+    },
+    {
+      "id": "info-badge",
+      "label": "info badge",
+      "fg": "--color-status-info",
+      "bg": "--color-status-info-soft",
+      "layer": "primitive"
+    },
+    {
+      "id": "body-on-surface",
+      "label": "body text on a surface",
+      "fg": "--color-fg-default",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "body-on-canvas",
+      "label": "body text on the canvas",
+      "fg": "--color-fg-default",
+      "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
+      "id": "body-on-raised",
+      "label": "body text on a raised surface",
+      "fg": "--color-fg-default",
+      "bg": "--color-bg-raised",
+      "layer": "semantic"
+    },
+    {
+      "id": "muted-on-surface",
+      "label": "muted text on a surface",
+      "fg": "--color-fg-muted",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "muted-on-canvas",
+      "label": "muted text on the canvas",
+      "fg": "--color-fg-muted",
+      "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-on-surface",
+      "label": "subtle text on a surface",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "sidebar-text",
+      "label": "sidebar text",
+      "fg": "--color-sidebar-fg",
+      "bg": "--color-sidebar-bg",
+      "layer": "semantic"
+    },
+    {
+      "id": "sidebar-muted-text",
+      "label": "sidebar muted text",
+      "fg": "--color-sidebar-muted",
+      "bg": "--color-sidebar-bg",
+      "layer": "semantic"
+    }
+  ]
+}

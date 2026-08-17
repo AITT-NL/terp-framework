@@ -27,47 +27,21 @@ const tokensCss = fs.readFileSync(
 const AA_NORMAL_TEXT = 4.5;
 
 /**
- * Pairings the framework renders as text, as foreground/background token names.
+ * Pairings the framework renders as text, read from the shared data file.
  *
- * `label` names the component surface so a failure says what a user would be looking at,
- * not just which two tokens disagree.
+ * `token-pairs.json` is the single source: this gate holds each pairing to AA, and the
+ * generated manifest publishes the same list so a theme editor or an agent can tell which
+ * tokens must stay legible against which. Restating them here would let the gate and the
+ * published contract disagree about what is guaranteed.
+ *
+ * `label` names the component surface so a failure says what a user would be looking at, and
+ * `id` is the stable key — labels intentionally repeat across the primitive and semantic
+ * layers ("body text on the canvas" describes both), so only the id can identify a pairing.
  */
-const TEXT_PAIRS = [
-  { label: "body text on a card", fg: "--color-neutral-900", bg: "--color-neutral-0" },
-  { label: "body text on the canvas", fg: "--color-neutral-900", bg: "--color-neutral-50" },
-  { label: "muted text on a card", fg: "--color-neutral-600", bg: "--color-neutral-0" },
-  { label: "muted text on the canvas", fg: "--color-neutral-600", bg: "--color-neutral-50" },
-  {
-    label: "primary button label",
-    fg: "--color-brand-primary-contrast",
-    bg: "--color-brand-primary",
-  },
-  {
-    label: "success badge",
-    fg: "--color-status-success",
-    bg: "--color-status-success-soft",
-  },
-  {
-    label: "warning badge",
-    fg: "--color-status-warning",
-    bg: "--color-status-warning-soft",
-  },
-  { label: "danger badge", fg: "--color-status-danger", bg: "--color-status-danger-soft" },
-  { label: "info badge", fg: "--color-status-info", bg: "--color-status-info-soft" },
+const TEXT_PAIRS = JSON.parse(
+  fs.readFileSync(fileURLToPath(new URL("../token-pairs.json", import.meta.url)), "utf8"),
+).textPairs;
 
-  // The semantic layer. These name the same surfaces the primitive pairs above describe by
-  // position, and they are gated separately because the two layers can drift: a theme may
-  // remap `--color-bg-surface` without touching `--color-neutral-0`, and once components read
-  // the semantic names the primitive pairs stop describing what anyone actually sees.
-  { label: "body text on a surface", fg: "--color-fg-default", bg: "--color-bg-surface" },
-  { label: "body text on the canvas", fg: "--color-fg-default", bg: "--color-bg-canvas" },
-  { label: "body text on a raised surface", fg: "--color-fg-default", bg: "--color-bg-raised" },
-  { label: "muted text on a surface", fg: "--color-fg-muted", bg: "--color-bg-surface" },
-  { label: "muted text on the canvas", fg: "--color-fg-muted", bg: "--color-bg-canvas" },
-  { label: "subtle text on a surface", fg: "--color-fg-subtle", bg: "--color-bg-surface" },
-  { label: "sidebar text", fg: "--color-sidebar-fg", bg: "--color-sidebar-bg" },
-  { label: "sidebar muted text", fg: "--color-sidebar-muted", bg: "--color-sidebar-bg" },
-];
 
 /**
  * Pairings that do not reach AA today, with the ratio measured when they were recorded.
@@ -89,11 +63,11 @@ const TEXT_PAIRS = [
  * acceptance criterion.
  */
 const BELOW_AA = new Map([
-  ["dark/primary button label", 3.6779],
-  ["light/danger badge", 4.4148],
-  ["light/info badge", 3.8416],
-  ["light/success badge", 3.1484],
-  ["light/warning badge", 3.0721],
+  ["dark/primary-button-label", 3.6779],
+  ["light/danger-badge", 4.4148],
+  ["light/info-badge", 3.8416],
+  ["light/success-badge", 3.1484],
+  ["light/warning-badge", 3.0721],
 ]);
 
 /** The declarations of the one rule whose selector is exactly `selector`. */
@@ -139,7 +113,7 @@ function contrastRatio(a, b) {
 
 /** Every pairing, in both themes, tagged with its `BELOW_AA` key. */
 const cases = Object.entries(THEMES).flatMap(([theme, declarations]) =>
-  TEXT_PAIRS.map((pair) => ({ ...pair, theme, declarations, key: `${theme}/${pair.label}` })),
+  TEXT_PAIRS.map((pair) => ({ ...pair, theme, declarations, key: `${theme}/${pair.id}` })),
 );
 
 /** The measured ratio for one case, with the painted values for the failure message. */
@@ -167,6 +141,15 @@ describe("token sheet text contrast", () => {
     expect(contrastRatio("#767676", "#ffffff")).toBeCloseTo(4.5422, 4);
   });
 
+  it("gives every pairing a unique id", () => {
+    // The id is the ratchet key and the manifest's handle. A duplicate would silently make
+    // one pairing's allowance apply to another, and labels cannot substitute — they repeat
+    // across the primitive and semantic layers on purpose.
+    const ids = TEXT_PAIRS.map((pair) => pair.id);
+    expect(ids.filter((id) => !id)).toEqual([]);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it("holds every pairing in exactly one of the two sets", () => {
     // A typo in a `BELOW_AA` key would silently move a pairing from the strict set into
     // neither set, so the gate would stop asserting anything about it.
@@ -177,7 +160,7 @@ describe("token sheet text contrast", () => {
     expect([...BELOW_AA.keys()]).toEqual([...BELOW_AA.keys()].sort());
   });
 
-  it.each(meetsAa)("$theme: $label reaches AA for normal text", (testCase) => {
+  it.each(meetsAa)("$theme: $id ($label) reaches AA for normal text", (testCase) => {
     const { ratio, painted } = measure(testCase);
     expect(ratio, painted).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
   });
@@ -186,7 +169,7 @@ describe("token sheet text contrast", () => {
   // reaches AA" for a pairing measuring 3.07 is worse than no test, because it is the line
   // a reviewer trusts.
   it.each(knownGaps)(
-    "$theme: $label is a known contrast gap, held at its floor",
+    "$theme: $id ($label) is a known contrast gap, held at its floor",
     (testCase) => {
       const { ratio, painted } = measure(testCase);
       const floor = BELOW_AA.get(testCase.key);
