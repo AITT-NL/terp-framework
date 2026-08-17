@@ -10,6 +10,108 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## Unreleased
+
+Friction reported from an app whose workbench would not boot. The defect was one
+variable resolving to the wrong address, and every layer that could have said so
+stayed quiet: the gate did not read the seam, compose reported an exit code
+without the log that explained it, and there was no way to run the boot chain
+without a Docker daemon to find out which half was broken.
+
+### Fixed
+
+- **`.app.env` could never supply a variable a compose `environment:` block also
+  names — and nothing said so.** Compose resolves `environment:` over
+  `env_file:`, so a declared variable listed in both takes its value from the
+  developer's gitignored `.env` and the `.app.env` Studio renders is discarded.
+  Not merely a stale-override risk: with **no `.env` at all**, `FOO: ${FOO:-}`
+  still wins with an empty string, so there is no configuration in which the
+  declared value arrives — while the generated AGENTS.md tells apps never to edit
+  `.app.env` because "Studio owns environment-specific values". The template's
+  compose files now state the precedence rule where the block is written, and
+  `.env.example` says what it is and is not for.
+
+- **A passing check's adoption hint is no longer announced only in machine
+  mode.** `routes-drift` passes by *skipping* on an app that has not adopted
+  route types (ADR 0092), and the "add `"routes": "terp-routes"`" hint reached
+  only `--format json`'s `output_tail` — an opt-in nobody is told about does not
+  get adopted. Output prefixed `note:` now prints in text mode on a pass too;
+  everything else stays quiet, because a passing check's output is otherwise a
+  whole test log.
+
+- **`terp docker dev` no longer passes compose's contentless failure straight
+  through.** A failed one-shot surfaced as `service "x" didn't complete
+  successfully: exit 1` — twice, because two waiters observe one failed
+  condition — while the cause (`Connection refused`) sat in a container log
+  nobody was told to read. The command owns the topology, so on a non-zero exit
+  it now reads `compose ps`, names every service that exited non-zero (once,
+  however many waiters reported it) and prints its last 50 lines. Best-effort by
+  construction: a daemon that has gone away must not replace the real error with
+  an error about diagnosing it.
+
+- **`copier update` no longer overwrites generated-and-committed artifacts with
+  the scaffold's stubs.** `frontend/src/routes.gen.d.ts` is written by `terp
+  routes` from the app's own module manifests and the template's copy is a
+  one-route stub, so an update replaced a whole route table with `"/"` and turned
+  every typed navigation into a compile error nowhere near its cause;
+  `environment.schema.json` and `escape-hatch-budget.json` are the app's own
+  declarations and ratchet, and the template's are empty. All three are now
+  `_skip_if_exists`. Documentation the app also edits stays updatable on purpose
+  — an app that never receives a corrected explanation is how several of these
+  seams came to be misunderstood.
+
+### Added
+
+- **`terp verify --only env-seams`** — a new check in every profile, and in the
+  template's CI. It reports a declared variable that a compose `environment:`
+  block overrides, naming the variable, the file, the services and which seam
+  wins; and a `"resolvedBy": "container"` variable whose value is a loopback
+  address. Both readings are of checked-in files, so it needs **no Docker
+  daemon and not even the `docker` binary** (`docker compose config` is a worse
+  oracle despite being daemon-free: it inlines `env_file` into `environment`,
+  erasing the distinction being reported). One finding per variable with every
+  affected service listed, never one per service — a shared backend anchor puts
+  the same override on every service that merges it, and restating one fact six
+  times with the recipe repeated buries what is actually wrong.
+
+- **`"resolvedBy": host | container | browser` in `environment.schema.json`.** An
+  address is resolved by exactly one party and one value cannot be right for two:
+  `127.0.0.1:8000` is the API from a shell and the container's *own* loopback
+  from inside the compose network. It is not derivable from a variable's name or
+  type, which is why an app can follow the pattern the template appears to teach
+  and still be wrong — `OIDC_REDIRECT_URI` is a legitimate `.env` forward
+  precisely because the **browser** resolves it. The manifest now records the
+  distinction so the check can enforce it instead of guessing. The framework
+  reads the annotation from the manifest directly, so the check works on any
+  Studio; the matching Studio release stops stripping it from its own view of the
+  manifest and refuses an unrecognised value rather than silently opting the
+  variable out of the loopback check.
+
+- **`terp smoke`** — the workbench's backend boot chain, in-process, with no
+  Docker daemon: migrate, seed, the API, and every one-shot the app added, in
+  `depends_on` order against a throwaway SQLite file. It answers "is this my app
+  or is this my environment?", which previously meant hand-assembling that chain
+  by reading the topology out of `docker-compose.yml` and translating each
+  container path and container address by hand. Both translations are read from
+  the compose file, never guessed: a bind mount says what `/app/app` means here,
+  and `http://api:8000` — a name that resolves only on the compose network — is
+  pointed at the port the API was actually bound to. Services that are not the
+  backend image are skipped (Postgres is replaced by SQLite; the Vite dev server
+  says nothing about whether the backend boots), which is what removes the daemon
+  requirement and lets it run in CI. `--plan` prints the translated chain without
+  running it.
+
+- **`terp guide environment`** — the two seams, the direction of precedence, the
+  host/container/browser distinction, and what to do when a feature adds a
+  variable. The generated AGENTS.md carries the rules and points here.
+
+- **`.app.env.example` in the template.** `.app.env` does not exist in a fresh
+  checkout and `env_file` is `required: false`, so its absence was invisible: all
+  of local development ran on `.env` plus compose defaults, and the first time a
+  value actually diverged was in a Studio-managed environment — the worst place
+  to meet the precedence rule. `cp .app.env.example .app.env` makes the inner
+  loop use the seam production uses.
+
 ## 0.6.1 — 2026-08-14
 
 Friction reported from an app weighing — and then taking — the 0.6.0 upgrade:

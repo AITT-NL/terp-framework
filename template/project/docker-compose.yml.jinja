@@ -16,19 +16,38 @@ x-backend: &backend
   image: {{ project_slug }}-backend
   # App-declared environment variables (environment.schema.json): same seam as
   # the production profile, so a declared variable behaves identically in the
-  # inner loop. Optional — the workbench runs without the file.
+  # inner loop. `cp .app.env.example .app.env` to exercise it locally — that is
+  # the file Studio renders per environment, so meeting it here rather than
+  # first in a deployed environment is the point. Optional either way.
   env_file:
     - path: .app.env
       required: false
+  # PRECEDENCE: compose resolves `environment:` OVER `env_file:`. A name that
+  # appears below is therefore supplied by .env (or by the default written here)
+  # and NEVER by .app.env — in every environment, including one with no .env at
+  # all, where `${VAR:-}` still wins with an empty string. So: never list a
+  # variable here that environment.schema.json declares. `terp verify --only
+  # env-seams` fails the gate on exactly that overlap. What belongs here is the
+  # platform's own wiring, plus values only the host can resolve.
   environment: &backend-env
     DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
     SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me-please-0123456789ab}
     ENVIRONMENT: local
 {%- if use_sso %}
-    # SSO (app/auth.py): forwarded from .env; the OIDC module mounts once set.
+    # SSO (app/auth.py): the OIDC module mounts once these are set.
+    #
+    # These are forwarded from .env rather than declared in the manifest because
+    # the workbench's SSO values are a developer's own throwaway IdP registration,
+    # not an environment Studio deploys. If this app ever declares one of them in
+    # environment.schema.json, delete it from this block in the same change —
+    # keeping both makes the declaration dead.
     OIDC_ISSUER: ${OIDC_ISSUER:-}
     OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
     OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+    # Resolved by the BROWSER, not by a container: the IdP redirects the user's
+    # browser here, so a host address (localhost:5173) is the correct value and a
+    # compose service name would be wrong. This is the distinction the manifest
+    # records as "resolvedBy" — see `terp guide environment`.
     OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
 {%- endif %}
   volumes:

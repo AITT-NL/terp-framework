@@ -3,6 +3,29 @@
 _subdirectory: project
 _templates_suffix: .jinja
 
+# Files the template SEEDS but does not OWN. Copier writes them once, at `copier copy`,
+# and leaves them alone on every later `copier update`.
+#
+# The test is whether the template's copy is a STUB that would destroy real content, not
+# merely whether an app edits the file. Documentation the app also edits (`.env.example`,
+# `.app.env.example`, `AGENTS.md`) stays updatable on purpose — an app that never receives
+# a corrected explanation is the reason several of these seams were misunderstood.
+#
+# Each entry below fails that test:
+#   routes.gen.d.ts       written by `terp routes` from the app's own module manifests;
+#                         the template's copy is a ONE-ROUTE stub, so an update replaced a
+#                         whole route table with `"/"` and turned every typed navigation
+#                         into a compile error nowhere near its cause. `terp verify`
+#                         regenerates and gates it; the template only makes it exist.
+#   environment.schema.json  the app's own declarations; the template's is `{}`, so an
+#                         update would silently un-declare every runtime variable it has.
+#   escape-hatch-budget.json  the app's ratchet counts; the template's is `{}`, which
+#                         would reset the ratchet to "no exceptions ever recorded".
+_skip_if_exists:
+  - frontend/src/routes.gen.d.ts
+  - environment.schema.json
+  - escape-hatch-budget.json
+
 project_name:
   type: str
   help: Human-readable application name

@@ -16,6 +16,13 @@ dependencies = [
     # `terp guide rules` projects the live rule registry; terp-arch is imported lazily
     # (only when that topic is rendered), so it stays off the common `terp guide` path.
     "terp-arch==0.6.1",
+    # `terp verify --only env-seams` and `terp smoke` read the compose profiles as data
+    # (anchors and `<<:` merge keys resolved), so both answer without a Docker daemon or
+    # even the `docker` binary. Declared explicitly rather than leant on: every app
+    # already resolves PyYAML through uvicorn[standard], but that is uvicorn's choice to
+    # revisit, not a dependency this CLI may inherit by luck. Imported lazily, so it
+    # stays off the `terp inspect` / `terp guide` path.
+    "pyyaml>=6.0",
 ]
 
 # Job-process adapters stay optional: the base CLI must not install the table-owning outbox

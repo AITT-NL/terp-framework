@@ -956,6 +956,68 @@ Layout contracts (slot-typed layouts, ADR 0079)
   `// terp-allow-layout-contract: <reason>` marker on the violating line, counted
   against the app's checked-in escape-hatch-budget.json (a ratchet). A recurring
   legitimate need should become a contract allowance, not an opt-out.
+""",
+    "environment": """\
+Runtime environment variables: the two seams, and which one wins
+
+TWO SEAMS, ONE DIRECTION OF PRECEDENCE
+
+  .app.env   the variables the app DECLARES in environment.schema.json. Studio renders
+             exactly the declared keys into this file, per environment; the compose
+             profiles forward it (`env_file:`). This is how app configuration reaches
+             production. Locally: `cp .app.env.example .app.env`.
+
+  .env       compose's own file, read automatically from the project directory. It feeds
+             the `${...}` interpolations in docker-compose.yml -- the platform's wiring
+             (SECRET_KEY, API_PORT, WEB_PORT) and values only the host resolves.
+             Gitignored; the developer's alone.
+
+Compose resolves `environment:` OVER `env_file:`. A variable named in BOTH a compose
+`environment:` block and .app.env is therefore supplied by .env, and the .app.env copy is
+discarded -- silently, in every environment. This is not merely a stale-override risk:
+
+    environment:
+      FOO: ${FOO:-}        # with no .env at all, FOO is set to "" -- and still wins
+
+so there is no configuration in which the declared value arrives. A literal
+(`FOO: http://api:8000`) discards it just as completely.
+
+  Rule: ONE OWNER PER VARIABLE. Either the app declares it (.app.env is its seam, and it
+  must not appear in any `environment:` block), or compose owns it (and it must not be
+  declared). `terp verify --only env-seams` fails the gate on the overlap, naming the
+  variable, the file, and the services -- no Docker daemon needed, it reads the two files.
+
+HOST vs CONTAINER vs BROWSER
+
+An address is resolved by exactly one party, and one value cannot be right for two. This
+is NOT derivable from the variable's name or type, so the manifest records it:
+
+    "MY_API_BASE_URL": { "type": "string", "resolvedBy": "container" }
+
+  container   a service on the compose network dials it -> use the SERVICE NAME
+              (http://api:8000). A loopback address here is the container ITSELF: the
+              classic failure is setting the host value (127.0.0.1:8000), which is right
+              for a CLI run from your shell, and watching every one-shot exit 1 with
+              "Connection refused" from inside the network.
+  host        your shell dials it, outside the network -> http://127.0.0.1:8000
+  browser     the user's browser is sent there -> a host address. OIDC_REDIRECT_URI is
+              the canonical case, and the reason it is legitimately a .env forward rather
+              than a declaration: the IdP redirects a BROWSER, so localhost is correct.
+
+`env-seams` refuses a "resolvedBy": "container" variable whose value is a loopback host.
+
+WHEN A FEATURE ADDS A VARIABLE
+
+1. Declare it in environment.schema.json (UPPER_SNAKE; `"format": "secret"` for tokens,
+   passwords, API keys and client secrets; `"resolvedBy"` for addresses).
+2. Do NOT add it to a compose `environment:` block -- that would kill the declaration.
+3. Add a workbench value to .app.env.example, so the inner loop runs the deployed seam.
+4. `terp verify --only env-seams`.
+
+Never write a secret value into the manifest, .env.example, .app.env.example, source,
+tests, prompts or logs. Platform-owned names (SECRET_KEY, POSTGRES_PASSWORD, DATABASE_URL,
+ENVIRONMENT, WEB_PORT, BACKEND_CORS_ORIGINS) are refused in the manifest: they already
+have an owner.
 """,}
 
 # Topics whose body is generated from a live registry (not a static recipe above).
@@ -2151,6 +2213,24 @@ def _build_parser() -> argparse.ArgumentParser:
     docker_dev_parser.add_argument(
         "--project-name", default=None, help="Compose project name (default: Compose's own)"
     )
+
+    smoke_parser = subcommands.add_parser(
+        "smoke",
+        help="Run the workbench's backend boot chain in-process (no Docker daemon)",
+    )
+    smoke_parser.add_argument(
+        "--compose-file",
+        default="docker-compose.yml",
+        help="Compose file the topology is read from (default: docker-compose.yml)",
+    )
+    smoke_parser.add_argument(
+        "--root", default=".", help="Directory the compose file is resolved against (default: .)"
+    )
+    smoke_parser.add_argument(
+        "--plan",
+        action="store_true",
+        help="Print the translated chain and exit without running it",
+    )
     return parser
 
 
@@ -2359,6 +2439,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
         return
+    if args.command == "smoke":
+        from terp.cli.smoke import render_smoke_plan, run_smoke_command
+
+        if args.plan:
+            print(render_smoke_plan(root=args.root, compose_file=args.compose_file))
+            return
+        raise SystemExit(run_smoke_command(root=args.root, compose_file=args.compose_file))
     parser.error("unknown command")  # pragma: no cover - argparse guards this
 
 
