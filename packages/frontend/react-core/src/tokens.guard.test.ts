@@ -7,18 +7,9 @@ const tokensCss = readFileSync(
   "utf-8",
 );
 
-// Typed locally so the package keeps its deliberate `"types": []` isolation:
-// react-core source must never see ambient Node globals. The source scan uses
-// Vite's raw glob; only the CSS sheet needs fs (declared minimally in raw.d.ts).
-declare global {
-  interface ImportMeta {
-    glob: (
-      pattern: string,
-      options: { query: "?raw"; import: "default"; eager: true },
-    ) => Record<string, string>;
-  }
-}
-
+// The package keeps its deliberate `"types": []` isolation: react-core source must never
+// see ambient Node globals. The source scan uses Vite's raw glob and the sheet needs fs;
+// both are declared minimally in raw.d.ts, shared with the other scanning tests.
 const sources = import.meta.glob("./**/*.{ts,tsx}", {
   query: "?raw",
   import: "default",
