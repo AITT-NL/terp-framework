@@ -1,9 +1,9 @@
 {
   "color": {
     "brand": {
-      "primary": { "value": "#58a6ff" },
-      "primaryContrast": { "value": "#010409" },
-      "primaryHover": { "value": "#79c0ff" },
+      "primary": { "value": "#0b4ea8" },
+      "primaryContrast": { "value": "#ffffff" },
+      "primaryHover": { "value": "#1158c7" },
       "primarySoft": { "value": "#0c2d6b" }
     },
     "neutral": {
@@ -40,7 +40,8 @@
       "default": { "value": "#f0f6fc" },
       "muted": { "value": "#9aa4b2" },
       "subtle": { "value": "#8b949e" },
-      "onBrand": { "value": "#010409" }
+      "accent": { "value": "#58a6ff" },
+      "onBrand": { "value": "#ffffff" }
     },
     "border": {
       "default": { "value": "#30363d" },

@@ -40,9 +40,9 @@
       "category": "color",
       "values": {
         "light": "#2563eb",
-        "dark": "#3b82f6",
-        "midnight": "#58a6ff",
-        "twilight": "#a78bfa",
+        "dark": "#1d4ed8",
+        "midnight": "#0b4ea8",
+        "twilight": "#5b21b6",
         "contrast": "#0842a0"
       },
       "themeable": true
@@ -53,8 +53,8 @@
       "values": {
         "light": "#ffffff",
         "dark": "#ffffff",
-        "midnight": "#010409",
-        "twilight": "#1a1622",
+        "midnight": "#ffffff",
+        "twilight": "#ffffff",
         "contrast": "#ffffff"
       },
       "themeable": true
@@ -64,9 +64,9 @@
       "category": "color",
       "values": {
         "light": "#1d4ed8",
-        "dark": "#60a5fa",
-        "midnight": "#79c0ff",
-        "twilight": "#c4b0ff",
+        "dark": "#2563eb",
+        "midnight": "#1158c7",
+        "twilight": "#6d28d9",
         "contrast": "#05275a"
       },
       "themeable": true
@@ -76,9 +76,9 @@
       "category": "color",
       "values": {
         "light": "#eff6ff",
-        "dark": "#1e3a5f",
+        "dark": "#15304e",
         "midnight": "#0c2d6b",
-        "twilight": "#332a5c",
+        "twilight": "#2b2350",
         "contrast": "#e8f0fe"
       },
       "themeable": true
@@ -219,7 +219,7 @@
       "name": "--color-status-success",
       "category": "color",
       "values": {
-        "light": "#16a34a",
+        "light": "#15803d",
         "dark": "#4ade80",
         "midnight": "#3fb950",
         "twilight": "#5ed49a",
@@ -243,7 +243,7 @@
       "name": "--color-status-warning",
       "category": "color",
       "values": {
-        "light": "#d97706",
+        "light": "#b45309",
         "dark": "#fbbf24",
         "midnight": "#d29922",
         "twilight": "#e8b04b",
@@ -267,7 +267,7 @@
       "name": "--color-status-danger",
       "category": "color",
       "values": {
-        "light": "#dc2626",
+        "light": "#b91c1c",
         "dark": "#f87171",
         "midnight": "#f85149",
         "twilight": "#f58a92",
@@ -291,7 +291,7 @@
       "name": "--color-status-info",
       "category": "color",
       "values": {
-        "light": "#0284c7",
+        "light": "#0369a1",
         "dark": "#38bdf8",
         "midnight": "#58a6ff",
         "twilight": "#7cb8f0",
@@ -408,13 +408,25 @@
       "themeable": true
     },
     {
+      "name": "--color-fg-accent",
+      "category": "color",
+      "values": {
+        "light": "#1d4ed8",
+        "dark": "#60a5fa",
+        "midnight": "#58a6ff",
+        "twilight": "#a78bfa",
+        "contrast": "#0842a0"
+      },
+      "themeable": true
+    },
+    {
       "name": "--color-fg-on-brand",
       "category": "color",
       "values": {
         "light": "#ffffff",
         "dark": "#ffffff",
-        "midnight": "#010409",
-        "twilight": "#1a1622",
+        "midnight": "#ffffff",
+        "twilight": "#ffffff",
         "contrast": "#ffffff"
       },
       "themeable": true
@@ -484,9 +496,9 @@
       "category": "color",
       "values": {
         "light": "#eff6ff",
-        "dark": "#1e3a5f",
+        "dark": "#15304e",
         "midnight": "#0c2d6b",
-        "twilight": "#332a5c",
+        "twilight": "#2b2350",
         "contrast": "#e8f0fe"
       },
       "themeable": true
@@ -1220,6 +1232,20 @@
       "label": "subtle text on a surface",
       "fg": "--color-fg-subtle",
       "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "accent-on-surface",
+      "label": "accent text on a surface",
+      "fg": "--color-fg-accent",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "accent-on-soft",
+      "label": "accent text on the accent wash",
+      "fg": "--color-fg-accent",
+      "bg": "--color-brand-primary-soft",
       "layer": "semantic"
     },
     {

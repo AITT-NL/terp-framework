@@ -107,6 +107,20 @@
       "layer": "semantic"
     },
     {
+      "id": "accent-on-surface",
+      "label": "accent text on a surface",
+      "fg": "--color-fg-accent",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "accent-on-soft",
+      "label": "accent text on the accent wash",
+      "fg": "--color-fg-accent",
+      "bg": "--color-brand-primary-soft",
+      "layer": "semantic"
+    },
+    {
       "id": "sidebar-text",
       "label": "sidebar text",
       "fg": "--color-sidebar-fg",

@@ -67,13 +67,7 @@ const TEXT_PAIRS = JSON.parse(fs.readFileSync(here("../token-pairs.json"), "utf8
  * The themes added since carry none: a theme authored against this gate has no reason to land
  * below AA, so an allowance for a new theme is a design mistake and not a legacy to record.
  */
-const BELOW_AA = new Map([
-  ["dark/primary-button-label", 3.6779],
-  ["light/danger-badge", 4.4148],
-  ["light/info-badge", 3.8416],
-  ["light/success-badge", 3.1484],
-  ["light/warning-badge", 3.0721],
-]);
+const BELOW_AA = new Map([]);
 
 /** The declarations of the one rule whose selector is exactly `selector`. */
 function declarationsFor(selector) {

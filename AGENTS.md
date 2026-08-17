@@ -57,7 +57,10 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   on the same footing — one typed egress path.
 - **Data collections render via `DataView`** (repository-driven; see
   [packages/frontend/react-core/src/dataview/README.md](packages/frontend/react-core/src/dataview/README.md)).
-- **Design tokens, not inline colours**; user-facing text props are `UiText`.
+- **Design tokens, not inline colours**; user-facing text props are `UiText`. The accent is
+  two tokens: `--color-brand-primary` is a filled surface carrying only
+  `--color-brand-primary-contrast`, and `--color-fg-accent` is accent ink or a boundary on the
+  app's own surfaces. One token cannot serve both and reach AA in a dark theme.
 - **Five themes ship**, not two: `light`, `dark`, `midnight`, `twilight` and `contrast`, plus
   `system` to follow the OS preference. They are registered in
   [packages/frontend/contract/themes.json](packages/frontend/contract/themes.json) and

@@ -124,7 +124,7 @@ const iconTileStyle: CSSProperties = {
   flexShrink: 0,
   borderRadius: "var(--radius-md)",
   background: "var(--color-brand-primary-soft)",
-  color: "var(--color-brand-primary)",
+  color: "var(--color-fg-accent)",
 };
 
 const titleTextStyle: CSSProperties = {

@@ -20,7 +20,17 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
   or `useRealtimeChannel()` for typed SSE/WebSocket subscriptions. The hook mints a
   one-use connection ticket through the generated client; bearer tokens never enter URLs.
 - **Design tokens, not inline colours** — style with the CSS variables from
-  `@terpjs/contract` (`var(--color-*)`, `var(--space-*)`, `var(--font-*)`).
+  `@terpjs/contract` (`var(--color-*)`, `var(--space-*)`, `var(--font-*)`). The full list,
+  with each token's per-theme values and the foreground/background pairings the contrast gate
+  enforces, is published as `@terpjs/contract/tokens.manifest.json` — read it rather than
+  inferring names from the compiled sheet.
+- **The accent is two tokens, and mixing them up is a contrast bug.**
+  `--color-brand-primary` is the accent as a *filled surface*, and the only thing that may sit
+  on it is `--color-brand-primary-contrast`. `--color-fg-accent` is the accent as *ink or a
+  boundary* against one of the app's own surfaces — accent text, a selected-tab underline, a
+  focus ring, a checkbox's `accent-color`. One token cannot do both: in a dark theme the
+  surface use needs a value dark enough to hold a white label and the ink use needs one light
+  enough to read on a dark canvas, and there is no value satisfying both.
 - **User-facing text is `UiText`** — every text prop accepts a plain string or an
   `{id, message}` descriptor, so apps can localize via `UiTextProvider` without
   react-core taking an i18n dependency.

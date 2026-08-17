@@ -80,7 +80,7 @@ const optionStyle = (active: boolean, selected: boolean, disabled: boolean): CSS
   color: disabled
     ? "var(--color-neutral-400)"
     : selected
-      ? "var(--color-brand-primary)"
+      ? "var(--color-fg-accent)"
       : "var(--color-neutral-900)",
   cursor: disabled ? "not-allowed" : "pointer",
   fontWeight: selected ? "var(--font-weight-semibold)" as never : "var(--font-weight-normal)" as never,

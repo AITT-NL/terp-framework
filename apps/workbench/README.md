@@ -84,13 +84,27 @@ a retry is how a suite stops being evidence.
 rasterisation and antialiasing differ between Windows and Linux by far more than any
 tolerance that would still catch a real change, so a single shared set leaves whichever
 platform did not record it permanently red. Each platform records and compares its own; CI
-compares the Linux set. Within one platform, `maxDiffPixelRatio: 0.01` absorbs a pixel or two
-of antialiasing drift without absorbing a real change — a token edit moves far more than that.
+compares the Linux set.
 
-Verified by mutation rather than assumed: changing `--color-brand-primary` from `#2563eb` to
-`#dc2626` fails `light-button-variants` on 2679 pixels (ratio 0.03). The dark baseline
-correctly passes, because the dark block declares its own brand colour — the two themes are
-genuinely independent.
+**Two comparison knobs, both pinned.** `threshold` decides whether a single pixel counts as
+different at all — a normalised YIQ colour distance — and `maxDiffPixels` decides how many
+counted pixels are tolerable. They are not interchangeable, and pinning one while inheriting
+the other is how this gate went blind for a while: only the pixel allowance was set, so
+Playwright's default `threshold: 0.2` applied, and a status token moving one Tailwind step
+(`#16a34a` → `#15803d`) produced **zero** differing pixels. All 62 baselines passed a change
+that visibly repaints every badge in every app. Phase 2d found it by repainting ten specimens
+and being told nothing had moved.
+
+Now `threshold: 0.02` with `maxDiffPixels: 0`. Zero-tolerance is viable because within one
+platform the render is deterministic — verified over three consecutive runs — and cross-platform
+drift is already handled by separate baseline sets rather than by a tolerance.
+
+Verified by mutation rather than assumed, and note what the *earlier* mutation missed: swapping
+`--color-brand-primary` from `#2563eb` to `#dc2626` fails `light-button-variants` on 2679 pixels,
+but blue-to-red clears a 0.2 threshold easily, so it only ever proved the gate catches *large*
+changes. The check that matters is the small one: reverting the light success token by a single
+Tailwind step now fails `badge-tones`, `alert-tones` and `detail-list`, and under the old
+settings failed nothing at all.
 
 ## Accessibility
 

@@ -22,13 +22,13 @@
   --color-neutral-700: #334155;
   --color-neutral-800: #1e293b;
   --color-neutral-900: #0f172a;
-  --color-status-success: #16a34a;
+  --color-status-success: #15803d;
   --color-status-success-soft: #f0fdf4;
-  --color-status-warning: #d97706;
+  --color-status-warning: #b45309;
   --color-status-warning-soft: #fffbeb;
-  --color-status-danger: #dc2626;
+  --color-status-danger: #b91c1c;
   --color-status-danger-soft: #fef2f2;
-  --color-status-info: #0284c7;
+  --color-status-info: #0369a1;
   --color-status-info-soft: #f0f9ff;
   --color-focus-ring: rgba(37,99,235,0.35);
   --color-bg-canvas: #f8fafc;
@@ -38,6 +38,7 @@
   --color-fg-default: #0f172a;
   --color-fg-muted: #475569;
   --color-fg-subtle: #64748b;
+  --color-fg-accent: #1d4ed8;
   --color-fg-on-brand: #ffffff;
   --color-border-default: #e2e8f0;
   --color-border-strong: #cbd5e1;
@@ -124,10 +125,10 @@
    The slate-neutral dark counterpart to light, and the theme the OS dark preference selects. */
 [data-theme='dark'] {
   color-scheme: dark;
-  --color-brand-primary: #3b82f6;
+  --color-brand-primary: #1d4ed8;
   --color-brand-primary-contrast: #ffffff;
-  --color-brand-primary-hover: #60a5fa;
-  --color-brand-primary-soft: #1e3a5f;
+  --color-brand-primary-hover: #2563eb;
+  --color-brand-primary-soft: #15304e;
   --color-neutral-0: #1e293b;
   --color-neutral-50: #0f172a;
   --color-neutral-100: #263449;
@@ -155,13 +156,14 @@
   --color-fg-default: #f1f5f9;
   --color-fg-muted: #b4c0d0;
   --color-fg-subtle: #94a3b8;
+  --color-fg-accent: #60a5fa;
   --color-fg-on-brand: #ffffff;
   --color-border-default: #334155;
   --color-border-strong: #475569;
   --color-border-subtle: #263449;
   --color-interactive-hover: #263449;
   --color-interactive-active: #334155;
-  --color-interactive-selected: #1e3a5f;
+  --color-interactive-selected: #15304e;
   --color-sidebar-bg: #1e293b;
   --color-sidebar-fg: #f1f5f9;
   --color-sidebar-muted: #b4c0d0;
@@ -178,9 +180,9 @@
    A near-black dark for low light and OLED displays: cooler neutrals, a deeper canvas than dark, and a deeper accent that holds a white label at AA. */
 [data-theme='midnight'] {
   color-scheme: dark;
-  --color-brand-primary: #58a6ff;
-  --color-brand-primary-contrast: #010409;
-  --color-brand-primary-hover: #79c0ff;
+  --color-brand-primary: #0b4ea8;
+  --color-brand-primary-contrast: #ffffff;
+  --color-brand-primary-hover: #1158c7;
   --color-brand-primary-soft: #0c2d6b;
   --color-neutral-0: #0d1117;
   --color-neutral-50: #010409;
@@ -209,7 +211,8 @@
   --color-fg-default: #f0f6fc;
   --color-fg-muted: #9aa4b2;
   --color-fg-subtle: #8b949e;
-  --color-fg-on-brand: #010409;
+  --color-fg-accent: #58a6ff;
+  --color-fg-on-brand: #ffffff;
   --color-border-default: #30363d;
   --color-border-strong: #484f58;
   --color-border-subtle: #21262d;
@@ -232,10 +235,10 @@
    A warm violet-tinted dark. Its neutrals sit in a different hue family from dark and midnight, which is what proves a theme is a palette rather than a lightness setting. */
 [data-theme='twilight'] {
   color-scheme: dark;
-  --color-brand-primary: #a78bfa;
-  --color-brand-primary-contrast: #1a1622;
-  --color-brand-primary-hover: #c4b0ff;
-  --color-brand-primary-soft: #332a5c;
+  --color-brand-primary: #5b21b6;
+  --color-brand-primary-contrast: #ffffff;
+  --color-brand-primary-hover: #6d28d9;
+  --color-brand-primary-soft: #2b2350;
   --color-neutral-0: #241f31;
   --color-neutral-50: #1a1622;
   --color-neutral-100: #2d2740;
@@ -263,13 +266,14 @@
   --color-fg-default: #f6f3fa;
   --color-fg-muted: #b9aecd;
   --color-fg-subtle: #a294bd;
-  --color-fg-on-brand: #1a1622;
+  --color-fg-accent: #a78bfa;
+  --color-fg-on-brand: #ffffff;
   --color-border-default: #3a3350;
   --color-border-strong: #4d4468;
   --color-border-subtle: #2d2740;
   --color-interactive-hover: #2d2740;
   --color-interactive-active: #3a3350;
-  --color-interactive-selected: #332a5c;
+  --color-interactive-selected: #2b2350;
   --color-sidebar-bg: #241f31;
   --color-sidebar-fg: #f6f3fa;
   --color-sidebar-muted: #b9aecd;
@@ -317,6 +321,7 @@
   --color-fg-default: #000000;
   --color-fg-muted: #141414;
   --color-fg-subtle: #1f1f1f;
+  --color-fg-accent: #0842a0;
   --color-fg-on-brand: #ffffff;
   --color-border-default: #595959;
   --color-border-strong: #000000;
@@ -340,10 +345,10 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
-    --color-brand-primary: #3b82f6;
+    --color-brand-primary: #1d4ed8;
     --color-brand-primary-contrast: #ffffff;
-    --color-brand-primary-hover: #60a5fa;
-    --color-brand-primary-soft: #1e3a5f;
+    --color-brand-primary-hover: #2563eb;
+    --color-brand-primary-soft: #15304e;
     --color-neutral-0: #1e293b;
     --color-neutral-50: #0f172a;
     --color-neutral-100: #263449;
@@ -371,13 +376,14 @@
     --color-fg-default: #f1f5f9;
     --color-fg-muted: #b4c0d0;
     --color-fg-subtle: #94a3b8;
+    --color-fg-accent: #60a5fa;
     --color-fg-on-brand: #ffffff;
     --color-border-default: #334155;
     --color-border-strong: #475569;
     --color-border-subtle: #263449;
     --color-interactive-hover: #263449;
     --color-interactive-active: #334155;
-    --color-interactive-selected: #1e3a5f;
+    --color-interactive-selected: #15304e;
     --color-sidebar-bg: #1e293b;
     --color-sidebar-fg: #f1f5f9;
     --color-sidebar-muted: #b4c0d0;

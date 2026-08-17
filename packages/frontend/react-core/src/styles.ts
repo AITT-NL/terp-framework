@@ -141,7 +141,7 @@ html {
 [data-terp="input"]:focus,
 [data-terp="input"]:focus-visible {
   outline: none;
-  border-color: var(--color-brand-primary) !important;
+  border-color: var(--color-fg-accent) !important;
   box-shadow: 0 0 0 3px var(--color-focus-ring) !important;
 }
 [data-terp="input"]::placeholder {
@@ -241,12 +241,12 @@ label:has([data-terp="switch"]:disabled) {
   transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
 }
 [data-terp="hubcard"]:hover {
-  border-color: var(--color-brand-primary) !important;
+  border-color: var(--color-fg-accent) !important;
   box-shadow: var(--shadow-sm);
   transform: translateY(-1px);
 }
 [data-terp="hubcard"]:hover [data-terp="hubcard-title"] {
-  color: var(--color-brand-primary) !important;
+  color: var(--color-fg-accent) !important;
 }
 
 /* Breadcrumb links -------------------------------------------------------- */
@@ -283,7 +283,7 @@ label:has([data-terp="switch"]:disabled) {
 }
 [data-terp="menu-item"][data-selected="true"] {
   background: var(--color-brand-primary-soft) !important;
-  color: var(--color-brand-primary) !important;
+  color: var(--color-fg-accent) !important;
 }
 
 /* Dialogs: ::backdrop cannot be set inline, so the dim layer lives here and

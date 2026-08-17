@@ -47,21 +47,7 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
  * illegible surface, so an allowance for a new theme would be a design mistake being filed as
  * history.
  */
-const KNOWN_CONTRAST_FAILURES = new Set([
-  // The dark primary button label, at 3.68:1 — so every specimen that contains one.
-  "dark/button-variants",
-  "dark/button-with-icon",
-  "dark/empty-state",
-  "dark/page-actions",
-  // The dark tab set.
-  "dark/tabs",
-  // The light badge tones, at 3.07:1 to 4.41:1 — so every specimen that renders a Badge.
-  "light/badge-tones",
-  "light/detail-list",
-  "light/stack-directions",
-  // Light muted/danger body copy.
-  "light/error-state",
-]);
+const KNOWN_CONTRAST_FAILURES = new Set<string>([]);
 
 test("holds no allowance for a theme added after the lane", () => {
   // The two themes that predate this list are allowed to carry known defects; nothing else is.

@@ -73,7 +73,7 @@ const wrapStyle: CSSProperties = {
   fontSize: "var(--font-size-sm)",
 };
 
-const spinnerColorStyle: CSSProperties = { color: "var(--color-brand-primary)" };
+const spinnerColorStyle: CSSProperties = { color: "var(--color-fg-accent)" };
 
 /**
  * Standard inline loading indicator: a spinner plus a short label, announced

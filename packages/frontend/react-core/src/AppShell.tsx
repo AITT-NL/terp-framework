@@ -93,7 +93,7 @@ export const NAV_LINK_COLLAPSED_STYLE: CSSProperties = {
 /** Merged over {@link NAV_LINK_STYLE} on the active route's link. */
 export const NAV_LINK_ACTIVE_STYLE: CSSProperties = {
   background: "var(--color-brand-primary-soft)",
-  color: "var(--color-brand-primary)",
+  color: "var(--color-fg-accent)",
   fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
 };
 

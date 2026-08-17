@@ -18,7 +18,7 @@ const labelStyle: CSSProperties = {
 const inputStyle: CSSProperties = {
   inlineSize: "2.25rem",
   blockSize: "1.25rem",
-  accentColor: "var(--color-brand-primary)",
+  accentColor: "var(--color-fg-accent)",
   cursor: "pointer",
   transition: "background-color 150ms ease",
 };

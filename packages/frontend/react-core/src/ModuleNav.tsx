@@ -41,7 +41,7 @@ const linkStyle: CSSProperties = {
 
 const activeLinkStyle: CSSProperties = {
   color: "var(--color-neutral-900)",
-  borderBottomColor: "var(--color-brand-primary)",
+  borderBottomColor: "var(--color-fg-accent)",
 };
 
 /**
