@@ -59,7 +59,7 @@ export function Tooltip({ content, children }: TooltipProps) {
           setOpen(false);
         },
       })}
-      <span id={id} role="tooltip" hidden={!open} style={tooltipStyle}>
+      <span id={id} role="tooltip" data-terp="tooltip" hidden={!open} style={tooltipStyle}>
         {resolve(content)}
       </span>
     </span>

@@ -40,6 +40,7 @@ const MARKERS = [
   "alert",
   "appshell-brand",
   "appshell-nav",
+  "badge",
   "breadcrumbs",
   "button",
   "card",
@@ -80,6 +81,7 @@ const MARKERS = [
   "switch",
   "tab",
   "tabs",
+  "tooltip",
 ];
 
 /**
@@ -88,10 +90,25 @@ const MARKERS = [
  *
  * A ratchet that shrinks only: this list is the worklist for moving component styling out
  * of inline `style={}` and into the sheet, because a surface with no marker has nothing for
- * a rule to match. `Badge`, `Tooltip` and `Markdown` are sanctioned primitives; `theme.tsx`
- * (ThemeToggle) and `locale.tsx` (LanguageSwitcher) render into the app shell header on
- * every page in every app. Providers, hooks, module manifests and view compositions are
- * deliberately absent — they render no styled root of their own.
+ * a rule to match. Providers, hooks, module manifests and view compositions are deliberately
+ * absent — they render no styled root of their own.
+ *
+ * `Badge` and `Tooltip` have graduated: both own a single styled element, so marking them
+ * changed no DOM and no pixels. What is left does *not* reduce to adding an attribute, and
+ * the reason splits into two shapes worth knowing before the styling migration is planned:
+ *
+ *   - **Delegates its root.** `theme.tsx` (ThemeToggle) and `locale.tsx` (LanguageSwitcher)
+ *     return a bare `Menu` in their `inline` variant — the variant the app shell header
+ *     actually uses — so their root already carries `data-terp="menu"` and is
+ *     indistinguishable from any other menu. `UserMenu` is the same shape. Marking them
+ *     means either threading a marker through `Menu` or introducing a wrapper element.
+ *   - **Returns a fragment.** `Markdown` emits a sequence of block elements with no root at
+ *     all. A marker requires a wrapper, and a wrapper is a new block box in every consumer's
+ *     layout.
+ *
+ * Both are styling decisions with visible consequences, not bookkeeping, so they belong to
+ * the migration itself rather than to preparation for it. The archetypes, `Field`,
+ * `PageActions` and the DataView internals are still unexamined.
  */
 const UNMARKED_STYLED_SURFACES = [
   "./DetailPage.tsx",
@@ -107,9 +124,7 @@ const UNMARKED_STYLED_SURFACES = [
   "./files.tsx",
   "./locale.tsx",
   "./theme.tsx",
-  "./ui/Badge.tsx",
   "./ui/Markdown.tsx",
-  "./ui/Tooltip.tsx",
 ];
 
 /**

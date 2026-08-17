@@ -55,6 +55,13 @@ const badgeStyle = (tone: BadgeTone): CSSProperties => ({
 /** Small token-styled status pill — flat soft tint with a matching text colour. */
 export function Badge({ label, children, tone = "neutral" }: BadgeProps) {
   const resolve = useUiText();
-  return <span style={badgeStyle(tone)}>{resolve((label ?? children) as UiText)}</span>;
+  // `data-tone` alongside the marker: the tone is currently readable only from the inline
+  // colour values, so a stylesheet rule cannot address "the warning pill" at all. Naming it
+  // as an attribute is what lets tone styling move out of `style={}` later.
+  return (
+    <span data-terp="badge" data-tone={tone} style={badgeStyle(tone)}>
+      {resolve((label ?? children) as UiText)}
+    </span>
+  );
 }
 
