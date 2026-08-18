@@ -1021,6 +1021,32 @@ button[data-terp="input"][data-placeholder="true"] {
   gap: var(--space-2);
 }
 
+/* Markdown ------------------------------------------------------------------ */
+/* One declaration, and it is the whole design. Markdown emitted a fragment of
+   bare block elements with no root, so it could not be found, styled or verified
+   by anything. A wrapper fixes that but a wrapper is normally a new block box in
+   every consumer's layout; display: contents generates NO box, so the blocks stay
+   in-flow siblings exactly as the fragment left them, and inside a Stack or a Card
+   or a Page article they become real flex and grid items so the parent's gap still
+   falls between each one rather than once around the lot.
+
+   Two things to know before adding a second declaration here. Every non-inherited
+   property on a display: contents element is silently dropped — padding, margin,
+   border, background, box-shadow — so prose rhythm has to be written as descendant
+   rules ([data-terp="markdown"] p, ... ul), and a declaration added here would
+   simply do nothing with nothing to say so. And display: contents does not change
+   selector matching, only box generation: a parent's > * child selector now matches
+   this wrapper rather than the blocks. Nothing in this sheet uses one, which is why
+   the wrapper is free today.
+
+   Under SSR the sheet is not injected at all (the injector is document-guarded), so
+   a server-rendered page has this element as a block box until hydration. That is
+   true of every rule in this file, but here the failure mode is restructuring rather
+   than degrading. */
+[data-terp="markdown"] {
+  display: contents;
+}
+
 /* Toasts -------------------------------------------------------------------- */
 /* The viewport is fixed to the corner of the screen, which is what puts it —
    like a portalled panel and a top-layer dialog — outside the box any per-specimen

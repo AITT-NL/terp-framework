@@ -424,6 +424,27 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         node: <Markdown source={MARKDOWN_SAMPLE} />,
       },
       {
+        // The half of the boxless-wrapper claim the plain specimen above cannot prove. Nothing
+        // in the repo puts Markdown inside a flex or grid parent, so "its blocks stay
+        // individual items of any parent Stack" was an argument rather than a measurement:
+        // with display: contents the blocks become real flex items and the Stack's gap falls
+        // between each one, and without it they collapse into a single item with the gap once
+        // around the lot. Two Stacks so the row/column cases are both in the picture.
+        id: "markdown-in-stack",
+        title: "Markdown — blocks as items of a parent Stack",
+        node: (
+          <Stack gap={4}>
+            <Stack gap={2}>
+              <Markdown source={MARKDOWN_SAMPLE} />
+            </Stack>
+            <Stack direction="row" gap={3} align="center" wrap>
+              <Markdown source="One **bold** line." />
+              <Badge tone="info" label="beside it" />
+            </Stack>
+          </Stack>
+        ),
+      },
+      {
         id: "tabs",
         title: "Tabs — second tab active",
         node: (

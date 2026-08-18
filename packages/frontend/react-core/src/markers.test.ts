@@ -111,6 +111,7 @@ const MARKERS = [
   "language-switcher-label",
   "loading-state",
   "loading-state-spinner",
+  "markdown",
   "menu",
   "menu-item",
   "menu-item-check",
@@ -181,9 +182,13 @@ const MARKERS = [
  *     it looks; a `rootMarker` prop would have put the only mention of the name somewhere the
  *     scanner never looks, and a marker rendered by nobody's `data-terp` site is precisely
  *     the blind spot this file exists to close.
- *   - **Returns a fragment.** `Markdown` emits a sequence of block elements with no root at
- *     all. A marker requires a wrapper, and a wrapper is a new block box in every consumer's
- *     layout.
+ *   - **Returned a fragment.** `Markdown` emitted a sequence of block elements with no root at
+ *     all, and the objection to marking it was that a wrapper is a new block box in every
+ *     consumer's layout. It has graduated, and that objection turned out to be answerable
+ *     rather than true: the wrapper is `display: contents`, which generates no box, so the
+ *     blocks stay in-flow siblings and become real flex or grid items of any parent that
+ *     spaces its children with `gap`. Zero diff by construction — and a prose-rhythm block
+ *     wrapper remains a later, deliberate change rather than a side effect of marking.
  *
  * Both are styling decisions with visible consequences, not bookkeeping, so they belong to
  * the migration itself rather than to preparation for it. The archetypes and the DataView
@@ -218,7 +223,6 @@ const UNMARKED_STYLED_SURFACES = [
   "./dataview/DataViewColumnSettings.tsx",
   "./dataview/DataViewExpandableRow.tsx",
   "./dataview/DataViewRowActions.tsx",
-  "./ui/Markdown.tsx",
 ];
 
 /**

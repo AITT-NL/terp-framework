@@ -29,4 +29,30 @@ describe("Markdown", () => {
     expect(screen.getByText(/<img src=x/)).toBeInTheDocument();
     expect(container.querySelector("img")).toBeNull();
   });
+  it("wraps its blocks in a boxless root, and renders nothing at all when empty", () => {
+    const { container } = render(
+      <Markdown
+        source={`# Title
+
+Body paragraph.`}
+      />,
+    );
+    const root = container.querySelector('[data-terp="markdown"]');
+    expect(root).not.toBeNull();
+    // The wrapper exists so the component can be found and styled at all. It is boxless by
+    // rule — display: contents lives in the sheet — which is what keeps these blocks
+    // individual items of any parent that spaces its children with gap, so marking the
+    // component changed no consumer's layout.
+    expect(root!.children.length).toBe(2);
+    expect(root!.getAttribute("style")).toBeNull();
+
+    cleanup();
+    // An empty source still renders NOTHING, and that is load-bearing rather than tidy: the
+    // layout contract's runtime check reads the direct children of a governed body slot and
+    // refuses any marker its allow table does not name. An unconditional wrapper would turn
+    // an empty Markdown beside allowed components from a passing body into a fail-closed
+    // refusal — thrown for rendering no content.
+    const empty = render(<Markdown source="   " />);
+    expect(empty.container.firstChild).toBeNull();
+  });
 });

@@ -194,6 +194,19 @@ describe("cascade structure", () => {
     }
   });
 
+  it("keeps the markdown wrapper boxless", () => {
+    // display: contents is the entire rule, and it has to stay the entire rule. Every
+    // non-inherited property on such an element is silently dropped, so a padding or a border
+    // added here would do nothing and nothing else in the suite would say so — the base-rule
+    // check below only asks that the block is non-empty, which a block of dead declarations
+    // satisfies. Prose rhythm belongs in descendant rules.
+    const base = layerBody("terp.base");
+    const at = base.indexOf('[data-terp="markdown"]');
+    expect(at).toBeGreaterThan(-1);
+    const block = base.slice(base.indexOf("{", at) + 1, base.indexOf("}", at));
+    expect(block.trim()).toBe("display: contents;");
+  });
+
   it("gives every migrated component a base rule in terp.base", () => {
     // markers.test.ts pins the marker join in both directions but cannot see a *deleted*
     // rule: removing a whole block only shrinks the styled set, which still passes. These
@@ -239,6 +252,7 @@ describe("cascade structure", () => {
       "theme-toggle",
       "theme-toggle-label",
       "language-switcher-label",
+      "markdown",
       "menu",
       "menu-item",
       "menu-trigger",

@@ -1,7 +1,24 @@
 import type { ReactNode } from "react";
 
+import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
+
+// The sheet matters more here than anywhere else in the package, and it is worth being precise
+// about why rather than overstating it. Every other component DEGRADES without its rules — a
+// Stack falls back to a block and looks wrong. This one RESTRUCTURES: the wrapper below is only
+// free because a rule makes it boxless, and as a plain block box it collapses however many
+// prose blocks into a single flex or grid item of its parent.
+//
+// That said, this call is belt-and-braces rather than the thing standing between the two. The
+// package publishes one entry point (exports is "." -> src/index.ts, which re-exports
+// everything) and declares no `sideEffects` field, so importing anything from it loads every
+// module and some two dozen of them inject. Twelve marker-rendering modules rely on exactly
+// that and call nothing themselves. It is here because a module that owns a rule this load
+// bearing should not depend on a sibling being imported, and because the guarantee is a
+// packaging property nothing asserts — a future `sideEffects: false` plus tree-shaking would
+// remove it silently.
+injectTerpStyles();
 
 export interface MarkdownProps {
   source: UiText;
@@ -177,8 +194,17 @@ function renderInline(text: string): ReactNode[] {
 export function Markdown({ source }: MarkdownProps) {
   const resolve = useUiText();
   const blocks = parseBlocks(resolve(source));
+  // An empty or whitespace-only source rendered literally nothing before this wrapper existed,
+  // and it still does. That is not tidiness: the layout contract's runtime check reads the
+  // DIRECT children of a governed body slot and refuses any whose marker is not in the slot's
+  // allow table, `markdown` included. So an unconditional wrapper would turn an empty Markdown
+  // beside allowed components from a passing body into a refused one — a fail-closed throw for
+  // rendering nothing.
+  if (blocks.length === 0) {
+    return null;
+  }
   return (
-    <>
+    <div data-terp="markdown">
       {blocks.map((block, index) => {
         if (block.type === "heading") {
           const content = renderInline(block.text);
@@ -208,6 +234,6 @@ export function Markdown({ source }: MarkdownProps) {
         }
         return <p key={index}>{renderInline(block.text)}</p>;
       })}
-    </>
+    </div>
   );
 }
