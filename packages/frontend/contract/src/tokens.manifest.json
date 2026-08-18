@@ -740,6 +740,54 @@
       "themeable": false
     },
     {
+      "name": "--density-control-min-height",
+      "category": "density",
+      "values": {
+        "light": "2.25rem"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--density-cell-pad-y",
+      "category": "density",
+      "values": {
+        "light": "0.75rem"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--density-cell-pad-x",
+      "category": "density",
+      "values": {
+        "light": "0.75rem"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--density-compact-control-min-height",
+      "category": "density",
+      "values": {
+        "light": "2rem"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--density-compact-cell-pad-y",
+      "category": "density",
+      "values": {
+        "light": "0.5rem"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--density-compact-cell-pad-x",
+      "category": "density",
+      "values": {
+        "light": "0.5rem"
+      },
+      "themeable": false
+    },
+    {
       "name": "--radius-sm",
       "category": "radius",
       "values": {

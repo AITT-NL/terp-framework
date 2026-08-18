@@ -81,6 +81,20 @@ html {
   background: transparent;
 }
 
+/* Density: a subtree stamped data-density="compact" re-scopes the live density
+   tokens to their compact counterparts, and every rule that reads the live
+   token follows via custom-property inheritance. "comfortable" is the token
+   sheet's :root value, so the attribute for it matches no rule — an app sets
+   density per subtree (the shell for an app-wide default, an embedded DataView
+   for one table), never per rule. A comfortable island inside a compact
+   subtree is not expressible yet; that needs a named comfortable copy of each
+   live token, which ADR 0094 defers until something asks for it. */
+[data-density="compact"] {
+  --density-control-min-height: var(--density-compact-control-min-height);
+  --density-cell-pad-y: var(--density-compact-cell-pad-y);
+  --density-cell-pad-x: var(--density-compact-cell-pad-x);
+}
+
 /* Shared focus-visible ring: every interactive element that opts in via
    [data-terp] shows a soft outline ring. !important lets the ring beat
    inline base box-shadows (e.g. the primary button's resting shadow) so

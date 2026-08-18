@@ -17,6 +17,19 @@ base styles as inline `style={}` and move them into the injected stylesheet,
 keyed on the `data-terp` / `data-variant` attributes every component root
 already stamps (ADR 0094).
 
+### Added
+
+- **Density is a token family, and `compact` is one attribute away.** The
+  contract declares live density tokens — `--density-control-min-height`
+  (2.25rem), `--density-cell-pad-y` / `--density-cell-pad-x` (0.75rem) — plus
+  explicit `--density-compact-*` counterparts (2rem / 0.5rem / 0.5rem), all
+  root-only geometry like every other scale, published in the manifest. The
+  react-core sheet re-scopes the live tokens under `[data-density="compact"]`,
+  so a subtree root stamped with that attribute tightens every control and cell
+  beneath it, and a `theme.css` can move either value set app-wide. Components
+  adopt the live tokens as their base styles migrate into the sheet; density
+  props on the shell and DataView land with those components.
+
 ### Removed
 
 - **`--color-fg-on-brand` is deleted from the token vocabulary.** It was
