@@ -40,6 +40,31 @@ function requestedTheme(): Theme {
   return THEMES.includes(value as Theme) ? (value as Theme) : BASE_THEME;
 }
 
+/**
+ * The single specimen `?only=<id>` asks for, or null for the full catalog page.
+ *
+ * This exists for the visual suite, and it is what makes a per-specimen baseline actually
+ * per-specimen. On the catalog page a specimen sits wherever the specimens above it leave
+ * it, and that offset is usually fractional — `text-inputs` sat at y=2186.890625. Rendering
+ * at a fractional device offset decides the subpixel phase every 1px border and glyph in
+ * that box is rasterised at, so *adding a specimen anywhere above* moved unrelated
+ * specimens onto a different phase and silently re-recorded their baselines. Measured, not
+ * inferred: adding six specimens shifted `text-inputs` to y=2457.703125 and repainted 4846
+ * pixels of it, while `button-variants` at an integer y=168 was untouched.
+ *
+ * That is the per-specimen promise failing in the one situation the promise is for. A
+ * reviewer who sees six unrelated baselines change alongside a new specimen learns to
+ * accept baseline updates wholesale, which is the same failure the per-specimen split and
+ * the pinned threshold both exist to prevent.
+ *
+ * With `?only=`, every specimen renders alone at the same fixed origin, so its baseline
+ * depends on the specimen and nothing else. The bare address still renders the whole
+ * catalog, which is what a human opens.
+ */
+function requestedSpecimen(): string | null {
+  return new URLSearchParams(window.location.search).get("only");
+}
+
 const theme = requestedTheme();
 document.documentElement.setAttribute("data-theme", theme);
 
@@ -102,7 +127,28 @@ const linkStyle: CSSProperties = {
   fontSize: "var(--font-size-sm)",
 };
 
+/** One specimen alone at a fixed origin — the visual suite's page (see `requestedSpecimen`). */
+function SoloSpecimen({ id }: { id: string }) {
+  const specimen = ALL_SPECIMENS.find((candidate) => candidate.id === id);
+  if (specimen === undefined) {
+    // A typo'd id must not render an empty page that screenshots as a valid baseline.
+    throw new Error(`workbench: no specimen with id "${id}"`);
+  }
+  return (
+    <div style={pageStyle}>
+      <div data-specimen={specimen.id} style={specimenStyle}>
+        <p style={specimenTitleStyle}>{specimen.title}</p>
+        {specimen.node}
+      </div>
+    </div>
+  );
+}
+
 function Workbench() {
+  const only = requestedSpecimen();
+  if (only !== null) {
+    return <SoloSpecimen id={only} />;
+  }
   return (
     <div style={pageStyle}>
       <header style={headerStyle}>

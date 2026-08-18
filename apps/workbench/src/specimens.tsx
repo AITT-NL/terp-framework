@@ -7,29 +7,50 @@ import {
   Card,
   Checkbox,
   Combobox,
+  DataView,
   DatePicker,
   DetailList,
   EmptyState,
   ErrorState,
   Field,
+  HubCard,
+  HubPage,
   Icon,
   InlineSpinner,
+  InMemoryDataViewRepository,
   Input,
   LanguageSwitcher,
   LoadingState,
+  LoginView,
+  Markdown,
+  Menu,
+  MenuItem,
+  ModuleNav,
+  Page,
   PageActions,
   Popover,
+  ProfileView,
   Radio,
   RadioGroup,
+  ResourceList,
   Select,
   Stack,
   Switch,
   Tabs,
+  TerpProvider,
   Textarea,
   ThemeToggle,
   Tooltip,
+  UserMenu,
 } from "@terpjs/react-core";
+import type { BadgeTone, DataViewColumn, Resource } from "@terpjs/react-core";
 import type { NavItem } from "@terpjs/contract";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
 // The specimen registry: every component the framework ships, in every variant it has, as
@@ -82,6 +103,126 @@ const SHELL_NAV: readonly NavItem[] = [
   { label: "Reports", to: "/reports", icon: "layers" },
   { label: "Admin", to: "/admin", icon: "shield" },
 ];
+
+// The auth-gated specimens (`UserMenu`, `ProfileView`, `ResourceList`'s write gate,
+// `LoginView`) mount their own `TerpProvider` against the dev server, whose
+// `workbench-mock-auth` middleware (see vite.config.ts) answers the boot with the same
+// fixed administrator on every run — the determinism rule, applied to the session.
+function SignedIn({ children }: { children: ReactNode }) {
+  return <TerpProvider baseUrl="">{children}</TerpProvider>;
+}
+
+// DataView fixtures: a fixed row set through the package's own in-memory repository, so
+// the collection specimens exercise the real toolbar/table/pagination composition with
+// no fetch and no clock.
+interface SyncRow {
+  id: string;
+  name: string;
+  status: "ok" | "failed" | "paused";
+  rows: number;
+}
+
+const SYNC_ROWS: SyncRow[] = [
+  { id: "s1", name: "Customer master", status: "ok", rows: 1284 },
+  { id: "s2", name: "Sales orders", status: "failed", rows: 407 },
+  { id: "s3", name: "Warehouse stock", status: "paused", rows: 52 },
+  { id: "s4", name: "Ledger entries", status: "ok", rows: 9310 },
+];
+
+const SYNC_TONES: Record<SyncRow["status"], BadgeTone> = {
+  ok: "success",
+  failed: "danger",
+  paused: "warning",
+};
+
+const SYNC_COLUMNS: DataViewColumn<SyncRow>[] = [
+  { id: "name", header: "Name", accessor: (row) => row.name },
+  {
+    id: "status",
+    header: "Status",
+    accessor: (row) => row.status,
+    cell: (row) => <Badge tone={SYNC_TONES[row.status]} label={row.status} />,
+  },
+  { id: "rows", header: "Rows", accessor: (row) => row.rows },
+];
+
+const syncRepositoryOptions = {
+  getRowId: (row: SyncRow) => row.id,
+  getValue: (row: SyncRow, columnId: string) => row[columnId as keyof SyncRow],
+  searchFields: ["name"],
+};
+
+const SYNC_REPOSITORY = new InMemoryDataViewRepository(SYNC_ROWS, syncRepositoryOptions);
+const EMPTY_REPOSITORY = new InMemoryDataViewRepository<SyncRow>([], syncRepositoryOptions);
+
+// ResourceList fixtures: a hand-built, already-loaded `Resource`, exactly the shape the
+// hook returns — no timers, no state.
+interface LinkItem {
+  id: string;
+  name: string;
+}
+
+const noop = async () => {};
+
+const LINK_RESOURCE: Resource<LinkItem, string> = {
+  items: [
+    { id: "1", name: "Customer master" },
+    { id: "2", name: "Sales orders" },
+    { id: "3", name: "Warehouse stock" },
+  ],
+  loading: false,
+  error: null,
+  cause: null,
+  reload: noop,
+  create: noop,
+  mutate: noop,
+};
+
+const EMPTY_RESOURCE: Resource<LinkItem, string> = {
+  items: [],
+  loading: false,
+  error: null,
+  cause: null,
+  reload: noop,
+  create: noop,
+  mutate: noop,
+};
+
+// `ModuleNav` reads the live pathname from TanStack Router (it marks the active tab), so
+// its specimen renders inside a minimal memory router pinned to "/records" — which is also
+// what puts the active-tab state in the picture. Everything else in the workbench stays
+// router-free on purpose; this is the one component whose render requires one.
+function moduleNavSpecimen(): ReactNode {
+  const rootRoute = createRootRoute({
+    component: () => (
+      <ModuleNav
+        items={[
+          { label: "Overview", to: "/records" },
+          { label: "Mapping", to: "/records/mapping" },
+          { label: "History", to: "/records/history" },
+        ]}
+      />
+    ),
+  });
+  const router = createRouter({
+    routeTree: rootRoute,
+    history: createMemoryHistory({ initialEntries: ["/records"] }),
+  });
+  return <RouterProvider router={router} />;
+}
+
+const MARKDOWN_SAMPLE = [
+  "## Connection notes",
+  "",
+  "A paragraph with **bold**, *italic*, `code` and a [link](https://example.com).",
+  "",
+  "- First item",
+  "- Second item",
+  "",
+  "```",
+  "const x = 1;",
+  "```",
+].join("\n");
 
 export const SPECIMEN_GROUPS: SpecimenGroup[] = [
   {
@@ -211,6 +352,11 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        id: "markdown",
+        title: "Markdown — blocks and inline marks",
+        node: <Markdown source={MARKDOWN_SAMPLE} />,
+      },
+      {
         id: "tabs",
         title: "Tabs — second tab active",
         node: (
@@ -338,6 +484,77 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         id: "date-picker",
         title: "DatePicker — fixed value",
         node: <DatePicker value={FIXED_DATE} />,
+      },
+    ],
+  },
+  {
+    id: "collections",
+    title: "Collections",
+    specimens: [
+      {
+        id: "dataview-full",
+        title: "DataView — toolbar, table and pagination",
+        node: (
+          <DataView
+            repository={SYNC_REPOSITORY}
+            columns={SYNC_COLUMNS}
+            rowActions={() => [
+              { label: "Retry", onClick: () => {} },
+              { label: "Delete", variant: "destructive", onClick: () => {} },
+            ]}
+          />
+        ),
+      },
+      {
+        id: "dataview-embedded",
+        title: "DataView — embedded variant",
+        node: <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} variant="embedded" />,
+      },
+      {
+        id: "dataview-row-tones",
+        title: "DataView — row-level status tones",
+        node: (
+          <DataView
+            repository={SYNC_REPOSITORY}
+            columns={SYNC_COLUMNS}
+            getRowTone={(row) => (row.status === "ok" ? null : SYNC_TONES[row.status])}
+          />
+        ),
+      },
+      {
+        id: "dataview-empty",
+        title: "DataView — empty result",
+        node: (
+          <DataView
+            repository={EMPTY_REPOSITORY}
+            columns={SYNC_COLUMNS}
+            emptyMessage="No syncs defined yet."
+          />
+        ),
+      },
+      {
+        id: "resource-list",
+        title: "ResourceList — loaded, with create and row actions",
+        node: (
+          <SignedIn>
+            <ResourceList
+              title="Links"
+              resource={LINK_RESOURCE}
+              renderItem={(item) => <span>{item.name}</span>}
+              createPlaceholder="New link name"
+              renderActions={() => <Button variant="ghost">Remove</Button>}
+            />
+          </SignedIn>
+        ),
+      },
+      {
+        id: "resource-list-empty",
+        title: "ResourceList — empty",
+        node: (
+          <SignedIn>
+            <ResourceList title="Links" resource={EMPTY_RESOURCE} renderItem={(item) => <span>{item.name}</span>} />
+          </SignedIn>
+        ),
       },
     ],
   },
@@ -487,6 +704,101 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               { label: "Delete", onSelect: () => {} },
             ]}
           />
+        ),
+      },
+      {
+        id: "menu-closed",
+        title: "Menu — closed trigger",
+        node: (
+          <Menu trigger={<Icon name="settings" size="1.15rem" />} triggerLabel="Settings">
+            {({ close }) => <MenuItem label="Duplicate" onSelect={() => close()} />}
+          </Menu>
+        ),
+      },
+      {
+        id: "module-nav",
+        title: "ModuleNav — first tab active",
+        node: moduleNavSpecimen(),
+      },
+      {
+        id: "page-header",
+        title: "Page — breadcrumbs, title and actions",
+        node: (
+          <Page
+            title="Customer master"
+            breadcrumbs={[{ label: "Records", to: "/records" }]}
+            actions={<Button variant="primary">Publish</Button>}
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        id: "hub-page",
+        title: "HubPage — card grid with stats",
+        node: (
+          <HubPage title="Records">
+            <HubCard
+              to="/records/syncs"
+              title="Sync definitions"
+              description="What moves, and when."
+              icon={<Icon name="layers" />}
+              stat="14 active"
+            />
+            <HubCard
+              to="/records/links"
+              title="Links"
+              description="Connections to source systems."
+              icon={<Icon name="database" />}
+              stat="3 connected"
+            />
+            <HubCard
+              to="/records/history"
+              title="History"
+              description="Every run, kept."
+              icon={<Icon name="list" />}
+            />
+          </HubPage>
+        ),
+      },
+      {
+        id: "user-menu",
+        title: "UserMenu — closed trigger",
+        node: (
+          <SignedIn>
+            <UserMenu onSettings={() => {}} />
+          </SignedIn>
+        ),
+      },
+      {
+        id: "user-menu-collapsed",
+        title: "UserMenu — collapsed (icon rail)",
+        node: (
+          <SignedIn>
+            <UserMenu collapsed onSettings={() => {}} />
+          </SignedIn>
+        ),
+      },
+      {
+        id: "login-view",
+        title: "LoginView — credentials and SSO",
+        node: (
+          // Height-clipped: the view is a 100vh page; the clip keeps the centered form in
+          // the picture while the specimen stays a bounded box.
+          <div style={{ height: "42rem", overflow: "hidden", border: "1px solid var(--color-neutral-200)" }}>
+            <SignedIn>
+              <LoginView ssoProviders={[{ name: "microsoft", label: "Microsoft" }]} />
+            </SignedIn>
+          </div>
+        ),
+      },
+      {
+        id: "profile-view",
+        title: "ProfileView — identity and preferences",
+        node: (
+          <SignedIn>
+            <ProfileView />
+          </SignedIn>
         ),
       },
       {

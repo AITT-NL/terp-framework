@@ -14,6 +14,13 @@ import { SCREENSHOT_THEMES } from "../src/themes";
 // theme fully determined by the address — no toggling, no localStorage, no run-order
 // dependence.
 //
+// `?only=<id>` renders that specimen alone, at the same fixed origin every time. Without it
+// a specimen sat wherever the ones above left it — usually a fractional y — and that offset
+// decides the subpixel phase its borders and glyphs rasterise at, so adding a specimen
+// anywhere above silently re-recorded unrelated baselines below. See `requestedSpecimen` in
+// src/main.tsx for the measurements. Each test already navigates once, so this costs
+// nothing and makes a per-specimen baseline depend on its specimen alone.
+//
 // Two themes, not all of them, and on purpose: `SCREENSHOT_THEMES` is the base theme plus the
 // one the OS dark preference selects — what an app renders when nobody chooses. The named
 // themes differ from these only in colour values, so a third set of per-specimen shots would
@@ -26,7 +33,7 @@ test.describe("component specimens", () => {
     test.describe(theme, () => {
       for (const specimen of ALL_SPECIMENS) {
         test(`${specimen.groupId}/${specimen.id}`, async ({ page }) => {
-          await page.goto(`/?theme=${theme}`);
+          await page.goto(`/?theme=${theme}&only=${specimen.id}`);
           const target = page.locator(`[data-specimen="${specimen.id}"]`);
           // Wait for the element rather than a timeout: react-core compiles from source
           // through Vite, so a cold dev server takes a moment on the first navigation.

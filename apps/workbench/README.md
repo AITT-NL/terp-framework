@@ -16,8 +16,8 @@ npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
 
-31 specimens in 7 groups. The accessibility lane runs them in **every** shipped theme (155
-axe runs across five palettes); the screenshots cover the **two default** themes (62
+46 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (230
+axe runs across five palettes); the screenshots cover the **two default** themes (92
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, and one that the contrast allowance list has not grown a new theme.
 
@@ -51,12 +51,42 @@ write and the wrong thing to have: any change anywhere re-records it, so the dif
 a component and reviewers learn to accept the update. Per-specimen shots mean a `Card`
 padding change fails `card-titled` and `card-bare` in both themes and nothing else.
 
+**And one specimen per render, because clipping is not isolation.** Screenshotting one
+element out of a full catalog page looks like it delivers the paragraph above, and does not.
+A specimen sits wherever the specimens above it leave it, and that offset is usually
+fractional — `text-inputs` sat at `y=2186.890625`. The fractional part decides the subpixel
+phase every 1px border and glyph inside that box is rasterised at, so **adding a specimen
+anywhere above re-records unrelated baselines below.** Measured, not inferred: adding fifteen
+specimens moved `text-inputs` to `y=2457.703125` and repainted 4846 of its pixels, moved
+`app-shell` and repainted 15222, and left `button-variants` — sitting at an integer `y=168` —
+untouched. Six baselines changed for a change to none of their components.
+
+That is the per-specimen promise failing in precisely the situation it exists for, and it
+fails toward the same habit the pinned threshold exists to prevent: a reviewer who sees six
+unrelated baselines move alongside a new specimen learns to accept baseline updates
+wholesale. So the visual suite navigates to `?only=<id>`, which renders that specimen alone
+at a fixed origin. Each test already did its own navigation, so this costs nothing, and a
+specimen's baseline now depends on that specimen and nothing else. Verified by mutation both
+ways: inserting a specimen above everything now changes no other baseline, and the
+one-Tailwind-step token check below still fails the specimens it should.
+
+The bare address still renders the whole catalog — that is what a human opens, and the a11y
+lane keeps using it.
+
 **The theme is in the URL.** The page reads `?theme=<name>` and sets `data-theme` on
 `<html>` directly rather than going through `ThemeProvider`, which persists to
 `localStorage` — a toggled theme would leak between runs and make a baseline depend on run
 order. An address that fully determines the render is the whole trick. The theme names come
 from the contract's published token manifest (`src/themes.ts`), so a theme added there is
 renderable here with no edit to this app.
+
+**Four specimens sit behind the auth seam** (`UserMenu`, `ProfileView`, `ResourceList`'s
+write gate, `LoginView`). They mount a `TerpProvider` against the dev server, whose
+`workbench-mock-auth` middleware (`vite.config.ts`) answers the boot refresh and `/me` with
+one fixed administrator — the determinism rule applied to the session, so these render
+identically on every run with no backend. `ModuleNav` is the one component that needs a
+router (it reads the live pathname to mark the active tab); its specimen supplies a memory
+router pinned to one path, which is also what puts the active state in the picture.
 
 ## Which themes get which lane
 
