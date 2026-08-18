@@ -22,7 +22,11 @@ _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
 from terp.cli.envseams import (  # noqa: E402
+    _forwards_app_env,
     _is_loopback,
+    _read_env_file,
+    _service_environment,
+    read_declared_variables,
     env_seam_findings,
     run_env_seams_check,
 )
@@ -267,3 +271,95 @@ def test_a_clean_app_reports_the_variables_that_do_arrive(
     exit_code, output = run_env_seams_check(root)
     assert exit_code == 0
     assert "1 declared variable(s) reach the app" in output
+
+
+# The readers below are deliberately tolerant: this check's verdict is about which seam
+# supplies a value, and an app's compose file or manifest being unusual — or unreadable —
+# is not that verdict to give. Each tolerance is a branch, so each is proven here.
+
+
+def test_service_environment_accepts_both_compose_forms() -> None:
+    assert _service_environment({"environment": ["A=1", "B=", "BARE"]}) == {
+        "A": "1",
+        "B": "",
+        "BARE": "",
+    }
+    assert _service_environment({"environment": {"A": None}}) == {"A": ""}
+    assert _service_environment({"environment": "not a mapping or list"}) == {}
+    assert _service_environment("not a service") == {}
+
+
+def test_forwards_app_env_is_false_for_a_non_service() -> None:
+    assert _forwards_app_env("not a service") is False
+
+
+def test_declared_variables_tolerate_a_manifest_that_is_not_usable(
+    tmp_path: pathlib.Path,
+) -> None:
+    """An unusable manifest is the Studio's verdict to give — it fails the deploy closed
+    with a directive message. This check must not turn an app's gate red on a file it
+    merely could not parse."""
+    assert read_declared_variables(tmp_path) == {}
+
+    (tmp_path / "environment.schema.json").write_text("{ not json", encoding="utf-8")
+    assert read_declared_variables(tmp_path) == {}
+
+    (tmp_path / "environment.schema.json").write_text('{"properties": []}', encoding="utf-8")
+    assert read_declared_variables(tmp_path) == {}
+
+    (tmp_path / "environment.schema.json").write_text(
+        '{"properties": {"GOOD": {"type": "string"}, "BAD": "not an object"}}', encoding="utf-8"
+    )
+    assert list(read_declared_variables(tmp_path)) == ["GOOD"]
+
+
+def test_env_file_reading_skips_comments_and_blanks(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / ".env"
+    path.write_text("# comment\n\nA=1\nNOEQUALS\n", encoding="utf-8")
+    assert _read_env_file(path) == {"A": "1"}
+    assert _read_env_file(tmp_path / "absent.env") == {}
+
+
+def test_findings_are_empty_when_the_app_declares_nothing(tmp_path: pathlib.Path) -> None:
+    """No manifest means no promise about any seam, so there is nothing that can be
+    broken — the same no-op shape an unadopted generator has."""
+    assert env_seam_findings(tmp_path) == []
+
+
+def test_an_unreadable_compose_file_is_skipped_not_fatal(tmp_path: pathlib.Path) -> None:
+    """A compose profile this check cannot parse is one it cannot judge. Failing the gate
+    on it would make an unrelated YAML error look like a seam defect."""
+    (tmp_path / "environment.schema.json").write_text(
+        '{"properties": {"API_URL": {"type": "string"}}}', encoding="utf-8"
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: [ unbalanced\n", encoding="utf-8")
+    assert env_seam_findings(tmp_path) == []
+
+
+def test_a_compose_file_without_a_services_mapping_is_skipped(tmp_path: pathlib.Path) -> None:
+    (tmp_path / "environment.schema.json").write_text(
+        '{"properties": {"API_URL": {"type": "string"}}}', encoding="utf-8"
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: not-a-mapping\n", encoding="utf-8")
+    assert env_seam_findings(tmp_path) == []
+
+
+def test_the_report_groups_findings_by_the_file_they_came_from(tmp_path: pathlib.Path) -> None:
+    """Two profiles shadowing the same variable are two findings from two sources. The
+    report is grouped by source so the reader knows which file to open."""
+    (tmp_path / "environment.schema.json").write_text(
+        '{"properties": {"API_URL": {"type": "string"}}}', encoding="utf-8"
+    )
+    for name in ("docker-compose.yml", "docker-compose.prod.yml"):
+        (tmp_path / name).write_text(
+            "services:\n"
+            "  api:\n"
+            "    env_file:\n      - .app.env\n"
+            "    environment:\n      API_URL: ${API_URL:-}\n",
+            encoding="utf-8",
+        )
+    exit_code, output = run_env_seams_check(tmp_path)
+    assert exit_code == 1
+    assert "docker-compose.yml" in output
+    assert "docker-compose.prod.yml" in output
+    assert output.count("API_URL:") >= 2

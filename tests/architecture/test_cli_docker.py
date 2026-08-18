@@ -18,10 +18,12 @@ sys.path.insert(0, str(_CLI_SRC))
 
 from terp.cli import main, run_docker_dev_command  # noqa: E402
 from terp.cli.docker import (  # noqa: E402
+    _capture,
     _run,
     compose_logs_argv,
     compose_ps_argv,
     docker_dev_argv,
+    diagnose_failure,
     failed_services,
 )
 
@@ -168,3 +170,53 @@ def test_cli_docker_dev_dispatch(
     monkeypatch.setattr("terp.cli.docker._run", lambda argv: 0)
     main(["docker", "dev", "--root", str(tmp_path)])
     assert "exited with status 0" in capsys.readouterr().out
+
+
+def test_failed_services_skips_blank_lines_between_objects() -> None:
+    """Compose's NDJSON output has arrived with trailing and interleaved blank lines.
+    A blank line is not a parse failure to swallow silently — it is simply not a record."""
+    # Two objects, so the whole-document parse fails and the NDJSON fallback runs;
+    # the blank line between them is what this pins. A single object would parse as
+    # JSON and never reach the fallback at all.
+    ps = '{"Service": "publish", "ExitCode": 1}' \
+         '\n\n' \
+         '{"Service": "api", "ExitCode": 0}'
+    assert failed_services(ps) == ("publish",)
+
+
+def test_failed_services_ignores_a_non_object_entry() -> None:
+    """A well-formed array whose members are not all objects still yields the ones that
+    are. Indexing blindly would raise here, inside the diagnostic that runs *after* a
+    failure — turning a reported error into a traceback about reporting it."""
+    ps = '[1, "two", null, {"Service": "publish", "ExitCode": 1}]'
+    assert failed_services(ps) == ("publish",)
+
+
+def test_diagnose_returns_nothing_when_every_service_exited_clean(
+    tmp_path: pathlib.Path,
+) -> None:
+    """`ps` succeeded and named no failure: the caller's own error is the whole story,
+    so the diagnosis must add nothing rather than an empty-looking section header."""
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    report = diagnose_failure(
+        tmp_path / "docker-compose.yml",
+        capture=lambda argv: (0, '[{"Service": "api", "ExitCode": 0}]'),
+    )
+    assert report == ""
+
+
+def test_capture_runs_a_real_process_and_returns_its_combined_output() -> None:
+    """The real capture helper, exercised with a trivial process: everything above
+    injects it, so without this the one function that actually shells out is unproven."""
+    status, output = _capture(
+        (sys.executable, "-c", "import sys; print('out'); print('err', file=sys.stderr)")
+    )
+    assert status == 0
+    assert "out" in output
+    assert "err" in output
+
+
+def test_capture_returns_a_non_zero_status_with_its_output() -> None:
+    status, output = _capture((sys.executable, "-c", "import sys; sys.exit(3)"))
+    assert status == 3
+    assert output == ""

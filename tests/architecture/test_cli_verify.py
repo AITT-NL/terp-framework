@@ -736,3 +736,32 @@ def test_assurance_toolchain_versions_a_source_checkout_as_zero(
     lanes = {lane["id"]: lane["status"] for lane in document["lanes"]}
     assert lanes["terp-standard"] == "failed" and lanes["a11y"] == "not-run"
     assert document["ok"] is False
+
+
+def test_verify_dispatches_env_seams_through_its_own_runner(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`env-seams` is an in-process runner, not a subprocess like most checks, so the
+    dispatcher has a branch of its own for it. Everything else about the check is proven
+    in test_cli_env_seams.py against the function directly — this proves `terp verify`
+    actually reaches that function instead of shelling out to a command that does not exist.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "quick",
+                "--root",
+                str(tmp_path),
+                "--only",
+                "env-seams",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is True
+    # The no-op success shape for an app that declares nothing, reached in-process.
+    assert "not applicable" in json.dumps(envelope)
