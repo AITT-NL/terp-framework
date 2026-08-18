@@ -1,7 +1,6 @@
-import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import { injectTerpStyles } from "../styles";
-import { CONTROL_TEXT_STYLE } from "./controlStyles";
 
 injectTerpStyles();
 
@@ -13,78 +12,26 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: ReactNode;
 }
 
-const baseStyle: CSSProperties = {
-  ...CONTROL_TEXT_STYLE,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "var(--space-2)",
-  fontWeight: "var(--font-weight-medium)" as never,
-  lineHeight: 1.2,
-  width: "fit-content",
-  maxWidth: "100%",
-  minHeight: "2.25rem",
-  padding: "0 var(--space-4)",
-  border: "1px solid transparent",
-  borderRadius: "var(--radius-md)",
-  boxSizing: "border-box",
-  cursor: "pointer",
-  whiteSpace: "normal",
-  textAlign: "center",
-};
-
-const variantStyle: Record<ButtonVariant, CSSProperties> = {
-  primary: {
-    background: "var(--color-brand-primary)",
-    color: "var(--color-brand-primary-contrast)",
-    boxShadow: "var(--shadow-sm)",
-  },
-  secondary: {
-    background: "var(--color-neutral-0)",
-    color: "var(--color-neutral-900)",
-    borderColor: "var(--color-neutral-300)",
-  },
-  danger: {
-    background: "var(--color-status-danger)",
-    color: "var(--color-neutral-0)",
-  },
-  ghost: {
-    background: "transparent",
-    color: "var(--color-neutral-700)",
-  },
-};
-
-const iconWrapStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  flexShrink: 0,
-};
-
 /**
- * Token-styled button — use instead of a raw `<button>` (the module-boundary rule). It
- * styles only via the design-token CSS variables, so it themes with the app. Hover,
- * active and `:focus-visible` states are layered on via the injected react-core sheet,
- * keyed by the `data-terp` / `data-variant` attributes set below.
+ * Token-styled button — use instead of a raw `<button>` (the module-boundary rule).
+ *
+ * It renders no inline styles: the geometry, the per-variant colours and the hover /
+ * active / disabled / `:focus-visible` states all live in the injected react-core sheet,
+ * matched on the `data-terp` / `data-variant` attributes set below (ADR 0094). So the
+ * variant is a fact about the element rather than a style object chosen in here — which
+ * is what a test should assert, and what an app's `theme.css` can restyle.
  */
 export function Button({
   variant = "primary",
   icon,
-  style,
   type = "button",
   children,
   ...rest
 }: ButtonProps) {
   return (
-    <button
-      type={type}
-      data-terp="button"
-      data-variant={variant}
-      {...rest}
-      style={{ ...baseStyle, ...variantStyle[variant], ...style }}
-    >
+    <button type={type} data-terp="button" data-variant={variant} {...rest}>
       {icon !== undefined && (
-        <span aria-hidden="true" style={iconWrapStyle}>
+        <span aria-hidden="true" data-terp="button-icon">
           {icon}
         </span>
       )}

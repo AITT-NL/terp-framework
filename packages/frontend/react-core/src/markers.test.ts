@@ -43,6 +43,7 @@ const MARKERS = [
   "badge",
   "breadcrumbs",
   "button",
+  "button-icon",
   "card",
   "card-actions",
   "card-header",

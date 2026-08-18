@@ -54,11 +54,32 @@ byte-for-byte what they were, and `markers.test.ts` keeps scanning the sheet sid
 unchanged. `styles.ts` stays the single stylesheet module, because the marker inventory
 pins that path as the one place selectors may live.
 
-**2. No `!important` in migrated rules.** Once the base is a rule instead of an inline
-style, an interaction state wins on specificity alone (`:hover`, `:disabled`,
-`:focus-visible` add a pseudo-class to the same compound selector). Each component's
-migration removes its own `!important`s in the same commit; the end state of the sheet
-is zero.
+**2. No `!important` in migrated rules — the sheet is ordered by cascade layer instead.**
+`@layer terp.reset, terp.base, terp.state, terp.motion;` A state rule beats a base rule
+because of its layer, not its specificity and not its position in the file.
+
+The obvious alternative — rely on interaction states being more specific, since they add
+a pseudo-class — does not hold, and this was measured rather than reasoned about. The
+shared focus ring `[data-terp]:focus-visible` and the primary button's
+`[data-terp="button"][data-variant="primary"]` both weigh **(0,2,0)**: an attribute plus a
+pseudo-class against two attributes. They tie, so source order decides, and the ring has
+always been declared near the top of the sheet. The moment the primary button's resting
+shadow moved out of `style={}` and into a rule in the same layer, the focused button
+computed `rgba(15,23,42,0.06) 0 1px 2px` — its resting shadow, no ring — on the most
+focus-relevant control in the package. With the ring in `terp.state` it computes
+`rgba(37,99,235,0.35) 0 0 0 3px`. That regression is the thing `!important` was concealing
+rather than fixing, and it would have recurred for every component whose base rule happened
+to be declared after a state rule.
+
+Two things stay **unlayered**, for the same reason: an unlayered author declaration beats a
+layered one regardless of specificity. The density re-scoping must be unlayered or the
+contract's own unlayered `:root` values would beat it and `data-density="compact"` would do
+nothing. And an app's `theme.css` is unlayered, which means an app can override any
+framework rule without `!important` — the restyling this phase exists to enable, arriving
+as a property of the layering rather than as a second mechanism.
+
+Each component's migration removes its own `!important`s in the same commit; the end state
+of the sheet is zero.
 
 **3. Enumerable props become data attributes; measured values stay inline.** `variant`,
 `tone`, enumerated `size`, `selected`, `destructive`, `collapsed`, Stack's five props —
@@ -126,6 +147,13 @@ existed; an npm version bump still delivers everything with zero app-file edits.
 - The workbench visual suite — zero-diff baselines per migrated component
   (`threshold: 0.02`, `maxDiffPixels: 0`), axe across all five themes, both contrast
   ratchets held empty.
-- The pattern itself was verified by mutation at the first migrated component: a moved
-  rule shifted one Tailwind step must fail its baselines, and a deleted rule must fail
-  them too. A gate verified with an easy case is verified for easy cases.
+- The pattern itself was verified by mutation at the first migrated component, `Button`:
+  shifting a moved rule one ramp step (the ghost label, `neutral-700` → `neutral-600`)
+  failed exactly the eight baselines containing a ghost button and nothing else. A gate
+  verified with an easy case is verified for easy cases.
+- The layering was verified the same way, in both directions: demoting the focus ring into
+  `terp.base` before the button rules suppressed it on the focused primary button, and
+  restoring it to `terp.state` brought it back. Note the first attempt at this probe used
+  `element.focus()` and proved nothing — programmatic focus does not match
+  `:focus-visible`. It needs a real `Tab`, and the computed value has to be read after the
+  transition settles or it reads mid-interpolation.

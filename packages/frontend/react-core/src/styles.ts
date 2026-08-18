@@ -1,19 +1,46 @@
 /**
- * The one interaction-state stylesheet for react-core.
+ * The one stylesheet for react-core: component base styles, variants and
+ * interaction states, keyed by the `data-terp` / `data-variant` attributes the
+ * components stamp on their roots (ADR 0094).
  *
- * Components keep their inline token styles as the visible base (so tests can
- * still assert `element.style.background` etc.); this sheet layers hover,
- * active, focus-visible and small animation polish on top, keyed by
- * `data-terp` / `data-variant` attributes the components already set. That
- * keeps the boundary lint's inline-style rule intact (react-core itself is
- * allowed to inject a stylesheet — the rule targets *app modules*), while
- * giving every button, link, tab, row and menu real interaction states.
+ * Rules are attribute selectors, never class names, so the boundary lint's
+ * `style`/`className` prohibition on app modules is untouched — react-core
+ * itself is allowed to inject a stylesheet; the rule targets *app modules*.
  *
- * Because the base styles are inline (`style={}` wins the cascade over author
- * stylesheets, even for `:hover` / `:focus` / `:disabled` rules), every
- * interaction-state declaration that overrides an inline base property is
- * marked `!important`. The rules are state-scoped (hover / focus / disabled
- * only), so the escalation cannot leak into resting styles.
+ * Migration in progress. A component that has moved renders no `style={}` and
+ * gets its base here; one that has not still carries inline base styles, and
+ * its interaction rules still need `!important` to beat them (`style={}` wins
+ * the cascade over author stylesheets, even for `:hover` / `:focus`). Those
+ * escalations are state-scoped, so they cannot leak into resting styles, and
+ * each disappears with its component. The count is the phase's measurable.
+ *
+ * ## Layers
+ *
+ * The sheet is ordered by cascade layer rather than by source order, because
+ * source order is what actually decides these rules and it is not something a
+ * reader can see. `[data-terp]:focus-visible` and
+ * `[data-terp="button"][data-variant="primary"]` both weigh (0,2,0) — an
+ * attribute plus a pseudo-class against two attributes — so nothing but their
+ * order in this file separates them. The shared focus ring has always been
+ * declared near the top; the moment the primary button's resting shadow became
+ * a rule here instead of an inline style, the ring stopped painting on the most
+ * focus-relevant control in the package. Measured, not reasoned about: with
+ * both in one layer the focused primary button computes
+ * `rgba(15,23,42,0.06) 0 1px 2px` — its resting shadow — and with the ring in
+ * `terp.state` it computes `rgba(37,99,235,0.35) 0 0 0 3px`.
+ *
+ * `terp.state` sits above `terp.base`, so a state rule wins on layer order
+ * whatever its specificity and wherever it sits in the file, and needs no
+ * `!important`. `terp.motion` sits above both so the reduced-motion override
+ * beats every transition.
+ *
+ * Two things are deliberately left UNLAYERED, and the reason is the same for
+ * both: unlayered author declarations beat layered ones regardless of
+ * specificity. The density re-scoping must therefore stay unlayered, or the
+ * contract's own unlayered `:root` token values would beat it and the compact
+ * attribute would do nothing. And an app's `theme.css` is unlayered too, which
+ * is what lets an app override any framework rule without `!important` — the
+ * restyling this phase exists to enable.
  *
  * The injector is idempotent, SSR-safe (guarded on `document`), and appends
  * the rules through `textContent` — never `innerHTML` — so no HTML sink is
@@ -23,8 +50,30 @@
 /** The `<style>` element id used to detect a prior injection. */
 export const TERP_STYLES_ID = "terp-core-styles";
 
-/** The interaction-state rules layered over the component's inline base styles. */
+/** The component base, variant and interaction rules react-core injects once. */
 export const TERP_STYLES_CSS = `
+@layer terp.reset, terp.base, terp.state, terp.motion;
+
+/* Density: a subtree stamped data-density="compact" re-scopes the live density
+   tokens to their compact counterparts, and every rule that reads the live
+   token follows via custom-property inheritance. "comfortable" is the token
+   sheet's :root value, so the attribute for it matches no rule — an app sets
+   density per subtree (the shell for an app-wide default, an embedded DataView
+   for one table), never per rule. A comfortable island inside a compact
+   subtree is not expressible yet; that needs a named comfortable copy of each
+   live token, which ADR 0094 defers until something asks for it.
+
+   Unlayered on purpose: the contract's token sheet declares these on :root
+   without a layer, and an unlayered declaration beats a layered one whatever
+   its specificity — inside a layer this rule would lose to :root and the
+   attribute would silently do nothing. */
+[data-density="compact"] {
+  --density-control-min-height: var(--density-compact-control-min-height);
+  --density-cell-pad-y: var(--density-compact-cell-pad-y);
+  --density-cell-pad-x: var(--density-compact-cell-pad-x);
+}
+
+@layer terp.reset {
 /* Document reset: the app shell owns the full canvas. Without this the
    browser's default 8px body margin leaves the document's own (white)
    canvas visible as a ring around the shell — most obvious in Studio's
@@ -80,46 +129,83 @@ html {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
-
-/* Density: a subtree stamped data-density="compact" re-scopes the live density
-   tokens to their compact counterparts, and every rule that reads the live
-   token follows via custom-property inheritance. "comfortable" is the token
-   sheet's :root value, so the attribute for it matches no rule — an app sets
-   density per subtree (the shell for an app-wide default, an embedded DataView
-   for one table), never per rule. A comfortable island inside a compact
-   subtree is not expressible yet; that needs a named comfortable copy of each
-   live token, which ADR 0094 defers until something asks for it. */
-[data-density="compact"] {
-  --density-control-min-height: var(--density-compact-control-min-height);
-  --density-cell-pad-y: var(--density-compact-cell-pad-y);
-  --density-cell-pad-x: var(--density-compact-cell-pad-x);
 }
 
-/* Shared focus-visible ring: every interactive element that opts in via
-   [data-terp] shows a soft outline ring. !important lets the ring beat
-   inline base box-shadows (e.g. the primary button's resting shadow) so
-   keyboard focus is always visible. */
-[data-terp]:focus-visible {
-  outline: 2px solid transparent;
-  outline-offset: 1px;
-  box-shadow: 0 0 0 3px var(--color-focus-ring) !important;
-}
-
+@layer terp.base {
 /* Buttons ------------------------------------------------------------------ */
 [data-terp="button"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: 100%;
+  min-height: var(--density-control-min-height);
+  padding: 0 var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  box-sizing: border-box;
+  cursor: pointer;
+  white-space: normal;
+  text-align: center;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
   transition: background-color 150ms ease, color 150ms ease,
     border-color 150ms ease, box-shadow 150ms ease, transform 100ms ease;
 }
+[data-terp="button"][data-variant="primary"] {
+  background: var(--color-brand-primary);
+  color: var(--color-brand-primary-contrast);
+  box-shadow: var(--shadow-sm);
+}
+[data-terp="button"][data-variant="secondary"] {
+  background: var(--color-neutral-0);
+  color: var(--color-neutral-900);
+  border-color: var(--color-neutral-300);
+}
+[data-terp="button"][data-variant="danger"] {
+  background: var(--color-status-danger);
+  color: var(--color-neutral-0);
+}
+[data-terp="button"][data-variant="ghost"] {
+  background: transparent;
+  color: var(--color-neutral-700);
+}
+[data-terp="button-icon"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+}
+
+@layer terp.state {
+/* Shared focus-visible ring: every interactive element that opts in via
+   [data-terp] shows a soft outline ring. It must stay in terp.state. It ties
+   with [data-terp="button"][data-variant="primary"] on specificity — both
+   (0,2,0) — so in a single layer the later rule would win, and this one is
+   declared first: the primary button's resting shadow would suppress the ring
+   entirely. The layer is what makes the ring independent of where either rule
+   happens to sit in this file. */
+[data-terp]:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+/* Buttons ------------------------------------------------------------------ */
 [data-terp="button"][data-variant="primary"]:hover:not(:disabled) {
-  background: var(--color-brand-primary-hover) !important;
+  background: var(--color-brand-primary-hover);
 }
 [data-terp="button"][data-variant="secondary"]:hover:not(:disabled) {
-  background: var(--color-neutral-100) !important;
-  border-color: var(--color-neutral-300) !important;
+  background: var(--color-neutral-100);
+  border-color: var(--color-neutral-300);
 }
 [data-terp="button"][data-variant="ghost"]:hover:not(:disabled) {
-  background: var(--color-neutral-100) !important;
-  color: var(--color-neutral-900) !important;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
 }
 [data-terp="button"][data-variant="danger"]:hover:not(:disabled) {
   filter: brightness(0.94);
@@ -129,7 +215,7 @@ html {
 }
 [data-terp="button"]:disabled {
   opacity: 0.55;
-  cursor: not-allowed !important;
+  cursor: not-allowed;
 }
 
 /* Icon-only buttons (header toggle, dismissers, pagination). */
@@ -315,15 +401,20 @@ label:has([data-terp="switch"]:disabled) {
   animation: terp-spin 0.8s linear infinite;
 }
 
+}
+
+@layer terp.motion {
 /* Respect the user's reduced-motion preference — kill transitions and the
-   spinner animation everywhere the sheet applies them. */
+   spinner animation everywhere the sheet applies them. The layer is above
+   terp.base and terp.state, so this wins without !important. */
 @media (prefers-reduced-motion: reduce) {
   [data-terp],
   [data-terp="appshell-nav"] a,
   [data-terp="dataview-table"] tbody tr {
-    transition: none !important;
+    transition: none;
   }
-  [data-terp="spinner-ring"] { animation: none !important; }
+  [data-terp="spinner-ring"] { animation: none; }
+}
 }
 `;
 
