@@ -55,4 +55,26 @@ describe("Combobox", () => {
     expect(screen.getByRole("combobox", { name: "Assignee" })).toBeDisabled();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
+
+  it("opens on mount with the cursor on the selection when asked", () => {
+    // The prop exists so the listbox can be rendered deterministically — it had no way in
+    // at all before, which is why sixteen sheet rules for this subtree went unpainted by
+    // both visual lanes from the moment they were written.
+    render(<Combobox aria-label="Country" value="be" options={options} defaultOpen />);
+    const listbox = screen.getByRole("listbox");
+    expect(listbox).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveAttribute("aria-expanded", "true");
+    // The cursor lands on the selection rather than nowhere: an open list with no active
+    // option is a state focusing the box never produces.
+    const active = listbox.querySelector('[data-active="true"]');
+    expect(active?.textContent).toBe("Belgium");
+    expect(active).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps the listbox shut when disabled, even with defaultOpen", () => {
+    render(
+      <Combobox aria-label="Country" value="be" options={options} defaultOpen disabled />,
+    );
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
 });

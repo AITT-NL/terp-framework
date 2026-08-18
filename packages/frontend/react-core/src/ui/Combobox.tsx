@@ -23,6 +23,14 @@ export interface ComboboxProps
   loadingText?: UiText;
   noOptionsText?: UiText;
   clearable?: boolean;
+  /**
+   * Open the listbox on mount (uncontrolled), the same shape `Popover` and `Menu` take.
+   *
+   * The cursor starts on the selection rather than nowhere, which is what focusing the box
+   * does — an already-open list with no active option would be a state the component cannot
+   * otherwise reach.
+   */
+  defaultOpen?: boolean;
 }
 
 /** Filterable ARIA combobox/typeahead with controlled or uncontrolled single selection. */
@@ -35,6 +43,7 @@ export function Combobox({
   loadingText = "Loading…",
   noOptionsText = "No options",
   clearable = false,
+  defaultOpen = false,
   disabled,
   onBlur,
   onFocus,
@@ -51,8 +60,10 @@ export function Combobox({
   const selectedValue = value ?? uncontrolledValue;
   const selectedOption = options.find((option) => option.value === selectedValue) ?? null;
   const [query, setQuery] = useState(() => (selectedOption ? resolve(selectedOption.label) : ""));
-  const [open, setOpen] = useState(false);
-  const [activeValue, setActiveValue] = useState<string | null>(null);
+  const [open, setOpen] = useState(defaultOpen);
+  const [activeValue, setActiveValue] = useState<string | null>(
+    defaultOpen ? selectedOption?.value ?? null : null,
+  );
 
   const renderedOptions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();

@@ -19,6 +19,17 @@ already stamps (ADR 0094).
 
 ### Added
 
+- **`defaultOpen` on `Combobox`, `DatePicker` and `DateRangePicker`.** The same
+  uncontrolled-open shape `Popover` and `Menu` have always taken, so a filter
+  panel can ship with its list already open — and so the subtree can be rendered
+  deterministically at all. That second reason is why it lands now: the combobox
+  listbox and the calendar have been styled from the framework stylesheet since
+  the first half of this migration, and **neither had ever been painted by
+  either visual lane**, because `open` was internal state with no way in. Some
+  sixteen shipped rules were changeable without any gate noticing. The combobox
+  opens with its cursor on the selection rather than nowhere, which is the state
+  focusing the box produces.
+
 - **Density is a token family, and `compact` is one attribute away.** The
   contract declares a live `--density-control-min-height` (2.25rem) plus an
   explicit `--density-compact-control-min-height` (2rem) — root-only geometry

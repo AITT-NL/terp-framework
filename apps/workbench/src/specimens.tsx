@@ -558,9 +558,29 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The listbox has been styled from the sheet since stage 2c and painted by neither
+        // lane in all that time, because `open` was internal state with no way in. Its
+        // options are absolutely positioned past the specimen card's edge, so it needs the
+        // viewport shot as much as a portalled panel does.
+        id: "combobox-open",
+        title: "Combobox — open listbox, cursor on the selection",
+        overlay: true,
+        node: <Combobox aria-label="Status" value="published" options={SELECT_OPTIONS} defaultOpen />,
+      },
+      {
         id: "date-picker",
         title: "DatePicker — fixed value",
         node: <DatePicker value={FIXED_DATE} />,
+      },
+      {
+        // Sixteen calendar rules, shipped in stage 2c and never once painted. This is also
+        // the first picture of the out-of-month treatment the ARIA-grid fix relit, and of the
+        // roving cursor's focus ring — which lands on the selected day because the calendar
+        // focuses it on mount.
+        id: "date-picker-open",
+        title: "DatePicker — open calendar",
+        overlay: true,
+        node: <DatePicker aria-label="Due date" value={FIXED_DATE} defaultOpen />,
       },
       {
         id: "date-picker-states",
@@ -580,6 +600,20 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
           <DateRangePicker
             aria-label="Reporting period"
             value={{ start: FIXED_DATE, end: FIXED_RANGE_END }}
+          />
+        ),
+      },
+      {
+        // The only surface that paints data-in-range, and the only one with two
+        // aria-selected endpoints at once.
+        id: "date-range-picker-open",
+        title: "DateRangePicker — open calendar spanning the range",
+        overlay: true,
+        node: (
+          <DateRangePicker
+            aria-label="Reporting period"
+            value={{ start: FIXED_DATE, end: FIXED_RANGE_END }}
+            defaultOpen
           />
         ),
       },

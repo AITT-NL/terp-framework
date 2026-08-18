@@ -97,6 +97,21 @@ describe("DatePicker", () => {
     expect(document.activeElement).toBe(next);
   });
 
+  it("opens the calendar on mount when asked", () => {
+    // Sixteen calendar rules have been in the sheet since stage 2c with no way to render the
+    // subtree, so neither visual lane had ever painted one. This is the way in.
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN }}>
+        <DatePicker aria-label="Due date" value={new Date(2026, 6, 7)} defaultOpen />
+      </LocaleProvider>,
+    );
+    expect(screen.getByRole("grid", { name: /July 2026/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Due date" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
   it("uses the active locale for month and weekday names", () => {
     render(
       <LocaleProvider locales={{ nl: LOCALE_NL }}>
@@ -110,6 +125,23 @@ describe("DatePicker", () => {
 });
 
 describe("DateRangePicker", () => {
+  it("opens the calendar on mount when asked", () => {
+    render(
+      <DateRangePicker
+        aria-label="Window"
+        value={{ start: new Date(2026, 6, 10), end: new Date(2026, 6, 14) }}
+        defaultOpen
+      />,
+    );
+    expect(screen.getByRole("grid")).toBeInTheDocument();
+    // Both endpoints are selected and the days between them carry the range attribute — the
+    // only surface in the package that paints either, and now the only one with a baseline.
+    expect(screen.getByRole("grid").querySelectorAll('[aria-selected="true"]')).toHaveLength(2);
+    expect(
+      screen.getByRole("grid").querySelectorAll('[data-in-range="true"]').length,
+    ).toBeGreaterThan(0);
+  });
+
   it("selects a start/end range and closes after the end", () => {
     const onChange = vi.fn();
     render(<DateRangePicker aria-label="Window" defaultValue={{ start: new Date(2026, 6, 10), end: null }} onChange={onChange} />);

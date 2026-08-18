@@ -24,6 +24,8 @@ export interface DatePickerProps {
   placeholder?: UiText;
   "aria-label"?: string;
   "aria-invalid"?: boolean | "true" | "false";
+  /** Open the calendar on mount (uncontrolled), the same shape `Popover` and `Menu` take. */
+  defaultOpen?: boolean;
 }
 
 export interface DateRangePickerProps {
@@ -36,6 +38,8 @@ export interface DateRangePickerProps {
   placeholder?: UiText;
   "aria-label"?: string;
   "aria-invalid"?: boolean | "true" | "false";
+  /** Open the calendar on mount (uncontrolled), the same shape `Popover` and `Menu` take. */
+  defaultOpen?: boolean;
 }
 
 /** Single-date calendar picker with locale-aware labels and keyboard navigation. */
@@ -49,10 +53,11 @@ export function DatePicker({
   placeholder = "Select date",
   "aria-label": ariaLabel,
   "aria-invalid": ariaInvalid,
+  defaultOpen = false,
 }: DatePickerProps) {
   const [uncontrolledValue, setUncontrolledValue] = useState<Date | null>(defaultValue);
   const selected = normalizeDate(value ?? uncontrolledValue);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const locale = useDateLocale();
   const resolve = useUiText();
   const formatted = selected === null ? resolve(placeholder) : formatDate(selected, locale);
@@ -112,10 +117,11 @@ export function DateRangePicker({
   placeholder = "Select date range",
   "aria-label": ariaLabel,
   "aria-invalid": ariaInvalid,
+  defaultOpen = false,
 }: DateRangePickerProps) {
   const [uncontrolledValue, setUncontrolledValue] = useState<DateRangeValue>(defaultValue);
   const selected = normalizeRange(value ?? uncontrolledValue);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const locale = useDateLocale();
   const resolve = useUiText();
   const formatted = selected.start === null

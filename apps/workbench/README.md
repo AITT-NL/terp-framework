@@ -16,8 +16,8 @@ npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
 
-54 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (270
-axe runs across five palettes); the screenshots cover the **two default** themes (108
+57 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (285
+axe runs across five palettes); the screenshots cover the **two default** themes (114
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, and one that the contrast allowance list has not grown a new theme.
 
@@ -117,6 +117,11 @@ portalled `Popover` panel is a real `image-alt` failure at WCAG 2.0 A, and the e
 run reports **zero violations** for it in all five themes while the `body`-scoped run fails all
 five. The widening is not tidiness; without it an open-panel specimen is a green run that
 examined the trigger.
+
+One sensitivity these specimens inherit rather than introduce: an open calendar renders a whole
+month, so its baseline depends on the recording machine's timezone in the same way the closed
+trigger's formatted date already did. Within one platform's baseline set that is stable, which
+is the same footing the rest of the set stands on.
 
 **The theme is in the URL.** The page reads `?theme=<name>` and sets `data-theme` on
 `<html>` directly rather than going through `ThemeProvider`, which persists to
