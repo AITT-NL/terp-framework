@@ -121,6 +121,13 @@
       "layer": "semantic"
     },
     {
+      "id": "muted-on-soft",
+      "label": "muted text on the accent wash",
+      "fg": "--color-fg-muted",
+      "bg": "--color-brand-primary-soft",
+      "layer": "semantic"
+    },
+    {
       "id": "sidebar-text",
       "label": "sidebar text",
       "fg": "--color-sidebar-fg",

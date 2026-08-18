@@ -74,7 +74,8 @@ export const TERP_STYLES_CSS = `
 /* Density: a subtree stamped data-density="compact" re-scopes the live density
    token to its compact counterpart, and every rule reading the live token
    follows via custom-property inheritance. Today that is control height, read
-   by Button, Input and Select; cell padding arrives with the DataView
+   by Button, Input, Select and the date-picker trigger; cell padding arrives with
+   the DataView
    migration, and its tokens arrive with it rather than sitting published and
    unread. "comfortable" is the token sheet's :root value, so the attribute for
    it matches no rule — an app sets density per subtree (the shell for an
@@ -926,7 +927,8 @@ button[data-terp="input"][data-placeholder="true"] {
 
 /* Theme and language menus -------------------------------------------------- */
 /* Two variants, and only ONE of them is a popover: inline returns a bare Menu,
-   so its root takes the wrapper geometry declared above, while stacked renders
+   so its root takes the wrapper geometry declared with Popover BELOW, while
+   stacked renders
    a captioned grid with the menu inside it. So the stacked rule replaces the
    display rather than adding to it. The inherited position: relative is inert
    here — the stacked root has no positioned descendant of its own, because the
@@ -1170,6 +1172,14 @@ button[data-terp="input"][data-placeholder="true"] {
   margin-block-start: var(--space-2);
 }
 
+/* Icon-only buttons. Ten elements wear this marker and not one declares a
+   transition inline, so this belongs in terp.base — it sat in terp.state only
+   because that is where the hover rules needing it live. Same correction 817f572
+   made for Tabs and Breadcrumbs. */
+[data-terp="iconbutton"] {
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
 /* Popover ------------------------------------------------------------------ */
 /* The wrapper the trigger sits in. Popover is the rendered root of Menu and of
    both date pickers, so this is the geometry of far more than one component —
@@ -1201,8 +1211,9 @@ button[data-terp="input"][data-placeholder="true"] {
 
    The stacking level is the token that was published for it. Every component in
    the package hardcoded its own number while a full --z-index-* family sat
-   unread: AppShell still writes 50/40/30 for drawer/backdrop/sticky and toast
-   writes 100, and both come right with their own migrations. Tooltip's z-index:
+   unread. AppShell still writes 50/40/30 for drawer/backdrop/sticky and comes
+   right with its own migration; the toast viewport already reads
+   --z-index-toast. Tooltip's z-index:
    1 above is deliberately NOT a token — the tooltip is absolutely positioned
    inside its own anchor, so 1 is a local lift within a stacking context rather
    than a place in the app-wide order. */
@@ -1231,7 +1242,7 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp]:focus-visible {
   outline: 2px solid transparent;
   outline-offset: 1px;
-  box-shadow: 0 0 0 3px var(--color-focus-ring) !important;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 /* Buttons ------------------------------------------------------------------ */
@@ -1257,10 +1268,11 @@ button[data-terp="input"][data-placeholder="true"] {
   cursor: not-allowed;
 }
 
-/* Icon-only buttons (header toggle, dismissers, pagination). */
-[data-terp="iconbutton"] {
-  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
-}
+/* Icon-only buttons: the shell's two header toggles, four pagination arrows, the
+   toast dismisser, the combobox's clear button and the calendar's month arrows.
+   Ten elements, no shared base rule — each is styled by where it sits. The list
+   matters because the escalation below retires per consumer, and an incomplete
+   list is the input a future reader uses to decide whether it can come off. */
 [data-terp="iconbutton"]:hover:not(:disabled) {
   background: var(--color-neutral-100) !important;
   color: var(--color-neutral-900) !important;
@@ -1357,7 +1369,7 @@ button[data-terp="input"][data-placeholder="true"] {
   transition: background-color 150ms ease;
 }
 [data-terp="appshell-brand"]:hover {
-  background: var(--color-neutral-100) !important;
+  background: var(--color-neutral-100);
 }
 
 /* Tabs -------------------------------------------------------------------- */
@@ -1387,13 +1399,32 @@ button[data-terp="input"][data-placeholder="true"] {
   height: 100%;
   min-height: 0;
 }
+/* The hover edge recolours hubcard-BODY, not the card.
+
+   The rule here used to set border-color on [data-terp="hubcard"], which is the outer <li>
+   and has no border: HubPage puts the visible edge on the inner hubcard-body span. So the
+   accent edge — clearly the intent, since the title goes accent and the card lifts and gains
+   a shadow at the same moment — never painted. Measured in a browser rather than reasoned
+   about, because no baseline captures a hover: the li computes border 0px none at rest and
+   0px none in the accent colour on hover, while the shadow and the transform do apply.
+
+   The escalation moves with the declaration and is still required: hubcard-body's border is
+   inline in HubPage, so a layered rule cannot beat it. It comes off when HubPage migrates.
+   The transition splits for the same reason the hover did — box-shadow and transform animate
+   on the card, border-color animates on the body, and declaring each where its property lives
+   is what stops the next reader inheriting the same confusion. */
 [data-terp="hubcard"] {
-  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  transition: box-shadow 150ms ease, transform 150ms ease;
+}
+[data-terp="hubcard-body"] {
+  transition: border-color 150ms ease;
 }
 [data-terp="hubcard"]:hover {
-  border-color: var(--color-fg-accent) !important;
   box-shadow: var(--shadow-sm);
   transform: translateY(-1px);
+}
+[data-terp="hubcard"]:hover [data-terp="hubcard-body"] {
+  border-color: var(--color-fg-accent) !important;
 }
 [data-terp="hubcard"]:hover [data-terp="hubcard-title"] {
   color: var(--color-fg-accent) !important;
@@ -1441,6 +1472,26 @@ button[data-terp="input"][data-placeholder="true"] {
   border-color: var(--color-brand-primary);
   background: var(--color-brand-primary);
   color: var(--color-brand-primary-contrast);
+}
+/* A day that is BOTH outside the visible month and inside the selected range: the two rules
+   above set different properties, so both apply and the subtle ink lands on the accent wash
+   rather than on the panel surface. That pairing fails WCAG AA in two of the five themes
+   (measured: light 4.37:1, midnight 4.26:1). The muted ink is 5.19:1 at worst across the five,
+   and muted-on-soft is now a declared pairing — which is what gates it, and not for the reason
+   one would guess. A specimen was added that paints the state, and axe still will not report
+   it: it returns color-contrast as INCOMPLETE for these cells, reasoning that "Element content
+   is too short to determine if it is actual text content". A one- or two-digit day number is
+   below its heuristic. So axe can never gate contrast on a day cell — nor on any other
+   one-glyph surface here, the toast dismisser and the breadcrumb separator included — and the
+   declared-pairings gate in @terpjs/contract is the only lane that covers them. Measured,
+   because the obvious assumption was that painting the state would be enough.
+
+   The :not() guard is load-bearing rather than defensive. Without it this selector weighs
+   (0,3,0) against the aria-selected rule's (0,2,0) in the same layer and would strip the
+   contrast ink off a selected range ENDPOINT — and the endpoints are in range, because
+   isWithinRange uses >= and <=. */
+[data-terp="calendar-day"][data-in-range="true"][data-outside-month="true"]:not([aria-selected="true"]) {
+  color: var(--color-fg-muted);
 }
 [data-terp="calendar-day"]:disabled {
   color: var(--color-neutral-300);
@@ -1527,7 +1578,7 @@ button[data-terp="input"][data-placeholder="true"] {
   [data-terp="dataview-table"] tbody tr {
     transition: none !important;
   }
-  [data-terp="spinner-ring"] { animation: none !important; }
+  [data-terp="spinner-ring"] { animation: none; }
 }
 }
 `;

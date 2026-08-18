@@ -84,10 +84,11 @@ export interface Specimen {
   /**
    * This specimen paints OUTSIDE its own box, so neither lane can see it by default.
    *
-   * Three framework surfaces do it, by three different mechanisms: `Popover` portals its
-   * panel to `document.body` (so it is not even a descendant of the specimen), a native
-   * `<dialog>` opened with `showModal()` renders in the top layer, and the toast viewport is
-   * `position: fixed` at the corner of the screen. The screenshot lane clips to the
+   * Four framework surfaces do it, by four different mechanisms: `Popover` portals its panel
+   * to `document.body` (so it is not even a descendant of the specimen), a native `<dialog>`
+   * opened with `showModal()` renders in the top layer, the toast viewport is `position: fixed`
+   * at the corner of the screen, and the `Combobox` listbox is merely `position: absolute` —
+   * the plainest case, and the one most likely to be missed. The screenshot lane clips to the
    * specimen element's bounding box and the axe lane scopes to it, so an open panel is out
    * of frame for one and out of scope for the other — a baseline that gates nothing while
    * looking like coverage, and for `ConfirmDialog` specifically a shot of a dimmed empty
@@ -112,6 +113,18 @@ const TONES = ["neutral", "info", "success", "warning", "danger"] as const;
 /** A fixed instant, so the date controls never re-record themselves overnight. */
 const FIXED_DATE = new Date(Date.UTC(2026, 0, 15));
 const FIXED_RANGE_END = new Date(Date.UTC(2026, 0, 22));
+
+/**
+ * A range that CROSSES a month boundary, for the open calendar.
+ *
+ * Not decoration: a day that is both outside the visible month and inside the range paints the
+ * subtle ink on the accent wash, and that pairing failed WCAG AA in two of the five themes
+ * until it was given the muted ink. An in-month range cannot produce the state, so the picture
+ * of it — and the axe run over it — needs a range that spans two months. Shown from December,
+ * so January 1-5 are the dimmed in-range cells.
+ */
+const FIXED_CROSS_START = new Date(Date.UTC(2025, 11, 28));
+const FIXED_CROSS_END = new Date(Date.UTC(2026, 0, 5));
 
 const SELECT_OPTIONS = [
   { value: "draft", label: "Draft" },
@@ -520,8 +533,11 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             <Field label="Display name" hint="Shown to everyone in the workspace.">
               <Input defaultValue="Team Falcon" />
             </Field>
+            {/* No aria-invalid here on purpose: a Field with an error supplies it, and that is
+                what this baseline proves — the picture is byte-identical to the one recorded
+                when the specimen passed it by hand. */}
             <Field label="Contact email" error="Enter an address with an @ in it.">
-              <Input defaultValue="not-an-email" aria-invalid />
+              <Input defaultValue="not-an-email" />
             </Field>
           </Stack>
         ),
@@ -628,15 +644,17 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
-        // The only surface that paints data-in-range, and the only one with two
-        // aria-selected endpoints at once.
+        // The only surface that paints data-in-range, and the only one with two aria-selected
+        // endpoints at once. The range crosses a month boundary on purpose — see
+        // FIXED_CROSS_START: that is the only way to paint a day which is outside the visible
+        // month AND inside the range, the combination whose contrast failed AA in two themes.
         id: "date-range-picker-open",
-        title: "DateRangePicker — open calendar spanning the range",
+        title: "DateRangePicker — open calendar, range crossing a month boundary",
         overlay: true,
         node: (
           <DateRangePicker
             aria-label="Reporting period"
-            value={{ start: FIXED_DATE, end: FIXED_RANGE_END }}
+            value={{ start: FIXED_CROSS_START, end: FIXED_CROSS_END }}
             defaultOpen
           />
         ),

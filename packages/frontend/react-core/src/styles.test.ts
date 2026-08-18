@@ -103,26 +103,51 @@ describe("cascade structure", () => {
   });
 
   it("keeps !important on every rule a component with inline base styles still relies on", () => {
-    // The tax comes off per CONSUMER, not per rule, and the condition is the LAST component
-    // a selector matches rather than the first. The reduced-motion block reaches AppShell's
-    // nav links and collapse and HubPage's card title, all of which still declare transition
-    // in a style object — and no layer beats the style attribute, so without !important a
-    // reduced-motion user still gets those animations. It comes off when they migrate.
+    // The tax comes off per CONSUMER, not per rule, and the condition is the LAST element a
+    // selector matches rather than the first. Every entry below names the inline declaration it
+    // has to out-shout, so the next reader can re-derive when it may retire instead of trusting
+    // this list — the previous version of this test named ConfirmDialog and Popover as reasons
+    // for the focus ring, and both had migrated a stage earlier.
     //
-    // `[data-terp="input"]` used to be listed here for the same reason and no longer is:
-    // Combobox and both date-picker triggers now take their base from the sheet, so all six
-    // elements wearing that marker are migrated. That transition is the point of this test —
-    // it fails loudly in whichever direction the sheet and the components disagree.
+    // This direction matters more than the converse and used to be pinned six times worse: the
+    // regression that shipped — a disabled Combobox painted exactly like an enabled one — came
+    // from dropping an escalation early, and only three of twelve were asserted. Every rule here
+    // is a hover, disabled or focus state, which is to say invisible to both lanes: the
+    // baselines capture the resting state and axe does not evaluate hover.
+    const state = layerBody("terp.state");
+    for (const [rule, consumer] of [
+      // Six of the ten elements wearing this marker still declare background and colour inline:
+      // AppShell's two header toggles (toggleStyle) and DataViewPagination's four arrows
+      // (pagerButtonStyle). The marker deliberately has no base rule.
+      ['[data-terp="iconbutton"]:hover', "AppShell toggleStyle / DataViewPagination pagerButtonStyle"],
+      // Only the pager can be disabled, and pagerButtonStyle sets cursor inline.
+      ['[data-terp="iconbutton"]:disabled', "DataViewPagination pagerButtonStyle cursor"],
+      // The shell's nav anchors carry colour inline (NAV_LINK_STYLE).
+      ['[data-terp="appshell-nav"] a:hover', "AppShell NAV_LINK_STYLE colour"],
+      // HubCard's visible edge is a border on hubcard-body, declared inline by HubPage. Worth
+      // pinning because the rule this replaced was DEAD: it recoloured the outer <li>, which
+      // computes `0px none`, so the accent edge never painted at all — measured in a browser,
+      // since no baseline captures a hover.
+      ['[data-terp="hubcard"]:hover [data-terp="hubcard-body"]', "HubPage cardBodyStyle border"],
+      // The card title's colour and transition are inline (titleTextStyle).
+      ['[data-terp="hubcard"]:hover [data-terp="hubcard-title"]', "HubPage titleTextStyle colour"],
+      // Shared by two selectors and only one has a live consumer — the card's background is
+      // inline in DataViewCardList, the table cell's is not. The textbook per-consumer case.
+      ['[data-terp="dataview-card"]:focus-within', "DataViewCardList inline background"],
+    ] as const) {
+      const at = state.indexOf(rule);
+      expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
+      expect(
+        state.slice(at, state.indexOf("}", at)),
+        `${rule} must keep its escalation while ${consumer} is inline`,
+      ).toContain("!important");
+    }
+    // And the reduced-motion transition override, which reaches AppShell's nav links and
+    // HubPage's card title — both of which declare `transition` in a style object, and no layer
+    // beats the style attribute. NOT the sidebar collapse: that <aside> carries no marker, so no
+    // selector in the block matches it and a reduced-motion user still sees the rail animate.
+    // The sheet's own comment says so; this one used to claim otherwise.
     expect(layerBody("terp.motion")).toContain("transition: none !important");
-    expect(layerBody("terp.motion")).toContain("animation: none !important");
-    // The widest selector in the sheet, so it is the last escalation that may retire: it
-    // matches every component including the dozen still styling themselves inline, several
-    // of which declare box-shadow there (ConfirmDialog, Popover, the shell's drawer). A
-    // focus ring that loses to a resting shadow is no focus ring.
-    const ring = layerBody("terp.state");
-    const at = ring.indexOf("[data-terp]:focus-visible");
-    expect(at).toBeGreaterThan(-1);
-    expect(ring.slice(at, ring.indexOf("}", at))).toContain("!important");
   });
 
   it("names every element the reduced-motion block has to reach", () => {
@@ -185,6 +210,9 @@ describe("cascade structure", () => {
       '[data-terp="menu-item"][data-selected="true"]',
       '[data-terp="menu-item"]:disabled',
       '[data-terp="menu-trigger"]:hover',
+      // The brand link declares no inline background — brandLinkStyle sets colour, radius and
+      // box-sizing and nothing else — so this rule never had anything to out-shout.
+      '[data-terp="appshell-brand"]:hover',
     ]) {
       const at = state.indexOf(rule);
       expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
@@ -192,6 +220,56 @@ describe("cascade structure", () => {
       expect(block, `${rule}: every element wearing that marker is migrated`)
         .not.toContain("!important");
     }
+
+    // The two widest escalations in the sheet retired in stage 4, and they are worth their own
+    // assertions because both had a real consumer until it migrated.
+    //
+    // The focus ring's !important could only ever beat an INLINE box-shadow on an element the
+    // selector matches, and there is none left: ConfirmDialog's dialog and Popover's panel were
+    // the two, and both took their surface from the sheet in stage 4. Of the three inline
+    // box-shadows remaining, AppShell's drawer and LoginView's panel sit on elements with no
+    // marker at all, and DataViewCardList's card is a div with onClick and no tabIndex, so it
+    // cannot match :focus-visible — which is why the sheet reaches it with :focus-within.
+    // Measured after removing it: a keyboard-focused primary button and a focused menu item both
+    // still compute rgba(37,99,235,0.35) 0 0 0 3px, because the LAYER carries the ring, not the
+    // escalation. That was always the claim in this file's header; the escalation was belt.
+    const at = state.indexOf("[data-terp]:focus-visible");
+    expect(at, "the shared focus ring should still be declared").toBeGreaterThan(-1);
+    expect(
+      state.slice(at, state.indexOf("}", at)),
+      "the focus ring's last inline box-shadow consumer migrated in stage 4",
+    ).not.toContain("!important");
+
+    // And the spinner's reduced-motion override never had a consumer: the rotation is declared by
+    // this sheet in terp.state, terp.motion sits above it, and no component has ever set
+    // `animation` in a style object. Measured under prefers-reduced-motion: animation-name
+    // computes `none` either way.
+    const motion = layerBody("terp.motion");
+    const spin = motion.indexOf('[data-terp="spinner-ring"]');
+    expect(spin, "the spinner's reduced-motion rule should still be declared").toBeGreaterThan(-1);
+    expect(
+      motion.slice(spin, motion.indexOf("}", spin)),
+      "the spinner's animation is a sheet rule in a lower layer, so layer order already wins",
+    ).not.toContain("!important");
+  });
+
+  it("states the real cost of an escalation: a layered !important is a wall, not a hurdle", () => {
+    // The reason both directions of this ledger are gated, recorded where the rules are.
+    //
+    // For NORMAL declarations an unlayered author rule beats a layered one whatever its
+    // specificity, which is what lets an app's theme.css override this sheet. For IMPORTANT
+    // declarations the layer order REVERSES, and unlayered styles sort last — so a layered
+    // !important beats an unlayered !important. Measured in a browser against the real sheet:
+    // with the ring escalated, an unlayered rule lost both with and without !important; with it
+    // retired, an unlayered rule wins either way.
+    //
+    // So an escalation does not merely outrank theme.css. It makes that declaration
+    // UNTHEMEABLE — there is no author-side override at all. That is why the count is the
+    // phase's measurable and why retiring one is a feature rather than tidying.
+    expect(css).toContain("@layer terp.reset, terp.base, terp.state, terp.motion;");
+    // Nine left, every one of them named in the must-keep list above with its inline consumer.
+    const declarations = css.split("!important").length - 1;
+    expect(declarations).toBe(9);
   });
 
   it("keeps the markdown wrapper boxless", () => {
