@@ -311,6 +311,53 @@ textarea[data-terp="input"] {
   line-height: 1.4;
 }
 
+/* Checkboxes / radios / switches ------------------------------------------- */
+/* One label shape for all three, so the marker is shared: the control differs,
+   the "box or dot, gap, then its text" arrangement does not. accent-color is
+   what paints the control itself — the browser picks the check colour, so the
+   contrast that matters is the control against the page, which is why this is
+   the ink token and not the filled-surface one (ADR 0093). */
+[data-terp="control-label"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-neutral-900);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+[data-terp="checkbox"],
+[data-terp="radio"] {
+  inline-size: 1rem;
+  block-size: 1rem;
+  accent-color: var(--color-fg-accent);
+  cursor: pointer;
+}
+[data-terp="switch"] {
+  inline-size: 2.25rem;
+  block-size: 1.25rem;
+  accent-color: var(--color-fg-accent);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+[data-terp="radio-group"] {
+  display: grid;
+  gap: var(--space-2);
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+[data-terp="radio-group-legend"] {
+  font-weight: var(--font-weight-medium);
+  padding: 0;
+  margin-block-end: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-700);
+}
+[data-terp="radio-group-options"] {
+  display: grid;
+  gap: var(--space-2);
+}
+
 /* Fields ------------------------------------------------------------------- */
 [data-terp="field"],
 [data-terp="field-label"] {
@@ -454,13 +501,16 @@ textarea[data-terp="input"] {
 [data-terp="checkbox"]:disabled,
 [data-terp="radio"]:disabled,
 [data-terp="switch"]:disabled {
-  cursor: not-allowed !important;
+  cursor: not-allowed;
 }
-label:has([data-terp="checkbox"]:disabled),
-label:has([data-terp="radio"]:disabled),
-label:has([data-terp="switch"]:disabled) {
-  cursor: not-allowed !important;
-  color: var(--color-neutral-500) !important;
+/* :has() rather than an attribute on the label: the label has no idea whether
+   its control is disabled, and threading that through would duplicate state
+   the DOM already carries. */
+[data-terp="control-label"]:has([data-terp="checkbox"]:disabled),
+[data-terp="control-label"]:has([data-terp="radio"]:disabled),
+[data-terp="control-label"]:has([data-terp="switch"]:disabled) {
+  cursor: not-allowed;
+  color: var(--color-neutral-500);
 }
 
 /* Sidebar navigation links (from the shell or any app-provided <a>). The hover

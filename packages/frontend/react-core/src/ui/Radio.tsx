@@ -1,35 +1,11 @@
 import { useId, useState } from "react";
-import type { CSSProperties, InputHTMLAttributes, ReactNode } from "react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 
 import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
 
 injectTerpStyles();
-
-const groupStyle: CSSProperties = { display: "grid", gap: "var(--space-2)", border: 0, padding: 0, margin: 0 };
-const legendStyle: CSSProperties = {
-  fontWeight: "var(--font-weight-medium)" as never,
-  padding: 0,
-  marginBlockEnd: "var(--space-1)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-neutral-700)",
-};
-const optionsStyle: CSSProperties = { display: "grid", gap: "var(--space-2)" };
-const labelStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  color: "var(--color-neutral-900)",
-  cursor: "pointer",
-  fontSize: "var(--font-size-sm)",
-};
-const inputStyle: CSSProperties = {
-  inlineSize: "1rem",
-  blockSize: "1rem",
-  accentColor: "var(--color-fg-accent)",
-  cursor: "pointer",
-};
 
 export interface RadioProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "checked" | "defaultChecked" | "onChange" | "value"> {
@@ -44,7 +20,7 @@ export interface RadioProps
 export function Radio({ label, value, checked, defaultChecked, onChange, style, ...rest }: RadioProps) {
   const resolve = useUiText();
   return (
-    <label style={{ ...labelStyle, ...style }}>
+    <label data-terp="control-label" style={style}>
       <input
         {...rest}
         type="radio"
@@ -53,7 +29,6 @@ export function Radio({ label, value, checked, defaultChecked, onChange, style, 
         checked={checked}
         defaultChecked={defaultChecked}
         onChange={(event) => onChange?.(event.currentTarget.checked)}
-        style={inputStyle}
       />
       <span>{resolve(label)}</span>
     </label>
@@ -102,9 +77,9 @@ export function RadioGroup({
   }
 
   return (
-    <fieldset style={groupStyle}>
-      <legend style={legendStyle}>{resolve(label)}</legend>
-      <div style={optionsStyle}>
+    <fieldset data-terp="radio-group">
+      <legend data-terp="radio-group-legend">{resolve(label)}</legend>
+      <div data-terp="radio-group-options">
         {options?.map((option) => (
           <Radio
             key={option.value}
