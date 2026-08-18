@@ -247,6 +247,12 @@ describe("cascade structure", () => {
       "page-actions",
       "popover",
       "popover-panel",
+      "user-menu",
+      "user-menu-avatar",
+      "user-menu-email",
+      "user-menu-header",
+      "user-menu-identity",
+      "user-menu-role",
       "breadcrumbs-current",
     ]) {
       expect(

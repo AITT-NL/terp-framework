@@ -943,6 +943,75 @@ button[data-terp="input"][data-placeholder="true"] {
   color: var(--color-neutral-600);
 }
 
+/* Account menu -------------------------------------------------------------- */
+/* UserMenu's root is the popover wrapper too, but unlike the two chrome toggles
+   its trigger and its panel look nothing like the defaults — which is why it was
+   the last consumer of Menu's triggerStyle and panelStyle props, and why both
+   could be deleted once the root had a name. The trigger is reached by descending
+   from that name; the PANEL cannot be, because it is portalled to document.body,
+   so Popover stamps data-owner on it and the geometry hangs off that instead. */
+/* A full-width identity row rather than the outlined control menu-trigger
+   describes: two attributes against one, so it wins on specificity in the same
+   layer without needing to be declared after it. */
+[data-terp="user-menu"] [data-terp="menu-trigger"] {
+  justify-content: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  text-align: left;
+  color: var(--color-neutral-900);
+  border-color: transparent;
+  min-height: 0;
+}
+/* Icon-rail mode: the avatar alone, centred, with nothing around it. */
+[data-terp="user-menu"][data-variant="collapsed"] [data-terp="menu-trigger"] {
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+[data-terp="user-menu-avatar"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-brand-primary);
+  color: var(--color-brand-primary-contrast);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+[data-terp="user-menu-identity"] {
+  display: grid;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+[data-terp="user-menu-email"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-terp="user-menu-role"] {
+  color: var(--color-neutral-600);
+}
+/* The panel's identity block, and the panel's own geometry — both keyed on the
+   owner, because the portal put them outside every selector that could otherwise
+   reach them. */
+[data-terp="popover-panel"][data-owner="user-menu"] {
+  min-width: 14rem;
+  padding: var(--space-2);
+}
+[data-terp="user-menu-header"] {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  margin-block-end: var(--space-1);
+  border-block-end: 1px solid var(--color-neutral-200);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
 /* Page actions ------------------------------------------------------------- */
 [data-terp="page-actions"] {
   display: flex;
@@ -964,7 +1033,8 @@ button[data-terp="input"][data-placeholder="true"] {
    and nothing about the rule looks wrong. */
 [data-terp="popover"],
 [data-terp="theme-toggle"],
-[data-terp="language-switcher"] {
+[data-terp="language-switcher"],
+[data-terp="user-menu"] {
   position: relative;
   display: inline-flex;
 }

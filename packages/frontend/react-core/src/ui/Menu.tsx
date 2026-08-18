@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 
 import { Icon } from "../icons";
 import { useUiText } from "../uiText";
@@ -16,8 +16,6 @@ export interface MenuProps {
   onOpenChange?: (open: boolean) => void;
   align?: PopoverAlign;
   placement?: PopoverPlacement;
-  triggerStyle?: CSSProperties;
-  panelStyle?: CSSProperties;
   /**
    * Name this menu's rendered root — which is Popover's wrapper, since a Menu adds no root
    * element of its own. `ThemeToggle`, `LanguageSwitcher` and `UserMenu` each return a bare
@@ -38,8 +36,6 @@ export function Menu({
   onOpenChange,
   align = "end",
   placement = "bottom",
-  triggerStyle: triggerStyleOverride,
-  panelStyle,
   "data-terp": rootMarker,
   "data-variant": rootVariant,
 }: MenuProps) {
@@ -69,7 +65,6 @@ export function Menu({
       onOpenChange={onOpenChange}
       align={align}
       placement={placement}
-      panelStyle={panelStyle}
       data-terp={rootMarker}
       data-variant={rootVariant}
       trigger={
@@ -87,7 +82,6 @@ export function Menu({
           data-terp="menu-trigger"
           aria-label={resolve(triggerLabel)}
           aria-haspopup="menu"
-          style={triggerStyleOverride}
         >
           {trigger}
         </button>

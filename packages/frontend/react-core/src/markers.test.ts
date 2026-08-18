@@ -134,6 +134,12 @@ const MARKERS = [
   "theme-toggle-label",
   "tooltip",
   "tooltip-anchor",
+  "user-menu",
+  "user-menu-avatar",
+  "user-menu-email",
+  "user-menu-header",
+  "user-menu-identity",
+  "user-menu-role",
 ];
 
 /**
@@ -154,8 +160,12 @@ const MARKERS = [
  *     actually uses — so their root was `Popover`'s wrapper and indistinguishable from any
  *     other popover. Both have graduated, and the answer added no DOM: `Popover` takes the
  *     root's marker as a prop named `data-terp`, `Menu` threads it through, and each
- *     component names its own root with `data-variant` separating the variants. `UserMenu`
- *     is the same shape and is next.
+ *     component names its own root with `data-variant` separating the variants. `UserMenu` was
+ *     the same shape and has graduated too — it was also the last consumer of `Menu`'s
+ *     `triggerStyle` and `panelStyle` props, which are gone: a marked root makes the trigger
+ *     reachable by descending from it, and the PANEL, which is portalled to `document.body`
+ *     and so reachable from nowhere, carries a `data-owner` attribute naming whose panel it
+ *     is.
  *
  *     The prop is named for the attribute deliberately. The scanner below reads `data-terp`
  *     sites in component source, so `<Menu data-terp="theme-toggle">` is seen exactly where
@@ -183,7 +193,6 @@ const UNMARKED_STYLED_SURFACES = [
   "./LoginView.tsx",
   "./OverviewPage.tsx",
   "./ProfileView.tsx",
-  "./UserMenu.tsx",
   "./dataview/DataViewColumnSettings.tsx",
   "./dataview/DataViewExpandableRow.tsx",
   "./dataview/DataViewRowActions.tsx",

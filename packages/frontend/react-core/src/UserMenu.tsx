@@ -1,10 +1,10 @@
-import type { CSSProperties } from "react";
-
 import { Icon } from "./icons";
+import { injectTerpStyles } from "./styles";
 import { useAuth } from "./TerpProvider";
 import { Menu, MenuItem } from "./ui/Menu";
-import { CONTROL_TEXT_STYLE } from "./ui/controlStyles";
 import { useStrings } from "./uiText";
+
+injectTerpStyles();
 
 /** Initials for the avatar: the first letters of the email's local-part words. */
 export function userInitials(email: string): string {
@@ -14,65 +14,22 @@ export function userInitials(email: string): string {
   return initials.join("") || "?";
 }
 
-const triggerStyle: CSSProperties = {
-  ...CONTROL_TEXT_STYLE,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "flex-start",
-  gap: "var(--space-2)",
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "var(--space-2)",
-  textAlign: "left",
-  color: "var(--color-neutral-900)",
-  background: "transparent",
-  border: "1px solid transparent",
-  borderRadius: "var(--radius-md)",
-  cursor: "pointer",
-};
-
-const collapsedTriggerStyle: CSSProperties = {
-  justifyContent: "center",
-  gap: 0,
-  padding: 0,
-};
-
-const avatarStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: "2rem",
-  height: "2rem",
-  flexShrink: 0,
-  borderRadius: "var(--radius-full)",
-  background: "var(--color-brand-primary)",
-  color: "var(--color-brand-primary-contrast)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: "var(--font-weight-medium)" as CSSProperties["fontWeight"],
-};
-
-const identityStyle: CSSProperties = { display: "grid", minWidth: 0, fontSize: "var(--font-size-sm)" };
-const emailStyle: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
-const roleStyle: CSSProperties = { color: "var(--color-neutral-600)" };
-const panelIdentityStyle: CSSProperties = {
-  display: "grid",
-  gap: "var(--space-1)",
-  padding: "var(--space-2)",
-  marginBottom: "var(--space-1)",
-  borderBottom: "1px solid var(--color-neutral-200)",
-  fontSize: "var(--font-size-sm)",
-  overflowWrap: "anywhere",
-};
-
 export interface UserMenuProps {
   /** Icon-rail mode: show only the avatar on the trigger (the shell's collapsed state). */
   collapsed?: boolean;
   /** Opens the settings / profile page; rendered as the menu's first item when provided. */
   onSettings?: () => void;
+  /**
+   * Open the panel on mount (uncontrolled), the shape every other disclosure in the package
+   * takes. It is also the only way to render the panel deterministically, and the panel is
+   * where this component's own geometry lives — so without it those rules ship unpainted by
+   * either visual lane, which is the state the calendar was in for two stages.
+   */
+  defaultOpen?: boolean;
 }
 
 /** The signed-in user's account menu. */
-export function UserMenu({ collapsed = false, onSettings }: UserMenuProps = {}) {
+export function UserMenu({ collapsed = false, onSettings, defaultOpen }: UserMenuProps = {}) {
   const auth = useAuth();
   const strings = useStrings();
   const user = auth.currentUser();
@@ -82,11 +39,11 @@ export function UserMenu({ collapsed = false, onSettings }: UserMenuProps = {}) 
 
   const trigger = (
     <>
-      <span aria-hidden="true" style={avatarStyle}>{userInitials(user.email)}</span>
+      <span aria-hidden="true" data-terp="user-menu-avatar">{userInitials(user.email)}</span>
       {!collapsed && (
-        <span style={identityStyle}>
-          <span style={emailStyle}>{user.email}</span>
-          <span style={roleStyle}>{user.role_name}</span>
+        <span data-terp="user-menu-identity">
+          <span data-terp="user-menu-email">{user.email}</span>
+          <span data-terp="user-menu-role">{user.role_name}</span>
         </span>
       )}
     </>
@@ -98,14 +55,22 @@ export function UserMenu({ collapsed = false, onSettings }: UserMenuProps = {}) 
       triggerLabel={strings.accountMenu}
       placement="top"
       align="start"
-      triggerStyle={collapsed ? { ...triggerStyle, ...collapsedTriggerStyle } : triggerStyle}
-      panelStyle={{ minWidth: "14rem", padding: "var(--space-2)" }}
+      defaultOpen={defaultOpen}
+      // This component's rendered root is Menu's popover wrapper — it adds no element of its
+      // own — so it names that root through Menu. The icon-rail mode is a variant of the same
+      // component rather than a different one, so it is data-variant on the same marker; and
+      // the trigger and the panel are then reachable from the sheet, which is what let both
+      // `triggerStyle` and `panelStyle` be deleted. The panel needs the owner attribute
+      // Popover stamps for it: it is portalled to document.body, so no descendant selector
+      // from this side of the tree could ever reach it.
+      data-terp="user-menu"
+      data-variant={collapsed ? "collapsed" : undefined}
     >
       {({ close }) => (
         <>
-          <div style={panelIdentityStyle}>
+          <div data-terp="user-menu-header">
             <span>{user.email}</span>
-            <span style={roleStyle}>{user.role_name}</span>
+            <span data-terp="user-menu-role">{user.role_name}</span>
           </div>
           {onSettings !== undefined && (
             <MenuItem

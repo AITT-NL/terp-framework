@@ -35,7 +35,6 @@ export interface PopoverProps {
   placement?: PopoverPlacement;
   align?: PopoverAlign;
   focusOnOpen?: boolean;
-  panelStyle?: CSSProperties;
   /**
    * Override the root's marker, for a component whose rendered root this wrapper IS.
    * Named for the attribute it becomes, which is also what keeps the marker inventory
@@ -66,7 +65,6 @@ export function Popover({
   placement = "bottom",
   align = "end",
   focusOnOpen = false,
-  panelStyle,
   "data-terp": rootMarker,
   "data-variant": rootVariant,
 }: PopoverProps) {
@@ -219,13 +217,18 @@ export function Popover({
           id={panelId}
           ref={panelRef}
           data-terp="popover-panel"
+          // Whose panel this is. The panel is portalled to document.body, so a descendant
+          // selector rooted at the trigger's side of the tree cannot reach it — and a
+          // per-caller panel geometry therefore has nowhere to hang unless the panel itself
+          // says who owns it. This is what replaced the `panelStyle` prop: the owner's rule
+          // lives in the sheet with everything else instead of travelling as an object.
+          data-owner={rootMarker ?? "popover"}
           tabIndex={-1}
           // Only the measured part is inline: the left/top the layout effect computes from
           // the trigger's rect and clamps against the viewport, and the visibility that
           // hides the panel for the frame before that measurement exists. Everything the
-          // panel LOOKS like is a rule (ADR 0094). `panelStyle` is a per-caller override on
-          // its way out — its last consumer is UserMenu.
-          style={{ ...panelStyle, ...panelPosition }}
+          // panel LOOKS like is a rule (ADR 0094).
+          style={panelPosition}
         >
           {children({ close, panelId })}
         </div>,

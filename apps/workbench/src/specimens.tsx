@@ -982,6 +982,21 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The account menu's own geometry lives in its PANEL — a wider minimum, its own
+        // padding, and the identity block above the items — and the panel is portalled to
+        // document.body, so those rules are keyed on the owner attribute rather than on
+        // anything reachable from the trigger. Closed, none of it is painted; this is the only
+        // baseline that sees it.
+        id: "user-menu-open",
+        title: "UserMenu — open panel with the identity block",
+        overlay: true,
+        node: (
+          <SignedIn>
+            <UserMenu defaultOpen onSettings={() => {}} />
+          </SignedIn>
+        ),
+      },
+      {
         id: "login-view",
         title: "LoginView — credentials and SSO",
         node: (

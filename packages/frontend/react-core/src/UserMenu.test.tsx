@@ -121,13 +121,20 @@ describe("UserMenu", () => {
     const trigger = await screen.findByRole("button", { name: "Account menu" });
     expect(screen.getByText("JD")).toBeInTheDocument();
     expect(screen.queryByText("jane.doe@example.com")).not.toBeInTheDocument();
-    expect(trigger.style.width).toBe("100%");
-    expect(trigger.style.boxSizing).toBe("border-box");
-    expect(trigger.style.justifyContent).toBe("center");
-    expect(trigger.style.padding).toBe("0px");
-    // The identity still surfaces inside the opened panel.
+    // The collapsed geometry is a sheet rule now (ADR 0094), so what this asserts is the
+    // attribute the rule keys on and the absence of the inline object it replaced. The
+    // variant sits on the component's ROOT rather than on the trigger, because the root is
+    // what UserMenu names — the trigger is reached by descending from it.
+    const root = trigger.closest('[data-terp="user-menu"]');
+    expect(root).not.toBeNull();
+    expect(root).toHaveAttribute("data-variant", "collapsed");
+    expect(trigger).toHaveAttribute("data-terp", "menu-trigger");
+    expect(trigger.getAttribute("style")).toBeNull();
+    // The identity still surfaces inside the opened panel, whose geometry is keyed on the
+    // owner attribute — the panel is portalled out, so nothing else could reach it.
     fireEvent.click(trigger);
     expect(screen.getByText("jane.doe@example.com")).toBeInTheDocument();
+    expect(screen.getByRole("menu").parentElement).toHaveAttribute("data-owner", "user-menu");
   });
 
   it("signs out via the menu (revokes the token server-side)", async () => {
