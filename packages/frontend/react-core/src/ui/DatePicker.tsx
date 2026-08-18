@@ -191,12 +191,34 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
   const [month, setMonth] = useState(() => startOfMonth(initial));
   const [activeDate, setActiveDate] = useState(initial);
   const activeRef = useRef<HTMLButtonElement>(null);
-  const days = useMemo(() => monthGrid(month), [month]);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const mounted = useRef(false);
+  const weeks = useMemo(() => monthWeeks(month), [month]);
   const weekdays = useMemo(() => weekdayNames(locale), [locale]);
+  const activeKey = toKey(activeDate);
 
+  // The roving cursor has to move DOM focus, not just `tabIndex`. This effect used to
+  // carry an empty dependency list, so it focused the initial day once and never again:
+  // an arrow key moved `activeDate`, which moved `tabIndex={0}` and `activeRef` to
+  // another cell, while the browser's focus — and therefore the caret, the focus ring
+  // and every screen reader — stayed on the day the calendar opened on. Keyed on the
+  // cursor now, so each move follows it.
   useEffect(() => {
-    window.setTimeout(() => activeRef.current?.focus(), 0);
-  }, []);
+    if (!mounted.current) {
+      mounted.current = true;
+      // The panel is portalled and Popover positions it in a layout effect, so the
+      // opening focus waits a tick for the cell to exist where it will finally sit.
+      const timer = window.setTimeout(() => activeRef.current?.focus(), 0);
+      return () => window.clearTimeout(timer);
+    }
+    // Only while the grid already owns focus: `activeDate` also moves on a cell's own
+    // `onFocus`, and on a month change from the header buttons — which must not yank
+    // focus off the button the pointer just pressed.
+    if (gridRef.current?.contains(document.activeElement) === true) {
+      activeRef.current?.focus();
+    }
+    return undefined;
+  }, [activeKey]);
 
   function move(daysDelta: number) {
     const next = clampDate(addDays(activeDate, daysDelta), minDate, maxDate);
@@ -286,34 +308,56 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
       <div data-terp="calendar-week" aria-hidden="true">
         {weekdays.map((day) => <div key={day} data-terp="calendar-weekday">{day}</div>)}
       </div>
-      <div id={gridId} role="grid" aria-label={formatMonth(month, locale)} data-terp="calendar-week" onKeyDown={onGridKeyDown}>
-        {days.map((day) => {
-          const disabled = isDisabled(day, minDate, maxDate);
-          const isSelected = mode === "single"
-            ? sameDate(day, selected)
-            : sameDate(day, range?.start) || sameDate(day, range?.end);
-          const inRange = mode === "range" && isWithinRange(day, range);
-          const active = sameDate(day, activeDate);
-          return (
-            <button
-              key={toKey(day)}
-              ref={active ? activeRef : undefined}
-              type="button"
-              role="gridcell"
-              aria-selected={isSelected}
-              aria-disabled={disabled}
-              tabIndex={active ? 0 : -1}
-              disabled={disabled}
-              onClick={() => selectDate(day)}
-              onFocus={() => setActiveDate(day)}
-              data-terp="calendar-day"
-              data-in-range={inRange ? "true" : undefined}
-              data-outside-month={day.getMonth() === month.getMonth() ? undefined : "true"}
-            >
-              {day.getDate()}
-            </button>
-          );
-        })}
+      {/* grid → row → gridcell. The 42 day buttons used to be DIRECT children of the
+          role="grid", which is an invalid ARIA grid: `grid` must own `row`s and a
+          `gridcell` must be owned by one, so axe rated it a critical violation on two
+          rules at once and no screen reader could report "week 3, Wednesday". Nothing
+          caught it because nothing in the repo opened a calendar — the resting-state
+          baselines have no picture of it and axe never reached the subtree.
+
+          The geometry is unchanged and that is why the rows can be real elements rather
+          than `display: contents`: the outer box keeps the row gap, each row keeps the
+          seven equal columns and the column gap, and both gaps are the same token they
+          always were, so 42 cells land on exactly the pixels they did as one flat grid. */}
+      <div
+        id={gridId}
+        ref={gridRef}
+        role="grid"
+        aria-label={formatMonth(month, locale)}
+        data-terp="calendar-grid"
+        onKeyDown={onGridKeyDown}
+      >
+        {weeks.map((week) => (
+          <div key={toKey(week[0]!)} role="row" data-terp="calendar-week">
+            {week.map((day) => {
+              const disabled = isDisabled(day, minDate, maxDate);
+              const isSelected = mode === "single"
+                ? sameDate(day, selected)
+                : sameDate(day, range?.start) || sameDate(day, range?.end);
+              const inRange = mode === "range" && isWithinRange(day, range);
+              const active = sameDate(day, activeDate);
+              return (
+                <button
+                  key={toKey(day)}
+                  ref={active ? activeRef : undefined}
+                  type="button"
+                  role="gridcell"
+                  aria-selected={isSelected}
+                  aria-disabled={disabled}
+                  tabIndex={active ? 0 : -1}
+                  disabled={disabled}
+                  onClick={() => selectDate(day)}
+                  onFocus={() => setActiveDate(day)}
+                  data-terp="calendar-day"
+                  data-in-range={inRange ? "true" : undefined}
+                  data-outside-month={day.getMonth() === month.getMonth() ? undefined : "true"}
+                >
+                  {day.getDate()}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -356,10 +400,13 @@ function clampDate(date: Date, min: Date | null, max: Date | null) {
   if (max !== null && compareDate(date, max) > 0) return max;
   return date;
 }
-function monthGrid(month: Date) {
+/** Six weeks of seven days covering `month`, the first cell being that month's Sunday-start. */
+function monthWeeks(month: Date) {
   const first = startOfMonth(month);
   const start = addDays(first, -first.getDay());
-  return Array.from({ length: 42 }, (_, index) => addDays(start, index));
+  return Array.from({ length: 6 }, (_, week) =>
+    Array.from({ length: 7 }, (_, day) => addDays(start, week * 7 + day)),
+  );
 }
 function isWithinRange(date: Date, range: DateRangeValue | undefined) {
   if (range?.start === null || range?.start === undefined || range.end === null || range.end === undefined) {

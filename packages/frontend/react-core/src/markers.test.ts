@@ -51,6 +51,7 @@ const MARKERS = [
   "button-icon",
   "calendar",
   "calendar-day",
+  "calendar-grid",
   "calendar-header",
   "calendar-title",
   "calendar-week",

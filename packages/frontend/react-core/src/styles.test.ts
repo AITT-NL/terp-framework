@@ -211,6 +211,7 @@ describe("cascade structure", () => {
       "combobox-option",
       "calendar",
       "calendar-day",
+      "calendar-grid",
       "calendar-week",
       "card",
       "card-header",

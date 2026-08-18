@@ -32,6 +32,42 @@ already stamps (ADR 0094).
   token for exactly that. Density props on the shell and DataView land with
   those components.
 
+### Fixed
+
+- **The calendar was three defects deep, and nothing in the repo could see any
+  of them.** Its `role="grid"` held all 42 day buttons as *direct*
+  `role="gridcell"` children with no `role="row"` between them, which is an
+  invalid ARIA grid on two counts at once — a `grid` must own rows, and a
+  `gridcell` must be owned by one — so no screen reader could report a day's
+  position and axe rated it critical. Its roving cursor moved `tabIndex` and
+  nothing else: the focus effect carried an empty dependency list, so an arrow
+  key moved which cell was *marked* focusable while the browser's focus, the
+  focus ring and every assistive technology stayed on the day the calendar
+  opened on. And days outside the visible month were dimmed with
+  `opacity: 0.45`, which composites the body ink against the panel to a colour
+  that fails WCAG AA in **all five themes** (measured: light 2.93:1, dark
+  3.93:1, midnight 4.25:1, twilight 4.05:1, contrast 3.36:1); they now take
+  `--color-fg-subtle`, which is 4.76:1 at worst and — unlike a composite of one
+  token over another — is a pairing `token-pairs.json` declares, so the static
+  contrast gate measures it from here on. The weekday initials move to the same
+  semantic token for the same reason: they sat on the raw `--color-neutral-500`
+  step, which two palettes deliberately lift `--color-fg-subtle` above, and the
+  weekday row is `aria-hidden`, so an undeclared pairing there is permanently
+  invisible to axe.
+
+  Worth stating why all three survived this long, because it generalises: the
+  calendar only exists inside an open `Popover`, nothing in the repo opens one,
+  and the visual baselines capture the resting state. So the component had no
+  picture in either lane and axe never reached its subtree — the same blind spot
+  that hid `NavIcon`'s fallback tile in 0.7.0. The week rows are real elements
+  rather than `display: contents`, and the geometry is unchanged: the month box
+  keeps the row gap, each row keeps its seven equal columns and the column gap,
+  both from the one token the flat grid used for both axes, so all 42 cell boxes
+  and the panel size measure byte-identical before and after. Opacity also
+  dimmed the cell's *background*, so an out-of-month day that is selected or
+  inside a range used to render as a washed-out chip and now paints at full
+  strength — a selected day should read as selected whichever month owns it.
+
 ### Removed
 
 - **`--color-fg-on-brand` is deleted from the token vocabulary.** It was

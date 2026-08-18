@@ -755,15 +755,30 @@ button[data-terp="input"][data-placeholder="true"] {
   font-weight: var(--font-weight-semibold);
   color: var(--color-neutral-900);
 }
+/* The month grid holds six week rows; each row holds seven day cells. The split is
+   what makes the ARIA grid valid, and the two gaps below are the one token the flat
+   42-cell grid used for both axes, so the cells land unmoved. */
+[data-terp="calendar-grid"] {
+  display: grid;
+  gap: var(--space-1);
+}
 [data-terp="calendar-week"] {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: var(--space-1);
 }
+/* The weekday initials and the days outside the visible month are the calendar's two
+   subdued surfaces, and both take the SEMANTIC subtle ink rather than a ramp step. The
+   distinction is not cosmetic: token-pairs.json declares subtle-on-surface, so the
+   contrast gate measures this pairing in every theme, while --color-neutral-500 is the
+   raw step and two palettes deliberately lift --color-fg-subtle above it (midnight
+   #8b949e vs #7d8590, twilight #a294bd vs #9d90b8) — exactly the correction 0.7.0 made
+   after axe found neutral-500 used as muted copy. The weekday row is aria-hidden, so
+   axe can never report it: an undeclared pairing there is permanently unmeasured. */
 [data-terp="calendar-weekday"] {
   text-align: center;
   font-size: var(--font-size-xs);
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
 }
 [data-terp="calendar-day"] {
   font-family: var(--font-family-sans);
@@ -777,10 +792,20 @@ button[data-terp="input"][data-placeholder="true"] {
   color: var(--color-neutral-900);
   cursor: pointer;
 }
-/* A day outside the visible month still occupies its grid cell — it is dimmed
-   rather than hidden so the weeks keep their shape. */
+/* A day outside the visible month still occupies its grid cell — it is dimmed rather
+   than hidden so the weeks keep their shape. Dimmed by INK, not by opacity, and that
+   was a real defect rather than a preference: opacity: 0.45 composited the body ink
+   against the panel to an effective colour that fails WCAG AA in all five themes
+   (measured — light 2.93:1, dark 3.93:1, midnight 4.25:1, twilight 4.05:1, contrast
+   3.36:1). Nothing could see it. axe never reached the subtree because nothing in the
+   repo opened a calendar, and the static gate measures declared token PAIRINGS, which a
+   composite of one token against another is not. The subtle ink is 4.76:1 at worst.
+
+   Opacity also dimmed the cell's background, so an out-of-month day that is selected or
+   inside a range used to render as a washed-out chip; it now paints at full strength,
+   because a selected day should read as selected whichever month owns it. */
 [data-terp="calendar-day"][data-outside-month="true"] {
-  opacity: 0.45;
+  color: var(--color-fg-subtle);
 }
 
 /* Fields ------------------------------------------------------------------- */
