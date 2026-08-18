@@ -17,6 +17,90 @@ base styles as inline `style={}` and move them into the injected stylesheet,
 keyed on the `data-terp` / `data-variant` attributes every component root
 already stamps (ADR 0094).
 
+### Changed
+
+- **Every component's base styles have moved out of inline `style={}` and into the
+  shipped stylesheet, keyed on the `data-terp` / `data-variant` attributes each
+  component root already stamped — so for the first time an app's `theme.css` can
+  restyle the framework rather than only recolour it.** This is the release's
+  largest change. It repaints nothing: every one of the thirty-seven components
+  migrated so far landed with **zero pixel movement** across the workbench's
+  per-specimen baselines. What changes is what an app can say.
+
+  Before this, an app could redefine a token's *value* and nothing else. Card
+  padding, control height, table row height, spacing rhythm and every interaction
+  state were frozen in the package, because an inline style attribute outranks any
+  author rule in any layer. That is also why the shipped stylesheet needed
+  `!important` on every state rule it had: **35 declarations at 0.7.0, now 12**, and
+  each of the twelve survivors is a rule whose selector still matches at least one
+  element that has not migrated. `54` source files carried a style object; `31` do.
+
+  The mechanism an app should know about is the **cascade layer**, because it is
+  what makes overriding pleasant rather than a fight. The sheet is ordered
+  `@layer terp.reset, terp.base, terp.state, terp.motion`, and an app's `theme.css`
+  is **unlayered** — an unlayered author declaration beats a layered one whatever
+  its specificity, so a `theme.css` rule wins against any framework rule without
+  `!important` and without out-specifying it. Two things stay deliberately
+  unlayered inside the sheet for the same reason: the `data-density="compact"`
+  re-scoping (which would otherwise lose to the contract's own `:root` values) and
+  nothing else.
+
+  Specificity is *not* the mechanism, and the difference cost real defects during
+  the migration: `[data-terp]:focus-visible` and
+  `[data-terp="button"][data-variant="primary"]` both weigh (0,2,0), so only source
+  order separates them, and the focus ring is declared first — the moment the
+  primary button's resting shadow became a rule in the same layer, a keyboard-focused
+  primary button stopped showing a ring at all. States live in `terp.state` above
+  `terp.base` precisely so a state rule wins on layer order rather than on luck.
+
+- **The `data-terp` marker vocabulary has grown, and one marker has moved.** Markers
+  are the join between a component and both its styling and the layout contract's
+  runtime slot check, so the inventory is pinned by a test and belongs in a release
+  note. Twenty-five names arrived with the overlays and the chrome:
+  `calendar-grid`; `menu-trigger`, `menu-item-icon`, `menu-item-check`;
+  `page-actions`; `theme-toggle`, `theme-toggle-label`, `language-switcher`,
+  `language-switcher-label`; `user-menu`, `user-menu-avatar`, `user-menu-identity`,
+  `user-menu-email`, `user-menu-role`, `user-menu-header`; `toast`,
+  `toast-viewport`, `toast-icon`, `toast-body`, `toast-title`; `dialog-body`,
+  `dialog-title`, `dialog-description`, `dialog-actions`; and `markdown`.
+
+  **The one move to know about: `Menu`'s trigger button was `data-terp="iconbutton"`
+  and is now `data-terp="menu-trigger"`.** It shared that marker with six visually
+  unrelated buttons — the shell's two header toggles, four pagination arrows, a
+  toast dismisser, the combobox's clear button, the calendar's month arrows — while
+  overriding every one of the marker's declarations inline, so nothing keyed on
+  `iconbutton` could describe it. A `theme.css` targeting `[data-terp="iconbutton"]`
+  expecting to reach a menu trigger needs the new name.
+
+  Three attribute vocabularies also widened. A toast's tone is `data-tone`, the same
+  attribute `Badge` and `Alert` use, so one tone means one thing package-wide — with
+  `toast.error()` painting as `data-tone="danger"`, because the shared vocabulary is
+  {neutral, info, success, warning, danger} and a fourth synonym would leave
+  `[data-terp="toast"][data-tone="danger"]` silently matching nothing. A destructive
+  menu item is `data-destructive="true"`; its disabled treatment stays `:disabled`,
+  because the element is a real button carrying the real attribute. And a
+  `Popover` panel now carries `data-owner`, naming the component whose panel it is:
+  the panel is portalled to `document.body`, so a per-component panel geometry has
+  nothing to hang on otherwise.
+
+- **Three components name their own rendered root without adding an element to
+  anyone's layout.** `ThemeToggle`, `LanguageSwitcher` (inline variant) and
+  `UserMenu` return a bare `Menu`, so their root was `Popover`'s wrapper and read
+  `data-terp="popover"` — indistinguishable from any other popover and unreachable
+  from a stylesheet. `Popover` and `Menu` now accept the root's marker as a prop, and
+  each component names itself with `data-variant` separating its variants. `Markdown`
+  returned a fragment with no root at all; it now has a wrapper whose single rule is
+  `display: contents`, which generates no box — so its blocks remain individual items
+  of any parent `Stack` and the diff is zero by construction, while descendant
+  selectors become possible for the first time. A prose-rhythm block wrapper remains a
+  later, deliberate change.
+
+- **Stacking levels read the tokens published for them.** `--z-index-popover` and
+  `--z-index-toast` had no readers while `Popover` hardcoded 60 and the toast
+  viewport hardcoded 100; the combobox listbox was the family's only reader and
+  pointed at `--z-index-drawer`, one level below where an anchored panel belongs.
+  `AppShell`'s three remain hardcoded until its own migration.
+
 ### Added
 
 - **`defaultOpen` on `Combobox`, `DatePicker` and `DateRangePicker`.** The same
@@ -80,6 +164,12 @@ already stamps (ADR 0094).
   strength — a selected day should read as selected whichever month owns it.
 
 ### Removed
+
+- **`Menu`'s `triggerStyle` and `panelStyle`, and `Popover`'s `panelStyle`.** An
+  inline-style prop on a framework component is an escape hatch that exists only
+  while the stylesheet cannot reach the thing, and a marked root reaches both: the
+  trigger by descending from the root, the portalled panel through its `data-owner`.
+  `UserMenu` was the last consumer of all three.
 
 - **`--color-fg-on-brand` is deleted from the token vocabulary.** It was
   declared in all five themes and read by nothing: the on-brand ink already has
