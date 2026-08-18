@@ -311,6 +311,45 @@ textarea[data-terp="input"] {
   line-height: 1.4;
 }
 
+/* Stack -------------------------------------------------------------------- */
+/* direction, gap and wrap are closed sets, so they are attributes with a rule
+   each. align and justify are not: they take any alignment keyword CSS
+   accepts, and minting a rule per keyword would be inventing a vocabulary the
+   platform already has. Those two stay inline — the boundary ADR 0094 draws
+   between styling policy and a value the caller measures. */
+[data-terp="stack"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+[data-terp="stack"][data-direction="row"] { flex-direction: row; }
+[data-terp="stack"][data-gap="0"] { gap: var(--space-0); }
+[data-terp="stack"][data-gap="1"] { gap: var(--space-1); }
+[data-terp="stack"][data-gap="2"] { gap: var(--space-2); }
+[data-terp="stack"][data-gap="3"] { gap: var(--space-3); }
+[data-terp="stack"][data-gap="4"] { gap: var(--space-4); }
+[data-terp="stack"][data-gap="6"] { gap: var(--space-6); }
+[data-terp="stack"][data-gap="8"] { gap: var(--space-8); }
+[data-terp="stack"][data-wrap="true"] { flex-wrap: wrap; }
+
+/* Detail lists ------------------------------------------------------------- */
+/* The term and value are inline boxes inside a block row, which is what makes
+   "Label: value" read as one line and wrap as one paragraph. */
+[data-terp="detail-list"] {
+  margin: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+[data-terp="detail-list-term"] {
+  display: inline;
+  font-weight: var(--font-weight-medium);
+}
+[data-terp="detail-list-value"] {
+  display: inline;
+  margin: 0;
+}
+
 /* Checkboxes / radios / switches ------------------------------------------- */
 /* One label shape for all three, so the marker is shared: the control differs,
    the "box or dot, gap, then its text" arrangement does not. accent-color is

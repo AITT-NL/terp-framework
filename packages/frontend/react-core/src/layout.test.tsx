@@ -7,7 +7,7 @@ import { DetailList, Stack } from "./layout";
 afterEach(cleanup);
 
 describe("Stack", () => {
-  it("renders a flex column with a token gap by default", () => {
+  it("names a column at the default gap, with no inline styling", () => {
     render(
       <Stack data-testid="stack">
         <span>a</span>
@@ -16,24 +16,39 @@ describe("Stack", () => {
     );
     const el = screen.getByTestId("stack");
     expect(el.tagName).toBe("DIV");
-    expect(el.style.display).toBe("flex");
-    expect(el.style.flexDirection).toBe("column");
-    expect(el.style.gap).toBe("var(--space-2)");
+    expect(el).toHaveAttribute("data-direction", "column");
+    expect(el).toHaveAttribute("data-gap", "2");
+    expect(el).not.toHaveAttribute("data-wrap");
+    expect(el.getAttribute("style")).toBeNull();
   });
 
-  it("renders the requested element with direction, gap, alignment and wrap", () => {
+  it("renders the requested element and names direction, gap and wrap", () => {
     render(
-      <Stack data-testid="row" as="section" direction="row" gap={4} align="center" justify="space-between" wrap>
+      <Stack data-testid="row" as="section" direction="row" gap={4} wrap>
         <span>a</span>
       </Stack>,
     );
     const el = screen.getByTestId("row");
     expect(el.tagName).toBe("SECTION");
-    expect(el.style.flexDirection).toBe("row");
-    expect(el.style.gap).toBe("var(--space-4)");
+    expect(el).toHaveAttribute("data-direction", "row");
+    expect(el).toHaveAttribute("data-gap", "4");
+    expect(el).toHaveAttribute("data-wrap", "true");
+    expect(el.getAttribute("style")).toBeNull();
+  });
+
+  it("keeps alignment inline, because it is an open set of CSS keywords", () => {
+    // align/justify accept any alignment keyword, so they cannot become a rule per value
+    // without inventing a vocabulary CSS already has (ADR 0094). They stay inline, and
+    // the geometry attributes stay attributes — the two halves of the same element.
+    render(
+      <Stack data-testid="aligned" align="center" justify="space-between">
+        <span>a</span>
+      </Stack>,
+    );
+    const el = screen.getByTestId("aligned");
     expect(el.style.alignItems).toBe("center");
     expect(el.style.justifyContent).toBe("space-between");
-    expect(el.style.flexWrap).toBe("wrap");
+    expect(el.style.display).toBe("");
   });
 
   it("works as a form (submit handler fires)", () => {

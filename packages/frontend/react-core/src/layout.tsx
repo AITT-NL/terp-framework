@@ -38,16 +38,27 @@ export function Stack({
   wrap = false,
   ...rest
 }: StackProps) {
-  const style: CSSProperties = {
-    display: "flex",
-    flexDirection: direction,
-    gap: `var(--space-${gap})`,
-    margin: 0,
-    ...(align !== undefined ? { alignItems: align } : undefined),
-    ...(justify !== undefined ? { justifyContent: justify } : undefined),
-    ...(wrap ? { flexWrap: "wrap" } : undefined),
-  };
-  return <Component {...rest} data-terp="stack" style={style} />;
+  // `direction`, `gap` and `wrap` are closed sets, so they are attributes the sheet keys
+  // on. `align` and `justify` take any alignment keyword CSS accepts, so they stay inline
+  // rather than turning an open vocabulary into a rule per value (ADR 0094). Undefined on
+  // both means no style attribute at all.
+  const alignment: CSSProperties | undefined =
+    align === undefined && justify === undefined
+      ? undefined
+      : {
+          ...(align !== undefined ? { alignItems: align } : undefined),
+          ...(justify !== undefined ? { justifyContent: justify } : undefined),
+        };
+  return (
+    <Component
+      {...rest}
+      data-terp="stack"
+      data-direction={direction}
+      data-gap={String(gap)}
+      data-wrap={wrap ? "true" : undefined}
+      style={alignment}
+    />
+  );
 }
 
 export interface DetailItem {
@@ -62,14 +73,6 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
   items: readonly DetailItem[];
 }
 
-const detailListStyle: CSSProperties = {
-  margin: 0,
-  display: "grid",
-  gap: "var(--space-1)",
-};
-const detailTermStyle: CSSProperties = { display: "inline", fontWeight: "var(--font-weight-medium)" };
-const detailValueStyle: CSSProperties = { display: "inline", margin: 0 };
-
 /**
  * Token-styled label/value pairs as a semantic `<dl>` — record metadata on a detail page,
  * an expanded row's summary. Centralizes the "Label: value" pattern so modules never
@@ -78,11 +81,11 @@ const detailValueStyle: CSSProperties = { display: "inline", margin: 0 };
 export function DetailList({ items, ...rest }: DetailListProps) {
   const text = useUiText();
   return (
-    <dl {...rest} data-terp="detail-list" style={detailListStyle}>
+    <dl {...rest} data-terp="detail-list">
       {items.map((item, index) => (
         <div key={index}>
-          <dt style={detailTermStyle}>{text(item.label)}: </dt>
-          <dd style={detailValueStyle}>{item.value}</dd>
+          <dt data-terp="detail-list-term">{text(item.label)}: </dt>
+          <dd data-terp="detail-list-value">{item.value}</dd>
         </div>
       ))}
     </dl>

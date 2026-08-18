@@ -59,6 +59,8 @@ const MARKERS = [
   "dataview-table",
   "dataview-toolbar",
   "detail-list",
+  "detail-list-term",
+  "detail-list-value",
   "dialog",
   "drawer-focus-end",
   "drawer-focus-start",
