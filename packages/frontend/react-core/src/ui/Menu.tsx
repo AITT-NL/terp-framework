@@ -5,7 +5,7 @@ import { Icon } from "../icons";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
 import { Popover } from "./Popover";
-import type { PopoverAlign, PopoverPlacement } from "./Popover";
+import type { PopoverAlign, PopoverPlacement, PopoverRootMarker, PopoverRootVariant } from "./Popover";
 
 export interface MenuProps {
   trigger: ReactNode;
@@ -18,6 +18,14 @@ export interface MenuProps {
   placement?: PopoverPlacement;
   triggerStyle?: CSSProperties;
   panelStyle?: CSSProperties;
+  /**
+   * Name this menu's rendered root — which is Popover's wrapper, since a Menu adds no root
+   * element of its own. `ThemeToggle`, `LanguageSwitcher` and `UserMenu` each return a bare
+   * Menu, so without this their roots all read `data-terp="popover"`.
+   */
+  "data-terp"?: PopoverRootMarker;
+  /** Distinguishes that component's variants on the same root. */
+  "data-variant"?: PopoverRootVariant;
 }
 
 /** Dropdown menu built on Popover with roving focus and ARIA menu semantics. */
@@ -32,6 +40,8 @@ export function Menu({
   placement = "bottom",
   triggerStyle: triggerStyleOverride,
   panelStyle,
+  "data-terp": rootMarker,
+  "data-variant": rootVariant,
 }: MenuProps) {
   const resolve = useUiText();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -60,6 +70,8 @@ export function Menu({
       align={align}
       placement={placement}
       panelStyle={panelStyle}
+      data-terp={rootMarker}
+      data-variant={rootVariant}
       trigger={
         // Its own marker rather than the shared `iconbutton` it used to borrow. That marker
         // is worn by seven visually different buttons — the shell's two header toggles, four

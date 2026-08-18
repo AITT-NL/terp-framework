@@ -827,6 +827,25 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // This specimen exists because a mutation went uncaught. The popover wrapper's
+        // `display: inline-flex` is shared by Popover, Menu, both date pickers and all three
+        // chrome menus, and no baseline could see it: every specimen rendering an inline
+        // chrome toggle put it inside a Stack, and in a flex parent a blockified inline-flex
+        // box and a plain block box shrink-wrap a single child to the same pixels. Dropping
+        // the declaration was wrong and invisible at once. In text flow it is the whole line.
+        id: "chrome-toggles-in-flow",
+        title: "ThemeToggle and LanguageSwitcher — inline variants in text flow",
+        node: (
+          // A div rather than a p: the wrapper is a div, and phrasing content is all a
+          // paragraph may hold — the browser would close the p and the specimen would be
+          // measuring its own invalid markup.
+          <div style={{ maxWidth: "30rem" }}>
+            Theme <ThemeToggle variant="inline" /> and language{" "}
+            <LanguageSwitcher variant="inline" /> sit in the line rather than breaking it.
+          </div>
+        ),
+      },
+      {
         id: "breadcrumbs",
         title: "Breadcrumbs — three levels",
         node: (

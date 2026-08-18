@@ -103,6 +103,8 @@ const MARKERS = [
   "icon",
   "iconbutton",
   "input",
+  "language-switcher",
+  "language-switcher-label",
   "loading-state",
   "loading-state-spinner",
   "menu",
@@ -128,6 +130,8 @@ const MARKERS = [
   "tab-list",
   "tab-panel",
   "tabs",
+  "theme-toggle",
+  "theme-toggle-label",
   "tooltip",
   "tooltip-anchor",
 ];
@@ -146,10 +150,18 @@ const MARKERS = [
  * the reason splits into two shapes worth knowing before the styling migration is planned:
  *
  *   - **Delegates its root.** `theme.tsx` (ThemeToggle) and `locale.tsx` (LanguageSwitcher)
- *     return a bare `Menu` in their `inline` variant — the variant the app shell header
- *     actually uses — so their root already carries `data-terp="menu"` and is
- *     indistinguishable from any other menu. `UserMenu` is the same shape. Marking them
- *     means either threading a marker through `Menu` or introducing a wrapper element.
+ *     returned a bare `Menu` in their `inline` variant — the variant the app shell header
+ *     actually uses — so their root was `Popover`'s wrapper and indistinguishable from any
+ *     other popover. Both have graduated, and the answer added no DOM: `Popover` takes the
+ *     root's marker as a prop named `data-terp`, `Menu` threads it through, and each
+ *     component names its own root with `data-variant` separating the variants. `UserMenu`
+ *     is the same shape and is next.
+ *
+ *     The prop is named for the attribute deliberately. The scanner below reads `data-terp`
+ *     sites in component source, so `<Menu data-terp="theme-toggle">` is seen exactly where
+ *     it looks; a `rootMarker` prop would have put the only mention of the name somewhere the
+ *     scanner never looks, and a marker rendered by nobody's `data-terp` site is precisely
+ *     the blind spot this file exists to close.
  *   - **Returns a fragment.** `Markdown` emits a sequence of block elements with no root at
  *     all. A marker requires a wrapper, and a wrapper is a new block box in every consumer's
  *     layout.
@@ -176,8 +188,6 @@ const UNMARKED_STYLED_SURFACES = [
   "./dataview/DataViewExpandableRow.tsx",
   "./dataview/DataViewRowActions.tsx",
   "./files.tsx",
-  "./locale.tsx",
-  "./theme.tsx",
   "./ui/Markdown.tsx",
 ];
 
@@ -198,6 +208,13 @@ function stripComments(text: string) {
  *
  * A regex anchored to `data-terp="…"` alone misses the conditional form — which is how the
  * DataView row markers are written — so renaming one of those would not fail anything.
+ *
+ * The cost of reading a whole expression is that EVERY string literal inside one counts as a
+ * marker. `data-terp={variant === "inline" ? "theme-toggle" : undefined}` reports both
+ * `inline` and `theme-toggle`, and the first is not a marker at all. That is caught rather
+ * than tolerated — the inventory assertion fails on the phantom name — and the fix is to keep
+ * a marker expression to marker literals by hoisting the comparison out. Worth knowing before
+ * writing a conditional marker, because the failure names a marker nobody added.
  */
 function markersIn(text: string) {
   const source = stripComments(text);

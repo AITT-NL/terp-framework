@@ -9,6 +9,23 @@ injectTerpStyles();
 export type PopoverPlacement = "bottom" | "top";
 export type PopoverAlign = "start" | "end";
 
+/**
+ * The `data-terp` marker a Popover stamps on its rendered root.
+ *
+ * Three components in the package return a bare `Menu`, whose rendered root is this
+ * wrapper — so their root was indistinguishable from any other popover, and none of them
+ * could be styled or found. Threading the name through is what lets each say what it is
+ * without adding an element to anybody's layout.
+ *
+ * A closed union rather than `string`, because a marker is framework vocabulary: every value
+ * here needs a rule in the sheet and a line in the inventory, and the type says so before a
+ * test has to.
+ */
+export type PopoverRootMarker = "popover" | "theme-toggle" | "language-switcher" | "user-menu";
+
+/** Separates the variants of a component whose root is a Popover. */
+export type PopoverRootVariant = "inline" | "stacked" | "collapsed";
+
 export interface PopoverProps {
   trigger: ReactElement;
   children: (api: { close: (restoreFocus?: boolean) => void; panelId: string }) => ReactNode;
@@ -19,6 +36,15 @@ export interface PopoverProps {
   align?: PopoverAlign;
   focusOnOpen?: boolean;
   panelStyle?: CSSProperties;
+  /**
+   * Override the root's marker, for a component whose rendered root this wrapper IS.
+   * Named for the attribute it becomes, which is also what keeps the marker inventory
+   * honest — the scanner reads `data-terp` sites in component source, so a consumer
+   * writing `data-terp="user-menu"` is seen, while a `rootMarker` prop would not be.
+   */
+  "data-terp"?: PopoverRootMarker;
+  /** Distinguishes that component's variants on the same root. */
+  "data-variant"?: PopoverRootVariant;
 }
 
 const VIEWPORT_GUTTER = 8;
@@ -41,6 +67,8 @@ export function Popover({
   align = "end",
   focusOnOpen = false,
   panelStyle,
+  "data-terp": rootMarker,
+  "data-variant": rootVariant,
 }: PopoverProps) {
   const panelId = useId();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
@@ -184,7 +212,7 @@ export function Popover({
   } as Partial<typeof trigger.props>);
 
   return (
-    <div ref={rootRef} data-terp="popover">
+    <div ref={rootRef} data-terp={rootMarker ?? "popover"} data-variant={rootVariant}>
       {cloned}
       {isOpen && createPortal(
         <div

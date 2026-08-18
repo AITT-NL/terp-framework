@@ -21,6 +21,9 @@ import {
 import { OverviewPage } from "./OverviewPage";
 import { Page } from "./Page";
 import { DetailList, Stack } from "./layout";
+import { PageActions } from "./PageActions";
+import { ThemeProvider, ThemeToggle } from "./theme";
+import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
 
 afterEach(cleanup);
@@ -177,5 +180,97 @@ describe("runtime slot enforcement", () => {
   it("verifySlotChildren returns null for an ungoverned contract/slot", () => {
     expect(verifySlotChildren("ghost", "HubPage", [])).toBeNull();
     expect(verifySlotChildren("standard", "Page", [])).toBeNull();
+  });
+});
+
+// The styling migration (ADR 0094) is renaming rendered roots: components that used to emit
+// an unmarked <div>, or to borrow Popover's `popover`, now name themselves. Every one of those
+// names is read by this check, because the check IS the marker join — so the question is not
+// whether the names look sensible but whether any slot's verdict moved.
+//
+// It did not, and the reason is worth stating rather than re-derived: verifySlotChildren
+// refuses a direct body-slot child whose data-terp is not in the slot's allow table, and a
+// missing attribute is refused too (`marker === null`). None of the new names is in any table,
+// and neither was the unmarked element each replaced. So each of these was refused before the
+// migration and is refused after it. What changed is the MESSAGE — describeElement now reports
+// a named component instead of a bare tag, which is strictly more useful to the person reading
+// the refusal, and is also a string a test could have pinned.
+describe("layout contract survives the roots the styling migration renames", () => {
+  it("still refuses a chrome menu in a governed body, and now names it", async () => {
+    underContract(
+      // The provider renders no element of its own, so the slot's direct child is still the
+      // toggle. Without it ThemeToggle returns null and the body is empty — which passes for
+      // no reason at all.
+      <ThemeProvider>
+        <OverviewPage title="Records">
+          <ThemeToggle variant="stacked" />
+        </OverviewPage>
+      </ThemeProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("refused").textContent).toBe(
+        slotViolationMessage("standard", "OverviewPage", '<div data-terp="theme-toggle">'),
+      );
+    });
+  });
+
+  it("still refuses an action cluster in a governed body, and now names it", async () => {
+    underContract(
+      <DetailPage title="Record 1" parents={[{ label: "Records", to: "/records" }]}>
+        <PageActions primary={<Button>Publish</Button>} />
+      </DetailPage>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("refused").textContent).toBe(
+        slotViolationMessage("standard", "DetailPage", '<div data-terp="page-actions">'),
+      );
+    });
+  });
+
+  it("keeps every marker the allow tables name out of the migration's way", () => {
+    // The tables are the audit surface: a rename of one of THESE would widen or close a slot
+    // silently, so they are the markers the migration may not touch without changing both
+    // halves of the contract. Asserted as a set so an addition has to be deliberate.
+    const named = new Set(
+      Object.values(LAYOUT_CONTRACTS.standard!.slots).flatMap((slot) =>
+        Object.values(slot.components),
+      ),
+    );
+    expect([...named].sort()).toEqual([
+      "alert",
+      "card",
+      "dataview",
+      "detail-list",
+      "dialog",
+      "empty-state",
+      "error-state",
+      "hubcard",
+      "loading-state",
+      "module-nav",
+      "resource-list",
+      "stack",
+      "tabs",
+    ]);
+  });
+
+  it("passes a governed body whose children are still allowed components", async () => {
+    // The other direction: the migration must not have widened anything either. A Stack and a
+    // Card are allowed, and they stay allowed with their markers unchanged.
+    underContract(
+      <ThemeProvider>
+        <DetailPage title="Record 1" parents={[{ label: "Records", to: "/records" }]}>
+          <Card title="A section">body</Card>
+          <Stack>
+            <ThemeToggle variant="stacked" />
+          </Stack>
+        </DetailPage>
+      </ThemeProvider>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // And the toggle really did render, or this asserts nothing.
+    expect(document.querySelector('[data-terp="theme-toggle"]')).not.toBeNull();
+    // Nested inside an allowed container is sanctioned composition — the check reads direct
+    // children only, which is what makes a marked root safe to put anywhere below one.
+    expect(screen.queryByTestId("refused")).toBeNull();
   });
 });

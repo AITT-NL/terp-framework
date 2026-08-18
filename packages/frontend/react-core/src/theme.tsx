@@ -135,8 +135,25 @@ export function ThemeToggle({ variant = "stacked" }: ThemeToggleProps) {
     contrast: strings.themeContrast,
     system: strings.themeSystem,
   };
+  // Hoisted out of the attribute rather than inlined as `variant === "inline"`, and not for
+  // readability: the marker inventory scanner reads every string literal inside a
+  // `data-terp={…}` expression as a marker, so the comparison's own "inline" was picked up as
+  // a component marker that nothing styles. Keep marker expressions to marker literals.
+  const isInline = variant === "inline";
   const menu = (
     <Menu
+      // The rendered root of the inline variant IS this Menu's popover wrapper — the
+      // component adds no element of its own — so the marker has to travel through Menu to
+      // land there. Both variants wear the same name because they are the same component;
+      // data-variant is what tells them apart.
+      // Claim the root ONLY when this Menu is the root, which is the inline variant. The
+      // stacked variant renders its own div and puts the menu inside it, so stamping the
+      // same marker unconditionally put it on BOTH elements — and the inner wrapper then
+      // matched the stacked grid rule instead of the popover wrapper's geometry. The
+      // baselines did not catch that: a one-child grid and a one-child inline-flex box
+      // shrink-wrap to the same pixels, so it was wrong and invisible at the same time.
+      data-terp={isInline ? "theme-toggle" : undefined}
+      data-variant={isInline ? "inline" : undefined}
       trigger={<Icon name={THEME_ICONS[context.theme]} size="1.15rem" />}
       triggerLabel={strings.theme}
     >
@@ -158,12 +175,12 @@ export function ThemeToggle({ variant = "stacked" }: ThemeToggleProps) {
       )}
     </Menu>
   );
-  if (variant === "inline") {
+  if (isInline) {
     return menu;
   }
   return (
-    <div style={{ display: "grid", justifyItems: "start", gap: "var(--space-1)", fontSize: "var(--font-size-sm)" }}>
-      <span style={{ color: "var(--color-neutral-600)" }}>{strings.theme}</span>
+    <div data-terp="theme-toggle" data-variant="stacked">
+      <span data-terp="theme-toggle-label">{strings.theme}</span>
       {menu}
     </div>
   );

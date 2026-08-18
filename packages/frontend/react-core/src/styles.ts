@@ -924,6 +924,25 @@ button[data-terp="input"][data-placeholder="true"] {
   margin-inline-start: auto;
 }
 
+/* Theme and language menus -------------------------------------------------- */
+/* Two variants, and only ONE of them is a popover: inline returns a bare Menu,
+   so its root takes the wrapper geometry declared above, while stacked renders
+   a captioned grid with the menu inside it. So the stacked rule replaces the
+   display rather than adding to it. The inherited position: relative is inert
+   here — the stacked root has no positioned descendant of its own, because the
+   menu inside carries its own wrapper. */
+[data-terp="theme-toggle"][data-variant="stacked"],
+[data-terp="language-switcher"][data-variant="stacked"] {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+}
+[data-terp="theme-toggle-label"],
+[data-terp="language-switcher-label"] {
+  color: var(--color-neutral-600);
+}
+
 /* Page actions ------------------------------------------------------------- */
 [data-terp="page-actions"] {
   display: flex;
@@ -935,8 +954,17 @@ button[data-terp="input"][data-placeholder="true"] {
 
 /* Popover ------------------------------------------------------------------ */
 /* The wrapper the trigger sits in. Popover is the rendered root of Menu and of
-   both date pickers, so this is the geometry of far more than one component. */
-[data-terp="popover"] {
+   both date pickers, so this is the geometry of far more than one component —
+   and of three components that ARE it. ThemeToggle, LanguageSwitcher and
+   UserMenu each return a bare Menu, so this element is their rendered root and
+   they name it themselves through Menu rather than wrapping it in a box nobody
+   asked for. Every one of those names has to be in this selector list or the
+   wrapper silently loses its geometry the moment a component claims its root:
+   [data-terp="popover"] stops matching an element that now says theme-toggle,
+   and nothing about the rule looks wrong. */
+[data-terp="popover"],
+[data-terp="theme-toggle"],
+[data-terp="language-switcher"] {
   position: relative;
   display: inline-flex;
 }

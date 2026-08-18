@@ -218,8 +218,24 @@ export function LanguageSwitcher({ variant = "stacked" }: LanguageSwitcherProps)
   if (context === null || context.locales.length < 2) {
     return null;
   }
+  // Hoisted out of the attribute rather than inlined as `variant === "inline"`, and not for
+  // readability: the marker inventory scanner reads every string literal inside a
+  // `data-terp={…}` expression as a marker, so the comparison's own "inline" was picked up as
+  // a component marker that nothing styles. Keep marker expressions to marker literals.
+  const isInline = variant === "inline";
   const menu = (
-    <Menu trigger={<Icon name="globe" size="1.15rem" />} triggerLabel={strings.language}>
+    <Menu
+      // Claim the root ONLY when this Menu is the root, which is the inline variant. The
+      // stacked variant renders its own div and puts the menu inside it, so stamping the
+      // same marker unconditionally put it on BOTH elements — and the inner wrapper then
+      // matched the stacked grid rule instead of the popover wrapper's geometry. The
+      // baselines did not catch that: a one-child grid and a one-child inline-flex box
+      // shrink-wrap to the same pixels, so it was wrong and invisible at the same time.
+      data-terp={isInline ? "language-switcher" : undefined}
+      data-variant={isInline ? "inline" : undefined}
+      trigger={<Icon name="globe" size="1.15rem" />}
+      triggerLabel={strings.language}
+    >
       {({ close }) => (
         <>
           {context.locales.map((code) => (
@@ -237,12 +253,12 @@ export function LanguageSwitcher({ variant = "stacked" }: LanguageSwitcherProps)
       )}
     </Menu>
   );
-  if (variant === "inline") {
+  if (isInline) {
     return menu;
   }
   return (
-    <div style={{ display: "grid", justifyItems: "start", gap: "var(--space-1)", fontSize: "var(--font-size-sm)" }}>
-      <span style={{ color: "var(--color-neutral-600)" }}>{strings.language}</span>
+    <div data-terp="language-switcher" data-variant="stacked">
+      <span data-terp="language-switcher-label">{strings.language}</span>
       {menu}
     </div>
   );
