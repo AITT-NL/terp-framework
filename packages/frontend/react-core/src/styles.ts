@@ -411,6 +411,143 @@ textarea[data-terp="input"] {
   gap: var(--space-2);
 }
 
+/* Combobox ----------------------------------------------------------------- */
+/* The text box keeps the shared input marker, so it inherits the whole control
+   surface; role="combobox" is already on it for ARIA and distinguishes its
+   geometry here without minting an attribute for something the element
+   already says. The extra inline-end padding reserves the clear button's box. */
+input[data-terp="input"][role="combobox"] {
+  width: 100%;
+  min-width: 0;
+  padding: 0 calc(var(--space-3) + 1.5rem) 0 var(--space-3);
+}
+[data-terp="combobox"],
+[data-terp="combobox-field"] {
+  position: relative;
+  display: grid;
+}
+/* Addressed structurally rather than by a marker of its own: it is an
+   iconbutton, and the only thing distinguishing it is where it sits. */
+[data-terp="combobox-field"] > [data-terp="iconbutton"] {
+  position: absolute;
+  inset-inline-end: var(--space-1);
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--color-neutral-500);
+  cursor: pointer;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  border-radius: var(--radius-sm);
+}
+[data-terp="combobox-list"] {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  inset-block-start: calc(100% + var(--space-1));
+  z-index: var(--z-index-drawer);
+  display: grid;
+  gap: var(--space-1);
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: var(--space-1);
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+[data-terp="combobox-option"] {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.25;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-900);
+  cursor: pointer;
+}
+[data-terp="combobox-empty"] {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-neutral-500);
+  font-size: var(--font-size-sm);
+}
+
+/* Date pickers ------------------------------------------------------------- */
+/* The trigger is a button wearing the input surface, so the element type is
+   again what separates its geometry from the three text controls. */
+button[data-terp="input"] {
+  min-height: var(--density-control-min-height);
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  line-height: 1.2;
+  cursor: pointer;
+}
+button[data-terp="input"][data-placeholder="true"] {
+  color: var(--color-neutral-500);
+}
+[data-terp="calendar"] {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 18rem;
+}
+[data-terp="calendar-header"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+[data-terp="calendar-header"] > [data-terp="iconbutton"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-neutral-700);
+  cursor: pointer;
+}
+[data-terp="calendar-title"] {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-neutral-900);
+}
+[data-terp="calendar-week"] {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--space-1);
+}
+[data-terp="calendar-weekday"] {
+  text-align: center;
+  font-size: var(--font-size-xs);
+  color: var(--color-neutral-500);
+}
+[data-terp="calendar-day"] {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.25;
+  min-height: 2rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-neutral-900);
+  cursor: pointer;
+}
+/* A day outside the visible month still occupies its grid cell — it is dimmed
+   rather than hidden so the weeks keep their shape. */
+[data-terp="calendar-day"][data-outside-month="true"] {
+  opacity: 0.45;
+}
+
 /* Fields ------------------------------------------------------------------- */
 [data-terp="field"],
 [data-terp="field-label"] {
@@ -510,26 +647,22 @@ textarea[data-terp="input"] {
 }
 
 /* Inputs / selects / textareas -------------------------------------------- */
-/* These keep !important, and the reason is the marker's reach rather than the
-   three migrated components. The input marker is SHARED: Combobox and both
-   date pickers stamp it too, on elements that still carry inline base styles
-   (border, colour, background, and cursor: pointer on the date trigger).
-   Author !important outranks the style attribute; a normal layered rule does
-   not, and no layer order changes that. Dropping these therefore left a
-   disabled Combobox painted exactly like an enabled one and deleted the
-   aria-invalid border outright — with nothing to catch it, because those two
-   components have resting-state specimens only.
-
-   So this is a per-consumer tax, not a per-rule one: it comes off when
-   Combobox and DatePicker migrate, not when Input/Select/Textarea did. */
+/* The escalation these carried is gone, and the condition for removing it was
+   the marker's LAST consumer rather than its first. The input marker is shared
+   by six elements — Input, Select, Textarea, the Combobox text box and both
+   date-picker triggers — and while the latter three still styled themselves
+   inline, these rules needed !important to reach them at all. Dropping it when
+   only the text controls had migrated left a disabled Combobox painted exactly
+   like an enabled one and deleted the aria-invalid border outright. All six
+   now take their base from this sheet, so layer order is enough. */
 [data-terp="input"]:hover:not(:disabled):not(:focus) {
-  border-color: var(--color-neutral-400) !important;
+  border-color: var(--color-neutral-400);
 }
 [data-terp="input"]:focus,
 [data-terp="input"]:focus-visible {
   outline: none;
-  border-color: var(--color-fg-accent) !important;
-  box-shadow: 0 0 0 3px var(--color-focus-ring) !important;
+  border-color: var(--color-fg-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 [data-terp="input"]::placeholder {
   color: var(--color-neutral-500);
@@ -542,12 +675,12 @@ textarea[data-terp="input"] {
 [data-terp="input"]:disabled {
   /* background-color (not the background shorthand) so the Select's chevron,
      drawn as a background-image, survives the disabled state. */
-  background-color: var(--color-neutral-50) !important;
-  color: var(--color-neutral-500) !important;
-  cursor: not-allowed !important;
+  background-color: var(--color-neutral-50);
+  color: var(--color-neutral-500);
+  cursor: not-allowed;
 }
 [data-terp="input"][aria-invalid="true"] {
-  border-color: var(--color-status-danger) !important;
+  border-color: var(--color-status-danger);
 }
 /* Number steppers are browser chrome and cannot be token-themed consistently.
    Keep keyboard/wheel/manual numeric input while removing the mismatched arrows. */
@@ -660,6 +793,36 @@ textarea[data-terp="input"] {
 [data-terp="dataview-row"]:focus-within td,
 [data-terp="dataview-card"]:focus-within {
   background: var(--color-brand-primary-soft) !important;
+}
+
+/* Combobox options. data-active is the roving keyboard/pointer highlight, which
+   is not selection — both can be true at once, and the selected rule is
+   declared second so it wins on the option the user actually chose. */
+[data-terp="combobox-option"][data-active="true"] {
+  background: var(--color-neutral-100);
+}
+[data-terp="combobox-option"][aria-selected="true"] {
+  color: var(--color-fg-accent);
+  font-weight: var(--font-weight-semibold);
+}
+[data-terp="combobox-option"]:disabled {
+  color: var(--color-neutral-400);
+  cursor: not-allowed;
+}
+
+/* Calendar days. Selection is the filled accent surface, so its label is the
+   one token allowed on it; a day inside a range gets the soft wash instead. */
+[data-terp="calendar-day"][data-in-range="true"] {
+  background: var(--color-brand-primary-soft);
+}
+[data-terp="calendar-day"][aria-selected="true"] {
+  border-color: var(--color-brand-primary);
+  background: var(--color-brand-primary);
+  color: var(--color-brand-primary-contrast);
+}
+[data-terp="calendar-day"]:disabled {
+  color: var(--color-neutral-300);
+  cursor: not-allowed;
 }
 
 /* Menu items (UserMenu, DataView row-actions / column settings). */

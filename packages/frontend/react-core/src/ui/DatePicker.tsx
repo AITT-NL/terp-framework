@@ -1,11 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 
 import { useLocale } from "../locale";
 import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
-import { CONTROL_TEXT_STYLE } from "./controlStyles";
 import { Popover } from "./Popover";
 
 injectTerpStyles();
@@ -38,59 +37,6 @@ export interface DateRangePickerProps {
   "aria-label"?: string;
   "aria-invalid"?: boolean | "true" | "false";
 }
-
-const triggerStyle: CSSProperties = {
-  ...CONTROL_TEXT_STYLE,
-  lineHeight: 1.2,
-  minHeight: "2.25rem",
-  width: "100%",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--space-2)",
-  padding: "0 var(--space-3)",
-  border: "1px solid var(--color-neutral-300)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-neutral-900)",
-  background: "var(--color-neutral-0)",
-  boxSizing: "border-box",
-  cursor: "pointer",
-};
-const calendarStyle: CSSProperties = { display: "grid", gap: "var(--space-2)", minWidth: "18rem" };
-const headerStyle: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)" };
-const titleStyle: CSSProperties = { fontWeight: "var(--font-weight-semibold)" as never, color: "var(--color-neutral-900)" };
-const navButtonStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: "2rem",
-  height: "2rem",
-  border: "1px solid var(--color-neutral-300)",
-  borderRadius: "var(--radius-md)",
-  background: "transparent",
-  color: "var(--color-neutral-700)",
-  cursor: "pointer",
-};
-const weekStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "var(--space-1)" };
-const weekdayStyle: CSSProperties = { textAlign: "center", fontSize: "var(--font-size-xs)", color: "var(--color-neutral-500)" };
-const dayStyle = (selected: boolean, inRange: boolean, disabled: boolean): CSSProperties => ({
-  ...CONTROL_TEXT_STYLE,
-  minHeight: "2rem",
-  border: selected ? "1px solid var(--color-brand-primary)" : "1px solid transparent",
-  borderRadius: "var(--radius-md)",
-  background: selected
-    ? "var(--color-brand-primary)"
-    : inRange
-      ? "var(--color-brand-primary-soft)"
-      : "transparent",
-  color: disabled
-    ? "var(--color-neutral-300)"
-    : selected
-      ? "var(--color-brand-primary-contrast)"
-      : "var(--color-neutral-900)",
-  cursor: disabled ? "not-allowed" : "pointer",
-});
-const mutedDayStyle: CSSProperties = { opacity: 0.45 };
 
 /** Single-date calendar picker with locale-aware labels and keyboard navigation. */
 export function DatePicker({
@@ -132,7 +78,7 @@ export function DatePicker({
           aria-label={ariaLabel}
           aria-invalid={ariaInvalid}
           disabled={disabled}
-          style={{ ...triggerStyle, color: selected === null ? "var(--color-neutral-500)" : triggerStyle.color }}
+          data-placeholder={selected === null ? "true" : undefined}
         >
           <span>{formatted}</span>
           <span aria-hidden="true">📅</span>
@@ -201,7 +147,7 @@ export function DateRangePicker({
           aria-label={ariaLabel}
           aria-invalid={ariaInvalid}
           disabled={disabled}
-          style={{ ...triggerStyle, color: selected.start === null ? "var(--color-neutral-500)" : triggerStyle.color }}
+          data-placeholder={selected.start === null ? "true" : undefined}
         >
           <span>{formatted}</span>
           <span aria-hidden="true">📅</span>
@@ -331,16 +277,16 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
   }
 
   return (
-    <div role="dialog" aria-modal="false" style={calendarStyle}>
-      <div style={headerStyle}>
-        <button type="button" data-terp="iconbutton" aria-label="Previous month" onClick={() => changeMonth(-1)} style={navButtonStyle}>‹</button>
-        <div style={titleStyle}>{formatMonth(month, locale)}</div>
-        <button type="button" data-terp="iconbutton" aria-label="Next month" onClick={() => changeMonth(1)} style={navButtonStyle}>›</button>
+    <div role="dialog" aria-modal="false" data-terp="calendar">
+      <div data-terp="calendar-header">
+        <button type="button" data-terp="iconbutton" aria-label="Previous month" onClick={() => changeMonth(-1)}>‹</button>
+        <div data-terp="calendar-title">{formatMonth(month, locale)}</div>
+        <button type="button" data-terp="iconbutton" aria-label="Next month" onClick={() => changeMonth(1)}>›</button>
       </div>
-      <div style={weekStyle} aria-hidden="true">
-        {weekdays.map((day) => <div key={day} style={weekdayStyle}>{day}</div>)}
+      <div data-terp="calendar-week" aria-hidden="true">
+        {weekdays.map((day) => <div key={day} data-terp="calendar-weekday">{day}</div>)}
       </div>
-      <div id={gridId} role="grid" aria-label={formatMonth(month, locale)} style={weekStyle} onKeyDown={onGridKeyDown}>
+      <div id={gridId} role="grid" aria-label={formatMonth(month, locale)} data-terp="calendar-week" onKeyDown={onGridKeyDown}>
         {days.map((day) => {
           const disabled = isDisabled(day, minDate, maxDate);
           const isSelected = mode === "single"
@@ -360,7 +306,9 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
               disabled={disabled}
               onClick={() => selectDate(day)}
               onFocus={() => setActiveDate(day)}
-              style={{ ...dayStyle(isSelected, inRange, disabled), ...(day.getMonth() === month.getMonth() ? undefined : mutedDayStyle) }}
+              data-terp="calendar-day"
+              data-in-range={inRange ? "true" : undefined}
+              data-outside-month={day.getMonth() === month.getMonth() ? undefined : "true"}
             >
               {day.getDate()}
             </button>

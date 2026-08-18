@@ -9,6 +9,7 @@ import {
   Combobox,
   DataView,
   DatePicker,
+  DateRangePicker,
   DetailList,
   EmptyState,
   ErrorState,
@@ -88,6 +89,7 @@ const TONES = ["neutral", "info", "success", "warning", "danger"] as const;
 
 /** A fixed instant, so the date controls never re-record themselves overnight. */
 const FIXED_DATE = new Date(Date.UTC(2026, 0, 15));
+const FIXED_RANGE_END = new Date(Date.UTC(2026, 0, 22));
 
 const SELECT_OPTIONS = [
   { value: "draft", label: "Draft" },
@@ -481,9 +483,43 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        id: "combobox-disabled-invalid",
+        title: "Combobox — disabled and flagged invalid",
+        // These two states had no specimen, and that gap is exactly how a migration
+        // shipped a disabled Combobox painted identically to an enabled one: the
+        // baselines only ever saw it at rest.
+        node: (
+          <Stack gap={3}>
+            <Combobox aria-label="Status, disabled" value="published" options={SELECT_OPTIONS} disabled />
+            <Combobox aria-label="Status, invalid" value="published" options={SELECT_OPTIONS} aria-invalid />
+          </Stack>
+        ),
+      },
+      {
         id: "date-picker",
         title: "DatePicker — fixed value",
         node: <DatePicker value={FIXED_DATE} />,
+      },
+      {
+        id: "date-picker-states",
+        title: "DatePicker — placeholder, disabled and invalid",
+        node: (
+          <Stack gap={3}>
+            <DatePicker aria-label="Date, empty" value={null} />
+            <DatePicker aria-label="Date, disabled" value={FIXED_DATE} disabled />
+            <DatePicker aria-label="Date, invalid" value={FIXED_DATE} aria-invalid />
+          </Stack>
+        ),
+      },
+      {
+        id: "date-range-picker",
+        title: "DateRangePicker — a selected range",
+        node: (
+          <DateRangePicker
+            aria-label="Reporting period"
+            value={{ start: FIXED_DATE, end: FIXED_RANGE_END }}
+          />
+        ),
       },
     ],
   },

@@ -77,11 +77,24 @@ describe("cascade structure", () => {
   });
 
   it("keeps !important on every rule a component with inline base styles still relies on", () => {
-    // The tax comes off per CONSUMER, not per rule. `input` is shared with Combobox and both
-    // date pickers, which still carry inline border/colour/background; the reduced-motion
-    // block reaches AppShell's nav and HubPage's card title, which still set transition
-    // inline. Dropping these once left a disabled Combobox painted like an enabled one and
-    // an ignored reduced-motion preference, and no lane in the repo noticed.
+    // The tax comes off per CONSUMER, not per rule, and the condition is the LAST component
+    // a selector matches rather than the first. The reduced-motion block reaches AppShell's
+    // nav links and collapse and HubPage's card title, all of which still declare transition
+    // in a style object — and no layer beats the style attribute, so without !important a
+    // reduced-motion user still gets those animations. It comes off when they migrate.
+    //
+    // `[data-terp="input"]` used to be listed here for the same reason and no longer is:
+    // Combobox and both date-picker triggers now take their base from the sheet, so all six
+    // elements wearing that marker are migrated. That transition is the point of this test —
+    // it fails loudly in whichever direction the sheet and the components disagree.
+    expect(layerBody("terp.motion")).toContain("transition: none !important");
+    expect(layerBody("terp.motion")).toContain("animation: none !important");
+  });
+
+  it("carries no !important on a marker whose every consumer has migrated", () => {
+    // The converse, so the escalation cannot outlive its reason. A rule left shouting after
+    // its last inline consumer is gone is invisible: it works, and it silently outranks the
+    // app theme.css that ADR 0094 exists to empower.
     const state = layerBody("terp.state");
     for (const rule of [
       '[data-terp="input"]:hover',
@@ -92,11 +105,9 @@ describe("cascade structure", () => {
       const at = state.indexOf(rule);
       expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
       const block = state.slice(at, state.indexOf("}", at));
-      expect(block, `${rule} must keep !important while Combobox/DatePicker style inline`)
-        .toContain("!important");
+      expect(block, `${rule}: every element wearing the input marker is migrated`)
+        .not.toContain("!important");
     }
-    expect(layerBody("terp.motion")).toContain("transition: none !important");
-    expect(layerBody("terp.motion")).toContain("animation: none !important");
   });
 
   it("gives every migrated component a base rule in terp.base", () => {
@@ -118,6 +129,12 @@ describe("cascade structure", () => {
       "switch",
       "stack",
       "detail-list",
+      "combobox",
+      "combobox-list",
+      "combobox-option",
+      "calendar",
+      "calendar-day",
+      "calendar-week",
     ]) {
       expect(base, `[data-terp="${marker}"] must have a base rule`).toContain(
         `[data-terp="${marker}"]`,
