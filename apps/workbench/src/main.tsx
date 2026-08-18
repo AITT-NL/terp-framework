@@ -148,8 +148,8 @@ function SoloSpecimen({ id }: { id: string }) {
 /**
  * What the catalog page shows in place of an `overlay` specimen's node.
  *
- * An overlay specimen renders open, and three of the four ways a framework overlay opens are
- * hostile to a page holding fifty of them. A `ConfirmDialog` calls `showModal()` and locks
+ * An overlay specimen renders open, and three of the four ways a framework overlay escapes its
+ * box are also hostile to a page holding sixty of them. A `ConfirmDialog` calls `showModal()` and locks
  * `document.body` scroll, so one open dialog makes the whole catalog inert and unscrollable —
  * and that page is exactly what the "every specimen is present exactly once" check reads, and
  * what a person opens to browse. An open `Menu` moves focus to its first item on mount, so

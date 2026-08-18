@@ -31,19 +31,29 @@ already stamps (ADR 0094).
   padding, control height, table row height, spacing rhythm and every interaction
   state were frozen in the package, because an inline style attribute outranks any
   author rule in any layer. That is also why the shipped stylesheet needed
-  `!important` on every state rule it had: **35 declarations at 0.7.0, now 12**, and
-  each of the twelve survivors is a rule whose selector still matches at least one
-  element that has not migrated. `54` source files carried a style object; `31` do.
+  `!important` on every state rule it had: **35 declarations at 0.7.0, now 9**, and
+  each of the nine survivors is a rule whose selector still matches at least one
+  element that has not migrated — every one of them named, with the inline
+  declaration it has to out-shout, in the gate that pins it. `54` source files carried a style object; `31` do.
 
   The mechanism an app should know about is the **cascade layer**, because it is
   what makes overriding pleasant rather than a fight. The sheet is ordered
   `@layer terp.reset, terp.base, terp.state, terp.motion`, and an app's `theme.css`
   is **unlayered** — an unlayered author declaration beats a layered one whatever
   its specificity, so a `theme.css` rule wins against any framework rule without
-  `!important` and without out-specifying it. Two things stay deliberately
-  unlayered inside the sheet for the same reason: the `data-density="compact"`
-  re-scoping (which would otherwise lose to the contract's own `:root` values) and
-  nothing else.
+  `!important` and without out-specifying it. Exactly one rule inside the sheet is
+  unlayered too, for the same reason: the `data-density="compact"` re-scoping, which
+  inside a layer would lose to the contract's own `:root` token values and silently
+  do nothing.
+
+  The corollary is worth stating because it reframes the `!important` count from a
+  tax into a wall. For *important* declarations the layer order **reverses**, and
+  unlayered styles sort last — so a layered `!important` beats an unlayered
+  `!important`. Measured in a browser against this sheet: with the focus ring
+  escalated, a `theme.css` rule lost both with and without `!important`; with it
+  retired, the same rule wins either way. An escalation does not merely outrank an
+  app's stylesheet, it makes that one declaration **unthemeable**. Which is why
+  every retirement in this release is a feature and not tidying.
 
   Specificity is *not* the mechanism, and the difference cost real defects during
   the migration: `[data-terp]:focus-visible` and
@@ -64,13 +74,21 @@ already stamps (ADR 0094).
   `toast-viewport`, `toast-icon`, `toast-body`, `toast-title`; `dialog-body`,
   `dialog-title`, `dialog-description`, `dialog-actions`; and `markdown`.
 
-  **The one move to know about: `Menu`'s trigger button was `data-terp="iconbutton"`
-  and is now `data-terp="menu-trigger"`.** It shared that marker with six visually
-  unrelated buttons — the shell's two header toggles, four pagination arrows, a
-  toast dismisser, the combobox's clear button, the calendar's month arrows — while
+  **Two markers moved, and both matter to a `theme.css`.**
+
+  `Menu`'s trigger button was `data-terp="iconbutton"` and is now
+  `data-terp="menu-trigger"`. It shared that marker with nine visually unrelated
+  buttons — the shell's two header toggles, four pagination arrows, a toast
+  dismisser, the combobox's clear button, the calendar's two month arrows — while
   overriding every one of the marker's declarations inline, so nothing keyed on
   `iconbutton` could describe it. A `theme.css` targeting `[data-terp="iconbutton"]`
   expecting to reach a menu trigger needs the new name.
+
+  And `data-terp="calendar-week"` changed what it names. It was on the month grid —
+  one element holding all 42 day cells — and now names each of the six week rows,
+  with the grid itself becoming `calendar-grid`. That split is what made the ARIA
+  grid valid (see **Fixed**), so a rule written against `[data-terp="calendar-week"]`
+  now applies six times rather than once.
 
   Three attribute vocabularies also widened. A toast's tone is `data-tone`, the same
   attribute `Badge` and `Alert` use, so one tone means one thing package-wide — with

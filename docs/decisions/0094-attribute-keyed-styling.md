@@ -17,8 +17,9 @@ Every react-core component styled itself with inline `style={}`. The header of
 assert `element.style.background`, and the framework owning the cascade is what makes the
 app-module prohibition enforceable — at the cost that `style={}` wins the cascade over
 any author stylesheet, so every interaction-state declaration in the injected sheet
-carried `!important`. Thirty-seven of them, each one a tax paid to a base style that
-could not lose.
+carried `!important`. Thirty-five of them, each one a tax paid to a base style that
+could not lose. (A grep says thirty-seven; two of those hits are this paragraph's own
+subject, mentioned in the sheet's header prose. The measurable counts declarations.)
 
 That trade bought something real while the component set was small and static. It
 stopped being worth its cost for three reasons, in rising order of weight:
@@ -82,8 +83,17 @@ contract's own unlayered `:root` values would beat it whenever the attribute lan
 same element those `:root` declarations target — which is the app-wide case, `data-density`
 on `<html>` — and `data-density="compact"` would do nothing. And an app's `theme.css` is
 unlayered, which means an app can override any *layered* framework rule without
-`!important`. The `!important` declarations that remain in the sheet still outrank it; they
-are a migration artifact, and they leave as their components migrate.
+`!important`.
+
+The `!important` declarations that remain do more than outrank it, and the difference is
+worth stating precisely because it sets the value of retiring one. For *important*
+declarations the cascade **reverses** the layer order, and unlayered styles sort last — so a
+layered `!important` beats an unlayered `!important`. Measured in a browser against this
+sheet: with the shared focus ring escalated, a `theme.css` rule lost both with and without
+`!important`; with it retired, the same rule wins either way. An escalation therefore makes
+its declaration **unthemeable**, not merely hard to reach. They are a migration artifact and
+they leave as their components migrate, and each departure is a feature rather than
+tidying.
 
 `!important` comes off per **consumer**, not per rule, and that distinction is the one thing
 here that has already caused a defect. Several markers are shared: `data-terp="input"` is
@@ -132,8 +142,16 @@ gains a `display: contents` wrapper carrying `data-terp="markdown"` — no box i
 generated, so blocks remain individual flex/grid items of any parent and the diff is
 zero by construction, while descendant selectors become possible for the first time. A
 real block wrapper that owns prose rhythm is a later, intentional change, not a side
-effect of marking. None of these markers appear in any layout-contract allow table, so
-slot behaviour is unchanged in both directions.
+effect of marking.
+
+None of these markers appears in any layout-contract allow table, and neither did the
+unmarked element each replaced — so a governed body slot's **verdict** is identical before
+and after, in both directions. Two qualifications, both found by testing the claim rather
+than restating it. The violation **message** does change: it now names a component instead
+of a bare tag, which is strictly more useful and is a string a test could pin. And an empty
+`Markdown` rendered *nothing* before it had a wrapper, so an unconditional one would have
+turned a passing governed body into a fail-closed refusal for rendering no content —
+`Markdown` returns `null` for an empty source precisely to keep the verdict unchanged.
 
 **6. Nothing about consumption changes.** No build artifact, no CSS export, no runtime
 dependency. The sheet is the same injected `<style>` element it has been since it

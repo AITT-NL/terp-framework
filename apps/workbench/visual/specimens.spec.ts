@@ -29,10 +29,11 @@ import { SCREENSHOT_THEMES } from "../src/themes";
 // every declared pairing and by axe over every painted specimen. See `src/themes.ts`.
 
 // An `overlay` specimen is shot as a VIEWPORT rather than as an element, and the reason is
-// not a preference. The element shot clips to the specimen's bounding box, and the three
-// framework overlays each paint outside it by a different mechanism: `Popover` portals its
-// panel to `document.body`, a `<dialog>` opened with `showModal()` renders in the top layer,
-// and the toast viewport is fixed to the corner of the screen. Clipping those produces a
+// not a preference. The element shot clips to the specimen's bounding box, and four framework
+// surfaces paint outside it, each by a different mechanism: `Popover` portals its panel to
+// `document.body`, a `<dialog>` opened with `showModal()` renders in the top layer, the toast
+// viewport is fixed to the corner of the screen, and the `Combobox` listbox is simply
+// `position: absolute` and overflows the box. Clipping those produces a
 // baseline of the trigger with the panel missing — or, for `ConfirmDialog`, a dimmed empty
 // card, because the `::backdrop` covers the clip and the dialog does not. That is worse than
 // having no baseline, because it looks like coverage.

@@ -19,7 +19,25 @@ npm run typecheck
 61 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (305
 axe runs across five palettes); the screenshots cover the **two default** themes (122
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
-present exactly once, and one that the contrast allowance list has not grown a new theme.
+present exactly once, one that the contrast allowance list has not grown a new theme, and a
+three-test keyboard lane for the one thing neither of the others can see. **432 checks.**
+
+## The keyboard lane
+
+`visual/keyboard.spec.ts`, and it is deliberately tiny. The screenshots capture the resting
+state and axe reads a static tree, so neither says anything about where focus GOES when a key is
+pressed — and stage 4 found two defects of exactly that shape while migrating overlays: a
+calendar cursor that moved `tabIndex` without moving DOM focus, and a menu whose Tab handler
+closed the panel while leaving focus on the node it was about to unmount.
+
+One of those two cannot be gated by a unit test at all, which is why this is a browser lane
+rather than more jsdom. The repaired calendar was still wrong across a month boundary, because
+that move re-keys the week rows and unmounts the focused cell — and the browser then moves focus
+to `<body>`, while jsdom leaves it on the detached node. The same unit test passes against the
+bug and against the fix; measured both ways before this file existed.
+
+It holds cases where a keystroke's effect on focus IS the contract, and nothing else. Anything
+about appearance belongs in a baseline; anything about the static tree belongs to axe.
 
 ## Why it is not inside react-core
 
@@ -85,11 +103,13 @@ The bare address still renders the whole catalog. That is what a human opens, an
 
 ## Overlays paint outside their box
 
-Three framework surfaces are invisible to a per-specimen lane by default, and each escapes by
-a different mechanism. `Popover` portals its panel to `document.body`, so the panel is not even
-a descendant of the specimen. `ConfirmDialog` opens a native `<dialog>` with `showModal()`,
-which renders in the top layer. The toast viewport is `position: fixed` at the corner of the
-screen. The screenshot lane clips to the specimen element's bounding box and the axe lane
+Four framework surfaces are invisible to a per-specimen lane by default, and each escapes by a
+different mechanism. `Popover` portals its panel to `document.body`, so the panel is not even a
+descendant of the specimen. `ConfirmDialog` opens a native `<dialog>` with `showModal()`, which
+renders in the top layer. The toast viewport is `position: fixed` at the corner of the screen.
+And the plainest case is the one a maintainer is most likely to miss: an anchored panel that is
+merely `position: absolute` inside the specimen — the `Combobox` listbox — still paints past the
+element's bounding box, so it needs the flag exactly as much as a portal does. The screenshot lane clips to the specimen element's bounding box and the axe lane
 scopes to it with `.include()`, so for all three the shot comes out as the trigger with nothing
 next to it — and for `ConfirmDialog` as a *dimmed empty card*, because the `::backdrop` covers
 the clip while the dialog does not. That is worse than having no specimen, because it looks
@@ -159,7 +179,16 @@ per-page. Widening it is a one-word change in `src/themes.ts` if Phase 3 turns o
 per-theme geometry evidence.
 
 **No retries.** A visual test that passes on retry is a flaky baseline, and hiding that behind
-a retry is how a suite stops being evidence.
+a retry is how a suite stops being evidence. Which means a flake has to be treated as a defect in
+the harness, and one is on record: at 285 axe runs under eight parallel workers, three
+contrast-theme input specimens failed `color-contrast` together on one full run, and all three
+passed in isolation and on the next full run. axe resolves the computed foreground and background
+of what the browser actually painted, so until layout and text rendering have finished it is
+measuring a moving target — and the way that surfaces is a contrast violation on a specimen whose
+colours are fine. The axe lane now awaits `document.fonts.ready` before analysing, which the
+screenshot lane had always done and this one had not. Stated honestly: a flake that does not
+reproduce cannot be shown to be fixed. If it returns, that asymmetry is no longer the explanation
+and the next thing to suspect is the worker count.
 
 **Baselines are split by platform** (`visual/__screenshots__/<platform>/`). Font
 rasterisation and antialiasing differ between Windows and Linux by far more than any
