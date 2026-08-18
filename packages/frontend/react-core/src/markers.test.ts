@@ -38,6 +38,9 @@ const STYLESHEET = "./styles.ts";
  */
 const MARKERS = [
   "alert",
+  "alert-body",
+  "alert-icon",
+  "alert-title",
   "appshell-brand",
   "appshell-nav",
   "badge",
@@ -83,6 +86,7 @@ const MARKERS = [
   "tab",
   "tabs",
   "tooltip",
+  "tooltip-anchor",
 ];
 
 /**

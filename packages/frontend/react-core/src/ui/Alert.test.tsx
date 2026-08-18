@@ -16,4 +16,16 @@ describe("Alert", () => {
     render(<Alert tone="danger">Delete failed.</Alert>);
     expect(screen.getByRole("alert")).toHaveTextContent("Delete failed.");
   });
+
+  it("names its tone on the banner, which is what paints the frame and the glyph", () => {
+    render(<Alert tone="warning">Check the mapping.</Alert>);
+    const banner = screen.getByRole("alert");
+    expect(banner).toHaveAttribute("data-tone", "warning");
+    expect(banner.getAttribute("style")).toBeNull();
+  });
+
+  it("defaults to the info tone", () => {
+    render(<Alert>Nothing to do.</Alert>);
+    expect(screen.getByRole("status")).toHaveAttribute("data-tone", "info");
+  });
 });

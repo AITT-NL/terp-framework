@@ -1,7 +1,8 @@
-import type { CSSProperties } from "react";
-
+import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
+
+injectTerpStyles();
 
 export type BadgeTone = "neutral" | "info" | "success" | "warning" | "danger";
 
@@ -18,17 +19,14 @@ export type BadgeProps = { tone?: BadgeTone } & (
   | { children: UiText; label?: never }
 );
 
-const toneColor: Record<BadgeTone, string> = {
-  neutral: "var(--color-neutral-600)",
-  info: "var(--color-status-info)",
-  success: "var(--color-status-success)",
-  warning: "var(--color-status-warning)",
-  danger: "var(--color-status-danger)",
-};
-
 /**
  * Soft tint per tone — exported (not via the package barrel) so DataView's row/card
  * tinting resolves a tone to the exact same tokens the Badge pill uses.
+ *
+ * The pill itself no longer reads this map: its tones are rules in the sheet, keyed on
+ * `data-tone` (ADR 0094). It stays because DataView tints rows and cards from an inline
+ * background and still needs the tone-to-token mapping; that call site is the one that
+ * removes this export, when the DataView cluster migrates.
  */
 export const toneSoftColors: Record<BadgeTone, string> = {
   neutral: "var(--color-neutral-100)",
@@ -38,28 +36,11 @@ export const toneSoftColors: Record<BadgeTone, string> = {
   danger: "var(--color-status-danger-soft)",
 };
 
-const badgeStyle = (tone: BadgeTone): CSSProperties => ({
-  display: "inline-flex",
-  alignItems: "center",
-  border: `1px solid ${toneSoftColors[tone]}`,
-  borderRadius: "var(--radius-full)",
-  padding: "2px var(--space-2)",
-  color: toneColor[tone],
-  background: toneSoftColors[tone],
-  fontSize: "var(--font-size-xs)",
-  fontWeight: "var(--font-weight-semibold)" as never,
-  lineHeight: 1.4,
-  whiteSpace: "nowrap",
-});
-
 /** Small token-styled status pill — flat soft tint with a matching text colour. */
 export function Badge({ label, children, tone = "neutral" }: BadgeProps) {
   const resolve = useUiText();
-  // `data-tone` alongside the marker: the tone is currently readable only from the inline
-  // colour values, so a stylesheet rule cannot address "the warning pill" at all. Naming it
-  // as an attribute is what lets tone styling move out of `style={}` later.
   return (
-    <span data-terp="badge" data-tone={tone} style={badgeStyle(tone)}>
+    <span data-terp="badge" data-tone={tone}>
       {resolve((label ?? children) as UiText)}
     </span>
   );

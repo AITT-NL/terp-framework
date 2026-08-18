@@ -1,8 +1,11 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
+import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
 import type { BadgeTone } from "./Badge";
+
+injectTerpStyles();
 
 export type AlertTone = BadgeTone;
 
@@ -11,43 +14,6 @@ export interface AlertProps {
   title?: UiText;
   children: ReactNode;
 }
-
-const toneColor: Record<AlertTone, string> = {
-  neutral: "var(--color-neutral-600)",
-  info: "var(--color-status-info)",
-  success: "var(--color-status-success)",
-  warning: "var(--color-status-warning)",
-  danger: "var(--color-status-danger)",
-};
-
-const toneSoft: Record<AlertTone, string> = {
-  neutral: "var(--color-neutral-50)",
-  info: "var(--color-status-info-soft)",
-  success: "var(--color-status-success-soft)",
-  warning: "var(--color-status-warning-soft)",
-  danger: "var(--color-status-danger-soft)",
-};
-
-const alertStyle = (tone: AlertTone): CSSProperties => ({
-  display: "grid",
-  gridTemplateColumns: "auto 1fr",
-  gap: "var(--space-3)",
-  padding: "var(--space-3) var(--space-4)",
-  border: `1px solid ${toneColor[tone]}`,
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-neutral-900)",
-  background: toneSoft[tone],
-});
-
-const iconWrapStyle = (tone: AlertTone): CSSProperties => ({
-  color: toneColor[tone],
-  display: "inline-flex",
-  alignItems: "flex-start",
-  paddingTop: "2px",
-});
-
-const bodyStyle: CSSProperties = { display: "grid", gap: "var(--space-1)", minWidth: 0 };
-const titleStyle: CSSProperties = { fontWeight: "var(--font-weight-semibold)" as never };
 
 const glyphProps = {
   width: 20,
@@ -95,18 +61,24 @@ const toneIcon: Record<AlertTone, ReactNode> = {
   ),
 };
 
-/** Inline banner for persistent feedback; warnings and errors announce as alerts. */
+/**
+ * Inline banner for persistent feedback; warnings and errors announce as alerts.
+ *
+ * The tone is a `data-tone` attribute rather than a style object: the sheet paints the
+ * frame, the tint and the glyph from it, and the body restates the reading colour so the
+ * copy stays neutral while the frame carries the tone (ADR 0094).
+ */
 export function Alert({ tone = "info", title, children }: AlertProps) {
   const resolve = useUiText();
   return (
     <div
       role={tone === "warning" || tone === "danger" ? "alert" : "status"}
       data-terp="alert"
-      style={alertStyle(tone)}
+      data-tone={tone}
     >
-      <span style={iconWrapStyle(tone)}>{toneIcon[tone]}</span>
-      <div style={bodyStyle}>
-        {title !== undefined && <strong style={titleStyle}>{resolve(title)}</strong>}
+      <span data-terp="alert-icon">{toneIcon[tone]}</span>
+      <div data-terp="alert-body">
+        {title !== undefined && <strong data-terp="alert-title">{resolve(title)}</strong>}
         <div>{children}</div>
       </div>
     </div>

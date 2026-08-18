@@ -1,27 +1,11 @@
 import { cloneElement, isValidElement, useId, useState } from "react";
-import type { CSSProperties, FocusEvent, MouseEvent, ReactElement } from "react";
+import type { FocusEvent, MouseEvent, ReactElement } from "react";
 
+import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
 
-const wrapperStyle: CSSProperties = { position: "relative", display: "inline-flex" };
-const tooltipStyle: CSSProperties = {
-  position: "absolute",
-  zIndex: 1,
-  insetBlockEnd: "calc(100% + var(--space-1))",
-  insetInlineStart: 0,
-  maxInlineSize: "min(18rem, calc(100vw - 2 * var(--space-4)))",
-  padding: "var(--space-1) var(--space-2)",
-  borderRadius: "var(--radius-sm)",
-  color: "var(--color-neutral-0)",
-  background: "var(--color-neutral-900)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: "var(--font-weight-medium)" as never,
-  lineHeight: 1.4,
-  boxShadow: "var(--shadow-md)",
-  pointerEvents: "none",
-  whiteSpace: "normal",
-};
+injectTerpStyles();
 
 export interface TooltipProps {
   content: UiText;
@@ -47,7 +31,11 @@ export function Tooltip({ content, children }: TooltipProps) {
   }
 
   return (
-    <span style={wrapperStyle} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <span
+      data-terp="tooltip-anchor"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       {cloneElement(children, {
         "aria-describedby": id,
         onFocus: (event: FocusEvent) => {
@@ -59,7 +47,7 @@ export function Tooltip({ content, children }: TooltipProps) {
           setOpen(false);
         },
       })}
-      <span id={id} role="tooltip" data-terp="tooltip" hidden={!open} style={tooltipStyle}>
+      <span id={id} role="tooltip" data-terp="tooltip" hidden={!open}>
         {resolve(content)}
       </span>
     </span>

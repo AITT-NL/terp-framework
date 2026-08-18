@@ -179,6 +179,121 @@ html {
   justify-content: center;
   flex-shrink: 0;
 }
+
+/* Badges ------------------------------------------------------------------- */
+/* The border matches the soft fill exactly, so it reads as one flat pill while
+   still occupying a border box — which is what keeps a Badge the same height
+   next to a bordered control. */
+[data-terp="badge"] {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid;
+  border-radius: var(--radius-full);
+  padding: 2px var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+[data-terp="badge"][data-tone="neutral"] {
+  color: var(--color-neutral-600);
+  background: var(--color-neutral-100);
+  border-color: var(--color-neutral-100);
+}
+[data-terp="badge"][data-tone="info"] {
+  color: var(--color-status-info);
+  background: var(--color-status-info-soft);
+  border-color: var(--color-status-info-soft);
+}
+[data-terp="badge"][data-tone="success"] {
+  color: var(--color-status-success);
+  background: var(--color-status-success-soft);
+  border-color: var(--color-status-success-soft);
+}
+[data-terp="badge"][data-tone="warning"] {
+  color: var(--color-status-warning);
+  background: var(--color-status-warning-soft);
+  border-color: var(--color-status-warning-soft);
+}
+[data-terp="badge"][data-tone="danger"] {
+  color: var(--color-status-danger);
+  background: var(--color-status-danger-soft);
+  border-color: var(--color-status-danger-soft);
+}
+
+/* Alerts ------------------------------------------------------------------- */
+/* The tone sets the root's color, which the border picks up as currentColor
+   and the icon inherits — so a tone is one declaration pair rather than three
+   places to keep in step. The body restates the reading colour, because the
+   copy must stay neutral-900 while the frame and glyph carry the tone. */
+[data-terp="alert"] {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid;
+  border-radius: var(--radius-md);
+}
+[data-terp="alert"][data-tone="neutral"] {
+  color: var(--color-neutral-600);
+  background: var(--color-neutral-50);
+}
+[data-terp="alert"][data-tone="info"] {
+  color: var(--color-status-info);
+  background: var(--color-status-info-soft);
+}
+[data-terp="alert"][data-tone="success"] {
+  color: var(--color-status-success);
+  background: var(--color-status-success-soft);
+}
+[data-terp="alert"][data-tone="warning"] {
+  color: var(--color-status-warning);
+  background: var(--color-status-warning-soft);
+}
+[data-terp="alert"][data-tone="danger"] {
+  color: var(--color-status-danger);
+  background: var(--color-status-danger-soft);
+}
+[data-terp="alert-icon"] {
+  display: inline-flex;
+  align-items: flex-start;
+  padding-top: 2px;
+}
+[data-terp="alert-body"] {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--color-neutral-900);
+}
+[data-terp="alert-title"] {
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Tooltips ----------------------------------------------------------------- */
+/* No display declaration here on purpose: the panel is hidden with the hidden
+   attribute, and any author display would beat the UA's [hidden] rule and
+   leave the tooltip permanently visible. */
+[data-terp="tooltip-anchor"] {
+  position: relative;
+  display: inline-flex;
+}
+[data-terp="tooltip"] {
+  position: absolute;
+  z-index: 1;
+  inset-block-end: calc(100% + var(--space-1));
+  inset-inline-start: 0;
+  max-inline-size: min(18rem, calc(100vw - 2 * var(--space-4)));
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-0);
+  background: var(--color-neutral-900);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.4;
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  white-space: normal;
+}
 }
 
 @layer terp.state {
