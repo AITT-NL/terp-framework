@@ -1,9 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { Icon } from "./icons";
+import { injectTerpStyles } from "./styles";
 import { useStrings, useUiText } from "./uiText";
 import type { UiText } from "./uiText";
+
+injectTerpStyles();
 
 export type ToastVariant = "success" | "error" | "warning";
 
@@ -36,65 +39,30 @@ const ToastContext = createContext<ToastApi | null>(null);
 
 const DEFAULT_DURATION_MS = 5000;
 
-const viewportStyle: CSSProperties = {
-  position: "fixed",
-  bottom: "var(--space-4)",
-  right: "var(--space-4)",
-  display: "grid",
-  gap: "var(--space-2)",
-  zIndex: 100,
-  maxWidth: "min(22.5rem, calc(100vw - 2 * var(--space-4)))",
-};
-
-const toastStyle = (variant: ToastVariant): CSSProperties => ({
-  display: "grid",
-  gridTemplateColumns: "auto 1fr auto",
-  alignItems: "start",
-  gap: "var(--space-2)",
-  padding: "var(--space-3) var(--space-4)",
-  borderRadius: "var(--radius-md)",
-  border: `1px solid ${borderColor[variant]}`,
-  borderInlineStart: `3px solid ${titleColor[variant]}`,
-  background: "var(--color-neutral-0)",
-  color: "var(--color-neutral-900)",
-  fontSize: "var(--font-size-sm)",
-  boxShadow: "var(--shadow-md)",
-});
-
-const titleColor: Record<ToastVariant, string> = {
-  success: "var(--color-status-success)",
-  error: "var(--color-status-danger)",
-  warning: "var(--color-status-warning)",
-};
-
-const borderColor: Record<ToastVariant, string> = {
-  success: "var(--color-status-success-soft)",
-  error: "var(--color-status-danger-soft)",
-  warning: "var(--color-status-warning-soft)",
-};
-
 const iconName: Record<ToastVariant, string> = {
   success: "check",
   error: "x",
   warning: "bell",
 };
 
-const iconWrapStyle = (variant: ToastVariant): CSSProperties => ({
-  color: titleColor[variant],
-  display: "inline-flex",
-  alignItems: "center",
-  paddingTop: "2px",
-});
-
-const dismissStyle: CSSProperties = {
-  border: "none",
-  background: "none",
-  padding: "var(--space-1)",
-  cursor: "pointer",
-  color: "var(--color-neutral-500)",
-  fontSize: "var(--font-size-base)",
-  lineHeight: 1,
-  borderRadius: "var(--radius-sm)",
+/**
+ * The `data-tone` value each variant paints as.
+ *
+ * `data-tone` rather than `data-variant`, because a toast's success/error/warning IS a status
+ * tone and `Badge` and `Alert` already key theirs that way — an app restyling one tone should
+ * not have to learn two attribute names for the same idea. The one translation is `error` to
+ * `danger`: the shared tone vocabulary is {neutral, info, success, warning, danger}, and
+ * admitting a fourth synonym to it would mean `[data-terp="toast"][data-tone="danger"]`
+ * silently matching nothing for someone who reasoned by analogy from the alert. The mapping is
+ * not new indirection either — the component already resolved `error` to
+ * `--color-status-danger` for its colours; this states it once instead.
+ *
+ * `toast.error()` is unchanged: the method name is the API, and this is the DOM.
+ */
+const toneOf: Record<ToastVariant, string> = {
+  success: "success",
+  error: "danger",
+  warning: "warning",
 };
 
 function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
@@ -106,30 +74,26 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => vo
     warning: strings.warningTitle,
   };
   return (
-    <div role={toast.variant === "success" ? "status" : "alert"} style={toastStyle(toast.variant)}>
-      <span aria-hidden="true" style={iconWrapStyle(toast.variant)}>
+    <div
+      role={toast.variant === "success" ? "status" : "alert"}
+      data-terp="toast"
+      data-tone={toneOf[toast.variant]}
+    >
+      <span aria-hidden="true" data-terp="toast-icon">
         <Icon name={iconName[toast.variant]} size="1.1rem" />
       </span>
-      <div style={{ display: "grid", gap: "var(--space-1)" }}>
-        <strong
-          style={{
-            color: titleColor[toast.variant],
-            fontWeight: "var(--font-weight-semibold)" as never,
-          }}
-        >
+      <div data-terp="toast-body">
+        <strong data-terp="toast-title">
           {resolve(toast.title ?? defaultTitle[toast.variant])}
         </strong>
         {toast.description !== null && toast.description !== undefined && (
           <div>{toast.description}</div>
         )}
       </div>
-      <button
-        type="button"
-        data-terp="iconbutton"
-        aria-label={strings.dismiss}
-        style={dismissStyle}
-        onClick={onDismiss}
-      >
+      {/* Keeps the shared iconbutton marker and is addressed structurally, the way the
+          combobox's clear button and the calendar's month arrows are: it is an icon button,
+          and the only thing distinguishing it is where it sits. */}
+      <button type="button" data-terp="iconbutton" aria-label={strings.dismiss} onClick={onDismiss}>
         ×
       </button>
     </div>
@@ -189,7 +153,7 @@ export function ToastProvider({ children }: ToastProviderProps) {
     <ToastContext.Provider value={api}>
       {children}
       {toasts.length > 0 && (
-        <div style={viewportStyle}>
+        <div data-terp="toast-viewport">
           {toasts.map((toast) => (
             <ToastCard key={toast.id} toast={toast} onDismiss={() => dismiss(toast.id)} />
           ))}

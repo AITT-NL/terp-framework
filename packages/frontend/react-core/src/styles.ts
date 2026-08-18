@@ -1021,6 +1021,129 @@ button[data-terp="input"][data-placeholder="true"] {
   gap: var(--space-2);
 }
 
+/* Toasts -------------------------------------------------------------------- */
+/* The viewport is fixed to the corner of the screen, which is what puts it —
+   like a portalled panel and a top-layer dialog — outside the box any per-specimen
+   element screenshot could see. It reads the stacking token published for it; the
+   component hardcoded 100. */
+[data-terp="toast-viewport"] {
+  position: fixed;
+  inset-block-end: var(--space-4);
+  inset-inline-end: var(--space-4);
+  display: grid;
+  gap: var(--space-2);
+  z-index: var(--z-index-toast);
+  max-width: min(22.5rem, calc(100vw - 2 * var(--space-4)));
+}
+[data-terp="toast"] {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  border-inline-start-width: 3px;
+  background: var(--color-neutral-0);
+  color: var(--color-neutral-900);
+  font-size: var(--font-size-sm);
+  box-shadow: var(--shadow-md);
+}
+[data-terp="toast-icon"] {
+  display: inline-flex;
+  align-items: center;
+  padding-block-start: 2px;
+}
+[data-terp="toast-body"] {
+  display: grid;
+  gap: var(--space-1);
+}
+[data-terp="toast-title"] {
+  font-weight: var(--font-weight-semibold);
+}
+/* Tone is data-tone, the same attribute Badge and Alert use, so one tone means one
+   thing across the package. Written flat, per tone, like theirs: a private custom
+   property would read better but tokens.guard.test.ts holds every var() in this
+   package to a property the contract actually publishes, and an internal plumbing
+   variable is not a token a theme editor should be offered. */
+[data-terp="toast"][data-tone="success"] {
+  border-color: var(--color-status-success-soft);
+  border-inline-start-color: var(--color-status-success);
+}
+[data-terp="toast"][data-tone="success"] [data-terp="toast-icon"],
+[data-terp="toast"][data-tone="success"] [data-terp="toast-title"] {
+  color: var(--color-status-success);
+}
+[data-terp="toast"][data-tone="warning"] {
+  border-color: var(--color-status-warning-soft);
+  border-inline-start-color: var(--color-status-warning);
+}
+[data-terp="toast"][data-tone="warning"] [data-terp="toast-icon"],
+[data-terp="toast"][data-tone="warning"] [data-terp="toast-title"] {
+  color: var(--color-status-warning);
+}
+[data-terp="toast"][data-tone="danger"] {
+  border-color: var(--color-status-danger-soft);
+  border-inline-start-color: var(--color-status-danger);
+}
+[data-terp="toast"][data-tone="danger"] [data-terp="toast-icon"],
+[data-terp="toast"][data-tone="danger"] [data-terp="toast-title"] {
+  color: var(--color-status-danger);
+}
+/* The dismisser, addressed structurally for the same reason the combobox's clear
+   button and the calendar's month arrows are. */
+[data-terp="toast"] > [data-terp="iconbutton"] {
+  border: none;
+  background: none;
+  padding: var(--space-1);
+  cursor: pointer;
+  color: var(--color-neutral-500);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+
+/* Dialogs ------------------------------------------------------------------- */
+/* A native dialog opened with showModal(). Note what is NOT declared: display.
+   The UA sheet hides a closed dialog with dialog:not([open]) { display: none },
+   and any author display here would beat it and leave the dialog permanently
+   visible — the same trap the tooltip's comment records. Author rules beat the UA
+   sheet whatever layer they sit in, so terp.base is enough to replace the UA
+   dialog's border, padding, background and colour. */
+[data-terp="dialog"] {
+  width: 100%;
+  max-width: 26rem;
+  padding: 0;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  background: var(--color-neutral-0);
+  color: var(--color-neutral-900);
+}
+[data-terp="dialog-body"] {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-6);
+}
+[data-terp="dialog-title"] {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0;
+  color: var(--color-neutral-900);
+}
+[data-terp="dialog-description"] {
+  color: var(--color-neutral-600);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+[data-terp="dialog-actions"] {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
 /* Popover ------------------------------------------------------------------ */
 /* The wrapper the trigger sits in. Popover is the rendered root of Menu and of
    both date pickers, so this is the geometry of far more than one component —

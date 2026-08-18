@@ -16,8 +16,8 @@ npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
 
-59 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (295
-axe runs across five palettes); the screenshots cover the **two default** themes (118
+60 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (300
+axe runs across five palettes); the screenshots cover the **two default** themes (120
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, and one that the contrast allowance list has not grown a new theme.
 

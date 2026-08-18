@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { Button } from "./ui/Button";
 import { injectTerpStyles } from "./styles";
@@ -31,44 +31,6 @@ export interface ConfirmDialogProps {
   /** Disable confirmation until required dialog input is valid. */
   confirmDisabled?: boolean;
 }
-
-const dialogStyle: CSSProperties = {
-  width: "100%",
-  maxWidth: "26rem",
-  padding: 0,
-  border: "1px solid var(--color-neutral-200)",
-  borderRadius: "var(--radius-lg)",
-  boxShadow: "var(--shadow-lg)",
-  background: "var(--color-neutral-0)",
-  color: "var(--color-neutral-900)",
-};
-
-const bodyStyle: CSSProperties = {
-  display: "grid",
-  gap: "var(--space-3)",
-  padding: "var(--space-6)",
-};
-
-const dialogTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--font-size-lg)",
-  fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
-  letterSpacing: 0,
-  color: "var(--color-neutral-900)",
-};
-
-const descriptionStyle: CSSProperties = {
-  color: "var(--color-neutral-600)",
-  fontSize: "var(--font-size-sm)",
-  lineHeight: 1.5,
-};
-
-const footerStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: "var(--space-2)",
-  marginTop: "var(--space-2)",
-};
 
 /**
  * The shared confirmation dialog — replaces `window.confirm()` with an accessible,
@@ -130,7 +92,6 @@ export function ConfirmDialog({
       ref={dialogRef}
       data-terp="dialog"
       aria-labelledby={titleId}
-      style={dialogStyle}
       onCancel={(event) => {
         // Escape: stay controlled — never let the platform close the element itself.
         event.preventDefault();
@@ -145,14 +106,14 @@ export function ConfirmDialog({
         }
       }}
     >
-      <div style={bodyStyle}>
-        <h2 id={titleId} style={dialogTitleStyle}>
+      <div data-terp="dialog-body">
+        <h2 id={titleId} data-terp="dialog-title">
           {resolve(title)}
         </h2>
         {description !== undefined && (
-          <div style={descriptionStyle}>{description}</div>
+          <div data-terp="dialog-description">{description}</div>
         )}
-        <div style={footerStyle}>
+        <div data-terp="dialog-actions">
           <Button variant="secondary" disabled={isPending} onClick={() => onOpenChange(false)}>
             {resolve(cancelLabel ?? strings.cancel)}
           </Button>

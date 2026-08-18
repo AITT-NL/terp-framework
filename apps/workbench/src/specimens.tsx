@@ -43,7 +43,9 @@ import {
   TerpProvider,
   Textarea,
   ThemeToggle,
+  ToastProvider,
   Tooltip,
+  useToast,
   UserMenu,
 } from "@terpjs/react-core";
 import type { BadgeTone, DataViewColumn, Resource } from "@terpjs/react-core";
@@ -54,6 +56,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
+import { useEffect } from "react";
 import type { ReactNode } from "react";
 
 // The specimen registry: every component the framework ships, in every variant it has, as
@@ -695,6 +698,19 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
     title: "Empty, error and loading",
     specimens: [
       {
+        // The only surface in the package with an imperative API rather than props, so the
+        // specimen mounts a helper that pushes one of each tone. See `ToastRow` for the
+        // duration, which is not an arbitrary large number.
+        id: "toast-tones",
+        title: "Toast — one of each tone, fixed to the viewport corner",
+        overlay: true,
+        node: (
+          <ToastProvider>
+            <ToastRow />
+          </ToastProvider>
+        ),
+      },
+      {
         id: "empty-state",
         title: "EmptyState — with an action",
         node: (
@@ -1038,6 +1054,29 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
     ],
   },
 ];
+
+/**
+ * Pushes one toast of each tone on mount, so the toast viewport has a deterministic render.
+ *
+ * The duration is one day, and the specific value matters: a "never expire" sentinel like
+ * `Number.MAX_SAFE_INTEGER` overflows `setTimeout`'s 32-bit delay and fires *immediately*, so
+ * the toasts would dismiss themselves mid-run and the specimen would flake in the direction
+ * that looks like a real diff. Anything below 2^31-1 ms (about 24.8 days) is safe.
+ *
+ * A mount effect rather than a click: the registry's rule is that a specimen renders at a
+ * fixed state without interaction, and this is the only way to reach that state for a
+ * component whose API is imperative.
+ */
+function ToastRow() {
+  const toast = useToast();
+  useEffect(() => {
+    const durationMs = 24 * 60 * 60 * 1000;
+    toast.success("Sync definition published.", { durationMs });
+    toast.warning("Some rows were skipped.", { durationMs });
+    toast.error("The connection was refused.", { durationMs });
+  }, [toast]);
+  return <p style={{ margin: 0 }}>Three toasts, one per tone, in the corner.</p>;
+}
 
 /** Every specimen, flattened — the visual suite iterates this. */
 export const ALL_SPECIMENS: (Specimen & { groupId: string })[] = SPECIMEN_GROUPS.flatMap(
