@@ -145,6 +145,33 @@ function SoloSpecimen({ id }: { id: string }) {
   );
 }
 
+/**
+ * What the catalog page shows in place of an `overlay` specimen's node.
+ *
+ * An overlay specimen renders open, and three of the four ways a framework overlay opens are
+ * hostile to a page holding fifty of them. A `ConfirmDialog` calls `showModal()` and locks
+ * `document.body` scroll, so one open dialog makes the whole catalog inert and unscrollable —
+ * and that page is exactly what the "every specimen is present exactly once" check reads, and
+ * what a person opens to browse. An open `Menu` moves focus to its first item on mount, so
+ * several would fight over the caret before a reader had touched anything. Toasts stack in the
+ * corner over whatever is behind them. None of that is a problem on the solo page, where
+ * `?only=` guarantees one specimen and both lanes already navigate that way.
+ *
+ * So the entry keeps its card and its `data-specimen` handle — the presence check still counts
+ * it, and the link is the fastest route to the thing itself.
+ */
+function OverlayNotice({ id }: { id: string }) {
+  return (
+    <p style={{ margin: 0, color: "var(--color-neutral-600)", fontSize: "var(--font-size-sm)" }}>
+      Renders open, which a page of fifty specimens cannot hold —{" "}
+      <a style={linkStyle} href={`?only=${id}`}>
+        open it alone
+      </a>
+      .
+    </p>
+  );
+}
+
 function Workbench() {
   const only = requestedSpecimen();
   if (only !== null) {
@@ -188,7 +215,7 @@ function Workbench() {
             // the page, so a change to one component fails one baseline and names it.
             <div key={specimen.id} data-specimen={specimen.id} style={specimenStyle}>
               <p style={specimenTitleStyle}>{specimen.title}</p>
-              {specimen.node}
+              {specimen.overlay === true ? <OverlayNotice id={specimen.id} /> : specimen.node}
             </div>
           ))}
         </section>

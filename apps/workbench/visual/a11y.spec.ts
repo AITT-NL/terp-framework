@@ -65,9 +65,17 @@ test("holds no allowance for a theme added after the lane", () => {
 
 // Each run renders its specimen alone, exactly as the screenshot lane does. The context axe
 // measures is unchanged — the solo page reuses the same page background and specimen card — but
-// a navigation now builds one specimen instead of all forty-nine. With five themes that was 245
+// a navigation now builds one specimen instead of all fifty. With five themes that was 250
 // full-catalog renders per run, which had grown slow enough to start timing out under parallel
 // load; the failure looked like an accessibility violation and was a cold page.
+//
+// An `overlay` specimen widens the scope from the specimen element to `body`, because
+// `Popover` portals its panel to `document.body` — so the panel is not a DESCENDANT of the
+// specimen and `.include()` cannot reach it. Scoped to the element, an open-panel specimen
+// returns a clean run that examined the trigger and nothing else: silent false coverage on
+// precisely the subtrees that have none today. `body` rather than the whole page on purpose,
+// so the document-level rules (`html-has-lang`, `document-title`) stay out — those belong to
+// the workbench shell, and this lane is a gate on react-core.
 test.describe("component accessibility", () => {
   for (const theme of THEMES) {
     test.describe(theme, () => {
@@ -77,7 +85,7 @@ test.describe("component accessibility", () => {
           const selector = `[data-specimen="${specimen.id}"]`;
           await page.locator(selector).waitFor({ state: "visible" });
           const results = await new AxeBuilder({ page })
-            .include(selector)
+            .include(specimen.overlay === true ? "body" : selector)
             .withTags(TAGS)
             .analyze();
           const key = `${theme}/${specimen.id}`;

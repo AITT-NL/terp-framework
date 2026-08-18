@@ -7,6 +7,7 @@ import {
   Card,
   Checkbox,
   Combobox,
+  ConfirmDialog,
   DataView,
   DatePicker,
   DateRangePicker,
@@ -77,6 +78,23 @@ export interface Specimen {
   /** What a reader is looking at. */
   title: string;
   node: ReactNode;
+  /**
+   * This specimen paints OUTSIDE its own box, so neither lane can see it by default.
+   *
+   * Three framework surfaces do it, by three different mechanisms: `Popover` portals its
+   * panel to `document.body` (so it is not even a descendant of the specimen), a native
+   * `<dialog>` opened with `showModal()` renders in the top layer, and the toast viewport is
+   * `position: fixed` at the corner of the screen. The screenshot lane clips to the
+   * specimen element's bounding box and the axe lane scopes to it, so an open panel is out
+   * of frame for one and out of scope for the other — a baseline that gates nothing while
+   * looking like coverage, and for `ConfirmDialog` specifically a shot of a dimmed empty
+   * card, because the `::backdrop` covers the clip and the dialog does not.
+   *
+   * Flagging one changes both lanes (see `visual/specimens.spec.ts` and `visual/a11y.spec.ts`)
+   * and makes it render its node **only on the solo page** — see `SoloSpecimen` in
+   * `src/main.tsx` for why the catalog cannot hold an open one.
+   */
+  overlay?: true;
 }
 
 export interface SpecimenGroup {
@@ -279,6 +297,49 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
           <Popover trigger={<Button variant="secondary">Open panel</Button>}>
             {() => <p style={{ margin: 0 }}>Panel body.</p>}
           </Popover>
+        ),
+      },
+      {
+        // The panel's whole appearance is inline in Popover.tsx and no rule in the sheet
+        // touches [data-terp="popover-panel"], so until this specimen existed the most
+        // migration-exposed surface in the library had no picture in either lane.
+        id: "popover-open",
+        title: "Popover — open panel",
+        overlay: true,
+        node: (
+          <Popover defaultOpen trigger={<Button variant="secondary">Open panel</Button>}>
+            {() => <p style={{ margin: 0 }}>Panel body.</p>}
+          </Popover>
+        ),
+      },
+      {
+        id: "confirm-dialog",
+        title: "ConfirmDialog — question and consequence",
+        overlay: true,
+        node: (
+          <ConfirmDialog
+            open
+            onOpenChange={() => {}}
+            onConfirm={() => {}}
+            title="Publish this sync definition?"
+            description="It starts moving records on the next scheduled run."
+          />
+        ),
+      },
+      {
+        id: "confirm-dialog-destructive",
+        title: "ConfirmDialog — destructive confirm",
+        overlay: true,
+        node: (
+          <ConfirmDialog
+            open
+            onOpenChange={() => {}}
+            onConfirm={() => {}}
+            destructive
+            confirmLabel="Delete"
+            title="Delete this link?"
+            description="Its mappings and its run history are removed with it."
+          />
         ),
       },
     ],
@@ -764,6 +825,42 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         node: (
           <Menu trigger={<Icon name="settings" size="1.15rem" />} triggerLabel="Settings">
             {({ close }) => <MenuItem label="Duplicate" onSelect={() => close()} />}
+          </Menu>
+        ),
+      },
+      {
+        // Every MenuItem state in one panel, which is one concern rather than four: this is
+        // what a menu's items look like, and none of the four can mask another because they
+        // sit side by side. The panel also opens with its first enabled item focused
+        // (Menu.tsx roves on mount), so the shot carries the focus ring too — the one state
+        // the resting baselines otherwise never capture.
+        id: "menu-open",
+        title: "Menu — open, with selected, destructive and disabled items",
+        overlay: true,
+        node: (
+          <Menu
+            defaultOpen
+            trigger={<Icon name="settings" size="1.15rem" />}
+            triggerLabel="Settings"
+          >
+            {({ close }) => (
+              <>
+                <MenuItem
+                  label="Duplicate"
+                  icon={<Icon name="clipboard" />}
+                  onSelect={() => close()}
+                />
+                <MenuItem label="Comfortable" selected onSelect={() => close()} />
+                <MenuItem label="Compact" selected={false} onSelect={() => close()} />
+                <MenuItem label="Archive" disabled onSelect={() => close()} />
+                <MenuItem
+                  label="Delete"
+                  destructive
+                  icon={<Icon name="trash" />}
+                  onSelect={() => close()}
+                />
+              </>
+            )}
           </Menu>
         ),
       },

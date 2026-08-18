@@ -16,8 +16,8 @@ npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
 
-50 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (250
-axe runs across five palettes); the screenshots cover the **two default** themes (100
+54 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (270
+axe runs across five palettes); the screenshots cover the **two default** themes (108
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, and one that the contrast allowance list has not grown a new theme.
 
@@ -43,6 +43,10 @@ Three rules, because both consumers depend on them:
   the state named in the title. Interaction belongs in an e2e suite.
 - **One concern per specimen.** `button-variants` and `button-disabled` are separate so a
   disabled-state change cannot mask a variant change inside one baseline.
+
+And one flag, for the specimens that render something open: `overlay: true`. See "Overlays
+paint outside their box" below — it changes how both lanes capture the specimen, and keeps it
+off the catalog page.
 
 ## How the visual suite is kept honest
 
@@ -78,6 +82,41 @@ the run is scoped to one specimen regardless.
 
 The bare address still renders the whole catalog. That is what a human opens, and what the
 "every specimen is present exactly once" check reads.
+
+## Overlays paint outside their box
+
+Three framework surfaces are invisible to a per-specimen lane by default, and each escapes by
+a different mechanism. `Popover` portals its panel to `document.body`, so the panel is not even
+a descendant of the specimen. `ConfirmDialog` opens a native `<dialog>` with `showModal()`,
+which renders in the top layer. The toast viewport is `position: fixed` at the corner of the
+screen. The screenshot lane clips to the specimen element's bounding box and the axe lane
+scopes to it with `.include()`, so for all three the shot comes out as the trigger with nothing
+next to it — and for `ConfirmDialog` as a *dimmed empty card*, because the `::backdrop` covers
+the clip while the dialog does not. That is worse than having no specimen, because it looks
+like coverage.
+
+`overlay: true` changes three things:
+
+- **The screenshot becomes a viewport shot** rather than an element shot. Nothing is lost:
+  `?only=` has already reduced the page to one specimen at one fixed origin, and the viewport
+  is pinned at 1280×900 with `deviceScaleFactor: 1`, so the baseline still depends on this
+  specimen and nothing else. The per-specimen promise is kept by the address rather than by the
+  clip.
+- **axe widens from the specimen element to `body`**, which is where the portalled panel
+  actually lives. `body` and not the whole page on purpose, so the document-level rules
+  (`html-has-lang`, `document-title`) stay out — they belong to this app's shell, and the lane
+  is a gate on react-core.
+- **The catalog page shows a link instead of the node.** An open `ConfirmDialog` locks
+  `document.body` scroll and makes every other specimen inert, and that page is both what a
+  person browses and what the "every specimen is present exactly once" check reads. Open menus
+  would also fight over focus, since a `Menu` moves focus to its first item on mount. The card
+  and its `data-specimen` handle stay, so the presence check still counts it.
+
+Verified by mutation, and by the half that matters: an unlabelled `<img>` placed inside the
+portalled `Popover` panel is a real `image-alt` failure at WCAG 2.0 A, and the element-scoped
+run reports **zero violations** for it in all five themes while the `body`-scoped run fails all
+five. The widening is not tidiness; without it an open-panel specimen is a green run that
+examined the trigger.
 
 **The theme is in the URL.** The page reads `?theme=<name>` and sets `data-theme` on
 `<html>` directly rather than going through `ThemeProvider`, which persists to
@@ -134,9 +173,9 @@ different at all — a normalised YIQ colour distance — and `maxDiffPixels` de
 counted pixels are tolerable. They are not interchangeable, and pinning one while inheriting
 the other is how this gate went blind for a while: only the pixel allowance was set, so
 Playwright's default `threshold: 0.2` applied, and a status token moving one Tailwind step
-(`#16a34a` → `#15803d`) produced **zero** differing pixels. All 62 baselines passed a change
-that visibly repaints every badge in every app. Phase 2d found it by repainting ten specimens
-and being told nothing had moved.
+(`#16a34a` → `#15803d`) produced **zero** differing pixels. Every baseline passed a change that
+visibly repaints every badge in every app. Phase 2d found it by repainting ten specimens and
+being told nothing had moved.
 
 Now `threshold: 0.02` with `maxDiffPixels: 0`. Zero-tolerance is viable because within one
 platform the render is deterministic — verified over three consecutive runs — and cross-platform

@@ -28,6 +28,20 @@ import { SCREENSHOT_THEMES } from "../src/themes";
 // accept for a one-line padding change. Their legibility is measured instead, statically over
 // every declared pairing and by axe over every painted specimen. See `src/themes.ts`.
 
+// An `overlay` specimen is shot as a VIEWPORT rather than as an element, and the reason is
+// not a preference. The element shot clips to the specimen's bounding box, and the three
+// framework overlays each paint outside it by a different mechanism: `Popover` portals its
+// panel to `document.body`, a `<dialog>` opened with `showModal()` renders in the top layer,
+// and the toast viewport is fixed to the corner of the screen. Clipping those produces a
+// baseline of the trigger with the panel missing — or, for `ConfirmDialog`, a dimmed empty
+// card, because the `::backdrop` covers the clip and the dialog does not. That is worse than
+// having no baseline, because it looks like coverage.
+//
+// A viewport shot loses nothing the element shot gave us, because `?only=` already reduced
+// the page to one specimen at one fixed origin, and the viewport itself is pinned
+// (1280x900, deviceScaleFactor 1) in playwright.config.ts. So the baseline still depends on
+// this specimen and nothing else — the per-specimen promise is kept by the address, not by
+// the clip.
 test.describe("component specimens", () => {
   for (const theme of SCREENSHOT_THEMES) {
     test.describe(theme, () => {
@@ -41,7 +55,9 @@ test.describe("component specimens", () => {
           // Fonts settle after first paint; an unsettled webfont swap is the classic source
           // of a one-line-height diff.
           await page.evaluate(() => document.fonts.ready);
-          await expect(target).toHaveScreenshot(`${theme}-${specimen.id}.png`);
+          await expect(specimen.overlay === true ? page : target).toHaveScreenshot(
+            `${theme}-${specimen.id}.png`,
+          );
         });
       }
     });
