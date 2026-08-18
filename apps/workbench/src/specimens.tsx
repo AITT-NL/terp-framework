@@ -27,6 +27,7 @@ import {
   Menu,
   MenuItem,
   ModuleNav,
+  NavIcon,
   Page,
   PageActions,
   Popover,
@@ -661,6 +662,21 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               <Badge tone="info" label="stacked one" />
               <Badge tone="info" label="stacked two" />
             </Stack>
+          </Stack>
+        ),
+      },
+      {
+        id: "nav-icons",
+        title: "NavIcon — resolved glyph beside the initial fallback",
+        // The fallback tile is painted by no other specimen: every SHELL_NAV item supplies a
+        // resolvable name, so the branch that renders a label's initial was invisible to both
+        // lanes — which is how it kept an accent-on-accent-soft pairing that measures 1.60:1
+        // in twilight until a review measured it.
+        node: (
+          <Stack direction="row" gap={3} align="center">
+            <NavIcon name="users" label="Users" />
+            <NavIcon name="no-such-glyph" label="Warehouse" />
+            <NavIcon label="Records" />
           </Stack>
         ),
       },

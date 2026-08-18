@@ -18,12 +18,18 @@
  * measurable.
  *
  * The subtlety that bit once, and is worth stating: `!important` comes off per
- * CONSUMER, not per rule. Several markers are shared — `input` is stamped by
- * `Combobox` and both date pickers as well as by the three text controls, and
- * the reduced-motion block reaches every component in the package. A shared
- * rule may only drop its `!important` when the LAST component it matches has
- * migrated. Dropping it when the first three did left a disabled `Combobox`
- * painted exactly like an enabled one.
+ * CONSUMER, not per rule. Several selectors are shared. `input` is stamped by
+ * `Combobox` and both date pickers as well as by the three text controls;
+ * `[data-terp]:focus-visible` and the reduced-motion block match *every*
+ * component in the package, so they are the last escalations that may retire.
+ * A shared rule drops its `!important` only when the LAST element it matches
+ * has migrated. Dropping `input`'s when the first three had left a disabled
+ * `Combobox` painted exactly like an enabled one.
+ *
+ * It runs the other way too, and that direction is quieter: an escalation kept
+ * after its last inline consumer migrated still outranks the app `theme.css`
+ * this phase exists to empower, and nothing renders differently to say so.
+ * `tab` was in that state until its rules were relaxed.
  *
  * ## Layers
  *
@@ -505,7 +511,12 @@ textarea[data-terp="input"] {
   align-items: center;
   gap: var(--space-2);
 }
-[data-terp="breadcrumbs"] [aria-current="page"] {
+/* Keyed on our own marker, not on [aria-current="page"]. The trail's ancestor
+   crumbs are the app router's links, and TanStack stamps aria-current="page" on
+   every link whose path is a PREFIX of the current one — which every ancestor
+   crumb is, by definition. Borrowing the attribute therefore painted the whole
+   trail as the current page. */
+[data-terp="breadcrumbs-current"] {
   color: var(--color-neutral-900);
   font-weight: var(--font-weight-medium);
 }
@@ -629,7 +640,7 @@ textarea[data-terp="input"] {
   height: 100%;
   border-radius: var(--radius-sm);
   background: var(--color-brand-primary-soft);
-  color: var(--color-brand-primary);
+  color: var(--color-fg-accent);
   font-size: 0.7em;
   font-weight: var(--font-weight-medium);
   line-height: 1;
@@ -831,7 +842,7 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp]:focus-visible {
   outline: 2px solid transparent;
   outline-offset: 1px;
-  box-shadow: 0 0 0 3px var(--color-focus-ring);
+  box-shadow: 0 0 0 3px var(--color-focus-ring) !important;
 }
 
 /* Buttons ------------------------------------------------------------------ */
@@ -970,12 +981,12 @@ button[data-terp="input"][data-placeholder="true"] {
   color: var(--color-fg-accent);
 }
 [data-terp="tab"]:hover:not(:disabled):not([aria-selected="true"]) {
-  color: var(--color-neutral-900) !important;
-  background: var(--color-neutral-100) !important;
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-100);
 }
 [data-terp="tab"]:disabled {
   opacity: 0.5;
-  cursor: not-allowed !important;
+  cursor: not-allowed;
 }
 
 /* Hub cards --------------------------------------------------------------- */
@@ -1083,15 +1094,25 @@ button[data-terp="input"][data-placeholder="true"] {
    spinner animation everywhere the sheet applies them.
 
    The layer puts this above terp.base and terp.state, which is enough for
-   every transition declared in this sheet. It is NOT enough for the ones still
-   declared inline: AppShell's nav links and collapse animation and HubPage's
-   card title each set transition in a style object, and no layer beats the
-   style attribute. Without !important a reduced-motion user still got those
-   animations — an accessibility preference silently ignored, and one no
-   screenshot can see. It comes off when those two components migrate. */
+   every transition this sheet declares ON a marked element. It is NOT enough
+   for the ones still declared inline: AppShell's nav links and HubPage's card
+   title each set transition in a style object, and no layer beats the style
+   attribute — without !important a reduced-motion user still got those
+   animations, an accessibility preference silently ignored that no screenshot
+   can see. Those come off when the two components migrate.
+
+   Note the selector list is the real limit here, not the layer: a transition
+   on an element carrying no data-terp is reached only if something below names
+   it. Breadcrumb links are such a case and are listed. AppShell's sidebar
+   collapse (transition: width, in sidebarStyle) is NOT: the aside carries no
+   marker, so nothing here matches it and a reduced-motion user still sees the
+   rail animate. That is fixed by AppShell's own migration, which moves the
+   declaration into this sheet, rather than by adding a marker to an element
+   about to change shape. */
 @media (prefers-reduced-motion: reduce) {
   [data-terp],
   [data-terp="appshell-nav"] a,
+  [data-terp="breadcrumbs"] a,
   [data-terp="dataview-table"] tbody tr {
     transition: none !important;
   }

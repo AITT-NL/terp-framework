@@ -63,12 +63,17 @@ test("holds no allowance for a theme added after the lane", () => {
   expect(THEMES.length).toBeGreaterThan(grandfathered.size);
 });
 
+// Each run renders its specimen alone, exactly as the screenshot lane does. The context axe
+// measures is unchanged — the solo page reuses the same page background and specimen card — but
+// a navigation now builds one specimen instead of all forty-nine. With five themes that was 245
+// full-catalog renders per run, which had grown slow enough to start timing out under parallel
+// load; the failure looked like an accessibility violation and was a cold page.
 test.describe("component accessibility", () => {
   for (const theme of THEMES) {
     test.describe(theme, () => {
       for (const specimen of ALL_SPECIMENS) {
         test(`${specimen.groupId}/${specimen.id}`, async ({ page }) => {
-          await page.goto(`/?theme=${theme}`);
+          await page.goto(`/?theme=${theme}&only=${specimen.id}`);
           const selector = `[data-specimen="${specimen.id}"]`;
           await page.locator(selector).waitFor({ state: "visible" });
           const results = await new AxeBuilder({ page })

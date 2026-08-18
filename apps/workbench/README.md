@@ -16,8 +16,8 @@ npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
 
-49 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (245
-axe runs across five palettes); the screenshots cover the **two default** themes (98
+50 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (250
+axe runs across five palettes); the screenshots cover the **two default** themes (100
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, and one that the contrast allowance list has not grown a new theme.
 
@@ -70,8 +70,14 @@ specimen's baseline now depends on that specimen and nothing else. Verified by m
 ways: inserting a specimen above everything now changes no other baseline, and the
 one-Tailwind-step token check below still fails the specimens it should.
 
-The bare address still renders the whole catalog — that is what a human opens, and the a11y
-lane keeps using it.
+Both lanes navigate that way. The a11y lane did keep loading the whole catalog for a while,
+which cost it 250 full-page renders per run and eventually started timing out under parallel
+load — a failure that reads as an accessibility violation and is a cold page. axe measures the
+same thing either way, because the solo page reuses the same background and specimen card and
+the run is scoped to one specimen regardless.
+
+The bare address still renders the whole catalog. That is what a human opens, and what the
+"every specimen is present exactly once" check reads.
 
 **The theme is in the URL.** The page reads `?theme=<name>` and sets `data-theme` on
 `<html>` directly rather than going through `ThemeProvider`, which persists to

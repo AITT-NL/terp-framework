@@ -45,6 +45,7 @@ const MARKERS = [
   "appshell-nav",
   "badge",
   "breadcrumbs",
+  "breadcrumbs-current",
   "breadcrumbs-separator",
   "button",
   "button-icon",

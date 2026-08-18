@@ -76,7 +76,10 @@ export function Breadcrumbs({ items, renderLink }: BreadcrumbsProps) {
               {!isLast && item.to !== undefined ? (
                 renderCrumbLink({ label, to: item.to })
               ) : (
-                <span aria-current={isLast ? "page" : undefined}>
+                <span
+                  aria-current={isLast ? "page" : undefined}
+                  data-terp={isLast ? "breadcrumbs-current" : undefined}
+                >
                   {label}
                 </span>
               )}
