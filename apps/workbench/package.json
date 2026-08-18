@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Private component workbench for @terpjs/react-core — every component, every variant, both themes, and the visual-regression baselines taken from them. Never published.",
+  "description": "Private component workbench for @terpjs/react-core — every component, every variant, every shipped theme, and the visual-regression baselines taken from them. Never published.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,8 +12,8 @@
     "visual:update": "playwright test --update-snapshots"
   },
   "dependencies": {
-    "@terpjs/contract": "^0.6.1",
-    "@terpjs/react-core": "^0.6.1",
+    "@terpjs/contract": "^0.7.0",
+    "@terpjs/react-core": "^0.7.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

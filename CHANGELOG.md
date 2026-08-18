@@ -10,15 +10,99 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## Unreleased
+## 0.7.0 — 2026-08-18
 
-Friction reported from an app whose workbench would not boot. The defect was one
-variable resolving to the wrong address, and every layer that could have said so
-stayed quiet: the gate did not read the seam, compose reported an exit code
-without the log that explained it, and there was no way to run the boot chain
-without a Docker daemon to find out which half was broken.
+Two bodies of work, and the larger one repaints every app — read **Changed**
+first.
+
+That larger one is the first half of the frontend design system. The ceiling it
+addresses was never a missing-components problem: react-core consumed raw ramp
+steps directly, so there was no `--surface`, no `--border`, no
+`--muted-foreground`, a third theme meant re-deriving every mapping by hand, and
+an app's `theme.css` could redefine token *values* and nothing else. This release
+lays the semantic layer over the ramp without removing it, publishes the
+vocabulary as machine-readable data for the first time, ships five themes where
+there were two, and clears every contrast defect the instrumentation found on the
+way — including one that turned out to be a defect in the vocabulary rather than
+in a colour.
+
+The smaller one is friction reported from an app whose workbench would not boot.
+The defect was one variable resolving to the wrong address, and every layer that
+could have said so stayed quiet: the gate did not read the seam, compose reported
+an exit code without the log that explained it, and there was no way to run the
+boot chain without a Docker daemon to find out which half was broken.
+
+### Changed
+
+- **The four light status tones darken, so badge and alert copy reaches AA.**
+  `--color-status-success` `#16a34a` → `#15803d`, `warning` `#d97706` →
+  `#b45309`, `danger` `#dc2626` → `#b91c1c`, `info` `#0284c7` → `#0369a1` —
+  each a step down its own Tailwind ramp, so the palette keeps its provenance
+  instead of gaining four bespoke values. They measured 3.07:1 to 4.41:1 against
+  their own soft backgrounds and now measure 4.79:1 to 5.91:1. Every `Badge` and
+  `Alert` in every app changes colour; nothing changes shape.
+
+- **The accent is two tokens, and `--color-brand-primary` now means only one of
+  them.** It was serving as a filled surface behind
+  `--color-brand-primary-contrast` (`Button`, avatars, the selected day, the
+  brand mark) *and* as ink or a boundary on the app's own surfaces (the selected
+  tab, the active nav item, the sub-nav underline, the spinner, the selected
+  combobox option, hub-card hover, the input focus ring, and `accent-color` on
+  `Checkbox`/`Radio`/`Switch`). In a dark theme those pull one token in opposite
+  directions — the surface use needs it dark enough to hold a white label, the
+  ink use needs it light enough to read on a dark canvas — and no value satisfies
+  both. The dark button label at 3.68:1 and the dark selected tab at 3.98:1 were
+  therefore one defect with two symptoms.
+
+  `--color-brand-primary` is now the accent as a *filled surface*, and the only
+  thing that may sit on it is `--color-brand-primary-contrast`.
+  `--color-fg-accent` is the accent as *ink or a boundary* against one of the
+  app's own surfaces. Thirteen call sites inside react-core moved to the ink
+  token; the four genuine filled-surface uses did not. **The dark primary button
+  label stays white** — the split is what makes flipping it to near-black
+  unnecessary, and flipping a shipped label is a visible identity change.
+
+  An app that themed `--color-brand-primary` keeps working and keeps controlling
+  every filled accent surface, but no longer controls accent *text*; set
+  `--color-fg-accent` alongside it to move both. The dark accent surface deepens
+  (`#3b82f6` → `#1d4ed8`) so the white label reaches 6.70:1, and the dark accent
+  wash deepens slightly to give the ink room — it was at 4.52:1, which is not a
+  margin.
+
+- **`accent-color` on `Checkbox`, `Radio` and `Switch` follows the ink token,
+  not the surface token.** The browser picks the check and thumb colour itself,
+  so the contrast that matters is the control against the page. Left on the
+  surface token these three would have regressed from 3.98:1 to 2.83:1 against
+  the dark canvas the moment that token deepened — a fix creating a defect two
+  components away, and one no declared pairing would have caught.
 
 ### Fixed
+
+- **A pinned theme was overridden by the OS dark preference.** The token sheet's
+  `prefers-color-scheme` block was scoped `:root:not([data-theme='light'])`,
+  which was equivalent while `light` and `dark` were the only themes and became a
+  defect the moment a third existed: it matches `[data-theme='contrast']`,
+  outranks it on specificity — two compound parts against one — and so laid the
+  dark colours over a theme the app had explicitly pinned whenever the OS
+  preferred dark. It now matches the *absence* of the attribute, which is the
+  only form that stays correct as themes are added, and that shape is asserted by
+  a test rather than left to the generator's comment.
+
+- **Every theme block now declares `color-scheme`.** Without it, native chrome
+  the framework cannot restyle — the `<select>` option popup, a natively drawn
+  scrollbar, a text caret — renders from the wrong palette: a white popup over a
+  black page. This was previously unverifiable rather than merely unchecked,
+  because the shared reader behind the token gates returned custom properties
+  only, so a `color-scheme` assertion would have passed vacuously.
+
+- **The five contrast defects in the shipped sheet are cleared, and both
+  allowance lists are empty.** Light `warning` (3.07:1), `success` (3.15:1),
+  `info` (3.84:1) and `danger` (4.41:1) badge copy, and the dark primary button
+  label (3.68:1), all cleared 3.0 for large text and failed 4.5 for normal text —
+  and badge copy and button labels are normal text. Every declared pairing in
+  every theme now reaches AA, `contrast` reaches AAA on all nineteen, and axe
+  finds no contrast violation in any of the 155 specimen runs it now performs
+  across all five themes.
 
 - **`.app.env` could never supply a variable a compose `environment:` block also
   names — and nothing said so.** Compose resolves `environment:` over
@@ -61,6 +145,79 @@ without a Docker daemon to find out which half was broken.
   seams came to be misunderstood.
 
 ### Added
+
+- **A semantic token layer, over the primitive ramp rather than instead of it.**
+  97 → 112 tokens. `--color-bg-*`, `--color-fg-*`, `--color-border-*` and
+  `--color-interactive-*` name what a colour is *for*; a `--color-sidebar-*`
+  namespace lets the shell sit on its own elevation and read as chrome rather
+  than content; `--color-chart-1` … `-5` give charts a palette where there was
+  none. Also added, all theme-invariant and therefore declared once in `:root`:
+  z-index (the shell hardcoded 30/40/50, `Popover` 60 and toasts 100 — a
+  collision surface), breakpoints (the `768px` query was duplicated verbatim in
+  `AppShell` and `DataView`), motion durations and easings, line-height,
+  letter-spacing and border-width. Space gained 5/7/10/12/16/20 and font size
+  gained 2xl/3xl/display; both stopped short before, which is why a page `h1`
+  rendered at 1.125rem with no display size above it.
+
+  `--color-neutral-*` and the rest of the ramp stay public and keep working, so
+  an app themed against them is untouched. Semantic tokens carry explicit
+  per-theme values rather than aliasing the ramp — that is what lets the ramp
+  change later without dragging every semantic name with it.
+
+- **`@terpjs/contract/tokens.manifest.json`** — the token vocabulary as
+  machine-readable data, exported from the package for the first time. Every
+  token with its category, its value in every theme, and whether any theme
+  overrides it; the theme list itself; and the foreground/background pairings the
+  contrast gate enforces. Three consumers could not get this any other way: a
+  theme editor had to hard-code its own list because `tokens.json` is
+  Style-Dictionary-shaped and was never exported, an agent editing a theme had to
+  infer names out of `node_modules` with no way to tell which tokens are safe to
+  theme or which must stay legible against which, and a human had no list at all.
+  Generated in the same run as the stylesheet from the same sources, so the two
+  cannot disagree, and CI diffs both.
+
+- **Five themes: `light`, `dark`, `midnight`, `twilight` and `contrast`.**
+  `midnight` is near-black with cooler neutrals for low light and OLED;
+  `twilight` is warm violet-tinted, and its neutrals sit in a different hue
+  family, which is what proves a theme is a palette and not a lightness setting;
+  `contrast` is high-contrast light, and every one of its declared text pairings
+  reaches AAA rather than AA. Each is a complete colour set — a theme that
+  forgets a colour is refused, not silently inherited.
+
+  Themes are registered in `themes.json` rather than discovered by file, because
+  four things about a theme cannot be read off its source: which theme the OS
+  dark preference selects, whether it reads light or dark to native chrome, what
+  contrast it promises, and what to call it. A theme may declare a floor above
+  AA, which is how `contrast` earns its name by measurement instead of by
+  description.
+
+- **`ThemeProvider`, `ThemeToggle` and `Theme` widen to all five, plus
+  `system`.** `defaultTheme="midnight"` is how an app ships on a named theme —
+  one prop, no other change. The toggle offers every shipped theme with its own
+  glyph and a translated label in both bundled locales. The `Theme` union stays a
+  hand-written copy rather than reading the manifest at runtime, because
+  react-core publishes unbuilt TypeScript and imports nothing but React;
+  resolving a sibling package's JSON module would change the consumption model
+  for every consumer. A parity test holds the copy to the published list in both
+  directions — a theme the sheet ships that the union omits is a palette no app
+  can select, and a theme the union offers that the sheet has no block for sets
+  `data-theme` to a value nothing matches while the control reports the choice
+  took.
+
+- **`--color-fg-accent`** — see **Changed**. The accent as ink or a boundary on
+  the app's own surfaces, split out of `--color-brand-primary` because one token
+  cannot serve both roles and reach AA in a dark theme.
+
+- **`terp upgrade --check` reports how far an app's scaffolding trails its
+  packages.** An app could sit on current libraries, seven-releases-old
+  scaffolding and a third version in `node_modules` at once — still working
+  around a slot restriction a later release lifted, briefed by a stale
+  `AGENTS.md` from the narrower contract — with every gate green throughout. Two
+  of those three records were already gated; the template ref was not, and no CLI
+  module was aware it existed. It is a report and not a gate, because scaffolding
+  legitimately lags a release: three shapes get three answers, and the up-to-date
+  case is reported too, since when the packages are current nothing else in the
+  toolchain mentions the scaffolding again.
 
 - **`terp verify --only env-seams`** — a new check in every profile, and in the
   template's CI. It reports a declared variable that a compose `environment:`
