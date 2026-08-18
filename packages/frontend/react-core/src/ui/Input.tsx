@@ -1,30 +1,17 @@
-import type { CSSProperties, InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes } from "react";
 
 import { injectTerpStyles } from "../styles";
-import { CONTROL_TEXT_STYLE } from "./controlStyles";
 
 injectTerpStyles();
-
-const inputStyle: CSSProperties = {
-  ...CONTROL_TEXT_STYLE,
-  lineHeight: 1.2,
-  minHeight: "2.25rem",
-  padding: "0 var(--space-3)",
-  border: "1px solid var(--color-neutral-300)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-neutral-900)",
-  background: "var(--color-neutral-0)",
-  boxSizing: "border-box",
-};
 
 export type InputProps = InputHTMLAttributes<HTMLInputElement>;
 
 /**
  * Token-styled text input — use instead of a raw `<input>` (the module-boundary rule).
- * The `data-terp="input"` marker opts the element into the shared focus ring and
- * hover polish injected by react-core.
+ * The `data-terp="input"` marker is the whole styling hook: it carries the shared control
+ * surface, the focus ring, the hover border and the disabled treatment from the injected
+ * sheet, with the element type deciding the geometry (ADR 0094).
  */
-export function Input({ style, ...rest }: InputProps) {
-  return <input data-terp="input" {...rest} style={{ ...inputStyle, ...style }} />;
+export function Input(props: InputProps) {
+  return <input data-terp="input" {...props} />;
 }
-

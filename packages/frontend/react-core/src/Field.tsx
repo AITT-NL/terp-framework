@@ -1,23 +1,10 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
+import { injectTerpStyles } from "./styles";
 import { useUiText } from "./uiText";
 import type { UiText } from "./uiText";
 
-const fieldStyle: CSSProperties = { display: "grid", gap: "var(--space-1)" };
-const labelStyle: CSSProperties = {
-  fontWeight: "var(--font-weight-medium)" as never,
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-neutral-700)",
-};
-const hintStyle: CSSProperties = {
-  color: "var(--color-neutral-500)",
-  fontSize: "var(--font-size-xs)",
-};
-const errorStyle: CSSProperties = {
-  color: "var(--color-status-danger)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: "var(--font-weight-medium)" as never,
-};
+injectTerpStyles();
 
 export interface FieldProps {
   /** The field label (also the control's accessible name — the control is wrapped in the `<label>`). */
@@ -39,13 +26,13 @@ export interface FieldProps {
 export function Field({ label, children, error, hint }: FieldProps) {
   const resolve = useUiText();
   return (
-    <div style={fieldStyle}>
-      <label style={fieldStyle}>
-        <span style={labelStyle}>{resolve(label)}</span>
+    <div data-terp="field">
+      <label data-terp="field-label">
+        <span data-terp="field-label-text">{resolve(label)}</span>
         {children}
       </label>
-      {hint !== undefined && <span style={hintStyle}>{hint}</span>}
-      {error !== undefined && error !== null && <span style={errorStyle}>{error}</span>}
+      {hint !== undefined && <span data-terp="field-hint">{hint}</span>}
+      {error !== undefined && error !== null && <span data-terp="field-error">{error}</span>}
     </div>
   );
 }

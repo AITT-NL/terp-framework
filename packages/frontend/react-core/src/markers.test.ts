@@ -63,6 +63,11 @@ const MARKERS = [
   "drawer-focus-start",
   "empty-state",
   "error-state",
+  "field",
+  "field-error",
+  "field-hint",
+  "field-label",
+  "field-label-text",
   "hubcard",
   "hubcard-body",
   "hubcard-description",
@@ -117,7 +122,6 @@ const MARKERS = [
  */
 const UNMARKED_STYLED_SURFACES = [
   "./DetailPage.tsx",
-  "./Field.tsx",
   "./LoginView.tsx",
   "./OverviewPage.tsx",
   "./PageActions.tsx",

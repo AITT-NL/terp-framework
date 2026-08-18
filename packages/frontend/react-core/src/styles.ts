@@ -269,6 +269,69 @@ html {
   font-weight: var(--font-weight-semibold);
 }
 
+/* Text controls ------------------------------------------------------------ */
+/* Input, Select and Textarea deliberately share one marker, because the focus
+   ring, the hover border and the disabled treatment are the same control
+   affordance in all three. Only their geometry differs, so the element type
+   carries that — no second attribute for a distinction the tag name already
+   makes. */
+[data-terp="input"] {
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-0);
+  box-sizing: border-box;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.25;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+input[data-terp="input"] {
+  min-height: var(--density-control-min-height);
+  padding: 0 var(--space-3);
+  line-height: 1.2;
+}
+/* The chevron is a background image, so the padding-right reserves its box and
+   the shorthand restates the surface colour behind it. Appearance is reset on
+   all three prefixes: the native affordance cannot be token-themed. */
+select[data-terp="input"] {
+  max-width: 100%;
+  min-width: 0;
+  min-height: var(--density-control-min-height);
+  padding: 0 calc(var(--space-3) + 1.25rem) 0 var(--space-3);
+  line-height: 1.2;
+  background: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 8 5 5 5-5'/%3E%3C/svg%3E") no-repeat right var(--space-2) center / 1rem 1rem, var(--color-neutral-0);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+textarea[data-terp="input"] {
+  padding: var(--space-2) var(--space-3);
+  line-height: 1.4;
+}
+
+/* Fields ------------------------------------------------------------------- */
+[data-terp="field"],
+[data-terp="field-label"] {
+  display: grid;
+  gap: var(--space-1);
+}
+[data-terp="field-label-text"] {
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-700);
+}
+[data-terp="field-hint"] {
+  color: var(--color-neutral-500);
+  font-size: var(--font-size-xs);
+}
+[data-terp="field-error"] {
+  color: var(--color-status-danger);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
 /* Tooltips ----------------------------------------------------------------- */
 /* No display declaration here on purpose: the panel is hidden with the hidden
    attribute, and any author display would beat the UA's [hidden] rule and
@@ -347,17 +410,14 @@ html {
 }
 
 /* Inputs / selects / textareas -------------------------------------------- */
-[data-terp="input"] {
-  transition: border-color 150ms ease, box-shadow 150ms ease;
-}
 [data-terp="input"]:hover:not(:disabled):not(:focus) {
-  border-color: var(--color-neutral-400, var(--color-neutral-500)) !important;
+  border-color: var(--color-neutral-400);
 }
 [data-terp="input"]:focus,
 [data-terp="input"]:focus-visible {
   outline: none;
-  border-color: var(--color-fg-accent) !important;
-  box-shadow: 0 0 0 3px var(--color-focus-ring) !important;
+  border-color: var(--color-fg-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 [data-terp="input"]::placeholder {
   color: var(--color-neutral-500);
@@ -370,12 +430,12 @@ html {
 [data-terp="input"]:disabled {
   /* background-color (not the background shorthand) so the Select's chevron,
      drawn as a background-image, survives the disabled state. */
-  background-color: var(--color-neutral-50) !important;
-  color: var(--color-neutral-500) !important;
-  cursor: not-allowed !important;
+  background-color: var(--color-neutral-50);
+  color: var(--color-neutral-500);
+  cursor: not-allowed;
 }
 [data-terp="input"][aria-invalid="true"] {
-  border-color: var(--color-status-danger) !important;
+  border-color: var(--color-status-danger);
 }
 /* Number steppers are browser chrome and cannot be token-themed consistently.
    Keep keyboard/wheel/manual numeric input while removing the mismatched arrows. */
