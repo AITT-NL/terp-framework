@@ -84,6 +84,15 @@ test.describe("component accessibility", () => {
           await page.goto(`/?theme=${theme}&only=${specimen.id}`);
           const selector = `[data-specimen="${specimen.id}"]`;
           await page.locator(selector).waitFor({ state: "visible" });
+          // Settle the fonts before axe reads anything, exactly as the screenshot lane does.
+          // axe's colour-contrast rule resolves computed foreground and background from the
+          // painted page, so it is measuring a moving target until layout and text rendering
+          // have finished — and the way that surfaces is a contrast violation on a specimen
+          // whose colours are fine, which is indistinguishable from a real defect. This lane
+          // has been bitten by the cold-page shape before (it once loaded the whole catalog
+          // for all 285 runs and timed out under parallel load); the two lanes waiting for
+          // different things was the remaining asymmetry.
+          await page.evaluate(() => document.fonts.ready);
           const results = await new AxeBuilder({ page })
             .include(specimen.overlay === true ? "body" : selector)
             .withTags(TAGS)
