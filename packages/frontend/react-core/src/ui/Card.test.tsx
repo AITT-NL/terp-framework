@@ -17,8 +17,12 @@ describe("Card", () => {
     expect(heading).toBeInTheDocument();
     const card = heading.closest('[data-terp="card"]') as HTMLElement;
     expect(card.tagName).toBe("SECTION");
-    expect(card.style.border).toContain("var(--color-neutral-200)");
-    expect(card.style.background).toContain("var(--color-neutral-0)");
+    // The surface is a sheet rule (ADR 0094); the card's own claims are its element, its
+    // gap step and that the title is a real h3 inside the header row.
+    expect(card.getAttribute("style")).toBeNull();
+    expect(card).toHaveAttribute("data-gap", "3");
+    expect(heading).toHaveAttribute("data-terp", "card-title");
+    expect(heading.closest('[data-terp="card-header"]')).not.toBeNull();
     expect(screen.getByText("Uren per maand.")).toBeInTheDocument();
     expect(screen.getByText("body")).toBeInTheDocument();
   });

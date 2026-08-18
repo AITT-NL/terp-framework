@@ -1,4 +1,8 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
+
+import { injectTerpStyles } from "./styles";
+
+injectTerpStyles();
 
 /**
  * The dependency-free icon layer: a small set of inline SVG glyphs the shell's
@@ -431,31 +435,6 @@ export const ICON_GLYPHS: Record<string, ReactNode> = {
   ),
 };
 
-const navIconStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: "1.25rem",
-  height: "1.25rem",
-  flex: "0 0 1.25rem",
-  fontSize: "1rem",
-  lineHeight: 1,
-};
-
-const fallbackStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: "100%",
-  height: "100%",
-  borderRadius: "var(--radius-sm, 4px)",
-  background: "var(--color-brand-primary-soft, var(--color-neutral-200))",
-  color: "var(--color-brand-primary, var(--color-neutral-700))",
-  fontSize: "0.7em",
-  fontWeight: "var(--font-weight-medium)" as CSSProperties["fontWeight"],
-  lineHeight: 1,
-};
-
 export interface NavIconProps {
   /** Glyph name (a `NavItem.icon` value); unknown / missing falls back to the initial. */
   name?: string;
@@ -470,9 +449,9 @@ export interface NavIconProps {
 export function NavIcon({ name, label }: NavIconProps) {
   const glyph = name !== undefined ? ICON_GLYPHS[name] : undefined;
   return (
-    <span aria-hidden="true" data-terp="nav-icon" style={navIconStyle}>
+    <span aria-hidden="true" data-terp="nav-icon">
       {glyph ?? (
-        <span style={fallbackStyle}>
+        <span data-terp="nav-icon-fallback">
           {(label[0] ?? "?").toUpperCase()}
         </span>
       )}
@@ -511,15 +490,8 @@ export function Icon({ name, size = "1em", title }: IconProps) {
       aria-hidden={labelled ? undefined : true}
       role={labelled ? "img" : undefined}
       aria-label={labelled ? title : undefined}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: px,
-        height: px,
-        lineHeight: 1,
-        color: "inherit",
-      }}
+      data-terp="icon"
+      style={{ width: px, height: px }}
     >
       {glyph}
     </span>

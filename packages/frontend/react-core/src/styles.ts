@@ -411,6 +411,230 @@ textarea[data-terp="input"] {
   gap: var(--space-2);
 }
 
+/* Cards -------------------------------------------------------------------- */
+[data-terp="card"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  min-width: 0;
+}
+[data-terp="card"][data-gap="0"] { gap: var(--space-0); }
+[data-terp="card"][data-gap="1"] { gap: var(--space-1); }
+[data-terp="card"][data-gap="2"] { gap: var(--space-2); }
+[data-terp="card"][data-gap="3"] { gap: var(--space-3); }
+[data-terp="card"][data-gap="4"] { gap: var(--space-4); }
+[data-terp="card"][data-gap="6"] { gap: var(--space-6); }
+[data-terp="card"][data-gap="8"] { gap: var(--space-8); }
+[data-terp="card-header"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+[data-terp="card-heading"] {
+  min-width: 0;
+}
+[data-terp="card-actions"] {
+  flex-shrink: 0;
+}
+[data-terp="card-title"] {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+}
+[data-terp="card-description"] {
+  margin: 0;
+  color: var(--color-neutral-600);
+  font-size: var(--font-size-sm);
+}
+
+/* Tabs --------------------------------------------------------------------- */
+/* The tab strip sits one pixel over the list's bottom rule, so the selected
+   tab's own 2px edge covers it rather than stacking beside it. */
+[data-terp="tabs"] {
+  display: grid;
+  gap: var(--space-3);
+}
+[data-terp="tab-list"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  border-block-end: 1px solid var(--color-neutral-200);
+}
+[data-terp="tab"] {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-block-end: 2px solid transparent;
+  color: var(--color-neutral-600);
+  background: transparent;
+  cursor: pointer;
+  margin-block-end: -1px;
+  border-top-left-radius: var(--radius-sm);
+  border-top-right-radius: var(--radius-sm);
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+[data-terp="tab-panel"] {
+  color: var(--color-neutral-900);
+}
+
+/* Breadcrumbs -------------------------------------------------------------- */
+/* The trail owns its whole subtree, so the list and its items are addressed
+   structurally and the current crumb by the aria-current it already carries —
+   no marker for something the accessibility tree already states. */
+[data-terp="breadcrumbs"] {
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-600);
+}
+[data-terp="breadcrumbs"] ol,
+[data-terp="breadcrumbs"] li {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+[data-terp="breadcrumbs"] [aria-current="page"] {
+  color: var(--color-neutral-900);
+  font-weight: var(--font-weight-medium);
+}
+[data-terp="breadcrumbs"] a {
+  color: var(--color-neutral-600);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+[data-terp="breadcrumbs-separator"] {
+  display: inline-flex;
+  color: var(--color-neutral-400);
+  line-height: 0;
+}
+
+/* Empty / error / loading states ------------------------------------------- */
+/* Same centred block, opposite messages: empty is a dashed outline on the page
+   surface because nothing is wrong, error is a filled danger wash because
+   something is. */
+[data-terp="empty-state"] {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  color: var(--color-neutral-600);
+  border: 1px dashed var(--color-neutral-300);
+  border-radius: var(--radius-lg);
+  background: var(--color-neutral-0);
+}
+[data-terp="empty-state-icon"] {
+  color: var(--color-neutral-400);
+  display: inline-flex;
+}
+[data-terp="empty-state-title"] {
+  margin: 0;
+  color: var(--color-neutral-900);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+[data-terp="empty-state-description"] {
+  color: var(--color-neutral-600);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  max-width: 36ch;
+}
+[data-terp="error-state"] {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-neutral-700);
+  background: var(--color-status-danger-soft);
+  border: 1px solid var(--color-status-danger);
+  border-radius: var(--radius-lg);
+}
+[data-terp="error-state-icon"] {
+  color: var(--color-status-danger);
+  display: inline-flex;
+}
+[data-terp="error-state-title"] {
+  margin: 0;
+  color: var(--color-status-danger);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+[data-terp="error-state-description"] {
+  color: var(--color-neutral-700);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  max-width: 48ch;
+}
+[data-terp="loading-state"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  color: var(--color-neutral-500);
+  font-size: var(--font-size-sm);
+}
+[data-terp="loading-state-spinner"] {
+  color: var(--color-fg-accent);
+}
+/* The ring's box is inline (the caller passes a pixel size); everything about
+   how it sits on the line is not. */
+[data-terp="spinner-ring"] {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 0;
+}
+[data-terp="spinner-ring"] > svg {
+  display: block;
+}
+
+/* Icons -------------------------------------------------------------------- */
+/* Icon takes any CSS length for its size, so width/height stay inline; the box
+   it draws them in does not vary. */
+[data-terp="icon"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  color: inherit;
+}
+[data-terp="nav-icon"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 1.25rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+[data-terp="nav-icon-fallback"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--color-brand-primary-soft);
+  color: var(--color-brand-primary);
+  font-size: 0.7em;
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
+}
+
 /* Combobox ----------------------------------------------------------------- */
 /* The text box keeps the shared input marker, so it inherits the whole control
    surface; role="combobox" is already on it for ARIA and distinguishes its
@@ -737,10 +961,13 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 /* Tabs -------------------------------------------------------------------- */
-[data-terp="tab"] {
-  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
-  border-top-left-radius: var(--radius-sm);
-  border-top-right-radius: var(--radius-sm);
+/* Selection is a state, so it lives here rather than beside the tab's base:
+   the accent edge and label have to beat the resting colour, and aria-selected
+   is already on the element for assistive tech. */
+[data-terp="tab"][aria-selected="true"] {
+  font-weight: var(--font-weight-semibold);
+  border-block-end-color: var(--color-fg-accent);
+  color: var(--color-fg-accent);
 }
 [data-terp="tab"]:hover:not(:disabled):not([aria-selected="true"]) {
   color: var(--color-neutral-900) !important;
@@ -773,11 +1000,6 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 /* Breadcrumb links -------------------------------------------------------- */
-[data-terp="breadcrumbs"] a {
-  color: var(--color-neutral-600);
-  text-decoration: none;
-  transition: color 150ms ease;
-}
 [data-terp="breadcrumbs"] a:hover {
   color: var(--color-neutral-900);
   text-decoration: underline;

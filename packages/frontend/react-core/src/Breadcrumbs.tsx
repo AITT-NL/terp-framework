@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { injectTerpStyles } from "./styles";
 import { useNavLink } from "./navLink";
@@ -28,32 +28,6 @@ export interface BreadcrumbsProps {
    */
   renderLink?: RenderBreadcrumbLink;
 }
-
-const navStyle: CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-neutral-600)",
-};
-
-const listStyle: CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  gap: "var(--space-2)",
-};
-
-const currentStyle: CSSProperties = {
-  color: "var(--color-neutral-900)",
-  fontWeight: "var(--font-weight-medium)" as CSSProperties["fontWeight"],
-};
-
-const separatorStyle: CSSProperties = {
-  display: "inline-flex",
-  color: "var(--color-neutral-400)",
-  lineHeight: 0,
-};
 
 function ChevronSeparator() {
   return (
@@ -92,22 +66,22 @@ export function Breadcrumbs({ items, renderLink }: BreadcrumbsProps) {
   const strings = useStrings();
   const resolve = useUiText();
   return (
-    <nav aria-label={strings.breadcrumbsLabel} data-terp="breadcrumbs" style={navStyle}>
-      <ol style={listStyle}>
+    <nav aria-label={strings.breadcrumbsLabel} data-terp="breadcrumbs">
+      <ol>
         {items.map((item, index) => {
           const isLast = index === items.length - 1;
           const label = resolve(item.label);
           return (
-            <li key={`${index}-${label}`} style={listStyle}>
+            <li key={`${index}-${label}`}>
               {!isLast && item.to !== undefined ? (
                 renderCrumbLink({ label, to: item.to })
               ) : (
-                <span aria-current={isLast ? "page" : undefined} style={isLast ? currentStyle : undefined}>
+                <span aria-current={isLast ? "page" : undefined}>
                   {label}
                 </span>
               )}
               {!isLast && (
-                <span aria-hidden="true" style={separatorStyle}>
+                <span aria-hidden="true" data-terp="breadcrumbs-separator">
                   <ChevronSeparator />
                 </span>
               )}

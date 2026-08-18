@@ -1,8 +1,11 @@
-import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 import type { SpaceToken } from "../layout";
+import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
+
+injectTerpStyles();
 
 export interface CardProps
   extends Omit<HTMLAttributes<HTMLElement>, "style" | "title"> {
@@ -18,37 +21,6 @@ export interface CardProps
   gap?: SpaceToken;
   children?: ReactNode;
 }
-
-const cardStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  background: "var(--color-neutral-0)",
-  border: "1px solid var(--color-neutral-200)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-4)",
-  minWidth: 0,
-};
-
-const headerStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  flexWrap: "wrap",
-  gap: "var(--space-3)",
-};
-
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--font-size-base)",
-  fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
-  lineHeight: 1.3,
-};
-
-const descriptionStyle: CSSProperties = {
-  margin: 0,
-  color: "var(--color-neutral-600)",
-  fontSize: "var(--font-size-sm)",
-};
 
 /**
  * A token-styled surface that groups one block of a page — the sanctioned way to give
@@ -70,23 +42,23 @@ export function Card({
   const resolve = useUiText();
   const hasHeader = title !== undefined || actions !== undefined;
   return (
-    <Component {...rest} data-terp="card" style={{ ...cardStyle, gap: `var(--space-${gap})` }}>
+    <Component {...rest} data-terp="card" data-gap={String(gap)}>
       {hasHeader ? (
-        <div data-terp="card-header" style={headerStyle}>
-          <div style={{ minWidth: 0 }}>
-            {title !== undefined ? <h3 style={titleStyle}>{resolve(title)}</h3> : null}
+        <div data-terp="card-header">
+          <div data-terp="card-heading">
+            {title !== undefined ? <h3 data-terp="card-title">{resolve(title)}</h3> : null}
             {description !== undefined ? (
-              <p style={descriptionStyle}>{resolve(description)}</p>
+              <p data-terp="card-description">{resolve(description)}</p>
             ) : null}
           </div>
           {actions !== undefined ? (
-            <div data-terp="card-actions" style={{ flexShrink: 0 }}>
+            <div data-terp="card-actions">
               {actions}
             </div>
           ) : null}
         </div>
       ) : description !== undefined ? (
-        <p style={descriptionStyle}>{resolve(description)}</p>
+        <p data-terp="card-description">{resolve(description)}</p>
       ) : null}
       {children}
     </Component>

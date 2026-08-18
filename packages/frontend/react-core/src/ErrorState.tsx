@@ -1,9 +1,12 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { useErrorMessage } from "./errorMessages";
 import { Icon } from "./icons";
+import { injectTerpStyles } from "./styles";
 import { useStrings, useUiText } from "./uiText";
 import type { UiText } from "./uiText";
+
+injectTerpStyles();
 
 /**
  * Best-effort human-readable message for a caught failure. `unwrap` already throws
@@ -47,37 +50,6 @@ export interface ErrorStateProps {
   action?: ReactNode;
 }
 
-const wrapStyle: CSSProperties = {
-  display: "grid",
-  justifyItems: "center",
-  gap: "var(--space-3)",
-  padding: "var(--space-6)",
-  textAlign: "center",
-  color: "var(--color-neutral-700)",
-  background: "var(--color-status-danger-soft)",
-  border: "1px solid var(--color-status-danger)",
-  borderRadius: "var(--radius-lg)",
-};
-
-const titleStyle: CSSProperties = {
-  margin: 0,
-  color: "var(--color-status-danger)",
-  fontSize: "var(--font-size-base)",
-  fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
-};
-
-const iconStyle: CSSProperties = {
-  color: "var(--color-status-danger)",
-  display: "inline-flex",
-};
-
-const descriptionStyle: CSSProperties = {
-  color: "var(--color-neutral-700)",
-  fontSize: "var(--font-size-sm)",
-  lineHeight: 1.5,
-  maxWidth: "48ch",
-};
-
 /**
  * The standard "something went wrong" block: use whenever a query fails (404 / 403 /
  * network) and the page frame is already rendered. Announced as an `alert` so assistive
@@ -93,15 +65,15 @@ export function ErrorState({ icon, title, description, error, action }: ErrorSta
     (error !== undefined ? (messageForCode(error) ?? describeError(error)) : null);
   const leading =
     icon ?? (
-      <span style={iconStyle}>
+      <span data-terp="error-state-icon">
         <Icon name="x" size="1.75rem" />
       </span>
     );
   return (
-    <div role="alert" data-terp="error-state" style={wrapStyle}>
+    <div role="alert" data-terp="error-state">
       {leading}
-      <p style={titleStyle}>{resolve(title ?? strings.errorTitle)}</p>
-      {message !== null && message !== undefined && <div style={descriptionStyle}>{message}</div>}
+      <p data-terp="error-state-title">{resolve(title ?? strings.errorTitle)}</p>
+      {message !== null && message !== undefined && <div data-terp="error-state-description">{message}</div>}
       {action}
     </div>
   );

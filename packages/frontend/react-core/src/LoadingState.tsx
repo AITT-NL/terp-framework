@@ -1,5 +1,3 @@
-import type { CSSProperties } from "react";
-
 import { injectTerpStyles } from "./styles";
 import { useStrings, useUiText } from "./uiText";
 import type { UiText } from "./uiText";
@@ -23,13 +21,7 @@ export function InlineSpinner({ size = 16 }: InlineSpinnerProps) {
     <span
       aria-hidden="true"
       data-terp="spinner-ring"
-      style={{
-        display: "inline-block",
-        verticalAlign: "middle",
-        width: size,
-        height: size,
-        lineHeight: 0,
-      }}
+      style={{ width: size, height: size }}
     >
       <svg
         aria-hidden="true"
@@ -37,7 +29,6 @@ export function InlineSpinner({ size = 16 }: InlineSpinnerProps) {
         height={size}
         viewBox="0 0 24 24"
         fill="none"
-        style={{ display: "block" }}
       >
         <circle
           cx="12"
@@ -63,18 +54,6 @@ export interface LoadingStateProps {
   label?: UiText;
 }
 
-const wrapStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "var(--space-2)",
-  padding: "var(--space-6)",
-  color: "var(--color-neutral-500)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const spinnerColorStyle: CSSProperties = { color: "var(--color-fg-accent)" };
-
 /**
  * Standard inline loading indicator: a spinner plus a short label, announced
  * as a `status` live region. Use it when a query is pending and the page shell
@@ -85,8 +64,8 @@ export function LoadingState({ label }: LoadingStateProps) {
   const strings = useStrings();
   const resolve = useUiText();
   return (
-    <div role="status" data-terp="loading-state" style={wrapStyle}>
-      <span style={spinnerColorStyle}>
+    <div role="status" data-terp="loading-state">
+      <span data-terp="loading-state-spinner">
         <InlineSpinner size={20} />
       </span>
       <span>{resolve(label ?? strings.loading)}</span>

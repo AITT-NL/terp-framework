@@ -11,7 +11,10 @@ describe("NavIcon", () => {
     const { container } = render(<NavIcon name="users" label="Users" />);
     const slot = container.querySelector('[data-terp="nav-icon"]');
     const svg = container.querySelector("svg");
-    expect(slot).toHaveStyle({ width: "1.25rem", height: "1.25rem", flex: "0 0 1.25rem" });
+    // The rail slot's fixed 1.25rem box is a sheet rule now (ADR 0094); what this test
+    // owns is that the named glyph resolved and stayed decorative.
+    expect(slot).not.toBeNull();
+    expect(slot?.getAttribute("style")).toBeNull();
     expect(svg).not.toBeNull();
     expect(svg).toHaveAttribute("aria-hidden", "true");
   });
@@ -19,11 +22,12 @@ describe("NavIcon", () => {
   it("falls back to the label's initial for an unknown or missing name", () => {
     const { container } = render(<NavIcon name="no-such-glyph" label="widgets" />);
     expect(screen.getByText("W")).toBeInTheDocument();
-    expect(container.querySelector('[data-terp="nav-icon"]')).toHaveStyle({
-      width: "1.25rem",
-      height: "1.25rem",
-      flex: "0 0 1.25rem",
-    });
+    // The fallback tile is its own marker, so the rail can style "an initial in a tile"
+    // separately from "a glyph" — which is the distinction a theme cares about.
+    expect(
+      container.querySelector('[data-terp="nav-icon-fallback"]'),
+      "the initial renders in the fallback tile",
+    ).not.toBeNull();
     render(<NavIcon label="records" />);
     expect(screen.getByText("R")).toBeInTheDocument();
   });

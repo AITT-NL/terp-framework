@@ -1,34 +1,11 @@
 import { useId, useMemo, useState } from "react";
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 
 import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
-import { CONTROL_TEXT_STYLE } from "./controlStyles";
 
 injectTerpStyles();
-
-const rootStyle: CSSProperties = { display: "grid", gap: "var(--space-3)" };
-const tabListStyle: CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "var(--space-1)",
-  borderBlockEnd: "1px solid var(--color-neutral-200)",
-};
-const tabStyle = (selected: boolean): CSSProperties => ({
-  ...CONTROL_TEXT_STYLE,
-  fontWeight: (selected
-    ? "var(--font-weight-semibold)"
-    : "var(--font-weight-medium)") as never,
-  padding: "var(--space-2) var(--space-3)",
-  border: 0,
-  borderBlockEnd: selected ? "2px solid var(--color-fg-accent)" : "2px solid transparent",
-  color: selected ? "var(--color-fg-accent)" : "var(--color-neutral-600)",
-  background: "transparent",
-  cursor: "pointer",
-  marginBlockEnd: "-1px",
-});
-const panelStyle: CSSProperties = { color: "var(--color-neutral-900)" };
 
 export interface TabItem {
   value: string;
@@ -90,8 +67,8 @@ export function Tabs({ tabs, value, defaultValue, onChange, label }: TabsProps) 
   }
 
   return (
-    <div data-terp="tabs" style={rootStyle}>
-      <div role="tablist" aria-label={label === undefined ? undefined : resolve(label)} style={tabListStyle} onKeyDown={onKeyDown}>
+    <div data-terp="tabs">
+      <div role="tablist" data-terp="tab-list" aria-label={label === undefined ? undefined : resolve(label)} onKeyDown={onKeyDown}>
         {tabs.map((tab) => {
           const selected = tab.value === selectedTab?.value;
           return (
@@ -106,7 +83,6 @@ export function Tabs({ tabs, value, defaultValue, onChange, label }: TabsProps) 
               tabIndex={selected ? 0 : -1}
               disabled={tab.disabled}
               onClick={() => select(tab.value)}
-              style={tabStyle(selected)}
             >
               {resolve(tab.label)}
             </button>
@@ -118,7 +94,7 @@ export function Tabs({ tabs, value, defaultValue, onChange, label }: TabsProps) 
           id={`${baseId}-panel-${selectedTab.value}`}
           role="tabpanel"
           aria-labelledby={`${baseId}-tab-${selectedTab.value}`}
-          style={panelStyle}
+          data-terp="tab-panel"
         >
           {selectedTab.content}
         </div>
