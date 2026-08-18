@@ -1,8 +1,11 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
+import { injectTerpStyles } from "./styles";
 import { Menu, MenuItem } from "./ui/Menu";
 import { useStrings } from "./uiText";
 import type { UiText } from "./uiText";
+
+injectTerpStyles();
 
 export interface OverflowAction {
   /** Display label for the menu item. */
@@ -25,14 +28,6 @@ export interface PageActionsProps {
   className?: string;
 }
 
-const clusterStyle: CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  justifyContent: "flex-end",
-  gap: "var(--space-2)",
-};
-
 /** Standard right-aligned action cluster for page headers. */
 export function PageActions({ primary, secondary, overflow, className }: PageActionsProps) {
   const strings = useStrings();
@@ -43,7 +38,7 @@ export function PageActions({ primary, secondary, overflow, className }: PageAct
   }
 
   return (
-    <div className={className} style={clusterStyle}>
+    <div className={className} data-terp="page-actions">
       {hasOverflow && (
         <Menu trigger="⋯" triggerLabel={strings.moreActions}>
           {({ close }) => (

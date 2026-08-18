@@ -861,6 +861,78 @@ button[data-terp="input"][data-placeholder="true"] {
   white-space: normal;
 }
 
+/* Menus -------------------------------------------------------------------- */
+/* The trigger. It wore the shared iconbutton marker and overrode every one of
+   that marker's declarations inline, which made it indistinguishable in the sheet
+   from a pagination arrow and a toast dismisser. Its own name now, so this look —
+   an outlined control with control typography — is stated once and reachable. */
+[data-terp="menu-trigger"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  color: var(--color-neutral-700);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.25;
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+/* The panel's contents. This sits INSIDE popover-panel, which supplies the
+   surface — so the menu owns only the stacking of its items. */
+[data-terp="menu"] {
+  display: grid;
+  gap: var(--space-1);
+}
+[data-terp="menu-item"] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  color: var(--color-neutral-900);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.25;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+/* Destructive is the one enumerable choice an item has, so it is an attribute.
+   The disabled treatment is a state rule keyed on :disabled, because the element
+   is a real button carrying the real attribute. */
+[data-terp="menu-item"][data-destructive="true"] {
+  color: var(--color-status-danger);
+}
+[data-terp="menu-item-icon"],
+[data-terp="menu-item-check"] {
+  display: inline-flex;
+}
+/* The check sits at the far end of the row rather than beside the label. */
+[data-terp="menu-item-check"] {
+  margin-inline-start: auto;
+}
+
+/* Page actions ------------------------------------------------------------- */
+[data-terp="page-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 /* Popover ------------------------------------------------------------------ */
 /* The wrapper the trigger sits in. Popover is the rendered root of Menu and of
    both date pickers, so this is the geometry of far more than one component. */
@@ -1128,18 +1200,40 @@ button[data-terp="input"][data-placeholder="true"] {
   cursor: not-allowed;
 }
 
-/* Menu items (UserMenu, DataView row-actions / column settings). */
-[data-terp="menu-item"] {
-  transition: background-color 150ms ease, color 150ms ease;
-  border-radius: var(--radius-sm);
-}
+/* Menu items and the menu trigger.
+
+   The escalation on these two item rules is GONE, and the condition for removing
+   it was the marker's LAST consumer rather than its first. MenuItem is the only
+   thing in the package that renders data-terp="menu-item" — unlike input, which
+   six elements wear — so once it stopped carrying inline base styles there was
+   nothing left for the rules to out-shout, and layer order is enough. Keeping
+   !important past that point is the quiet failure: nothing renders differently,
+   the rule just silently outranks the app theme.css this phase exists to
+   empower. Both directions are pinned in styles.test.ts.
+
+   The base declarations that used to sit up here — the item's transition and
+   radius — have moved down to terp.base where they belong. They were here only
+   because an inline style would have beaten them anywhere. */
 [data-terp="menu-item"]:hover:not(:disabled) {
-  background: var(--color-neutral-100) !important;
-  color: var(--color-neutral-900) !important;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
 }
 [data-terp="menu-item"][data-selected="true"] {
-  background: var(--color-brand-primary-soft) !important;
-  color: var(--color-fg-accent) !important;
+  background: var(--color-brand-primary-soft);
+  color: var(--color-fg-accent);
+}
+[data-terp="menu-item"]:disabled {
+  color: var(--color-neutral-300);
+  cursor: not-allowed;
+}
+/* No :disabled rule for the trigger: Menu exposes no disabled prop, so the
+   button can never carry the attribute. A selector matching nothing is dead
+   styling that reads as live — the rule sits in the sheet looking like the state
+   is handled. :not(:disabled) stays on the hover, because it costs nothing and
+   the day the prop arrives the hover is already correct. */
+[data-terp="menu-trigger"]:hover:not(:disabled) {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
 }
 
 /* Dialogs: ::backdrop cannot be set inline, so the dim layer lives here and

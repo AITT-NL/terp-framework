@@ -4,46 +4,8 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { Icon } from "../icons";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
-import { CONTROL_TEXT_STYLE } from "./controlStyles";
 import { Popover } from "./Popover";
 import type { PopoverAlign, PopoverPlacement } from "./Popover";
-
-const triggerStyle: CSSProperties = {
-  ...CONTROL_TEXT_STYLE,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minHeight: "2rem",
-  gap: "var(--space-1)",
-  padding: "var(--space-1) var(--space-2)",
-  background: "transparent",
-  color: "var(--color-neutral-700)",
-  border: "1px solid var(--color-neutral-300)",
-  borderRadius: "var(--radius-md)",
-  cursor: "pointer",
-};
-
-const menuStyle: CSSProperties = { display: "grid", gap: "var(--space-1)" };
-
-const itemStyle = (destructive: boolean, disabled: boolean): CSSProperties => ({
-  ...CONTROL_TEXT_STYLE,
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  width: "100%",
-  padding: "var(--space-2)",
-  background: "transparent",
-  border: "none",
-  borderRadius: "var(--radius-sm)",
-  textAlign: "left",
-  justifyContent: "flex-start",
-  cursor: disabled ? "not-allowed" : "pointer",
-  color: disabled
-    ? "var(--color-neutral-300)"
-    : destructive
-      ? "var(--color-status-danger)"
-      : "var(--color-neutral-900)",
-});
 
 export interface MenuProps {
   trigger: ReactNode;
@@ -99,12 +61,21 @@ export function Menu({
       placement={placement}
       panelStyle={panelStyle}
       trigger={
+        // Its own marker rather than the shared `iconbutton` it used to borrow. That marker
+        // is worn by seven visually different buttons — the shell's two header toggles, four
+        // pagination arrows, a toast dismisser, the combobox's clear button and the calendar's
+        // month arrows — and it has no base rule at all, because each is styled by where it
+        // sits. This one is an outlined control with a border, a radius and control
+        // typography, and it is also the trigger whose root marker is about to become
+        // configurable, so a `[data-terp="popover"] > [data-terp="iconbutton"]` structural
+        // rule would have to grow a branch per root name and would silently stop matching
+        // the day one was added. A name of its own has neither problem.
         <button
           type="button"
-          data-terp="iconbutton"
+          data-terp="menu-trigger"
           aria-label={resolve(triggerLabel)}
           aria-haspopup="menu"
-          style={{ ...triggerStyle, ...triggerStyleOverride }}
+          style={triggerStyleOverride}
         >
           {trigger}
         </button>
@@ -120,7 +91,6 @@ export function Menu({
           }}
           role="menu"
           data-terp="menu"
-          style={menuStyle}
           onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
             switch (event.key) {
               case "Escape":
@@ -186,6 +156,10 @@ export function MenuItem({
       aria-checked={selected}
       data-terp="menu-item"
       data-selected={selected === true ? "true" : undefined}
+      // Destructive is an enumerable choice, so it becomes an attribute. Disabled is not:
+      // this is a real <button> carrying the real disabled attribute, so :disabled already
+      // says it and inventing data-disabled beside it would be a second source of truth.
+      data-destructive={destructive ? "true" : undefined}
       tabIndex={-1}
       disabled={disabled}
       onClick={() => {
@@ -193,12 +167,15 @@ export function MenuItem({
           onSelect();
         }
       }}
-      style={itemStyle(destructive, disabled)}
     >
-      {icon !== undefined && <span aria-hidden="true" style={{ display: "inline-flex" }}>{icon}</span>}
+      {icon !== undefined && (
+        <span aria-hidden="true" data-terp="menu-item-icon">
+          {icon}
+        </span>
+      )}
       {resolve(label)}
       {selected === true && (
-        <span aria-hidden="true" style={{ display: "inline-flex", marginLeft: "auto" }}>
+        <span aria-hidden="true" data-terp="menu-item-check">
           <Icon name="check" />
         </span>
       )}

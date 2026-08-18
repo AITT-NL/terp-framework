@@ -107,9 +107,13 @@ const MARKERS = [
   "loading-state-spinner",
   "menu",
   "menu-item",
+  "menu-item-check",
+  "menu-item-icon",
+  "menu-trigger",
   "module-nav",
   "nav-icon",
   "nav-icon-fallback",
+  "page-actions",
   "popover",
   "popover-panel",
   "radio",
@@ -151,8 +155,13 @@ const MARKERS = [
  *     layout.
  *
  * Both are styling decisions with visible consequences, not bookkeeping, so they belong to
- * the migration itself rather than to preparation for it. The archetypes, `PageActions` and
- * the DataView internals are still unexamined.
+ * the migration itself rather than to preparation for it. The archetypes and the DataView
+ * internals are still unexamined.
+ *
+ * `PageActions` has graduated, and it was the easiest of the shapes above: it already rendered
+ * a real root of its own, so the marker landed on an element that existed and no DOM moved.
+ * Note the one thing it does that a rule cannot — it returns `null` when it has no actions at
+ * all, so its presence is conditional rather than styled, and `:empty` is not a substitute.
  *
  * `Field` has graduated: it renders a root plus label, label text, hint and error markers,
  * so each part of a form field is addressable from the sheet.
@@ -161,7 +170,6 @@ const UNMARKED_STYLED_SURFACES = [
   "./DetailPage.tsx",
   "./LoginView.tsx",
   "./OverviewPage.tsx",
-  "./PageActions.tsx",
   "./ProfileView.tsx",
   "./UserMenu.tsx",
   "./dataview/DataViewColumnSettings.tsx",

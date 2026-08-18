@@ -178,6 +178,13 @@ describe("cascade structure", () => {
       '[data-terp="input"][aria-invalid="true"]',
       '[data-terp="tab"]:hover',
       '[data-terp="tab"]:disabled',
+      // MenuItem is the only element in the package wearing this marker, so its escalation
+      // retired the moment the component stopped carrying inline base styles — unlike
+      // `input`, which six elements wear and which had to wait for the last of them.
+      '[data-terp="menu-item"]:hover',
+      '[data-terp="menu-item"][data-selected="true"]',
+      '[data-terp="menu-item"]:disabled',
+      '[data-terp="menu-trigger"]:hover',
     ]) {
       const at = state.indexOf(rule);
       expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
@@ -228,6 +235,12 @@ describe("cascade structure", () => {
       "icon",
       "nav-icon",
       "nav-icon-fallback",
+      "menu",
+      "menu-item",
+      "menu-trigger",
+      "menu-item-icon",
+      "menu-item-check",
+      "page-actions",
       "popover",
       "popover-panel",
       "breadcrumbs-current",
