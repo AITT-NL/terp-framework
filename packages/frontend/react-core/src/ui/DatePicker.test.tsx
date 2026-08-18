@@ -112,6 +112,25 @@ describe("DatePicker", () => {
     );
   });
 
+  it("names the calendar dialog with its month, and each day with its whole date", () => {
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN }}>
+        <DatePicker aria-label="Due date" value={new Date(2026, 6, 7)} defaultOpen />
+      </LocaleProvider>,
+    );
+    // A role="dialog" with no accessible name announces itself as "dialog" and nothing else.
+    // The month was one level down on the grid, so it was reached only after the boundary had
+    // already been crossed unnamed. axe does not report this at the wcag2a/aa tags the visual
+    // suite runs, so opening the calendar did not surface it.
+    expect(screen.getByRole("dialog", { name: /July 2026/ })).toBeInTheDocument();
+    // And a day cell's visible text is a bare number, while the weekday row is aria-hidden AND
+    // a sibling of the grid rather than columnheaders inside it — so a cell had no weekday, no
+    // month and no year to announce.
+    expect(
+      screen.getByRole("gridcell", { name: "Tuesday, July 7, 2026" }),
+    ).toBeInTheDocument();
+  });
+
   it("uses the active locale for month and weekday names", () => {
     render(
       <LocaleProvider locales={{ nl: LOCALE_NL }}>
@@ -142,11 +161,17 @@ describe("DateRangePicker", () => {
     ).toBeGreaterThan(0);
   });
 
+  // Day cells are matched by the text a user sees rather than by accessible name: the name is
+  // now the whole date, and these two tests mount no LocaleProvider, so a name-based query
+  // would depend on the host machine's locale.
+  const dayCells = (text: string) =>
+    screen.getAllByRole("gridcell").filter((cell) => cell.textContent === text);
+
   it("selects a start/end range and closes after the end", () => {
     const onChange = vi.fn();
     render(<DateRangePicker aria-label="Window" defaultValue={{ start: new Date(2026, 6, 10), end: null }} onChange={onChange} />);
     fireEvent.click(screen.getByRole("button", { name: "Window" }));
-    fireEvent.click(screen.getByRole("gridcell", { name: "12" }));
+    fireEvent.click(dayCells("12")[0]!);
     expect(onChange).toHaveBeenCalledWith({ start: new Date(2026, 6, 10), end: new Date(2026, 6, 12) });
     expect(screen.queryByRole("grid")).not.toBeInTheDocument();
   });
@@ -163,8 +188,8 @@ describe("DateRangePicker", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Window" }));
-    expect(screen.getAllByRole("gridcell", { name: "4" })[0]).toBeDisabled();
-    fireEvent.click(screen.getAllByRole("gridcell", { name: "8" })[0]);
+    expect(dayCells("4")[0]).toBeDisabled();
+    fireEvent.click(dayCells("8")[0]!);
     expect(onChange).toHaveBeenCalledWith({ start: new Date(2026, 6, 8), end: null });
   });
 });

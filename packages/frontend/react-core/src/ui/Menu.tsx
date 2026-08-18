@@ -24,6 +24,8 @@ export interface MenuProps {
   "data-terp"?: PopoverRootMarker;
   /** Distinguishes that component's variants on the same root. */
   "data-variant"?: PopoverRootVariant;
+  /** Who owns the portalled panel — see PopoverProps; supply it in EVERY variant. */
+  "data-owner"?: string;
 }
 
 /** Dropdown menu built on Popover with roving focus and ARIA menu semantics. */
@@ -38,6 +40,7 @@ export function Menu({
   placement = "bottom",
   "data-terp": rootMarker,
   "data-variant": rootVariant,
+  "data-owner": owner,
 }: MenuProps) {
   const resolve = useUiText();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -67,9 +70,10 @@ export function Menu({
       placement={placement}
       data-terp={rootMarker}
       data-variant={rootVariant}
+      data-owner={owner}
       trigger={
         // Its own marker rather than the shared `iconbutton` it used to borrow. That marker
-        // is worn by seven visually different buttons — the shell's two header toggles, four
+        // is worn by ten visually different buttons — the shell's two header toggles, four
         // pagination arrows, a toast dismisser, the combobox's clear button and the calendar's
         // month arrows — and it has no base rule at all, because each is styled by where it
         // sits. This one is an outlined control with a border, a radius and control
@@ -120,7 +124,16 @@ export function Menu({
                 focusItem("last");
                 break;
               case "Tab":
-                close(false);
+                // close(TRUE) — restore focus to the trigger, then let Tab's default action
+                // run from there. close(false) left focus on a tabIndex=-1 item inside a panel
+                // portalled to the END of document.body, and the panel is unmounted before the
+                // browser performs the default action: the sequential-navigation starting point
+                // was a removed node at the wrong end of the document, so Tab landed past all
+                // page content and Shift+Tab at the last focusable element on the page. The APG
+                // menu-button contract is that Tab closes the popup and moves to the next
+                // element after the BUTTON, which is what restoring focus first produces — in
+                // both directions. preventDefault is deliberately absent and must stay absent.
+                close(true);
                 break;
               default:
                 break;

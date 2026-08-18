@@ -44,6 +44,18 @@ export interface PopoverProps {
   "data-terp"?: PopoverRootMarker;
   /** Distinguishes that component's variants on the same root. */
   "data-variant"?: PopoverRootVariant;
+  /**
+   * Who owns the portalled panel, for a panel rule that has to reach it.
+   *
+   * Separate from `data-terp` on purpose. The root marker is necessarily CONDITIONAL — a
+   * component whose stacked variant renders its own div must not stamp the marker on the
+   * nested menu as well — so deriving the owner from it made the same component's panel
+   * `theme-toggle` in one variant and `popover` in the other. A panel rule would then reach
+   * one variant and silently miss the other, which is the failure mode the root selector
+   * list two doors down exists to warn about. Defaults to the root marker for callers who
+   * have no panel rule and do not care.
+   */
+  "data-owner"?: string;
 }
 
 const VIEWPORT_GUTTER = 8;
@@ -67,6 +79,7 @@ export function Popover({
   focusOnOpen = false,
   "data-terp": rootMarker,
   "data-variant": rootVariant,
+  "data-owner": owner,
 }: PopoverProps) {
   const panelId = useId();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
@@ -222,7 +235,7 @@ export function Popover({
           // per-caller panel geometry therefore has nowhere to hang unless the panel itself
           // says who owns it. This is what replaced the `panelStyle` prop: the owner's rule
           // lives in the sheet with everything else instead of travelling as an object.
-          data-owner={rootMarker ?? "popover"}
+          data-owner={owner ?? rootMarker ?? "popover"}
           tabIndex={-1}
           // Only the measured part is inline: the left/top the layout effect computes from
           // the trigger's rect and clamps against the viewport, and the visibility that

@@ -61,6 +61,7 @@ export function ConfirmDialog({
   const strings = useStrings();
   const resolve = useUiText();
   const titleId = useId();
+  const descriptionId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -92,6 +93,11 @@ export function ConfirmDialog({
       ref={dialogRef}
       data-terp="dialog"
       aria-labelledby={titleId}
+      // The consequence is the information a user needs before confirming a destructive action,
+      // and a modal announces its name and its description on open — unlinked body copy is
+      // reached only by manual exploration. Conditional, so a description-less dialog carries
+      // no dangling idref.
+      aria-describedby={description !== undefined ? descriptionId : undefined}
       onCancel={(event) => {
         // Escape: stay controlled — never let the platform close the element itself.
         event.preventDefault();
@@ -111,7 +117,9 @@ export function ConfirmDialog({
           {resolve(title)}
         </h2>
         {description !== undefined && (
-          <div data-terp="dialog-description">{description}</div>
+          <div id={descriptionId} data-terp="dialog-description">
+            {description}
+          </div>
         )}
         <div data-terp="dialog-actions">
           <Button variant="secondary" disabled={isPending} onClick={() => onOpenChange(false)}>

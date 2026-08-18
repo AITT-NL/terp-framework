@@ -65,6 +65,12 @@ export function Combobox({
     defaultOpen ? selectedOption?.value ?? null : null,
   );
 
+  // What the DOM should say, as opposed to what the state happens to hold. The listbox render
+  // was already guarded on `disabled` while aria-expanded was not, so a disabled combobox seeded
+  // open advertised role="combobox" aria-expanded="true" with aria-controls pointing at an id
+  // that is not in the document. Derived once, so the three cannot drift apart again.
+  const isOpen = open && disabled !== true;
+
   const renderedOptions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     if (normalized.length === 0 || selectedOption !== null && query === resolve(selectedOption.label)) {
@@ -180,9 +186,9 @@ export function Combobox({
           data-terp="input"
           role="combobox"
           aria-autocomplete="list"
-          aria-expanded={open}
+          aria-expanded={isOpen}
           aria-controls={`${baseId}-listbox`}
-          aria-activedescendant={open && activeOption !== null ? `${baseId}-option-${activeOption.value}` : undefined}
+          aria-activedescendant={isOpen && activeOption !== null ? `${baseId}-option-${activeOption.value}` : undefined}
           aria-invalid={rest["aria-invalid"]}
           disabled={disabled}
           placeholder={placeholder}
@@ -220,7 +226,7 @@ export function Combobox({
           </button>
         )}
       </div>
-      {open && !disabled && (
+      {isOpen && (
         <div id={`${baseId}-listbox`} role="listbox" data-terp="combobox-list">
           {loading ? (
             <div role="status" data-terp="combobox-empty">{resolve(loadingText)}</div>

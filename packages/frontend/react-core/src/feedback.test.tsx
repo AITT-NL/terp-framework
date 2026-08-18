@@ -82,6 +82,32 @@ describe("ConfirmDialog", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("links the consequence text to the dialog, and only when there is one", () => {
+    const { rerender } = render(
+      <ConfirmDialog
+        open
+        onOpenChange={() => {}}
+        onConfirm={() => {}}
+        title="Delete this link?"
+        description="Its mappings and its run history are removed with it."
+      />,
+    );
+    // A modal announces its name and its description on open. Unlinked body copy is reached
+    // only by manual exploration — the wrong ergonomics for the one screen whose whole job is
+    // telling someone what a destructive action will do.
+    const dialog = screen.getByRole("dialog");
+    const describedBy = dialog.getAttribute("aria-describedby");
+    expect(describedBy).not.toBeNull();
+    expect(document.getElementById(describedBy!)?.textContent).toBe(
+      "Its mappings and its run history are removed with it.",
+    );
+    // No description means no attribute, rather than an idref pointing at nothing.
+    rerender(
+      <ConfirmDialog open onOpenChange={() => {}} onConfirm={() => {}} title="Delete this link?" />,
+    );
+    expect(screen.getByRole("dialog")).not.toHaveAttribute("aria-describedby");
+  });
+
   it("confirms and cancels through the labelled buttons", () => {
     const onConfirm = vi.fn();
     const onOpenChange = vi.fn();

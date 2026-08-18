@@ -106,18 +106,29 @@ jobs:
       # moved out of `style={}` and into the injected sheet, so the unit tests no longer
       # assert paint and the rendered result is what has to be checked. It ran nowhere in CI.
       #
-      # The accessibility lane runs here in full — axe over every specimen in all five
-      # themes, which needs no recorded baseline and is what holds both contrast ratchets at
-      # empty. The screenshot lane does NOT run yet: baselines are split by platform because
-      # font rasterisation differs by more than any useful tolerance, and only the win32 set
-      # is recorded. Adding `visual/specimens.spec.ts` here needs a linux set recorded first,
+      # Two of the three lanes run here, and the dividing line is whether a lane needs a
+      # recorded baseline. The accessibility lane runs in full — axe over every specimen in
+      # all five themes — and is what holds both contrast ratchets at empty. The keyboard lane
+      # runs for the same reason: it asserts where focus goes after a keystroke, which is a
+      # behaviour rather than a picture, so there is nothing platform-specific to record. It
+      # also covers the one repair in this area that a unit test cannot gate, since the failure
+      # depends on the browser moving focus to <body> when the focused node is removed and jsdom
+      # does not.
+      #
+      # The screenshot lane does NOT run yet: baselines are split by platform because font
+      # rasterisation differs by more than any useful tolerance, and only the win32 set is
+      # recorded. Adding `visual/specimens.spec.ts` here needs a linux set recorded first,
       # which has to happen on this runner.
       - name: Type-check the component workbench
         run: npm run -w terp-workbench typecheck
 
-      - name: Install Chromium for the workbench a11y lane
+      - name: Install Chromium for the workbench browser lanes
         run: npx playwright install --with-deps chromium
 
       - name: Accessibility — axe over every specimen in every theme
         working-directory: apps/workbench
         run: npx playwright test visual/a11y.spec.ts --reporter=line
+
+      - name: Keyboard — where focus goes, which no baseline and no static tree can say
+        working-directory: apps/workbench
+        run: npx playwright test visual/keyboard.spec.ts --reporter=line

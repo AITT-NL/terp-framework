@@ -154,6 +154,10 @@ export function ThemeToggle({ variant = "stacked" }: ThemeToggleProps) {
       // shrink-wrap to the same pixels, so it was wrong and invisible at the same time.
       data-terp={isInline ? "theme-toggle" : undefined}
       data-variant={isInline ? "inline" : undefined}
+      // Unconditional, unlike the root marker: the panel is the same panel in both variants, so
+      // a rule for it must reach both. Deriving the owner from the conditional root marker made
+      // this panel "theme-toggle" when inline and "popover" when stacked.
+      data-owner="theme-toggle"
       trigger={<Icon name={THEME_ICONS[context.theme]} size="1.15rem" />}
       triggerLabel={strings.theme}
     >

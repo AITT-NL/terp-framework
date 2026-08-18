@@ -57,7 +57,13 @@ export function DatePicker({
 }: DatePickerProps) {
   const [uncontrolledValue, setUncontrolledValue] = useState<Date | null>(defaultValue);
   const selected = normalizeDate(value ?? uncontrolledValue);
-  const [open, setOpen] = useState(defaultOpen);
+  // `&& !disabled` is not belt-and-braces. Every close path runs through
+  // onOpenChange, which swallows the change while disabled — so a disabled picker seeded
+  // open would render a calendar that Escape, an outside click and its own onEscape all
+  // fail to dismiss, and whose day clicks still fire onChange from a control the app
+  // marked disabled. Only reachable since defaultOpen existed: before it, the sole way in
+  // was clicking the disabled trigger.
+  const [open, setOpen] = useState(defaultOpen && !disabled);
   const locale = useDateLocale();
   const resolve = useUiText();
   const formatted = selected === null ? resolve(placeholder) : formatDate(selected, locale);
@@ -72,7 +78,7 @@ export function DatePicker({
 
   return (
     <Popover
-      open={open}
+      open={open && !disabled}
       onOpenChange={(next) => !disabled && setOpen(next)}
       align="start"
       trigger={
@@ -121,7 +127,13 @@ export function DateRangePicker({
 }: DateRangePickerProps) {
   const [uncontrolledValue, setUncontrolledValue] = useState<DateRangeValue>(defaultValue);
   const selected = normalizeRange(value ?? uncontrolledValue);
-  const [open, setOpen] = useState(defaultOpen);
+  // `&& !disabled` is not belt-and-braces. Every close path runs through
+  // onOpenChange, which swallows the change while disabled — so a disabled picker seeded
+  // open would render a calendar that Escape, an outside click and its own onEscape all
+  // fail to dismiss, and whose day clicks still fire onChange from a control the app
+  // marked disabled. Only reachable since defaultOpen existed: before it, the sole way in
+  // was clicking the disabled trigger.
+  const [open, setOpen] = useState(defaultOpen && !disabled);
   const locale = useDateLocale();
   const resolve = useUiText();
   const formatted = selected.start === null
@@ -142,7 +154,7 @@ export function DateRangePicker({
 
   return (
     <Popover
-      open={open}
+      open={open && !disabled}
       onOpenChange={(next) => !disabled && setOpen(next)}
       align="start"
       trigger={
@@ -191,40 +203,60 @@ interface CalendarProps {
 
 function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max, onSelect, onRangeSelect, onEscape }: CalendarProps) {
   const gridId = useId();
+  const titleId = useId();
   const minDate = normalizeDate(min);
   const maxDate = normalizeDate(max);
   const initial = clampDate(normalizeDate(visibleSeed) ?? today(), minDate, maxDate);
   const [month, setMonth] = useState(() => startOfMonth(initial));
   const [activeDate, setActiveDate] = useState(initial);
   const activeRef = useRef<HTMLButtonElement>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
-  const mounted = useRef(false);
+  const follow = useRef(false);
   const weeks = useMemo(() => monthWeeks(month), [month]);
   const weekdays = useMemo(() => weekdayNames(locale), [locale]);
   const activeKey = toKey(activeDate);
 
-  // The roving cursor has to move DOM focus, not just `tabIndex`. This effect used to
-  // carry an empty dependency list, so it focused the initial day once and never again:
-  // an arrow key moved `activeDate`, which moved `tabIndex={0}` and `activeRef` to
-  // another cell, while the browser's focus — and therefore the caret, the focus ring
-  // and every screen reader — stayed on the day the calendar opened on. Keyed on the
-  // cursor now, so each move follows it.
+  // Opening: focus the cursor once the portalled panel exists where it will finally sit
+  // (Popover positions it in a layout effect, hence the tick). Its own effect with its own
+  // cleanup, deliberately — folding it into the cursor effect below and gating it on a
+  // did-mount ref meant StrictMode's mount / cleanup / mount cycle cleared the first timer
+  // and then took the other branch, so in development the calendar opened with focus outside
+  // the grid and the arrow keys inert.
   useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      // The panel is portalled and Popover positions it in a layout effect, so the
-      // opening focus waits a tick for the cell to exist where it will finally sit.
-      const timer = window.setTimeout(() => activeRef.current?.focus(), 0);
-      return () => window.clearTimeout(timer);
+    const timer = window.setTimeout(() => activeRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  // The roving cursor has to move DOM focus, not just `tabIndex` — an arrow key used to move
+  // `tabIndex={0}` and `activeRef` to another cell while the browser's focus, the focus ring
+  // and every screen reader stayed on the day the calendar opened on.
+  //
+  // The intent is recorded at the EVENT rather than inferred afterwards, and that is the whole
+  // correctness argument. Reading `document.activeElement` after the commit looks equivalent
+  // and is not: a move across a month boundary re-keys the week rows, so the row holding the
+  // focused cell is unmounted, which moves focus to <body> — and a post-commit check then sees
+  // focus outside the grid and declines to follow. Measured in a browser: arrowing from
+  // 29 January to 5 February left `document.activeElement` on BODY and the calendar
+  // keyboard-dead, because the grid's handler is the only key listener. The flag cannot be
+  // fooled that way, because only the grid's own handler sets it.
+  useEffect(() => {
+    if (!follow.current) {
+      return;
     }
-    // Only while the grid already owns focus: `activeDate` also moves on a cell's own
-    // `onFocus`, and on a month change from the header buttons — which must not yank
-    // focus off the button the pointer just pressed.
-    if (gridRef.current?.contains(document.activeElement) === true) {
-      activeRef.current?.focus();
-    }
-    return undefined;
+    follow.current = false;
+    activeRef.current?.focus();
   }, [activeKey]);
+
+  /** Move the cursor from a key the grid handled, and take focus with it. */
+  function moveCursor(daysDelta: number) {
+    follow.current = true;
+    move(daysDelta);
+  }
+
+  /** Page the month from a key the grid handled. The header buttons deliberately do not. */
+  function pageMonth(delta: number) {
+    follow.current = true;
+    changeMonth(delta);
+  }
 
   function move(daysDelta: number) {
     const next = clampDate(addDays(activeDate, daysDelta), minDate, maxDate);
@@ -264,35 +296,35 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
         break;
       case "ArrowRight":
         event.preventDefault();
-        move(1);
+        moveCursor(1);
         break;
       case "ArrowLeft":
         event.preventDefault();
-        move(-1);
+        moveCursor(-1);
         break;
       case "ArrowDown":
         event.preventDefault();
-        move(7);
+        moveCursor(7);
         break;
       case "ArrowUp":
         event.preventDefault();
-        move(-7);
+        moveCursor(-7);
         break;
       case "Home":
         event.preventDefault();
-        move(-activeDate.getDay());
+        moveCursor(-activeDate.getDay());
         break;
       case "End":
         event.preventDefault();
-        move(6 - activeDate.getDay());
+        moveCursor(6 - activeDate.getDay());
         break;
       case "PageUp":
         event.preventDefault();
-        changeMonth(-1);
+        pageMonth(-1);
         break;
       case "PageDown":
         event.preventDefault();
-        changeMonth(1);
+        pageMonth(1);
         break;
       case "Enter":
       case " ":
@@ -305,10 +337,14 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
   }
 
   return (
-    <div role="dialog" aria-modal="false" data-terp="calendar">
+    // Named by its month heading. role="dialog" with no accessible name announces itself as
+    // just "dialog", and the month was one level down on the grid — reached only after the
+    // dialog boundary had already been crossed unnamed. axe does not report this at the
+    // wcag2a/aa tags the lane runs, so opening the calendar in stage 4 did not surface it.
+    <div role="dialog" aria-modal="false" aria-labelledby={titleId} data-terp="calendar">
       <div data-terp="calendar-header">
         <button type="button" data-terp="iconbutton" aria-label="Previous month" onClick={() => changeMonth(-1)}>‹</button>
-        <div data-terp="calendar-title">{formatMonth(month, locale)}</div>
+        <div id={titleId} data-terp="calendar-title">{formatMonth(month, locale)}</div>
         <button type="button" data-terp="iconbutton" aria-label="Next month" onClick={() => changeMonth(1)}>›</button>
       </div>
       <div data-terp="calendar-week" aria-hidden="true">
@@ -327,7 +363,6 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
           always were, so 42 cells land on exactly the pixels they did as one flat grid. */}
       <div
         id={gridId}
-        ref={gridRef}
         role="grid"
         aria-label={formatMonth(month, locale)}
         data-terp="calendar-grid"
@@ -354,6 +389,12 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
                   disabled={disabled}
                   onClick={() => selectDate(day)}
                   onFocus={() => setActiveDate(day)}
+                  // The full date, because the visible text is a bare number and the weekday
+                  // row is aria-hidden AND a sibling of the grid rather than columnheaders
+                  // inside it — so a cell had no weekday, no month and no year to announce.
+                  // aria-label is allowed on a gridcell, leaves the visible glyph alone, and is
+                  // what every calendar in the APG's own examples effectively gives AT.
+                  aria-label={formatFullDate(day, locale)}
                   data-terp="calendar-day"
                   data-in-range={inRange ? "true" : undefined}
                   data-outside-month={day.getMonth() === month.getMonth() ? undefined : "true"}
@@ -375,6 +416,16 @@ function useDateLocale() {
 
 function formatDate(date: Date, locale: string | undefined) {
   return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(date);
+}
+
+/** The whole date, spoken: what a day cell announces, since its text is only a number. */
+function formatFullDate(date: Date, locale: string | undefined) {
+  return new Intl.DateTimeFormat(locale, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
 }
 
 function formatMonth(date: Date, locale: string | undefined) {

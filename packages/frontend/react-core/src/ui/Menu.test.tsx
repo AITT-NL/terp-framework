@@ -23,17 +23,16 @@ describe("Menu", () => {
     expect(screen.getByTestId("clip")).not.toContainElement(menu);
     const panel = menu.parentElement as HTMLElement;
     expect(panel).toHaveAttribute("data-terp", "popover-panel");
-    // The panel's appearance is a sheet rule now (ADR 0094), so what it inlines is the
-    // assertion: the measured position and nothing else. Naming the migrated properties
-    // rather than checking the attribute is absent keeps this meaningful while `panelStyle`
-    // still exists for its last caller.
-    expect(panel.style.fontFamily).toBe("");
-    expect(panel.style.color).toBe("");
-    expect(panel.style.background).toBe("");
-    expect(panel.style.zIndex).toBe("");
-    expect(panel.style.position).toBe("");
+    // The panel's appearance is a sheet rule now (ADR 0094), so what it inlines is the whole
+    // assertion — and it can be the whole assertion, because nothing can inject panel styles
+    // any more: `panelStyle` went with UserMenu's migration. Exactly three declarations, the
+    // measured ones.
+    expect([...panel.style].sort()).toEqual(["left", "top", "visibility"]);
     expect(panel.style.top).not.toBe("");
     expect(panel.style.left).not.toBe("");
+    // And the owner attribute, which is the only handle a rule has on a panel this component
+    // portalled to document.body.
+    expect(panel).toHaveAttribute("data-owner", "popover");
     fireEvent.pointerDown(menu);
     expect(menu).toBeInTheDocument();
   });
@@ -90,5 +89,31 @@ describe("Menu", () => {
     fireEvent.pointerDown(document.body);
     expect(onOpenChange).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+  it("returns focus to the trigger on Tab, so the tab order continues after the button", () => {
+    render(
+      <Menu trigger="Open" triggerLabel="Actions">
+        {() => (
+          <>
+            <MenuItem label="Archive" onSelect={() => {}} />
+            <MenuItem label="Delete" onSelect={() => {}} />
+          </>
+        )}
+      </Menu>,
+    );
+    const trigger = screen.getByRole("button", { name: "Actions" });
+    fireEvent.click(trigger);
+    const menu = screen.getByRole("menu");
+    expect(menu.contains(document.activeElement)).toBe(true);
+
+    fireEvent.keyDown(menu, { key: "Tab" });
+
+    // The panel closes AND focus goes back to the trigger. Closing without restoring left focus
+    // on a tabIndex=-1 item inside a panel portalled to the end of document.body, which is then
+    // unmounted — so the browser's sequential-navigation starting point was a removed node at
+    // the wrong end of the document and Tab landed past all page content. The APG menu-button
+    // contract is that Tab moves to the next element after the BUTTON.
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
   });
 });

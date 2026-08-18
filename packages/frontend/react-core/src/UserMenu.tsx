@@ -65,10 +65,16 @@ export function UserMenu({ collapsed = false, onSettings, defaultOpen }: UserMen
       // from this side of the tree could ever reach it.
       data-terp="user-menu"
       data-variant={collapsed ? "collapsed" : undefined}
+      data-owner="user-menu"
     >
       {({ close }) => (
         <>
-          <div data-terp="user-menu-header">
+          {/* role="group": a role="menu" may own only menuitem / menuitemradio /
+              menuitemcheckbox / group / separator, and this identity block is a plain div —
+              so in menu mode assistive tech had no valid reason to reach it. A group needs no
+              accessible name to be valid and has no default presentation, so this is an ARIA
+              correction with no visual and no new UI string. */}
+          <div role="group" data-terp="user-menu-header">
             <span>{user.email}</span>
             <span data-terp="user-menu-role">{user.role_name}</span>
           </div>
