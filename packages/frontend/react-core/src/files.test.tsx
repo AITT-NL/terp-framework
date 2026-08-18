@@ -71,6 +71,24 @@ describe("FileUpload", () => {
     await waitFor(() => expect(onUploaded).toHaveBeenCalledWith(STORED));
   });
 
+  it("hides the picker input with the hidden attribute, not an inline style", () => {
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <FileUpload />
+      </TerpProvider>,
+    );
+    // The visible control is the button; this input exists only so a programmatic click can
+    // open the native dialog. `hidden` is the platform's own way to say that, and it keeps the
+    // file free of a style object that would read as unmigrated styling.
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(input.hidden).toBe(true);
+    expect(input.getAttribute("style")).toBeNull();
+    // Belt and braces, kept deliberately: both survive an author rule that resurrects the box.
+    expect(input).toHaveAttribute("aria-hidden", "true");
+    expect(input.tabIndex).toBe(-1);
+  });
+
   it("reports a failed upload through onError", async () => {
     stubFetch(async (request) => {
       if (request.url.endsWith("/api/v1/files/") && request.method === "POST") {

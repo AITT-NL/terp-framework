@@ -194,6 +194,19 @@ const MARKERS = [
  * Note the one thing it does that a rule cannot — it returns `null` when it has no actions at
  * all, so its presence is conditional rather than styled, and `:empty` is not a substitute.
  *
+ * `files.tsx` has left the list without gaining a marker, which is the one exit this ratchet
+ * allows that is not a migration: it turned out to have no styled surface. Its single
+ * declaration was `display: none` on the file picker's hidden plumbing input — the visible
+ * control is a `Button` — and that element is now `hidden`, the attribute HTML provides for
+ * exactly this. A marker plus a `display: none` rule would have put a component with no visual
+ * design into the sheet and offered an app the chance to un-hide it.
+ *
+ * Worth knowing about the shape of this list, because it flatters two files: it names files
+ * with NO marker at all, so one marker on one element exempts the rest of the file. `toast.tsx`
+ * and `ConfirmDialog.tsx` were never on it despite styling five and four unreachable elements
+ * respectively, because each rendered one `iconbutton` or one `dialog`. Both have since
+ * migrated; the gap in the ratchet has not.
+ *
  * `Field` has graduated: it renders a root plus label, label text, hint and error markers,
  * so each part of a form field is addressable from the sheet.
  */
@@ -205,7 +218,6 @@ const UNMARKED_STYLED_SURFACES = [
   "./dataview/DataViewColumnSettings.tsx",
   "./dataview/DataViewExpandableRow.tsx",
   "./dataview/DataViewRowActions.tsx",
-  "./files.tsx",
   "./ui/Markdown.tsx",
 ];
 

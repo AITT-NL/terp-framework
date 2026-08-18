@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { ChangeEvent, CSSProperties } from "react";
+import type { ChangeEvent } from "react";
 
 import { useTerpClient } from "./TerpProvider";
 import { Button } from "./ui/Button";
@@ -107,8 +107,6 @@ export function useFileDownload(): (file: Pick<FileMeta, "id" | "filename">) => 
   );
 }
 
-const hiddenInputStyle: CSSProperties = { display: "none" };
-
 export interface FileUploadProps {
   /** Called with the stored metadata after a successful upload. */
   onUploaded?: (file: FileMeta) => void;
@@ -152,11 +150,22 @@ export function FileUpload({ onUploaded, onError, label, accept, disabled }: Fil
 
   return (
     <>
+      {/* The platform attribute, not an inline display:none.
+
+          This input is the file picker's plumbing: the visible control is the Button below,
+          and this element exists only so `.click()` can open the native dialog. So it is not
+          a styled surface at all, and the alternatives both misdescribe it — giving it a
+          marker and a `display: none` rule would put a component with no visual design into
+          the sheet, and keeping the inline object would leave the one declaration in the file
+          looking like styling that had not been migrated yet. `hidden` is what HTML provides
+          for "not relevant", and a programmatic click still opens the dialog. The
+          `aria-hidden` and `tabIndex` become redundant beside it and are kept anyway: they
+          cost nothing and they survive an author rule that resurrects the box. */}
       <input
         ref={inputRef}
         type="file"
         accept={accept}
-        style={hiddenInputStyle}
+        hidden
         onChange={(event) => void onChange(event)}
         aria-hidden="true"
         tabIndex={-1}
