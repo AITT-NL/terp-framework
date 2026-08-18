@@ -10,6 +10,24 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
+## 0.8.0 — 2026-08-18
+
+The second half of the frontend design system: components stop carrying their
+base styles as inline `style={}` and move them into the injected stylesheet,
+keyed on the `data-terp` / `data-variant` attributes every component root
+already stamps (ADR 0094).
+
+### Removed
+
+- **`--color-fg-on-brand` is deleted from the token vocabulary.** It was
+  declared in all five themes and read by nothing: the on-brand ink already has
+  a name, `--color-brand-primary-contrast`, and 0.7.0's accent split settled
+  that it is the *only* token allowed on a brand-primary surface. A second,
+  unread token for the same concept was dead vocabulary every theme had to keep
+  filling. No component and no declared pairing referenced it, so nothing an
+  app renders changes; a `theme.css` that set it was setting a variable nothing
+  consumed, and still is — just without the manifest suggesting otherwise.
+
 ## 0.7.0 — 2026-08-18
 
 Two bodies of work, and the larger one repaints every app — read **Changed**

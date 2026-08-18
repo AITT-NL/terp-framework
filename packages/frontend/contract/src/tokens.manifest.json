@@ -420,18 +420,6 @@
       "themeable": true
     },
     {
-      "name": "--color-fg-on-brand",
-      "category": "color",
-      "values": {
-        "light": "#ffffff",
-        "dark": "#ffffff",
-        "midnight": "#ffffff",
-        "twilight": "#ffffff",
-        "contrast": "#ffffff"
-      },
-      "themeable": true
-    },
-    {
       "name": "--color-border-default",
       "category": "color",
       "values": {

@@ -40,8 +40,7 @@
       "default": { "value": "#f0f6fc" },
       "muted": { "value": "#9aa4b2" },
       "subtle": { "value": "#8b949e" },
-      "accent": { "value": "#58a6ff" },
-      "onBrand": { "value": "#ffffff" }
+      "accent": { "value": "#58a6ff" }
     },
     "border": {
       "default": { "value": "#30363d" },
