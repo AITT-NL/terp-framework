@@ -26,7 +26,9 @@ export default defineConfig({
   // Baselines are split by platform on purpose. Font rasterisation and antialiasing differ
   // between Windows and Linux by far more than any tolerance that would still catch a real
   // change, so one shared set means whichever platform did not record it is permanently red.
-  // Each platform records and compares its own; CI compares the Linux set.
+  // Each platform records and compares its own. Only the win32 set is recorded today, so
+  // the screenshot lane is local-only: CI runs the a11y lane (which needs no baseline) and
+  // will run this one once a linux set is recorded on the runner.
   snapshotPathTemplate: "{testDir}/__screenshots__/{platform}/{arg}{ext}",
   use: {
     baseURL: `http://localhost:${PORT}`,

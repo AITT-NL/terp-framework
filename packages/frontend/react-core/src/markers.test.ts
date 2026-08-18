@@ -123,8 +123,11 @@ const MARKERS = [
  *     layout.
  *
  * Both are styling decisions with visible consequences, not bookkeeping, so they belong to
- * the migration itself rather than to preparation for it. The archetypes, `Field`,
- * `PageActions` and the DataView internals are still unexamined.
+ * the migration itself rather than to preparation for it. The archetypes, `PageActions` and
+ * the DataView internals are still unexamined.
+ *
+ * `Field` has graduated: it renders a root plus label, label text, hint and error markers,
+ * so each part of a form field is addressable from the sheet.
  */
 const UNMARKED_STYLED_SURFACES = [
   "./DetailPage.tsx",

@@ -7,12 +7,23 @@
  * `style`/`className` prohibition on app modules is untouched — react-core
  * itself is allowed to inject a stylesheet; the rule targets *app modules*.
  *
- * Migration in progress. A component that has moved renders no `style={}` and
- * gets its base here; one that has not still carries inline base styles, and
- * its interaction rules still need `!important` to beat them (`style={}` wins
- * the cascade over author stylesheets, even for `:hover` / `:focus`). Those
- * escalations are state-scoped, so they cannot leak into resting styles, and
- * each disappears with its component. The count is the phase's measurable.
+ * Migration in progress. A migrated component gets its base here and renders
+ * no `style={}` for it — though it may still pass an inline value the sheet
+ * has no business owning, which is why `Stack` keeps `align` / `justify`
+ * inline. A component that has not migrated still carries inline base styles,
+ * and its interaction rules still need `!important` to beat them (`style={}`
+ * outranks any author rule, in any layer, for `:hover` / `:focus` / `:disabled`
+ * alike). Those escalations are state-scoped, so they cannot leak into resting
+ * styles, and each disappears with its component. The count is the phase's
+ * measurable.
+ *
+ * The subtlety that bit once, and is worth stating: `!important` comes off per
+ * CONSUMER, not per rule. Several markers are shared — `input` is stamped by
+ * `Combobox` and both date pickers as well as by the three text controls, and
+ * the reduced-motion block reaches every component in the package. A shared
+ * rule may only drop its `!important` when the LAST component it matches has
+ * migrated. Dropping it when the first three did left a disabled `Combobox`
+ * painted exactly like an enabled one.
  *
  * ## Layers
  *
@@ -55,22 +66,25 @@ export const TERP_STYLES_CSS = `
 @layer terp.reset, terp.base, terp.state, terp.motion;
 
 /* Density: a subtree stamped data-density="compact" re-scopes the live density
-   tokens to their compact counterparts, and every rule that reads the live
-   token follows via custom-property inheritance. "comfortable" is the token
-   sheet's :root value, so the attribute for it matches no rule — an app sets
-   density per subtree (the shell for an app-wide default, an embedded DataView
-   for one table), never per rule. A comfortable island inside a compact
-   subtree is not expressible yet; that needs a named comfortable copy of each
-   live token, which ADR 0094 defers until something asks for it.
+   token to its compact counterpart, and every rule reading the live token
+   follows via custom-property inheritance. Today that is control height, read
+   by Button, Input and Select; cell padding arrives with the DataView
+   migration, and its tokens arrive with it rather than sitting published and
+   unread. "comfortable" is the token sheet's :root value, so the attribute for
+   it matches no rule — an app sets density per subtree (the shell for an
+   app-wide default, an embedded DataView for one table), never per rule. A
+   comfortable island inside a compact subtree is not expressible yet; that
+   needs a named comfortable copy of each live token, which ADR 0094 defers
+   until something asks for it.
 
    Unlayered on purpose: the contract's token sheet declares these on :root
    without a layer, and an unlayered declaration beats a layered one whatever
-   its specificity — inside a layer this rule would lose to :root and the
-   attribute would silently do nothing. */
+   its specificity — inside a layer this rule would lose to :root whenever the
+   attribute sits on the same element as those :root declarations (the app sets
+   data-density on <html> for an app-wide default), and the attribute would
+   silently do nothing. */
 [data-density="compact"] {
   --density-control-min-height: var(--density-compact-control-min-height);
-  --density-cell-pad-y: var(--density-compact-cell-pad-y);
-  --density-cell-pad-x: var(--density-compact-cell-pad-x);
 }
 
 @layer terp.reset {
@@ -496,14 +510,26 @@ textarea[data-terp="input"] {
 }
 
 /* Inputs / selects / textareas -------------------------------------------- */
+/* These keep !important, and the reason is the marker's reach rather than the
+   three migrated components. The input marker is SHARED: Combobox and both
+   date pickers stamp it too, on elements that still carry inline base styles
+   (border, colour, background, and cursor: pointer on the date trigger).
+   Author !important outranks the style attribute; a normal layered rule does
+   not, and no layer order changes that. Dropping these therefore left a
+   disabled Combobox painted exactly like an enabled one and deleted the
+   aria-invalid border outright — with nothing to catch it, because those two
+   components have resting-state specimens only.
+
+   So this is a per-consumer tax, not a per-rule one: it comes off when
+   Combobox and DatePicker migrate, not when Input/Select/Textarea did. */
 [data-terp="input"]:hover:not(:disabled):not(:focus) {
-  border-color: var(--color-neutral-400);
+  border-color: var(--color-neutral-400) !important;
 }
 [data-terp="input"]:focus,
 [data-terp="input"]:focus-visible {
   outline: none;
-  border-color: var(--color-fg-accent);
-  box-shadow: 0 0 0 3px var(--color-focus-ring);
+  border-color: var(--color-fg-accent) !important;
+  box-shadow: 0 0 0 3px var(--color-focus-ring) !important;
 }
 [data-terp="input"]::placeholder {
   color: var(--color-neutral-500);
@@ -516,12 +542,12 @@ textarea[data-terp="input"] {
 [data-terp="input"]:disabled {
   /* background-color (not the background shorthand) so the Select's chevron,
      drawn as a background-image, survives the disabled state. */
-  background-color: var(--color-neutral-50);
-  color: var(--color-neutral-500);
-  cursor: not-allowed;
+  background-color: var(--color-neutral-50) !important;
+  color: var(--color-neutral-500) !important;
+  cursor: not-allowed !important;
 }
 [data-terp="input"][aria-invalid="true"] {
-  border-color: var(--color-status-danger);
+  border-color: var(--color-status-danger) !important;
 }
 /* Number steppers are browser chrome and cannot be token-themed consistently.
    Keep keyboard/wheel/manual numeric input while removing the mismatched arrows. */
@@ -669,15 +695,22 @@ textarea[data-terp="input"] {
 
 @layer terp.motion {
 /* Respect the user's reduced-motion preference — kill transitions and the
-   spinner animation everywhere the sheet applies them. The layer is above
-   terp.base and terp.state, so this wins without !important. */
+   spinner animation everywhere the sheet applies them.
+
+   The layer puts this above terp.base and terp.state, which is enough for
+   every transition declared in this sheet. It is NOT enough for the ones still
+   declared inline: AppShell's nav links and collapse animation and HubPage's
+   card title each set transition in a style object, and no layer beats the
+   style attribute. Without !important a reduced-motion user still got those
+   animations — an accessibility preference silently ignored, and one no
+   screenshot can see. It comes off when those two components migrate. */
 @media (prefers-reduced-motion: reduce) {
   [data-terp],
   [data-terp="appshell-nav"] a,
   [data-terp="dataview-table"] tbody tr {
-    transition: none;
+    transition: none !important;
   }
-  [data-terp="spinner-ring"] { animation: none; }
+  [data-terp="spinner-ring"] { animation: none !important; }
 }
 }
 `;

@@ -49,8 +49,9 @@ function requestedTheme(): Theme {
  * at a fractional device offset decides the subpixel phase every 1px border and glyph in
  * that box is rasterised at, so *adding a specimen anywhere above* moved unrelated
  * specimens onto a different phase and silently re-recorded their baselines. Measured, not
- * inferred: adding six specimens shifted `text-inputs` to y=2457.703125 and repainted 4846
- * pixels of it, while `button-variants` at an integer y=168 was untouched.
+ * inferred: adding fifteen specimens shifted `text-inputs` to y=2457.703125 and repainted
+ * 4846 pixels of it, while `button-variants` at an integer y=168 was untouched — six
+ * baselines moved in total for a change to none of their components.
  *
  * That is the per-specimen promise failing in the one situation the promise is for. A
  * reviewer who sees six unrelated baselines change alongside a new specimen learns to

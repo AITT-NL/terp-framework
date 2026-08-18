@@ -101,3 +101,23 @@ jobs:
 
       - name: Build the example frontend
         run: npm run -w @terpjs-example/frontend build
+
+      # The component workbench is the migration's replacement gate (ADR 0094): base styles
+      # moved out of `style={}` and into the injected sheet, so the unit tests no longer
+      # assert paint and the rendered result is what has to be checked. It ran nowhere in CI.
+      #
+      # The accessibility lane runs here in full — axe over every specimen in all five
+      # themes, which needs no recorded baseline and is what holds both contrast ratchets at
+      # empty. The screenshot lane does NOT run yet: baselines are split by platform because
+      # font rasterisation differs by more than any useful tolerance, and only the win32 set
+      # is recorded. Adding `visual/specimens.spec.ts` here needs a linux set recorded first,
+      # which has to happen on this runner.
+      - name: Type-check the component workbench
+        run: npm run -w terp-workbench typecheck
+
+      - name: Install Chromium for the workbench a11y lane
+        run: npx playwright install --with-deps chromium
+
+      - name: Accessibility — axe over every specimen in every theme
+        working-directory: apps/workbench
+        run: npx playwright test visual/a11y.spec.ts --reporter=line

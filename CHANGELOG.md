@@ -20,15 +20,17 @@ already stamps (ADR 0094).
 ### Added
 
 - **Density is a token family, and `compact` is one attribute away.** The
-  contract declares live density tokens — `--density-control-min-height`
-  (2.25rem), `--density-cell-pad-y` / `--density-cell-pad-x` (0.75rem) — plus
-  explicit `--density-compact-*` counterparts (2rem / 0.5rem / 0.5rem), all
-  root-only geometry like every other scale, published in the manifest. The
-  react-core sheet re-scopes the live tokens under `[data-density="compact"]`,
-  so a subtree root stamped with that attribute tightens every control and cell
-  beneath it, and a `theme.css` can move either value set app-wide. Components
-  adopt the live tokens as their base styles migrate into the sheet; density
-  props on the shell and DataView land with those components.
+  contract declares a live `--density-control-min-height` (2.25rem) plus an
+  explicit `--density-compact-control-min-height` (2rem) — root-only geometry
+  like every other scale, published in the manifest. The react-core sheet
+  re-scopes the live token under `[data-density="compact"]`, so a subtree root
+  stamped with that attribute tightens every control beneath it that reads the
+  token — today `Button`, `Input` and `Select` — and a `theme.css` can move
+  either value app-wide. Remaining controls adopt it as their base styles
+  migrate into the sheet. Cell padding is deliberately not declared yet: no rule
+  would read it until the DataView cluster migrates, and this release deletes a
+  token for exactly that. Density props on the shell and DataView land with
+  those components.
 
 ### Removed
 

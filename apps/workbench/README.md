@@ -80,8 +80,9 @@ order. An address that fully determines the render is the whole trick. The theme
 from the contract's published token manifest (`src/themes.ts`), so a theme added there is
 renderable here with no edit to this app.
 
-**Four specimens sit behind the auth seam** (`UserMenu`, `ProfileView`, `ResourceList`'s
-write gate, `LoginView`). They mount a `TerpProvider` against the dev server, whose
+**Six specimens sit behind the auth seam** — four components' worth (`UserMenu`,
+`ProfileView`, `ResourceList`'s write gate, `LoginView`), with `UserMenu` and `ResourceList`
+contributing two each. They mount a `TerpProvider` against the dev server, whose
 `workbench-mock-auth` middleware (`vite.config.ts`) answers the boot refresh and `/me` with
 one fixed administrator — the determinism rule applied to the session, so these render
 identically on every run with no backend. `ModuleNav` is the one component that needs a
@@ -113,8 +114,14 @@ a retry is how a suite stops being evidence.
 **Baselines are split by platform** (`visual/__screenshots__/<platform>/`). Font
 rasterisation and antialiasing differ between Windows and Linux by far more than any
 tolerance that would still catch a real change, so a single shared set leaves whichever
-platform did not record it permanently red. Each platform records and compares its own; CI
-compares the Linux set.
+platform did not record it permanently red. Each platform records and compares its own.
+
+Only the `win32` set is recorded today, which makes the screenshot lane **local-only**. CI
+(`.github/workflows/frontend.yml`) runs the workbench typecheck and the accessibility lane —
+axe needs no recorded baseline — and picks up the screenshot lane once a `linux` set is
+recorded on the runner. Until then, a component migration's zero-diff evidence is something
+a human produced locally, and the write-up should say so rather than implying a gate caught
+it.
 
 **Two comparison knobs, both pinned.** `threshold` decides whether a single pixel counts as
 different at all — a normalised YIQ colour distance — and `maxDiffPixels` decides how many
@@ -145,13 +152,16 @@ specimen for the same reason the screenshots are: a page-wide run produces a lis
 violations with no owner, and the first thing anyone does with an unattributed list is stop
 reading it.
 
-Every rule is held at zero except `color-contrast`, which has a recorded, shrink-only list of
-known-failing specimens. Those are the same token pairings `tokens.contrast.test.js` measures
-— axe reaching the same verdict from the painted pixels is corroboration, not duplication, and
-it reaches further: the declared-pairs list names five pairings, and axe finds them in nine
-specimens, because every specimen containing a primary button fails in dark and every specimen
-containing a `Badge` fails in light. Emptying both lists is the semantic token layer's
-acceptance criterion.
+Every rule is held at zero, `color-contrast` included: `KNOWN_CONTRAST_FAILURES` is `[]` and
+has been since 0.7.0 emptied it, as has `BELOW_AA` in `tokens.contrast.test.js`. The list
+remains in the file as a shrink-only ratchet, and a companion test refuses to let a theme
+added after the lane existed record an allowance at all — so the empty list is enforced, not
+merely current.
+
+The two lanes measure the same pairings from different ends, which is corroboration rather
+than duplication, and axe reaches further: when the lists were last non-empty the static gate
+named five pairings and axe found them in nine specimens, because every specimen containing a
+primary button failed in dark and every one containing a `Badge` failed in light.
 
 Writing this found a defect in the workbench rather than the framework: three specimens
 rendered `Input`, `Select` and `Textarea` bare, with no accessible name, which is a genuine

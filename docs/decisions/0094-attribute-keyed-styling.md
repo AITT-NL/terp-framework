@@ -33,9 +33,14 @@ stopped being worth its cost for three reasons, in rising order of weight:
    already stamps for the layout contract (`data-terp`, `data-variant`, `data-tone`,
    `data-selected`, `data-collapsed`) are the stable, semantic surface — a test that
    asserts `data-variant="primary"` survives any restyling that keeps the contract,
-   which is exactly what a test should survive. The visual workbench (62 pinned
+   which is exactly what a test should survive. The visual workbench (92 pinned
    baselines, `threshold: 0.02`, `maxDiffPixels: 0`) now covers what the style
-   assertions actually guarded: the pixels.
+   assertions actually guarded: the pixels — for the resting state. It does not
+   cover hover, focus, disabled or reduced motion, and that gap is not
+   theoretical: the first attempt at this migration broke the disabled treatment
+   on three components and the reduced-motion preference on two more, with every
+   baseline still green. Those states are pinned in `styles.test.ts` instead, by
+   reading the sheet's structure directly.
 
 3. **Inline base styles are the ceiling on the whole configurability story.** An app's
    `theme.css` could redefine token *values* and nothing else; a Studio editor past
@@ -73,32 +78,49 @@ to be declared after a state rule.
 
 Two things stay **unlayered**, for the same reason: an unlayered author declaration beats a
 layered one regardless of specificity. The density re-scoping must be unlayered or the
-contract's own unlayered `:root` values would beat it and `data-density="compact"` would do
-nothing. And an app's `theme.css` is unlayered, which means an app can override any
-framework rule without `!important` — the restyling this phase exists to enable, arriving
-as a property of the layering rather than as a second mechanism.
+contract's own unlayered `:root` values would beat it whenever the attribute lands on the
+same element those `:root` declarations target — which is the app-wide case, `data-density`
+on `<html>` — and `data-density="compact"` would do nothing. And an app's `theme.css` is
+unlayered, which means an app can override any *layered* framework rule without
+`!important`. The `!important` declarations that remain in the sheet still outrank it; they
+are a migration artifact, and they leave as their components migrate.
 
-Each component's migration removes its own `!important`s in the same commit; the end state
-of the sheet is zero.
+`!important` comes off per **consumer**, not per rule, and that distinction is the one thing
+here that has already caused a defect. Several markers are shared: `data-terp="input"` is
+stamped by `Combobox` and both date pickers as well as by the three text controls, and the
+reduced-motion block reaches every component in the package. Dropping a shared rule's
+`!important` when the *first* consumers migrate leaves it losing to the inline base styles
+the others still carry — which is how a disabled `Combobox` came to render identically to an
+enabled one, and how a reduced-motion user kept the shell's nav animations. A shared rule may
+drop its escalation only when the **last** component it matches has migrated. The end state
+of the sheet is still zero; the path there is not monotonic per rule.
 
 **3. Enumerable props become data attributes; measured values stay inline.** `variant`,
-`tone`, enumerated `size`, `selected`, `destructive`, `collapsed`, Stack's five props —
-anything with a closed value set — becomes a `data-*` attribute with one rule per value.
-Genuinely continuous or computed values stay `style={}`: Popover's fixed positioning,
-`Icon`/`LoadingState` numeric sizes, DataView column pixel widths. That boundary is the
-honest one — a computed position was never styling policy, and forcing it through
-attributes would mint a rule per pixel.
+`tone`, enumerated `size`, `selected`, `destructive`, `collapsed`, and Stack's `direction` /
+`gap` / `wrap` — anything with a closed value set — becomes a `data-*` attribute with one
+rule per value. Genuinely continuous, computed, or open-vocabulary values stay `style={}`:
+Popover's fixed positioning, `Icon`/`LoadingState` numeric sizes, DataView column pixel
+widths, and Stack's `align` / `justify`, which accept any alignment keyword CSS defines. That
+boundary is the honest one — a computed position was never styling policy, and forcing an
+open vocabulary through attributes would mint a rule per keyword to restate something CSS
+already has.
 
-**4. Density is a prop *and* tokens, not one or the other.** The contract declares live
-density tokens (`--density-control-min-height`, `--density-cell-pad-y`,
-`--density-cell-pad-x`) at their comfortable values, plus explicit
-`--density-compact-*` counterparts — root-only geometry, like every other scale. The
-sheet re-scopes the live tokens under `[data-density="compact"]`, so a `density` prop is
-one stamped attribute on a subtree root (the shell for an app-wide default, an embedded
-DataView for one table), and a `theme.css` can still move either value set app-wide. A
-*comfortable island inside a compact subtree* is deliberately not expressible yet: it
-needs a named comfortable copy of each live token, and vocabulary nothing consumes gets
-retired by stated policy — it can be added the day something asks.
+So "a migrated component renders no `style={}`" is the rule for *base* styles only. `Stack`
+is migrated and still renders one when given `align` or `justify`.
+
+**4. Density is a prop *and* tokens, not one or the other.** The contract declares a live
+density token (`--density-control-min-height`) at its comfortable value plus an explicit
+`--density-compact-*` counterpart — root-only geometry, like every other scale. The sheet
+re-scopes the live token under `[data-density="compact"]`, so a `density` prop is one
+stamped attribute on a subtree root (the shell for an app-wide default, an embedded
+DataView for one table), and a `theme.css` can still move either value app-wide.
+
+The vocabulary grows with its consumers, not ahead of them. Cell padding is the obvious
+next pair and is deliberately **not** declared yet, because no rule would read it until the
+DataView cluster migrates — and this same release deletes `--color-fg-on-brand` for exactly
+that offence. Publishing a token the manifest advertises and nothing applies is how a theme
+editor grows knobs that do nothing. A *comfortable island inside a compact subtree* is
+deferred on the same grounds.
 
 **5. The four rootless surfaces gain markers without gaining layout boxes.**
 `ThemeToggle` and `LanguageSwitcher` (inline variant) and `UserMenu` delegate their root
@@ -119,10 +141,13 @@ existed; an npm version bump still delivers everything with zero app-file edits.
 
 ## Consequences
 
-- Every component's rendered markup gains attributes and loses `style`; computed styles
-  are identical, so the visual baselines are the proof of each step — every diff is
-  intentional or zero, and the migration proceeds component by component, never as a
-  sweep.
+- Every component's rendered markup gains attributes and loses its base `style`; the
+  resting computed styles are identical, so the visual baselines are the proof of each step
+  — every diff is intentional or zero, and the migration proceeds component by component,
+  never as a sweep. Two caveats, both real: the baselines only see the resting state (see
+  Enforcement), and equivalence is *computed*, not literal — `Alert`'s root, for instance,
+  now carries the tone colour so its border and glyph can inherit it, with the body
+  restating `neutral-900` for the copy. The rendered pixels match; the declarations do not.
 - Tests that asserted `element.style.*` move to asserting the attribute (the semantic
   claim) — the ~27 style-coupled assertions are the migration checklist. The
   `body.style.overflow` scroll-lock assertions are not styling and stay.
@@ -146,7 +171,16 @@ existed; an npm version bump still delivers everything with zero app-file edits.
   contract, so a token typo in a migrated rule fails the suite, same as it did inline.
 - The workbench visual suite — zero-diff baselines per migrated component
   (`threshold: 0.02`, `maxDiffPixels: 0`), axe across all five themes, both contrast
-  ratchets held empty.
+  ratchets held empty. **Resting state only.** Every specimen is a fixed, non-interactive
+  render, so hover, focus, disabled and reduced motion are outside what any baseline can
+  see. Treating a green suite as proof of equivalence is what let the first pass at this
+  migration ship a disabled `Combobox` that looked enabled.
+- `styles.test.ts` covers what the baselines cannot, by reading the sheet as text: the
+  layer statement exists and precedes every rule; the focus ring is in `terp.state` and not
+  in `terp.base`; `terp.base` contains no `!important`; every shared state rule whose
+  consumers have not all migrated still carries one; and every migrated marker has a base
+  rule (the marker inventory pins the *join* but cannot see a deleted rule — removing a
+  whole block only shrinks the styled set, which passes).
 - The pattern itself was verified by mutation at the first migrated component, `Button`:
   shifting a moved rule one ramp step (the ghost label, `neutral-700` → `neutral-600`)
   failed exactly the eight baselines containing a ghost button and nothing else. A gate
