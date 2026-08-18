@@ -228,6 +228,8 @@ describe("cascade structure", () => {
       "icon",
       "nav-icon",
       "nav-icon-fallback",
+      "popover",
+      "popover-panel",
       "breadcrumbs-current",
     ]) {
       expect(

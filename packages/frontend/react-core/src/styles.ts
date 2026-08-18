@@ -676,12 +676,18 @@ input[data-terp="input"][role="combobox"] {
   min-height: 1.75rem;
   border-radius: var(--radius-sm);
 }
+/* Stacked at the popover level, which is what this is: an anchored disclosure
+   panel. It read --z-index-drawer, and was the token's only reader anywhere —
+   while the actual drawer, AppShell's mobile sidebar, hardcodes 50. So the one
+   binding that existed pointed at the wrong level. The drawer token keeps its
+   place in the family because AppShell's own migration is its reader; it is a
+   pending consumer, not an unread token. */
 [data-terp="combobox-list"] {
   position: absolute;
   inset-inline-start: 0;
   inset-inline-end: 0;
   inset-block-start: calc(100% + var(--space-1));
-  z-index: var(--z-index-drawer);
+  z-index: var(--z-index-popover);
   display: grid;
   gap: var(--space-1);
   max-height: 16rem;
@@ -853,6 +859,45 @@ button[data-terp="input"][data-placeholder="true"] {
   box-shadow: var(--shadow-md);
   pointer-events: none;
   white-space: normal;
+}
+
+/* Popover ------------------------------------------------------------------ */
+/* The wrapper the trigger sits in. Popover is the rendered root of Menu and of
+   both date pickers, so this is the geometry of far more than one component. */
+[data-terp="popover"] {
+  position: relative;
+  display: inline-flex;
+}
+/* The panel, which is portalled to document.body — so nothing about it can be
+   reached by a descendant selector from the trigger's side of the tree.
+
+   position: fixed belongs here rather than inline: it is structural, the same
+   for every panel, and the fixed CONTAINING BLOCK is what makes the portal work
+   (a panel positioned against the viewport is never clipped by an ancestor's
+   overflow). What stays inline is only the measured part — the left/top the
+   layout effect computes from the trigger's rect and clamps against the
+   viewport, plus the visibility that hides the panel for the one frame before
+   that measurement exists. Those are caller-measured lengths in ADR 0094's
+   sense, and no rule could carry them.
+
+   The stacking level is the token that was published for it. Every component in
+   the package hardcoded its own number while a full --z-index-* family sat
+   unread: AppShell still writes 50/40/30 for drawer/backdrop/sticky and toast
+   writes 100, and both come right with their own migrations. Tooltip's z-index:
+   1 above is deliberately NOT a token — the tooltip is absolutely positioned
+   inside its own anchor, so 1 is a local lift within a stacking context rather
+   than a place in the app-wide order. */
+[data-terp="popover-panel"] {
+  position: fixed;
+  z-index: var(--z-index-popover);
+  min-width: 12rem;
+  padding: var(--space-1);
+  font-family: var(--font-family-sans);
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
 }
 }
 

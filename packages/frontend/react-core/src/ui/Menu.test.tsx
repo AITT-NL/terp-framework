@@ -21,10 +21,19 @@ describe("Menu", () => {
     fireEvent.click(screen.getByRole("button", { name: "Actions" }));
     const menu = screen.getByRole("menu");
     expect(screen.getByTestId("clip")).not.toContainElement(menu);
-    expect(menu.parentElement).toHaveStyle({
-      fontFamily: "var(--font-family-sans)",
-      color: "var(--color-neutral-900)",
-    });
+    const panel = menu.parentElement as HTMLElement;
+    expect(panel).toHaveAttribute("data-terp", "popover-panel");
+    // The panel's appearance is a sheet rule now (ADR 0094), so what it inlines is the
+    // assertion: the measured position and nothing else. Naming the migrated properties
+    // rather than checking the attribute is absent keeps this meaningful while `panelStyle`
+    // still exists for its last caller.
+    expect(panel.style.fontFamily).toBe("");
+    expect(panel.style.color).toBe("");
+    expect(panel.style.background).toBe("");
+    expect(panel.style.zIndex).toBe("");
+    expect(panel.style.position).toBe("");
+    expect(panel.style.top).not.toBe("");
+    expect(panel.style.left).not.toBe("");
     fireEvent.pointerDown(menu);
     expect(menu).toBeInTheDocument();
   });

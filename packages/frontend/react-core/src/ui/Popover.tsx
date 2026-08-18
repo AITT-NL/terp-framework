@@ -21,21 +21,6 @@ export interface PopoverProps {
   panelStyle?: CSSProperties;
 }
 
-const rootStyle: CSSProperties = { position: "relative", display: "inline-flex" };
-
-const basePanelStyle: CSSProperties = {
-  position: "fixed",
-  zIndex: 60,
-  minWidth: "12rem",
-  padding: "var(--space-1)",
-  fontFamily: "var(--font-family-sans)",
-  color: "var(--color-neutral-900)",
-  background: "var(--color-neutral-0)",
-  border: "1px solid var(--color-neutral-200)",
-  borderRadius: "var(--radius-lg)",
-  boxShadow: "var(--shadow-lg)",
-};
-
 const VIEWPORT_GUTTER = 8;
 const PANEL_GAP = 4;
 
@@ -199,7 +184,7 @@ export function Popover({
   } as Partial<typeof trigger.props>);
 
   return (
-    <div ref={rootRef} data-terp="popover" style={rootStyle}>
+    <div ref={rootRef} data-terp="popover">
       {cloned}
       {isOpen && createPortal(
         <div
@@ -207,7 +192,12 @@ export function Popover({
           ref={panelRef}
           data-terp="popover-panel"
           tabIndex={-1}
-          style={{ ...basePanelStyle, ...panelStyle, ...panelPosition }}
+          // Only the measured part is inline: the left/top the layout effect computes from
+          // the trigger's rect and clamps against the viewport, and the visibility that
+          // hides the panel for the frame before that measurement exists. Everything the
+          // panel LOOKS like is a rule (ADR 0094). `panelStyle` is a per-caller override on
+          // its way out — its last consumer is UserMenu.
+          style={{ ...panelStyle, ...panelPosition }}
         >
           {children({ close, panelId })}
         </div>,
