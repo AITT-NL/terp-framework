@@ -21,6 +21,8 @@ import { describe, expect, it } from "vitest";
 //
 // The ambient `ImportMeta.glob` type lives in raw.d.ts, shared with the other scanning tests.
 
+import manifest from "../package.json";
+
 const sources = import.meta.glob("./**/*.{ts,tsx}", {
   query: "?raw",
   import: "default",
@@ -226,6 +228,42 @@ const UNMARKED_STYLED_SURFACES = [
 ];
 
 /**
+ * How many module-scope base style objects each file still declares — the migration's own
+ * measurable, as a ratchet.
+ *
+ * This exists because `UNMARKED_STYLED_SURFACES` above flatters a file: it lists modules with
+ * NO `data-terp` at all, so a single marker on a single element exempts everything else in the
+ * file. `toast.tsx` and `ConfirmDialog.tsx` were never on that list while styling five and four
+ * unreachable elements respectively, because each rendered one `iconbutton` or one `dialog`.
+ * Both have migrated, and the gap had not — until this.
+ *
+ * Counted per file rather than as a set of filenames, so a PARTIAL migration shows: moving half
+ * of `AppShell`'s twenty-two objects into the sheet has to update the number here. Asserted as
+ * exact equality, which makes it a ratchet in both directions — a new base style object fails,
+ * and a removed one fails until the ledger is corrected. That is the same bargain `MARKERS`
+ * strikes, and it is the point: the number is meant to be read during review.
+ *
+ * What is deliberately NOT counted: a measured value passed inline at a call site. `Icon` sizes
+ * its box from a prop that takes any CSS length, `Stack` passes `align` / `justify` through, and
+ * `Popover` positions its panel from a rect it measured — ADR 0094 §3 puts all three on the
+ * inline side of the line permanently, so counting them would make this list unable to reach
+ * zero and therefore unable to mean anything.
+ */
+const INLINE_BASE_STYLES: Record<string, number> = {
+  "./AppShell.tsx": 22,
+  "./HubPage.tsx": 11,
+  "./LoginView.tsx": 9,
+  "./ModuleNav.tsx": 4,
+  "./Page.tsx": 5,
+  "./ProfileView.tsx": 3,
+  "./ResourceList.tsx": 2,
+  "./dataview/DataViewCardList.tsx": 1,
+  "./dataview/DataViewPagination.tsx": 1,
+  "./dataview/DataViewTable.tsx": 3,
+  "./ui/controlStyles.ts": 1,
+};
+
+/**
  * `text` with comments removed, so prose naming a marker cannot stand in for rendering one.
  *
  * Line comments are only stripped from a `//` that does not follow a colon, which keeps
@@ -346,5 +384,48 @@ describe("data-terp markers", () => {
       UNMARKED_STYLED_SURFACES,
       "the worklist must stay sorted and duplicate-free",
     ).toEqual([...new Set(UNMARKED_STYLED_SURFACES)].sort());
+  });
+  it("keeps the inline base-style ledger honest, file by file", () => {
+    // The migration's measurable, gated. A base style object is a module-scope CSSProperties
+    // literal or factory — the shape a component uses to style its own root, and the shape the
+    // sheet replaces. Comments are stripped first so prose naming the type cannot count.
+    const declared: Record<string, number> = {};
+    for (const [file, text] of production) {
+      const matches = stripComments(text).match(/CSSProperties\s*(?:=\s*\{|=>\s*\()/g);
+      if (matches !== null) {
+        declared[file] = matches.length;
+      }
+    }
+    expect(declared).toEqual(INLINE_BASE_STYLES);
+  });
+
+  it("injects the sheet from every module that owns a rule, or is reachable from one that does", () => {
+    // Twelve marker-rendering modules never call injectTerpStyles and do not need to: the
+    // package publishes ONE entry point and declares no `sideEffects`, so importing anything
+    // from it loads every module and two dozen of them inject. That guarantee is a packaging
+    // property, and nothing asserted it — a `sideEffects: false` added for bundle size, plus
+    // tree-shaking, would remove it silently and the first symptom would be Markdown's blocks
+    // collapsing into one grid item. So the property itself is what this pins.
+    expect(Object.keys(manifest.exports)).toEqual(["."]);
+    expect(manifest.exports["."]).toBe("./src/index.ts");
+    expect(
+      "sideEffects" in manifest,
+      "declaring sideEffects would let a bundler drop the modules that inject the stylesheet",
+    ).toBe(false);
+    // And the sheet has many independent injectors reachable from that entry, or the packaging
+    // properties above prove nothing on their own. The entry does NOT re-export ./styles — the
+    // injection is a module side effect of the components themselves, which is exactly why the
+    // sideEffects assertion is the one that matters.
+    const injectors = production.filter(([, text]) =>
+      stripComments(text).includes("injectTerpStyles()"),
+    );
+    expect(injectors.length).toBeGreaterThan(20);
+    const index = sources["./index.ts"] ?? "";
+    for (const [file] of injectors.slice(0, 3)) {
+      const module = file.replace(/^\.\//, "./").replace(/\.tsx?$/, "");
+      expect(index, `${file} injects the sheet but is not reachable from the entry point`).toContain(
+        `from "${module}"`,
+      );
+    }
   });
 });
