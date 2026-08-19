@@ -1340,5 +1340,84 @@
       "bg": "--color-status-danger-soft",
       "layer": "semantic"
     }
+  ],
+  "nonTextPairs": [
+    {
+      "id": "focus-ring-on-surface",
+      "label": "the focus indicator on a card",
+      "fg": "--color-fg-accent",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "focus-ring-on-canvas",
+      "label": "the focus indicator on the canvas",
+      "fg": "--color-fg-accent",
+      "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
+      "id": "active-toggle-border",
+      "label": "the border marking which layout toggle is active",
+      "fg": "--color-fg-accent",
+      "bg": "--color-neutral-100",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-tone-neutral",
+      "label": "an icon button's glyph on a neutral wash",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-neutral-100",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-tone-info",
+      "label": "an icon button's glyph on an info row",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-status-info-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-tone-success",
+      "label": "an icon button's glyph on a success row",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-status-success-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-tone-warning",
+      "label": "an icon button's glyph on a warning row",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-status-warning-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-tone-danger",
+      "label": "an icon button's glyph on a danger row",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-status-danger-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-focus-wash",
+      "label": "an icon button's glyph on a focused clickable row",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-brand-primary-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "control-boundary-on-surface",
+      "label": "a control's outline on a card",
+      "fg": "--color-neutral-300",
+      "bg": "--color-neutral-0",
+      "layer": "primitive"
+    },
+    {
+      "id": "control-boundary-on-canvas",
+      "label": "a control's outline on the canvas",
+      "fg": "--color-neutral-300",
+      "bg": "--color-neutral-50",
+      "layer": "primitive"
+    }
   ]
 }

@@ -1176,9 +1176,12 @@ textarea[data-terp="input"] {
 }
 /* The two toggles at rest, which is to say INACTIVE. 2rem stays a literal, pager
    reasoning. Their border is the neutral-300 control boundary, which measures
-   1.48-1.78:1 against the band in four themes — below the 3:1 SC 1.4.11 asks of a
-   control boundary, recorded as contract debt rather than fixed here, because a
-   token clearing 3:1 repaints every bordered control in the package. */
+   1.42-2.36:1 across the surfaces a bordered control sits on in four themes — below
+   the 3:1 SC 1.4.11 asks of a control boundary. Still not fixed here, because a token
+   clearing 3:1 repaints every bordered control in the package, but no longer only a
+   sentence: control-boundary-on-surface and control-boundary-on-canvas are declared
+   pairings held at their measured floors by BELOW_UI in tokens.contrast.test.js, so
+   the debt can only shrink and emptying that table is the acceptance criterion. */
 [data-terp="dataview-toolbar-layout"] > [data-terp="iconbutton"] {
   display: inline-flex;
   align-items: center;
@@ -2352,9 +2355,12 @@ button[data-terp="input"][data-placeholder="true"] {
    often-repeated shorthand that programmatic focus never matches :focus-visible is
    too coarse to plan a specimen with.
 
-   The arithmetic is recorded here rather than as a test because token-pairs.json
-   carries TEXT pairings only — a non-text pairing section is the real home for it
-   and is deferred deliberately rather than bolted on. */
+   The arithmetic is no longer only recorded here. token-pairs.json now carries a
+   nonTextPairs section, and focus-ring-on-surface and focus-ring-on-canvas are
+   measured in it at 3:1 in every theme, so the ring cannot silently return to what
+   it was. What stays prose is the halo: the box-shadow is reinforcement around the
+   opaque outline rather than the indicator itself, and declaring a ratio WCAG does
+   not ask for is how a data file teaches people to ignore it. */
 [data-terp]:focus-visible {
   outline: 2px solid var(--color-fg-accent);
   outline-offset: 1px;
@@ -2610,8 +2616,11 @@ button[data-terp="input"][data-placeholder="true"] {
    current, an ink difference alone is also SC 1.4.1. The accent border measures 6.12 /
    4.95 / 6.85 / 5.23 / 8.17 against its own neutral-100 fill and 6.70 / 5.75 / 7.49 /
    5.87 / 9.14 against the band, so it clears 3:1 on both sides in every theme. It is a
-   NON-TEXT pairing, which token-pairs.json has no section for; recorded here with its
-   numbers until it does.
+   NON-TEXT pairing, and token-pairs.json now has a section for it: active-toggle-border
+   holds the accent against the neutral-100 fill at 3:1 in every theme. The border against
+   the band is the same two tokens as focus-ring-on-surface, so it is that entry rather
+   than a second one — the numbers above are one pairing seen from two sides. The 1.10 fill
+   is deliberately not declared, for the same reason the focus halo is not.
 
    Deliberately NOT a box-shadow, and this one is a cascade fact rather than a taste:
    [data-terp]:focus-visible sets box-shadow in this same layer at (0,2,0) against this

@@ -1,5 +1,5 @@
 {
-  "$comment": "Foreground/background pairings the framework renders as text, as data. Two consumers read this: tokens.contrast.test.js holds each pairing to WCAG 2.1 AA, and the generated token manifest publishes them so a theme editor or an agent can tell which tokens must stay legible against which. Decorative boundaries are deliberately absent — WCAG sets no ratio for a divider, and asserting one would teach the next reader to ignore this file. Names are CSS custom properties because that is the vocabulary a theme author writes and a manifest consumer reads.",
+  "$comment": "Token pairings the framework renders, as data, in two sections held to two different bars. `textPairs` are foreground/background pairs painted as TEXT and held to WCAG 2.1 AA for normal text; `nonTextPairs` are the visual boundaries and state indicators SC 1.4.11 asks 3:1 of — a focus indicator, the border that says which control is active, the outline of a control against its surface. Two consumers read both: tokens.contrast.test.js measures each pairing at its own bar, and the generated token manifest publishes them so a theme editor or an agent can tell which tokens must stay legible against which. Purely decorative marks stay absent from both sections — WCAG sets no ratio for a divider or for an aria-hidden ornament, and asserting one would teach the next reader to ignore this file. Names are CSS custom properties because that is the vocabulary a theme author writes and a manifest consumer reads.",
   "textPairs": [
     {
       "id": "body-on-card",
@@ -175,6 +175,85 @@
       "fg": "--color-fg-muted",
       "bg": "--color-status-danger-soft",
       "layer": "semantic"
+    }
+  ],
+  "nonTextPairs": [
+    {
+      "id": "focus-ring-on-surface",
+      "label": "the focus indicator on a card",
+      "fg": "--color-fg-accent",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "focus-ring-on-canvas",
+      "label": "the focus indicator on the canvas",
+      "fg": "--color-fg-accent",
+      "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
+      "id": "active-toggle-border",
+      "label": "the border marking which layout toggle is active",
+      "fg": "--color-fg-accent",
+      "bg": "--color-neutral-100",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-tone-neutral",
+      "label": "an icon button's glyph on a neutral wash",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-neutral-100",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-tone-info",
+      "label": "an icon button's glyph on an info row",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-status-info-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-tone-success",
+      "label": "an icon button's glyph on a success row",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-status-success-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-tone-warning",
+      "label": "an icon button's glyph on a warning row",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-status-warning-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-tone-danger",
+      "label": "an icon button's glyph on a danger row",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-status-danger-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-glyph-on-focus-wash",
+      "label": "an icon button's glyph on a focused clickable row",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-brand-primary-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "control-boundary-on-surface",
+      "label": "a control's outline on a card",
+      "fg": "--color-neutral-300",
+      "bg": "--color-neutral-0",
+      "layer": "primitive"
+    },
+    {
+      "id": "control-boundary-on-canvas",
+      "label": "a control's outline on the canvas",
+      "fg": "--color-neutral-300",
+      "bg": "--color-neutral-50",
+      "layer": "primitive"
     }
   ]
 }

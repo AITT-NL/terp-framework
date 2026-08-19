@@ -205,6 +205,9 @@ const manifest = {
     themeable: overlays.some((theme) => sources.get(theme.name).has(name)),
   })),
   textPairs: pairs.textPairs,
+  // Both sections, because a consumer that can only see the text pairings would read the
+  // absence of a boundary pairing as "no requirement" rather than "held elsewhere".
+  nonTextPairs: pairs.nonTextPairs,
 };
 
 writeFileSync(
@@ -213,5 +216,6 @@ writeFileSync(
 );
 console.log(
   `wrote src/tokens.manifest.json (${manifest.tokens.length} tokens, ` +
-    `${manifest.themes.length} themes, ${manifest.textPairs.length} pairs)`,
+    `${manifest.themes.length} themes, ${manifest.textPairs.length} text pairs, ` +
+    `${manifest.nonTextPairs.length} non-text pairs)`,
 );

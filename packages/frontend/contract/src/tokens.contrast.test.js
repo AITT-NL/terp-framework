@@ -30,6 +30,15 @@ const AA_NORMAL_TEXT = 4.5;
 const AAA_NORMAL_TEXT = 7;
 
 /**
+ * WCAG 2.1 SC 1.4.11, non-text contrast: the bar for a control's visual boundary and for a
+ * state or focus indicator. Flat across every theme, including the one that raises its text
+ * floor to AAA, because WCAG defines no AAA tier for non-text contrast — `minimumContrast` in
+ * themes.json is a promise about reading, and inventing a stricter non-text bar from it would
+ * be this file asserting a standard nobody wrote.
+ */
+const UI_COMPONENT = 3;
+
+/**
  * Pairings the framework renders as text, read from the shared data file.
  *
  * `token-pairs.json` is the single source: this gate holds each pairing to AA, and the
@@ -42,6 +51,28 @@ const AAA_NORMAL_TEXT = 7;
  * layers ("body text on the canvas" describes both), so only the id can identify a pairing.
  */
 const TEXT_PAIRS = JSON.parse(fs.readFileSync(here("../token-pairs.json"), "utf8")).textPairs;
+
+/**
+ * Pairings the framework renders as a boundary or an indicator rather than as text, from the
+ * same file, held to {@link UI_COMPONENT} instead of AA.
+ *
+ * The section exists because three measured ratios had nowhere to live and so were recorded as
+ * prose in `styles.ts` — the shared focus ring, the border that says which layout toggle is
+ * active, and the neutral-300 control outline. A number in a comment is not a gate: the focus
+ * ring shipped at 1.67:1 for exactly as long as its value was only ever read by a person.
+ *
+ * What is deliberately NOT here is as load-bearing as what is. The focus ring's translucent
+ * box-shadow halo is excluded: the opaque outline is the indicator SC 1.4.11 measures, and the
+ * halo is reinforcement around it — declaring the halo would assert a ratio WCAG does not ask
+ * for, which is the same reason dividers are absent from `textPairs`. The active toggle's
+ * neutral-100 fill is excluded for the same reason, at 1.10, and it is why that rule carries a
+ * border at all rather than a wash. And the toggle's border against the toolbar band is not a
+ * second entry, because those are the same two tokens as `focus-ring-on-surface` and measuring
+ * one pairing twice under two names would make the ratchet lie about how much is covered.
+ */
+const NON_TEXT_PAIRS = JSON.parse(
+  fs.readFileSync(here("../token-pairs.json"), "utf8"),
+).nonTextPairs;
 
 
 /**
@@ -68,6 +99,41 @@ const TEXT_PAIRS = JSON.parse(fs.readFileSync(here("../token-pairs.json"), "utf8
  * below AA, so an allowance for a new theme is a design mistake and not a legacy to record.
  */
 const BELOW_AA = new Map([]);
+
+/**
+ * Non-text pairings that do not reach 3:1 today, with the ratio measured when they were
+ * recorded. Same ratchet contract as {@link BELOW_AA}: a floor may only rise, and a pairing
+ * that reaches the bar must leave the table.
+ *
+ * Every entry is the same defect. `--color-neutral-300` is the control outline — the border on
+ * an input, a secondary button, a card, a combobox, a menu, the layout toggles — and against
+ * the surfaces those controls sit on it measures 1.42 to 2.36, so a bordered control's edge is
+ * effectively invisible to anyone who needs the boundary in order to see the control. That is a
+ * genuine SC 1.4.11 failure in four of the five themes, deliberately recorded rather than
+ * fixed: the fix is the token value, and moving it repaints every bordered control in the
+ * package, which is a decision about how the framework looks and not a side effect of adding a
+ * gate. The contrast theme already clears it at 10.37, which is what shows the fix is a value
+ * and not a structure.
+ *
+ * Unlike {@link BELOW_AA} the entries are not confined to the themes that predate the gate, and
+ * pretending otherwise would be the dishonest option — every palette inherited the same
+ * 300-step boundary, so the defect is one token's value seen five times rather than five
+ * independent mistakes. The guard below is therefore different in kind: the allowance may name
+ * only the control-boundary pairings. A new pairing cannot be added to it at all.
+ */
+const BELOW_UI = new Map([
+  ["dark/control-boundary-on-canvas", 2.3559],
+  ["dark/control-boundary-on-surface", 1.9305],
+  ["light/control-boundary-on-canvas", 1.419],
+  ["light/control-boundary-on-surface", 1.4847],
+  ["midnight/control-boundary-on-canvas", 1.6826],
+  ["midnight/control-boundary-on-surface", 1.5506],
+  ["twilight/control-boundary-on-canvas", 1.982],
+  ["twilight/control-boundary-on-surface", 1.7807],
+]);
+
+/** The only pairings {@link BELOW_UI} is allowed to name. */
+const CONTROL_BOUNDARY_IDS = ["control-boundary-on-canvas", "control-boundary-on-surface"];
 
 /** The declarations of the one rule whose selector is exactly `selector`. */
 function declarationsFor(selector) {
@@ -241,4 +307,66 @@ describe("token sheet text contrast", () => {
       );
     },
   );
+});
+
+describe("token sheet non-text contrast", () => {
+  const uiCases = Object.entries(THEMES).flatMap(([theme, declarations]) =>
+    NON_TEXT_PAIRS.map((pair) => ({
+      ...pair,
+      theme,
+      declarations,
+      key: `${theme}/${pair.id}`,
+    })),
+  );
+  const meetsUi = uiCases.filter(({ key }) => !BELOW_UI.has(key));
+  const uiGaps = uiCases.filter(({ key }) => BELOW_UI.has(key));
+
+  it("gives every pairing a unique id across both sections", () => {
+    // Both sections share one id namespace because the manifest publishes them side by side and
+    // the two ratchets are keyed the same way. A `light/x` allowance that could mean either a
+    // text or a non-text pairing would apply the wrong bar to whichever it hit.
+    const ids = [...TEXT_PAIRS, ...NON_TEXT_PAIRS].map((pair) => pair.id);
+    expect(ids.filter((id) => !id)).toEqual([]);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("measures every registered theme", () => {
+    expect(uiCases).toHaveLength(registry.themes.length * NON_TEXT_PAIRS.length);
+    expect(NON_TEXT_PAIRS.length).toBeGreaterThan(0);
+  });
+
+  it("holds every pairing in exactly one of the two sets", () => {
+    expect(meetsUi.length + uiGaps.length).toBe(uiCases.length);
+    expect(uiGaps).toHaveLength(BELOW_UI.size);
+    const known = new Set(uiCases.map(({ key }) => key));
+    expect([...BELOW_UI.keys()].filter((key) => !known.has(key))).toEqual([]);
+    expect([...BELOW_UI.keys()]).toEqual([...BELOW_UI.keys()].sort());
+  });
+
+  it("lets the allowance name the control boundary and nothing else", () => {
+    // The one guard that keeps this from becoming a general amnesty. BELOW_AA restricts its
+    // allowance by THEME, which works there because a new theme has no excuse to ship below AA.
+    // That reasoning does not transfer: this defect is one token value that every palette
+    // inherited, so it shows up in themes that postdate the gate through no fault of their own.
+    // Restricting by PAIRING instead says the same thing the theme rule says — no new debt —
+    // without pretending the existing debt is older than it is.
+    const idOf = (key) => key.slice(key.indexOf("/") + 1);
+    expect([...BELOW_UI.keys()].filter((key) => !CONTROL_BOUNDARY_IDS.includes(idOf(key)))).toEqual(
+      [],
+    );
+  });
+
+  it.each(meetsUi)("$theme: $id ($label) reaches 3:1 as a non-text pairing", (testCase) => {
+    const { ratio, painted } = measure(testCase);
+    expect(ratio, painted).toBeGreaterThanOrEqual(UI_COMPONENT);
+  });
+
+  it.each(uiGaps)("$theme: $id ($label) is a known non-text gap, held at its floor", (testCase) => {
+    const { ratio, painted } = measure(testCase);
+    const floor = BELOW_UI.get(testCase.key);
+    expect(ratio, `${painted} regressed below its recorded floor`).toBeGreaterThanOrEqual(floor);
+    expect(ratio, `${painted} now reaches 3:1 — remove it from BELOW_UI`).toBeLessThan(
+      UI_COMPONENT,
+    );
+  });
 });
