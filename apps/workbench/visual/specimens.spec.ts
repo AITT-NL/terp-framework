@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { expect, test } from "@playwright/test";
 
 import { ALL_SPECIMENS } from "../src/specimens";
@@ -79,4 +82,39 @@ test("every specimen is present and uniquely identified", async ({ page }) => {
     ).toHaveCount(1);
   }
   await expect(page.locator("[data-specimen]")).toHaveCount(ids.length);
+});
+
+test("records and compares against the same browser build", () => {
+  // The linux baselines in this directory were recorded in a specific Playwright image, and
+  // CI compares against them inside that same image — which only holds while the image tag
+  // and the version in package-lock.json name the same release. Nothing else notices if they
+  // part company: the run stays green until a browser change moves a glyph by a pixel, and
+  // then every baseline fails at once. The instinct that provokes is to re-record, which
+  // converts a version mismatch into a committed one and buries it for good.
+  //
+  // Three files say the tag must track the version — this config, the README and the
+  // workflow. A "must" that nothing checks is the thing this suite exists to disbelieve, so
+  // it is checked here, in the lane whose evidence depends on it.
+  //
+  // No browser, like the theme-allowance test in the a11y lane: reading two files is the
+  // whole check, and giving it a page would only make it slower and able to fail for
+  // unrelated reasons.
+  const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
+  const lock = JSON.parse(fs.readFileSync(`${repoRoot}/package-lock.json`, "utf8"));
+  const pinned = lock.packages["node_modules/@playwright/test"]?.version;
+  expect(pinned, "@playwright/test is not pinned in package-lock.json").toBeTruthy();
+
+  const workflow = fs.readFileSync(`${repoRoot}/.github/workflows/frontend.yml`, "utf8");
+  const tags = [...workflow.matchAll(/mcr\.microsoft\.com\/playwright:v([\d.]+)-\w+/g)].map(
+    (match) => match[1],
+  );
+  // An empty list would pass a naive equality check on every element, and would mean the
+  // containerised step had been renamed or removed — which is exactly when this gate stops
+  // being true without saying so.
+  expect(tags.length, "no playwright image tag found in frontend.yml").toBeGreaterThan(0);
+  for (const tag of tags) {
+    expect(tag, `image tag v${tag} does not match the pinned @playwright/test ${pinned}`).toBe(
+      pinned,
+    );
+  }
 });

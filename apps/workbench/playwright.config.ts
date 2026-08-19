@@ -30,9 +30,10 @@ export default defineConfig({
   // developer machine, linux from `mcr.microsoft.com/playwright:v1.62.0-noble`. CI runs the
   // screenshot lane inside that same image rather than on the bare runner, because a bare
   // runner shares Ubuntu's kernel but not its font packages, and fonts are the whole reason
-  // these sets are split. The image tag tracks the version pinned in package-lock.json:
-  // bumping Playwright without bumping the tag records against one browser and compares
-  // against another.
+  // these sets are split. The image tag has to track the version pinned in package-lock.json
+  // — bumping Playwright without bumping the tag records against one browser and compares
+  // against another — and `records and compares against the same browser build` in
+  // specimens.spec.ts refuses the mismatch rather than leaving it to whoever does the bump.
   snapshotPathTemplate: "{testDir}/__screenshots__/{platform}/{arg}{ext}",
   use: {
     baseURL: `http://localhost:${PORT}`,

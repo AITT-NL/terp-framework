@@ -19,8 +19,13 @@ npm run typecheck
 78 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (390
 axe runs across five palettes); the screenshots cover the **two default** themes (156
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
-present exactly once, one that the contrast allowance list has not grown a new theme, and a
-three-test keyboard lane for the one thing neither of the others can see. **551 checks.**
+present exactly once, one that the contrast allowance list has not grown a new theme, one that
+the CI image tag still names the Playwright version in `package-lock.json`, and a three-test
+keyboard lane for the one thing neither of the others can see. **552 checks.**
+
+Nothing derives those numbers, so they are only as good as the last person to add a specimen:
+`5N` axe runs, `2N` screenshots, three standalone checks (presence, theme allowance, image
+tag) and three keyboard tests — at N=78, 390 + 156 + 3 + 3.
 
 One of those 78 earns a note, because it is the only specimen whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's

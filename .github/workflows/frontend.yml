@@ -122,9 +122,12 @@ jobs:
       # from the `npm ci` above and is already linux-native, so the mount needs no second
       # install.
       #
-      # The image tag must track the Playwright version in package-lock.json. A mismatch
-      # presents as every baseline failing at once, and the instinct that provokes is to
-      # re-record — which would bury it.
+      # The image tag must track the Playwright version in package-lock.json, and that is
+      # gated rather than remembered: `records and compares against the same browser build`
+      # in specimens.spec.ts reads this file and the lockfile and refuses a mismatch. It runs
+      # inside the container below, so the tag it checks is the tag that just ran. Without it
+      # a mismatch presents as every baseline failing at once, and the instinct that provokes
+      # is to re-record — which would bury it.
       - name: Type-check the component workbench
         run: npm run -w terp-workbench typecheck
 

@@ -224,10 +224,10 @@ already stamps (ADR 0094).
   and skipped the one lane that compares pixels. Every "no baseline moved" claim in this
   release, including the headline one above, was until now a human claim produced on one
   machine. 156 baselines recorded in `mcr.microsoft.com/playwright:v1.62.0-noble` from a
-  clean export of the tree, matching the `win32` filenames exactly; 551 checks green on
-  the recording run and 551 again on a second run against the recorded set, which is the
-  half that matters, because a baseline that only passes the run that wrote it is not a
-  baseline.
+  clean export of the tree, matching the `win32` filenames exactly; the whole suite green on
+  the recording run, and green again on a second run comparing against the recorded set — the
+  second run being the half that matters, because a baseline that only passes the run that
+  wrote it is not a baseline.
 
   CI runs the lane inside that same image rather than on the runner directly. A GitHub
   runner shares Ubuntu's kernel with the image but not its font packages, and fonts are
