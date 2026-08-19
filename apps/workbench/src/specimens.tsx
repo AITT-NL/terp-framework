@@ -10,6 +10,7 @@ import {
   ConfirmDialog,
   DataView,
   DataViewCardList,
+  DataViewTable,
   DatePicker,
   DateRangePicker,
   DetailList,
@@ -755,6 +756,36 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             isExpanded={() => false}
             onToggleExpanded={() => {}}
             rowActions={() => [{ label: "Retry", onClick: () => {} }]}
+          />
+        ),
+      },
+      {
+        // The table's expand column and its detail row, neither of which any composed DataView
+        // specimen renders: expansion is internal state with no prop on DataView to seed it,
+        // while DataViewTable takes isExpanded as a prop. One row open and one shut, so both
+        // chevron states sit in one shot.
+        id: "dataview-expanded",
+        title: "DataView — table with a row expanded",
+        node: (
+          <DataViewTable
+            rows={SYNC_ROWS.slice(0, 3)}
+            columns={SYNC_COLUMNS}
+            getRowId={(row) => row.id}
+            isMobile={false}
+            sorting={[]}
+            onToggleSort={() => {}}
+            columnSizing={{}}
+            onCommitColumnSizing={() => {}}
+            selectionEnabled={false}
+            isSelected={() => false}
+            onToggleSelected={() => {}}
+            allPageSelected={false}
+            somePageSelected={false}
+            onToggleSelectPage={() => {}}
+            renderExpanded={(row) => <span>Last synced {row.rows} rows.</span>}
+            isExpanded={(id) => id === "s2"}
+            onToggleExpanded={() => {}}
+            rowActionsLayout="menu"
           />
         ),
       },

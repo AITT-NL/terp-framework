@@ -792,6 +792,44 @@ th[data-terp="dataview-actions-cell"] > span {
   color: var(--color-fg-muted);
 }
 
+/* The expand toggle, and the panel row it opens ---------------------------- */
+/* The toggle wears the shared iconbutton marker rather than a name of its own,
+   which is the third time the package has met this exact control: a bare
+   chevron with no border, transparent, in muted ink. The toast dismisser and the
+   combobox's clear button are the other two, and all three are addressed the
+   same way — structurally, from the marked ancestor they sit in, because where
+   it sits is the only thing distinguishing one from another.
+
+   Two ancestors here, not one, and that is why this cannot key off the button.
+   The same toggle renders in the table's expand column and in a card's head row.
+   A descendant selector loose enough to cover both — anything like "an
+   iconbutton inside a row" — would also catch an icon button an app renders
+   inside one of its own cells, since a cell's content is arbitrary.
+
+   Adopting the marker is an INTENTIONAL diff, and a hover-only one no baseline
+   can see: the toggle gains the shared hover background and the transition every
+   other icon button in the package already has. It had neither, which read as an
+   oversight rather than a decision. */
+[data-terp="dataview-expand-cell"] > [data-terp="iconbutton"],
+[data-terp="dataview-card-main"] > [data-terp="iconbutton"] {
+  display: inline-flex;
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-neutral-500);
+}
+/* The panel cell spans every column. Its block padding follows density like any
+   other cell; its inline padding is deliberately one step wider than a cell's
+   and stays on the spacing scale, because the extra inset is what reads as
+   "this belongs to the row above" rather than as another row. */
+[data-terp="dataview-expanded-cell"] {
+  padding: var(--density-cell-pad-y) var(--space-4);
+  background: var(--color-neutral-50);
+  border-block-end: 1px solid var(--color-neutral-200);
+}
+
 /* Empty / error / loading states ------------------------------------------- */
 /* Same centred block, opposite messages: empty is a dashed outline on the page
    surface because nothing is wrong, error is a filled danger wash because

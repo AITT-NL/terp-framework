@@ -86,6 +86,7 @@ const MARKERS = [
   "dataview-column-resizer",
   "dataview-column-sort",
   "dataview-expand-cell",
+  "dataview-expanded-cell",
   "dataview-row",
   "dataview-row-open",
   "dataview-select-cell",
@@ -237,7 +238,6 @@ const UNMARKED_STYLED_SURFACES = [
   "./OverviewPage.tsx",
   "./ProfileView.tsx",
   "./dataview/DataViewColumnSettings.tsx",
-  "./dataview/DataViewExpandableRow.tsx",
   "./dataview/DataViewRowActions.tsx",
 ];
 

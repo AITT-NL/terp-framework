@@ -20,18 +20,10 @@ export function DataViewExpandToggle({
       type="button"
       aria-label={resolve(expanded ? strings.collapseRow : strings.expandRow)}
       aria-expanded={expanded}
+      data-terp="iconbutton"
       onClick={(event) => {
         event.stopPropagation();
         onToggle();
-      }}
-      style={{
-        display: "inline-flex",
-        padding: "var(--space-1)",
-        background: "transparent",
-        border: "none",
-        borderRadius: "var(--radius-sm)",
-        cursor: "pointer",
-        color: "var(--color-neutral-500)",
       }}
     >
       {expanded ? <ChevronDownGlyph /> : <ChevronRightGlyph />}
@@ -52,14 +44,7 @@ export function DataViewExpandableRow({
 }) {
   return (
     <tr>
-      <td
-        colSpan={colSpan}
-        style={{
-          padding: "var(--space-3) var(--space-4)",
-          background: "var(--color-neutral-50)",
-          borderBottom: "1px solid var(--color-neutral-200)",
-        }}
-      >
+      <td colSpan={colSpan} data-terp="dataview-expanded-cell">
         {children}
       </td>
     </tr>

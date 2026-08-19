@@ -319,6 +319,12 @@ describe("cascade structure", () => {
       'td[data-terp="dataview-actions-cell"]',
       'th[data-terp="dataview-actions-cell"] > span',
       '[data-terp="dataview-card-main"] > span',
+      // The expand toggle, in both places it renders. It wears the shared iconbutton
+      // marker, so its geometry is reachable only through the ancestor it sits in — and
+      // losing either selector leaves the toggle unstyled in one of the two layouts,
+      // which the marker inventory cannot see because the marker is still rendered.
+      '[data-terp="dataview-expand-cell"] > [data-terp="iconbutton"]',
+      '[data-terp="dataview-card-main"] > [data-terp="iconbutton"]',
     ]) {
       expect(
         declaresRuleFor(base, selector),
@@ -473,6 +479,7 @@ describe("cascade structure", () => {
       "dataview-card-title",
       "dataview-card-status",
       "dataview-card-meta",
+      "dataview-expanded-cell",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),
