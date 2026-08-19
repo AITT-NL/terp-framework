@@ -2237,7 +2237,7 @@ button[data-terp="input"][data-placeholder="true"] {
   margin-block-start: var(--space-2);
 }
 
-/* Icon-only buttons. Thirteen elements wear this marker and not one declares a
+/* Icon-only buttons. Sixteen elements wear this marker and not one declares a
    transition inline, so this belongs in terp.base — it sat in terp.state only
    because that is where the hover rules needing it live. Same correction 817f572
    made for Tabs and Breadcrumbs. */
@@ -2373,14 +2373,20 @@ button[data-terp="input"][data-placeholder="true"] {
 
 /* Icon-only buttons: the shell's two header toggles, four pagination arrows, the
    toast dismisser, the combobox's clear button, the calendar's two month arrows,
-   the DataView's expand toggle and the view-options panel's two reorder arrows.
-   Thirteen SITES sharing a transition and nothing else — no shared SURFACE,
-   because each is styled by where it sits. Sites rather than elements, and the
-   distinction is new: the reorder arrows render twice per column row, so the
-   element count is a function of how many columns a view has, while the list of
-   places to check is fixed. The list matters because the escalations here retire
-   per consumer, and an incomplete list is the input a future reader uses to
-   decide whether one can come off.
+   the DataView's expand toggle, the view-options panel's two reorder arrows, and
+   the DataView toolbar's clear-search button and two layout toggles.
+   SIXTEEN SITES sharing a transition and nothing else — no shared SURFACE, because
+   each is styled by where it sits. Sites rather than elements: the reorder arrows
+   render twice per column row, so the element count is a function of how many
+   columns a view has, while the list of places to check is fixed.
+
+   The list matters because the escalations here retired per consumer, and an
+   incomplete list is the input a future reader uses to decide whether a new one is
+   needed. It is also the thing most likely to go stale, and it did: this count sat
+   at eleven, then thirteen, while the toolbar added three wearers in a commit that
+   updated none of the five places the number is written down. Grep for the number
+   word before trusting it: a comment-stripped scan for the marker attribute itself is
+   the only authority.
 
    THE HOVER PAIR NO LONGER SHOUTS, and the component that was why is the one that
    just migrated: AppShell's toggleStyle declared background and colour inline on the
@@ -2617,11 +2623,12 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 /* The pager's disabled ink, scoped rather than added to the shared iconbutton
-   rule above: of the thirteen sites wearing that marker only these four can be
-   disabled at all, and giving the shared rule a colour would change how a
-   disabled calendar arrow looks the day one becomes disableable. The shared rule
-   supplies the opacity and the cursor; this supplies the ink the pager had
-   inline. */
+   rule above: of the sixteen sites wearing that marker only six can be disabled at
+   all — these four and the view-options panel's two reorder arrows, which carry
+   their own scoped ink below for the same reason — and giving the shared rule a
+   colour would change how a disabled calendar arrow looks the day one becomes
+   disableable. The shared rule supplies the opacity and the cursor; this supplies
+   the ink the pager had inline. */
 [data-terp="dataview-pager"] > [data-terp="iconbutton"]:disabled {
   color: var(--color-neutral-300);
 }

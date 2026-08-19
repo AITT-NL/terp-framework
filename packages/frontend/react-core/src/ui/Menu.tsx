@@ -73,10 +73,12 @@ export function Menu({
       data-owner={owner}
       trigger={
         // Its own marker rather than the shared `iconbutton` it used to borrow. That marker
-        // is worn by thirteen visually different sites — the shell's two header toggles, four
+        // is worn by sixteen visually different sites — the shell's two header toggles, four
         // pagination arrows, a toast dismisser, the combobox's clear button, the calendar's
-        // month arrows, the DataView's expand toggle and the view-options panel's two reorder
-        // arrows — and it has no base rule at all, because each is styled by where it sits. This one is an outlined control with a border, a radius and control
+        // month arrows, the DataView's expand toggle, the view-options panel's two reorder
+        // arrows and the DataView toolbar's clear-search button and two layout toggles — and it
+        // has no base rule at all, because each is styled by where it sits.
+        // This one is an outlined control with a border, a radius and control
         // typography, and it is also the trigger whose root marker is about to become
         // configurable, so a `[data-terp="popover"] > [data-terp="iconbutton"]` structural
         // rule would have to grow a branch per root name and would silently stop matching

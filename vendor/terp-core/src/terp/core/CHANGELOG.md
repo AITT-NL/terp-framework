@@ -23,9 +23,22 @@ already stamps (ADR 0094).
   shipped stylesheet, keyed on the `data-terp` / `data-variant` attributes each
   component root already stamped — so for the first time an app's `theme.css` can
   restyle the framework rather than only recolour it.** This is the release's
-  largest change. It repaints nothing: every one of the thirty-seven components
-  migrated so far landed with **zero pixel movement** across the workbench's
-  per-specimen baselines. What changes is what an app can say.
+  largest change, and it is very nearly invisible: component after component landed
+  with **zero pixel movement** across the workbench's per-specimen baselines, which is
+  the evidence that a declaration moved rather than changed. What changes is what an
+  app can say.
+
+  Very nearly, not entirely — and the exceptions are deliberate rather than fallout,
+  so they are listed instead of averaged away. Two are visible in an app: a batch
+  action's leading glyph sits **4px** closer to its label, because the hand-rolled
+  wrapper was replaced by `Button`'s own already-ruled icon slot; and the DataView
+  toolbar's active layout toggle gains an accent border, because a `neutral-100` wash
+  measures 1.09–1.16:1 against the band and an ink difference alone made a
+  state on two icon-only controls colour-only (SC 1.4.1 and 1.4.11). One is
+  density-only: the toolbar's inline padding now reads `--density-cell-pad-x`, which is
+  identical at comfortable and 4px tighter at compact — the toolbar was already named
+  as a reader of that token while the value was a literal. The rest were workbench
+  fidelity fixes, where a baseline had been showing something an app never saw.
 
   Before this, an app could redefine a token's *value* and nothing else. Card
   padding, control height, table row height, spacing rhythm and every interaction
@@ -72,7 +85,19 @@ already stamps (ADR 0094).
 - **The `data-terp` marker vocabulary has grown, and one marker has moved.** Markers
   are the join between a component and both its styling and the layout contract's
   runtime slot check, so the inventory is pinned by a test and belongs in a release
-  note. Twenty-five names arrived with the overlays and the chrome:
+  note. It went from **45 names at 0.7.0 to 159** — 114 new markers, none removed,
+  because a component cannot take its base styles from the sheet until every part of
+  it a rule needs to reach is addressable.
+
+  They arrive in families, and an app's `theme.css` can target any of them: **31** for
+  the DataView cluster (its table cells, cards, pagination, row actions, view-options
+  panel, toolbar, scroll container, skeleton and error inset), **12** for the app
+  shell (its root, sidebar, drawer backdrop, brand row and title, nav list and labels,
+  content column, header, header group, main and footer), **3** for the hub (the page
+  grid, and a card's heading row and icon tile), and the rest for the form fields, the
+  framework states, `Combobox` and the calendar. Twenty-five arrived with the overlays
+  and the chrome, and those are worth naming individually because they are the batch
+  in which two markers also *moved*:
   `calendar-grid`; `menu-trigger`, `menu-item-icon`, `menu-item-check`;
   `page-actions`; `theme-toggle`, `theme-toggle-label`, `language-switcher`,
   `language-switcher-label`; `user-menu`, `user-menu-avatar`, `user-menu-identity`,
@@ -123,7 +148,11 @@ already stamps (ADR 0094).
   `--z-index-toast` had no readers while `Popover` hardcoded 60 and the toast
   viewport hardcoded 100; the combobox listbox was the family's only reader and
   pointed at `--z-index-drawer`, one level below where an anchored panel belongs.
-  `AppShell`'s three remain hardcoded until its own migration.
+  `AppShell`'s three followed with its own migration, and they were the family's
+  remaining gap: `--z-index-drawer` had no reader anywhere while the one element that
+  wanted it — the shell's mobile drawer — hardcoded 50, and `--z-index-backdrop` and
+  `--z-index-sticky` had none either. All three are read now, and gated, because a
+  hardcoded number would move no baseline and read as correct.
 
 ### Added
 
