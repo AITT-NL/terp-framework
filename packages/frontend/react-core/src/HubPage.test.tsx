@@ -18,7 +18,12 @@ describe("HubPage", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Administration" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
     expect(screen.getAllByText("Administration")).toHaveLength(1);
-    expect(screen.getByRole("list")).toHaveStyle({ gridAutoRows: "1fr" });
+    // The marker, not the declaration. jsdom does not compute the cascade, so toHaveStyle
+    // can only ever see an inline style — asserting gridAutoRows here was asserting that the
+    // grid is styled from a style object, which is the thing ADR 0094 removes. What a test
+    // should assert is the fact the sheet keys on; the geometry is gated by styles.test.ts
+    // (the rule exists) and by the hub-page baselines (it does what it says).
+    expect(screen.getByRole("list")).toHaveAttribute("data-terp", "hubpage-grid");
     expect(screen.getByRole("link", { name: /Users/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Roles/ })).toBeInTheDocument();
     expect(screen.getByText("Manage accounts")).toBeInTheDocument();
@@ -91,18 +96,22 @@ describe("HubCard", () => {
       (title) => title.closest('[data-terp="hubcard-body"]'),
     );
     expect(bodies).toHaveLength(2);
-    for (const body of bodies) {
-      expect(body).toHaveStyle({
-        gridTemplateRows: "auto minmax(3rem, 1fr) auto",
-        minHeight: "10rem",
-      });
-    }
+    // What this test can actually establish, and it is the load-bearing half: both rows are
+    // PRESENT on the bare card, carrying a placeholder, so the body has three grid children
+    // either way. The equal-height claim is the tracks rule plus these placeholders, and the
+    // tracks rule is now in the sheet — gated by styles.test.ts for existence and by
+    // hub-card-bare, whose whole subject is a bare card sitting flush with a full one.
     const shortBody = bodies[0]!;
-    expect(shortBody.querySelector('[data-terp="hubcard-description"]')).toHaveStyle({
-      visibility: "hidden",
-    });
-    expect(shortBody.querySelector('[data-terp="hubcard-stat"]')).toHaveStyle({
-      visibility: "hidden",
-    });
+    const fullBody = bodies[1]!;
+    expect(shortBody.children).toHaveLength(fullBody.children.length);
+    // And the attribute the rule reads. Asserting visibility: hidden here asserted an inline
+    // style object; asserting data-empty asserts the fact, which is what survives the move.
+    for (const part of ["hubcard-description", "hubcard-stat"] as const) {
+      expect(shortBody.querySelector(`[data-terp="${part}"]`)).toHaveAttribute(
+        "data-empty",
+        "true",
+      );
+      expect(fullBody.querySelector(`[data-terp="${part}"]`)).not.toHaveAttribute("data-empty");
+    }
   });
 });

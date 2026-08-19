@@ -147,13 +147,6 @@ describe("cascade structure", () => {
       ['[data-terp="iconbutton"]:hover', "AppShell toggleStyle background and colour"],
       // The shell's nav anchors carry colour inline (NAV_LINK_STYLE).
       ['[data-terp="appshell-nav"] a:hover', "AppShell NAV_LINK_STYLE colour"],
-      // HubCard's visible edge is a border on hubcard-body, declared inline by HubPage. Worth
-      // pinning because the rule this replaced was DEAD: it recoloured the outer <li>, which
-      // computes `0px none`, so the accent edge never painted at all — measured in a browser,
-      // since no baseline captures a hover.
-      ['[data-terp="hubcard"]:hover [data-terp="hubcard-body"]', "HubPage cardBodyStyle border"],
-      // The card title's colour and transition are inline (titleTextStyle).
-      ['[data-terp="hubcard"]:hover [data-terp="hubcard-title"]', "HubPage titleTextStyle colour"],
     ] as const) {
       const at = state.indexOf(rule);
       expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
@@ -198,6 +191,41 @@ describe("cascade structure", () => {
       state,
       "the tab precedent this guard is modelled on must stay in the sheet",
     ).toContain('[data-terp="tab"]:hover:not(:disabled):not([aria-selected="true"])');
+  });
+
+  it("keeps the two hub-card declarations no lane can see", () => {
+    // Both of these were found by mutation: deleting either moves no baseline, and neither is
+    // dead. This is their only gate.
+    //
+    // The placeholder rows. A non-breaking space paints nothing, so a hidden placeholder and a
+    // visible one are pixel-identical — measured at width 557 and height 89 either way. The
+    // declaration exists for the accessibility tree: visibility: hidden removes the text, and
+    // without it a screen reader announces a blank row on every card missing a description or a
+    // stat. It must therefore stay `visibility` and never become `opacity`, which hides the text
+    // from sight while leaving it announced.
+    const base = layerBody("terp.base");
+    const at = base.indexOf('[data-terp="hubcard-description"][data-empty="true"]');
+    expect(at, "the placeholder rule should be declared").toBeGreaterThan(-1);
+    const block = base.slice(base.indexOf("{", at) + 1, base.indexOf("}", at));
+    expect(block, "a placeholder row must leave the accessibility tree, not just the page").toContain(
+      "visibility: hidden",
+    );
+    expect(block, "opacity would hide the text from sight and leave it announced").not.toContain(
+      "opacity",
+    );
+    // The card's height chain. The grid stretches the <li>, hubcard passes that down, and the
+    // link is the middle rung: without these two the anchor hugs its body and a shorter card
+    // leaves a gap at the bottom of a taller row. It is only observable once one card's content
+    // exceeds the body's 10rem floor, which is what hub-card-bare was strengthened to do.
+    const link = base.indexOf('[data-terp="hubcard-link"]');
+    expect(link, "the hub-card link rule should be declared").toBeGreaterThan(-1);
+    const linkBlock = base.slice(base.indexOf("{", link) + 1, base.indexOf("}", link));
+    expect(linkBlock, "the anchor is the middle rung of the card's height chain").toContain(
+      "height: 100%",
+    );
+    expect(linkBlock, "an inline anchor cannot carry a percentage height").toContain(
+      "display: block",
+    );
   });
 
   it("puts the DataView's surface on the full variant, not on the bare marker", () => {
@@ -421,6 +449,12 @@ describe("cascade structure", () => {
       // expand toggle have no disabled state — and each set cursor inline until it migrated.
       // The day a calendar arrow gains a min/max bound, this answer changes back.
       '[data-terp="iconbutton"]:disabled',
+      // HubPage was the condition for both of these, and it was the condition in the strongest
+      // form: hubcard-body's border and hubcard-title's colour were declared inline on the very
+      // elements these selectors match, so no layered rule could reach them at any specificity.
+      // Both surfaces come from terp.base now.
+      '[data-terp="hubcard"]:hover [data-terp="hubcard-body"]',
+      '[data-terp="hubcard"]:hover [data-terp="hubcard-title"]',
     ]) {
       const at = state.indexOf(rule);
       expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
@@ -475,12 +509,14 @@ describe("cascade structure", () => {
     // UNTHEMEABLE — there is no author-side override at all. That is why the count is the
     // phase's measurable and why retiring one is a feature rather than tidying.
     expect(css).toContain("@layer terp.reset, terp.base, terp.state, terp.motion;");
-    // Seven left, every one of them named in the must-keep list above with its inline
-    // consumer. Two retired in this stage: the card's focus-within background with
-    // DataViewCardList, and the icon button's disabled cursor with DataViewPagination —
-    // which was the only element wearing that marker able to match :disabled at all.
+    // Five left, every one of them named in the must-keep list above with its inline
+    // consumer, and all five now blocked by ONE file: AppShell. Two retired with HubPage —
+    // the hub card's hover border and its hover title colour, both of which were declared
+    // inline on the very elements those selectors match, so no layered rule could reach them
+    // at any specificity. Earlier in this stage the card's focus-within background retired
+    // with DataViewCardList and the icon button's disabled cursor with DataViewPagination.
     const declarations = css.split("!important").length - 1;
-    expect(declarations).toBe(7);
+    expect(declarations).toBe(5);
   });
 
   it("declares a rule for every DataView surface reached structurally", () => {
@@ -709,6 +745,15 @@ describe("cascade structure", () => {
       "dataview-column-settings",
       "dataview-column-settings-title",
       "dataview-column-option",
+      "hubpage-grid",
+      "hubcard",
+      "hubcard-link",
+      "hubcard-body",
+      "hubcard-heading",
+      "hubcard-icon",
+      "hubcard-title",
+      "hubcard-description",
+      "hubcard-stat",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

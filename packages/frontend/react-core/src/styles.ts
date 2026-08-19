@@ -548,6 +548,132 @@ textarea[data-terp="input"] {
   line-height: 0;
 }
 
+/* Hub cards --------------------------------------------------------------- */
+/* This whole family was in terp.state, resting declarations and all, for the same
+   reason the icon button's transition was: that is where the hover rules needing it
+   live. The resting half belongs here — a layer above is a layer an app's own state
+   rule has to out-rank for no reason.
+
+   The hub grid. auto-fit with a min(16rem, 100%) track floor is what makes a hub
+   reflow from four columns to one with no media query anywhere, and the min() rather
+   than a bare 16rem is what stops a viewport narrower than the track overflowing.
+   grid-auto-rows: 1fr with align-items: stretch is what makes every card in a row the
+   same height — which is the entire reason HubCard renders placeholder rows, so those
+   two decisions are one mechanism split across a rule and a component. */
+[data-terp="hubpage-grid"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  grid-auto-rows: 1fr;
+  gap: var(--space-4);
+  align-items: stretch;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* The card is one link, and the height chain is the part worth naming. The grid
+   stretches the <li> to the row height, hubcard passes that down with height: 100%, and
+   this rule is the middle link: without display: block and height: 100% the anchor hugs
+   its body and a shorter card leaves a gap at the bottom of a taller row. Measured, and
+   the measurement is why the specimen below it was strengthened: with both cards at the
+   body's 10rem floor, forcing this anchor to display: inline changes nothing at all —
+   every height stays 160px, because a grid body is block-level and the anchor's box hugs
+   it either way. It only bites once one card's content exceeds the floor. */
+[data-terp="hubcard-link"],
+[data-terp="hubcard"] a {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+/* The card and its body. The visible edge is on the BODY, not on the card: the card is
+   the outer <li> and has no border at all. That distinction is what made the hover
+   accent edge dead for as long as it was — see the state rules.
+
+   The transition splits three ways, and each half is declared where its property
+   lives: box-shadow and transform animate on the card, border-color on the body,
+   colour on the title. Two of those were already rules; the title's was inline until
+   this commit, which means terp.motion could not reach it and a reduced-motion user
+   watched it animate. All three are inside the block's reach now. */
+[data-terp="hubcard"] {
+  height: 100%;
+  min-height: 0;
+  transition: box-shadow 150ms ease, transform 150ms ease;
+}
+[data-terp="hubcard-body"] {
+  display: grid;
+  grid-template-rows: auto minmax(3rem, 1fr) auto;
+  gap: var(--space-2);
+  height: 100%;
+  min-height: 10rem;
+  padding: var(--space-4);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  background: var(--color-neutral-0);
+  color: var(--color-neutral-900);
+  box-sizing: border-box;
+  transition: border-color 150ms ease;
+}
+/* -heading, not -title: in this sheet a heading is the BOX holding a title
+   (card-heading, dataview-card-heading) and a title is the text box itself
+   (card-title, dialog-title, hubcard-title). This is the row. */
+[data-terp="hubcard-heading"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+/* The icon tile. Its own marker rather than a structural hubcard-heading > span, and
+   the reason is that the tile is CONDITIONAL while the title is not: a structural
+   selector would move the tile's fill onto whatever else ends up first in that row the
+   day the markup changes. fg-accent on brand-primary-soft measures 6.16 / 5.28 / 5.19 /
+   5.29 / 7.98, so the glyph clears AA on its own tile in every theme. */
+[data-terp="hubcard-icon"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-brand-primary-soft);
+  color: var(--color-fg-accent);
+}
+[data-terp="hubcard-title"] {
+  color: var(--color-neutral-900);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  transition: color 150ms ease;
+}
+/* neutral-600 rather than fg-muted, and it is not the tinted-surface case: this text
+   sits on the card's own neutral-0 and measures 7.58 / 7.94 / 7.50 / 7.60 / 18.42. */
+[data-terp="hubcard-description"] {
+  color: var(--color-neutral-600);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+[data-terp="hubcard-stat"] {
+  color: var(--color-neutral-900);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+/* The placeholder rows. The span still renders, carrying a non-breaking space, so its
+   grid row keeps its height and a bare card stays flush with a full one — but that is the
+   MARKUP's doing, not this rule's. This rule is invisible to every lane and it is not an
+   oversight: a non-breaking space paints nothing, so a hidden placeholder and a visible
+   one are pixel-identical. Measured — width 557 and height 89 either way.
+
+   Which leaves exactly one reason for the declaration, and it is the reason it must be
+   visibility rather than opacity: visibility: hidden also removes the text from the
+   accessibility tree. Without it a screen reader reaches a card and announces a blank
+   row. No screenshot and no axe run can see that, so the gate is a text assertion.
+
+   Two markers and one rule: the shape is identical and there is nothing true of the stat
+   here that is not true of the description. */
+[data-terp="hubcard-description"][data-empty="true"],
+[data-terp="hubcard-stat"][data-empty="true"] {
+  visibility: hidden;
+}
+
 /* DataView: the composition root ------------------------------------------- */
 /* One display for both return paths, so it belongs on the bare marker rather than
    being duplicated per variant.
@@ -2144,43 +2270,29 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 /* Hub cards --------------------------------------------------------------- */
-[data-terp="hubcard-link"],
-[data-terp="hubcard"] a {
-  text-decoration: none;
-  color: inherit;
-  display: block;
-  height: 100%;
-  min-height: 0;
-}
 /* The hover edge recolours hubcard-BODY, not the card.
 
    The rule here used to set border-color on [data-terp="hubcard"], which is the outer <li>
    and has no border: HubPage puts the visible edge on the inner hubcard-body span. So the
    accent edge — clearly the intent, since the title goes accent and the card lifts and gains
    a shadow at the same moment — never painted. Measured in a browser rather than reasoned
-   about, because no baseline captures a hover: the li computes border 0px none at rest and
-   0px none in the accent colour on hover, while the shadow and the transform do apply.
+   about, because no baseline captures a hover: the li computed border 0px none at rest and
+   0px none in the accent colour on hover, while the shadow and the transform did apply.
 
-   The escalation moves with the declaration and is still required: hubcard-body's border is
-   inline in HubPage, so a layered rule cannot beat it. It comes off when HubPage migrates.
-   The transition splits for the same reason the hover did — box-shadow and transform animate
-   on the card, border-color animates on the body, and declaring each where its property lives
-   is what stops the next reader inheriting the same confusion. */
-[data-terp="hubcard"] {
-  transition: box-shadow 150ms ease, transform 150ms ease;
-}
-[data-terp="hubcard-body"] {
-  transition: border-color 150ms ease;
-}
+   BOTH ESCALATIONS ARE GONE, and this file was the condition for both. hubcard-body's
+   border and hubcard-title's colour were declared inline in HubPage, on the very elements
+   these two selectors match, so no layered rule could reach them at any specificity. Both
+   surfaces take their base from terp.base now, so layer order alone is enough. Two of the
+   seven, and neither could have retired one commit earlier. */
 [data-terp="hubcard"]:hover {
   box-shadow: var(--shadow-sm);
   transform: translateY(-1px);
 }
 [data-terp="hubcard"]:hover [data-terp="hubcard-body"] {
-  border-color: var(--color-fg-accent) !important;
+  border-color: var(--color-fg-accent);
 }
 [data-terp="hubcard"]:hover [data-terp="hubcard-title"] {
-  color: var(--color-fg-accent) !important;
+  color: var(--color-fg-accent);
 }
 
 /* Which layout is active, expressed as more than a wash. terp.state, and keyed on the

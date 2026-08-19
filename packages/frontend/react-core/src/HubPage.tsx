@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { Page } from "./Page";
@@ -19,22 +19,15 @@ export type HubPageProps = Omit<
   parents?: PageProps["breadcrumbs"];
 };
 
-const gridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(min(16rem, 100%), 1fr))",
-  gridAutoRows: "1fr",
-  gap: "var(--space-4)",
-  alignItems: "stretch",
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-};
-
 /**
  * The landing / hub page archetype: a `Page` whose body is a responsive grid of
  * {@link HubCard} links into the sub-areas of a domain. Use it as a module index that
  * adds discovery value (each card can carry a live `stat`, making the hub a lightweight
  * dashboard) — never as a mandatory speed-bump in front of a single frequently-used list.
+ *
+ * It renders no inline styles: the grid and every part of a card take their geometry from
+ * the injected react-core sheet, matched on the `data-terp` markers stamped below
+ * (ADR 0094).
  */
 export function HubPage({ children, parents, breadcrumbs, ...page }: HubPageProps) {
   // The runtime half of the slot-typed layout contract control (ADR 0079) for the hub
@@ -61,7 +54,7 @@ export function HubPage({ children, parents, breadcrumbs, ...page }: HubPageProp
   }
   return (
     <Page {...page} breadcrumbs={parents ?? breadcrumbs}>
-      <ul ref={gridRef} style={gridStyle}>
+      <ul ref={gridRef} data-terp="hubpage-grid">
         {children}
       </ul>
     </Page>
@@ -89,86 +82,23 @@ export interface HubCardProps {
   renderLink?: RenderHubCardLink;
 }
 
-const cardStyle: CSSProperties = {
-  height: "100%",
-  minHeight: 0,
-};
-
-const cardBodyStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateRows: "auto minmax(3rem, 1fr) auto",
-  gap: "var(--space-2)",
-  height: "100%",
-  minHeight: "10rem",
-  padding: "var(--space-4)",
-  border: "1px solid var(--color-neutral-200)",
-  borderRadius: "var(--radius-lg)",
-  background: "var(--color-neutral-0)",
-  color: "var(--color-neutral-900)",
-  boxSizing: "border-box",
-};
-
-const cardTitleRowStyle: CSSProperties = {
-  margin: 0,
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-3)",
-};
-
-const iconTileStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: "2.25rem",
-  height: "2.25rem",
-  flexShrink: 0,
-  borderRadius: "var(--radius-md)",
-  background: "var(--color-brand-primary-soft)",
-  color: "var(--color-fg-accent)",
-};
-
-const titleTextStyle: CSSProperties = {
-  color: "var(--color-neutral-900)",
-  fontSize: "var(--font-size-base)",
-  fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
-  transition: "color 150ms ease",
-};
-
-const descriptionStyle: CSSProperties = {
-  margin: 0,
-  color: "var(--color-neutral-600)",
-  fontSize: "var(--font-size-sm)",
-  lineHeight: 1.5,
-};
-
-const emptyDescriptionStyle: CSSProperties = { ...descriptionStyle, visibility: "hidden" };
-
-const statStyle: CSSProperties = {
-  color: "var(--color-neutral-900)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
-};
-const emptyStatStyle: CSSProperties = { ...statStyle, visibility: "hidden" };
-
-const linkStyle: CSSProperties = {
-  textDecoration: "none",
-  color: "inherit",
-  display: "block",
-  height: "100%",
-  minHeight: 0,
-};
-
 const anchorRenderLink: RenderHubCardLink = ({ to, children }) => (
-  <a href={to} data-terp="hubcard-link" style={linkStyle}>
+  <a href={to} data-terp="hubcard-link">
     {children}
   </a>
 );
 
 /**
- * A single navigable card inside a {@link HubPage}: icon + title, a short description of
+ * A single navigable card inside a {@link HubPage}: icon + title, a short explanation of
  * the area, and an optional live `stat`. The whole card is one link, rendered through
  * `renderLink` so the hub stays router-agnostic — defaulting to the surrounding router's
  * `Link`, and to a plain anchor only outside a Terp router.
+ *
+ * The description and stat rows always render, carrying a non-breaking space when the prop
+ * is absent, so a card's three grid rows keep their heights and a bare card stays flush
+ * with a full one in the same row. `data-empty` is what hides the placeholder — an
+ * attribute rather than a second style object, because "is this row a placeholder" is a
+ * fact about the element that a rule can read.
  */
 export function HubCard({
   to,
@@ -184,27 +114,26 @@ export function HubCard({
     (navLink === null
       ? anchorRenderLink
       : ({ to: href, children }: { to: string; children: ReactNode }) => (
-          <span data-terp="hubcard-link" style={linkStyle}>
-            {navLink({ to: href, children })}
-          </span>
+          <span data-terp="hubcard-link">{navLink({ to: href, children })}</span>
         ));
   const resolve = useUiText();
   return (
-    <li data-terp="hubcard" style={cardStyle}>
+    <li data-terp="hubcard">
       {renderCardLink({
         to,
         children: (
-          <span data-terp="hubcard-body" style={cardBodyStyle}>
-            <span style={cardTitleRowStyle}>
-              {icon !== undefined && <span style={iconTileStyle}>{icon}</span>}
-              <strong data-terp="hubcard-title" style={titleTextStyle}>
-                {resolve(title)}
-              </strong>
+          <span data-terp="hubcard-body">
+            <span data-terp="hubcard-heading">
+              {icon !== undefined && <span data-terp="hubcard-icon">{icon}</span>}
+              <strong data-terp="hubcard-title">{resolve(title)}</strong>
             </span>
-            <span data-terp="hubcard-description" style={description === undefined ? emptyDescriptionStyle : descriptionStyle}>
+            <span
+              data-terp="hubcard-description"
+              data-empty={description === undefined ? "true" : undefined}
+            >
               {description === undefined ? " " : resolve(description)}
             </span>
-            <span data-terp="hubcard-stat" style={stat === undefined ? emptyStatStyle : statStyle}>
+            <span data-terp="hubcard-stat" data-empty={stat === undefined ? "true" : undefined}>
               {stat ?? " "}
             </span>
           </span>
@@ -213,4 +142,3 @@ export function HubCard({
     </li>
   );
 }
-

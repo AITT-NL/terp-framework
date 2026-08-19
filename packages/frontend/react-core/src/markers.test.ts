@@ -134,9 +134,12 @@ const MARKERS = [
   "hubcard",
   "hubcard-body",
   "hubcard-description",
+  "hubcard-heading",
+  "hubcard-icon",
   "hubcard-link",
   "hubcard-stat",
   "hubcard-title",
+  "hubpage-grid",
   "icon",
   "iconbutton",
   "input",
@@ -279,7 +282,6 @@ const UNMARKED_STYLED_SURFACES = [
  */
 const INLINE_BASE_STYLES: Record<string, number> = {
   "./AppShell.tsx": 22,
-  "./HubPage.tsx": 11,
   "./LoginView.tsx": 9,
   "./ModuleNav.tsx": 4,
   "./Page.tsx": 5,
