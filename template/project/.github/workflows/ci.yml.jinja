@@ -1,5 +1,18 @@
 name: ci
 
+# One definition of green, and it is not in this file. `terp verify` owns the check list
+# (its PROFILES table); this workflow only installs the toolchain and supplies the
+# preconditions a profile declares it needs.
+#
+# CI must never restate the checks. A restated list is frozen at the template version this
+# app was rendered from while its packages keep moving, so the gate quietly stops
+# verifying whatever was added since — and nothing goes red to say so. That is not
+# hypothetical: it is how an app ends up type-checking against an API client that was
+# never generated, reporting a green frontend, and failing the moment a module first
+# imports the client. Adding a step here to fix a gap is the bug, not the fix; the gap
+# belongs in the profile, where every driver of the gate — CI, an agent, Terp Studio —
+# picks it up at once.
+
 on:
   push:
   pull_request:
@@ -10,85 +23,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync
-      # Lockstep (ADR 0063): a terp-* set at two versions is a pin someone forgot, not a
-      # supported combination — so every verdict below would be about a platform that was
-      # never released, in either direction. Refuse before spending the gate on it.
-      - run: uv run terp verify --profile quick --only platform-install
-      # Which seam actually supplies each declared variable. Compose resolves
-      # `environment:` over `env_file:`, so a variable named in both is taken from the
-      # developer's .env and the .app.env Studio renders never arrives — in every
-      # environment, and invisibly, because nothing fails until the value is used. Reads
-      # environment.schema.json and the compose files as data: no daemon, no containers.
-      - run: uv run terp verify --profile quick --only env-seams
-      # The architecture gate is the source of truth (== `terp check`).
-      - run: uv run pytest
-      # The delegated generic AppSec baseline (ADR 0085): ruff bandit (`S`) covers the
-      # vulnerability classes the Terp rules deliberately don't duplicate. Blocking.
-      - run: uv run ruff check .
-      # Keep the generated API reference in lockstep with the installed kernel: regenerate
-      # it and fail if a committed copy drifted (a no-op until you commit docs/).
-      - run: uv run terp api-docs --out docs
-      - run: git diff --exit-code -- docs
-
-  # The React frontend type-checks and builds against @terpjs/react-core + @terpjs/contract.
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      # The typed client is generated, never committed (.gitignore), so CI has to
-      # produce it before anything reads it — the app's live OpenAPI document, then
-      # openapi-typescript into frontend/src/api/schema.d.ts. Vite erases type-only
-      # imports, so `build` would pass without it and only `tsc` would fail: without
-      # these steps the frontend half of the gate silently stops working the moment a
-      # module actually calls the API, which is to say as soon as the app is an app.
-      - uses: astral-sh/setup-uv@v5
       - run: uv sync
-        working-directory: .
-      - run: uv run terp openapi
-        working-directory: .
-      - run: npm install
-      - run: npm run generate
-      # The route types are extracted from the module manifests and committed (ADR 0092),
-      # so `--check` refuses a table that no longer matches them. It runs before the
-      # typecheck deliberately: a stale table fails the typecheck on the app's own
-      # screens, where the real fault is one unregenerated artifact.
-      - run: npm run routes -- --check
-      - run: npm run typecheck
-      # The boundary lint + escape-hatch budget: the frontend half of the gate. A violation
-      # fails CI; a governed opt-out is a justified `terp-allow-*` marker counted in
-      # escape-hatch-budget.json.
-      - run: npm run lint
-      - run: npm run build
+      # Both manifests that pin @terpjs/*. The profile's platform-install check reads the
+      # INSTALLED copy under each node_modules, not just the declared range, so they have
+      # to be here for its verdict to mean anything — and a name left under the
+      # pre-rename @terp/ scope fails at this step, loudly, instead of much later.
+      - run: npm --prefix frontend install
+      - run: npm --prefix conformance install
+      # The merge bar. platform-install runs first and refuses a mixed install before the
+      # rest of the run spends time proving things about a combination never released.
+      - run: uv run terp verify --profile full
+      # Release-profile checks cheap and deterministic enough to gate merges too. The rest
+      # of that profile is either advisory — the dependency audits move with advisory
+      # databases rather than with this change — or needs the workbench, which is below.
+      - run: uv run terp verify --profile release --only api-docs-drift
 
-  # End-to-end conformance: boot the Docker workbench (db -> migrate -> seed -> api + web) and drive
-  # real browser auth flows with Playwright (the base-profile suite from @terpjs/conformance). Grow it
-  # with your own module specs.
   conformance:
+    # The release profile's `conformance` check with the precondition its manifest entry
+    # declares (`requires:`) actually met: the Docker workbench up (db -> migrate -> seed
+    # -> api + web), driven by real browser auth flows from @terpjs/conformance. Its own
+    # job so a browser-level failure reads as one, and so the merge bar above stays fast.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install
-        working-directory: conformance
+      - run: uv sync
+      - run: npm --prefix conformance install
       - name: Install Playwright (Chromium + OS deps)
         run: npx playwright install --with-deps chromium
         working-directory: conformance
       - name: Start the workbench
         run: docker compose up -d --wait api web seed
-      - name: Run the conformance suite
-        env:
-          TERP_E2E_BASE_URL: http://localhost:5173
-        working-directory: conformance
-        run: npm test
+      - run: uv run terp verify --profile release --only conformance
       - name: Upload the Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4

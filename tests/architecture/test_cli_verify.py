@@ -80,6 +80,10 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         "appsec-baseline",
         "frontend-boundaries",
         "routes-drift",
+        # The generated API client is an INPUT to the typecheck below and is
+        # gitignored, so a fresh checkout has none: producing it belongs to the
+        # profile, not to whatever steps a scaffolded workflow happens to list.
+        "api-client",
         "frontend-typecheck",
         "frontend-build",
     }
@@ -96,41 +100,107 @@ def test_the_routes_drift_check_runs_before_the_typecheck() -> None:
             assert ids.index("routes-drift") < ids.index("frontend-typecheck"), profile
 
 
-def test_the_template_ci_checks_the_committed_route_table() -> None:
-    """The full profile's equivalence with template CI, for the routes half: the
-    generated app's CI must refuse a stale committed table, before its typecheck."""
-    workflow = (
-        _REPO_ROOT / "template" / "project" / ".github" / "workflows" / "ci.yml.jinja"
-    ).read_text(encoding="utf-8")
-    assert "npm run routes -- --check" in workflow
-    assert workflow.index("npm run routes -- --check") < workflow.index("npm run typecheck")
+def test_the_api_client_is_generated_before_the_typecheck() -> None:
+    """The typed client is generated from the backend contract and gitignored, so a
+    fresh checkout has none and `tsc` is the only thing that reads it (Vite erases
+    type-only imports, so `build` passes without it). Generating it after the
+    typecheck would report a pile of implicit-any errors across the app's own screens
+    whose single cause is one artifact that was never written."""
+    for profile, checks in PROFILES.items():
+        ids = [check.id for check in checks]
+        if "api-client" in ids and "frontend-typecheck" in ids:
+            assert ids.index("api-client") < ids.index("frontend-typecheck"), profile
 
 
-def test_the_template_ci_runs_the_platform_install_check() -> None:
-    """The claim above is an equivalence, so a check the profile gained must reach
-    CI too. CI installs from the app's ``==`` pins exactly as a developer does, so
-    a forgotten pin produces the same mixed install there — silently, and with the
-    gate's green stamped on it."""
-    workflow = (
+def test_every_profile_that_typechecks_the_frontend_generates_its_client() -> None:
+    """The pair is the invariant, in both directions: a profile that type-checks
+    without generating is measuring a stale artifact (or none at all), which is the
+    exact shape of a green gate over a red build."""
+    for profile, checks in PROFILES.items():
+        ids = {check.id for check in checks}
+        assert ("frontend-typecheck" in ids) == ("api-client" in ids), profile
+
+
+def test_no_manifest_command_needs_a_shell() -> None:
+    """A driving tool runs manifest commands as a fixed argv with no shell — the
+    Studio does, deliberately, because these execute project-controlled code. A
+    composite command therefore cannot run there: `&&` reaches the first program as
+    an argument, and its complaint is reported as the app's own red. Checks that
+    compose steps publish a self-referential `terp verify --only <id>` instead and
+    do the composing inside an in-process runner."""
+    for profile, checks in PROFILES.items():
+        for check in checks:
+            for operator in ("&&", "||", "|", ";"):
+                assert operator not in check.command, (
+                    f"{profile}/{check.id}: {check.command!r} composes with "
+                    f"{operator!r}, which a shell-less driver cannot execute"
+                )
+
+
+def _template_ci() -> str:
+    return (
         _REPO_ROOT / "template" / "project" / ".github" / "workflows" / "ci.yml.jinja"
     ).read_text(encoding="utf-8")
-    assert "--only platform-install" in workflow, (
-        "the generated CI must verify the platform install before running the "
-        "gate — otherwise CI blesses a combination that was never released"
+
+
+def test_the_template_ci_delegates_its_check_list_to_the_profile() -> None:
+    """CI installs the toolchain; the profile decides what green means.
+
+    The equivalence between the two used to be maintained by hand — CI restated each
+    check's command, and a test here asserted the string was present. That is a mirror,
+    not an equivalence, and it holds only for a freshly rendered app: the workflow is
+    SCAFFOLDED, so a fielded app's copy freezes at the version it was rendered from
+    while its packages keep moving. A check added to a profile then reaches the
+    template and this test, and never reaches the app — whose CI goes on reporting
+    green over a list years out of date. That is the failure this guard exists for now,
+    and the reason it derives the forbidden set from PROFILES rather than naming
+    commands: restating any check is the defect, whichever one it is.
+    """
+    workflow = _template_ci()
+    assert "terp verify --profile full" in workflow, (
+        "the generated CI must invoke the profile rather than enumerate its checks"
+    )
+    for profile, checks in PROFILES.items():
+        for check in checks:
+            if check.command.startswith("terp verify"):
+                continue  # the self-referential form IS how CI invokes one check
+            assert check.command not in workflow, (
+                f"{profile}/{check.id}: the template CI restates this check's command "
+                f"({check.command!r}). A restated list freezes at the version an app "
+                "was rendered from while its packages move on, so the gate silently "
+                "stops verifying whatever was added since. Invoke the profile instead."
+            )
+
+
+def test_the_template_ci_reaches_every_blocking_check() -> None:
+    """Delegation is only worth as much as its coverage.
+
+    The profiles CI invokes must between them reach every check meant to block a
+    merge. What CI deliberately leaves out is asserted exactly, so a check dropped by
+    accident cannot hide behind "it must have been advisory".
+    """
+    workflow = _template_ci()
+    reached = {check.id for check in PROFILES["full"]}
+    reached |= {
+        check.id for check in PROFILES["release"] if f"--only {check.id}" in workflow
+    }
+    unreached = {check.id for check in PROFILES["release"]} - reached
+    assert unreached == {"dependency-audit-python", "dependency-audit-npm"}, (
+        "the only release checks the generated CI may leave unreached are the "
+        "dependency audits, which move with advisory databases rather than with the "
+        f"change under test — but it also leaves out {sorted(unreached)}"
     )
 
 
-def test_the_template_ci_runs_the_env_seams_check() -> None:
-    """Same equivalence, for the env-seam half.
-
-    The check reads environment.schema.json and the compose files as data, so it costs
-    CI nothing and needs no daemon — and CI is where it matters most: a variable whose
-    declaration is dead produces no failure until something uses the value, which is
-    typically in a deployed environment rather than on the branch that broke it."""
-    workflow = (
-        _REPO_ROOT / "template" / "project" / ".github" / "workflows" / "ci.yml.jinja"
-    ).read_text(encoding="utf-8")
-    assert "--only env-seams" in workflow
+def test_platform_install_runs_first_in_every_profile() -> None:
+    """It decides whether the rest of the run means anything, so nothing may precede
+    it. A gate run against a Terp set at two versions proves nothing about the app in
+    either direction (ADR 0063): the green is not evidence, and a red may belong to the
+    mismatch rather than to the code. This used to be asserted as a `--only
+    platform-install` step in the scaffolded workflow, which a fielded app could lose
+    by never re-rendering; ordering it here binds every driver of the profile."""
+    for profile, checks in PROFILES.items():
+        assert checks[0].id == "platform-install", profile
 
 
 def test_an_adoption_hint_is_readable_in_text_mode(tmp_path: pathlib.Path) -> None:
@@ -252,6 +322,40 @@ def test_every_manifest_declaring_terpjs_is_covered(
     exit_code, output = _run_platform_install(tmp_path)
     assert exit_code == 1
     assert "conformance/package.json" in output
+
+
+def test_the_pre_rename_npm_scope_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """`@terp/*` predates the rename and nothing was ever published under it, so a
+    surviving declaration does not resolve to an older release — it 404s, and the job
+    that installs it dies before verifying anything. The lockstep scan cannot see it:
+    that scan collects manifests BY their `@terpjs/*` declarations, so a manifest
+    holding only legacy names is never even opened, and this check reported green on a
+    tree no registry could satisfy."""
+    _backend_consistent_at(monkeypatch, "0.7.0")
+    _write_manifest(
+        tmp_path / "frontend" / "package.json", {"@terpjs/react-core": "^0.7.0"}
+    )
+    _write_manifest(
+        tmp_path / "conformance" / "package.json", {"@terp/conformance": "^0.1.0"}
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "conformance/package.json" in output
+    assert "@terpjs/conformance" in output, "the fix must name the renamed package"
+
+
+def test_the_current_scope_is_not_mistaken_for_the_legacy_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """`@terpjs/` shares a prefix with `@terp/`; the trailing slash is what separates
+    them, so a correctly-pinned app must not trip the legacy refusal."""
+    _backend_consistent_at(monkeypatch, "0.7.0")
+    _write_manifest(
+        tmp_path / "frontend" / "package.json", {"@terpjs/react-core": "^0.7.0"}
+    )
+    assert _run_platform_install(tmp_path)[0] == 0
 
 
 def test_a_stale_installed_copy_fails_even_when_the_range_is_right(

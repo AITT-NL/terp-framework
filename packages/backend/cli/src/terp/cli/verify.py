@@ -70,7 +70,7 @@ class VerifyCheck:
     #: In-process checks (the architecture gate) run as a callable instead of a
     #: subprocess — same verdict surface, no interpreter round-trip.
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
-    # | "platform-install" | "env-seams"
+    # | "platform-install" | "env-seams" | "api-client"
     runner: str = "subprocess"
 
 
@@ -504,6 +504,44 @@ def _terp_frontend_manifests(project_root: pathlib.Path) -> list[pathlib.Path]:
     return manifests
 
 
+#: The npm scope Terp used before the rename to ``@terpjs/``. Nothing was ever
+#: published under it, so a surviving declaration is not a stale pin that resolves
+#: to an old release — it is a dependency that 404s the moment anyone installs it.
+_LEGACY_NPM_SCOPE = "@terp/"
+
+
+def _legacy_scope_problems(project_root: pathlib.Path) -> list[str]:
+    """Every surviving ``@terp/*`` declaration (the scope before the rename).
+
+    Read on its own rather than folded into the lockstep scan, which keys on
+    ``@terpjs/*`` and therefore cannot see these: a manifest whose only Terp
+    dependency is a legacy one declares no ``@terpjs/*`` at all, so
+    ``_terp_frontend_manifests`` does not even collect it. That is how an app
+    reaches CI with a ``conformance/package.json`` no registry can satisfy while
+    this check — whose whole job is to refuse an install that was never a
+    release — reports green and lets the rest of the profile run.
+    """
+    problems: list[str] = []
+    for path in sorted(project_root.rglob("package.json")):
+        if _MANIFEST_SKIP_DIRS & set(path.parts):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue  # someone else's manifest problem, not a lockstep verdict
+        rel = path.relative_to(project_root).as_posix()
+        for key in _NPM_DEPENDENCY_KEYS:
+            for name, declared in sorted((data.get(key) or {}).items()):
+                if not name.startswith(_LEGACY_NPM_SCOPE):
+                    continue
+                renamed = f"@terpjs/{name[len(_LEGACY_NPM_SCOPE) :]}"
+                problems.append(
+                    f"{rel}: {name} is declared at {declared!r} under the "
+                    f"pre-rename scope — use {renamed}"
+                )
+    return problems
+
+
 def _frontend_lockstep_problems(project_root: pathlib.Path, platform: str) -> list[str]:
     """Every ``@terpjs/*`` declaration or installation not at *platform*."""
     problems: list[str] = []
@@ -572,6 +610,19 @@ def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
     if len(set(versions.values())) > 1:
         return 1, render_version()
     platform = platform_version(versions)
+    legacy_problems = _legacy_scope_problems(project_root)
+    if legacy_problems:
+        return 1, (
+            "the app declares npm packages under the pre-rename @terp/ scope:\n"
+            + "".join(f"  {problem}\n" for problem in legacy_problems)
+            + "Nothing was ever published under that scope, so these do not resolve "
+            "to an older release — they 404 against the registry, and whichever job "
+            "installs them dies before it verifies anything. The lockstep scan below "
+            "cannot see them: it keys on @terpjs/*, so a manifest declaring only "
+            "legacy names looks like it declares no Terp dependency at all.\n"
+            f"  Fix: rename each to its @terpjs/* spelling pinned at ^{platform}, "
+            "then reinstall the node_modules of that manifest."
+        )
     frontend_problems = _frontend_lockstep_problems(project_root, platform)
     if frontend_problems:
         return 1, (
@@ -664,6 +715,69 @@ def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
     if completed.returncode != 0:
         output += (
             "\napi docs drifted from the committed copy - commit the regenerated docs/"
+        )
+    return completed.returncode, output
+
+
+def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
+    """Generate the typed API client from the live backend contract.
+
+    Not a drift check: the client is gitignored, so there is no committed copy to
+    diff against. The verdict is whether it can be produced at all, and the
+    artifact it leaves behind is what ``frontend-typecheck`` downstream of it
+    reads — which is the whole reason it is ordered first. Skips with a note
+    rather than a red for an app with no frontend or no ``generate`` script:
+    upgrading the framework must not fail a gate for a seam the app never wired.
+    """
+    from terp.cli.openapi import export_openapi
+
+    frontend = root / "frontend"
+    if not frontend.is_dir():
+        return 0, "no frontend/ - the API client is not applicable"
+    manifest = frontend / "package.json"
+    try:
+        scripts = json.loads(manifest.read_text(encoding="utf-8")).get("scripts") or {}
+    except (OSError, json.JSONDecodeError):
+        return 1, (
+            f"{manifest.relative_to(root).as_posix()} is unreadable, so whether this "
+            "app generates an API client cannot be established"
+        )
+    if "generate" not in scripts:
+        return (
+            0,
+            f"{NOTE_PREFIX}no `generate` script in frontend/package.json - API client "
+            "codegen skipped (add one running openapi-typescript over ../openapi.json "
+            "into ./src/api/schema.d.ts to enable)",
+        )
+    problem = _node_modules_problem(root)
+    if problem is not None:
+        return 1, problem
+    previous = pathlib.Path.cwd()
+    try:
+        # export_openapi resolves the app package relative to its app_root.
+        os.chdir(root)
+        written = export_openapi(out="openapi.json", app_root=".")
+    except SystemExit as refusal:  # an app ref that resolves to no FastAPI app
+        return 1, f"could not export the OpenAPI document: {refusal}"
+    finally:
+        os.chdir(previous)
+    argv = ["npm", "--prefix", "frontend", "run", "generate"]
+    executable = shutil.which(argv[0]) or argv[0]
+    completed = subprocess.run(  # noqa: S603 - fixed argv, shell=False
+        [executable, *argv[1:]],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    output = f"wrote {written.name}\n{completed.stdout}{completed.stderr}"
+    if completed.returncode != 0:
+        output += (
+            "\nthe API client could not be generated - the frontend typecheck "
+            "downstream of this check reads what it writes, so its verdict would be "
+            "about the missing client rather than about the app"
         )
     return completed.returncode, output
 
@@ -773,6 +887,8 @@ def run_verify_command(
             exit_code, output = _run_platform_install(project_root)
         elif check.runner == "api-docs-drift":
             exit_code, output = _run_api_docs_drift(project_root)
+        elif check.runner == "api-client":
+            exit_code, output = _run_api_client(project_root)
         elif check.runner == "routes-drift":
             exit_code, output = _run_routes_drift(project_root)
         elif check.runner == "env-seams":

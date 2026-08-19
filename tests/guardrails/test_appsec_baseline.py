@@ -139,8 +139,16 @@ def test_template_ships_the_baseline_config() -> None:
 
 def test_template_ci_and_project_gate_enforce_the_baseline() -> None:
     ci = (_TEMPLATE / ".github" / "workflows" / "ci.yml.jinja").read_text(encoding="utf-8")
-    assert "uv run ruff check ." in ci, (
-        "the generated project's CI must run the ruff `S` baseline as a blocking step"
+    # The baseline blocks because it is a check of the `full` profile and CI invokes that
+    # profile unconditionally — not because a step in this YAML spells `ruff`. The
+    # distinction decides whether a FIELDED app is covered: the workflow is scaffolded and
+    # freezes at the version it was rendered from, so a baseline wired as a CI step stops
+    # running the moment an app stops re-rendering, while one wired into the profile keeps
+    # running off the installed packages. `appsec-baseline`'s membership is asserted in
+    # test_cli_verify.py::test_the_full_profile_is_the_template_ci_surface.
+    assert "terp verify --profile full" in ci, (
+        "the generated project's CI must invoke the profile that carries the ruff `S` "
+        "baseline, as a blocking step"
     )
     assert "continue-on-error" not in ci, (
         "the generated project's CI steps are all blocking; the baseline must not "
