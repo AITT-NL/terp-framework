@@ -802,7 +802,7 @@ textarea[data-terp="input"] {
 [data-terp="appshell-footer"] {
   padding: var(--space-3) var(--space-6);
   border-block-start: 1px solid var(--color-neutral-200);
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
   font-size: var(--font-size-xs);
 }
 
@@ -1120,7 +1120,7 @@ textarea[data-terp="input"] {
   position: absolute;
   inset-inline-start: var(--space-2);
   display: inline-flex;
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
   pointer-events: none;
 }
 /* The field. It must out-rank input[data-terp="input"] { padding: 0 var(--space-3) }
@@ -1152,7 +1152,7 @@ textarea[data-terp="input"] {
   background: transparent;
   border: none;
   cursor: pointer;
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
 }
 /* "Refreshing…", and this is the one place the prefer-an-existing-DOM-attribute
    rule is REFUSED with its own reasoning. [data-terp="dataview-toolbar"]
@@ -1189,7 +1189,7 @@ textarea[data-terp="input"] {
   border: 1px solid var(--color-neutral-300);
   border-radius: var(--radius-md);
   cursor: pointer;
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
 }
 
 /* DataView: the table ------------------------------------------------------ */
@@ -1212,7 +1212,7 @@ textarea[data-terp="input"] {
   text-align: left;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   border-bottom: 1px solid var(--color-neutral-200);
@@ -1414,18 +1414,22 @@ th[data-terp="dataview-actions-cell"] > span {
 /* Subtitle and date share one name because they share every declaration. Two
    markers would suggest the sheet distinguishes them, and it does not.
 
-   The ink is --color-fg-muted rather than --color-neutral-500, and that is a
-   contrast fix rather than a preference for the semantic layer. A card's
-   background is whichever soft tone getRowTone returned, and neutral-500 fails
-   WCAG AA against four of the six surfaces this text can land on: measured,
-   light neutral-100 4.34, light info-soft 4.46, light danger-soft 4.35 and
-   midnight info-soft 4.12. fg-muted is 6.10 at its worst across all five
-   themes, and carries the same value as --color-neutral-600 in every one of
-   them, so this costs nothing but the name.
+   The ink is --color-fg-muted rather than the --color-fg-subtle every other
+   subdued surface in this sheet takes, and that is a contrast fix rather than a
+   preference. A card's background is whichever soft tone getRowTone returned, and
+   subtle fails WCAG AA against three of the six surfaces this text can land on:
+   measured, light neutral-100 4.34, light info-soft 4.46 and light danger-soft
+   4.35. fg-muted is 6.10 at its worst across all five themes, and carries the
+   same value as --color-neutral-600 in every one of them, so this costs nothing
+   but the name.
 
    Worth knowing HOW that was found, because the lesson is about the lane rather
-   than the colour. This layout had no specimen at all, so the pairing had never
-   been rendered for axe to measure; the first card specimen failed immediately.
+   than the colour. The numbers in the next sentence are the raw
+   --color-neutral-500 step this rule originally carried — four failures rather
+   than three, because midnight's neutral-500 (#7d8590) sits below the fg-subtle
+   its palette lifts it to (#8b949e) and took info-soft to 4.12. This layout had
+   no specimen at all, so the pairing had never been rendered for axe to measure;
+   the first card specimen failed immediately.
    And axe reported exactly ONE of the four failures — the light danger-soft one
    — because the specimen paints the danger and warning tones and midnight's two
    failures are on info and success. Fixing what axe named would have left three
@@ -1462,7 +1466,7 @@ th[data-terp="dataview-actions-cell"] > span {
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
 }
 /* The panel cell spans every column. Its block padding follows density like any
    other cell; its inline padding is deliberately one step wider than a cell's
@@ -1487,7 +1491,7 @@ th[data-terp="dataview-actions-cell"] > span {
   padding: var(--space-2) var(--density-cell-pad-x);
   border-block-start: 1px solid var(--color-neutral-200);
   font-size: var(--font-size-sm);
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
 }
 [data-terp="dataview-pager"] {
   display: inline-flex;
@@ -1573,7 +1577,7 @@ th[data-terp="dataview-actions-cell"] > span {
   padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
 }
 [data-terp="dataview-column-option"] {
   display: flex;
@@ -1670,7 +1674,7 @@ th[data-terp="dataview-actions-cell"] > span {
   justify-content: center;
   gap: var(--space-2);
   padding: var(--space-6);
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
   font-size: var(--font-size-sm);
 }
 [data-terp="loading-state-spinner"] {
@@ -1745,7 +1749,7 @@ input[data-terp="input"][role="combobox"] {
   transform: translateY(-50%);
   border: none;
   background: transparent;
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
   cursor: pointer;
   min-width: 1.75rem;
   min-height: 1.75rem;
@@ -1788,7 +1792,7 @@ input[data-terp="input"][role="combobox"] {
 }
 [data-terp="combobox-empty"] {
   padding: var(--space-2) var(--space-3);
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
   font-size: var(--font-size-sm);
 }
 
@@ -1807,7 +1811,7 @@ button[data-terp="input"] {
   cursor: pointer;
 }
 button[data-terp="input"][data-placeholder="true"] {
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
 }
 [data-terp="calendar"] {
   display: grid;
@@ -1901,7 +1905,7 @@ button[data-terp="input"][data-placeholder="true"] {
   color: var(--color-neutral-700);
 }
 [data-terp="field-hint"] {
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
   font-size: var(--font-size-xs);
 }
 [data-terp="field-error"] {
@@ -2199,7 +2203,7 @@ button[data-terp="input"][data-placeholder="true"] {
   background: none;
   padding: var(--space-1);
   cursor: pointer;
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
   font-size: var(--font-size-base);
   line-height: 1;
   border-radius: var(--radius-sm);
@@ -2464,7 +2468,7 @@ button[data-terp="input"][data-placeholder="true"] {
   box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 [data-terp="input"]::placeholder {
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
   opacity: 1;
 }
 [data-terp="input"] option {
@@ -2475,7 +2479,7 @@ button[data-terp="input"][data-placeholder="true"] {
   /* background-color (not the background shorthand) so the Select's chevron,
      drawn as a background-image, survives the disabled state. */
   background-color: var(--color-neutral-50);
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
   cursor: not-allowed;
 }
 [data-terp="input"][aria-invalid="true"] {
@@ -2507,7 +2511,7 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="control-label"]:has([data-terp="radio"]:disabled),
 [data-terp="control-label"]:has([data-terp="switch"]:disabled) {
   cursor: not-allowed;
-  color: var(--color-neutral-500);
+  color: var(--color-fg-subtle);
 }
 
 /* Sidebar navigation links (from the shell or any app-provided <a>).
