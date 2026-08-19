@@ -83,6 +83,32 @@ describe("DataView states", () => {
     const untinted = screen.getByText("Broken printer").closest("tr");
     expect(untinted).not.toHaveAttribute("data-tone");
   });
+
+  it("claims data-clickable only when a row click is wired up", async () => {
+    // The other half of a sheet rule no visual lane can see. The row marker is stamped
+    // unconditionally — it has to be, or a toned row that is not clickable carries data-tone on
+    // an element no selector reaches — so what separates a row Enter will open from a row that
+    // merely contains a focusable checkbox is this attribute alone. The sheet's focus-within
+    // tint is keyed on it, and styles.test.ts pins that end.
+    const { unmount } = render(
+      <DataView repository={inMemoryRepo()} columns={COLUMNS} enableSelection />,
+    );
+    const inert = (await screen.findByText("VPN access")).closest("tr");
+    expect(inert).toHaveAttribute("data-terp", "dataview-row");
+    expect(inert).not.toHaveAttribute("data-clickable");
+    unmount();
+
+    render(
+      <DataView
+        repository={inMemoryRepo()}
+        columns={COLUMNS}
+        getRowLabel={(t) => t.title}
+        onRowClick={() => {}}
+      />,
+    );
+    const clickable = (await screen.findByText("VPN access")).closest("tr");
+    expect(clickable).toHaveAttribute("data-clickable", "true");
+  });
 });
 
 describe("DataView server-side mode", () => {

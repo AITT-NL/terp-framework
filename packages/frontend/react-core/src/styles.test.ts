@@ -150,6 +150,23 @@ describe("cascade structure", () => {
     expect(layerBody("terp.motion")).toContain("transition: none !important");
   });
 
+  it("keeps the focus-within tint scoped to rows something will actually open", () => {
+    // The row marker is unconditional, so this selector reaches every row unless it says
+    // otherwise. Unguarded it paints a brand wash on any row holding focus — a selection
+    // checkbox in a view with no onRowClick — over that row's status tone, for a row nothing
+    // will open. Invisible to all three lanes: resting baselines, a static tree, and a
+    // keyboard lane that asserts where focus goes rather than what it paints.
+    const state = layerBody("terp.state");
+    expect(
+      declaresRuleFor(state, '[data-terp="dataview-row"][data-clickable="true"]:focus-within td'),
+      "the row's focus-within tint must be guarded on data-clickable",
+    ).toBe(true);
+    expect(
+      state,
+      "an unguarded row focus-within selector would reach every row with a checkbox in it",
+    ).not.toContain('[data-terp="dataview-row"]:focus-within');
+  });
+
   it("names every element the reduced-motion block has to reach", () => {
     // The layer wins the cascade, but only over elements a selector actually matches. A
     // transition on an element with no data-terp of its own escapes unless it is listed

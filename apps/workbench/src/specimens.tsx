@@ -680,6 +680,15 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The only specimen rendering the select column, and so the only baseline covering the
+        // two system cells the table migration moved into the sheet. It is also a view with
+        // focusable content in rows that nothing will open, which is the shape that made the
+        // focus-within tint's data-clickable guard necessary.
+        id: "dataview-selection",
+        title: "DataView — selectable rows",
+        node: <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} enableSelection />,
+      },
+      {
         // The only specimen in which the density tokens are observable. Comfortable is the
         // token sheet's :root value, so every other DataView specimen renders the same
         // geometry whether the tokens are read or hardcoded — which is how four of these

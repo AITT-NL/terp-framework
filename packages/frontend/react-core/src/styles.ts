@@ -1601,7 +1601,20 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="dataview-table"] tbody tr:hover td {
   background: var(--color-neutral-50);
 }
-[data-terp="dataview-row"]:focus-within td,
+/* The row containing keyboard focus, highlighted because it is the one Enter would
+   open. Guarded on data-clickable, and the guard is not decoration: the row marker
+   became unconditional when the tone rules moved into this sheet, and without the
+   guard this selector silently widened to any row with something focusable in it —
+   a selection checkbox in a view with no onRowClick, painting a brand wash over a
+   row nothing will open, and over its status tone. Widening it deliberately is a
+   defensible change; arriving there as a side effect of marking the row is not.
+
+   Neither lane can see this. The baselines capture the resting state, axe reads a
+   static tree, and the keyboard lane is about where focus GOES rather than what it
+   paints. So it is pinned from both ends instead: styles.test.ts asserts the guard
+   is on this selector, and a unit test asserts a non-clickable row claims no
+   data-clickable for it to match. */
+[data-terp="dataview-row"][data-clickable="true"]:focus-within td,
 [data-terp="dataview-card"]:focus-within {
   background: var(--color-brand-primary-soft) !important;
 }
