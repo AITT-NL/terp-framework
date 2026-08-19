@@ -10,6 +10,7 @@ import {
   ConfirmDialog,
   DataView,
   DataViewCardList,
+  DataViewPagination,
   DataViewTable,
   DatePicker,
   DateRangePicker,
@@ -806,6 +807,22 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             renderExpanded={(row) => <span>Last synced {row.rows} rows.</span>}
             isExpanded={(id) => id === "s2"}
             onToggleExpanded={() => {}}
+          />
+        ),
+      },
+      {
+        // The pagination controls render in NO composed DataView specimen, and it took reading
+        // the component to notice: the fixture is four rows at a page size of ten, so pageCount
+        // is 1 and the whole pager is behind a `pageCount > 1` guard. Four icon buttons and a
+        // style factory had been migrating with zero baseline coverage. Page one of five, so the
+        // shot carries both states at once — first and previous disabled, next and last live.
+        id: "dataview-pagination",
+        title: "DataView — pagination, page one of five",
+        node: (
+          <DataViewPagination
+            pagination={{ pageIndex: 0, pageSize: 10 }}
+            totalCount={42}
+            onPaginationChange={() => {}}
           />
         ),
       },

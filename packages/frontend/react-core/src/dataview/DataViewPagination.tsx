@@ -1,5 +1,3 @@
-import type { CSSProperties } from "react";
-
 import { useDataViewText } from "./internal";
 import {
   PageFirstGlyph,
@@ -14,18 +12,6 @@ export interface DataViewPaginationProps {
   totalCount: number;
   onPaginationChange: (pagination: DataViewPaginationState) => void;
 }
-
-const pagerButtonStyle = (disabled: boolean): CSSProperties => ({
-  display: "inline-flex",
-  alignItems: "center",
-  minHeight: "2rem",
-  padding: "var(--space-1) var(--space-2)",
-  background: "var(--color-neutral-0)",
-  border: "1px solid var(--color-neutral-300)",
-  borderRadius: "var(--radius-md)",
-  cursor: disabled ? "not-allowed" : "pointer",
-  color: disabled ? "var(--color-neutral-300)" : "var(--color-neutral-700)",
-});
 
 /**
  * The footer pagination bar: "X–Y of Z results", the current page / page count, and
@@ -49,22 +35,10 @@ export function DataViewPagination({
   const atLast = pageIndex >= pageCount - 1;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "var(--space-3)",
-        flexWrap: "wrap",
-        padding: "var(--space-2) var(--space-3)",
-        borderTop: "1px solid var(--color-neutral-200)",
-        fontSize: "var(--font-size-sm)",
-        color: "var(--color-neutral-500)",
-      }}
-    >
+    <div data-terp="dataview-pagination">
       <span>{format(strings.resultsRange, { from, to, total: totalCount })}</span>
       {pageCount > 1 && (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-2)" }}>
+        <span data-terp="dataview-pager">
           <span>{format(strings.pageOf, { page: pageIndex + 1, pages: pageCount })}</span>
           <button
             type="button"
@@ -72,7 +46,6 @@ export function DataViewPagination({
             disabled={atFirst}
             onClick={() => goTo(0)}
             data-terp="iconbutton"
-            style={pagerButtonStyle(atFirst)}
           >
             <PageFirstGlyph />
           </button>
@@ -82,7 +55,6 @@ export function DataViewPagination({
             disabled={atFirst}
             onClick={() => goTo(pageIndex - 1)}
             data-terp="iconbutton"
-            style={pagerButtonStyle(atFirst)}
           >
             <PagePrevGlyph />
           </button>
@@ -92,7 +64,6 @@ export function DataViewPagination({
             disabled={atLast}
             onClick={() => goTo(pageIndex + 1)}
             data-terp="iconbutton"
-            style={pagerButtonStyle(atLast)}
           >
             <PageNextGlyph />
           </button>
@@ -102,7 +73,6 @@ export function DataViewPagination({
             disabled={atLast}
             onClick={() => goTo(pageCount - 1)}
             data-terp="iconbutton"
-            style={pagerButtonStyle(atLast)}
           >
             <PageLastGlyph />
           </button>

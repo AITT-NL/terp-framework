@@ -116,12 +116,10 @@ describe("cascade structure", () => {
     // baselines capture the resting state and axe does not evaluate hover.
     const state = layerBody("terp.state");
     for (const [rule, consumer] of [
-      // Six of the ten elements wearing this marker still declare background and colour inline:
-      // AppShell's two header toggles (toggleStyle) and DataViewPagination's four arrows
-      // (pagerButtonStyle). The marker deliberately has no base rule.
-      ['[data-terp="iconbutton"]:hover', "AppShell toggleStyle / DataViewPagination pagerButtonStyle"],
-      // Only the pager can be disabled, and pagerButtonStyle sets cursor inline.
-      ['[data-terp="iconbutton"]:disabled', "DataViewPagination pagerButtonStyle cursor"],
+      // Two of the ELEVEN elements wearing this marker still declare background and colour
+      // inline, and they are AppShell's header toggles (toggleStyle). The marker has no
+      // shared surface rule, only a transition.
+      ['[data-terp="iconbutton"]:hover', "AppShell toggleStyle background and colour"],
       // The shell's nav anchors carry colour inline (NAV_LINK_STYLE).
       ['[data-terp="appshell-nav"] a:hover', "AppShell NAV_LINK_STYLE colour"],
       // HubCard's visible edge is a border on hubcard-body, declared inline by HubPage. Worth
@@ -234,6 +232,14 @@ describe("cascade structure", () => {
       // came off when the card migrated, which is the LAST of the two rather than the
       // first — and the card's tone rules now lose to it on layer instead.
       '[data-terp="dataview-card"]:focus-within',
+      // Re-derived rather than assumed, because the condition is not "has something
+      // migrated" but "can any element this selector matches still beat it". Of the eleven
+      // elements wearing the iconbutton marker, only the four pagination arrows can carry
+      // the disabled attribute at all — the shell's toggles, the toast dismisser, the
+      // combobox's clear button, the calendar's month arrows and the expand toggle have no
+      // disabled state — and they set cursor inline until they migrated. The day a calendar
+      // arrow gains a min/max bound, this answer changes back.
+      '[data-terp="iconbutton"]:disabled',
     ]) {
       const at = state.indexOf(rule);
       expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
@@ -288,10 +294,12 @@ describe("cascade structure", () => {
     // UNTHEMEABLE — there is no author-side override at all. That is why the count is the
     // phase's measurable and why retiring one is a feature rather than tidying.
     expect(css).toContain("@layer terp.reset, terp.base, terp.state, terp.motion;");
-    // Eight left, every one of them named in the must-keep list above with its inline
-    // consumer. The ninth retired with DataViewCardList.
+    // Seven left, every one of them named in the must-keep list above with its inline
+    // consumer. Two retired in this stage: the card's focus-within background with
+    // DataViewCardList, and the icon button's disabled cursor with DataViewPagination —
+    // which was the only element wearing that marker able to match :disabled at all.
     const declarations = css.split("!important").length - 1;
-    expect(declarations).toBe(8);
+    expect(declarations).toBe(7);
   });
 
   it("declares a rule for every DataView surface reached structurally", () => {
@@ -325,6 +333,7 @@ describe("cascade structure", () => {
       // which the marker inventory cannot see because the marker is still rendered.
       '[data-terp="dataview-expand-cell"] > [data-terp="iconbutton"]',
       '[data-terp="dataview-card-main"] > [data-terp="iconbutton"]',
+      '[data-terp="dataview-pager"] > [data-terp="iconbutton"]',
     ]) {
       expect(
         declaresRuleFor(base, selector),
@@ -480,6 +489,8 @@ describe("cascade structure", () => {
       "dataview-card-status",
       "dataview-card-meta",
       "dataview-expanded-cell",
+      "dataview-pagination",
+      "dataview-pager",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

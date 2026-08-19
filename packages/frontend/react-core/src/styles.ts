@@ -830,6 +830,45 @@ th[data-terp="dataview-actions-cell"] > span {
   border-block-end: 1px solid var(--color-neutral-200);
 }
 
+/* DataView: the pagination bar --------------------------------------------- */
+/* The bar reads only the inline half of the cell padding, with --space-2
+   vertically, so its left edge stays flush with the first cell's text at either
+   density — the same bargain the toolbar strikes at the other end of the box. */
+[data-terp="dataview-pagination"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--density-cell-pad-x);
+  border-block-start: 1px solid var(--color-neutral-200);
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-500);
+}
+[data-terp="dataview-pager"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* The four arrows: outlined icon buttons, addressed from the pager for the same
+   reason the calendar's month arrows are addressed from the calendar header.
+   The 2rem height is a literal and stays one: it happens to equal
+   --density-compact-control-min-height, but reading that token would say these
+   arrows are pinned to the compact scale, and moving the compact scale from
+   theme.css would then resize a control at comfortable density. A small-control
+   step in the density family is the honest fix and nothing has asked for one. */
+[data-terp="dataview-pager"] > [data-terp="iconbutton"] {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--color-neutral-700);
+}
+
 /* Empty / error / loading states ------------------------------------------- */
 /* Same centred block, opposite messages: empty is a dashed outline on the page
    surface because nothing is wrong, error is a filled danger wash because
@@ -1567,17 +1606,34 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 /* Icon-only buttons: the shell's two header toggles, four pagination arrows, the
-   toast dismisser, the combobox's clear button and the calendar's month arrows.
-   Ten elements, no shared base rule — each is styled by where it sits. The list
-   matters because the escalation below retires per consumer, and an incomplete
-   list is the input a future reader uses to decide whether it can come off. */
+   toast dismisser, the combobox's clear button, the calendar's two month arrows
+   and the DataView's expand toggle. Eleven elements sharing a transition and
+   nothing else — no shared SURFACE, because each is styled by where it sits. The
+   list matters because the escalations here retire per consumer, and an
+   incomplete list is the input a future reader uses to decide whether one can
+   come off.
+
+   The hover pair still has to shout, and exactly one component is why: AppShell's
+   toggleStyle declares background and colour inline on both header toggles, and
+   nothing but !important reaches a style attribute. They come off with the shell.
+
+   The :disabled cursor no longer shouts, and re-deriving that is more useful than
+   trusting it. The question is never "has anything migrated" but "can any element
+   this selector matches still beat it" — so: which of the eleven can carry the
+   disabled attribute at all? The shell's toggles cannot (no disabled prop). The
+   toast dismisser cannot. The combobox's clear button renders only while the
+   field is enabled and takes no disabled of its own. The calendar's arrows page
+   the month unconditionally. The expand toggle has no disabled state. That leaves
+   the four pagination arrows, which were the ONLY consumer, and which set cursor
+   in pagerButtonStyle until this commit. So the escalation retired with them, and
+   the day a calendar arrow gains a min/max bound the answer changes back. */
 [data-terp="iconbutton"]:hover:not(:disabled) {
   background: var(--color-neutral-100) !important;
   color: var(--color-neutral-900) !important;
 }
 [data-terp="iconbutton"]:disabled {
   opacity: 0.4;
-  cursor: not-allowed !important;
+  cursor: not-allowed;
 }
 
 /* Inputs / selects / textareas -------------------------------------------- */
@@ -1732,6 +1788,16 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="breadcrumbs"] a:hover {
   color: var(--color-neutral-900);
   text-decoration: underline;
+}
+
+/* The pager's disabled ink, scoped rather than added to the shared iconbutton
+   rule above: of the eleven elements wearing that marker only these four can be
+   disabled at all, and giving the shared rule a colour would change how a
+   disabled calendar arrow looks the day one becomes disableable. The shared rule
+   supplies the opacity and the cursor; this supplies the ink the pager had
+   inline. */
+[data-terp="dataview-pager"] > [data-terp="iconbutton"]:disabled {
+  color: var(--color-neutral-300);
 }
 
 /* DataView table ----------------------------------------------------------- */

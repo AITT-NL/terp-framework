@@ -87,6 +87,8 @@ const MARKERS = [
   "dataview-column-sort",
   "dataview-expand-cell",
   "dataview-expanded-cell",
+  "dataview-pager",
+  "dataview-pagination",
   "dataview-row",
   "dataview-row-open",
   "dataview-select-cell",
@@ -271,7 +273,6 @@ const INLINE_BASE_STYLES: Record<string, number> = {
   "./Page.tsx": 5,
   "./ProfileView.tsx": 3,
   "./ResourceList.tsx": 2,
-  "./dataview/DataViewPagination.tsx": 1,
   "./ui/controlStyles.ts": 1,
 };
 
