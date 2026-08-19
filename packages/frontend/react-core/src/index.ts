@@ -30,9 +30,6 @@ export type { RequireAuthProps } from "./RequireAuth";
 export { visibleNav } from "./nav";
 export {
   AppShell,
-  NAV_LINK_STYLE,
-  NAV_LINK_COLLAPSED_STYLE,
-  NAV_LINK_ACTIVE_STYLE,
   SIDEBAR_STORAGE_KEY,
 } from "./AppShell";
 export type {

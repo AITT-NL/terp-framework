@@ -265,18 +265,15 @@ export function buildAppRouter(
         logo={options.logo}
         footer={options.footer}
         nav={nav}
-        renderBrandLink={({ to, children, style }) => (
-          <Link to={to} data-terp="appshell-brand" style={style}>
+        renderBrandLink={({ to, children }) => (
+          <Link to={to} data-terp="appshell-brand">
             {children}
           </Link>
         )}
-        renderLink={(item, children, context) => (
-          <Link
-            to={item.to}
-            style={context.style}
-            activeProps={{ style: { ...context.style, ...context.activeStyle } }}
-            activeOptions={{ exact: item.to === "/" }}
-          >
+        // No style objects and no activeProps: the shell's stylesheet owns the link
+        // geometry and keys the active route on aria-current="page", which Link sets.
+        renderLink={(item, children) => (
+          <Link to={item.to} activeOptions={{ exact: item.to === "/" }}>
             {children}
           </Link>
         )}

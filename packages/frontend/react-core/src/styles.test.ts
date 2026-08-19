@@ -127,7 +127,7 @@ describe("cascade structure", () => {
     expect(layerBody("terp.base")).not.toContain("!important");
   });
 
-  it("keeps !important on every rule a component with inline base styles still relies on", () => {
+  it("has no rule left that needs an escalation, and says which file was the last", () => {
     // The tax comes off per CONSUMER, not per rule, and the condition is the LAST element a
     // selector matches rather than the first. Every entry below names the inline declaration it
     // has to out-shout, so the next reader can re-derive when it may retire instead of trusting
@@ -139,15 +139,18 @@ describe("cascade structure", () => {
     // from dropping an escalation early, and only three of twelve were asserted. Every rule here
     // is a hover, disabled or focus state, which is to say invisible to both lanes: the
     // baselines capture the resting state and axe does not evaluate hover.
+    // This list is empty, and keeping the test rather than deleting it is the point: the
+    // direction it guards is the one that shipped a regression (a disabled Combobox painted
+    // exactly like an enabled one, from dropping an escalation while an inline consumer
+    // remained). It stays as the place a new escalation has to justify itself.
+    //
+    // AppShell was the last file, and it blocked five of the seven on its own: the shared
+    // icon-button hover's background and colour (toggleStyle), the nav link's background and
+    // colour (NAV_LINK_STYLE), and the reduced-motion override (three inline transitions, one
+    // of them on an <aside> carrying no marker at all).
     const state = layerBody("terp.state");
-    for (const [rule, consumer] of [
-      // Two of the THIRTEEN sites wearing this marker still declare background and colour
-      // inline, and they are AppShell's header toggles (toggleStyle). The marker has no
-      // shared surface rule, only a transition.
-      ['[data-terp="iconbutton"]:hover', "AppShell toggleStyle background and colour"],
-      // The shell's nav anchors carry colour inline (NAV_LINK_STYLE).
-      ['[data-terp="appshell-nav"] a:hover', "AppShell NAV_LINK_STYLE colour"],
-    ] as const) {
+    const stillInline: [string, string][] = [];
+    for (const [rule, consumer] of stillInline) {
       const at = state.indexOf(rule);
       expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
       expect(
@@ -155,12 +158,17 @@ describe("cascade structure", () => {
         `${rule} must keep its escalation while ${consumer} is inline`,
       ).toContain("!important");
     }
-    // And the reduced-motion transition override, which reaches AppShell's nav links and
-    // HubPage's card title — both of which declare `transition` in a style object, and no layer
-    // beats the style attribute. NOT the sidebar collapse: that <aside> carries no marker, so no
-    // selector in the block matches it and a reduced-motion user still sees the rail animate.
-    // The sheet's own comment says so; this one used to claim otherwise.
-    expect(layerBody("terp.motion")).toContain("transition: none !important");
+    // The reduced-motion override no longer shouts either, and that one is a decision rather
+    // than bookkeeping. Its three inline consumers are gone, so layer order is enough —
+    // terp.motion sits above terp.base and terp.state. Retiring it also has a merit of its own:
+    // the block sets `transition: none` for EVERY transition, including pure colour fades that
+    // are not motion at all, so leaving it unoverridable was the over-broad choice. An app can
+    // now narrow it from theme.css, which is exactly the power this phase exists to hand over.
+    const motion = layerBody("terp.motion");
+    expect(motion, "the reduced-motion override should still be declared").toContain(
+      "transition: none",
+    );
+    expect(motion, "its last inline consumer migrated with AppShell").not.toContain("!important");
   });
 
   it("keeps the shared icon-button hover from impersonating a pressed toggle", () => {
@@ -191,6 +199,49 @@ describe("cascade structure", () => {
       state,
       "the tab precedent this guard is modelled on must stay in the sheet",
     ).toContain('[data-terp="tab"]:hover:not(:disabled):not([aria-selected="true"])');
+  });
+
+  it("keeps the shell declarations no lane can reach", () => {
+    // Three groups, and every one of them was established by mutation rather than assumed.
+    //
+    // The sidebar's flex-shrink. It is a flex item with an explicit width in a container that
+    // has room to spare at the pinned 1280px viewport, so deleting it moves no baseline —
+    // measured. It bites at narrow DESKTOP widths, above the mobile breakpoint where the drawer
+    // takes over, which the screenshot lane cannot reach because the viewport is pinned.
+    const base = layerBody("terp.base");
+    const at = base.indexOf('[data-terp="appshell-sidebar"] {');
+    expect(at, "the sidebar should have a base rule").toBeGreaterThan(-1);
+    expect(
+      base.slice(base.indexOf("{", at) + 1, base.indexOf("}", at)),
+      "without this the rail squeezes instead of the content, between the breakpoint and wide",
+    ).toContain("flex-shrink: 0");
+    // The three z-index tokens the shell is the first reader of. Before this the family shipped
+    // with --z-index-drawer read by nothing at all, while the one element that wanted it — this
+    // drawer — hardcoded 50, and the token's only binding anywhere pointed at the popover level
+    // instead. A hardcoded number here would move no baseline and read as correct.
+    for (const [token, selector] of [
+      ["--z-index-drawer", "the mobile drawer"],
+      ["--z-index-backdrop", "the drawer's backdrop"],
+      ["--z-index-sticky", "the sticky header"],
+    ] as const) {
+      expect(base, `${selector} must read ${token} rather than hardcoding its number`).toContain(
+        `z-index: var(${token})`,
+      );
+    }
+    // And the mobile half of the shell, which the screenshot lane cannot render at all: the
+    // viewport is pinned at 1280 and the drawer needs 768 or less. The BEHAVIOUR is covered by
+    // AppShell.test.tsx (focus containment, inert page, close-on-nav) with a stubbed matchMedia;
+    // the geometry is covered by nothing, so these three exist as text or not at all.
+    for (const selector of [
+      '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-sidebar"]',
+      '[data-terp="appshell-backdrop"]',
+      '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-main"]',
+    ]) {
+      expect(
+        declaresRuleFor(base, selector),
+        `${selector} is mobile-only, so no baseline can hold it`,
+      ).toBe(true);
+    }
   });
 
   it("keeps the hub-card declarations the lanes cannot explain", () => {
@@ -461,6 +512,15 @@ describe("cascade structure", () => {
       // Both surfaces come from terp.base now.
       '[data-terp="hubcard"]:hover [data-terp="hubcard-body"]',
       '[data-terp="hubcard"]:hover [data-terp="hubcard-title"]',
+      // AppShell's, and it blocked these two on its own: toggleStyle declared background and
+      // colour inline on the shell's two toggles, the last elements wearing the icon-button
+      // marker able to out-rank a layered rule. Their resting look is a scoped base rule now,
+      // so this wins on LAYER — terp.state over terp.base — whatever its specificity.
+      '[data-terp="iconbutton"]:hover',
+      // And the nav link's, whose consumer was NAV_LINK_STYLE: a CSSProperties object exported
+      // for every router's link renderer to spread onto its own element, so colour and
+      // background were inline on the very elements this selector matches.
+      '[data-terp="appshell-nav"] a:hover',
     ]) {
       const at = state.indexOf(rule);
       expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
@@ -515,14 +575,16 @@ describe("cascade structure", () => {
     // UNTHEMEABLE — there is no author-side override at all. That is why the count is the
     // phase's measurable and why retiring one is a feature rather than tidying.
     expect(css).toContain("@layer terp.reset, terp.base, terp.state, terp.motion;");
-    // Five left, every one of them named in the must-keep list above with its inline
-    // consumer, and all five now blocked by ONE file: AppShell. Two retired with HubPage —
-    // the hub card's hover border and its hover title colour, both of which were declared
-    // inline on the very elements those selectors match, so no layered rule could reach them
-    // at any specificity. Earlier in this stage the card's focus-within background retired
-    // with DataViewCardList and the icon button's disabled cursor with DataViewPagination.
+    // ZERO. Every rule in this sheet is now beatable by an app's unlayered theme.css without
+    // !important and without out-specifying anything, which is what the phase was for: an
+    // escalation does not merely outrank an app's stylesheet, it makes that one declaration
+    // unthemeable, because for important declarations the layer order reverses and unlayered
+    // styles sort last.
+    //
+    // Asserted as exact equality in both directions. A new escalation fails here and has to
+    // name its inline consumer in the ledger above, which is now empty.
     const declarations = css.split("!important").length - 1;
-    expect(declarations).toBe(5);
+    expect(declarations).toBe(0);
   });
 
   it("declares a rule for every DataView surface reached structurally", () => {
@@ -760,6 +822,20 @@ describe("cascade structure", () => {
       "hubcard-title",
       "hubcard-description",
       "hubcard-stat",
+      "appshell",
+      "appshell-sidebar",
+      "appshell-backdrop",
+      "appshell-brand",
+      "appshell-brand-row",
+      "appshell-brand-title",
+      "appshell-nav",
+      "appshell-nav-list",
+      "appshell-nav-label",
+      "appshell-column",
+      "appshell-header",
+      "appshell-header-group",
+      "appshell-main",
+      "appshell-footer",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

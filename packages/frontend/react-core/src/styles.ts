@@ -548,6 +548,255 @@ textarea[data-terp="input"] {
   line-height: 0;
 }
 
+/* The app shell -------------------------------------------------------------- */
+/* Twenty-two style objects came out of AppShell.tsx into this block, and with them the
+   last five escalations in the sheet. Three facts drive every rule here and each has
+   exactly one owner in the DOM:
+
+     data-variant on the SHELL ROOT says mobile or desktop. The breakpoint itself stays in
+     the component's media query rather than being restated as a CSS @media rule that
+     could drift from it, so everything the viewport decides descends from this one
+     attribute.
+     data-collapsed on the SIDEBAR says icon rail. Everything the rail decides — its
+     width, the brand's centring, the two hidden labels — descends from that.
+     aria-current="page" on a nav link says active route. Every router sets it; the
+     shell's hover rule has keyed on it since before this migration.
+
+   That is why nothing here needs a style object handed across a public boundary, which
+   is what AppShellLinkContext.style and RenderBrandLink's style param used to be. */
+[data-terp="appshell"] {
+  display: flex;
+  align-items: stretch;
+  min-height: 100vh;
+  font-family: var(--font-family-sans);
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-50);
+}
+/* The sidebar. width is a rule now rather than an inline value chosen per render, which
+   is what finally puts its transition inside terp.motion's reach: the aside carried no
+   marker, so the reduced-motion block matched nothing on it and a reduced-motion user
+   watched the rail animate. The sheet's own comment said so and named this commit.
+   border-inline-end rather than border-right: RTL-correct and zero-diff in LTR. */
+[data-terp="appshell-sidebar"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-3);
+  box-sizing: border-box;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-x: hidden;
+  width: 15rem;
+  background: var(--color-neutral-0);
+  border-inline-end: 1px solid var(--color-neutral-200);
+  transition: width 150ms ease;
+}
+[data-terp="appshell-sidebar"][data-collapsed="true"] {
+  width: 4rem;
+}
+/* The mobile drawer, reached from the shell root's variant rather than from an attribute
+   of its own — the viewport is one fact and the root owns it. 100dvh rather than 100vh so
+   a mobile browser's collapsing toolbar does not clip the drawer's footer.
+   --z-index-drawer's FIRST reader anywhere: the token shipped with the family and the
+   only thing that ever wanted it hardcoded 50, which is how the one binding that existed
+   ended up pointing at the popover level instead. --z-index-backdrop and
+   --z-index-sticky below are likewise first readers. */
+[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-sidebar"] {
+  position: fixed;
+  inset: 0 auto 0 0;
+  height: 100dvh;
+  z-index: var(--z-index-drawer);
+  box-shadow: var(--shadow-lg);
+}
+[data-terp="appshell-backdrop"] {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-index-backdrop);
+  background: rgb(0 0 0 / 0.4);
+}
+/* The brand, in its three looks. Only the first is a rule about the brand itself; the
+   other two are rules about where it sits, which is what let the style-object parameter
+   go. The collapsed look descends from the sidebar's attribute; the mobile look descends
+   from the drawer's brand row, which exists only on mobile — so the DOM already says
+   which look applies and the shell no longer has to compute one. */
+[data-terp="appshell-brand"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  min-height: 2.25rem;
+  color: var(--color-neutral-900);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  box-sizing: border-box;
+  transition: background-color 150ms ease;
+}
+[data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-brand"] {
+  justify-content: center;
+  padding-inline: 0;
+}
+[data-terp="appshell-brand-row"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+[data-terp="appshell-brand-row"] > [data-terp="appshell-brand"] {
+  flex: 1;
+  min-width: 0;
+}
+[data-terp="appshell-brand-title"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-neutral-900);
+  letter-spacing: 0;
+}
+[data-terp="appshell-nav"] {
+  flex-grow: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+[data-terp="appshell-nav-list"] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+/* Sidebar navigation links, and this is the rule the whole shell migration was for. The
+   geometry used to be NAV_LINK_STYLE, a CSSProperties object exported from AppShell for
+   every router's link renderer to spread — so an app could not restyle a nav link at all
+   (a style attribute outranks any author rule in any layer) and every stack duplicated the
+   spread. The selector already existed here for the transition and the hover; it carries
+   the resting look now, so the exported constants and the two style parameters are gone.
+
+   The selector deliberately stays a descendant of the nav rather than gaining a marker of
+   its own: the link element belongs to the caller's router, not to the shell, so there is
+   no element here to stamp. */
+[data-terp="appshell-nav"] a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-neutral-700);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  box-sizing: border-box;
+  min-height: 2.25rem;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+/* The collapsed rail's link geometry: one centred fixed-size icon in the content track.
+   (0,3,1) against the base's (0,1,1), so it wins on specificity with no source-order
+   dependency. */
+[data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav"] a {
+  justify-content: center;
+  gap: 0;
+  padding: var(--space-2);
+  width: 100%;
+}
+[data-terp="appshell-nav-label"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Visually hidden, four elements, one rule. Two are the drawer's focus sentinels, which
+   must stay focusable and so cannot be display: none. The other two are the brand title
+   and the nav labels in the icon rail, which were a style-object TERNARY before this —
+   the component picked between two objects per render, and the collapsed branch was
+   painted by nothing, because the rail state was internal and no specimen could reach it.
+   That is what defaultCollapsed is for. */
+[data-terp="drawer-focus-start"],
+[data-terp="drawer-focus-end"],
+[data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-brand-title"],
+[data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-label"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+[data-terp="appshell-column"] {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-width: 0;
+}
+[data-terp="appshell-header"] {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-index-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  min-height: 3rem;
+  box-sizing: border-box;
+  background: var(--color-neutral-0);
+  border-block-end: 1px solid var(--color-neutral-200);
+}
+[data-terp="appshell-header-group"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* The shell's two toggles: the header's sidebar control and the drawer's close button.
+   Both already wore the shared iconbutton marker and overrode every one of that marker's
+   would-be declarations from toggleStyle, which is what kept the shared hover rule
+   shouting — a style attribute outranks any author rule in any layer, so
+   [data-terp="iconbutton"]:hover needed !important on background and colour to reach
+   these two elements and only these two. They are the last such consumers, so those two
+   escalations retire here.
+   Reached structurally rather than by a marker of their own, the combobox-clear-button
+   precedent: each is an icon button and the only thing distinguishing it is where it
+   sits. The typography was CONTROL_TEXT_STYLE, whose only consumer this was — the module
+   is deleted with it. */
+[data-terp="appshell-header"] > [data-terp="iconbutton"],
+[data-terp="appshell-brand-row"] > [data-terp="iconbutton"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  color: var(--color-neutral-700);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.25;
+}
+[data-terp="appshell-main"] {
+  flex-grow: 1;
+  padding: var(--space-6);
+  min-width: 0;
+}
+[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-main"] {
+  padding: var(--space-4);
+}
+[data-terp="appshell-footer"] {
+  padding: var(--space-3) var(--space-6);
+  border-block-start: 1px solid var(--color-neutral-200);
+  color: var(--color-neutral-500);
+  font-size: var(--font-size-xs);
+}
+
 /* Hub cards --------------------------------------------------------------- */
 /* This whole family was in terp.state, resting declarations and all, for the same
    reason the icon button's transition was: that is where the hover rules needing it
@@ -2133,9 +2382,13 @@ button[data-terp="input"][data-placeholder="true"] {
    per consumer, and an incomplete list is the input a future reader uses to
    decide whether one can come off.
 
-   The hover pair still has to shout, and exactly one component is why: AppShell's
-   toggleStyle declares background and colour inline on both header toggles, and
-   nothing but !important reaches a style attribute. They come off with the shell.
+   THE HOVER PAIR NO LONGER SHOUTS, and the component that was why is the one that
+   just migrated: AppShell's toggleStyle declared background and colour inline on the
+   shell's two toggles, the last two elements wearing this marker able to out-rank a
+   layered rule. Their resting look is a scoped base rule now
+   ([data-terp="appshell-header"] > [data-terp="iconbutton"] and the drawer's brand row),
+   so this rule wins on LAYER instead — terp.state over terp.base — whatever its
+   specificity. These were the last two escalations in the sheet.
 
    The :not([aria-pressed="true"]) on that pair is not defensive, and it is what
    makes shouting here safe. This marker is worn by toggles whose PRESSED look is
@@ -2169,8 +2422,8 @@ button[data-terp="input"][data-placeholder="true"] {
    in pagerButtonStyle until this commit. So the escalation retired with them, and
    the day a calendar arrow gains a min/max bound the answer changes back. */
 [data-terp="iconbutton"]:hover:not(:disabled):not([aria-pressed="true"]) {
-  background: var(--color-neutral-100) !important;
-  color: var(--color-neutral-900) !important;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
 }
 [data-terp="iconbutton"]:disabled {
   opacity: 0.4;
@@ -2242,26 +2495,39 @@ button[data-terp="input"][data-placeholder="true"] {
   color: var(--color-neutral-500);
 }
 
-/* Sidebar navigation links (from the shell or any app-provided <a>). The hover
-   rule skips the active route's link (aria-current="page") so the brand-soft
-   active highlight is not washed out on hover. */
-[data-terp="appshell-nav"] a {
-  transition: background-color 150ms ease, color 150ms ease;
-}
+/* Sidebar navigation links (from the shell or any app-provided <a>).
+
+   THE LAST TWO NAV ESCALATIONS ARE GONE. Their consumer was NAV_LINK_STYLE, the
+   CSSProperties object AppShell exported for every router's link renderer to spread onto
+   its own link element — colour and background inline on the very elements this selector
+   matches, so nothing but !important could reach them. The resting look is a base rule
+   now and the exported constants no longer exist.
+
+   The hover skips the active route (aria-current="page") so the brand-soft active
+   highlight is not washed out on hover, and that same attribute is what carries the
+   active look at all now that NAV_LINK_ACTIVE_STYLE is gone. It is not a shell attribute:
+   every router sets it on the link it considers current, which is exactly the kind of
+   reuse the breadcrumb case sanctions — the caller owns the element and the attribute, and
+   the shell owns only where it sits.
+
+   The rail's scrollbar suppression moved from an attribute on the nav to the sidebar's,
+   because collapsed is one fact and it now has one owner. */
 [data-terp="appshell-nav"] a:hover:not([aria-current="page"]) {
-  background: var(--color-neutral-100) !important;
-  color: var(--color-neutral-900) !important;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
 }
-[data-terp="appshell-nav"][data-collapsed="true"] {
+[data-terp="appshell-nav"] a[aria-current="page"] {
+  background: var(--color-brand-primary-soft);
+  color: var(--color-fg-accent);
+  font-weight: var(--font-weight-semibold);
+}
+[data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav"] {
   overflow-x: hidden;
   scrollbar-width: none;
 }
-[data-terp="appshell-nav"][data-collapsed="true"]::-webkit-scrollbar {
+[data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav"]::-webkit-scrollbar {
   width: 0;
   height: 0;
-}
-[data-terp="appshell-brand"] {
-  transition: background-color 150ms ease;
 }
 [data-terp="appshell-brand"]:hover {
   background: var(--color-neutral-100);
@@ -2535,18 +2801,26 @@ button[data-terp="input"][data-placeholder="true"] {
 
    Note the selector list is the real limit here, not the layer: a transition
    on an element carrying no data-terp is reached only if something below names
-   it. Breadcrumb links are such a case and are listed. AppShell's sidebar
-   collapse (transition: width, in sidebarStyle) is NOT: the aside carries no
-   marker, so nothing here matches it and a reduced-motion user still sees the
-   rail animate. That is fixed by AppShell's own migration, which moves the
-   declaration into this sheet, rather than by adding a marker to an element
-   about to change shape. */
+   it. Breadcrumb links are such a case and are listed, and so are the shell's
+   nav links, whose element belongs to the caller's router.
+
+   THE LAST ESCALATION IN THE SHEET IS GONE, and it was the widest. Its
+   consumers were the three inline transitions left in the package: the shell's
+   nav-link transition (NAV_LINK_STYLE), the hub card title's (titleTextStyle)
+   and the sidebar's own transition: width. The first two are rules now; the
+   third was the documented escape — the aside carried no marker, so nothing
+   here matched it and a reduced-motion user watched the rail animate — and it
+   is closed by the sidebar taking a marker and its width becoming a rule. With
+   no style attribute left to out-shout, layer order alone wins: terp.motion
+   sits above terp.base and terp.state, so transition: none needs nothing
+   shouted. Measured, not assumed: under prefers-reduced-motion the sidebar,
+   a nav link and a hub card title all compute transition-duration 0s. */
 @media (prefers-reduced-motion: reduce) {
   [data-terp],
   [data-terp="appshell-nav"] a,
   [data-terp="breadcrumbs"] a,
   [data-terp="dataview-table"] tbody tr {
-    transition: none !important;
+    transition: none;
   }
   [data-terp="spinner-ring"] { animation: none; }
 }

@@ -16,13 +16,13 @@ npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
 
-77 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (385
-axe runs across five palettes); the screenshots cover the **two default** themes (154
+78 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (390
+axe runs across five palettes); the screenshots cover the **two default** themes (156
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, one that the contrast allowance list has not grown a new theme, and a
-three-test keyboard lane for the one thing neither of the others can see. **544 checks.**
+three-test keyboard lane for the one thing neither of the others can see. **551 checks.**
 
-One of those 77 earns a note, because it is the only specimen whose subject is a token
+One of those 78 earns a note, because it is the only specimen whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's
 `:root` value, so every other DataView specimen renders identical geometry whether the
 density tokens are read or hardcoded — which is exactly how four of them came to be

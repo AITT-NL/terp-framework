@@ -24,9 +24,7 @@ describe("server rendering", () => {
       <AppShell
         title="Terp"
         nav={[{ label: "Home", to: "/", icon: "home" }]}
-        renderLink={(item, children, context) => (
-          <a href={item.to} style={context.style}>{children}</a>
-        )}
+        renderLink={(item, children) => <a href={item.to}>{children}</a>}
       >
         <p>content</p>
       </AppShell>,

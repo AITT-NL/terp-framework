@@ -43,8 +43,20 @@ const MARKERS = [
   "alert-body",
   "alert-icon",
   "alert-title",
+  "appshell",
+  "appshell-backdrop",
   "appshell-brand",
+  "appshell-brand-row",
+  "appshell-brand-title",
+  "appshell-column",
+  "appshell-footer",
+  "appshell-header",
+  "appshell-header-group",
+  "appshell-main",
   "appshell-nav",
+  "appshell-nav-label",
+  "appshell-nav-list",
+  "appshell-sidebar",
   "badge",
   "breadcrumbs",
   "breadcrumbs-current",
@@ -281,13 +293,11 @@ const UNMARKED_STYLED_SURFACES = [
  * zero and therefore unable to mean anything.
  */
 const INLINE_BASE_STYLES: Record<string, number> = {
-  "./AppShell.tsx": 22,
   "./LoginView.tsx": 9,
   "./ModuleNav.tsx": 4,
   "./Page.tsx": 5,
   "./ProfileView.tsx": 3,
   "./ResourceList.tsx": 2,
-  "./ui/controlStyles.ts": 1,
 };
 
 /**

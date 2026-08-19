@@ -21,9 +21,7 @@ function renderShell(extra?: Partial<Parameters<typeof AppShell>[0]>) {
     <AppShell
       title="Terp"
       nav={nav}
-      renderLink={(item, children, context) => (
-        <a href={item.to} style={context.style}>{children}</a>
-      )}
+      renderLink={(item, children) => <a href={item.to}>{children}</a>}
       navFooter={<p>pinned footer</p>}
       {...extra}
     >
@@ -74,12 +72,18 @@ describe("AppShell", () => {
     expect(screen.getByRole("link", { name: "Notes" })).toBeInTheDocument();
     expect(screen.getByText("U")).toBeInTheDocument(); // Users' fallback initial tile
     const navigation = screen.getByRole("navigation", { name: "Primary" });
-    expect(navigation).toHaveAttribute("data-collapsed", "true");
+    // data-collapsed is on the SIDEBAR, not on the nav. One fact, one owner: the rail decides
+    // the sidebar's width, the brand's centring, the nav's scrollbar and both hidden labels, so
+    // every rule that reads it descends from the element that owns it.
+    const sidebar = navigation.closest('[data-terp="appshell-sidebar"]');
+    expect(sidebar).toHaveAttribute("data-collapsed", "true");
     expect(navigation.querySelectorAll('[data-terp="nav-icon"]')).toHaveLength(2);
-    expect(screen.getByRole("link", { name: "Notes" })).toHaveStyle({
-      justifyContent: "center",
-      width: "100%",
-    });
+    // The link's collapsed geometry is a rule now, keyed on that attribute — asserting
+    // toHaveStyle here asserted that the shell hands a style object to the caller's link
+    // renderer, which is the thing this migration removed. jsdom computes no cascade, so the
+    // fact is what a unit test can hold; the geometry is gated by styles.test.ts and by the
+    // app-shell-collapsed baseline.
+    expect(screen.getByRole("link", { name: "Notes" })).not.toHaveAttribute("style");
     expect(screen.getByText("rail")).toBeInTheDocument();
     expect(window.localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe("collapsed");
     expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
@@ -89,11 +93,28 @@ describe("AppShell", () => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
     renderShell();
     expect(screen.getByRole("link", { name: "Notes" })).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "Primary" })).toHaveAttribute(
-      "data-collapsed",
-      "true",
-    );
+    expect(
+      screen.getByRole("navigation", { name: "Primary" }).closest('[data-terp="appshell-sidebar"]'),
+    ).toHaveAttribute("data-collapsed", "true");
     expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+  });
+
+  it("starts collapsed on defaultCollapsed, and a stored choice still wins", () => {
+    // The rail was internal state with no way in, which is why four rules that apply only to it
+    // were painted by nothing. Reading the key with `=== "collapsed"` also treated an absent key
+    // and an explicit "expanded" as the same thing, so the fallback had to become a null check.
+    renderShell({ defaultCollapsed: true });
+    expect(
+      screen.getByRole("navigation", { name: "Primary" }).closest('[data-terp="appshell-sidebar"]'),
+    ).toHaveAttribute("data-collapsed", "true");
+    cleanup();
+
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "expanded");
+    renderShell({ defaultCollapsed: true });
+    expect(
+      screen.getByRole("navigation", { name: "Primary" }).closest('[data-terp="appshell-sidebar"]'),
+      "an explicit stored choice must beat defaultCollapsed, in both directions",
+    ).not.toHaveAttribute("data-collapsed");
   });
 
   it("renders a custom logo and footer in their slots", () => {

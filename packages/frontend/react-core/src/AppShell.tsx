@@ -1,12 +1,11 @@
 import type { NavItem } from "@terpjs/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { Icon, NavIcon, TerpMark } from "./icons";
 import { LanguageSwitcher } from "./locale";
 import { injectTerpStyles } from "./styles";
 import { ThemeToggle } from "./theme";
-import { CONTROL_TEXT_STYLE } from "./ui/controlStyles";
 import { useStrings, useUiText } from "./uiText";
 import type { UiText } from "./uiText";
 
@@ -17,16 +16,18 @@ export interface AppShellSlotContext {
   collapsed: boolean;
 }
 
-export interface AppShellLinkContext extends AppShellSlotContext {
-  style: CSSProperties;
-  activeStyle: CSSProperties;
-}
+/**
+ * What a link renderer is told about the shell it is rendering into.
+ *
+ * It used to carry `style` and `activeStyle` for the caller to spread, which made the
+ * shell's link geometry a style object handed across a public boundary — unthemeable by
+ * an app, and duplicated by every stack. The sheet owns that geometry now, keyed on
+ * `[data-terp="appshell-nav"] a` and on `aria-current="page"` for the active route, so a
+ * renderer needs to return nothing but its stack's link (ADR 0094).
+ */
+export type AppShellLinkContext = AppShellSlotContext;
 
-export type RenderBrandLink = (props: {
-  to: string;
-  children: ReactNode;
-  style: CSSProperties;
-}) => ReactNode;
+export type RenderBrandLink = (props: { to: string; children: ReactNode }) => ReactNode;
 
 export interface AppShellProps {
   /** Product / app title shown next to the logo at the top of the sidebar. */
@@ -35,10 +36,10 @@ export interface AppShellProps {
   nav: readonly NavItem[];
   /**
    * Turns a nav item into the active stack's link around the shell-styled
-   * `children` (icon + label), keeping the shell router-agnostic. Spread
-   * `context.style` (and `context.activeStyle` on the active route) onto the
-   * link element — the shell owns the expanded/collapsed link geometry, so
-   * every stack's links look identical in both rail states.
+   * `children` (icon + label), keeping the shell router-agnostic. Return the
+   * stack's link and nothing else: the shell owns the expanded and collapsed
+   * link geometry from its stylesheet, and the active route's treatment is
+   * keyed on `aria-current="page"`, which every router sets.
    */
   renderLink: (item: NavItem, children: ReactNode, context: AppShellLinkContext) => ReactNode;
   /** Turns the product brand into the home link; defaults to a plain anchor to `/`. */
@@ -51,6 +52,16 @@ export interface AppShellProps {
   navFooter?: ReactNode | ((context: AppShellSlotContext) => ReactNode);
   /** Footer line under the content; default: a muted line with the app title. */
   footer?: ReactNode;
+  /**
+   * Start with the desktop sidebar collapsed to its icon rail, when no choice has been
+   * persisted yet. The user's own toggle still wins and still persists.
+   *
+   * It exists for the same reason `Menu` and both date pickers take `defaultOpen`: the
+   * rail is internal state read from `localStorage`, so without a way in it can be
+   * rendered by no specimen and no test, and every rule that only applies to it is
+   * unpainted. Four were.
+   */
+  defaultCollapsed?: boolean;
   /** The routed page content. */
   children: ReactNode;
 }
@@ -60,42 +71,6 @@ export const SIDEBAR_STORAGE_KEY = "terp.sidebar";
 
 /** Below this width the sidebar becomes an overlay drawer (matches DataView's card cutover). */
 const MOBILE_BREAKPOINT = "(max-width: 768px)";
-
-const EXPANDED_WIDTH = "15rem";
-const COLLAPSED_WIDTH = "4rem";
-
-/** Base style for sidebar links — spread onto the stack's link element. */
-export const NAV_LINK_STYLE: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  padding: "var(--space-2) var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-neutral-700)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: "var(--font-weight-medium)" as CSSProperties["fontWeight"],
-  textDecoration: "none",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  boxSizing: "border-box",
-  minHeight: "2.25rem",
-  transition: "background-color 150ms ease, color 150ms ease",
-};
-
-/** Collapsed rail geometry: one centered fixed-size icon inside the 2.5rem content track. */
-export const NAV_LINK_COLLAPSED_STYLE: CSSProperties = {
-  justifyContent: "center",
-  gap: 0,
-  padding: "var(--space-2)",
-  width: "100%",
-};
-
-/** Merged over {@link NAV_LINK_STYLE} on the active route's link. */
-export const NAV_LINK_ACTIVE_STYLE: CSSProperties = {
-  background: "var(--color-brand-primary-soft)",
-  color: "var(--color-fg-accent)",
-  fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
-};
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(
@@ -116,175 +91,27 @@ function useIsMobile(): boolean {
   return isMobile;
 }
 
-function readStoredCollapsed(): boolean {
+/**
+ * The persisted rail choice, falling back to `defaultCollapsed` when nothing is stored.
+ *
+ * The null check is the whole point and it is new: reading `=== "collapsed"` treated an
+ * absent key and an explicit "expanded" as the same thing, so a `defaultCollapsed` shell
+ * could never start collapsed. A stored choice still wins in both directions.
+ */
+function readStoredCollapsed(fallback: boolean): boolean {
   if (typeof window === "undefined") {
-    return false;
+    return fallback;
   }
   try {
-    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "collapsed";
+    const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    return stored === null ? fallback : stored === "collapsed";
   } catch {
-    return false;
+    return fallback;
   }
 }
 
-const shellStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "stretch",
-  minHeight: "100vh",
-  fontFamily: "var(--font-family-sans)",
-  color: "var(--color-neutral-900)",
-  background: "var(--color-neutral-50)",
-};
-
-const sidebarStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-4)",
-  padding: "var(--space-3)",
-  boxSizing: "border-box",
-  flexShrink: 0,
-  position: "sticky",
-  top: 0,
-  height: "100vh",
-  overflowX: "hidden",
-  background: "var(--color-neutral-0)",
-  borderRight: "1px solid var(--color-neutral-200)",
-  transition: "width 150ms ease",
-};
-
-const drawerStyle: CSSProperties = {
-  ...sidebarStyle,
-  position: "fixed",
-  inset: "0 auto 0 0",
-  height: "100dvh",
-  width: EXPANDED_WIDTH,
-  zIndex: 50,
-  boxShadow: "var(--shadow-lg)",
-};
-
-const backdropStyle: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 40,
-  background: "rgb(0 0 0 / 0.4)",
-};
-
-const brandStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  padding: "var(--space-1) var(--space-2)",
-  minHeight: "2.25rem",
-};
-
-const brandLinkStyle: CSSProperties = {
-  ...brandStyle,
-  color: "var(--color-neutral-900)",
-  textDecoration: "none",
-  borderRadius: "var(--radius-md)",
-  boxSizing: "border-box",
-};
-
-const drawerBrandRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-};
-
-const brandTitleStyle: CSSProperties = {
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  fontSize: "var(--font-size-base)",
-  fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
-  color: "var(--color-neutral-900)",
-  letterSpacing: 0,
-};
-
-const navItemLabelStyle: CSSProperties = {
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-};
-
-const visuallyHiddenStyle: CSSProperties = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-  border: 0,
-};
-
-const navStyle: CSSProperties = { flexGrow: 1, overflowY: "auto", minHeight: 0 };
-
-const listStyle: CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "grid",
-  gap: "var(--space-1)",
-};
-
-const columnStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  flexGrow: 1,
-  minWidth: 0,
-};
-
-const headerStyle: CSSProperties = {
-  position: "sticky",
-  top: 0,
-  zIndex: 30,
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--space-3)",
-  padding: "var(--space-2) var(--space-4)",
-  minHeight: "3rem",
-  boxSizing: "border-box",
-  background: "var(--color-neutral-0)",
-  borderBottom: "1px solid var(--color-neutral-200)",
-};
-
-const headerGroupStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-};
-
-const mainStyle: CSSProperties = { flexGrow: 1, padding: "var(--space-6)", minWidth: 0 };
-const mainMobileStyle: CSSProperties = { ...mainStyle, padding: "var(--space-4)" };
-
-const footerStyle: CSSProperties = {
-  padding: "var(--space-3) var(--space-6)",
-  borderTop: "1px solid var(--color-neutral-200)",
-  color: "var(--color-neutral-500)",
-  fontSize: "var(--font-size-xs)",
-};
-
-const toggleStyle: CSSProperties = {
-  ...CONTROL_TEXT_STYLE,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: "2.25rem",
-  height: "2.25rem",
-  padding: 0,
-  color: "var(--color-neutral-700)",
-  background: "transparent",
-  border: "1px solid transparent",
-  borderRadius: "var(--radius-md)",
-  cursor: "pointer",
-};
-
-const defaultRenderBrandLink: RenderBrandLink = ({ to, children, style }) => (
-  <a href={to} data-terp="appshell-brand" style={style}>
+const defaultRenderBrandLink: RenderBrandLink = ({ to, children }) => (
+  <a href={to} data-terp="appshell-brand">
     {children}
   </a>
 );
@@ -331,12 +158,13 @@ export function AppShell({
   headerActions,
   navFooter,
   footer,
+  defaultCollapsed = false,
   children,
 }: AppShellProps) {
   const resolve = useUiText();
   const strings = useStrings();
   const isMobile = useIsMobile();
-  const [collapsed, setCollapsed] = useState(readStoredCollapsed);
+  const [collapsed, setCollapsed] = useState(() => readStoredCollapsed(defaultCollapsed));
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
@@ -399,24 +227,27 @@ export function AppShell({
   // The drawer always shows labels; the desktop rail hides them when collapsed.
   const railCollapsed = !isMobile && collapsed;
   const context: AppShellSlotContext = { collapsed: railCollapsed };
-  const linkStyle = railCollapsed
-    ? { ...NAV_LINK_STYLE, ...NAV_LINK_COLLAPSED_STYLE }
-    : NAV_LINK_STYLE;
+  // Hoisted, the density-attribute idiom: the marker scanner reads a whole expression
+  // container, so a conditional written at the attribute reports every literal in it as a
+  // marker name.
+  const collapsedAttribute = railCollapsed ? "true" : undefined;
+  // One attribute for the viewport, on the shell root, and every consequence of it descends
+  // from there: the sidebar becomes a drawer, main tightens its padding. The breakpoint stays
+  // in one place — this component's media query — rather than being restated as a CSS
+  // @media rule that could drift from it.
+  const shellVariant = isMobile ? "mobile" : "desktop";
   const resolvedTitle = resolve(title);
 
+  // The brand takes no style object and needs none: its three looks are the resting one,
+  // the collapsed one (reached from the sidebar's data-collapsed) and the mobile one
+  // (reached from the drawer's brand row, which only exists on mobile). The DOM already
+  // says which it is.
   const brand = renderBrandLink({
     to: "/",
-    style: railCollapsed
-      ? { ...brandLinkStyle, justifyContent: "center", paddingInline: 0 }
-      : isMobile
-        ? { ...brandLinkStyle, flex: 1, minWidth: 0 }
-        : brandLinkStyle,
     children: (
       <>
         {logo ?? <TerpMark />}
-        <strong style={railCollapsed ? visuallyHiddenStyle : brandTitleStyle}>
-          {resolvedTitle}
-        </strong>
+        <strong data-terp="appshell-brand-title">{resolvedTitle}</strong>
       </>
     ),
   });
@@ -429,23 +260,19 @@ export function AppShell({
       aria-label={isMobile ? strings.primaryNavigationLabel : undefined}
       tabIndex={isMobile ? -1 : undefined}
       onKeyDown={isMobile ? onDrawerKeyDown : undefined}
-      style={
-        isMobile
-          ? drawerStyle
-          : { ...sidebarStyle, width: railCollapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH }
-      }
+      data-terp="appshell-sidebar"
+      data-collapsed={collapsedAttribute}
     >
       {isMobile && (
         <span
           data-terp="drawer-focus-start"
           tabIndex={0}
-          style={visuallyHiddenStyle}
           onFocus={() => focusDrawerEdge("last")}
         />
       )}
       {isMobile ? (
         <div
-          style={drawerBrandRowStyle}
+          data-terp="appshell-brand-row"
           onClick={(event) => {
             if (event.target instanceof Element && event.target.closest("a") !== null) {
               closeDrawer();
@@ -458,7 +285,6 @@ export function AppShell({
             type="button"
             data-terp="iconbutton"
             aria-label={strings.closeNavigation}
-            style={toggleStyle}
             onClick={closeDrawer}
           >
             <Icon name="x" size="1.15rem" />
@@ -466,24 +292,20 @@ export function AppShell({
         </div>
       ) : brand}
       <nav
-        style={navStyle}
         data-terp="appshell-nav"
-        data-collapsed={railCollapsed || undefined}
         aria-label={strings.primaryNavigationLabel}
         onClick={isMobile ? closeDrawer : undefined}
       >
-        <ul style={listStyle}>
+        <ul data-terp="appshell-nav-list">
           {nav.map((item) => (
             <li key={item.to} title={railCollapsed ? item.label : undefined}>
               {renderLink(
                 item,
                 <>
                   <NavIcon name={item.icon} label={item.label} />
-                  <span style={railCollapsed ? visuallyHiddenStyle : navItemLabelStyle}>
-                    {item.label}
-                  </span>
+                  <span data-terp="appshell-nav-label">{item.label}</span>
                 </>,
-                { collapsed: railCollapsed, style: linkStyle, activeStyle: NAV_LINK_ACTIVE_STYLE },
+                { collapsed: railCollapsed },
               )}
             </li>
           ))}
@@ -494,7 +316,6 @@ export function AppShell({
         <span
           data-terp="drawer-focus-end"
           tabIndex={0}
-          style={visuallyHiddenStyle}
           onFocus={() => focusDrawerEdge("first")}
         />
       )}
@@ -502,13 +323,13 @@ export function AppShell({
   );
 
   return (
-    <div style={shellStyle}>
+    <div data-terp="appshell" data-variant={shellVariant}>
       {isMobile ? (
         drawerOpen && (
           <>
             {/* Click-away surface only: Escape and the labelled header toggle are the
                 accessible close paths, so the backdrop stays out of the a11y tree. */}
-            <div aria-hidden="true" style={backdropStyle} onClick={closeDrawer} />
+            <div aria-hidden="true" data-terp="appshell-backdrop" onClick={closeDrawer} />
             {sidebar}
           </>
         )
@@ -516,16 +337,15 @@ export function AppShell({
         sidebar
       )}
       <div
-        style={columnStyle}
+        data-terp="appshell-column"
         inert={isMobile && drawerOpen ? true : undefined}
         aria-hidden={isMobile && drawerOpen ? true : undefined}
       >
-        <header style={headerStyle}>
+        <header data-terp="appshell-header">
           <button
             ref={toggleRef}
             type="button"
             data-terp="iconbutton"
-            style={toggleStyle}
             aria-expanded={isMobile ? drawerOpen : !collapsed}
             aria-label={
               isMobile
@@ -540,14 +360,14 @@ export function AppShell({
           >
             <PanelIcon />
           </button>
-          <div style={headerGroupStyle}>
+          <div data-terp="appshell-header-group">
             {headerActions}
             <ThemeToggle variant="inline" />
             <LanguageSwitcher variant="inline" />
           </div>
         </header>
-        <main style={isMobile ? mainMobileStyle : mainStyle}>{children}</main>
-        <footer style={footerStyle}>{footer ?? <small>{resolvedTitle}</small>}</footer>
+        <main data-terp="appshell-main">{children}</main>
+        <footer data-terp="appshell-footer">{footer ?? <small>{resolvedTitle}</small>}</footer>
       </div>
     </div>
   );

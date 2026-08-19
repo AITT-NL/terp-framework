@@ -31,13 +31,15 @@ already stamps (ADR 0094).
   padding, control height, table row height, spacing rhythm and every interaction
   state were frozen in the package, because an inline style attribute outranks any
   author rule in any layer. That is also why the shipped stylesheet needed
-  `!important` on every state rule it had: **35 declarations at 0.7.0, now 5**, and
-  each of the five survivors is a rule whose selector still matches at least one
-  element that has not migrated — every one of them named, with the inline
-  declaration it has to out-shout, in the gate that pins it. `54` source files carried a style object; `23` do — and that number is deliberately
+  `!important` on every state rule it had: **35 declarations at 0.7.0, now ZERO**. Not one
+  rule in the shipped sheet outranks an app's `theme.css` any more, which is the
+  whole point: for *important* declarations the layer order reverses and unlayered
+  styles sort last, so an escalation did not merely outrank an app's stylesheet — it
+  made that one declaration unthemeable. The last five came off with `AppShell`,
+  which blocked them all on its own. `54` source files carried a style object; `20` do — and that number is deliberately
   the coarse one, because a file keeps its place in it for a single measured value the
-  sheet has no business owning. The finer measure is per file and gated: **seven** modules
-  still declare a module-scope base style object, **46** between them, asserted as exact
+  sheet has no business owning. The finer measure is per file and gated: **five** modules
+  still declare a module-scope base style object, **23** between them, asserted as exact
   equality so a partial migration has to move the number.
 
   The mechanism an app should know about is the **cascade layer**, because it is

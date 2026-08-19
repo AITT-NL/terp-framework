@@ -1495,16 +1495,58 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The renderLink here marks the first item current, which no version of this specimen
+        // did before. It is not decoration: the active route's whole treatment — the brand-soft
+        // wash, the accent ink, the heavier weight — used to be NAV_LINK_ACTIVE_STYLE, a style
+        // object the shell handed the router to spread onto its own link. It is a rule keyed on
+        // aria-current="page" now, and this is the only thing that paints it.
         id: "app-shell",
         title: "AppShell — sidebar, header and content",
         node: (
-          // Height-constrained rather than full-viewport: the shell is flex-based, so a fixed
-          // box renders the same composition deterministically inside a specimen card.
-          <div style={{ height: "24rem", border: "1px solid var(--color-neutral-200)" }}>
+          // 60rem rather than the 24rem this used to be, and it is a fix rather than a
+          // preference: the shell declares min-height: 100vh, so in a 24rem box its footer sat
+          // at y=932 while the element clip ended at 473 — measured — and the footer's four
+          // declarations were in no baseline at all. A specimen of the shell that cuts off one
+          // of the shell's own landmarks is not a specimen of the shell. Still a fixed box
+          // rather than the bare viewport, so the composition stays deterministic.
+          <div style={{ height: "60rem", border: "1px solid var(--color-neutral-200)" }}>
             <AppShell
               title="Terp workbench"
               nav={SHELL_NAV}
-              renderLink={(item, children) => <a href={item.to}>{children}</a>}
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <p style={{ margin: 0 }}>Page content renders in the main region.</p>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // The icon rail, which nothing has ever rendered. It is localStorage-backed internal
+        // state, so before defaultCollapsed existed there was no way into it from a specimen or
+        // a test — and four rules apply to this state and no other: the sidebar's 4rem width,
+        // the brand's centring, and the visually-hidden treatment of the brand title and of
+        // every nav label. All four shipped unpainted.
+        //
+        // Deliberately the same nav and the same active item as app-shell above, so the two
+        // baselines differ in exactly one thing.
+        id: "app-shell-collapsed",
+        title: "AppShell — collapsed to the icon rail",
+        node: (
+          // Same box as app-shell above, so the two baselines differ in one thing.
+          <div style={{ height: "60rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              defaultCollapsed
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
             >
               <p style={{ margin: 0 }}>Page content renders in the main region.</p>
             </AppShell>
