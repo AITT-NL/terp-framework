@@ -1407,6 +1407,33 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The minimum card beside a full one, which nothing else renders: hub-page gives every
+        // card an icon and a description. Three things are only observable here.
+        //
+        // The icon tile's ABSENCE — the title row has to close up rather than reserve the
+        // 2.25rem box, and no other specimen has a card without one.
+        //
+        // And both placeholder rows. HubCard renders a non-breaking space at visibility: hidden
+        // when description or stat is missing, so the card's three grid rows keep their heights
+        // and a bare card stays flush with a full one in the same row. That only means anything
+        // with a full card beside it, which is why this specimen has two: if the placeholders
+        // stop working, the two card bodies stop lining up.
+        id: "hub-card-bare",
+        title: "HubCard — the minimum card beside a full one",
+        node: (
+          <HubPage title="Records">
+            <HubCard to="/records/audit" title="Audit trail" />
+            <HubCard
+              to="/records/syncs"
+              title="Sync definitions"
+              description="What moves, and when."
+              icon={<Icon name="layers" />}
+              stat="14 active"
+            />
+          </HubPage>
+        ),
+      },
+      {
         id: "user-menu",
         title: "UserMenu — closed trigger",
         node: (
