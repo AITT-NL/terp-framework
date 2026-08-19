@@ -17,6 +17,7 @@ import { DataViewTextProvider, useDataViewText } from "./internal";
 import type {
   DataViewBatchAction,
   DataViewColumn,
+  DataViewDensity,
   DataViewQuery,
   DataViewRepository,
   DataViewRowAction,
@@ -39,6 +40,21 @@ interface DataViewBaseProps<T> {
   columns: DataViewColumn<T>[];
   /** "embedded" renders a plain compact view: no view toggle, no page-size selector, no footer. */
   variant?: "full" | "embedded";
+  /**
+   * How tightly this view packs its cells and controls (default `"comfortable"`).
+   *
+   * `"compact"` stamps `data-density="compact"` on the root, which re-scopes the live
+   * density tokens for the whole subtree — cell padding here, and the control heights
+   * `Button`, `Input` and `Select` already read, so the toolbar tightens with the table.
+   *
+   * `"comfortable"` stamps NO attribute, because comfortable IS the token sheet's
+   * `:root` value and an attribute for it would match no rule. The consequence worth
+   * knowing: inside an already-compact subtree, `density="comfortable"` does not make
+   * this view comfortable again. Expressing that needs a named comfortable copy of
+   * each live token, which ADR 0094 defers until something asks — nothing can ask
+   * until the shell takes a density of its own.
+   */
+  density?: DataViewDensity;
   enableSelection?: boolean;
   batchActions?: DataViewBatchAction<T>[];
   rowActions?: (row: T) => DataViewRowAction<T>[];
@@ -130,6 +146,8 @@ function useIsMobile(): boolean {
 function DataViewInner<T>(props: DataViewProps<T>) {
   const { strings, resolve } = useDataViewText();
   const embedded = props.variant === "embedded";
+  // Only the compact value is expressible as an attribute; see the prop's doc comment.
+  const densityAttribute = props.density === "compact" ? "compact" : undefined;
   const serverSide = props.repository.capabilities.serverSide;
   const initialPageSize = embedded
     ? EMBEDDED_PAGE_SIZE
@@ -366,7 +384,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
       props.toolbarContent !== undefined ||
       props.toolbarTrailing !== undefined;
     return (
-      <div data-terp="dataview" style={{ display: "grid" }}>
+      <div data-terp="dataview" data-density={densityAttribute} style={{ display: "grid" }}>
         {showsEmbeddedToolbar && (
           <DataViewToolbar<T>
             searchEnabled={props.repository.capabilities.search}
@@ -403,6 +421,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
   return (
     <div
       data-terp="dataview"
+      data-density={densityAttribute}
       style={{
         display: "grid",
         background: "var(--color-neutral-0)",

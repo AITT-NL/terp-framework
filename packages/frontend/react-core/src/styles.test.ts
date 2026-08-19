@@ -272,6 +272,82 @@ describe("cascade structure", () => {
     expect(declarations).toBe(9);
   });
 
+  it("declares a rule for every DataView surface reached structurally", () => {
+    // The check below asks for an EXACT `[data-terp="x"]` selector, and several DataView
+    // surfaces deliberately have none: a table has hundreds of cells, so stamping an
+    // attribute on each of them buys nothing a descendant selector does not already do.
+    // Those rules are therefore invisible to that check — deleting one leaves the marker
+    // inventory intact and the whole table unpadded. So they are named here as the
+    // selectors they actually are.
+    //
+    // Note which ancestor each descends from. Cells hang off the ROW rather than off the
+    // table, because a "tbody td" selector also matches the expanded row's cell — which
+    // carries a padding and a border of its own and would then have to out-specify this
+    // rule instead of simply not matching it. And the two visually-hidden surfaces are
+    // qualified by element: the actions BODY cell's only child is the row-actions cluster,
+    // so an unqualified `> span` would clip a live control out of the layout.
+    const base = layerBody("terp.base");
+    for (const selector of [
+      '[data-terp="dataview-table"] > thead > tr > th',
+      '[data-terp="dataview-row"] > td',
+      '[data-terp="dataview-row"][data-clickable="true"]',
+      'th[data-terp="dataview-expand-cell"]',
+      'th[data-terp="dataview-select-cell"]',
+      'th[data-terp="dataview-actions-cell"]',
+      'td[data-terp="dataview-actions-cell"]',
+      'th[data-terp="dataview-actions-cell"] > span',
+    ]) {
+      expect(
+        declaresRuleFor(base, selector),
+        `${selector} must be declared as a rule of its own`,
+      ).toBe(true);
+    }
+    // Every row tone, or a tone silently renders untinted — and the row-tones baseline only
+    // covers the three the specimen happens to use.
+    for (const tone of ["neutral", "info", "success", "warning", "danger"]) {
+      expect(
+        declaresRuleFor(base, `[data-terp="dataview-row"][data-tone="${tone}"]`),
+        `row tone ${tone} has no rule`,
+      ).toBe(true);
+    }
+    // The selection tint must stay guarded against a toned row. Both weigh (0,2,0) without
+    // the :not(), which would leave source order deciding whether a failed row reads as
+    // failed or merely as selected.
+    expect(
+      declaresRuleFor(base, '[data-terp="dataview-row"][data-selected="true"]:not([data-tone])'),
+      "the selection tint must exclude toned rows explicitly, not by source order",
+    ).toBe(true);
+  });
+
+  it("reads the density tokens from rules, and re-scopes them unlayered", () => {
+    // The four cell-padding tokens were published a stage before anything read them and
+    // were deleted for exactly that. These are the readers; without them the tokens are
+    // back to being decoration, and the compact attribute silently does nothing.
+    for (const token of ["--density-cell-pad-y", "--density-cell-pad-x"]) {
+      expect(css, `${token} is published but nothing reads it`).toContain(`var(${token})`);
+    }
+    // And the re-scoping stays OUTSIDE every layer. Inside one it would lose to the
+    // contract's own unlayered :root values whenever the attribute sits on the same element
+    // those target — the app-wide case, data-density on <html> — and compact would do
+    // nothing at all. Asserted by subtracting the layer bodies from the sheet.
+    const density = '[data-density="compact"]';
+    expect(css).toContain(density);
+    for (const layer of ["terp.reset", "terp.base", "terp.state", "terp.motion"]) {
+      expect(layerBody(layer), `${density} must not be inside @layer ${layer}`).not.toContain(
+        density,
+      );
+    }
+    const at = css.indexOf(density);
+    const block = css.slice(at, css.indexOf("}", at));
+    for (const token of [
+      "--density-control-min-height",
+      "--density-cell-pad-y",
+      "--density-cell-pad-x",
+    ]) {
+      expect(block, `${token} is not re-scoped under compact`).toContain(`${token}: var(`);
+    }
+  });
+
   it("keeps the markdown wrapper boxless", () => {
     // display: contents is the entire rule, and it has to stay the entire rule. Every
     // non-inherited property on such an element is silently dropped, so a padding or a border
@@ -356,6 +432,10 @@ describe("cascade structure", () => {
       "user-menu-identity",
       "user-menu-role",
       "breadcrumbs-current",
+      "dataview-table",
+      "dataview-column-sort",
+      "dataview-column-resizer",
+      "dataview-row-open",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

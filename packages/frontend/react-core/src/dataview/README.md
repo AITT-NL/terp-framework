@@ -133,6 +133,12 @@ versioned envelope; corrupt data falls back to defaults) and
   from `meta.mobileSlot` (`title` / `subtitle` / `status` / `date`), with
   `renderCard(row)` as a full escape hatch; selection, actions and expansion keep
   working in card view.
+- **Density**: `density="compact"` stamps `data-density="compact"` on the root, which
+  re-scopes the live density tokens for the whole subtree — cell padding here, plus the
+  control heights `Button`, `Input` and `Select` already read, so the toolbar tightens
+  with the table. `"comfortable"` is the default and stamps no attribute, because
+  comfortable is what the token sheet declares on `:root`; the consequence is that
+  `density="comfortable"` cannot make one view comfortable inside a compact subtree.
 - **Variants**: `variant="embedded"` renders a plain compact view (no view toggle, no
   page-size selector, no pagination footer, all rows) for panels/detail sections.
 - **i18n**: no hard-coded user-facing strings — every label is a `UiText` routed

@@ -118,18 +118,27 @@ already has.
 So "a migrated component renders no `style={}`" is the rule for *base* styles only. `Stack`
 is migrated and still renders one when given `align` or `justify`.
 
-**4. Density is a prop *and* tokens, not one or the other.** The contract declares a live
-density token (`--density-control-min-height`) at its comfortable value plus an explicit
-`--density-compact-*` counterpart — root-only geometry, like every other scale. The sheet
-re-scopes the live token under `[data-density="compact"]`, so a `density` prop is one
-stamped attribute on a subtree root (the shell for an app-wide default, an embedded
-DataView for one table), and a `theme.css` can still move either value app-wide.
+**4. Density is a prop *and* tokens, not one or the other.** The contract declares live
+density tokens at their comfortable values plus explicit `--density-compact-*`
+counterparts — root-only geometry, like every other scale. The sheet re-scopes the live
+ones under `[data-density="compact"]`, so a `density` prop is one stamped attribute on a
+subtree root (the shell for an app-wide default, an embedded DataView for one table), and
+a `theme.css` can still move either value app-wide.
 
-The vocabulary grows with its consumers, not ahead of them. Cell padding is the obvious
-next pair and is deliberately **not** declared yet, because no rule would read it until the
-DataView cluster migrates — and this same release deletes `--color-fg-on-brand` for exactly
-that offence. Publishing a token the manifest advertises and nothing applies is how a theme
-editor grows knobs that do nothing. A *comfortable island inside a compact subtree* is
+Two dimensions exist today: `--density-control-min-height`, read by `Button`, `Input`,
+`Select` and the date-picker trigger; and `--density-cell-pad-y` / `--density-cell-pad-x`,
+read by the DataView's cells, cards and bars. That second pair is the vocabulary's own
+lesson about growing with its consumers rather than ahead of them: it was declared one
+stage early, no rule read it, and it was deleted in the same release that deleted
+`--color-fg-on-brand` for exactly that offence. Publishing a token the manifest advertises
+and nothing applies is how a theme editor grows knobs that do nothing. It came back with
+the DataView migration, in the same commit as its readers.
+
+The prop's shape follows from the mechanism rather than from taste. `density="compact"`
+stamps the attribute; `density="comfortable"` stamps **nothing**, because comfortable is
+the token sheet's own `:root` value and an attribute for it would match no rule. So the
+absence of the attribute is the comfortable case, and the one thing that cannot be
+expressed is a comfortable island inside a compact subtree. A *comfortable island inside a compact subtree* is
 deferred on the same grounds.
 
 **5. The four rootless surfaces gain markers without gaining layout boxes.**

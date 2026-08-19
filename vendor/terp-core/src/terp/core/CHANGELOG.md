@@ -34,7 +34,11 @@ already stamps (ADR 0094).
   `!important` on every state rule it had: **35 declarations at 0.7.0, now 9**, and
   each of the nine survivors is a rule whose selector still matches at least one
   element that has not migrated — every one of them named, with the inline
-  declaration it has to out-shout, in the gate that pins it. `54` source files carried a style object; `31` do.
+  declaration it has to out-shout, in the gate that pins it. `54` source files carried a style object; `31` do — and that number is deliberately
+  the coarse one, because a file keeps its place in it for a single measured value the
+  sheet has no business owning. The finer measure is per file and gated: **ten** modules
+  still declare a module-scope base style object, **59** between them, asserted as exact
+  equality so a partial migration has to move the number.
 
   The mechanism an app should know about is the **cascade layer**, because it is
   what makes overriding pleasant rather than a fight. The sheet is ordered
@@ -132,18 +136,30 @@ already stamps (ADR 0094).
   opens with its cursor on the selection rather than nowhere, which is the state
   focusing the box produces.
 
-- **Density is a token family, and `compact` is one attribute away.** The
-  contract declares a live `--density-control-min-height` (2.25rem) plus an
-  explicit `--density-compact-control-min-height` (2rem) — root-only geometry
-  like every other scale, published in the manifest. The react-core sheet
-  re-scopes the live token under `[data-density="compact"]`, so a subtree root
-  stamped with that attribute tightens every control beneath it that reads the
-  token — today `Button`, `Input` and `Select` — and a `theme.css` can move
-  either value app-wide. Remaining controls adopt it as their base styles
-  migrate into the sheet. Cell padding is deliberately not declared yet: no rule
-  would read it until the DataView cluster migrates, and this release deletes a
-  token for exactly that. Density props on the shell and DataView land with
-  those components.
+- **Density is a token family, a prop, and one attribute away.** The contract
+  declares live `--density-control-min-height` (2.25rem), `--density-cell-pad-y`
+  and `--density-cell-pad-x` (0.75rem) plus explicit `--density-compact-*`
+  counterparts (2rem, 0.5rem, 0.5rem) — root-only geometry like every other
+  scale, published in the manifest. The react-core sheet re-scopes the live
+  tokens under `[data-density="compact"]`, so a subtree root stamped with that
+  attribute tightens everything beneath it that reads one: control height for
+  `Button`, `Input`, `Select` and the date-picker trigger, cell padding for the
+  DataView's cells, cards and bars. A `theme.css` can move either value set
+  app-wide.
+
+  `DataView` takes a `density` prop for it. `"compact"` stamps the attribute;
+  `"comfortable"` stamps **nothing**, because comfortable is what the token sheet
+  declares on `:root` and an attribute for it would match no rule — so the
+  absence of the attribute *is* the comfortable case, and the one thing not yet
+  expressible is a comfortable island inside a compact subtree. The shell's own
+  density prop lands with the shell.
+
+  The cell-padding pair is worth one sentence of history, because it is the
+  clearest illustration of the rule this release applies twice: it was declared
+  one release earlier, no rule read it, and it was deleted in the same release
+  that deleted `--color-fg-on-brand` for the same offence. A token the manifest
+  advertises and nothing applies is a knob that does nothing. It is back here, in
+  the same commit as its readers.
 
 ### Fixed
 

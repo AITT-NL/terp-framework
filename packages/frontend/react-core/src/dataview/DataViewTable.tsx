@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { injectTerpStyles } from "../styles";
 import type { BadgeTone } from "../ui/Badge";
-import { toneSoftColors } from "../ui/Badge";
 import type { UiText } from "../uiText";
 import { DataViewExpandToggle, DataViewExpandableRow } from "./DataViewExpandableRow";
 import { DataViewRowActions } from "./DataViewRowActions";
@@ -45,41 +44,6 @@ export interface DataViewTableProps<T> {
   rowActions?: (row: T) => DataViewRowAction<T>[];
   rowActionsLayout: DataViewRowActionsLayout;
 }
-
-const headerCellStyle: CSSProperties = {
-  position: "relative",
-  padding: "var(--space-2) var(--space-3)",
-  textAlign: "left",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: "var(--font-weight-semibold)" as never,
-  color: "var(--color-neutral-500)",
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-  borderBottom: "1px solid var(--color-neutral-200)",
-  whiteSpace: "nowrap",
-  background: "var(--color-neutral-0)",
-};
-
-const bodyCellStyle: CSSProperties = {
-  padding: "var(--space-3)",
-  borderBottom: "1px solid var(--color-neutral-100)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-neutral-900)",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-};
-
-const recordButtonStyle: CSSProperties = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-  border: 0,
-};
 
 /**
  * The table layout of {@link DataView}: sortable, resizable headers; system columns
@@ -166,17 +130,13 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
     <table
       ref={tableRef}
       data-terp="dataview-table"
-      style={{
-        width: "100%",
-        borderCollapse: "collapse",
-        tableLayout: liveSizing !== null ? "fixed" : "auto",
-      }}
+      data-resizing={liveSizing !== null || undefined}
     >
       <thead>
         <tr>
-          {hasExpand && <th style={{ ...headerCellStyle, width: 40 }} aria-hidden />}
+          {hasExpand && <th data-terp="dataview-expand-cell" aria-hidden />}
           {props.selectionEnabled && (
-            <th style={{ ...headerCellStyle, width: 40 }}>
+            <th data-terp="dataview-select-cell">
               <input
                 ref={selectAllRef}
                 type="checkbox"
@@ -197,27 +157,17 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
                 aria-sort={
                   sort === undefined ? undefined : sort.desc ? "descending" : "ascending"
                 }
-                style={{ ...headerCellStyle, width }}
+                style={width === undefined ? undefined : { width }}
               >
                 {sortable ? (
                   <button
                     type="button"
+                    data-terp="dataview-column-sort"
                     onClick={() => props.onToggleSort(column.id)}
-                    style={{
-                      font: "inherit",
-                      color: "inherit",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "var(--space-1)",
-                      background: "transparent",
-                      border: "none",
-                      padding: 0,
-                      cursor: "pointer",
-                    }}
                   >
                     {resolve(column.header)}
                     {sort === undefined ? (
-                      <SortNoneGlyph size={12} style={{ opacity: 0.5 }} />
+                      <SortNoneGlyph size={12} />
                     ) : sort.desc ? (
                       <SortDescGlyph size={12} />
                     ) : (
@@ -231,44 +181,18 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
                   role="separator"
                   aria-orientation="vertical"
                   aria-label={`${resolve(strings.resizeColumn)}: ${resolve(column.meta?.label ?? column.header)}`}
+                  data-terp="dataview-column-resizer"
                   onPointerDown={(event) => {
                     event.preventDefault();
                     startResize(column.id, event.clientX);
-                  }}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    // Sit flush with the cell's right edge — a negative offset would
-                    // let the last column's handle spill past the table and trip the
-                    // scroll container's overflow-x, adding a spurious scrollbar.
-                    right: 0,
-                    width: 7,
-                    height: "100%",
-                    cursor: "col-resize",
-                    zIndex: 1,
-                    touchAction: "none",
                   }}
                 />
               </th>
             );
           })}
           {hasActions && (
-            <th style={{ ...headerCellStyle, width: 56 }}>
-              <span
-                style={{
-                  position: "absolute",
-                  width: 1,
-                  height: 1,
-                  padding: 0,
-                  margin: -1,
-                  overflow: "hidden",
-                  clip: "rect(0 0 0 0)",
-                  whiteSpace: "nowrap",
-                  border: 0,
-                }}
-              >
-                {resolve(strings.actions)}
-              </span>
+            <th data-terp="dataview-actions-cell">
+              <span>{resolve(strings.actions)}</span>
             </th>
           )}
         </tr>
@@ -283,23 +207,13 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
             <RowGroup key={rowId}>
               <tr
                 onClick={clickable ? () => props.onRowClick?.(row) : undefined}
-                data-terp={clickable ? "dataview-row" : undefined}
+                data-terp="dataview-row"
+                data-clickable={clickable || undefined}
                 data-selected={props.isSelected(rowId) || undefined}
                 data-tone={tone ?? undefined}
-                style={{
-                  cursor: clickable ? "pointer" : undefined,
-                  // A row's own state outranks the selection tint — selection still
-                  // shows via the checkbox and data-selected.
-                  background:
-                    tone !== null
-                      ? toneSoftColors[tone]
-                      : props.isSelected(rowId)
-                        ? "var(--color-neutral-50)"
-                        : undefined,
-                }}
               >
                 {hasExpand && (
-                  <td style={bodyCellStyle}>
+                  <td data-terp="dataview-expand-cell">
                     <DataViewExpandToggle
                       expanded={expanded}
                       onToggle={() => props.onToggleExpanded(rowId)}
@@ -307,7 +221,7 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
                   </td>
                 )}
                 {props.selectionEnabled && (
-                  <td style={bodyCellStyle} onClick={(event) => event.stopPropagation()}>
+                  <td data-terp="dataview-select-cell" onClick={(event) => event.stopPropagation()}>
                     <input
                       type="checkbox"
                       aria-label={resolve(strings.selectRow)}
@@ -317,7 +231,7 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
                   </td>
                 )}
                 {props.columns.map((column) => (
-                  <td key={column.id} style={bodyCellStyle}>
+                  <td key={column.id}>
                     {clickable && column === props.columns[0] && (
                       <button
                         type="button"
@@ -329,7 +243,6 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
                           event.stopPropagation();
                           props.onRowClick?.(row);
                         }}
-                        style={recordButtonStyle}
                       />
                     )}
                     {column.cell !== undefined
@@ -338,7 +251,7 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
                   </td>
                 ))}
                 {hasActions && (
-                  <td style={{ ...bodyCellStyle, textAlign: "right" }}>
+                  <td data-terp="dataview-actions-cell">
                     <DataViewRowActions
                       row={row}
                       actions={props.rowActions?.(row) ?? []}

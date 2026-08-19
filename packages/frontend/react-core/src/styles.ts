@@ -72,26 +72,42 @@ export const TERP_STYLES_CSS = `
 @layer terp.reset, terp.base, terp.state, terp.motion;
 
 /* Density: a subtree stamped data-density="compact" re-scopes the live density
-   token to its compact counterpart, and every rule reading the live token
-   follows via custom-property inheritance. Today that is control height, read
-   by Button, Input, Select and the date-picker trigger; cell padding arrives with
-   the DataView
-   migration, and its tokens arrive with it rather than sitting published and
-   unread. "comfortable" is the token sheet's :root value, so the attribute for
-   it matches no rule — an app sets density per subtree (the shell for an
-   app-wide default, an embedded DataView for one table), never per rule. A
-   comfortable island inside a compact subtree is not expressible yet; that
-   needs a named comfortable copy of each live token, which ADR 0094 defers
-   until something asks for it.
+   tokens to their compact counterparts, and every rule reading a live token
+   follows via custom-property inheritance. Two dimensions today: control
+   height, read by Button, Input, Select and the date-picker trigger; and cell
+   padding, read by the DataView's header and body cells, its cards, its
+   expanded-row cell and the inline padding of its toolbar and pagination bars.
+   The cell tokens were published one stage before anything read them and were
+   deleted for it — they are back here, with their readers, in the same commit.
+
+   The bars read only the inline half (--density-cell-pad-x, with --space-2
+   vertically) so a bar's left edge stays flush with the first cell's text at
+   either density. The header reads the same inline half and keeps --space-2
+   vertically, because its comfortable value already IS the compact cell value:
+   density moves the header's inline axis only, and tying a comfortable header
+   to the compact scale would surprise anyone moving it from theme.css.
+
+   "comfortable" is the token sheet's :root value, so the attribute for it
+   matches no rule — an app sets density per subtree (the shell for an app-wide
+   default, an embedded DataView for one table), never per rule. A comfortable
+   island inside a compact subtree is not expressible yet; that needs a named
+   comfortable copy of each live token, which ADR 0094 defers until something
+   asks for it. Nothing does until AppShell takes a density of its own, which is
+   the first time a DataView can find itself inside an already-compact subtree.
 
    Unlayered on purpose: the contract's token sheet declares these on :root
    without a layer, and an unlayered declaration beats a layered one whatever
    its specificity — inside a layer this rule would lose to :root whenever the
    attribute sits on the same element as those :root declarations (the app sets
    data-density on <html> for an app-wide default), and the attribute would
-   silently do nothing. */
+   silently do nothing. On any element BELOW the root the mechanism does not
+   depend on that at all: a custom property declared on an ancestor is inherited
+   rather than cascaded against, so a DataView stamping the attribute on itself
+   wins over :root whatever the source order. */
 [data-density="compact"] {
   --density-control-min-height: var(--density-compact-control-min-height);
+  --density-cell-pad-y: var(--density-compact-cell-pad-y);
+  --density-cell-pad-x: var(--density-compact-cell-pad-x);
 }
 
 @layer terp.reset {
@@ -530,6 +546,141 @@ textarea[data-terp="input"] {
   display: inline-flex;
   color: var(--color-neutral-400);
   line-height: 0;
+}
+
+/* DataView: the table ------------------------------------------------------ */
+/* Cells are reached from the ROW rather than from the table. A
+   "tbody td" descendant selector would also match the expanded row's cell,
+   which has a padding and a border of its own and would then have to
+   out-specify this rule rather than simply not match it. */
+[data-terp="dataview-table"] {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+/* The header cell's inline axis follows density; its block axis does not,
+   because --space-2 is already worth what --density-compact-cell-pad-y is. The
+   0.04em tracking stays a literal: the contract's letter-spacing scale offers
+   tight / base / wide, and wide is 0.08em, which would double it. */
+[data-terp="dataview-table"] > thead > tr > th {
+  position: relative;
+  padding: var(--space-2) var(--density-cell-pad-x);
+  text-align: left;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-neutral-500);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-neutral-200);
+  white-space: nowrap;
+  background: var(--color-neutral-0);
+}
+[data-terp="dataview-row"] > td {
+  padding: var(--density-cell-pad-y) var(--density-cell-pad-x);
+  border-bottom: 1px solid var(--color-neutral-100);
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The row marker was conditional on the row being clickable, which made every
+   rule keyed on it conditional too: a toned but unclickable row carried
+   data-tone on an element no selector could reach, and the row-tones baseline
+   would have lost its tints the moment the tone moved out of a style object.
+   It is unconditional now, and clickability is an attribute of its own. */
+[data-terp="dataview-row"][data-clickable="true"] {
+  cursor: pointer;
+}
+/* Row tone: a flat rule per tone, the shape Badge, Alert and toast use, because
+   a private plumbing custom property is what tokens.guard.test.ts refuses.
+
+   A row's own state outranks the selection tint, and the :not() is what says so
+   without depending on source order — both selectors weigh (0,2,0) otherwise,
+   which is precisely the trap the layer comment at the top of this file
+   describes. Selection stays legible through the checkbox and data-selected. */
+[data-terp="dataview-row"][data-selected="true"]:not([data-tone]) {
+  background: var(--color-neutral-50);
+}
+[data-terp="dataview-row"][data-tone="neutral"] {
+  background: var(--color-neutral-100);
+}
+[data-terp="dataview-row"][data-tone="info"] {
+  background: var(--color-status-info-soft);
+}
+[data-terp="dataview-row"][data-tone="success"] {
+  background: var(--color-status-success-soft);
+}
+[data-terp="dataview-row"][data-tone="warning"] {
+  background: var(--color-status-warning-soft);
+}
+[data-terp="dataview-row"][data-tone="danger"] {
+  background: var(--color-status-danger-soft);
+}
+
+/* The sort control. aria-sort sits on the th and only while the column IS
+   sorted, so the unsorted glyph's dimming keys off its ABSENCE rather than off
+   an attribute minted for it — this component owns aria-sort, unlike the
+   breadcrumb's aria-current, which a router stamps on every ancestor link. */
+[data-terp="dataview-column-sort"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+[data-terp="dataview-table"] > thead > tr > th:not([aria-sort]) > [data-terp="dataview-column-sort"] > svg {
+  opacity: 0.5;
+}
+/* The resize handle sits flush with the cell's inline end. A negative offset
+   would let the last column's handle spill past the table and trip the scroll
+   container's overflow-x, adding a spurious scrollbar. The z-index is a local
+   lift inside the cell's stacking context and deliberately NOT a place in the
+   app-wide --z-index-* order. */
+[data-terp="dataview-column-resizer"] {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+  touch-action: none;
+}
+/* System columns are pinned at pixel widths that ignore font size and density.
+   Kept exactly as they were: a column-sizing model is on the debt list, and
+   rewriting 40px as 2.5rem here would move them for any app whose root font
+   size is not 16px. Scoped to th, which is where the width sits; the matching
+   td wears the marker so the expand toggle has something to descend from. */
+th[data-terp="dataview-expand-cell"],
+th[data-terp="dataview-select-cell"] {
+  width: 40px;
+}
+th[data-terp="dataview-actions-cell"] {
+  width: 56px;
+}
+td[data-terp="dataview-actions-cell"] {
+  text-align: right;
+}
+/* Visually hidden, twice over: the row's native activation button and the
+   actions column's header text. The th qualifier is load-bearing — the actions
+   BODY cell's only child is the row-actions cluster, and an unqualified
+   descendant span would clip that out of the layout entirely. */
+[data-terp="dataview-row-open"],
+th[data-terp="dataview-actions-cell"] > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Empty / error / loading states ------------------------------------------- */
@@ -1436,7 +1587,14 @@ button[data-terp="input"][data-placeholder="true"] {
   text-decoration: underline;
 }
 
-/* DataView table row hover ------------------------------------------------- */
+/* DataView table ----------------------------------------------------------- */
+/* Column resizing switches the table from auto to fixed layout, so the columns
+   the user is not dragging stop reflowing mid-drag. A state, and an enumerable
+   one, so it is an attribute rather than the inline table-layout it used to be
+   — which also means the resting table declares no style attribute at all. */
+[data-terp="dataview-table"][data-resizing="true"] {
+  table-layout: fixed;
+}
 [data-terp="dataview-table"] tbody tr {
   transition: background-color 150ms ease;
 }

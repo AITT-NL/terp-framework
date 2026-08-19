@@ -680,6 +680,25 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The only specimen in which the density tokens are observable. Comfortable is the
+        // token sheet's :root value, so every other DataView specimen renders the same
+        // geometry whether the tokens are read or hardcoded — which is how four of these
+        // tokens came to be published with no reader at all.
+        id: "dataview-compact",
+        title: "DataView — compact density",
+        node: (
+          <DataView
+            repository={SYNC_REPOSITORY}
+            columns={SYNC_COLUMNS}
+            density="compact"
+            rowActions={() => [
+              { label: "Retry", onClick: () => {} },
+              { label: "Delete", variant: "destructive", onClick: () => {} },
+            ]}
+          />
+        ),
+      },
+      {
         id: "dataview-embedded",
         title: "DataView — embedded variant",
         node: <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} variant="embedded" />,

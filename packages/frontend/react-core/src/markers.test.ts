@@ -72,9 +72,14 @@ const MARKERS = [
   "combobox-option",
   "control-label",
   "dataview",
+  "dataview-actions-cell",
   "dataview-card",
+  "dataview-column-resizer",
+  "dataview-column-sort",
+  "dataview-expand-cell",
   "dataview-row",
   "dataview-row-open",
+  "dataview-select-cell",
   "dataview-table",
   "dataview-toolbar",
   "detail-list",
@@ -259,7 +264,6 @@ const INLINE_BASE_STYLES: Record<string, number> = {
   "./ResourceList.tsx": 2,
   "./dataview/DataViewCardList.tsx": 1,
   "./dataview/DataViewPagination.tsx": 1,
-  "./dataview/DataViewTable.tsx": 3,
   "./ui/controlStyles.ts": 1,
 };
 

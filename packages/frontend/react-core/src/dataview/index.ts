@@ -24,6 +24,7 @@ export type {
   ViewStateRepository,
   DataViewColumn,
   DataViewColumnMeta,
+  DataViewDensity,
   DataViewMobileSlot,
   DataViewRowAction,
   DataViewBatchAction,

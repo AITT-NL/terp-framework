@@ -94,6 +94,19 @@ export function emptyDataViewState(): DataViewState {
 /** Slot a column occupies in the responsive card layout. */
 export type DataViewMobileSlot = "title" | "subtitle" | "status" | "date";
 
+/**
+ * How tightly a view packs its cells.
+ *
+ * Geometry, not colour: the contract publishes the live density tokens at their
+ * comfortable values plus explicit compact counterparts, and the react-core sheet
+ * re-scopes the live ones under `[data-density="compact"]`. So this is one attribute
+ * stamped on a subtree root, and every rule reading a live token follows by
+ * custom-property inheritance — including the control heights `Button`, `Input` and
+ * `Select` already read, which is why a compact DataView also gets compact controls
+ * without either component knowing about the other.
+ */
+export type DataViewDensity = "comfortable" | "compact";
+
 /** Typed column meta the DataView-specific features read. */
 export interface DataViewColumnMeta {
   /** Human-readable name used in the column-settings menu (falls back to the header). */

@@ -72,7 +72,11 @@
   --space-16: 4rem;
   --space-20: 5rem;
   --density-control-min-height: 2.25rem;
+  --density-cell-pad-y: 0.75rem;
+  --density-cell-pad-x: 0.75rem;
   --density-compact-control-min-height: 2rem;
+  --density-compact-cell-pad-y: 0.5rem;
+  --density-compact-cell-pad-x: 0.5rem;
   --radius-sm: 0.25rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
