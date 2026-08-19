@@ -1426,7 +1426,13 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             <HubCard
               to="/records/syncs"
               title="Sync definitions"
-              description="What moves, and when."
+              // Deliberately long enough to push this card past the body's 10rem floor. That
+              // is what makes the height CHAIN observable: the grid stretches both <li>s to
+              // the taller row, and the bare card's anchor has to carry that height down to
+              // its body or it hugs its own content and leaves a gap below it. With both
+              // cards at the floor, forcing the anchor inline changed nothing — measured, at
+              // 160px either way — so the mutation passed and the rule was ungated.
+              description="What moves, when it moves, and which source system each record came from. Long enough on purpose: the description track is minmax(3rem, 1fr), so it absorbs slack until the card's own content passes the ten-rem floor, and only past that floor does the grid have to stretch the bare card beside it."
               icon={<Icon name="layers" />}
               stat="14 active"
             />

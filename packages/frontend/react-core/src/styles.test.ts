@@ -193,7 +193,7 @@ describe("cascade structure", () => {
     ).toContain('[data-terp="tab"]:hover:not(:disabled):not([aria-selected="true"])');
   });
 
-  it("keeps the two hub-card declarations no lane can see", () => {
+  it("keeps the hub-card declarations the lanes cannot explain", () => {
     // Both of these were found by mutation: deleting either moves no baseline, and neither is
     // dead. This is their only gate.
     //
@@ -213,19 +213,25 @@ describe("cascade structure", () => {
     expect(block, "opacity would hide the text from sight and leave it announced").not.toContain(
       "opacity",
     );
-    // The card's height chain. The grid stretches the <li>, hubcard passes that down, and the
-    // link is the middle rung: without these two the anchor hugs its body and a shorter card
-    // leaves a gap at the bottom of a taller row. It is only observable once one card's content
-    // exceeds the body's 10rem floor, which is what hub-card-bare was strengthened to do.
-    const link = base.indexOf('[data-terp="hubcard-link"]');
-    expect(link, "the hub-card link rule should be declared").toBeGreaterThan(-1);
-    const linkBlock = base.slice(base.indexOf("{", link) + 1, base.indexOf("}", link));
-    expect(linkBlock, "the anchor is the middle rung of the card's height chain").toContain(
-      "height: 100%",
-    );
-    expect(linkBlock, "an inline anchor cannot carry a percentage height").toContain(
-      "display: block",
-    );
+    // The card's height chain, and this assertion had to be corrected once: the link's
+    // display: block and height: 100% look like the middle rung and are not. Measured in a row
+    // stretched past the body's 10rem floor, forcing that anchor inline changes nothing —
+    // percentage heights resolve against the nearest block container and skip inline boxes, so
+    // the body reaches past the anchor to the <li> the grid stretched. Nor does removing the
+    // grid's align-items: stretch (grid's default anyway), its grid-auto-rows: 1fr, or the
+    // card's own height: 100%.
+    //
+    // Exactly one declaration equalises two cards, and this is it. Removing it in that same
+    // stretched row drops the bare card to 160 while its neighbour stays at 189 — which
+    // hub-card-bare now catches, and catches only because its full card is deliberately long
+    // enough to set the row height. Kept here as well as in the baseline, because the baseline
+    // cannot say WHY the two cards match.
+    const body = base.indexOf('[data-terp="hubcard-body"]');
+    expect(body, "the hub-card body rule should be declared").toBeGreaterThan(-1);
+    expect(
+      base.slice(base.indexOf("{", body) + 1, base.indexOf("}", body)),
+      "the body's percentage height is the only thing equalising two cards in a row",
+    ).toContain("height: 100%");
   });
 
   it("puts the DataView's surface on the full variant, not on the bare marker", () => {

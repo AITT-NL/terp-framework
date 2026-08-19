@@ -570,14 +570,22 @@ textarea[data-terp="input"] {
   margin: 0;
   padding: 0;
 }
-/* The card is one link, and the height chain is the part worth naming. The grid
-   stretches the <li> to the row height, hubcard passes that down with height: 100%, and
-   this rule is the middle link: without display: block and height: 100% the anchor hugs
-   its body and a shorter card leaves a gap at the bottom of a taller row. Measured, and
-   the measurement is why the specimen below it was strengthened: with both cards at the
-   body's 10rem floor, forcing this anchor to display: inline changes nothing at all —
-   every height stays 160px, because a grid body is block-level and the anchor's box hugs
-   it either way. It only bites once one card's content exceeds the floor. */
+/* The card is one link. text-decoration and colour are the load-bearing pair here; the
+   display and the height are belt, and saying which is which took measuring the whole
+   chain in a row taller than the body's floor.
+
+   What actually equalises two cards is ONE declaration, and it is not in this rule:
+   hubcard-body's height: 100%. Percentage heights resolve against the nearest block
+   container and skip inline boxes, so the body reaches past this anchor to the <li> the
+   grid stretched — which is why forcing this anchor to display: inline with height: auto
+   changes nothing in either configuration measured (both cards at the 10rem floor, and a
+   row stretched to 189px by a long description). Removing the BODY's height: 100% in that
+   same stretched row is the one change that shows: the bare card drops to 160 while its
+   neighbour stays at 189.
+
+   So these two declarations are kept as documentation of the intent rather than as the
+   mechanism, and the one configuration not measured is the router path, where this marker
+   is a <span> wrapping the stack's own Link rather than being the anchor itself. */
 [data-terp="hubcard-link"],
 [data-terp="hubcard"] a {
   text-decoration: none;
@@ -589,6 +597,14 @@ textarea[data-terp="input"] {
 /* The card and its body. The visible edge is on the BODY, not on the card: the card is
    the outer <li> and has no border at all. That distinction is what made the hover
    accent edge dead for as long as it was — see the state rules.
+
+   The body's height: 100% is the single declaration that makes two cards in a row the
+   same height, and the only one: measured in a row stretched past the 10rem floor,
+   removing it drops a bare card to 160 while its neighbour stays at 189, while removing
+   the grid's align-items: stretch, its grid-auto-rows: 1fr, the card's own height: 100%
+   or the link's display/height changes nothing. Those four restate a default or resolve
+   through an ancestor. hub-card-bare is what catches this one, and only because its full
+   card is deliberately long enough to set the row height.
 
    The transition splits three ways, and each half is declared where its property
    lives: box-shadow and transform animate on the card, border-color on the body,
