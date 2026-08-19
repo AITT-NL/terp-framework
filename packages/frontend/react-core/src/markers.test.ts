@@ -83,14 +83,17 @@ const MARKERS = [
   "dataview-card-meta",
   "dataview-card-status",
   "dataview-card-title",
+  "dataview-column-option",
   "dataview-column-resizer",
+  "dataview-column-settings",
+  "dataview-column-settings-title",
   "dataview-column-sort",
   "dataview-expand-cell",
   "dataview-expanded-cell",
+  "dataview-inline-action",
   "dataview-pager",
   "dataview-pagination",
   "dataview-row",
-  "dataview-row-action",
   "dataview-row-actions",
   "dataview-row-open",
   "dataview-select-cell",
@@ -241,7 +244,6 @@ const UNMARKED_STYLED_SURFACES = [
   "./LoginView.tsx",
   "./OverviewPage.tsx",
   "./ProfileView.tsx",
-  "./dataview/DataViewColumnSettings.tsx",
 ];
 
 /**

@@ -887,7 +887,7 @@ th[data-terp="dataview-actions-cell"] > span {
    order-dependent and stays in this order — the font shorthand resets font-size,
    so inheriting the row's font and THEN stepping the size down is the sequence
    that produces small text rather than inherited text. */
-[data-terp="dataview-row-action"] {
+[data-terp="dataview-inline-action"] {
   font: inherit;
   font-size: var(--font-size-sm);
   display: inline-flex;
@@ -903,14 +903,63 @@ th[data-terp="dataview-actions-cell"] > span {
 }
 /* The leading icon: the only span inside the control, its sibling being a text
    node. */
-[data-terp="dataview-row-action"] > span {
+[data-terp="dataview-inline-action"] > span {
   display: inline-flex;
 }
 /* Destructive is the same vocabulary MenuItem already uses for the same idea, so
    the attribute name is data-destructive there and here rather than a second
    spelling of one concept. */
-[data-terp="dataview-row-action"][data-destructive="true"] {
+[data-terp="dataview-inline-action"][data-destructive="true"] {
   color: var(--color-status-danger);
+}
+
+/* DataView: the view-options panel ----------------------------------------- */
+/* The panel content. It carries data-owner="dataview-column-settings" on the
+   portalled panel too, so a panel-level rule has somewhere to hang if this ever
+   needs geometry a menu's panel does not have. */
+/* No rule for the trigger's text: [data-terp="menu-trigger"] already declares
+   font-size: var(--font-size-sm) and the span inherits it, so a marker here would
+   be a name and a rule that change nothing — which is the offence the density
+   tokens were deleted for, in miniature. The span stays unmarked deliberately. */
+[data-terp="dataview-column-settings"] {
+  display: grid;
+  gap: var(--space-1);
+}
+[data-terp="dataview-column-settings-title"] {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-500);
+}
+[data-terp="dataview-column-option"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+/* The checkbox and its column name. The only label in the panel, so it is
+   reached structurally rather than named. */
+[data-terp="dataview-column-option"] > label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+/* The reorder arrows, which now wear the shared icon-button marker — the fourth
+   instance of the bare-chevron archetype, after the toast dismisser, the
+   combobox's clear button and the expand toggle. Same structural treatment: the
+   geometry hangs off the row they sit in. */
+[data-terp="dataview-column-option"] > [data-terp="iconbutton"] {
+  display: inline-flex;
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-neutral-700);
 }
 
 /* Empty / error / loading states ------------------------------------------- */
@@ -1848,9 +1897,17 @@ button[data-terp="input"][data-placeholder="true"] {
    component's own ternary had: disabled first, destructive second. Here that
    ordering is the LAYER rather than the sequence of two equal-specificity rules
    — terp.state over terp.base — so it cannot be broken by moving a block. */
-[data-terp="dataview-row-action"]:disabled {
+[data-terp="dataview-inline-action"]:disabled {
   color: var(--color-neutral-300);
   cursor: not-allowed;
+}
+
+/* A reorder arrow at the end of the list. The ink is scoped here for the same
+   reason the pager's is: only a handful of the elements wearing the icon-button
+   marker can be disabled, and putting a colour on the shared rule would change
+   how a disabled month arrow looks the day one becomes disableable. */
+[data-terp="dataview-column-option"] > [data-terp="iconbutton"]:disabled {
+  color: var(--color-neutral-300);
 }
 
 /* DataView table ----------------------------------------------------------- */

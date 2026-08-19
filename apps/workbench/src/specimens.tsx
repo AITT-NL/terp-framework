@@ -10,6 +10,7 @@ import {
   ConfirmDialog,
   DataView,
   DataViewCardList,
+  DataViewColumnSettings,
   DataViewPagination,
   DataViewRowActions,
   DataViewTable,
@@ -865,6 +866,25 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               { label: "Duplicate", onClick: () => {} },
               { label: "Delete", variant: "destructive", onClick: () => {} },
             ]}
+          />
+        ),
+      },
+      {
+        // The view-options panel, portalled and therefore overlay: true. One column hidden and
+        // three visible, so the checkbox pair is covered, and the reorder arrows are disabled at
+        // both ends of the list — which is a RESTING state, and the one place this commit's
+        // intentional diff is visible: the arrows now wear the shared icon-button marker, so a
+        // disabled arrow takes that marker's opacity in addition to the muted ink it always had.
+        id: "dataview-column-settings-open",
+        title: "DataView — view options, panel open",
+        overlay: true,
+        node: (
+          <DataViewColumnSettings
+            columns={SYNC_COLUMNS}
+            columnVisibility={{ rows: false }}
+            onColumnVisibleChange={() => {}}
+            onMoveColumn={() => {}}
+            defaultOpen
           />
         ),
       },

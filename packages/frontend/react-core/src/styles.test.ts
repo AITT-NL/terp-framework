@@ -339,7 +339,9 @@ describe("cascade structure", () => {
       // direct child of the cluster — the inline actions are buttons and the overflow
       // menu's root is a div), the second reaches an action's leading icon.
       '[data-terp="dataview-row-actions"] > span',
-      '[data-terp="dataview-row-action"] > span',
+      '[data-terp="dataview-inline-action"] > span',
+      '[data-terp="dataview-column-option"] > label',
+      '[data-terp="dataview-column-option"] > [data-terp="iconbutton"]',
     ]) {
       expect(
         declaresRuleFor(base, selector),
@@ -498,7 +500,10 @@ describe("cascade structure", () => {
       "dataview-pagination",
       "dataview-pager",
       "dataview-row-actions",
-      "dataview-row-action",
+      "dataview-inline-action",
+      "dataview-column-settings",
+      "dataview-column-settings-title",
+      "dataview-column-option",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

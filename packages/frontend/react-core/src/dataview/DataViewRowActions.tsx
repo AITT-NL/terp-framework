@@ -29,7 +29,7 @@ function InlineActionButton<T>({ action, row }: { action: DataViewRowAction<T>; 
   return (
     <button
       type="button"
-      data-terp="dataview-row-action"
+      data-terp="dataview-inline-action"
       data-destructive={destructive || undefined}
       disabled={disabled}
       onClick={() => action.onClick?.(row)}

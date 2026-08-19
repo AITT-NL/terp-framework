@@ -391,19 +391,39 @@ describe("DataView search and view options", () => {
     expect(await screen.findByText("Broken printer")).toBeInTheDocument();
   });
 
-  it("hides and reorders columns from the view-options menu", async () => {
+  it("hides and reorders columns from the view-options panel", async () => {
     render(<DataView repository={inMemoryRepo()} columns={COLUMNS} />);
     await screen.findByText("Broken printer");
 
     fireEvent.click(screen.getByRole("button", { name: "View options" }));
-    const menu = screen.getByRole("menu");
-    fireEvent.click(within(menu).getByRole("checkbox", { name: "Status" }));
+    // A group labelled by its own heading, not a menu. That is the fix for a critical
+    // aria-required-children violation: role="menu" may own only menuitem-family children,
+    // and this panel's content is a heading plus labelled checkboxes plus paired reorder
+    // buttons — a form. The guard below is the regression test for it, because the violation
+    // was invisible for as long as nothing rendered the panel open.
+    const panel = screen.getByRole("group", { name: "Columns" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("checkbox", { name: "Status" }));
     expect(screen.queryByRole("columnheader", { name: /Status/ })).not.toBeInTheDocument();
 
-    fireEvent.click(within(menu).getByRole("checkbox", { name: "Status" }));
-    fireEvent.click(within(menu).getByRole("button", { name: "Move up: Status" }));
+    fireEvent.click(within(panel).getByRole("checkbox", { name: "Status" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Move up: Status" }));
     const headers = screen.getAllByRole("columnheader").map((th) => th.textContent);
     expect(headers[0]).toContain("Status");
+  });
+
+  it("names the view-options trigger from its visible label, not an override", async () => {
+    // The trigger used to take its accessible name from an aria-label the menu primitive
+    // applied, which is the shape that hides a visible label from assistive tech when the two
+    // drift. It is now named by its own content, so the announced name IS the rendered one.
+    render(<DataView repository={inMemoryRepo()} columns={COLUMNS} />);
+    await screen.findByText("Broken printer");
+    const trigger = screen.getByRole("button", { name: "View options" });
+    expect(trigger).not.toHaveAttribute("aria-label");
+    expect(trigger).toHaveTextContent("View options");
+    // A disclosure, so this is the whole contract: expanded state plus the panel it controls.
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).not.toHaveAttribute("aria-haspopup");
   });
 });
 
