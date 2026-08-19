@@ -130,6 +130,21 @@ _ROUTES_DRIFT = VerifyCheck(
     runner="routes-drift",
 )
 
+# The typed API client is GENERATED from the backend contract and gitignored (ADR 0041),
+# so a fresh checkout does not have one -- and `npm run typecheck` is the only thing that
+# reads it, because Vite erases type-only imports and `build` passes happily without it.
+# That is why this is a profile check and not a CI step: as a step it lived in the
+# scaffolded workflow, froze at the template version the app was rendered from, and the
+# frontend half of the gate went quietly green on an app whose schema module could not
+# resolve at all. Owned here, every driver of the profile gets it for free.
+_API_CLIENT = VerifyCheck(
+    id="api-client",
+    category="build",
+    command="terp verify --only api-client",
+    scope=("app/**", "control_plane/**", "frontend/package.json"),
+    runner="api-client",
+)
+
 _FRONTEND_TYPECHECK = VerifyCheck(
     id="frontend-typecheck",
     category="build",
@@ -161,7 +176,10 @@ _FRONTEND_BUILD = VerifyCheck(
 _API_DOCS_DRIFT = VerifyCheck(
     id="api-docs-drift",
     category="build",
-    command="terp api-docs --out docs && git diff --exit-code -- docs",
+    # Self-referential, like env-seams, and deliberately not the `&&` pair it used to
+    # publish: a driving tool runs manifest commands as a fixed argv with no shell, so a
+    # composite becomes a false red about the app instead of a verdict.
+    command="terp verify --only api-docs-drift",
     scope=("app/**", "docs/**"),
     runner="api-docs-drift",
 )
@@ -202,6 +220,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ARCHITECTURE,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
+        _API_CLIENT,
         _FRONTEND_TYPECHECK,
     ),
     "full": (
@@ -212,6 +231,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _APPSEC_BASELINE,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
+        _API_CLIENT,
         _FRONTEND_TYPECHECK,
         _FRONTEND_BUILD,
     ),
@@ -225,6 +245,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _DEPENDENCY_AUDIT_NPM,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
+        _API_CLIENT,
         _FRONTEND_TYPECHECK,
         _FRONTEND_BUILD,
         _API_DOCS_DRIFT,

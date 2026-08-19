@@ -7,24 +7,33 @@
  * `style`/`className` prohibition on app modules is untouched — react-core
  * itself is allowed to inject a stylesheet; the rule targets *app modules*.
  *
- * Migration in progress. A migrated component gets its base here and renders
- * no `style={}` for it — though it may still pass an inline value the sheet
- * has no business owning, which is why `Stack` keeps `align` / `justify`
- * inline. A component that has not migrated still carries inline base styles,
- * and its interaction rules still need `!important` to beat them (`style={}`
- * outranks any author rule, in any layer, for `:hover` / `:focus` / `:disabled`
- * alike). Those escalations are state-scoped, so they cannot leak into resting
- * styles, and each disappears with its component. The count is the phase's
- * measurable.
+ * THIS SHEET CARRIES NO `!important`. It carried 35 at 0.7.0, and the count going
+ * to zero is what the migration was for: every rule here is now beatable by an
+ * app's unlayered `theme.css` without `!important` and without out-specifying
+ * anything. A new escalation is therefore a claim that some element still styles
+ * itself inline on the same property — state it, with the file, or do not add it.
  *
- * The subtlety that bit once, and is worth stating: `!important` comes off per
- * CONSUMER, not per rule. Several selectors are shared. `input` is stamped by
- * `Combobox` and both date pickers as well as by the three text controls;
- * `[data-terp]:focus-visible` and the reduced-motion block match *every*
- * component in the package, so they are the last escalations that may retire.
- * A shared rule drops its `!important` only when the LAST element it matches
- * has migrated. Dropping `input`'s when the first three had left a disabled
- * `Combobox` painted exactly like an enabled one.
+ * The migration itself is not finished: five modules still declare module-scope
+ * base style objects (23 between them, gated in markers.test.ts). They are just no
+ * longer in anyone's way — of what they render, only `module-nav` and
+ * `resource-list` carry a marker, and no rule in `terp.state` targets either, so
+ * retiring the last escalations left nothing inert. Checked by scanning the layer
+ * against those files rather than by spot-checking a hover.
+ *
+ * A migrated component gets its base here and renders no `style={}` for it —
+ * though it may still pass an inline value the sheet has no business owning, which
+ * is why `Stack` keeps `align` / `justify` inline and why DataViewTable keeps a
+ * dragged column width.
+ *
+ * The mechanism is worth keeping even with the ledger empty, because it is what a
+ * new rule has to reason about: `style={}` outranks any author rule, in any layer,
+ * for `:hover` / `:focus` / `:disabled` alike, so a state rule aimed at an element
+ * that styles itself inline is INERT — it works, nothing renders differently, and
+ * the claim quietly becomes a lie. And the escalation that fixes it comes off per
+ * CONSUMER, not per rule: several selectors are shared, so a shared rule may drop
+ * its `!important` only when the LAST element it matches has migrated. Dropping
+ * `input`'s when the first three had left a disabled `Combobox` painted exactly
+ * like an enabled one.
  *
  * It runs the other way too, and that direction is quieter: an escalation kept
  * after its last inline consumer migrated still outranks the app `theme.css`
