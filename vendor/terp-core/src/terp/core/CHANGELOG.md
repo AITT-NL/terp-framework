@@ -154,6 +154,31 @@ already stamps (ADR 0094).
   `--z-index-sticky` had none either. All three are read now, and gated, because a
   hardcoded number would move no baseline and read as correct.
 
+
+- **The seventeen sheet rules that painted `--color-neutral-500` as secondary ink now
+  paint `--color-fg-subtle`, so the token the contrast gate measures is the token the
+  sheet applies.** `token-pairs.json` has always declared `subtle-on-surface`, and its
+  background half was exact — `--color-bg-surface` and `--color-neutral-0` carry the
+  same value in all five themes, as do `--color-bg-canvas` and `--color-neutral-50`.
+  The foreground half was not: the raw ramp step and the semantic ink diverge in two
+  palettes (midnight `#7d8590` against `#8b949e`, twilight `#9d90b8` against `#a294bd`),
+  so in those themes the gate measured 6.15 and 5.71 on a card while the sheet painted
+  5.07 and 5.41. Nothing was illegible — the point is that a gate aimed at a token
+  nothing paints is where the next token move goes unnoticed. This is the rest of the
+  migration the calendar entry below describes, not a new argument.
+
+  The rule for which ink goes where is unchanged and now has no exceptions:
+  `--color-fg-subtle` where the ink lands on a plain surface, `--color-fg-muted` where
+  it can land on a tinted one, because subtle fails AA against three of the six washes a
+  DataView card can carry. All seventeen were checked against it before moving; none is
+  text on a tinted surface. Five are icon buttons whose glyph can reach a toned row or a
+  neutral-100 hover, which are graphical objects at SC 1.4.11's 3:1 and clear it with
+  3.51 to spare at worst — and those pairings are now declared, so that is measured
+  rather than argued. Repaints nothing the picture-taking lanes can see: light and dark
+  are byte-identical between the two tokens and the screenshot lane covers exactly those
+  two, confirmed green on both platforms. Midnight and twilight get slightly darker
+  secondary ink.
+
 ### Added
 
 - **`defaultOpen` on `Combobox`, `DatePicker` and `DateRangePicker`.** The same
@@ -191,6 +216,53 @@ already stamps (ADR 0094).
   that deleted `--color-fg-on-brand` for the same offence. A token the manifest
   advertises and nothing applies is a knob that does nothing. It is back here, in
   the same commit as its readers.
+
+- **The workbench's `linux` screenshot baselines, so the visual lane runs in CI for the
+  first time.** Baselines are split by platform because font rasterisation differs
+  between Windows and Linux by more than any tolerance worth keeping, and only the
+  `win32` set had ever been recorded — so CI ran the accessibility and keyboard lanes
+  and skipped the one lane that compares pixels. Every "no baseline moved" claim in this
+  release, including the headline one above, was until now a human claim produced on one
+  machine. 156 baselines recorded in `mcr.microsoft.com/playwright:v1.62.0-noble` from a
+  clean export of the tree, matching the `win32` filenames exactly; 551 checks green on
+  the recording run and 551 again on a second run against the recorded set, which is the
+  half that matters, because a baseline that only passes the run that wrote it is not a
+  baseline.
+
+  CI runs the lane inside that same image rather than on the runner directly. A GitHub
+  runner shares Ubuntu's kernel with the image but not its font packages, and fonts are
+  the entire reason the sets are split — comparing outside the environment that recorded
+  would have made the lane noise on its first run. The image tag now has to track the
+  pinned Playwright version: a mismatch presents as every baseline failing at once, and
+  the instinct that provokes is to re-record, which would bury it.
+
+- **A `nonTextPairs` section in `token-pairs.json`, held to SC 1.4.11's 3:1.** Three
+  ratios had been measured, found to matter, and then written into `styles.ts` as prose,
+  because the file carried text pairings only and bolting a second kind onto `textPairs`
+  would have meant one list held to two bars. Why prose was not enough is on this
+  release's own record: the focus ring shipped at 1.67:1 for as long as its value was
+  something a person had to remember to check. Eleven entries, measured in all five
+  themes — the contract suite goes from 193 tests to 252.
+
+  What is left out is the half that keeps the file honest. The focus ring's translucent
+  halo is excluded, because the opaque outline is the indicator and the shadow is
+  reinforcement around it; the active toggle's `neutral-100` fill is excluded at 1.10,
+  which is the whole reason that rule carries a border; and the toggle's border against
+  the toolbar band is the same two tokens as `focus-ring-on-surface` rather than a second
+  entry. Asserting a ratio WCAG does not ask for is how a data file teaches people to
+  ignore it, which is already why dividers are absent from `textPairs`.
+
+  The `--color-neutral-300` control boundary is a real failure rather than a formality —
+  1.42 to 2.36 across the surfaces a bordered control sits on, in four of the five
+  themes. It is recorded rather than fixed, because the fix is the token value and moving
+  it repaints every bordered control in the package, which is a decision about how the
+  framework looks and not a side effect of adding a gate. `BELOW_UI` holds all eight at
+  their measured floors so the debt can only shrink, and the contrast theme clearing the
+  same pairing at 10.37 is what shows the fix is a value rather than a structure. The
+  allowance is guarded by *pairing* rather than by theme, unlike the text ratchet: every
+  palette inherited the same 300-step boundary, so restricting by theme would have
+  backdated a debt none of them chose, while restricting by pairing forbids new debt just
+  as firmly.
 
 ### Fixed
 
