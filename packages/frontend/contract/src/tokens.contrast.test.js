@@ -330,9 +330,14 @@ describe("token sheet non-text contrast", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("measures every registered theme", () => {
-    expect(uiCases).toHaveLength(registry.themes.length * NON_TEXT_PAIRS.length);
+  it("covers every registered theme once per pairing", () => {
+    // Narrower than its namesake in the text suite on purpose: that one also proves each theme
+    // RESOLVED, which is the failure mode that looks like coverage, and it proves it for the
+    // shared THEMES map this suite reads. Re-asserting it here would be a second copy of one
+    // fact. What is not covered there is the empty-list case — with no pairings the count check
+    // would read 0 === 0 and pass — so that is the assertion this one adds.
     expect(NON_TEXT_PAIRS.length).toBeGreaterThan(0);
+    expect(uiCases).toHaveLength(registry.themes.length * NON_TEXT_PAIRS.length);
   });
 
   it("holds every pairing in exactly one of the two sets", () => {
