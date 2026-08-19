@@ -209,6 +209,25 @@ screenshot lane had always done and this one had not. Stated honestly: a flake t
 reproduce cannot be shown to be fixed. If it returns, that asymmetry is no longer the explanation
 and the next thing to suspect is the worker count.
 
+It returned, and the worker count is the explanation. Recording it because the paragraph above
+asked for exactly this and could not supply it: the flake now has a **reproducible trigger**.
+Running the win32 suite and the linux suite at the same time on one 8-core machine — each
+Playwright picking its own default of half the cores, so sixteen browser workers and two dev
+servers over eight cores — failed `color-contrast` on four light-theme specimens together
+(`actions/button-variants`, `actions/button-disabled`, `actions/button-with-icon`,
+`actions/popover`). The same lane, in the same container, on the same commit, run alone: **391
+passed**. Nothing in the palettes changed between the two runs.
+
+So the shape is confirmed and the earlier diagnosis stands — axe measures what the browser has
+painted so far, and a machine too busy to finish painting yields a contrast reading for a
+specimen whose colours are fine. `document.fonts.ready` narrowed the window; it cannot close it,
+because fonts being loaded is not the same as layout being settled. Two consequences worth
+carrying: a red `color-contrast` result is only evidence when the lane had the machine to
+itself, and the rule against running the Python suite and a browser lane together is really a
+rule against running a browser lane beside **anything** heavy, including another browser lane.
+Neither is a reason to add retries — a lane that needs a retry to pass is not evidence, and the
+fix here is scheduling rather than tolerance.
+
 **Baselines are split by platform** (`visual/__screenshots__/<platform>/`). Font
 rasterisation and antialiasing differ between Windows and Linux by far more than any
 tolerance that would still catch a real change, so a single shared set leaves whichever
