@@ -49,6 +49,14 @@ export interface DataViewToolbarProps<T> {
  * the page-size selector, the table/cards toggle and the column-settings menu; when
  * rows are selected it switches to selection mode ("N selected", batch actions,
  * select-all-across-pages, clear selection).
+ *
+ * It renders no inline styles: the band, both its modes and every part inside it take
+ * their geometry from the injected react-core sheet, matched on the `data-terp` markers
+ * stamped below and on `data-variant="selection"` (ADR 0094). Two of this element's
+ * direct children are arbitrary caller slots — `children` and `trailing` — which is why
+ * the band's own rule declares no `color` and why the refresh status carries a marker
+ * instead of being reached as `[data-terp="dataview-toolbar"] > [role="status"]`: owning
+ * one instance of an attribute is not owning every element such a selector reaches.
  */
 export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
   const { strings, resolve, format } = useDataViewText();
@@ -56,25 +64,16 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
 
   const selectionMode = props.selectedCount > 0;
 
-  const barStyle = {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--space-2)",
-    flexWrap: "wrap",
-    padding: "var(--space-2) var(--space-3)",
-    borderBottom: "1px solid var(--color-neutral-200)",
-    background: selectionMode ? "var(--color-neutral-50)" : "var(--color-neutral-0)",
-    borderTopLeftRadius: "var(--radius-lg)",
-    borderTopRightRadius: "var(--radius-lg)",
-    minHeight: "3rem",
-  } as const;
-
   if (selectionMode) {
     const inlineActions = (props.batchActions ?? []).filter((action) => action.inline !== false);
     const overflowActions = (props.batchActions ?? []).filter((action) => action.inline === false);
     return (
-      <div data-terp="dataview-toolbar" style={barStyle}>
-        <span style={{ fontWeight: "var(--font-weight-medium)" as never }}>
+      // data-variant rather than data-selected: in this cluster "selected" already means
+      // "this element is selected" (rows, cards, menu items), and the toolbar is not
+      // selected — it is showing a different mode. Stamped as a literal in this branch and
+      // omitted in the other, which is the cluster's idiom of not naming the default.
+      <div data-terp="dataview-toolbar" data-variant="selection">
+        <span data-terp="dataview-toolbar-count">
           {format(strings.selected, { count: props.selectedCount })}
         </span>
         {props.onSelectAllAcrossPages !== undefined && !props.selectAllAcrossPages && (
@@ -82,18 +81,17 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
             {format(strings.selectAllResults, { total: props.totalCount })}
           </Button>
         )}
-        <span style={{ display: "inline-flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+        <span data-terp="dataview-toolbar-actions">
           {inlineActions.map((action, index) => (
             <Button
               key={index}
               variant={action.variant === "destructive" ? "danger" : "secondary"}
+              // Button's own icon slot, rather than a hand-rolled aria-hidden span: it
+              // renders [data-terp="button-icon"], which is already ruled and already
+              // carries flex-shrink: 0 that the hand-rolled one lacked.
+              icon={action.icon}
               onClick={() => props.onBatchAction(action)}
             >
-              {action.icon !== undefined && (
-                <span aria-hidden style={{ display: "inline-flex", marginRight: "var(--space-1)" }}>
-                  {action.icon}
-                </span>
-              )}
               {resolve(action.label)}
             </Button>
           ))}
@@ -118,7 +116,7 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
             </DataViewMenu>
           )}
         </span>
-        <span style={{ flex: 1 }} />
+        <span data-terp="dataview-toolbar-spacer" />
         <Button variant="secondary" onClick={props.onClearSelection}>
           {resolve(strings.clearSelection)}
         </Button>
@@ -127,19 +125,12 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
   }
 
   return (
-    <div data-terp="dataview-toolbar" style={barStyle}>
+    <div data-terp="dataview-toolbar">
       {props.searchEnabled && (
-        <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-          <span
-            aria-hidden
-            style={{
-              position: "absolute",
-              left: "var(--space-2)",
-              display: "inline-flex",
-              color: "var(--color-neutral-500)",
-              pointerEvents: "none",
-            }}
-          >
+        <span data-terp="dataview-toolbar-search">
+          {/* Unmarked, and reached as this wrapper's only span child: it is decoration with
+              no state, and the wrapper holds no caller slot. */}
+          <span aria-hidden>
             <SearchGlyph size={14} />
           </span>
           <Input
@@ -148,28 +139,13 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
             onChange={(event) => search.setInputValue(event.target.value)}
             placeholder={resolve(props.searchPlaceholder ?? strings.searchPlaceholder)}
             aria-label={resolve(props.searchPlaceholder ?? strings.searchPlaceholder)}
-            style={{
-              paddingLeft: "var(--space-6)",
-              paddingRight: "var(--space-6)",
-              width: "16rem",
-              maxWidth: "100%",
-            }}
           />
           {search.inputValue !== "" && (
             <button
               type="button"
+              data-terp="iconbutton"
               aria-label={resolve(strings.clearSearch)}
               onClick={search.clear}
-              style={{
-                position: "absolute",
-                right: "var(--space-1)",
-                display: "inline-flex",
-                padding: "var(--space-1)",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                color: "var(--color-neutral-500)",
-              }}
             >
               <CloseGlyph size={14} />
             </button>
@@ -194,22 +170,25 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
         </Button>
       )}
       {props.isFetching && (
-        <span
-          role="status"
-          style={{ fontSize: "var(--font-size-sm)", color: "var(--color-neutral-500)" }}
-        >
+        <span role="status" data-terp="dataview-toolbar-status">
           {resolve(strings.refreshing)}
         </span>
       )}
-      <span style={{ flex: 1 }} />
+      <span data-terp="dataview-toolbar-spacer" />
       {props.onPageSizeChange !== undefined && props.pageSize !== undefined && (
         <DataViewMenu
           triggerLabel={resolve(strings.pageSize)}
+          // A fragment, not a wrapper span: [data-terp="menu-trigger"] already declares
+          // display: inline-flex, align-items: center, justify-content: center and
+          // gap: var(--space-1) — the deleted span's three declarations verbatim, with the
+          // gap applying to exactly this pair. Keeping the span would need a marker of its
+          // own, because [data-terp="menu-trigger"] > span would also catch the
+          // column-settings trigger's text span in this same toolbar.
           trigger={
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-1)" }}>
+            <>
               {props.pageSize}
               <ChevronDownGlyph size={14} />
-            </span>
+            </>
           }
         >
           {(close) =>
@@ -228,22 +207,26 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
         </DataViewMenu>
       )}
       {props.onLayoutChange !== undefined && (
-        <span style={{ display: "inline-flex", gap: "var(--space-1)" }}>
+        <span data-terp="dataview-toolbar-layout">
+          {/* The shared icon-button marker, so these two gain the transition, the focus
+              ring and reduced-motion coverage they escaped entirely. Which one is active is
+              aria-pressed — the real ARIA state, not a data attribute duplicating it — and
+              this component is its sole author, setting it from its own layout prop. */}
           <button
             type="button"
+            data-terp="iconbutton"
             aria-label={resolve(strings.tableView)}
             aria-pressed={props.layout === "table"}
             onClick={() => props.onLayoutChange?.("table")}
-            style={layoutToggleStyle(props.layout === "table")}
           >
             <TableGlyph />
           </button>
           <button
             type="button"
+            data-terp="iconbutton"
             aria-label={resolve(strings.cardView)}
             aria-pressed={props.layout === "cards"}
             onClick={() => props.onLayoutChange?.("cards")}
-            style={layoutToggleStyle(props.layout === "cards")}
           >
             <CardsGlyph />
           </button>
@@ -253,19 +236,4 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
       {props.trailing}
     </div>
   );
-}
-
-function layoutToggleStyle(active: boolean) {
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: "2rem",
-    padding: "var(--space-1) var(--space-2)",
-    background: active ? "var(--color-neutral-100)" : "transparent",
-    border: "1px solid var(--color-neutral-300)",
-    borderRadius: "var(--radius-md)",
-    cursor: "pointer",
-    color: active ? "var(--color-neutral-900)" : "var(--color-neutral-500)",
-  } as const;
 }

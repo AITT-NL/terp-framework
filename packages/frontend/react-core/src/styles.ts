@@ -548,6 +548,163 @@ textarea[data-terp="input"] {
   line-height: 0;
 }
 
+/* DataView: the toolbar ---------------------------------------------------- */
+/* The band, both modes. The background is one of the ten declarations and that is
+   deliberate: the inline style it replaces read
+   selectionMode ? neutral-50 : neutral-0 — an explicit value in BOTH branches,
+   not a conditional-or-nothing. Dropping it from the resting rule is invisible in
+   every lane (the full variant's root and the workbench's specimen card are both
+   neutral-0) and breaks the EMBEDDED variant in a real app, whose root declares
+   nothing but display: grid — the band would go transparent and show the page
+   canvas, body's neutral-50. dataview-toolbar-bare renders on a neutral-50 host
+   precisely so that mutation fails a baseline instead of only a browser.
+
+   Padding reads the inline half of the cell tokens with --space-2 vertically, so
+   the bar's left edge stays flush with the first cell's text at either density —
+   the same bargain the pagination bar strikes at the other end of the box, and
+   the reader the density comment at the top of this file already claims to have.
+   Comfortable --density-cell-pad-x IS --space-3, so only dataview-compact moves.
+
+   The two radii are PHYSICAL, matching [data-terp="tab"], and they are
+   load-bearing rather than decorative: DataView's root rounds its border with no
+   overflow: hidden, so nothing else keeps the selection band's neutral-50 inside
+   the rounded frame.
+
+   min-height is inert at comfortable (1rem of block padding plus a 2.25rem
+   control is 3.25rem) and exactly equal at compact (a 2rem control is 3.00rem),
+   and it is not dead: it is the only floor when the embedded band renders for a
+   caller's filter slot or trailing slot alone. It stays a literal for the same
+   reason the pager arrows' 2rem does — no published token carries it.
+
+   No colour declaration here on purpose. Two of this element's direct children
+   are arbitrary caller slots, and inheriting a muted ink onto app-authored filter
+   controls would be a silent restyle of app DOM. */
+[data-terp="dataview-toolbar"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--density-cell-pad-x);
+  border-block-end: 1px solid var(--color-neutral-200);
+  background: var(--color-neutral-0);
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
+  min-height: 3rem;
+}
+/* Selection mode. A resting surface rather than an interaction state, so
+   terp.base — and (0,2,0) against the base's (0,1,0) means it wins on
+   specificity alone, needing no :not() and no source-order dependency. */
+[data-terp="dataview-toolbar"][data-variant="selection"] {
+  background: var(--color-neutral-50);
+}
+[data-terp="dataview-toolbar-count"] {
+  font-weight: var(--font-weight-medium);
+}
+/* The batch-action group. NOT [data-terp="page-actions"] in disguise — that rule
+   adds align-items: center and justify-content: flex-end. */
+[data-terp="dataview-toolbar-actions"] {
+  display: inline-flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* One name, two elements, both of them spacers — the dataview-card-meta call.
+   A bare > span:empty would reach both with no marker at all and is rejected: the
+   batch-action group above is legitimately empty whenever a caller passes no
+   batchActions, and would take flex: 1 in the commonest selection configuration. */
+[data-terp="dataview-toolbar-spacer"] {
+  flex: 1;
+}
+/* The search box's positioning context, the anchor three descendant rules hang
+   off — exactly as [data-terp="combobox-field"] anchors the combobox's input and
+   clear button. align-items: center is what vertically centres the absolutely
+   positioned glyph, which is why the icon rule below needs no
+   inset-block-start / translateY pair the way the combobox's clear button does. */
+[data-terp="dataview-toolbar-search"] {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+/* The search glyph. Structural, and safe HERE and only here: this wrapper holds
+   no caller slot, and once the clear button wears data-terp="iconbutton" it is a
+   <button>, so this is the wrapper's only span child. neutral-500 on an
+   aria-hidden decorative glyph owes no token pairing and axe abstains on it — do
+   not "fix" it to fg-subtle by analogy with the status text below. */
+[data-terp="dataview-toolbar-search"] > span {
+  position: absolute;
+  inset-inline-start: var(--space-2);
+  display: inline-flex;
+  color: var(--color-neutral-500);
+  pointer-events: none;
+}
+/* The field. It must out-rank input[data-terp="input"] { padding: 0 var(--space-3) }
+   and does so on SPECIFICITY rather than source order: two attributes (0,2,0)
+   against an attribute plus a type (0,1,1). This is the equal-weight trap the
+   header warns about, except the weights are not equal and that is the whole
+   reason the rule is safe. The symmetric physical shorthand mirrors
+   input[data-terp="input"][role="combobox"], which reserves room for its own clear
+   button the same way; paired with logical insets above it is RTL-correct and
+   zero-diff in LTR, the one place logical properties cost nothing here. 16rem is
+   a fixed design width, not a caller measurement, so it is rule-side. */
+[data-terp="dataview-toolbar-search"] > [data-terp="input"] {
+  padding: 0 var(--space-6);
+  width: 16rem;
+  max-width: 100%;
+}
+/* The clear-search button, the package's fourth bare-glyph icon button.
+   Deliberately NOT merged into the combobox clear button's selector list: that
+   rule adds min-width and min-height 1.75rem, a radius and a centring pair, so
+   joining them would enlarge this hit area and round its hover chip — a
+   hover-only diff no baseline can catch. It can never match :disabled (it takes
+   no disabled prop and renders only while the field is non-empty), so the shared
+   :disabled derivation is unaffected by its arrival. */
+[data-terp="dataview-toolbar-search"] > [data-terp="iconbutton"] {
+  position: absolute;
+  inset-inline-end: var(--space-1);
+  display: inline-flex;
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-neutral-500);
+}
+/* "Refreshing…", and this is the one place the prefer-an-existing-DOM-attribute
+   rule is REFUSED with its own reasoning. [data-terp="dataview-toolbar"]
+   > [role="status"] looks textbook — the component does own this span's role — but
+   the selector's scope is the band's direct children, two of which are arbitrary
+   caller slots, so a caller's live region in a filter slot would silently take the
+   muted 14px treatment. Owning one instance of an attribute is not owning every
+   element a selector reaches. The ink is fg-subtle for the same declared-pairing
+   reason as the column-settings caption: neutral-500 fails AA on a tinted surface,
+   and this band has one in selection mode. */
+[data-terp="dataview-toolbar-status"] {
+  font-size: var(--font-size-sm);
+  color: var(--color-fg-subtle);
+}
+/* The layout-toggle group: the anchor for the two buttons, as dataview-pager is
+   for the four arrows. NOT dataview-pager itself — that carries gap: var(--space-2)
+   and align-items: center, so sharing it would move these two apart. */
+[data-terp="dataview-toolbar-layout"] {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+/* The two toggles at rest, which is to say INACTIVE. 2rem stays a literal, pager
+   reasoning. Their border is the neutral-300 control boundary, which measures
+   1.48-1.78:1 against the band in four themes — below the 3:1 SC 1.4.11 asks of a
+   control boundary, recorded as contract debt rather than fixed here, because a
+   token clearing 3:1 repaints every bordered control in the package. */
+[data-terp="dataview-toolbar-layout"] > [data-terp="iconbutton"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--color-neutral-500);
+}
+
 /* DataView: the table ------------------------------------------------------ */
 /* Cells are reached from the ROW rather than from the table. A
    "tbody td" descendant selector would also match the expanded row's cell,
@@ -1937,6 +2094,22 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 [data-terp="hubcard"]:hover [data-terp="hubcard-title"] {
   color: var(--color-fg-accent) !important;
+}
+
+/* Which layout is active. terp.state, and keyed on the real ARIA attribute — the
+   [data-terp="tab"][aria-selected="true"] precedent — and the reuse is safe in the
+   strong sense the breadcrumb case defines: DataViewToolbar is the sole author of
+   aria-pressed on these two elements, setting it from its own layout prop, and no
+   router, wrapper or caller can reach them.
+
+   No tie with the shared [data-terp="iconbutton"]:hover rule, and NOT because this
+   one out-specifies it: that rule carries :not([aria-pressed="true"]), so the two
+   selectors are mutually exclusive. Before that guard they were (0,3,0) and (0,4,0)
+   in this same layer with identical values and the !important on the wrong one, so
+   hovering the inactive toggle painted it exactly like the active one. */
+[data-terp="dataview-toolbar-layout"] > [data-terp="iconbutton"][aria-pressed="true"] {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
 }
 
 /* Breadcrumb links -------------------------------------------------------- */

@@ -200,6 +200,85 @@ describe("cascade structure", () => {
     ).toContain('[data-terp="tab"]:hover:not(:disabled):not([aria-selected="true"])');
   });
 
+  it("keeps the toolbar band declaring its own surface, and no ink", () => {
+    // Three separate invariants about one element, and each has a way of going wrong that
+    // nothing else in the suite can see.
+    //
+    // The background. The inline style this replaced read `selectionMode ? neutral-50 :
+    // neutral-0` — an explicit value in BOTH branches, so the resting rule has to carry
+    // neutral-0 rather than leaving it to the host. Against every composed DataView specimen
+    // dropping it moves nothing, because the full variant's root and the workbench's specimen
+    // card are both neutral-0; it breaks the EMBEDDED variant in a real app, whose root
+    // declares nothing but a display, and the band would show the page canvas through it.
+    // `dataview-toolbar-bare` renders on a neutral-50 host so that mutation fails a baseline.
+    //
+    // The two top radii, which are load-bearing rather than decorative: the DataView root
+    // rounds its border with no overflow: hidden, so nothing else keeps the selection band's
+    // neutral-50 inside the rounded frame.
+    //
+    // And NO colour. Two of this element's direct children are arbitrary caller slots
+    // (`children` and `trailing`), so a muted ink here would inherit into app-authored filter
+    // controls — a silent restyle of app DOM, which is exactly what this migration exists to
+    // stop the framework doing.
+    const base = layerBody("terp.base");
+    const at = base.indexOf('[data-terp="dataview-toolbar"]');
+    expect(at, "the toolbar band should have a base rule").toBeGreaterThan(-1);
+    const block = base.slice(base.indexOf("{", at) + 1, base.indexOf("}", at));
+    expect(block, "the band must declare its own surface, not inherit the host's").toContain(
+      "background: var(--color-neutral-0)",
+    );
+    for (const radius of ["border-top-left-radius", "border-top-right-radius"]) {
+      expect(block, `${radius} keeps the selection band inside the root's rounded frame`).toContain(
+        `${radius}: var(--radius-lg)`,
+      );
+    }
+    expect(
+      /(^|;)\s*color:/.test(block),
+      "a colour here inherits into the caller's filter slot and trailing slot",
+    ).toBe(false);
+    // Selection mode is a resting surface, so it belongs in terp.base and wins at (0,2,0)
+    // against the band's (0,1,0) — on specificity, with no :not() and no source-order
+    // dependency. In terp.state it would beat the focus ring's layer for no reason.
+    expect(
+      declaresRuleFor(base, '[data-terp="dataview-toolbar"][data-variant="selection"]'),
+      "selection mode must be a base rule of its own",
+    ).toBe(true);
+    expect(
+      layerBody("terp.state"),
+      "selection mode is a resting surface, not an interaction state",
+    ).not.toContain('[data-variant="selection"]');
+    // The bar reads the density token rather than a literal --space-3, which is what makes a
+    // compact view's band line up with its first cell. Zero-diff at comfortable, because
+    // comfortable --density-cell-pad-x IS --space-3 — so only dataview-compact can catch it.
+    expect(block, "the band's inline padding must follow density").toContain(
+      "padding: var(--space-2) var(--density-cell-pad-x)",
+    );
+  });
+
+  it("keys the active layout on the real ARIA state", () => {
+    // Two icon-only controls whose entire job is to say which layout is current, so the rule
+    // saying which one is active is the one rule here that cannot be missing quietly.
+    //
+    // Keyed on aria-pressed rather than a data attribute duplicating it — the
+    // [data-terp="tab"][aria-selected="true"] precedent — and the reuse is safe in the strong
+    // sense that case defines: DataViewToolbar is the sole author of that attribute on these
+    // two elements, setting it from its own layout prop, and no router, wrapper or caller can
+    // reach them.
+    //
+    // Deliberately NOT a box-shadow: [data-terp]:focus-visible sets box-shadow in this same
+    // layer at (0,2,0) against this rule's (0,3,0), so an inset shadow here would win and a
+    // focused active toggle would lose its focus ring.
+    const state = layerBody("terp.state");
+    const selector =
+      '[data-terp="dataview-toolbar-layout"] > [data-terp="iconbutton"][aria-pressed="true"]';
+    expect(declaresRuleFor(state, selector), `${selector} must be declared`).toBe(true);
+    const at = state.indexOf(selector);
+    expect(
+      state.slice(state.indexOf("{", at) + 1, state.indexOf("}", at)),
+      "an inset box-shadow here outranks the shared focus ring in the same layer",
+    ).not.toContain("box-shadow");
+  });
+
   it("keeps the focus-within tint scoped to rows something will actually open", () => {
     // The row marker is unconditional, so this selector reaches every row unless it says
     // otherwise. Unguarded it paints a brand wash on any row holding focus — a selection
@@ -373,6 +452,15 @@ describe("cascade structure", () => {
     // so an unqualified `> span` would clip a live control out of the layout.
     const base = layerBody("terp.base");
     for (const selector of [
+      // The toolbar's three descendant rules, and the fourth on the layout group. The search
+      // wrapper's `> span` is its glyph, unqualified because the clear button is a <button> and
+      // the field is an <input>, so a span there can only be the glyph. The field rule has to
+      // out-rank input[data-terp="input"] { padding } and does so at (0,2,0) against (0,1,1) —
+      // deleting it puts the glyph on top of the text with the marker inventory intact.
+      '[data-terp="dataview-toolbar-search"] > span',
+      '[data-terp="dataview-toolbar-search"] > [data-terp="input"]',
+      '[data-terp="dataview-toolbar-search"] > [data-terp="iconbutton"]',
+      '[data-terp="dataview-toolbar-layout"] > [data-terp="iconbutton"]',
       '[data-terp="dataview-table"] > thead > tr > th',
       '[data-terp="dataview-row"] > td',
       '[data-terp="dataview-row"][data-clickable="true"]',
@@ -556,6 +644,13 @@ describe("cascade structure", () => {
       "dataview-pager",
       "dataview-row-actions",
       "dataview-inline-action",
+      "dataview-toolbar",
+      "dataview-toolbar-actions",
+      "dataview-toolbar-count",
+      "dataview-toolbar-layout",
+      "dataview-toolbar-search",
+      "dataview-toolbar-spacer",
+      "dataview-toolbar-status",
       "dataview-column-settings",
       "dataview-column-settings-title",
       "dataview-column-option",
