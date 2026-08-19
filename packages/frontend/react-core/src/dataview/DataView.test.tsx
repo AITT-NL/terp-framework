@@ -450,3 +450,61 @@ describe("DataView embedded variant", () => {
     expect(document.querySelector('[data-terp="dataview-toolbar"]')).not.toBeInTheDocument();
   });
 });
+
+describe("DataView search scope", () => {
+  // Nothing rendered this branch before the search-scope specimen existed: the control is
+  // behind `search.trim() !== ""`, and every other test and specimen starts with an empty box.
+  // That is how a control shipped announcing itself as a toggle button whose state is also its
+  // label.
+  const scopedRepo = (): DataViewRepository<Ticket> => ({
+    query: async () => ({ rows: TICKETS, totalCount: TICKETS.length }),
+    getRowId: (ticket) => ticket.id,
+    capabilities: { serverSide: true, search: true, searchScope: true },
+  });
+
+  it("swaps the label rather than claiming to be a toggle button", async () => {
+    const onBroadenedChange = vi.fn();
+    const { rerender } = render(
+      <DataView
+        repository={scopedRepo()}
+        columns={COLUMNS}
+        searchScope={{
+          broadened: false,
+          onBroadenedChange,
+          label: "Search everything",
+          broadenedLabel: "Searching everything",
+        }}
+      />,
+    );
+    await screen.findByText("Broken printer");
+    // The control needs a search term, so type one.
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "printer" } });
+    const narrow = await screen.findByRole("button", { name: "Search everything" });
+    // The state is the label. Encoding it a second time in aria-pressed announces it twice
+    // and lets the two disagree, because both labels are caller-supplied.
+    expect(narrow).not.toHaveAttribute("aria-pressed");
+    fireEvent.click(narrow);
+    expect(onBroadenedChange).toHaveBeenCalledWith(true);
+
+    rerender(
+      <DataView
+        repository={scopedRepo()}
+        columns={COLUMNS}
+        searchScope={{
+          broadened: true,
+          onBroadenedChange,
+          label: "Search everything",
+          broadenedLabel: "Searching everything",
+        }}
+      />,
+    );
+    const broad = await screen.findByRole("button", { name: "Searching everything" });
+    expect(broad).not.toHaveAttribute("aria-pressed");
+    // And the attribute is now this component's alone on the two layout toggles, which is the
+    // enumeration the shared icon-button hover guard is safe by.
+    expect(document.querySelectorAll("[aria-pressed]")).toHaveLength(2);
+    for (const toggle of document.querySelectorAll("[aria-pressed]")) {
+      expect(toggle.getAttribute("data-terp")).toBe("iconbutton");
+    }
+  });
+});

@@ -152,10 +152,19 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
           )}
         </span>
       )}
+      {/* No aria-pressed, and its absence is the decision. This control swaps its LABEL
+          between the caller's `label` and `broadenedLabel` — "Search everything" becomes
+          "Searching everything" — so the state is already in the accessible name. Adding
+          aria-pressed encodes the same fact a second way and announces it twice ("Searching
+          everything, toggle button, pressed"), which is the case ARIA's own guidance names:
+          when the label changes to describe the new state, the state is the label. The two
+          encodings can also disagree, because the labels are caller-supplied and nothing
+          checks that broadenedLabel actually reads as the broadened one.
+          No specimen or test rendered this branch until the search-scope one existed, which
+          is why this shipped for as long as it did: it needs a non-empty search term. */}
       {props.searchScope !== undefined && props.search.trim() !== "" && (
         <Button
           variant="secondary"
-          aria-pressed={props.searchScope.broadened}
           onClick={() => props.searchScope?.onBroadenedChange(!props.searchScope.broadened)}
         >
           {resolve(

@@ -2007,14 +2007,14 @@ button[data-terp="input"][data-placeholder="true"] {
    are benign only by coincidence of values. Same shape as
    [data-terp="tab"]:hover:not(:disabled):not([aria-selected="true"]).
 
-   Safe by enumeration rather than by hope: aria-pressed appears at exactly three
-   sites in the whole package, none of them a header toggle, a pager arrow, a month
-   arrow, a reorder arrow, a toast dismisser or a combobox clear button — so every
-   element wearing this marker today keeps its hover unchanged. That is why the
-   guard lands here rather than alongside the toggles that need it: folded into a
-   sixteen-site migration it would be one line of a large diff, and a change to a
-   rule reaching seven components across the package should be reviewable as
-   itself.
+   Safe by enumeration rather than by hope: aria-pressed appears at exactly two
+   sites in the whole package, and both of them ARE these toggles — no header toggle,
+   pager arrow, month arrow, reorder arrow, toast dismisser or combobox clear button
+   carries it, so every other element wearing this marker keeps its hover unchanged.
+   It was three until the search-scope control stopped claiming to be a toggle button
+   when what it actually does is swap its label. That the enumeration got smaller
+   rather than larger is the useful direction: this guard is safe for a reason that
+   has to be re-derived whenever a component gains the attribute.
 
    The :disabled cursor no longer shouts, and re-deriving that is more useful than
    trusting it. The question is never "has anything migrated" but "can any element
