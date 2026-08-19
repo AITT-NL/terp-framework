@@ -14,6 +14,7 @@ import {
   DataViewPagination,
   DataViewRowActions,
   DataViewTable,
+  DataViewToolbar,
   DatePicker,
   DateRangePicker,
   DetailList,
@@ -53,7 +54,7 @@ import {
   useToast,
   UserMenu,
 } from "@terpjs/react-core";
-import type { BadgeTone, DataViewColumn, Resource } from "@terpjs/react-core";
+import type { BadgeTone, DataViewColumn, DataViewRepository, Resource } from "@terpjs/react-core";
 import type { NavItem } from "@terpjs/contract";
 import {
   createMemoryHistory,
@@ -205,6 +206,54 @@ const syncRepositoryOptions = {
 
 const SYNC_REPOSITORY = new InMemoryDataViewRepository(SYNC_ROWS, syncRepositoryOptions);
 const EMPTY_REPOSITORY = new InMemoryDataViewRepository<SyncRow>([], syncRepositoryOptions);
+
+// The two repositories nothing else in the catalog can produce, and both are hand-built rather
+// than InMemory instances because InMemory always resolves. `useDataViewQuery` starts both
+// `isLoading` and `isFetching` at true and only a settled promise clears them, so the first-load
+// and failed states ARE the promise — no clock, no timer, nothing to flake.
+const NEVER_REPOSITORY: DataViewRepository<SyncRow> = {
+  query: () => new Promise(() => {}),
+  getRowId: (row) => row.id,
+  capabilities: { serverSide: false, search: true, searchScope: false },
+};
+
+// A fresh rejection per call, not one module-scope rejected promise: the hook attaches its
+// handler inside an effect, so a promise rejected at module load would be unhandled for a tick
+// and Vite would log it. The message is fixed and there is no stack, which is what makes the
+// shot deterministic — ErrorState derives its copy from the message.
+const FAILING_REPOSITORY: DataViewRepository<SyncRow> = {
+  query: () => Promise.reject(new Error("Sync service unavailable.")),
+  getRowId: (row) => row.id,
+  capabilities: { serverSide: false, search: true, searchScope: false },
+};
+
+// A table too wide for its box, and the width comes from the HEADERS rather than from the
+// `meta.width` hint that looks like the obvious lever. Measured at every step, because the obvious
+// lever does nothing: the table rule is `width: 100%` with `table-layout: auto`, so a specified
+// column width is a *preference* the auto algorithm shrinks to fit — three columns hinted at 700px
+// each recorded a baseline that fits the box exactly. What auto layout cannot shrink is a MINIMUM,
+// and `th { white-space: nowrap }` is one, while the body cells wrap and clip and so contribute
+// almost nothing. The specimen card leaves 1196px; nine un-wrappable uppercase headers put the
+// table's min-content at 1447px, measured by squeezing the wrapper to 1px and reading its
+// scrollWidth. Seven headers came to 1086 and fit — which is why the count is nine and not seven.
+// Shortening a header here can silently make this specimen fit again, and a fitting table gates
+// nothing: re-measure if one changes.
+const WIDE_SYNC_COLUMNS: DataViewColumn<SyncRow>[] = [
+  { id: "name", header: "Integration name", accessor: (row) => row.name },
+  {
+    id: "status",
+    header: "Last run status",
+    accessor: (row) => row.status,
+    cell: (row) => <Badge tone={SYNC_TONES[row.status]} label={row.status} />,
+  },
+  { id: "rows", header: "Rows transferred", accessor: (row) => row.rows },
+  { id: "source", header: "Source system endpoint", accessor: (row) => `sap://prd/${row.id}` },
+  { id: "target", header: "Target system endpoint", accessor: (row) => `terp://ledger/${row.id}` },
+  { id: "window", header: "Scheduled run window", accessor: () => "02:00–04:00 UTC" },
+  { id: "rejected", header: "Records rejected on last run", accessor: (row) => row.rows % 7 },
+  { id: "retention", header: "Retention policy in days", accessor: () => 90 },
+  { id: "owner", header: "Responsible operations team", accessor: () => "Integrations" },
+];
 
 // ResourceList fixtures: a hand-built, already-loaded `Resource`, exactly the shape the
 // hook returns — no timers, no state.
@@ -894,6 +943,112 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // Selection mode, which no composed specimen reaches: `dataview-selection` passes
+        // `enableSelection` but selects no rows, so `selectedCount` is 0 and the toolbar takes its
+        // normal branch. Rendered inside the frame a toolbar actually lives in — a DataView root's
+        // surface — because the band's background and its two TOP radii are only observable
+        // against a rounded neutral-0 box: a dropped radius looks like a squared corner sitting
+        // over a rounded frame, and against the bare specimen card it looks like nothing.
+        id: "dataview-toolbar-selection",
+        title: "DataView toolbar — selection mode, batch actions",
+        node: (
+          <div
+            style={{
+              background: "var(--color-neutral-0)",
+              border: "1px solid var(--color-neutral-200)",
+              borderRadius: "var(--radius-lg)",
+            }}
+          >
+            <DataViewToolbar<SyncRow>
+              searchEnabled
+              search=""
+              onSearchChange={() => {}}
+              hasActiveFilters={false}
+              layout="table"
+              selectedCount={3}
+              totalCount={42}
+              selectAllAcrossPages={false}
+              onSelectAllAcrossPages={() => {}}
+              onClearSelection={() => {}}
+              onBatchAction={() => {}}
+              isFetching={false}
+              batchActions={[
+                // The icon is not decoration: it is the only thing that renders the leading-glyph
+                // box in a batch action. `inline: false` is the only thing that puts an action in
+                // the overflow menu, so it is what makes the ellipsis trigger — and the group's
+                // gap between a button and that trigger — render at all.
+                { label: "Export", icon: <Icon name="download" />, onClick: () => {} },
+                { label: "Retry", onClick: () => {} },
+                { label: "Delete", variant: "destructive", onClick: () => {} },
+                { label: "Archive", inline: false, onClick: () => {} },
+              ]}
+            />
+          </div>
+        ),
+      },
+      {
+        // A non-empty search term, which nothing else in the catalog renders — every other
+        // DataView starts with an empty box. It is the only thing that paints the clear-search
+        // button, the only thing that satisfies the scope toggle's `search.trim() !== ""` guard,
+        // and the only place the field's two padding reserves are measurable against real text.
+        // `useViewSearch` seeds its input from the prop, so the term is there on first paint.
+        //
+        // It also shows Chrome's own `::-webkit-search-cancel-button` beside the component's
+        // clear button. That is a browser default on `type="search"`, not a migration artefact.
+        id: "dataview-toolbar-search-filled",
+        title: "DataView toolbar — a search term, clear button and scope toggle",
+        node: (
+          <DataViewToolbar<SyncRow>
+            searchEnabled
+            search="ledger"
+            onSearchChange={() => {}}
+            searchScope={{
+              broadened: false,
+              onBroadenedChange: () => {},
+              label: "Search everything",
+              broadenedLabel: "Searching everything",
+            }}
+            hasActiveFilters={false}
+            layout="table"
+            selectedCount={0}
+            totalCount={42}
+            selectAllAcrossPages={false}
+            onClearSelection={() => {}}
+            onBatchAction={() => {}}
+            isFetching={false}
+          />
+        ),
+      },
+      {
+        // The band holding nothing but one trailing slot, on a page-coloured host. Both halves are
+        // load-bearing and neither is covered anywhere else. The band's minimum height is inert in
+        // every bar that holds a control (a comfortable one measures 3.25rem, a compact one exactly
+        // 3.00rem), so this is the only place it decides anything. And the band's own background is
+        // invisible against the neutral-0 specimen card: the embedded variant's root declares
+        // nothing but a display, so neutral-50 is what actually sits behind a real embedded
+        // toolbar, and it is the only host on which losing that background is a visible change.
+        id: "dataview-toolbar-bare",
+        title: "DataView toolbar — an empty band on a page surface",
+        node: (
+          <div style={{ padding: "var(--space-3)", background: "var(--color-neutral-50)" }}>
+            <DataViewToolbar<SyncRow>
+              searchEnabled={false}
+              search=""
+              onSearchChange={() => {}}
+              hasActiveFilters={false}
+              layout="table"
+              selectedCount={0}
+              totalCount={0}
+              selectAllAcrossPages={false}
+              onClearSelection={() => {}}
+              onBatchAction={() => {}}
+              isFetching={false}
+              trailing={<span>Filters</span>}
+            />
+          </div>
+        ),
+      },
+      {
         id: "dataview-empty",
         title: "DataView — empty result",
         node: (
@@ -903,6 +1058,41 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             emptyMessage="No syncs defined yet."
           />
         ),
+      },
+      {
+        // The first load, which every other DataView specimen resolves past in a microtask. The
+        // full variant renders its toolbar unconditionally, so one specimen paints two surfaces
+        // nothing else reaches: the fixed-height skeleton and the toolbar's "Refreshing…"
+        // status, whose span is behind `isFetching` and therefore behind a resolved query
+        // everywhere else.
+        id: "dataview-loading",
+        title: "DataView — first load, skeleton and refresh status",
+        node: <DataView repository={NEVER_REPOSITORY} columns={SYNC_COLUMNS} />,
+      },
+      {
+        // The error path, and specifically the DEFAULT one: `renderError` is undefined, so what
+        // renders is the wrapper DataView supplies around `ErrorState` rather than a caller's own
+        // node. Also the first picture of `error-state` inside a DataView rather than on a page.
+        id: "dataview-error",
+        title: "DataView — the query failed",
+        node: <DataView repository={FAILING_REPOSITORY} columns={SYNC_COLUMNS} />,
+      },
+      {
+        // A table wider than the box, which nothing else produces — the three sync columns size
+        // to their content and fit with room to spare. This is the only specimen in which the
+        // horizontal scroll container does anything: without it the table widens the whole
+        // DataView, and no other baseline in the suite notices.
+        //
+        // What it does NOT picture, and this was measured rather than assumed: the reset's themed
+        // scrollbar, whose own comment names the horizontal overflow of a DataView table as the
+        // place it is most obvious. Headless Chromium gives this container an OVERLAY scrollbar —
+        // offsetHeight minus clientHeight is 0, so the bar occupies no layout space and paints
+        // nothing at rest. The `::-webkit-scrollbar` rules are still gated by no lane at all. What
+        // this baseline does hold is the clip: scrollWidth 1447 inside clientWidth 1196, with the
+        // ninth column out of frame and the eighth cut mid-word.
+        id: "dataview-wide",
+        title: "DataView — a table wider than the box",
+        node: <DataView repository={SYNC_REPOSITORY} columns={WIDE_SYNC_COLUMNS} />,
       },
       {
         id: "resource-list",
