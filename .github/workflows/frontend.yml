@@ -141,4 +141,8 @@ jobs:
 
       - name: Screenshots — every specimen against the committed linux baselines
         run: |
-          docker run --rm --ipc=host \n            -v "$PWD":/work \n            -w /work/apps/workbench \n            mcr.microsoft.com/playwright:v1.62.0-noble \n            npx playwright test visual/specimens.spec.ts --reporter=line
+          docker run --rm --ipc=host \
+            -v "$PWD":/work \
+            -w /work/apps/workbench \
+            mcr.microsoft.com/playwright:v1.62.0-noble \
+            npx playwright test visual/specimens.spec.ts --reporter=line
