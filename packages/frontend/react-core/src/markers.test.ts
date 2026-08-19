@@ -90,6 +90,8 @@ const MARKERS = [
   "dataview-pager",
   "dataview-pagination",
   "dataview-row",
+  "dataview-row-action",
+  "dataview-row-actions",
   "dataview-row-open",
   "dataview-select-cell",
   "dataview-table",
@@ -240,7 +242,6 @@ const UNMARKED_STYLED_SURFACES = [
   "./OverviewPage.tsx",
   "./ProfileView.tsx",
   "./dataview/DataViewColumnSettings.tsx",
-  "./dataview/DataViewRowActions.tsx",
 ];
 
 /**

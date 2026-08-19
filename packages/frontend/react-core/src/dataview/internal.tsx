@@ -53,6 +53,7 @@ export function DataViewMenu({
   trigger,
   triggerLabel,
   align = "end",
+  defaultOpen,
   children,
 }: {
   /** Trigger content (an icon or a label). */
@@ -60,11 +61,13 @@ export function DataViewMenu({
   /** Accessible name of the trigger button. */
   triggerLabel: string;
   align?: "start" | "end";
+  /** Open on mount — threaded to `Menu`, which has carried this since the overlays moved. */
+  defaultOpen?: boolean;
   /** Panel content; render-prop so items can close the menu after acting. */
   children: (close: () => void) => ReactNode;
 }) {
   return (
-    <Menu trigger={trigger} triggerLabel={triggerLabel} align={align}>
+    <Menu trigger={trigger} triggerLabel={triggerLabel} align={align} defaultOpen={defaultOpen}>
       {({ close }) => children(() => close(false))}
     </Menu>
   );

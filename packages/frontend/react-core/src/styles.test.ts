@@ -334,6 +334,12 @@ describe("cascade structure", () => {
       '[data-terp="dataview-expand-cell"] > [data-terp="iconbutton"]',
       '[data-terp="dataview-card-main"] > [data-terp="iconbutton"]',
       '[data-terp="dataview-pager"] > [data-terp="iconbutton"]',
+      // Two structural span rules in the row-action cluster, and they mean different
+      // things: the first reaches the custom-control wrappers (the only span that is a
+      // direct child of the cluster — the inline actions are buttons and the overflow
+      // menu's root is a div), the second reaches an action's leading icon.
+      '[data-terp="dataview-row-actions"] > span',
+      '[data-terp="dataview-row-action"] > span',
     ]) {
       expect(
         declaresRuleFor(base, selector),
@@ -491,6 +497,8 @@ describe("cascade structure", () => {
       "dataview-expanded-cell",
       "dataview-pagination",
       "dataview-pager",
+      "dataview-row-actions",
+      "dataview-row-action",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

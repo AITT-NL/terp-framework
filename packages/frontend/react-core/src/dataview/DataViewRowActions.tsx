@@ -14,6 +14,12 @@ export interface DataViewRowActionsProps<T> {
   layout: DataViewRowActionsLayout;
   /** On mobile all standard actions collapse into the menu regardless of flags. */
   isMobile: boolean;
+  /**
+   * Render the overflow menu open on mount — the same escape `Menu`, `Popover` and both
+   * date pickers already expose, and for the same reason: a portalled panel is invisible
+   * to a per-specimen visual lane unless something can name its open state.
+   */
+  defaultOpen?: boolean;
 }
 
 function InlineActionButton<T>({ action, row }: { action: DataViewRowAction<T>; row: T }) {
@@ -23,30 +29,12 @@ function InlineActionButton<T>({ action, row }: { action: DataViewRowAction<T>; 
   return (
     <button
       type="button"
+      data-terp="dataview-row-action"
+      data-destructive={destructive || undefined}
       disabled={disabled}
       onClick={() => action.onClick?.(row)}
-      style={{
-        font: "inherit",
-        fontSize: "var(--font-size-sm)",
-        display: "inline-flex",
-        alignItems: "center",
-        minHeight: "2rem",
-        gap: "var(--space-1)",
-        padding: "var(--space-1) var(--space-2)",
-        background: "transparent",
-        border: "1px solid var(--color-neutral-300)",
-        borderRadius: "var(--radius-md)",
-        cursor: disabled ? "not-allowed" : "pointer",
-        color: disabled
-          ? "var(--color-neutral-300)"
-          : destructive
-            ? "var(--color-status-danger)"
-            : "var(--color-neutral-700)",
-      }}
     >
-      {action.icon !== undefined && (
-        <span aria-hidden style={{ display: "inline-flex" }}>{action.icon}</span>
-      )}
+      {action.icon !== undefined && <span aria-hidden>{action.icon}</span>}
       {resolve(action.label)}
     </button>
   );
@@ -62,6 +50,7 @@ export function DataViewRowActions<T>({
   actions,
   layout,
   isMobile,
+  defaultOpen,
 }: DataViewRowActionsProps<T>) {
   const { strings, resolve } = useDataViewText();
 
@@ -83,21 +72,11 @@ export function DataViewRowActions<T>({
   const stop = (event: MouseEvent) => event.stopPropagation();
 
   const renderCustom = (action: DataViewRowAction<T>, index: number): ReactNode => (
-    <span key={`custom-${index}`} style={{ display: "inline-flex" }}>
-      {action.render?.(row)}
-    </span>
+    <span key={`custom-${index}`}>{action.render?.(row)}</span>
   );
 
   return (
-    <span
-      onClick={stop}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "flex-end",
-        gap: "var(--space-1)",
-      }}
-    >
+    <span data-terp="dataview-row-actions" onClick={stop}>
       {custom.map(renderCustom)}
       {inline.map((action, index) => (
         <InlineActionButton key={`inline-${index}`} action={action} row={row} />
@@ -106,6 +85,7 @@ export function DataViewRowActions<T>({
         <DataViewMenu
           trigger={<EllipsisGlyph />}
           triggerLabel={resolve(strings.moreActions)}
+          defaultOpen={defaultOpen}
         >
           {(close) => (
             <>

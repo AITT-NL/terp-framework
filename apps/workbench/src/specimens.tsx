@@ -11,6 +11,7 @@ import {
   DataView,
   DataViewCardList,
   DataViewPagination,
+  DataViewRowActions,
   DataViewTable,
   DatePicker,
   DateRangePicker,
@@ -823,6 +824,47 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             pagination={{ pageIndex: 0, pageSize: 10 }}
             totalCount={42}
             onPaginationChange={() => {}}
+          />
+        ),
+      },
+      {
+        // The inline row-action layout, which no composed specimen reaches: dataview-full uses
+        // the default menu layout, so its actions live behind a closed panel. Three actions so
+        // all three rules are in one shot — a plain control, a destructive one, and a disabled
+        // one, the last of which also pins that disabled outranks destructive.
+        id: "dataview-row-actions-inline",
+        title: "DataView — inline row actions",
+        node: (
+          <DataViewRowActions
+            row={SYNC_ROWS[0]}
+            layout="inline"
+            isMobile={false}
+            actions={[
+              { label: "Retry", onClick: () => {} },
+              { label: "Delete", variant: "destructive", onClick: () => {} },
+              { label: "Archive", disabled: true, onClick: () => {} },
+            ]}
+          />
+        ),
+      },
+      {
+        // And the panel, which portals to document.body and is therefore invisible to both an
+        // element-clipped screenshot and an element-scoped axe run — hence overlay: true, the
+        // same treatment the other open panels take.
+        id: "dataview-row-actions-open",
+        title: "DataView — row actions, menu open",
+        overlay: true,
+        node: (
+          <DataViewRowActions
+            row={SYNC_ROWS[0]}
+            layout="menu"
+            isMobile={false}
+            defaultOpen
+            actions={[
+              { label: "Retry", onClick: () => {} },
+              { label: "Duplicate", onClick: () => {} },
+              { label: "Delete", variant: "destructive", onClick: () => {} },
+            ]}
           />
         ),
       },

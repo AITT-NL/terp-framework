@@ -869,6 +869,50 @@ th[data-terp="dataview-actions-cell"] > span {
   color: var(--color-neutral-700);
 }
 
+/* DataView: the per-row action cluster ------------------------------------- */
+[data-terp="dataview-row-actions"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+/* The custom-control wrappers, addressed structurally rather than named: a span
+   whose only job is to be a box, and the only span that is a DIRECT child here.
+   Checked rather than assumed — the inline actions are buttons and the overflow
+   menu's root is Popover's div, so neither is caught by this. */
+[data-terp="dataview-row-actions"] > span {
+  display: inline-flex;
+}
+/* An inline action: a bordered text-and-icon control. The font pair is
+   order-dependent and stays in this order — the font shorthand resets font-size,
+   so inheriting the row's font and THEN stepping the size down is the sequence
+   that produces small text rather than inherited text. */
+[data-terp="dataview-row-action"] {
+  font: inherit;
+  font-size: var(--font-size-sm);
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--color-neutral-700);
+}
+/* The leading icon: the only span inside the control, its sibling being a text
+   node. */
+[data-terp="dataview-row-action"] > span {
+  display: inline-flex;
+}
+/* Destructive is the same vocabulary MenuItem already uses for the same idea, so
+   the attribute name is data-destructive there and here rather than a second
+   spelling of one concept. */
+[data-terp="dataview-row-action"][data-destructive="true"] {
+  color: var(--color-status-danger);
+}
+
 /* Empty / error / loading states ------------------------------------------- */
 /* Same centred block, opposite messages: empty is a dashed outline on the page
    surface because nothing is wrong, error is a filled danger wash because
@@ -1798,6 +1842,15 @@ button[data-terp="input"][data-placeholder="true"] {
    inline. */
 [data-terp="dataview-pager"] > [data-terp="iconbutton"]:disabled {
   color: var(--color-neutral-300);
+}
+
+/* A disabled inline action outranks a destructive one, which is the order the
+   component's own ternary had: disabled first, destructive second. Here that
+   ordering is the LAYER rather than the sequence of two equal-specificity rules
+   — terp.state over terp.base — so it cannot be broken by moving a block. */
+[data-terp="dataview-row-action"]:disabled {
+  color: var(--color-neutral-300);
+  cursor: not-allowed;
 }
 
 /* DataView table ----------------------------------------------------------- */
