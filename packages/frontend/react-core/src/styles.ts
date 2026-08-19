@@ -2356,9 +2356,11 @@ button[data-terp="input"][data-placeholder="true"] {
    too coarse to plan a specimen with.
 
    The arithmetic is no longer only recorded here. token-pairs.json now carries a
-   nonTextPairs section, and focus-ring-on-surface and focus-ring-on-canvas are
-   measured in it at 3:1 in every theme, so the ring cannot silently return to what
-   it was. What stays prose is the halo: the box-shadow is reinforcement around the
+   nonTextPairs section, and the ring is measured in it at 3:1 in every theme, so it
+   cannot silently return to what it was. One entry rather than two: focus-ring-on-canvas
+   holds the accent against the canvas, while the ring on a card is the same pair of
+   tokens as the TEXT pairing accent-on-surface, which already holds them to 4.5 and so
+   would go red first. What stays prose is the halo: the box-shadow is reinforcement around the
    opaque outline rather than the indicator itself, and declaring a ratio WCAG does
    not ask for is how a data file teaches people to ignore it. */
 [data-terp]:focus-visible {
@@ -2618,9 +2620,10 @@ button[data-terp="input"][data-placeholder="true"] {
    5.87 / 9.14 against the band, so it clears 3:1 on both sides in every theme. It is a
    NON-TEXT pairing, and token-pairs.json now has a section for it: active-toggle-border
    holds the accent against the neutral-100 fill at 3:1 in every theme. The border against
-   the band is the same two tokens as focus-ring-on-surface, so it is that entry rather
-   than a second one — the numbers above are one pairing seen from two sides. The 1.10 fill
-   is deliberately not declared, for the same reason the focus halo is not.
+   the BAND is not a second entry — those are the same two tokens as the text pairing
+   accent-on-surface, held there to 4.5, so the numbers above are one pairing seen from two
+   sides and the stricter side already gates it. The 1.10 fill is deliberately not declared,
+   for the same reason the focus halo is not.
 
    Deliberately NOT a box-shadow, and this one is a cascade fact rather than a taste:
    [data-terp]:focus-visible sets box-shadow in this same layer at (0,2,0) against this

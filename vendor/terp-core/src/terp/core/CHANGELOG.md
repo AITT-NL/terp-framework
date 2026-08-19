@@ -172,9 +172,9 @@ already stamps (ADR 0094).
   it can land on a tinted one, because subtle fails AA against three of the six washes a
   DataView card can carry. All seventeen were checked against it before moving; none is
   text on a tinted surface. Five are icon buttons whose glyph can reach a toned row or a
-  neutral-100 hover, which are graphical objects at SC 1.4.11's 3:1 and clear it with
-  3.51 to spare at worst — and those pairings are now declared, so that is measured
-  rather than argued. Repaints nothing the picture-taking lanes can see: light and dark
+  neutral-100 hover, which are graphical objects at SC 1.4.11's 3:1 and reach 4.26 in
+  the worst theme — and those pairings are now declared, so that is measured rather than
+  argued. Repaints nothing the picture-taking lanes can see: light and dark
   are byte-identical between the two tokens and the screenshot lane covers exactly those
   two, confirmed green on both platforms. Midnight and twilight get slightly darker
   secondary ink.
@@ -241,16 +241,20 @@ already stamps (ADR 0094).
   because the file carried text pairings only and bolting a second kind onto `textPairs`
   would have meant one list held to two bars. Why prose was not enough is on this
   release's own record: the focus ring shipped at 1.67:1 for as long as its value was
-  something a person had to remember to check. Eleven entries, measured in all five
-  themes — the contract suite goes from 193 tests to 252.
+  something a person had to remember to check. Ten entries, measured in all five
+  themes — the contract suite goes from 193 tests to 248.
 
   What is left out is the half that keeps the file honest. The focus ring's translucent
   halo is excluded, because the opaque outline is the indicator and the shadow is
   reinforcement around it; the active toggle's `neutral-100` fill is excluded at 1.10,
-  which is the whole reason that rule carries a border; and the toggle's border against
-  the toolbar band is the same two tokens as `focus-ring-on-surface` rather than a second
-  entry. Asserting a ratio WCAG does not ask for is how a data file teaches people to
-  ignore it, which is already why dividers are absent from `textPairs`.
+  which is the whole reason that rule carries a border; and neither the toggle's border
+  against the toolbar band nor the focus ring on a card is an entry, because both name the
+  same two tokens as the *text* pairing `accent-on-surface`, which holds them to 4.5 and
+  would go red first. Declaring them again at 3:1 would add cases that cannot fail and
+  overstate what the ratchet covers. A test refuses that restatement rather than leaving it
+  to review, because the first draft of this section made exactly that mistake. Asserting a
+  ratio WCAG does not ask for is how a data file teaches people to ignore it, which is
+  already why dividers are absent from `textPairs`.
 
   The `--color-neutral-300` control boundary is a real failure rather than a formality —
   1.42 to 2.36 across the surfaces a bordered control sits on, in four of the five

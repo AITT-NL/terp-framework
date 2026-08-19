@@ -50,7 +50,8 @@ const UI_COMPONENT = 3;
  * `id` is the stable key — labels intentionally repeat across the primitive and semantic
  * layers ("body text on the canvas" describes both), so only the id can identify a pairing.
  */
-const TEXT_PAIRS = JSON.parse(fs.readFileSync(here("../token-pairs.json"), "utf8")).textPairs;
+const PAIRS = JSON.parse(fs.readFileSync(here("../token-pairs.json"), "utf8"));
+const TEXT_PAIRS = PAIRS.textPairs;
 
 /**
  * Pairings the framework renders as a boundary or an indicator rather than as text, from the
@@ -66,13 +67,13 @@ const TEXT_PAIRS = JSON.parse(fs.readFileSync(here("../token-pairs.json"), "utf8
  * halo is reinforcement around it — declaring the halo would assert a ratio WCAG does not ask
  * for, which is the same reason dividers are absent from `textPairs`. The active toggle's
  * neutral-100 fill is excluded for the same reason, at 1.10, and it is why that rule carries a
- * border at all rather than a wash. And the toggle's border against the toolbar band is not a
- * second entry, because those are the same two tokens as `focus-ring-on-surface` and measuring
- * one pairing twice under two names would make the ratchet lie about how much is covered.
+ * border at all rather than a wash. And neither the toggle's border against the toolbar band
+ * nor the focus ring on a card is an entry, because both name the same two tokens as the TEXT
+ * pairing `accent-on-surface` — measuring one pairing twice under two names would make the
+ * ratchet lie about how much is covered, and here the other name is held to a stricter bar.
+ * `declares no pairing the text section already holds to a stricter bar` enforces that.
  */
-const NON_TEXT_PAIRS = JSON.parse(
-  fs.readFileSync(here("../token-pairs.json"), "utf8"),
-).nonTextPairs;
+const NON_TEXT_PAIRS = PAIRS.nonTextPairs;
 
 
 /**
@@ -192,16 +193,26 @@ function contrastRatio(a, b) {
 const floorFor = (name) =>
   registry.themes.find((theme) => theme.name === name)?.minimumContrast ?? AA_NORMAL_TEXT;
 
-/** Every pairing, in every registered theme, tagged with its `BELOW_AA` key. */
-const cases = Object.entries(THEMES).flatMap(([theme, declarations]) =>
-  TEXT_PAIRS.map((pair) => ({
-    ...pair,
-    theme,
-    declarations,
-    key: `${theme}/${pair.id}`,
-    floor: floorFor(theme),
-  })),
-);
+/**
+ * Every pairing in *list*, in every registered theme, tagged with its ratchet key and the
+ * ratio it has to reach.
+ *
+ * Shared by both suites because they differ in exactly one thing — the bar — and writing the
+ * fan-out twice is how the two would drift into measuring different theme sets.
+ */
+const casesFor = (list, floorOf) =>
+  Object.entries(THEMES).flatMap(([theme, declarations]) =>
+    list.map((pair) => ({
+      ...pair,
+      theme,
+      declarations,
+      key: `${theme}/${pair.id}`,
+      floor: floorOf(theme),
+    })),
+  );
+
+/** Every text pairing, in every registered theme, tagged with its `BELOW_AA` key. */
+const cases = casesFor(TEXT_PAIRS, floorFor);
 
 /** The measured ratio for one case, with the painted values for the failure message. */
 function measure({ fg, bg, declarations }) {
@@ -218,6 +229,11 @@ function measure({ fg, bg, declarations }) {
 const meetsAa = cases.filter(({ key }) => !BELOW_AA.has(key));
 const knownGaps = cases.filter(({ key }) => BELOW_AA.has(key));
 
+/** The same three lists for the non-text section. Its bar is flat, so every floor is the same. */
+const uiCases = casesFor(NON_TEXT_PAIRS, () => UI_COMPONENT);
+const meetsUi = uiCases.filter(({ key }) => !BELOW_UI.has(key));
+const uiGaps = uiCases.filter(({ key }) => BELOW_UI.has(key));
+
 describe("token sheet text contrast", () => {
   it("measures a known ratio correctly", () => {
     // The calculator itself needs a fixture, or a subtly wrong exponent would move every
@@ -228,11 +244,14 @@ describe("token sheet text contrast", () => {
     expect(contrastRatio("#767676", "#ffffff")).toBeCloseTo(4.5422, 4);
   });
 
-  it("gives every pairing a unique id", () => {
+  it("gives every pairing a unique id, across both sections", () => {
     // The id is the ratchet key and the manifest's handle. A duplicate would silently make
     // one pairing's allowance apply to another, and labels cannot substitute — they repeat
     // across the primitive and semantic layers on purpose.
-    const ids = TEXT_PAIRS.map((pair) => pair.id);
+    //
+    // Both sections at once, because the two ratchets key the same way: `light/x` has to name
+    // one pairing whichever table it appears in, or an allowance would apply the wrong bar.
+    const ids = [...TEXT_PAIRS, ...NON_TEXT_PAIRS].map((pair) => pair.id);
     expect(ids.filter((id) => !id)).toEqual([]);
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -310,24 +329,23 @@ describe("token sheet text contrast", () => {
 });
 
 describe("token sheet non-text contrast", () => {
-  const uiCases = Object.entries(THEMES).flatMap(([theme, declarations]) =>
-    NON_TEXT_PAIRS.map((pair) => ({
-      ...pair,
-      theme,
-      declarations,
-      key: `${theme}/${pair.id}`,
-    })),
-  );
-  const meetsUi = uiCases.filter(({ key }) => !BELOW_UI.has(key));
-  const uiGaps = uiCases.filter(({ key }) => BELOW_UI.has(key));
-
-  it("gives every pairing a unique id across both sections", () => {
-    // Both sections share one id namespace because the manifest publishes them side by side and
-    // the two ratchets are keyed the same way. A `light/x` allowance that could mean either a
-    // text or a non-text pairing would apply the wrong bar to whichever it hit.
-    const ids = [...TEXT_PAIRS, ...NON_TEXT_PAIRS].map((pair) => pair.id);
-    expect(ids.filter((id) => !id)).toEqual([]);
-    expect(new Set(ids).size).toBe(ids.length);
+  it("declares no pairing the text section already holds to a stricter bar", () => {
+    // The guard this section was one review away from needing. `focus-ring-on-surface` shipped
+    // here naming --color-fg-accent on --color-bg-surface, which is exactly what the text
+    // pairing `accent-on-surface` already holds to 4.5 — so the non-text case could never fail
+    // unless the stricter one had failed first, and its only effect was to make the section
+    // look like it covered one surface more than it did. The ring on a card is still measured;
+    // it is measured by the entry that would go red first.
+    //
+    // Compared on token NAMES rather than values on purpose: `body-on-card` and
+    // `body-on-surface` resolve to identical values in every theme and are both declared,
+    // because a theme author retargeting the semantic alias needs the alias measured too. That
+    // is the file working as intended; two names for one pair inside one bar is not.
+    const textPairKeys = new Set(TEXT_PAIRS.map((pair) => `${pair.fg} on ${pair.bg}`));
+    const restated = NON_TEXT_PAIRS.filter((pair) =>
+      textPairKeys.has(`${pair.fg} on ${pair.bg}`),
+    ).map((pair) => pair.id);
+    expect(restated).toEqual([]);
   });
 
   it("covers every registered theme once per pairing", () => {
@@ -361,9 +379,9 @@ describe("token sheet non-text contrast", () => {
     );
   });
 
-  it.each(meetsUi)("$theme: $id ($label) reaches 3:1 as a non-text pairing", (testCase) => {
+  it.each(meetsUi)("$theme: $id ($label) reaches $floor:1 as a non-text pairing", (testCase) => {
     const { ratio, painted } = measure(testCase);
-    expect(ratio, painted).toBeGreaterThanOrEqual(UI_COMPONENT);
+    expect(ratio, painted).toBeGreaterThanOrEqual(testCase.floor);
   });
 
   it.each(uiGaps)("$theme: $id ($label) is a known non-text gap, held at its floor", (testCase) => {

@@ -1,5 +1,5 @@
 {
-  "$comment": "Token pairings the framework renders, as data, in two sections held to two different bars. `textPairs` are foreground/background pairs painted as TEXT and held to WCAG 2.1 AA for normal text; `nonTextPairs` are the visual boundaries and state indicators SC 1.4.11 asks 3:1 of — a focus indicator, the border that says which control is active, the outline of a control against its surface. Two consumers read both: tokens.contrast.test.js measures each pairing at its own bar, and the generated token manifest publishes them so a theme editor or an agent can tell which tokens must stay legible against which. Purely decorative marks stay absent from both sections — WCAG sets no ratio for a divider or for an aria-hidden ornament, and asserting one would teach the next reader to ignore this file. Names are CSS custom properties because that is the vocabulary a theme author writes and a manifest consumer reads.",
+  "$comment": "Token pairings the framework renders, as data, in two sections held to two different bars. `textPairs` are foreground/background pairs painted as TEXT and held to WCAG 2.1 AA for normal text; `nonTextPairs` are the visual boundaries and state indicators SC 1.4.11 asks 3:1 of — a focus indicator, the border that says which control is active, the outline of a control against its surface. Two consumers read both: tokens.contrast.test.js measures each pairing at its own bar, and the generated token manifest publishes them so a theme editor or an agent can tell which tokens must stay legible against which. A pair of token names appears in one section only: the text bar is the stricter of the two, so restating a text pairing under a non-text name would add a case that cannot fail unless the stricter one already has, and would overstate how much the ratchets cover. Purely decorative marks stay absent from both sections — WCAG sets no ratio for a divider or for an aria-hidden ornament, and asserting one would teach the next reader to ignore this file. Names are CSS custom properties because that is the vocabulary a theme author writes and a manifest consumer reads.",
   "textPairs": [
     {
       "id": "body-on-card",
@@ -178,13 +178,6 @@
     }
   ],
   "nonTextPairs": [
-    {
-      "id": "focus-ring-on-surface",
-      "label": "the focus indicator on a card",
-      "fg": "--color-fg-accent",
-      "bg": "--color-bg-surface",
-      "layer": "semantic"
-    },
     {
       "id": "focus-ring-on-canvas",
       "label": "the focus indicator on the canvas",

@@ -132,10 +132,27 @@ describe("token manifest", () => {
     // The manifest is a claim about what is guaranteed; the gate is what guarantees it. If
     // the two lists could differ, the published claim would be unverified.
     expect(manifest.textPairs).toEqual(pairsSource.textPairs);
+    expect(manifest.nonTextPairs).toEqual(pairsSource.nonTextPairs);
+  });
+
+  it("publishes both sections, so a missing one cannot read as no requirement", () => {
+    // `nonTextPairs` reached the manifest by being added to the builder's literal, which is a
+    // line that can be deleted without any other test noticing: a consumer would then see only
+    // the text pairings and read the absence of a boundary pairing as "nothing is required
+    // here" rather than "held in a section you were not given". Both sections are named
+    // explicitly rather than derived, because deriving them from the source file is what the
+    // assertion above already does — this one is about the shape the package publishes.
+    expect(Array.isArray(manifest.textPairs)).toBe(true);
+    expect(Array.isArray(manifest.nonTextPairs)).toBe(true);
+    expect(manifest.nonTextPairs.length).toBeGreaterThan(0);
   });
 
   it("references only tokens that exist, in both directions of every pairing", () => {
-    for (const pair of manifest.textPairs) {
+    // Both sections. A typo in a token name is the failure this catches, and it is the only
+    // check that catches it for a pairing naming a token the sheet declares nowhere — the
+    // contrast gate would report it as an undefined declaration, which reads as a sheet
+    // problem rather than as a pairing problem.
+    for (const pair of [...manifest.textPairs, ...manifest.nonTextPairs]) {
       expect(tokenByName.has(pair.fg), `${pair.id} fg ${pair.fg}`).toBe(true);
       expect(tokenByName.has(pair.bg), `${pair.id} bg ${pair.bg}`).toBe(true);
     }

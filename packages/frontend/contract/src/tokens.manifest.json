@@ -1343,13 +1343,6 @@
   ],
   "nonTextPairs": [
     {
-      "id": "focus-ring-on-surface",
-      "label": "the focus indicator on a card",
-      "fg": "--color-fg-accent",
-      "bg": "--color-bg-surface",
-      "layer": "semantic"
-    },
-    {
       "id": "focus-ring-on-canvas",
       "label": "the focus indicator on the canvas",
       "fg": "--color-fg-accent",
