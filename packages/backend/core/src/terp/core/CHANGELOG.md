@@ -34,7 +34,7 @@ already stamps (ADR 0094).
   `!important` on every state rule it had: **35 declarations at 0.7.0, now 7**, and
   each of the seven survivors is a rule whose selector still matches at least one
   element that has not migrated — every one of them named, with the inline
-  declaration it has to out-shout, in the gate that pins it. `54` source files carried a style object; `25` do — and that number is deliberately
+  declaration it has to out-shout, in the gate that pins it. `54` source files carried a style object; `24` do — and that number is deliberately
   the coarse one, because a file keeps its place in it for a single measured value the
   sheet has no business owning. The finer measure is per file and gated: **eight** modules
   still declare a module-scope base style object, **57** between them, asserted as exact

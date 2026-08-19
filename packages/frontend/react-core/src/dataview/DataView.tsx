@@ -148,6 +148,11 @@ function DataViewInner<T>(props: DataViewProps<T>) {
   const embedded = props.variant === "embedded";
   // Only the compact value is expressible as an attribute; see the prop's doc comment.
   const densityAttribute = props.density === "compact" ? "compact" : undefined;
+  // Hoisted rather than written inline at the two roots, which is what the density
+  // attribute above already does and what keeps the marker scanner out of a trap: it
+  // reads a whole expression container, so every string literal inside one counts as a
+  // marker name and a conditional written at the attribute would report phantoms.
+  const variantAttribute = embedded ? "embedded" : "full";
   const serverSide = props.repository.capabilities.serverSide;
   const initialPageSize = embedded
     ? EMBEDDED_PAGE_SIZE
@@ -314,7 +319,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
       return props.renderError !== undefined ? (
         <>{props.renderError(error)}</>
       ) : (
-        <div style={{ padding: "var(--space-4)" }}>
+        <div data-terp="dataview-error">
           <ErrorState title={strings.errorTitle} error={error} />
         </div>
       );
@@ -343,7 +348,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
       );
     }
     return (
-      <div style={{ overflowX: "auto" }}>
+      <div data-terp="dataview-scroll">
         <DataViewTable
           rows={rows}
           columns={state.visibleColumns}
@@ -384,7 +389,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
       props.toolbarContent !== undefined ||
       props.toolbarTrailing !== undefined;
     return (
-      <div data-terp="dataview" data-density={densityAttribute} style={{ display: "grid" }}>
+      <div data-terp="dataview" data-variant={variantAttribute} data-density={densityAttribute}>
         {showsEmbeddedToolbar && (
           <DataViewToolbar<T>
             searchEnabled={props.repository.capabilities.search}
@@ -419,16 +424,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
   }
 
   return (
-    <div
-      data-terp="dataview"
-      data-density={densityAttribute}
-      style={{
-        display: "grid",
-        background: "var(--color-neutral-0)",
-        border: "1px solid var(--color-neutral-200)",
-        borderRadius: "var(--radius-lg)",
-      }}
-    >
+    <div data-terp="dataview" data-variant={variantAttribute} data-density={densityAttribute}>
       <DataViewToolbar<T>
         searchEnabled={props.repository.capabilities.search}
         search={state.search}
@@ -477,20 +473,23 @@ function DataViewInner<T>(props: DataViewProps<T>) {
   );
 }
 
-/** Fixed-height placeholder rows so the initial load never causes a layout jump. */
+/**
+ * Fixed-height placeholder rows so the initial load never causes a layout jump.
+ *
+ * One consequence of taking those heights from the sheet is worth stating where it
+ * bites, because it is the sharpest instance of something the whole migration accepted
+ * rather than anything peculiar to this component: the style injector is guarded on
+ * `document`, so no migrated rule reaches server-rendered HTML. A server-rendered
+ * DataView emits its toolbar and this skeleton and nothing else, which makes this the
+ * one place where "no layout jump" is the entire reason the markup exists. Until
+ * hydration these five divs are now zero-height. `ssr.test.tsx` asserts the marker
+ * string only, so nothing fails — it is a trade, recorded, not an oversight.
+ */
 function DataViewSkeleton({ label }: { label: string }) {
   return (
-    <div role="status" aria-label={label} style={{ display: "grid", gap: "var(--space-2)", padding: "var(--space-3)" }}>
+    <div role="status" aria-label={label} data-terp="dataview-skeleton">
       {Array.from({ length: 5 }, (_, index) => (
-        <div
-          key={index}
-          aria-hidden
-          style={{
-            height: "2.75rem",
-            background: "var(--color-neutral-100)",
-            borderRadius: "var(--radius-md)",
-          }}
-        />
+        <div key={index} aria-hidden />
       ))}
     </div>
   );

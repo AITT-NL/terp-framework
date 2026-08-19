@@ -548,6 +548,93 @@ textarea[data-terp="input"] {
   line-height: 0;
 }
 
+/* DataView: the composition root ------------------------------------------- */
+/* One display for both return paths, so it belongs on the bare marker rather than
+   being duplicated per variant.
+
+   And it is the one declaration in this block that NO lane gates, which is worth
+   saying out loud rather than leaving for someone to discover by deleting it.
+   Measured, not assumed: forcing this root to display: block leaves rootW, rootH,
+   every child's width and the scroll wrapper's clientWidth/scrollWidth identical on
+   dataview-wide, dataview-full and dataview-embedded alike — because the root's three
+   children are full-width block boxes with no margins, which a single-column grid and
+   a block container stack the same way. Deleting it would move no baseline. It is
+   kept because the inline style declared it and this commit moves declarations rather
+   than deciding them, and because it is not inert in the way a token with no reader
+   is: the browser reads it, it simply cannot be told apart from the initial value by
+   the compositions that exist.
+
+   It also does not mean what the pairing story would have it mean, and the difference
+   only shows up if the rule below is ever removed. A grid item's automatic minimum
+   size is content-based unless its overflow is something other than visible, so under
+   grid a wide table without overflow-x would widen the whole DataView, while under
+   block the wrapper would stay at 100% and the table would simply spill out of it.
+   Both are wrong; they are wrong differently. So the two rules are coupled, and
+   dropping overflow-x is what dataview-wide catches — not this. */
+[data-terp="dataview"] {
+  display: grid;
+}
+/* The full variant's surface. (0,2,0) against the bare marker's (0,1,0), so it wins
+   on specificity — no tie, no :not(), no source order. BOTH values of data-variant
+   are stamped and only this one has a rule, which is the theme-toggle idiom where
+   inline is stamped and takes the shared base while only stacked declares anything.
+   Rejected: putting the surface on the bare marker and un-declaring it under
+   [data-variant="embedded"], which needs background: transparent, border: 0 and
+   border-radius: 0 — the shape ADR 0094 exists to avoid. Also rejected: stamping
+   nothing for the default on the density precedent, which holds only because
+   comfortable IS the :root value and so has nothing to declare.
+   Byte-identical to [data-terp="card"]'s trio; written flat anyway, the Badge /
+   Alert / row-tone precedent. No overflow: hidden, and none should be added here —
+   the last row's border crossing the rounded bottom corners is pre-existing and
+   belongs to its own commit. */
+[data-terp="dataview"][data-variant="full"] {
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+}
+/* The horizontal scroll container the reset's scrollbar comment already names. A
+   marker rather than [data-terp="dataview"] > div, which also matches the toolbar.
+   Marking it makes it match [data-terp]:focus-visible for the first time: Chrome
+   focuses a scroller only when it holds no keyboard-focusable descendant —
+   reachable with every column enableSorting: false, no selection, no onRowClick and
+   no row actions — so such a view now paints the accent ring around its table.
+   Arguably correct, and invisible to all three lanes. */
+[data-terp="dataview-scroll"] {
+  overflow-x: auto;
+}
+/* The default error path's inset. Presence-conditional rather than
+   value-conditional: this wrapper exists only when the caller supplies no
+   renderError, so a caller-supplied error node gets no inset at all. The empty
+   branch has no inset either — a pre-existing asymmetry visible in dataview-empty,
+   and not something to tidy while moving declarations. */
+[data-terp="dataview-error"] {
+  padding: var(--space-4);
+}
+/* The loading skeleton. --space-3 stays --space-3 and does NOT become
+   --density-cell-pad-x: comfortable is 0.75rem either way, so reading the token
+   would be zero-diff in every existing baseline and a silent geometry change at
+   compact — the trap the table header's comment already records, arriving here as
+   the opposite decision because the skeleton's bars deliberately do not follow
+   density. */
+[data-terp="dataview-skeleton"] {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+/* The five placeholder bars. Structural rather than five markers, the card-main /
+   actions-cell precedent: repeated identical boxes in a place where only bars sit.
+   2.75rem is a literal — no published token carries it and the density family has
+   no small-control step. In the contrast theme neutral-100 on neutral-0 is 1.12:1
+   and so nearly invisible; that is pre-existing, non-text and aria-hidden.
+   If this ever gains a shimmer: a transition here is caught by styles.test.ts,
+   because the selector ends in a bare tag and its reduced-motion entry is then
+   demanded — but an animation, the natural choice, is caught by nothing. */
+[data-terp="dataview-skeleton"] > div {
+  height: 2.75rem;
+  background: var(--color-neutral-100);
+  border-radius: var(--radius-md);
+}
+
 /* DataView: the toolbar ---------------------------------------------------- */
 /* The band, both modes. The background is one of the ten declarations and that is
    deliberate: the inline style it replaces read

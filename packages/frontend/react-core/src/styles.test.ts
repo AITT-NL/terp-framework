@@ -200,6 +200,42 @@ describe("cascade structure", () => {
     ).toContain('[data-terp="tab"]:hover:not(:disabled):not([aria-selected="true"])');
   });
 
+  it("puts the DataView's surface on the full variant, not on the bare marker", () => {
+    // Both values of data-variant are stamped and only one has a rule, which is what keeps
+    // the embedded variant a bare grid. The alternative — surface on the marker, un-declared
+    // under [data-variant="embedded"] — needs background: transparent, border: 0 and
+    // border-radius: 0, the un-declaring shape ADR 0094 exists to avoid.
+    //
+    // dataview-embedded is the negative evidence this rests on: deleting the full-variant
+    // rule must move five baselines and leave that one untouched.
+    const base = layerBody("terp.base");
+    expect(declaresRuleFor(base, '[data-terp="dataview"]'), "the root needs a display").toBe(true);
+    expect(
+      declaresRuleFor(base, '[data-terp="dataview"][data-variant="full"]'),
+      "the surface belongs to the full variant",
+    ).toBe(true);
+    expect(
+      base,
+      "un-declaring a surface under the embedded variant is the shape ADR 0094 avoids",
+    ).not.toContain('[data-variant="embedded"]');
+    // display: grid is asserted HERE because nothing else can: forcing the root to block
+    // leaves every measured dimension identical on dataview-wide, dataview-full and
+    // dataview-embedded — the three children are full-width block boxes with no margins, which
+    // a single-column grid and a block container stack the same way — so deleting it moves no
+    // baseline. This assertion is the only thing standing between that declaration and a
+    // silent removal.
+    //
+    // It matters in one direction: under grid, a wide table without the scroll wrapper's
+    // overflow-x widens the whole DataView, because a grid item's automatic minimum size is
+    // content-based unless its overflow is not visible. The two are coupled, and the second
+    // half is what dataview-wide catches.
+    const at = base.indexOf('[data-terp="dataview"]');
+    expect(base.slice(base.indexOf("{", at) + 1, base.indexOf("}", at))).toContain("display: grid");
+    expect(declaresRuleFor(base, '[data-terp="dataview-scroll"]'), "the pair's other half").toBe(
+      true,
+    );
+  });
+
   it("keeps the toolbar band declaring its own surface, and no ink", () => {
     // Three separate invariants about one element, and each has a way of going wrong that
     // nothing else in the suite can see.
@@ -468,6 +504,10 @@ describe("cascade structure", () => {
       // the field is an <input>, so a span there can only be the glyph. The field rule has to
       // out-rank input[data-terp="input"] { padding } and does so at (0,2,0) against (0,1,1) —
       // deleting it puts the glyph on top of the text with the marker inventory intact.
+      // The skeleton's five bars, structural because repeated identical boxes in a place
+      // where only bars sit is the card-main / actions-cell precedent. Deleting it collapses
+      // dataview-loading and leaves the marker inventory intact.
+      '[data-terp="dataview-skeleton"] > div',
       '[data-terp="dataview-toolbar-search"] > span',
       '[data-terp="dataview-toolbar-search"] > [data-terp="input"]',
       '[data-terp="dataview-toolbar-search"] > [data-terp="iconbutton"]',
@@ -655,6 +695,10 @@ describe("cascade structure", () => {
       "dataview-pager",
       "dataview-row-actions",
       "dataview-inline-action",
+      "dataview",
+      "dataview-error",
+      "dataview-scroll",
+      "dataview-skeleton",
       "dataview-toolbar",
       "dataview-toolbar-actions",
       "dataview-toolbar-count",
