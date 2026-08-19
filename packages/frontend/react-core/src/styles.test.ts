@@ -255,9 +255,16 @@ describe("cascade structure", () => {
     );
   });
 
-  it("keys the active layout on the real ARIA state", () => {
-    // Two icon-only controls whose entire job is to say which layout is current, so the rule
-    // saying which one is active is the one rule here that cannot be missing quietly.
+  it("signals the active layout with more than a colour", () => {
+    // Two icon-only controls whose entire job is to say which layout is current, so which one
+    // is pressed cannot be carried by ink alone (SC 1.4.1) and its indicator has to clear 3:1
+    // (SC 1.4.11). Measured over the manifest's per-theme values: the neutral-100 fill against
+    // the band's transparent is 1.09-1.16 across the five themes, nowhere near it; the accent
+    // border is 4.95 at worst against its own fill and 5.75 at worst against the band.
+    //
+    // A text assertion because nothing else can hold it. The baselines DO see the border, but
+    // they cannot say why it is there — re-recording them is one keystroke, and the reason this
+    // rule carries a border rather than only a wash is exactly what a re-record erases.
     //
     // Keyed on aria-pressed rather than a data attribute duplicating it — the
     // [data-terp="tab"][aria-selected="true"] precedent — and the reuse is safe in the strong
@@ -273,8 +280,12 @@ describe("cascade structure", () => {
       '[data-terp="dataview-toolbar-layout"] > [data-terp="iconbutton"][aria-pressed="true"]';
     expect(declaresRuleFor(state, selector), `${selector} must be declared`).toBe(true);
     const at = state.indexOf(selector);
+    const block = state.slice(state.indexOf("{", at) + 1, state.indexOf("}", at));
+    expect(block, "pressed must carry a non-colour signal, not a wash alone").toContain(
+      "border-color: var(--color-fg-accent)",
+    );
     expect(
-      state.slice(state.indexOf("{", at) + 1, state.indexOf("}", at)),
+      block,
       "an inset box-shadow here outranks the shared focus ring in the same layer",
     ).not.toContain("box-shadow");
   });

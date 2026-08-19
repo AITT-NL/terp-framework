@@ -2096,20 +2096,37 @@ button[data-terp="input"][data-placeholder="true"] {
   color: var(--color-fg-accent) !important;
 }
 
-/* Which layout is active. terp.state, and keyed on the real ARIA attribute — the
-   [data-terp="tab"][aria-selected="true"] precedent — and the reuse is safe in the
-   strong sense the breadcrumb case defines: DataViewToolbar is the sole author of
-   aria-pressed on these two elements, setting it from its own layout prop, and no
-   router, wrapper or caller can reach them.
+/* Which layout is active, expressed as more than a wash. terp.state, and keyed on the
+   real ARIA attribute — the [data-terp="tab"][aria-selected="true"] precedent — and the
+   reuse is safe in the strong sense the breadcrumb case defines: DataViewToolbar is the
+   sole author of aria-pressed on these two elements, setting it from its own layout
+   prop, and no router, wrapper or caller can reach them.
 
-   No tie with the shared [data-terp="iconbutton"]:hover rule, and NOT because this
-   one out-specifies it: that rule carries :not([aria-pressed="true"]), so the two
-   selectors are mutually exclusive. Before that guard they were (0,3,0) and (0,4,0)
-   in this same layer with identical values and the !important on the wrong one, so
-   hovering the inactive toggle painted it exactly like the active one. */
+   The border is the whole point of this rule, and it replaces a state that was carried
+   by colour alone. Measured over the manifest's per-theme values: the neutral-100 fill
+   against the band's transparent is 1.10 (light), 1.16 (dark), 1.09 (midnight), 1.12
+   (twilight), 1.12 (contrast) — nowhere near the 3:1 SC 1.4.11 asks of a state
+   indicator — and on two icon-only controls whose entire job is to say which layout is
+   current, an ink difference alone is also SC 1.4.1. The accent border measures 6.12 /
+   4.95 / 6.85 / 5.23 / 8.17 against its own neutral-100 fill and 6.70 / 5.75 / 7.49 /
+   5.87 / 9.14 against the band, so it clears 3:1 on both sides in every theme. It is a
+   NON-TEXT pairing, which token-pairs.json has no section for; recorded here with its
+   numbers until it does.
+
+   Deliberately NOT a box-shadow, and this one is a cascade fact rather than a taste:
+   [data-terp]:focus-visible sets box-shadow in this same layer at (0,2,0) against this
+   rule's (0,3,0), so an inset shadow here would win and a focused active toggle would
+   lose its focus ring.
+
+   No tie with the shared [data-terp="iconbutton"]:hover rule, and NOT because this one
+   out-specifies it: that rule carries :not([aria-pressed="true"]), so the two selectors
+   are mutually exclusive. Before that guard they were (0,3,0) and (0,4,0) in this same
+   layer with identical values and the !important on the wrong one, so hovering the
+   inactive toggle painted it exactly like the active one. */
 [data-terp="dataview-toolbar-layout"] > [data-terp="iconbutton"][aria-pressed="true"] {
   background: var(--color-neutral-100);
-  color: var(--color-neutral-900);
+  border-color: var(--color-fg-accent);
+  color: var(--color-fg-accent);
 }
 
 /* Breadcrumb links -------------------------------------------------------- */
