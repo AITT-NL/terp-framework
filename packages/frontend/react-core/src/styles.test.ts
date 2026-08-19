@@ -86,6 +86,31 @@ describe("cascade structure", () => {
     expect(css.indexOf("@layer terp.reset, terp.base")).toBeLessThan(css.indexOf("@layer terp.base {"));
   });
 
+  it("gives the focus ring an opaque colour, not a transparent outline", () => {
+    // SC 1.4.11 asks 3:1 of a focus indicator. The ring used to declare a TRANSPARENT
+    // outline, which left a translucent box-shadow as the whole visible indicator — and a
+    // translucent shadow's effective colour is its alpha blend over the surface behind it.
+    // Blended, it measured 1.67 in light and never better than 2.73 in any theme but
+    // contrast, so four of five shipped palettes failed on every focusable component.
+    //
+    // A text assertion because nothing else can hold it: the baselines capture the resting
+    // state, axe does not evaluate focus indicators, and the keyboard lane is about where
+    // focus goes. Mutating the colour back to transparent must fail here.
+    const state = layerBody("terp.state");
+    const at = state.indexOf("[data-terp]:focus-visible");
+    expect(at).toBeGreaterThan(-1);
+    const block = state.slice(state.indexOf("{", at) + 1, state.indexOf("}", at));
+    expect(block, "the focus ring's outline must carry a colour").toContain(
+      "outline: 2px solid var(--color-fg-accent)",
+    );
+    expect(block, "a transparent outline leaves only a translucent shadow").not.toContain(
+      "solid transparent",
+    );
+    // And the halo stays, because it is what makes the indicator legible against a busy
+    // surface rather than a hairline on it.
+    expect(block).toContain("box-shadow: 0 0 0 3px var(--color-focus-ring)");
+  });
+
   it("keeps the shared focus ring in terp.state, not terp.base", () => {
     // The ring and [data-terp="button"][data-variant="primary"] both weigh (0,2,0), so in a
     // single layer the later rule wins — and the ring is declared first. In terp.base the

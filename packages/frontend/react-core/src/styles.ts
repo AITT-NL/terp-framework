@@ -1669,8 +1669,46 @@ button[data-terp="input"][data-placeholder="true"] {
    declared first: the primary button's resting shadow would suppress the ring
    entirely. The layer is what makes the ring independent of where either rule
    happens to sit in this file. */
+/* The ring had no opaque part. The outline was transparent — present only so
+   forced-colors mode has an outline to force — which left a translucent
+   box-shadow as the entire visible indicator, and a translucent shadow's real
+   colour is its alpha blend over whatever sits behind it. Measured that way,
+   against neutral-0 and neutral-50, it reaches 1.67 / 1.65 in light, 2.30 / 2.43
+   in dark, 2.51 / 2.59 in twilight and 2.73 / 2.68 in midnight. WCAG 2.1 SC
+   1.4.11 asks 3:1 of a focus indicator, so four of the five shipped themes failed
+   it on every focusable component in the package — and on many of them the ring
+   REPLACED a user-agent outline that did meet it, because this rule sets outline
+   at all.
+
+   The outline now carries the colour and the shadow stays as its halo.
+   --color-fg-accent is 6.70 / 6.41 light, 5.75 / 7.02 dark, 7.49 / 8.13
+   midnight, 5.87 / 6.53 twilight, 9.14 contrast — never below 5.75. The offset
+   keeps a 1px gap of surface between the element's own edge and the outline, so
+   the indicator's adjacent colour is the surface rather than the control's fill,
+   which is what makes one accent value safe on a filled button and on a bare
+   input alike.
+
+   Which lane saw it is worth recording, because the first answer was wrong. axe
+   does not evaluate focus indicators and the keyboard lane asserts where focus
+   GOES rather than what it paints — but SEVEN baselines moved on this change, and
+   they are the visual proof of it: every specimen that renders a control focused
+   on mount (both date pickers, three open menus, and both confirm dialogs) paints
+   the ring at rest. What no lane covers is the ring on a control focused by an
+   actual keystroke, which is every other component in the package, so the text
+   assertion below is still the general gate.
+
+   One detail fell out of that, and it is the useful half: the view-options panel
+   did NOT move. Popover focuses the panel container, which carries tabIndex -1,
+   and a programmatically focused non-interactive container does not match
+   :focus-visible — while a programmatically focused BUTTON does. So the
+   often-repeated shorthand that programmatic focus never matches :focus-visible is
+   too coarse to plan a specimen with.
+
+   The arithmetic is recorded here rather than as a test because token-pairs.json
+   carries TEXT pairings only — a non-text pairing section is the real home for it
+   and is deferred deliberately rather than bolted on. */
 [data-terp]:focus-visible {
-  outline: 2px solid transparent;
+  outline: 2px solid var(--color-fg-accent);
   outline-offset: 1px;
   box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
