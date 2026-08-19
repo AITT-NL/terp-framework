@@ -1006,6 +1006,26 @@ is NOT derivable from the variable's name or type, so the manifest records it:
 
 `env-seams` refuses a "resolvedBy": "container" variable whose value is a loopback host.
 
+THE MANIFEST'S OWN SHAPE (Studio fails closed on the WHOLE file)
+
+Studio's reader refuses the entire manifest on the first defect -- every declared
+variable, the app's secrets included, then disappears from the environment form and is
+never rendered into .app.env. One over-long `description` costs the app its whole
+configuration, so `env-seams` checks the shape first and reports every defect at once:
+
+  - `"type": "object"`, `properties` an object, `required` a list of declared names.
+  - at most 50 variables.
+  - names match ^[A-Z][A-Z0-9_]{0,63}$; platform-owned names and VITE_* are refused.
+  - type/title/description/format/group/resolvedBy are STRINGS OF AT MOST 500 CHARACTERS.
+    This is the one an authoring agent walks into: a description that explains the
+    variable well is easily longer than that. Write the long version in AGENTS.md or the
+    code, and keep the manifest's to a sentence or two.
+  - resolvedBy is one of host | container | browser.
+  - enum is a list of at most 50 strings of at most 200 characters each.
+
+Unknown fields are dropped rather than refused, so anything outside that set is not
+carried to Studio -- do not encode meaning in one.
+
 WHEN A FEATURE ADDS A VARIABLE
 
 1. Declare it in environment.schema.json (UPPER_SNAKE; `"format": "secret"` for tokens,
