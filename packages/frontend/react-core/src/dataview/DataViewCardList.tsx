@@ -1,7 +1,6 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import type { BadgeTone } from "../ui/Badge";
-import { toneSoftColors } from "../ui/Badge";
 import type { UiText } from "../uiText";
 
 import { DataViewExpandToggle } from "./DataViewExpandableRow";
@@ -30,18 +29,6 @@ export interface DataViewCardListProps<T> {
   rowActions?: (row: T) => DataViewRowAction<T>[];
 }
 
-const recordButtonStyle: CSSProperties = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-  border: 0,
-};
-
 function slotValue<T>(
   columns: DataViewColumn<T>[],
   row: T,
@@ -68,7 +55,7 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
   const { strings, resolve, format } = useDataViewText();
 
   return (
-    <ul style={{ listStyle: "none", margin: 0, padding: "var(--space-2)", display: "grid", gap: "var(--space-2)" }}>
+    <ul data-terp="dataview-card-list">
       {props.rows.map((row) => {
         const rowId = props.getRowId(row);
         const expanded = props.isExpanded(rowId);
@@ -78,18 +65,9 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
           <li key={rowId}>
             <div
               onClick={clickable ? () => props.onRowClick?.(row) : undefined}
-              data-terp={clickable ? "dataview-card" : undefined}
+              data-terp="dataview-card"
+              data-clickable={clickable || undefined}
               data-tone={tone ?? undefined}
-              style={{
-                display: "grid",
-                gap: "var(--space-2)",
-                padding: "var(--space-3)",
-                background: tone !== null ? toneSoftColors[tone] : "var(--color-neutral-0)",
-                border: "1px solid var(--color-neutral-200)",
-                borderRadius: "var(--radius-lg)",
-                boxShadow: "var(--shadow-sm)",
-                cursor: clickable ? "pointer" : undefined,
-              }}
             >
               {clickable && (
                 <button
@@ -102,10 +80,9 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
                     event.stopPropagation();
                     props.onRowClick?.(row);
                   }}
-                  style={recordButtonStyle}
                 />
               )}
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-2)" }}>
+              <div data-terp="dataview-card-main">
                 {props.renderExpanded !== undefined && (
                   <DataViewExpandToggle
                     expanded={expanded}
@@ -113,7 +90,7 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
                   />
                 )}
                 {props.selectionEnabled && (
-                  <span onClick={(event) => event.stopPropagation()} style={{ display: "inline-flex" }}>
+                  <span onClick={(event) => event.stopPropagation()}>
                     <input
                       type="checkbox"
                       aria-label={resolve(strings.selectRow)}
@@ -122,7 +99,7 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
                     />
                   </span>
                 )}
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <div data-terp="dataview-card-body">
                   {props.renderCard !== undefined ? (
                     props.renderCard(row)
                   ) : (
@@ -139,12 +116,7 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
                 )}
               </div>
               {expanded && props.renderExpanded !== undefined && (
-                <div
-                  style={{
-                    borderTop: "1px solid var(--color-neutral-200)",
-                    paddingTop: "var(--space-2)",
-                  }}
-                >
+                <div data-terp="dataview-card-expanded">
                   {props.renderExpanded(row)}
                 </div>
               )}
@@ -162,33 +134,15 @@ function DefaultCardBody<T>({ row, columns }: { row: T; columns: DataViewColumn<
   const status = slotValue(columns, row, "status");
   const date = slotValue(columns, row, "date");
   return (
-    <div style={{ display: "grid", gap: "var(--space-1)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
-        <span style={{ fontWeight: "var(--font-weight-medium)" as never }}>{title}</span>
+    <div data-terp="dataview-card-fields">
+      <div data-terp="dataview-card-heading">
+        <span data-terp="dataview-card-title">{title}</span>
         {status !== null && (
-          <span
-            style={{
-              fontSize: "var(--font-size-sm)",
-              padding: "0 var(--space-2)",
-              background: "var(--color-neutral-100)",
-              borderRadius: "var(--radius-full)",
-              color: "var(--color-neutral-700)",
-            }}
-          >
-            {status}
-          </span>
+          <span data-terp="dataview-card-status">{status}</span>
         )}
       </div>
-      {subtitle !== null && (
-        <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-neutral-500)" }}>
-          {subtitle}
-        </span>
-      )}
-      {date !== null && (
-        <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-neutral-500)" }}>
-          {date}
-        </span>
-      )}
+      {subtitle !== null && <span data-terp="dataview-card-meta">{subtitle}</span>}
+      {date !== null && <span data-terp="dataview-card-meta">{date}</span>}
     </div>
   );
 }

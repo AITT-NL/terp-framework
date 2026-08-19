@@ -683,6 +683,115 @@ th[data-terp="dataview-actions-cell"] > span {
   border: 0;
 }
 
+/* DataView: the card layout ------------------------------------------------ */
+/* The responsive stand-in for a row, so it reads the same cell-padding tokens:
+   a card IS the row's padding, and having compact tighten the table while
+   leaving the cards alone would make the attribute mean two things. */
+[data-terp="dataview-card-list"] {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  display: grid;
+  gap: var(--space-2);
+}
+[data-terp="dataview-card"] {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--density-cell-pad-y) var(--density-cell-pad-x);
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+[data-terp="dataview-card"][data-clickable="true"] {
+  cursor: pointer;
+}
+/* Tone outranks the resting surface on specificity alone — two attributes
+   against one — so unlike the row's selection tint this needs no :not() and no
+   source-order dependency. A card has no selected surface to compete with: the
+   checkbox is the whole signal in card view. */
+[data-terp="dataview-card"][data-tone="neutral"] {
+  background: var(--color-neutral-100);
+}
+[data-terp="dataview-card"][data-tone="info"] {
+  background: var(--color-status-info-soft);
+}
+[data-terp="dataview-card"][data-tone="success"] {
+  background: var(--color-status-success-soft);
+}
+[data-terp="dataview-card"][data-tone="warning"] {
+  background: var(--color-status-warning-soft);
+}
+[data-terp="dataview-card"][data-tone="danger"] {
+  background: var(--color-status-danger-soft);
+}
+[data-terp="dataview-card-main"] {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+/* The two inline-flex wrappers in the card head: the one stopping click
+   propagation around the checkbox, and the row-actions cluster. Addressed
+   structurally because that is all they are — a span whose only job is to be a
+   box, in a place where only those two spans sit. */
+[data-terp="dataview-card-main"] > span {
+  display: inline-flex;
+}
+[data-terp="dataview-card-body"] {
+  flex: 1;
+  min-width: 0;
+}
+[data-terp="dataview-card-expanded"] {
+  border-block-start: 1px solid var(--color-neutral-200);
+  padding-block-start: var(--space-2);
+}
+/* The auto-composed body: what the columns' mobileSlot meta produces when the
+   caller supplies no renderCard. */
+[data-terp="dataview-card-fields"] {
+  display: grid;
+  gap: var(--space-1);
+}
+[data-terp="dataview-card-heading"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+[data-terp="dataview-card-title"] {
+  font-weight: var(--font-weight-medium);
+}
+[data-terp="dataview-card-status"] {
+  font-size: var(--font-size-sm);
+  padding: 0 var(--space-2);
+  background: var(--color-neutral-100);
+  border-radius: var(--radius-full);
+  color: var(--color-neutral-700);
+}
+/* Subtitle and date share one name because they share every declaration. Two
+   markers would suggest the sheet distinguishes them, and it does not.
+
+   The ink is --color-fg-muted rather than --color-neutral-500, and that is a
+   contrast fix rather than a preference for the semantic layer. A card's
+   background is whichever soft tone getRowTone returned, and neutral-500 fails
+   WCAG AA against four of the six surfaces this text can land on: measured,
+   light neutral-100 4.34, light info-soft 4.46, light danger-soft 4.35 and
+   midnight info-soft 4.12. fg-muted is 6.10 at its worst across all five
+   themes, and carries the same value as --color-neutral-600 in every one of
+   them, so this costs nothing but the name.
+
+   Worth knowing HOW that was found, because the lesson is about the lane rather
+   than the colour. This layout had no specimen at all, so the pairing had never
+   been rendered for axe to measure; the first card specimen failed immediately.
+   And axe reported exactly ONE of the four failures — the light danger-soft one
+   — because the specimen paints the danger and warning tones and midnight's two
+   failures are on info and success. Fixing what axe named would have left three
+   real failures standing behind tones no specimen renders, which is why the fix
+   is the token and why all five tone washes are now declared pairings. */
+[data-terp="dataview-card-meta"] {
+  font-size: var(--font-size-sm);
+  color: var(--color-fg-muted);
+}
+
 /* Empty / error / loading states ------------------------------------------- */
 /* Same centred block, opposite messages: empty is a dashed outline on the page
    surface because nothing is wrong, error is a filled danger wash because
@@ -1613,10 +1722,19 @@ button[data-terp="input"][data-placeholder="true"] {
    static tree, and the keyboard lane is about where focus GOES rather than what it
    paints. So it is pinned from both ends instead: styles.test.ts asserts the guard
    is on this selector, and a unit test asserts a non-clickable row claims no
-   data-clickable for it to match. */
+   data-clickable for it to match.
+
+   The !important is GONE, and the condition was this rule's last inline consumer
+   rather than its first. The two halves were never in the same state: the row half
+   had nothing to out-shout — a body cell declares no background — while the card
+   half faced DataViewCardList's inline background on the very element it matches.
+   Both halves now take their surface from this sheet, so terp.state's layer order
+   is enough, and the card's tone rules lose to it on layer rather than on
+   specificity. Keeping the escalation past this point is the quiet failure: nothing
+   would render differently, the declaration would simply become unthemeable. */
 [data-terp="dataview-row"][data-clickable="true"]:focus-within td,
 [data-terp="dataview-card"]:focus-within {
-  background: var(--color-brand-primary-soft) !important;
+  background: var(--color-brand-primary-soft);
 }
 
 /* Combobox options. data-active is the roving keyboard/pointer highlight, which

@@ -16,13 +16,13 @@ npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
 
-63 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (315
-axe runs across five palettes); the screenshots cover the **two default** themes (126
+65 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (325
+axe runs across five palettes); the screenshots cover the **two default** themes (130
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, one that the contrast allowance list has not grown a new theme, and a
-three-test keyboard lane for the one thing neither of the others can see. **446 checks.**
+three-test keyboard lane for the one thing neither of the others can see. **460 checks.**
 
-One of those 63 earns a note, because it is the only specimen whose subject is a token
+One of those 65 earns a note, because it is the only specimen whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's
 `:root` value, so every other DataView specimen renders identical geometry whether the
 density tokens are read or hardcoded — which is exactly how four of them came to be
@@ -157,6 +157,17 @@ is the same footing the rest of the set stands on.
 order. An address that fully determines the render is the whole trick. The theme names come
 from the contract's published token manifest (`src/themes.ts`), so a theme added there is
 renderable here with no edit to this app.
+
+Two of them earn a different note, about what a MISSING specimen costs. The card layout
+had none — the switch is internal state, driven by a media query at 768px or a toolbar
+click, and the viewport is pinned at 1280 — so a pairing it renders had never been
+measured by anything. The first card specimen failed `color-contrast` immediately, on
+muted card text over a status-toned card, a defect that had shipped since the layout
+existed. Note what axe could and could not do with it: it named **one** of the four
+theme/tone combinations that fail, because a specimen renders two tones and the other
+two failures live in tones it does not paint. Fixing what axe named would have left
+three real failures standing. So the sub-components are rendered directly, at fixed
+props — they are all exported — rather than by growing test-only props on `DataView`.
 
 **Six specimens sit behind the auth seam** — four components' worth (`UserMenu`,
 `ProfileView`, `ResourceList`'s write gate, `LoginView`), with `UserMenu` and `ResourceList`

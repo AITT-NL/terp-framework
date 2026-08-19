@@ -1304,6 +1304,41 @@
       "fg": "--color-sidebar-muted",
       "bg": "--color-sidebar-bg",
       "layer": "semantic"
+    },
+    {
+      "id": "muted-on-tone-neutral",
+      "label": "muted text on a neutral-toned row or card",
+      "fg": "--color-fg-muted",
+      "bg": "--color-neutral-100",
+      "layer": "semantic"
+    },
+    {
+      "id": "muted-on-tone-info",
+      "label": "muted text on an info-toned row or card",
+      "fg": "--color-fg-muted",
+      "bg": "--color-status-info-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "muted-on-tone-success",
+      "label": "muted text on a success-toned row or card",
+      "fg": "--color-fg-muted",
+      "bg": "--color-status-success-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "muted-on-tone-warning",
+      "label": "muted text on a warning-toned row or card",
+      "fg": "--color-fg-muted",
+      "bg": "--color-status-warning-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "muted-on-tone-danger",
+      "label": "muted text on a danger-toned row or card",
+      "fg": "--color-fg-muted",
+      "bg": "--color-status-danger-soft",
+      "layer": "semantic"
     }
   ]
 }

@@ -131,9 +131,6 @@ describe("cascade structure", () => {
       ['[data-terp="hubcard"]:hover [data-terp="hubcard-body"]', "HubPage cardBodyStyle border"],
       // The card title's colour and transition are inline (titleTextStyle).
       ['[data-terp="hubcard"]:hover [data-terp="hubcard-title"]', "HubPage titleTextStyle colour"],
-      // Shared by two selectors and only one has a live consumer — the card's background is
-      // inline in DataViewCardList, the table cell's is not. The textbook per-consumer case.
-      ['[data-terp="dataview-card"]:focus-within', "DataViewCardList inline background"],
     ] as const) {
       const at = state.indexOf(rule);
       expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
@@ -230,6 +227,13 @@ describe("cascade structure", () => {
       // The brand link declares no inline background — brandLinkStyle sets colour, radius and
       // box-sizing and nothing else — so this rule never had anything to out-shout.
       '[data-terp="appshell-brand"]:hover',
+      // The textbook per-consumer case, in both directions. This selector has two halves
+      // and they were never in the same state: the row half had nothing to out-shout,
+      // because a body cell declares no background, while the card half faced
+      // DataViewCardList's inline background on the element it matches. The escalation
+      // came off when the card migrated, which is the LAST of the two rather than the
+      // first — and the card's tone rules now lose to it on layer instead.
+      '[data-terp="dataview-card"]:focus-within',
     ]) {
       const at = state.indexOf(rule);
       expect(at, `${rule} should still be declared`).toBeGreaterThan(-1);
@@ -284,9 +288,10 @@ describe("cascade structure", () => {
     // UNTHEMEABLE — there is no author-side override at all. That is why the count is the
     // phase's measurable and why retiring one is a feature rather than tidying.
     expect(css).toContain("@layer terp.reset, terp.base, terp.state, terp.motion;");
-    // Nine left, every one of them named in the must-keep list above with its inline consumer.
+    // Eight left, every one of them named in the must-keep list above with its inline
+    // consumer. The ninth retired with DataViewCardList.
     const declarations = css.split("!important").length - 1;
-    expect(declarations).toBe(9);
+    expect(declarations).toBe(8);
   });
 
   it("declares a rule for every DataView surface reached structurally", () => {
@@ -313,6 +318,7 @@ describe("cascade structure", () => {
       'th[data-terp="dataview-actions-cell"]',
       'td[data-terp="dataview-actions-cell"]',
       'th[data-terp="dataview-actions-cell"] > span',
+      '[data-terp="dataview-card-main"] > span',
     ]) {
       expect(
         declaresRuleFor(base, selector),
@@ -325,6 +331,10 @@ describe("cascade structure", () => {
       expect(
         declaresRuleFor(base, `[data-terp="dataview-row"][data-tone="${tone}"]`),
         `row tone ${tone} has no rule`,
+      ).toBe(true);
+      expect(
+        declaresRuleFor(base, `[data-terp="dataview-card"][data-tone="${tone}"]`),
+        `card tone ${tone} has no rule`,
       ).toBe(true);
     }
     // The selection tint must stay guarded against a toned row. Both weigh (0,2,0) without
@@ -453,6 +463,16 @@ describe("cascade structure", () => {
       "dataview-column-sort",
       "dataview-column-resizer",
       "dataview-row-open",
+      "dataview-card",
+      "dataview-card-list",
+      "dataview-card-main",
+      "dataview-card-body",
+      "dataview-card-expanded",
+      "dataview-card-fields",
+      "dataview-card-heading",
+      "dataview-card-title",
+      "dataview-card-status",
+      "dataview-card-meta",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

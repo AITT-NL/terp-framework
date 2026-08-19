@@ -9,6 +9,7 @@ import {
   Combobox,
   ConfirmDialog,
   DataView,
+  DataViewCardList,
   DatePicker,
   DateRangePicker,
   DetailList,
@@ -173,14 +174,23 @@ const SYNC_TONES: Record<SyncRow["status"], BadgeTone> = {
 };
 
 const SYNC_COLUMNS: DataViewColumn<SyncRow>[] = [
-  { id: "name", header: "Name", accessor: (row) => row.name },
+  // The mobileSlot meta is what the card layout composes a default card from; without it
+  // DefaultCardBody renders an empty card, which is why the card specimens below could
+  // not have existed before it. It changes no table specimen: nothing else reads it.
+  { id: "name", header: "Name", accessor: (row) => row.name, meta: { mobileSlot: "title" } },
   {
     id: "status",
     header: "Status",
     accessor: (row) => row.status,
     cell: (row) => <Badge tone={SYNC_TONES[row.status]} label={row.status} />,
+    meta: { mobileSlot: "status" },
   },
-  { id: "rows", header: "Rows", accessor: (row) => row.rows },
+  {
+    id: "rows",
+    header: "Rows",
+    accessor: (row) => row.rows,
+    meta: { mobileSlot: "subtitle" },
+  },
 ];
 
 const syncRepositoryOptions = {
@@ -720,6 +730,51 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             repository={SYNC_REPOSITORY}
             columns={SYNC_COLUMNS}
             getRowTone={(row) => (row.status === "ok" ? null : SYNC_TONES[row.status])}
+          />
+        ),
+      },
+      {
+        // The card layout renders in NO composed DataView specimen and cannot: the switch is
+        // internal state, driven by a media query at 768px or by a toolbar click, and the
+        // viewport is pinned at 1280. DataViewCardList is exported, so the specimen renders it
+        // directly at fixed props — which is also how the two portalled menus and the expanded
+        // row get their specimens, rather than by growing test-only props on DataView.
+        id: "dataview-cards",
+        title: "DataView — card layout, tones and selection",
+        node: (
+          <DataViewCardList
+            rows={SYNC_ROWS}
+            columns={SYNC_COLUMNS}
+            getRowId={(row) => row.id}
+            getRowLabel={(row) => row.name}
+            onRowClick={() => {}}
+            getRowTone={(row) => (row.status === "ok" ? null : SYNC_TONES[row.status])}
+            selectionEnabled
+            isSelected={(id) => id === "s1"}
+            onToggleSelected={() => {}}
+            isExpanded={() => false}
+            onToggleExpanded={() => {}}
+            rowActions={() => [{ label: "Retry", onClick: () => {} }]}
+          />
+        ),
+      },
+      {
+        // Separate from the cards above so an expansion change cannot mask a card change, and
+        // because the expand toggle only renders when renderExpanded is supplied. One row open
+        // and one shut, so both chevron states are in the same shot.
+        id: "dataview-cards-expanded",
+        title: "DataView — card layout, one row expanded",
+        node: (
+          <DataViewCardList
+            rows={SYNC_ROWS.slice(0, 2)}
+            columns={SYNC_COLUMNS}
+            getRowId={(row) => row.id}
+            isSelected={() => false}
+            onToggleSelected={() => {}}
+            selectionEnabled={false}
+            renderExpanded={(row) => <span>Last synced {row.rows} rows.</span>}
+            isExpanded={(id) => id === "s2"}
+            onToggleExpanded={() => {}}
           />
         ),
       },
