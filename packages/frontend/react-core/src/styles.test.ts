@@ -141,7 +141,7 @@ describe("cascade structure", () => {
     // baselines capture the resting state and axe does not evaluate hover.
     const state = layerBody("terp.state");
     for (const [rule, consumer] of [
-      // Two of the ELEVEN elements wearing this marker still declare background and colour
+      // Two of the THIRTEEN sites wearing this marker still declare background and colour
       // inline, and they are AppShell's header toggles (toggleStyle). The marker has no
       // shared surface rule, only a transition.
       ['[data-terp="iconbutton"]:hover', "AppShell toggleStyle background and colour"],
@@ -168,6 +168,36 @@ describe("cascade structure", () => {
     // selector in the block matches it and a reduced-motion user still sees the rail animate.
     // The sheet's own comment says so; this one used to claim otherwise.
     expect(layerBody("terp.motion")).toContain("transition: none !important");
+  });
+
+  it("keeps the shared icon-button hover from impersonating a pressed toggle", () => {
+    // This rule shouts, because AppShell's toggleStyle declares background and colour inline
+    // on the shell's two header toggles and nothing but !important reaches a style attribute.
+    // Its two values are byte-identical to the PRESSED look of the DataView toolbar's layout
+    // toggles, which wear the same marker — so unguarded, hovering an inactive toggle paints it
+    // exactly like the active one, and the toggle group's only job is to say which layout is
+    // current.
+    //
+    // What makes that unrecoverable rather than merely wrong is the escalation. For important
+    // declarations the layer order reverses and unlayered styles sort last, so no author rule
+    // at any specificity — including an app's theme.css — can put the inactive colour back. The
+    // fix is therefore a guard on the rule and not an override anywhere else.
+    //
+    // Invisible to all three lanes: the baselines capture the resting state, axe reads a static
+    // tree, and the keyboard lane asserts where focus goes rather than what it paints.
+    const state = layerBody("terp.state");
+    const at = state.indexOf('[data-terp="iconbutton"]:hover');
+    expect(at, "the shared icon-button hover should still be declared").toBeGreaterThan(-1);
+    expect(
+      state.slice(at, state.indexOf("{", at)),
+      "an !important hover must not reach a pressed toggle",
+    ).toContain(':not([aria-pressed="true"])');
+    // And the precedent it copies, verbatim, so deleting either guard is one failure and not
+    // two independent ones nobody connects.
+    expect(
+      state,
+      "the tab precedent this guard is modelled on must stay in the sheet",
+    ).toContain('[data-terp="tab"]:hover:not(:disabled):not([aria-selected="true"])');
   });
 
   it("keeps the focus-within tint scoped to rows something will actually open", () => {
@@ -258,12 +288,12 @@ describe("cascade structure", () => {
       // first — and the card's tone rules now lose to it on layer instead.
       '[data-terp="dataview-card"]:focus-within',
       // Re-derived rather than assumed, because the condition is not "has something
-      // migrated" but "can any element this selector matches still beat it". Of the eleven
-      // elements wearing the iconbutton marker, only the four pagination arrows can carry
-      // the disabled attribute at all — the shell's toggles, the toast dismisser, the
-      // combobox's clear button, the calendar's month arrows and the expand toggle have no
-      // disabled state — and they set cursor inline until they migrated. The day a calendar
-      // arrow gains a min/max bound, this answer changes back.
+      // migrated" but "can any element this selector matches still beat it". Of the thirteen
+      // sites wearing the iconbutton marker, only the four pagination arrows and the two
+      // reorder arrows can carry the disabled attribute at all — the shell's toggles, the
+      // toast dismisser, the combobox's clear button, the calendar's month arrows and the
+      // expand toggle have no disabled state — and each set cursor inline until it migrated.
+      // The day a calendar arrow gains a min/max bound, this answer changes back.
       '[data-terp="iconbutton"]:disabled',
     ]) {
       const at = state.indexOf(rule);

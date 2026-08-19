@@ -1602,7 +1602,7 @@ button[data-terp="input"][data-placeholder="true"] {
   margin-block-start: var(--space-2);
 }
 
-/* Icon-only buttons. Ten elements wear this marker and not one declares a
+/* Icon-only buttons. Thirteen elements wear this marker and not one declares a
    transition inline, so this belongs in terp.base — it sat in terp.state only
    because that is where the hover rules needing it live. Same correction 817f572
    made for Tabs and Breadcrumbs. */
@@ -1737,16 +1737,40 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 /* Icon-only buttons: the shell's two header toggles, four pagination arrows, the
-   toast dismisser, the combobox's clear button, the calendar's two month arrows
-   and the DataView's expand toggle. Eleven elements sharing a transition and
-   nothing else — no shared SURFACE, because each is styled by where it sits. The
-   list matters because the escalations here retire per consumer, and an
-   incomplete list is the input a future reader uses to decide whether one can
-   come off.
+   toast dismisser, the combobox's clear button, the calendar's two month arrows,
+   the DataView's expand toggle and the view-options panel's two reorder arrows.
+   Thirteen SITES sharing a transition and nothing else — no shared SURFACE,
+   because each is styled by where it sits. Sites rather than elements, and the
+   distinction is new: the reorder arrows render twice per column row, so the
+   element count is a function of how many columns a view has, while the list of
+   places to check is fixed. The list matters because the escalations here retire
+   per consumer, and an incomplete list is the input a future reader uses to
+   decide whether one can come off.
 
    The hover pair still has to shout, and exactly one component is why: AppShell's
    toggleStyle declares background and colour inline on both header toggles, and
    nothing but !important reaches a style attribute. They come off with the shell.
+
+   The :not([aria-pressed="true"]) on that pair is not defensive, and it is what
+   makes shouting here safe. This marker is worn by toggles whose PRESSED look is
+   byte-identical to these two values, so unguarded an !important hover paints an
+   inactive toggle exactly like the active one — and because the declaration is
+   both layered and important, nothing could restore it: not a higher-specificity
+   author rule, not a later one, not an app's unlayered theme.css, which for
+   important declarations sorts BELOW every layer. The guard makes the two rules
+   mutually exclusive rather than merely equal-valued; without it they weigh
+   (0,3,0) against (0,4,0) in one layer with the !important on the wrong one, and
+   are benign only by coincidence of values. Same shape as
+   [data-terp="tab"]:hover:not(:disabled):not([aria-selected="true"]).
+
+   Safe by enumeration rather than by hope: aria-pressed appears at exactly three
+   sites in the whole package, none of them a header toggle, a pager arrow, a month
+   arrow, a reorder arrow, a toast dismisser or a combobox clear button — so every
+   element wearing this marker today keeps its hover unchanged. That is why the
+   guard lands here rather than alongside the toggles that need it: folded into a
+   sixteen-site migration it would be one line of a large diff, and a change to a
+   rule reaching seven components across the package should be reviewable as
+   itself.
 
    The :disabled cursor no longer shouts, and re-deriving that is more useful than
    trusting it. The question is never "has anything migrated" but "can any element
@@ -1758,7 +1782,7 @@ button[data-terp="input"][data-placeholder="true"] {
    the four pagination arrows, which were the ONLY consumer, and which set cursor
    in pagerButtonStyle until this commit. So the escalation retired with them, and
    the day a calendar arrow gains a min/max bound the answer changes back. */
-[data-terp="iconbutton"]:hover:not(:disabled) {
+[data-terp="iconbutton"]:hover:not(:disabled):not([aria-pressed="true"]) {
   background: var(--color-neutral-100) !important;
   color: var(--color-neutral-900) !important;
 }
@@ -1922,7 +1946,7 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 /* The pager's disabled ink, scoped rather than added to the shared iconbutton
-   rule above: of the eleven elements wearing that marker only these four can be
+   rule above: of the thirteen sites wearing that marker only these four can be
    disabled at all, and giving the shared rule a colour would change how a
    disabled calendar arrow looks the day one becomes disableable. The shared rule
    supplies the opacity and the cursor; this supplies the ink the pager had
