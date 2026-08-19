@@ -841,9 +841,14 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             layout="inline"
             isMobile={false}
             actions={[
-              { label: "Retry", onClick: () => {} },
+              // The icon and the custom control are not decoration: they are the only things
+              // that render the two structural "> span" rules — an action's leading icon, and
+              // the wrapper around a caller-supplied control. Without them both rules are in
+              // the sheet, asserted by styles.test.ts, and painted by no specimen.
+              { label: "Retry", icon: "↻", onClick: () => {} },
               { label: "Delete", variant: "destructive", onClick: () => {} },
               { label: "Archive", disabled: true, onClick: () => {} },
+              { label: "Custom", render: () => <Badge tone="info" label="custom" /> },
             ]}
           />
         ),
