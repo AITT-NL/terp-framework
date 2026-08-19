@@ -26,9 +26,13 @@ export default defineConfig({
   // Baselines are split by platform on purpose. Font rasterisation and antialiasing differ
   // between Windows and Linux by far more than any tolerance that would still catch a real
   // change, so one shared set means whichever platform did not record it is permanently red.
-  // Each platform records and compares its own. Only the win32 set is recorded today, so
-  // the screenshot lane is local-only: CI runs the a11y lane (which needs no baseline) and
-  // will run this one once a linux set is recorded on the runner.
+  // Each platform records and compares its own. Both sets are recorded now: win32 from a
+  // developer machine, linux from `mcr.microsoft.com/playwright:v1.62.0-noble`. CI runs the
+  // screenshot lane inside that same image rather than on the bare runner, because a bare
+  // runner shares Ubuntu's kernel but not its font packages, and fonts are the whole reason
+  // these sets are split. The image tag tracks the version pinned in package-lock.json:
+  // bumping Playwright without bumping the tag records against one browser and compares
+  // against another.
   snapshotPathTemplate: "{testDir}/__screenshots__/{platform}/{arg}{ext}",
   use: {
     baseURL: `http://localhost:${PORT}`,

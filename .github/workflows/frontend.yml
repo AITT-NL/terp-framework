@@ -106,19 +106,25 @@ jobs:
       # moved out of `style={}` and into the injected sheet, so the unit tests no longer
       # assert paint and the rendered result is what has to be checked. It ran nowhere in CI.
       #
-      # Two of the three lanes run here, and the dividing line is whether a lane needs a
-      # recorded baseline. The accessibility lane runs in full — axe over every specimen in
-      # all five themes — and is what holds both contrast ratchets at empty. The keyboard lane
-      # runs for the same reason: it asserts where focus goes after a keystroke, which is a
-      # behaviour rather than a picture, so there is nothing platform-specific to record. It
-      # also covers the one repair in this area that a unit test cannot gate, since the failure
-      # depends on the browser moving focus to <body> when the focused node is removed and jsdom
-      # does not.
+      # All three lanes run here. The accessibility lane runs in full — axe over every
+      # specimen in all five themes — and is what holds both contrast ratchets at empty. The
+      # keyboard lane asserts where focus goes after a keystroke, which is a behaviour rather
+      # than a picture, so there is nothing platform-specific to record. It also covers the one
+      # repair in this area that a unit test cannot gate, since the failure depends on the
+      # browser moving focus to <body> when the focused node is removed and jsdom does not.
       #
-      # The screenshot lane does NOT run yet: baselines are split by platform because font
-      # rasterisation differs by more than any useful tolerance, and only the win32 set is
-      # recorded. Adding `visual/specimens.spec.ts` here needs a linux set recorded first,
-      # which has to happen on this runner.
+      # The screenshot lane is the one with a recorded baseline, and it runs in a container
+      # rather than on the runner directly. Baselines are split by platform because font
+      # rasterisation differs by more than any useful tolerance is worth; the `linux` set was
+      # recorded in `mcr.microsoft.com/playwright:v1.62.0-noble`, and this runner shares
+      # Ubuntu's kernel with that image but not its font packages. Comparing outside the image
+      # that recorded would reduce the lane to noise on its first run. `node_modules` comes
+      # from the `npm ci` above and is already linux-native, so the mount needs no second
+      # install.
+      #
+      # The image tag must track the Playwright version in package-lock.json. A mismatch
+      # presents as every baseline failing at once, and the instinct that provokes is to
+      # re-record — which would bury it.
       - name: Type-check the component workbench
         run: npm run -w terp-workbench typecheck
 
@@ -132,3 +138,7 @@ jobs:
       - name: Keyboard — where focus goes, which no baseline and no static tree can say
         working-directory: apps/workbench
         run: npx playwright test visual/keyboard.spec.ts --reporter=line
+
+      - name: Screenshots — every specimen against the committed linux baselines
+        run: |
+          docker run --rm --ipc=host             -v "$PWD":/work -w /work/apps/workbench             mcr.microsoft.com/playwright:v1.62.0-noble             npx playwright test visual/specimens.spec.ts --reporter=line

@@ -214,12 +214,23 @@ rasterisation and antialiasing differ between Windows and Linux by far more than
 tolerance that would still catch a real change, so a single shared set leaves whichever
 platform did not record it permanently red. Each platform records and compares its own.
 
-Only the `win32` set is recorded today, which makes the screenshot lane **local-only**. CI
-(`.github/workflows/frontend.yml`) runs the workbench typecheck and the accessibility lane —
-axe needs no recorded baseline — and picks up the screenshot lane once a `linux` set is
-recorded on the runner. Until then, a component migration's zero-diff evidence is something
-a human produced locally, and the write-up should say so rather than implying a gate caught
-it.
+Both sets are recorded, so all three lanes run in CI (`.github/workflows/frontend.yml`).
+The `win32` set comes from a developer machine; the `linux` set was recorded in
+`mcr.microsoft.com/playwright:v1.62.0-noble`, and CI runs the screenshot lane **inside that
+same image** rather than on the bare runner. That last part is the load-bearing half: a
+GitHub runner shares Ubuntu's kernel with the image but not its font packages, and fonts are
+the entire reason the sets are split in the first place. Comparing in the environment that
+recorded is what makes the lane reproducible instead of hopeful.
+
+The image tag tracks the Playwright version pinned in `package-lock.json`. Bumping one
+without the other records against one browser build and compares against another, which
+shows up as every baseline failing at once — a symptom worth recognising, because the
+instinct it provokes is to re-record, and re-recording would bury the mismatch.
+
+Before this, only `win32` was recorded and the lane was local-only, so a component
+migration's zero-diff evidence was something a human produced on one machine. Phase 3's
+fifty commits were gated that way; the `linux` set is what turns the same claim into
+something CI can make.
 
 **Two comparison knobs, both pinned.** `threshold` decides whether a single pixel counts as
 different at all — a normalised YIQ colour distance — and `maxDiffPixels` decides how many
