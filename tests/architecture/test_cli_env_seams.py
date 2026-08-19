@@ -17,16 +17,21 @@ import json
 import pathlib
 import sys
 
+import pytest
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
+from terp.cli.envschema import (  # noqa: E402
+    declared_variables,
+    manifest_findings,
+)
 from terp.cli.envseams import (  # noqa: E402
     _forwards_app_env,
     _is_loopback,
     _read_env_file,
     _service_environment,
-    read_declared_variables,
     env_seam_findings,
     run_env_seams_check,
 )
@@ -252,16 +257,21 @@ def test_an_app_declaring_nothing_passes(tmp_path: pathlib.Path) -> None:
     assert run_env_seams_check(_project(tmp_path, declared={}))[0] == 0
 
 
-def test_an_unparsable_manifest_is_not_this_checks_verdict(
+def test_an_unusable_manifest_is_this_checks_verdict_after_all(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Studio fails the deploy closed on a broken manifest with a directive message.
+    """It used to be Studio's alone, and that put the verdict a deploy away from the edit.
 
-    Turning the app's whole gate red here would report someone else's verdict badly.
+    Studio's reader fails closed on the WHOLE file, so one defect costs the app every
+    declaration it has — and an authoring agent found that out by writing a description
+    longer than 500 characters, watching the gate stay green, and losing the manifest.
     """
     root = _project(tmp_path, declared={})
     (root / "environment.schema.json").write_text("{not json", encoding="utf-8")
-    assert run_env_seams_check(root)[0] == 0
+    exit_code, output = run_env_seams_check(root)
+    assert exit_code == 1
+    assert "is not valid JSON" in output
+    assert "terp guide environment" in output
 
 
 def test_a_clean_app_reports_the_variables_that_do_arrive(
@@ -296,21 +306,21 @@ def test_forwards_app_env_is_false_for_a_non_service() -> None:
 def test_declared_variables_tolerate_a_manifest_that_is_not_usable(
     tmp_path: pathlib.Path,
 ) -> None:
-    """An unusable manifest is the Studio's verdict to give — it fails the deploy closed
-    with a directive message. This check must not turn an app's gate red on a file it
-    merely could not parse."""
-    assert read_declared_variables(tmp_path) == {}
+    """This reader no longer gives the verdict — ``manifest_findings`` does, and
+    ``run_env_seams_check`` reports it first. So it only has to answer "which names does
+    the app mean to declare" without raising on a file the caller has already refused."""
+    assert declared_variables(tmp_path) == {}
 
     (tmp_path / "environment.schema.json").write_text("{ not json", encoding="utf-8")
-    assert read_declared_variables(tmp_path) == {}
+    assert declared_variables(tmp_path) == {}
 
     (tmp_path / "environment.schema.json").write_text('{"properties": []}', encoding="utf-8")
-    assert read_declared_variables(tmp_path) == {}
+    assert declared_variables(tmp_path) == {}
 
     (tmp_path / "environment.schema.json").write_text(
         '{"properties": {"GOOD": {"type": "string"}, "BAD": "not an object"}}', encoding="utf-8"
     )
-    assert list(read_declared_variables(tmp_path)) == ["GOOD"]
+    assert list(declared_variables(tmp_path)) == ["GOOD"]
 
 
 def test_env_file_reading_skips_comments_and_blanks(tmp_path: pathlib.Path) -> None:
@@ -348,7 +358,8 @@ def test_the_report_groups_findings_by_the_file_they_came_from(tmp_path: pathlib
     """Two profiles shadowing the same variable are two findings from two sources. The
     report is grouped by source so the reader knows which file to open."""
     (tmp_path / "environment.schema.json").write_text(
-        '{"properties": {"API_URL": {"type": "string"}}}', encoding="utf-8"
+        '{"type": "object", "properties": {"API_URL": {"type": "string"}}}',
+        encoding="utf-8",
     )
     for name in ("docker-compose.yml", "docker-compose.prod.yml"):
         (tmp_path / name).write_text(
@@ -363,3 +374,224 @@ def test_the_report_groups_findings_by_the_file_they_came_from(tmp_path: pathlib
     assert "docker-compose.yml" in output
     assert "docker-compose.prod.yml" in output
     assert output.count("API_URL:") >= 2
+
+
+# --------------------------------------------------------------------------- #
+# the manifest's own shape (Studio's reader, mirrored)
+# --------------------------------------------------------------------------- #
+def _schema(tmp_path: pathlib.Path, raw: str) -> pathlib.Path:
+    (tmp_path / "environment.schema.json").write_text(raw, encoding="utf-8")
+    return tmp_path
+
+
+def _defects(tmp_path: pathlib.Path) -> list[str]:
+    return [f"{f.subject} {f.detail}".strip() for f in manifest_findings(tmp_path)]
+
+
+def test_the_incident_an_over_long_description_costs_the_app_its_whole_manifest(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The defect this check was added for, in the shape it actually arrived in.
+
+    An authoring agent explained OIDC_REDIRECT_URI well and wrote past 500 characters.
+    `terp verify --profile full` was green; Studio refused the file, and with it the
+    app's MariaDB password and every other declaration. The gate must say so, and say
+    the same thing Studio would have.
+    """
+    root = _schema(
+        tmp_path,
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {
+                    "MARIADB_SYNC_PASSWORD": {"type": "string", "format": "secret"},
+                    "OIDC_REDIRECT_URI": {
+                        "type": "string",
+                        "resolvedBy": "browser",
+                        "description": "x" * 501,
+                    },
+                },
+                "required": [],
+            }
+        ),
+    )
+    exit_code, output = run_env_seams_check(root)
+    assert exit_code == 1
+    assert "OIDC_REDIRECT_URI.description must be a string of at most 500" in output
+    assert "(it is 501)" in output
+    # The consequence, not just the rule: the reader is fail-closed on the WHOLE file.
+    assert "WHOLE file" in output
+    assert "terp guide environment" in output
+
+
+_UNUSABLE = (
+    ("{ not json", "is not valid JSON"),
+    ("[]", 'must be a JSON object with "type": "object"'),
+    ('{"type": "array", "properties": {}}', 'must be a JSON object with "type"'),
+    ('{"type": "object", "properties": []}', '"properties" must be an object'),
+    (
+        '{"type": "object", "properties": {"my_var": {"type": "string"}}}',
+        "is not a valid variable name",
+    ),
+    (
+        '{"type": "object", "properties": {"SECRET_KEY": {"type": "string"}}}',
+        "SECRET_KEY is platform-owned",
+    ),
+    (
+        '{"type": "object", "properties": {"VITE_API_URL": {"type": "string"}}}',
+        "VITE_API_URL is a frontend build-time variable",
+    ),
+    (
+        '{"type": "object", "properties": {"MY_VAR": "string"}}',
+        "MY_VAR must be an object",
+    ),
+    (
+        '{"type": "object", "properties": {"MY_VAR": {"type": 5}}}',
+        "MY_VAR.type must be a string of at most 500 characters",
+    ),
+    (
+        '{"type": "object", "properties": {"MY_VAR": {"resolvedBy": "browsers"}}}',
+        "MY_VAR.resolvedBy is 'browsers'",
+    ),
+    (
+        '{"type": "object", "properties": {"MY_VAR": {"enum": "one"}}}',
+        "MY_VAR.enum must be a list",
+    ),
+    (
+        '{"type": "object", "properties": {"MY_VAR": {"enum": ["ok", 5]}}}',
+        "MY_VAR.enum must be a list",
+    ),
+    (
+        '{"type": "object", "properties": {}, "required": "MY_VAR"}',
+        '"required" must be a list',
+    ),
+    (
+        '{"type": "object", "properties": {}, "required": [5]}',
+        '"required" must be a list',
+    ),
+    (
+        '{"type": "object", "properties": {}, "required": ["MY_VAR"]}',
+        'MY_VAR is in "required" but not declared',
+    ),
+)
+
+
+@pytest.mark.parametrize(("raw", "expected"), _UNUSABLE)
+def test_every_refusal_the_deploy_side_makes_is_named_by_the_gate(
+    tmp_path: pathlib.Path, raw: str, expected: str
+) -> None:
+    """One case per refusal in Terp Studio's own manifest reader.
+
+    The two halves of the platform have no shared package to hold them equal (Studio
+    never imports ``terp.*``), so parity is held here, case by case.
+    """
+    assert any(expected in defect for defect in _defects(_schema(tmp_path, raw)))
+
+
+def test_the_limits_are_the_ones_the_deploy_side_enforces(tmp_path: pathlib.Path) -> None:
+    """Off-by-one on any of these is a manifest that passes here and dies there."""
+    over = {f"VAR_{n}": {"type": "string"} for n in range(51)}
+    assert any("declares 51 variables" in d for d in _defects(_schema(
+        tmp_path, json.dumps({"type": "object", "properties": over})
+    )))
+    for prop, expected in (
+        ({"enum": ["v"] * 51}, "MY_VAR.enum"),
+        ({"enum": ["x" * 201]}, "MY_VAR.enum"),
+        ({"title": "t" * 501}, "MY_VAR.title"),
+    ):
+        root = _schema(
+            tmp_path, json.dumps({"type": "object", "properties": {"MY_VAR": prop}})
+        )
+        assert any(expected in d for d in _defects(root)), prop
+    # At the limit, all three are fine.
+    assert _defects(
+        _schema(
+            tmp_path,
+            json.dumps(
+                {
+                    "type": "object",
+                    "properties": {
+                        "MY_VAR": {
+                            "title": "t" * 500,
+                            "enum": ["x" * 200] * 50,
+                            "resolvedBy": "browser",
+                        }
+                    },
+                }
+            ),
+        )
+    ) == []
+
+
+def test_a_malformed_resolved_by_is_one_offence_not_two(tmp_path: pathlib.Path) -> None:
+    """The vocabulary is only judged once the value cleared the shape check.
+
+    Otherwise an over-long or non-string ``resolvedBy`` would be reported twice — as
+    the wrong shape and, redundantly, as an unrecognised word.
+    """
+    root = _schema(
+        tmp_path,
+        json.dumps(
+            {"type": "object", "properties": {"MY_VAR": {"resolvedBy": "c" * 501}}}
+        ),
+    )
+    assert len(_defects(root)) == 1
+    assert "must be a string of at most 500" in _defects(root)[0]
+
+
+def test_a_name_defect_stops_before_the_fields_are_judged(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A property refused on its key is not one whose fields Studio ever reads, so
+    pricing the same mistake twice would bury the name that actually has to change."""
+    root = _schema(
+        tmp_path,
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {"DATABASE_URL": {"description": "d" * 501}},
+            }
+        ),
+    )
+    assert len(_defects(root)) == 1
+    assert "platform-owned" in _defects(root)[0]
+
+
+def test_a_file_level_defect_reads_as_a_sentence_about_the_file(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A finding with no subject names no variable — the manifest itself is the offence."""
+    root = _schema(
+        tmp_path,
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {f"VAR_{n}": {"type": "string"} for n in range(51)},
+            }
+        ),
+    )
+    exit_code, output = run_env_seams_check(root)
+    assert exit_code == 1
+    assert "declares 51 variables -- at most 50 are allowed" in output
+
+
+def test_an_absent_manifest_has_no_shape_to_refuse(tmp_path: pathlib.Path) -> None:
+    """The same no-op an app that has not adopted the seam gets everywhere else."""
+    assert manifest_findings(tmp_path) == []
+
+
+def test_the_shape_verdict_comes_before_the_seam_verdict(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A manifest Studio refuses declares nothing, so a seam verdict over it would
+    answer a question that no longer applies — and would name the wrong fix."""
+    root = _project(
+        tmp_path,
+        declared={"MY_VAR": {"type": "string", "description": "d" * 501}},
+        environment="    MY_VAR: ${MY_VAR:-}",
+    )
+    exit_code, output = run_env_seams_check(root)
+    assert exit_code == 1
+    assert "MY_VAR.description" in output
+    assert "docker-compose.yml" not in output
+

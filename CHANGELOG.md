@@ -270,6 +270,38 @@ already stamps (ADR 0094).
 
 ### Fixed
 
+- **`terp verify --only env-seams` now judges `environment.schema.json`'s own
+  shape, so an app can no longer pass its gate with a manifest the deploy side
+  refuses.** The reader that renders the declared variables into `.app.env` is
+  fail closed on the *whole file*: one defect anywhere and every declaration —
+  the app's secrets included — disappears from the environment form and is never
+  rendered. That verdict used to be given only there, which put it a deploy (and
+  often a different machine) away from the edit that caused it. It happened: an
+  authoring agent explained `OIDC_REDIRECT_URI` well and wrote a `description`
+  past 500 characters, `terp verify --profile full` stayed green, and the app
+  lost its manifest — MariaDB password and all — with nothing in the gate, the
+  guide or the shipped manifest's own `$comment` mentioning a length limit.
+
+  The check now reports every defect at once (the reader raises on the first,
+  which would cost an author one gate run per mistake), naming the subject the
+  way the deploy-side message does — `OIDC_REDIRECT_URI.description must be a
+  string of at most 500 characters (it is 501)` — and states the consequence,
+  not just the rule. The dialect it judges against lives in
+  `terp.cli.envschema`: the `type`/`properties`/`required` shape, at most 50
+  variables, UPPER_SNAKE names, platform-owned and `VITE_*` names refused,
+  `type`/`title`/`description`/`format`/`group`/`resolvedBy` as strings of at
+  most 500 characters, `resolvedBy` in `host | container | browser`, and `enum`
+  as at most 50 strings of at most 200 characters. There is no package the two
+  sides can share, so the limits are mirrored with matching wording and held
+  equal case by case in `tests/architecture/test_cli_env_seams.py`.
+
+  The shape verdict is given *before* the seam verdict: a manifest that is
+  refused declares nothing, so reporting which seam supplies its variables would
+  answer a question that no longer applies and name the wrong fix. Still a plain
+  read of checked-in files — no Docker daemon, no `docker` binary. `terp guide
+  environment` grows the limits and the reason the 500-character cap is the one
+  an authoring agent walks into.
+
 - **The calendar was three defects deep, and nothing in the repo could see any
   of them.** Its `role="grid"` held all 42 day buttons as *direct*
   `role="gridcell"` children with no `role="row"` between them, which is an
