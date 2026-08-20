@@ -107,6 +107,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         guide="jobs",
     ),
     Capability(
+        name="leases",
+        summary="Fenced, expiring custody of work — and a reaper that recovers a dead worker's claim.",
+        kind="library",
+        wiring="create_app(..., lease_store=DatabaseLeaseStore()) + specs=[leases.module]",
+        guide="leases",
+    ),
+    Capability(
         name="oidc",
         summary="Single sign-on via the OpenID Connect code flow with PKCE.",
         kind="library",

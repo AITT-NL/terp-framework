@@ -13,6 +13,7 @@ import pathlib
 from terp.arch._ast import base_name, iter_python_files, parse
 from terp.arch.rules._support import (
     ArchViolation,
+    _HANDROLLED_LEASE_COLUMNS,
     _MANAGED_ACTOR_COLUMNS,
     _MANAGED_OWNERSHIP_COLUMNS,
     _MANAGED_SCOPE_COLUMNS,
@@ -225,6 +226,65 @@ def check_no_manual_ownership_checks(
                 "dropping the owner gate",
             )
         )
+    return violations
+
+
+def check_no_manual_lease_columns(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """A table model never declares its own lease columns — use the lease seam.
+
+    ``locked_by`` / ``locked_until`` / ``heartbeat_at`` and their spellings are a module
+    re-deriving custody-with-a-timeout on its own table, and the version it writes is
+    almost always missing the part that makes a lease safe. Expiry is the easy half: the
+    hard half is a **fence**, so that a worker paused past its expiry — whose work a
+    successor has already picked up — cannot come back and finish over the top of it. A
+    hand-rolled pair of columns has no epoch to check, so nothing refuses that write.
+
+    Declare the resource instead and let the seam hold it (ADR 0095)::
+
+        with hold_lease(session, LeaseResource.for_row(row), holder=me, ttl_seconds=60):
+            ...
+
+    The lease then lives in ``terp-cap-leases``' own table, taken atomically with the row
+    change it protects, renewed by a heartbeat that fails closed, and — the part a module
+    cannot build for itself — recovered by the reaper, which runs the domain's registered
+    recovery so a crashed worker's ``claimed`` row goes back to ``queued`` instead of
+    needing a hand-written ``UPDATE``.
+
+    Only a **persisted** column is policed: a read DTO that surfaces ``locked_until`` for
+    an operator screen is fine, as is any local variable. Recipe: ``terp guide leases``.
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        tree = parse(path)
+        rel = _rel(path, root)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef) or not _is_table_model_class(node):
+                continue
+            for stmt in node.body:
+                if not (
+                    isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
+                ):
+                    continue
+                name = stmt.target.id
+                if name not in _HANDROLLED_LEASE_COLUMNS:
+                    continue
+                violations.append(
+                    ArchViolation(
+                        "no_manual_lease_columns",
+                        rel,
+                        stmt.lineno,
+                        f"table model {node.name!r} declares the hand-rolled lease column "
+                        f"{name!r}; custody with a timeout is a framework primitive (ADR "
+                        "0095) — a hand-rolled lease has no epoch fence, so a worker paused "
+                        "past its expiry can still write over the successor that took its "
+                        "work, and nothing reaps the row it left behind. Take a lease on "
+                        "LeaseResource.for_row(row) through hold_lease(...) and register a "
+                        "reaper for its kind instead",
+                    )
+                )
     return violations
 
 

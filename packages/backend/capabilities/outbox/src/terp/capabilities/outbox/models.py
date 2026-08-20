@@ -7,6 +7,14 @@ business write's own session** (see :mod:`terp.capabilities.outbox.store`), so t
 row commits atomically with the mutation that produced it and a rollback drops both
 — the no-dual-write guarantee the dispatcher seam (ADR 0008) was designed for.
 
+The ``locked_by`` / ``locked_until`` pair is this table's own **batch** lease and is
+deliberately not the ``terp-cap-leases`` seam (ADR 0095), which the
+``no_manual_lease_columns`` rule otherwise requires: a delivery worker claims *many* rows in
+one UPDATE because throughput is the whole point here, and a lapsed claim needs no reaper —
+there is no domain row whose status a crash stranded, so the next worker simply reclaims it
+and re-delivers (at-least-once). The seam grants one resource per statement and earns its
+keep on rows where expiry has to be followed by a domain recovery.
+
 Append-only + status updates only: a row is inserted ``pending`` and then only ever
 transitions ``pending -> dispatched`` (delivered) or ``pending -> dead_lettered``
 (failed ``max_attempts`` times); its ``payload`` (the serialized envelope) never
@@ -67,8 +75,8 @@ class OutboxMessage(UUIDPrimaryKeyMixin, SQLModel, table=True):  # arch-allow-ta
         nullable=False,
         index=True,
     )
-    locked_by: str | None = Field(default=None, max_length=_LOCK_MAX, index=True)
-    locked_until: datetime | None = Field(
+    locked_by: str | None = Field(default=None, max_length=_LOCK_MAX, index=True)  # arch-allow-no-manual-lease-columns: the outbox leases a BATCH of delivery rows in one UPDATE for throughput, and a lapsed one needs no reaper (the next worker simply reclaims it) - the lease seam grants one resource per statement and exists for DOMAIN rows whose status a crash strands
+    locked_until: datetime | None = Field(  # arch-allow-no-manual-lease-columns: the outbox leases a BATCH of delivery rows in one UPDATE for throughput, and a lapsed one needs no reaper (the next worker simply reclaims it) - the lease seam grants one resource per statement and exists for DOMAIN rows whose status a crash strands
         default=None,
         sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
         nullable=True,

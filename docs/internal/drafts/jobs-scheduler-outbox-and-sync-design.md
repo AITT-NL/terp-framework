@@ -372,8 +372,17 @@ Each step is small, green, and independently shippable.
   redelivery both push this way.)
 - **Result/status backend.** Keep it out of the core port; expose via the adapter or your own
   tables. Revisit only if a real need appears.
-- **Distributed lock** for "one run per schedule" — add a Redis-shaped `Lock` seam (generalize
-  `ThrottleStore`) only when a multi-instance scheduler needs it.
+- ~~**Distributed lock** for "one run per schedule" — add a Redis-shaped `Lock` seam
+  (generalize `ThrottleStore`) only when a multi-instance scheduler needs it.~~
+  **Resolved differently (ADR 0095).** Shipped as `terp.core.leases` +
+  `terp-cap-leases`, in the app's **own database** rather than behind a Redis-shaped
+  seam — because a lock has to be taken atomically with the state change it guards, and
+  a store in another system cannot commit with the row. It is also strictly more than a
+  lock: expiry turns a crash into a timeout, a monotonic `epoch` fences a paused holder
+  out (a lock with a TTL and no fence lets one wake past its deadline and write over its
+  successor), and a per-kind reaper puts the abandoned **row** back, which a lock has no
+  vocabulary for. Deliberately **no** in-process default: degrading a lease means two
+  workers doing one unit of work, so the seam fails closed until an app names a store.
 - **Backpressure / poison messages** — DLQ + max attempts in the outbox; alerting is ops.
 - **Schedule persistence & drift** — external scheduler is simplest; in-proc APScheduler loses
   schedules on restart unless persisted.

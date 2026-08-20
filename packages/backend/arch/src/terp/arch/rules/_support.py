@@ -76,6 +76,27 @@ _MANAGED_ACTOR_COLUMNS = frozenset({"created_by_id", "modified_by_id"})
 # so it carries its own rule).
 _MANAGED_OWNERSHIP_COLUMNS = frozenset({"owner_id"})
 
+# Hand-rolled lease columns: the shape a module reaches for when it needs "this row is
+# being worked on by someone, until some time". Declaring them on its own table is the
+# thing the lease seam replaces (ADR 0095), and the reason it is refused rather than
+# merely discouraged is that a hand-rolled lease has no *fence*: expiry alone lets a
+# paused worker wake up and write over the successor that took its work. Matched on the
+# persisted column name, so a read DTO exposing a lease field is unaffected.
+_HANDROLLED_LEASE_COLUMNS = frozenset(
+    {
+        "locked_by",
+        "locked_until",
+        "locked_at",
+        "leased_by",
+        "leased_until",
+        "lease_expires_at",
+        "lease_expiry",
+        "heartbeat_at",
+        "last_heartbeat_at",
+        "claim_expires_at",
+    }
+)
+
 # Framework-managed columns a client ``*Create`` / ``*Update`` input schema must
 # never declare: the primary key, the audit timestamps, the optimistic-concurrency
 # ``version``, plus the scope/actor/owner columns the framework fills centrally.

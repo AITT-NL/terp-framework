@@ -23,6 +23,11 @@ composes the durable ``OutboxJobQueue`` (and any broker/scheduler adapter) at ``
 from __future__ import annotations
 
 from terp.capabilities.sync.jobs import SYNC_PULL, SYNC_PUSH, SyncJobPayload
+from terp.capabilities.sync.leasing import (
+    SYNC_LEASE_TTL_SECONDS,
+    SYNC_SOURCE_LEASE,
+    sync_source_resource,
+)
 from terp.capabilities.sync.models import (
     ACTION_CREATED,
     ACTION_FAILED,
@@ -57,13 +62,13 @@ from terp.capabilities.sync.schemas import (
     SyncRunRead,
     SyncRunUpdate,
 )
-from terp.capabilities.sync.service import (
-    SyncService,
+from terp.capabilities.sync.reads import (
     get_run,
     list_mappings,
     list_record_logs,
     list_runs,
 )
+from terp.capabilities.sync.service import SyncService
 from terp.capabilities.sync.store import record_sync_log
 
 __all__ = [
@@ -75,8 +80,10 @@ __all__ = [
     "STATUS_RUNNING",
     "STATUS_SUCCEEDED",
     "STATUS_SYNCED",
+    "SYNC_LEASE_TTL_SECONDS",
     "SYNC_PULL",
     "SYNC_PUSH",
+    "SYNC_SOURCE_LEASE",
     "RemotePage",
     "RemoteRecord",
     "SyncError",
@@ -106,4 +113,5 @@ __all__ = [
     "router",
     "sync_pull_schedule",
     "sync_push_schedule",
+    "sync_source_resource",
 ]
