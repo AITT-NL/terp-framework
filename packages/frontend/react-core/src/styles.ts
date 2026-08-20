@@ -13,12 +13,12 @@
  * anything. A new escalation is therefore a claim that some element still styles
  * itself inline on the same property — state it, with the file, or do not add it.
  *
- * The migration itself is not finished: four modules still declare module-scope
- * base style objects (18 between them, gated in markers.test.ts). They are just no
- * longer in anyone's way — of what they render, only `module-nav` and
- * `resource-list` carry a marker, and no rule in `terp.state` targets either, so
- * retiring the last escalations left nothing inert. Checked by scanning the layer
- * against those files rather than by spot-checking a hover.
+ * The migration itself is not finished: three modules still declare module-scope
+ * base style objects (16 between them, gated in markers.test.ts). They are just no
+ * longer in anyone's way — of what they render, only `module-nav` carries a marker,
+ * and no rule in `terp.state` targets it, so retiring the last escalations left
+ * nothing inert. Checked by scanning the layer against those files rather than by
+ * spot-checking a hover.
  *
  * A migrated component gets its base here and renders no `style={}` for it —
  * though it may still pass an inline value the sheet has no business owning, which
@@ -1670,6 +1670,58 @@ th[data-terp="dataview-actions-cell"] > span {
   border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--color-neutral-700);
+}
+
+/* Resource list ------------------------------------------------------------ */
+/* The plain listing screen: a write-gated create row, then the rows. The DataView is
+   the same job at scale, and this one stays deliberately simple, so its rules are
+   geometry plus two inks.
+
+   The create row keeps its flex layout and the input keeps flex: 1 as a RULE rather
+   than becoming a 1fr auto grid, and that is a move rather than a decision. With
+   flex: 1 the input's basis is 0 so it may shrink below its intrinsic width; a 1fr
+   track floors at min-content instead. The two agree at this list's 40rem cap, so
+   swapping them would have changed nothing anybody could see until some narrower
+   container found the difference — which is the kind of diff this migration exists
+   not to introduce.
+
+   Neither paragraph resets its margin, and that is verbatim rather than an
+   oversight: both are <p> elements whose default margin is what separates them from
+   the form above and the rows below. Adding margin: 0 here would move the rows. */
+[data-terp="resource-list"] {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 40rem;
+}
+[data-terp="resource-list-create"] {
+  display: flex;
+  gap: var(--space-2);
+}
+[data-terp="resource-list-create"] > [data-terp="input"] {
+  flex: 1;
+}
+[data-terp="resource-list-error"] {
+  color: var(--color-status-danger);
+}
+[data-terp="resource-list-empty"] {
+  color: var(--color-neutral-600);
+}
+[data-terp="resource-list-items"] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+[data-terp="resource-list-row"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-0);
 }
 
 /* Empty / error / loading states ------------------------------------------- */

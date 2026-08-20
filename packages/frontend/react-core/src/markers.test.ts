@@ -181,6 +181,11 @@ const MARKERS = [
   "radio-group-legend",
   "radio-group-options",
   "resource-list",
+  "resource-list-create",
+  "resource-list-empty",
+  "resource-list-error",
+  "resource-list-items",
+  "resource-list-row",
   "spinner-ring",
   "stack",
   "switch",
@@ -310,7 +315,6 @@ const INLINE_BASE_STYLES: Record<string, number> = {
   "./LoginView.tsx": 9,
   "./ModuleNav.tsx": 4,
   "./ProfileView.tsx": 3,
-  "./ResourceList.tsx": 2,
 };
 
 /**

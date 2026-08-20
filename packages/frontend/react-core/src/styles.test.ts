@@ -842,6 +842,12 @@ describe("cascade structure", () => {
       "page-breadcrumbs",
       "page-heading",
       "page-title",
+      "resource-list",
+      "resource-list-create",
+      "resource-list-error",
+      "resource-list-empty",
+      "resource-list-items",
+      "resource-list-row",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

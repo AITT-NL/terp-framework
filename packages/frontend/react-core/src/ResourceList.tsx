@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CSSProperties, FormEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 
 import { Authorized } from "./Authorized";
 import { useErrorMessage } from "./errorMessages";
@@ -8,19 +8,6 @@ import type { UiText } from "./uiText";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import type { Resource } from "./useResource";
-
-const rowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--space-3)",
-  padding: "var(--space-3)",
-  border: "1px solid var(--color-neutral-200)",
-  borderRadius: "var(--radius-md)",
-  background: "var(--color-neutral-0)",
-};
-
-const mutedStyle: CSSProperties = { color: "var(--color-neutral-600)" };
 
 export interface ResourceListProps<T extends { id: string }> {
   /** Section heading; omit when composed under a `Page` (whose title is the `h1`). */
@@ -52,6 +39,10 @@ export interface ResourceListProps<T extends { id: string }> {
  *
  * It is a composable component, not a hidden CRUD DSL: a screen that needs more just renders its own
  * React and ignores this.
+ *
+ * It renders no inline styles: the section, the create row, both messages, the list and the
+ * rows take their geometry and ink from the injected react-core sheet, matched on the
+ * `data-terp` markers stamped below (ADR 0094).
  */
 export function ResourceList<T extends { id: string }>({
   title,
@@ -81,37 +72,35 @@ export function ResourceList<T extends { id: string }>({
   }
 
   return (
-    <section
-      data-terp="resource-list"
-      style={{ display: "grid", gap: "var(--space-4)", maxWidth: "40rem" }}
-    >
+    <section data-terp="resource-list">
       {title !== undefined && <h1>{resolve(title)}</h1>}
       {renderCreate !== undefined ? (
         <Authorized action="write">{renderCreate()}</Authorized>
       ) : createPlaceholder !== undefined ? (
         <Authorized action="write">
-          <form onSubmit={onCreate} style={{ display: "flex", gap: "var(--space-2)" }}>
+          <form onSubmit={onCreate} data-terp="resource-list-create">
             <Input
               placeholder={resolve(createPlaceholder ?? "")}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              style={{ flex: 1 }}
             />
             <Button type="submit">{strings.add}</Button>
           </form>
         </Authorized>
       ) : null}
       {resource.error !== null && (
-        <p role="alert" style={{ color: "var(--color-status-danger)" }}>
+        <p role="alert" data-terp="resource-list-error">
           {messageForCode(resource.cause) ?? resource.error}
         </p>
       )}
       {resource.items.length === 0 ? (
-        <p style={mutedStyle}>{resource.loading ? strings.loading : resolve(emptyMessage ?? strings.emptyList)}</p>
+        <p data-terp="resource-list-empty">
+          {resource.loading ? strings.loading : resolve(emptyMessage ?? strings.emptyList)}
+        </p>
       ) : (
-        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "var(--space-2)" }}>
+        <ul data-terp="resource-list-items">
           {resource.items.map((item) => (
-            <li key={item.id} style={rowStyle}>
+            <li key={item.id} data-terp="resource-list-row">
               <div>{renderItem(item)}</div>
               {renderActions && <Authorized action="write">{renderActions(item)}</Authorized>}
             </li>
