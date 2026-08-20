@@ -339,7 +339,7 @@ export function GroupDetail() {
           />
         )}
         <Stack gap={3}>
-          <h2 style={{ margin: 0, fontSize: "var(--font-size-base)" }}>
+          <h2 data-terp="admin-section-title">
             {strings.members}
           </h2>
           <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onAddMember}>
@@ -376,7 +376,7 @@ export function GroupDetail() {
           />
         </Stack>
         <Stack gap={3}>
-          <h2 style={{ margin: 0, fontSize: "var(--font-size-base)" }}>
+          <h2 data-terp="admin-section-title">
             {strings.permissions}
           </h2>
           <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onGrant}>

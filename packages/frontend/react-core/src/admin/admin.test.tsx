@@ -418,6 +418,15 @@ describe("the packaged admin area", () => {
     fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
     await screen.findByRole("heading", { level: 1, name: "Provision user" });
 
+    // The form's measure is a sheet rule now (ADR 0094), and this is the only gate on it:
+    // no admin screen has a specimen, so nothing pictures these three surfaces. What a test
+    // can hold is that the marked element is there and styles nothing itself; that the rule
+    // exists is held by styles.test.ts, and its values are a verbatim copy of the object
+    // this replaced.
+    const form = document.querySelector('[data-terp="admin-form"]');
+    expect(form).not.toBeNull();
+    expect(form?.getAttribute("style")).toBeNull();
+
     fireEvent.change(screen.getByLabelText("Email"), {
       target: { value: "new.account@example.com" },
     });
@@ -508,6 +517,28 @@ describe("the packaged admin area", () => {
         }),
       ).toBe(true),
     );
+  });
+
+  it("marks the detail sections it no longer styles inline", async () => {
+    // The second of the three surfaces the admin views used to style at the call site. Same
+    // reasoning as the create form above: markers plus the absence of a style attribute,
+    // because no admin screen has a specimen.
+    //
+    // The third, the audit payload, has no assertion here and it is worth saying why rather
+    // than quietly having none: the audit fixture serves an empty page, so no row exists to
+    // expand and the <pre> never renders in any test. Giving it one means adding rows to a
+    // fixture several tests share, which is not a change a styling migration should make.
+    // It is held by styles.test.ts (the rule exists) and by the values being a verbatim copy.
+    renderAdminApp("/admin/groups/g1");
+    const headings = await waitFor(() => {
+      const found = document.querySelectorAll('[data-terp="admin-section-title"]');
+      expect(found.length).toBe(2);
+      return found;
+    });
+    for (const heading of headings) {
+      expect(heading.tagName).toBe("H2");
+      expect(heading.getAttribute("style")).toBeNull();
+    }
   });
 
   it("clears group destructive state when navigating between detail records in place", async () => {

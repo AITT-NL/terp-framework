@@ -18,12 +18,13 @@
  * both kept rather than deleted, for the reason the escalation ledger below is kept:
  * an empty gate is where the next entry has to justify itself.
  *
- * That is the ledger's measure, and it is narrower than "nothing styles itself inline".
- * It counts module-scope `CSSProperties` declarations, so a call-site literal and an
- * unannotated style object are both invisible to it — which is how the built-in admin
- * views kept five base styles through the whole migration. The next commit widens the
- * detector and migrates them, and until it lands this paragraph is the only place that
- * says so.
+ * And the measure is now the whole surface rather than the annotated part of it. The
+ * ledger counts module-scope `CSSProperties` declarations, which a call-site literal and
+ * an unannotated style object both slip past — that is how the built-in admin views kept
+ * five base styles through the entire migration with both ratchets reading clean. A third
+ * gate counts inline style SITES per file, so the only way out of it is to render none;
+ * the nine that remain are ADR 0094 §3's permanent inline side and nothing else, named
+ * one by one in markers.test.ts.
  *
  * A migrated component gets its base here and renders no `style={}` for it —
  * though it may still pass an inline value the sheet has no business owning, which
@@ -1033,6 +1034,45 @@ textarea[data-terp="input"] {
 [data-terp="profile-role"] {
   margin: 0;
   color: var(--color-neutral-600);
+}
+
+/* The built-in admin screens ----------------------------------------------- */
+/* The packaged /admin views. Three surfaces, and they were invisible to both
+   ratchets for the entire migration — which is why they are here rather than in
+   0.8.0. The worklist names files with NO marker at all, and every admin view
+   rendered none, so it read as a view composition and was excluded on purpose. The
+   ledger counts module-scope CSSProperties declarations, and these were three
+   call-site literals plus one unannotated object. Neither gate was wrong; both were
+   narrower than they looked, and the same commit widens the measure.
+
+   The form box is ONE marker across two files, because UserCreate and GroupCreate
+   constrain their form to the same measure — the same surface twice, not two
+   surfaces that happen to agree today. */
+[data-terp="admin-form"] {
+  max-width: 32rem;
+}
+/* A section heading inside a detail screen: the members list, the permission
+   grants. font-size-base rather than the UA default, which for an h2 is LARGER than
+   the page's own h1 at font-size-lg — so without this a section outranks the view
+   it sits in. */
+[data-terp="admin-section-title"] {
+  margin: 0;
+  font-size: var(--font-size-base);
+}
+/* The audit event's JSON payload. No font-family: it is a <pre>, so the UA
+   stylesheet's monospace already applies and the inline object set none either.
+
+   font-size-sm loses the inline fallback the object carried (0.875rem) and no other
+   rule in this sheet has one. The fallback could never fire — tokens.guard.test.ts
+   refuses any var() in react-core naming a property the contract does not publish,
+   so the token is always there. It recorded an author's doubt, not an option. */
+[data-terp="admin-payload"] {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--color-neutral-100);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  overflow-x: auto;
 }
 
 /* Hub cards --------------------------------------------------------------- */

@@ -46,15 +46,6 @@ function buildColumns(strings: TerpStrings): DataViewColumn<AuditEventRead>[] {
   ];
 }
 
-const payloadStyle = {
-  margin: 0,
-  padding: "var(--space-3)",
-  background: "var(--color-neutral-100)",
-  borderRadius: "var(--radius-md)",
-  fontSize: "var(--font-size-sm, 0.875rem)",
-  overflowX: "auto" as const,
-};
-
 /**
  * The packaged audit-log screen (`/admin/audit`): the append-only trail every
  * mutation lands in (ADR 0007), newest first as served, read-only by design.
@@ -106,7 +97,7 @@ export function AuditLogAdmin() {
               ]}
             />
             {event.payload !== null && (
-              <pre style={payloadStyle}>{JSON.stringify(event.payload, null, 2)}</pre>
+              <pre data-terp="admin-payload">{JSON.stringify(event.payload, null, 2)}</pre>
             )}
           </div>
         )}

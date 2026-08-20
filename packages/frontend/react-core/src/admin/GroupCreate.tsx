@@ -75,7 +75,7 @@ export function GroupCreate() {
         />
       }
     >
-      <div style={{ maxWidth: "32rem" }}>
+      <div data-terp="admin-form">
         <Stack id={FORM_ID} as="form" gap={4} onSubmit={onSubmit}>
           <Field label={strings.groupName}>
             <Input value={name} onChange={(event) => setName(event.target.value)} required />

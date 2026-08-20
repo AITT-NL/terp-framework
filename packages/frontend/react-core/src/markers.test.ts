@@ -39,6 +39,9 @@ const STYLESHEET = "./styles.ts";
  * stylesheet and the layout contract, so it belongs in a release note.
  */
 const MARKERS = [
+  "admin-form",
+  "admin-payload",
+  "admin-section-title",
   "alert",
   "alert-body",
   "alert-icon",
@@ -340,6 +343,47 @@ const UNMARKED_STYLED_SURFACES: string[] = [];
 const INLINE_BASE_STYLES: Record<string, number> = {};
 
 /**
+ * Every module that renders an inline `style={}` at all, and how many times.
+ *
+ * This closes the gap the ledger above leaves, and the gap was not theoretical. That one
+ * matches a module-scope declaration annotated `CSSProperties`, so a call-site literal and
+ * an unannotated module-scope object are both invisible to it — and four of the built-in
+ * admin views carried five base styles through the entire styling migration for exactly
+ * that reason, with both ratchets reading clean the whole time. Widening the annotation
+ * pattern would not have found them either. What finds them is counting the SITES.
+ *
+ * So this list is the complete one, and every entry has to be a value ADR 0094 §3 puts on
+ * the inline side permanently. There are only two such kinds, and a new entry is a claim
+ * that there is a third:
+ *
+ *   - A measured value the sheet has no business owning. `icons.tsx` and `LoadingState.tsx`
+ *     size a box from a prop taking any CSS length; `layout.tsx` passes Stack's `align` /
+ *     `justify`, an open vocabulary CSS already has; `ui/Popover.tsx` positions its panel
+ *     from a rect measured at runtime; `dataview/DataViewTable.tsx` carries a column's width
+ *     while it is being dragged.
+ *   - The caller's own `style` prop, forwarded to a root. `ui/Checkbox.tsx`, `ui/Radio.tsx`,
+ *     `ui/Switch.tsx` and `ui/Combobox.tsx` do this and nothing else — it is not the
+ *     component styling itself, it is the escape a framework component owes its caller, and
+ *     `ui/Button.test.tsx` asserts it keeps working.
+ *
+ * Exact equality in both directions, like the ledger above: a new site fails, and a removed
+ * one fails until this record is corrected. Comments are stripped first, because this file's
+ * own prose says `style={}` repeatedly and the measure is otherwise a grep of its own
+ * documentation.
+ */
+const INLINE_STYLE_SITES: Record<string, number> = {
+  "./LoadingState.tsx": 1,
+  "./dataview/DataViewTable.tsx": 1,
+  "./icons.tsx": 1,
+  "./layout.tsx": 1,
+  "./ui/Checkbox.tsx": 1,
+  "./ui/Combobox.tsx": 1,
+  "./ui/Popover.tsx": 1,
+  "./ui/Radio.tsx": 1,
+  "./ui/Switch.tsx": 1,
+};
+
+/**
  * `text` with comments removed, so prose naming a marker cannot stand in for rendering one.
  *
  * Line comments are only stripped from a `//` that does not follow a colon, which keeps
@@ -473,6 +517,21 @@ describe("data-terp markers", () => {
       }
     }
     expect(declared).toEqual(INLINE_BASE_STYLES);
+  });
+
+  it("accounts for every inline style site, not only the annotated ones", () => {
+    // The measure the admin views escaped. A base style declared as a call-site literal, or
+    // as a module-scope object nobody annotated, is a base style either way — and the ledger
+    // above cannot see either. This one counts sites, so the only way to stay out of it is to
+    // render no inline style at all.
+    const sites: Record<string, number> = {};
+    for (const [file, text] of production) {
+      const count = stripComments(text).split("style={").length - 1;
+      if (count > 0) {
+        sites[file] = count;
+      }
+    }
+    expect(sites).toEqual(INLINE_STYLE_SITES);
   });
 
   it("injects the sheet from every module that owns a rule, or is reachable from one that does", () => {

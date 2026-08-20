@@ -866,6 +866,9 @@ describe("cascade structure", () => {
       "login-separator",
       "login-separator-rule",
       "login-error",
+      "admin-form",
+      "admin-section-title",
+      "admin-payload",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),
