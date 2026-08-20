@@ -25,7 +25,7 @@ from terp.capabilities.sync.schemas import (
     SyncRecordLogRead,
     SyncRunRead,
 )
-from terp.capabilities.sync.service import (
+from terp.capabilities.sync.reads import (
     get_run,
     list_mappings,
     list_record_logs,

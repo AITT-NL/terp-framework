@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import FastAPI
@@ -38,11 +39,15 @@ from terp.core import (
     JobEnvelope,
     Principal,
     Roles,
+    LeaseHeldError,
+    LeaseLostError,
+    active_lease_store,
     create_app,
 )
 from terp.core._internal.job_runtime import run_job
 from terp.core.db import get_session
 from terp.core.jobs import configure_jobs
+from terp.core.leases import configure_leases, reset_leases_runtime
 from terp.core.scheduling import trigger_schedule
 
 from terp.capabilities.sync import (
@@ -51,6 +56,7 @@ from terp.capabilities.sync import (
     ACTION_UNCHANGED,
     ACTION_UPDATED,
     STATUS_FAILED,
+    STATUS_RUNNING,
     STATUS_SUCCEEDED,
     SYNC_PULL,
     SYNC_PUSH,
@@ -68,7 +74,14 @@ from terp.capabilities.sync import (
     sync_pull_schedule,
     sync_push_schedule,
 )
+from terp.capabilities.leases import DatabaseLeaseStore, reap_expired_leases
 from terp.capabilities.sync import module as sync_module
+from terp.capabilities.sync.leasing import (
+    STALE_RUN_ERROR,
+    SYNC_LEASE_TTL_SECONDS,
+    close_stale_runs,
+    sync_source_resource,
+)
 
 _SYSTEM = uuid.uuid4()  # a stand-in "sync" system actor for the background writes
 _ADMIN = Principal(id=uuid.uuid4(), role=Roles.ADMIN)
@@ -583,3 +596,170 @@ def test_admin_router_returns_404_for_an_unknown_run(env: object) -> None:
     client = _client(env)
     missing = client.get(f"/api/v1/sync/runs/{uuid.uuid4()}")
     assert missing.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# (6) Leased reconciles: one at a time per source, and a dead run that reaps itself
+# --------------------------------------------------------------------------- #
+class _LeaseClock:
+    """A mutable clock, so a reconcile's lease can lapse without anyone sleeping."""
+
+    def __init__(self) -> None:
+        self.now = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now = self.now + timedelta(seconds=seconds)
+
+
+@pytest.fixture
+def lease_clock() -> Iterator[_LeaseClock]:
+    """Wire the durable lease store onto a controllable clock, as create_app would."""
+    clock = _LeaseClock()
+    configure_leases(DatabaseLeaseStore(clock=clock))
+    yield clock
+    reset_leases_runtime()
+
+
+def _source_lease(engine: object, *, holder: str, ttl_seconds: float = 600.0) -> object:
+    """Take the customers source's lease directly - a stand-in for another worker."""
+    store = active_lease_store()
+    with Session(engine) as session:  # type: ignore[arg-type]
+        return store.acquire(  # type: ignore[union-attr]
+            session,
+            sync_source_resource(tenant_scope="global", entity_type=_ENTITY),
+            holder=holder,
+            ttl_seconds=ttl_seconds,
+        )
+
+
+def test_a_reconcile_holds_its_source_and_hands_it_back(
+    env: object, lease_clock: _LeaseClock
+) -> None:
+    register_sync_source(_FakeSource([_page(_record("r1", "v1", name="A", email="a@x.io"))]))
+    _run(env)
+    assert _runs(env)[0].status == STATUS_SUCCEEDED
+    # Released on the way out, so the next scheduled tick is not locked out for a whole TTL.
+    assert _source_lease(env, holder="someone-else") is not None
+
+
+def test_a_second_reconcile_of_one_source_is_refused_rather_than_run_twice(
+    env: object, lease_clock: _LeaseClock
+) -> None:
+    # Another worker holds the source. Two concurrent reconciles are *safe* (at-least-once
+    # plus idempotent mappings), but they are still two connections to one external system
+    # and two run rows disagreeing - so the second is refused before a run is opened.
+    assert _source_lease(env, holder="worker-1") is not None
+    register_sync_source(_FakeSource([_page(_record("r1", "v1", name="A", email="a@x.io"))]))
+    with pytest.raises(LeaseHeldError):
+        _run(env)
+    assert _runs(env) == []  # no competing run row was left behind
+    assert _customers(env) == []
+
+
+def test_a_dead_workers_run_is_closed_by_the_reaper_not_by_hand(
+    env: object, lease_clock: _LeaseClock
+) -> None:
+    """The gap this capability used to admit to, closed.
+
+    Before the lease seam a worker killed mid-loop left ``running`` forever: a reader could
+    not tell it from a reconcile still in progress, and the only cleanup was a hand-written
+    UPDATE against the metadata database.
+    """
+    lease = _source_lease(env, holder="doomed-worker", ttl_seconds=30)
+    assert lease is not None
+    with Session(env) as session:  # type: ignore[arg-type]
+        session.add(SyncRun(tenant_scope="global", source=_ENTITY, status=STATUS_RUNNING))
+        session.commit()
+
+    lease_clock.advance(31)  # the worker died; its lease lapses
+    store = active_lease_store()
+    with Session(env) as session:  # type: ignore[arg-type]
+        result = reap_expired_leases(session, store)  # type: ignore[arg-type]
+
+    assert result.recovered == 1
+    reaped = _runs(env)[0]
+    assert reaped.status == STATUS_FAILED
+    assert reaped.error == STALE_RUN_ERROR
+    assert reaped.finished_at is not None
+
+    # ...and the source is retryable again, which is the point of reaping it.
+    register_sync_source(_FakeSource([_page(_record("r1", "v1", name="A", email="a@x.io"))]))
+    _run(env)
+    assert [run.status for run in _runs(env)] == [STATUS_FAILED, STATUS_SUCCEEDED]
+
+
+def test_reaping_the_same_lapsed_source_twice_changes_nothing(
+    env: object, lease_clock: _LeaseClock
+) -> None:
+    # Reaping is at-least-once, so the recovery has to be idempotent: a run already closed
+    # is no longer `running`, so a second cycle finds nothing to do.
+    lease = _source_lease(env, holder="doomed-worker", ttl_seconds=30)
+    assert lease is not None
+    with Session(env) as session:  # type: ignore[arg-type]
+        session.add(SyncRun(tenant_scope="global", source=_ENTITY, status=STATUS_RUNNING))
+        session.commit()
+    lease_clock.advance(31)
+    with Session(env) as session:  # type: ignore[arg-type]
+        close_stale_runs(session, lease)  # type: ignore[arg-type]
+        close_stale_runs(session, lease)  # type: ignore[arg-type]
+    closed = _runs(env)
+    assert len(closed) == 1 and closed[0].status == STATUS_FAILED
+
+
+def test_a_reconcile_that_outran_its_lease_stops_instead_of_racing_its_successor(
+    env: object, lease_clock: _LeaseClock
+) -> None:
+    """The fence, from the working worker's side.
+
+    A stalled reconcile whose source was taken over must not finish over the top of its
+    successor - so the heartbeat raises and the run is closed ``failed``.
+    """
+
+    class _SlowSource(_FakeSource):
+        def pull(self, cursor):  # type: ignore[no-untyped-def]
+            # Stall past the TTL *after* the lease was taken, then let a successor take it.
+            lease_clock.advance(SYNC_LEASE_TTL_SECONDS + 1)
+            assert _source_lease(env, holder="successor") is not None
+            return _page(_record("r1", "v1", name="A", email="a@x.io"))
+
+    register_sync_source(_SlowSource([]))
+    with pytest.raises(LeaseLostError):
+        _run(env)
+    stopped = _runs(env)[0]
+    assert stopped.status == STATUS_FAILED
+    assert stopped.processed_count == 0  # it stopped before touching a record
+
+
+def test_an_app_with_no_lease_store_reconciles_exactly_as_before(env: object) -> None:
+    # Leasing is a capability an app opts into; adopting it is never a migration, and not
+    # adopting it changes nothing. No lease_clock fixture here: the seam is unconfigured.
+    assert active_lease_store() is None
+    register_sync_source(_FakeSource([_page(_record("r1", "v1", name="A", email="a@x.io"))]))
+    _run(env)
+    _run(env)  # ...twice over, with nothing to serialise it
+    assert [run.status for run in _runs(env)] == [STATUS_SUCCEEDED, STATUS_SUCCEEDED]
+
+
+def test_a_push_holds_the_same_source_lease_as_a_pull(
+    env: object, lease_clock: _LeaseClock
+) -> None:
+    # Deliberately the same resource: a push and a pull of one source both write the same
+    # mapping ledger, so letting them overlap would defeat the point of leasing either.
+    register_sync_source(_PushSource(2))
+    _run(env, job="sync.push")
+    assert _runs(env)[0].status == STATUS_SUCCEEDED
+    # ...and it was handed back on the way out, so the next tick is not locked out.
+    assert _source_lease(env, holder="next-worker") is not None
+
+
+def test_a_push_is_refused_while_a_pull_holds_the_source(
+    env: object, lease_clock: _LeaseClock
+) -> None:
+    assert _source_lease(env, holder="a-pull-in-flight") is not None
+    register_sync_source(_PushSource(2))
+    with pytest.raises(LeaseHeldError):
+        _run(env, job="sync.push")
+    assert _runs(env) == []

@@ -40,6 +40,7 @@ on:
           - packages/backend/capabilities/groups
           - packages/backend/capabilities/identity
           - packages/backend/capabilities/jobs_celery
+          - packages/backend/capabilities/leases
           - packages/backend/capabilities/oidc
           - packages/backend/capabilities/outbox
           - packages/backend/capabilities/realtime

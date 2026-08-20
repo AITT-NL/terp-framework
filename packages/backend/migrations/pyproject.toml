@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-migrations"
-version = "0.7.0"
+version = "0.8.0"
 description = "Terp migrations — Alembic integration for independent per-package histories (terp migrate)."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.7.0",
+    "terp-core==0.8.0",
     "alembic>=1.13",
 ]
 

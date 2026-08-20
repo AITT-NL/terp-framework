@@ -16,9 +16,19 @@ The model is **at-least-once + idempotent** (design §6 rule 3): a mapping is ke
 from both sides, and a record's checksum makes a redelivery a no-op, so a retried job re-runs
 safely. A per-record failure is logged (``failed``/``ACTION_FAILED``) and does not abort the
 run; a failure in the *pull itself* closes the run ``failed`` and re-raises so the outbox
-retries the whole job. (A job that dies mid-loop leaves a ``running`` run whose work already
-committed per-record; the next successful run supersedes its cursor — reaping stale runs is a
-follow-up.)
+retries the whole job.
+
+A reconcile also takes a **lease on its source** for as long as it runs
+(:mod:`terp.capabilities.sync.leasing`), which answers the two questions this docstring used
+to leave open. Two reconciles of one source no longer overlap — the second is refused with
+:class:`~terp.core.LeaseHeldError` and retries on its next tick, instead of opening a
+competing run against the same external system. And a job that dies mid-loop no longer
+leaves ``running`` forever: its lease lapses, the registered reaper closes the abandoned run
+``failed`` with the reason on the row, and the source becomes retryable — where previously
+the only cleanup was a hand-written ``UPDATE``. The lease is renewed from inside the record
+loop and fails closed if it was taken over, so a worker that stalled past its expiry stops
+rather than finishing over its successor. An app that wired no lease store reconciles exactly
+as before (``leases`` is a capability it opts into), so nothing here is a migration.
 """
 
 from __future__ import annotations
@@ -27,10 +37,15 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlmodel import Session, col, func, select
+from sqlmodel import Session, col, select
 
-from terp.core import AuditAction, BaseService, NotFoundError, PaginationParams
+from terp.core import AuditAction, BaseService, LeaseGuard
 
+from terp.capabilities.sync.leasing import (
+    hold_source,
+    register_stale_run_reaper,
+    worker_holder,
+)
 from terp.capabilities.sync.models import (
     ACTION_CREATED,
     ACTION_FAILED,
@@ -39,8 +54,8 @@ from terp.capabilities.sync.models import (
     STATUS_FAILED,
     STATUS_SUCCEEDED,
     SyncMapping,
-    SyncRecordLog,
     SyncRun,
+    tenant_scope_for,
 )
 from terp.capabilities.sync.remote import SyncSource
 from terp.capabilities.sync.schemas import (
@@ -94,9 +109,14 @@ class _SyncRunService(BaseService[SyncRun, SyncRunDraft, SyncRunUpdate]):
 _runs = _SyncRunService()
 
 
-def _tenant_scope(tenant_id: uuid.UUID | None) -> str:
-    """The non-null tenant dimension used in unique keys (``global`` for single-tenant)."""
-    return str(tenant_id) if tenant_id is not None else "global"
+def runs_service() -> _SyncRunService:
+    """The audited run service, for the stale-run reaper (which must not re-instantiate it)."""
+    return _runs
+
+
+# Registering at import mirrors a scope predicate: an app that mounts this capability gets
+# the stale-run recovery without having to remember to wire it.
+register_stale_run_reaper()
 
 
 class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate]):
@@ -108,8 +128,43 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
     def pull(
         self, session: Session, source: SyncSource, *, tenant_id: uuid.UUID | None = None
     ) -> SyncRun:
-        """Reconcile System B → local for *source*, returning the closed run."""
-        tenant_scope = _tenant_scope(tenant_id)
+        """Reconcile System B → local for *source*, returning the closed run.
+
+        Held under the source's lease for the whole reconcile (see
+        :mod:`terp.capabilities.sync.leasing`): a competing reconcile of the same source is
+        refused before a run is opened, and one that dies here is reaped rather than left
+        ``running``. The lease is taken **before** the run row exists, because what must not
+        overlap is the source — refusing after opening a run would leave the evidence of a
+        reconcile that never happened.
+        """
+        tenant_scope = tenant_scope_for(tenant_id)
+        guard = hold_source(
+            session,
+            tenant_scope=tenant_scope,
+            entity_type=source.entity_type,
+            holder=worker_holder(),
+        )
+        try:
+            return self._pull_leased(
+                session, source, tenant_scope=tenant_scope, tenant_id=tenant_id, guard=guard
+            )
+        finally:
+            if guard is not None:
+                # Hand the source back now: an exception means this worker is alive and
+                # reporting, so the next attempt should not have to wait out the TTL. Only a
+                # crash leaves the lease to expire, which is when the reaper is the answer.
+                guard.release()
+
+    def _pull_leased(
+        self,
+        session: Session,
+        source: SyncSource,
+        *,
+        tenant_scope: str,
+        tenant_id: uuid.UUID | None,
+        guard: LeaseGuard | None,
+    ) -> SyncRun:
+        """The reconcile itself, with the source's lease already held."""
         resume = self._resume_cursor(session, source.entity_type, tenant_scope)
         run = _runs.open(
             session,
@@ -123,6 +178,11 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
         try:
             page = source.pull(resume)
             for record in page.records:
+                if guard is not None:
+                    # Cheap per record (it writes only past the lease's half-life) and
+                    # fail-closed: if the lease was taken over, this raises and the run is
+                    # closed failed instead of racing its successor to the finish.
+                    guard.heartbeat()
                 self._reconcile_record(
                     session, source, record, run_id, tenant_scope, tenant_id, counts
                 )
@@ -165,8 +225,44 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
 
         Delegates the direction to :meth:`~terp.capabilities.sync.remote.SyncSource.push`
         (unsupported by default — a pull-only source closes the run ``failed`` and re-raises).
+
+        Unlike ``pull`` there is nothing to heartbeat *inside*: ``push`` is one opaque call,
+        so a source that takes longer than the lease TTL will have its lease lapse and its run
+        reaped while it is still working. That is bounded rather than dangerous, and the bound
+        is the run row's own optimistic-concurrency token: this method captured the run's
+        ``version`` at open, so once the reaper has closed the run, the losing update raises
+        :class:`~terp.core.StaleDataError` instead of overwriting the reaper's verdict. A
+        source with work that long should chunk it, or the app should raise the TTL.
         """
-        tenant_scope = _tenant_scope(tenant_id)
+        tenant_scope = tenant_scope_for(tenant_id)
+        # The same lease as pull, on purpose: a push and a pull of one source both write the
+        # same mapping ledger, so they must not overlap either.
+        guard = hold_source(
+            session,
+            tenant_scope=tenant_scope,
+            entity_type=source.entity_type,
+            holder=worker_holder(),
+        )
+        try:
+            return self._push_leased(
+                session, source, tenant_scope=tenant_scope, tenant_id=tenant_id
+            )
+        finally:
+            if guard is not None:
+                # Everything after the lease was taken is inside the try, so a failure while
+                # *opening* the run hands the source back too — rather than leaving it locked
+                # out for a whole TTL over a run that never started.
+                guard.release()
+
+    def _push_leased(
+        self,
+        session: Session,
+        source: SyncSource,
+        *,
+        tenant_scope: str,
+        tenant_id: uuid.UUID | None,
+    ) -> SyncRun:
+        """The push itself, with the source's lease already held."""
         run = _runs.open(
             session,
             tenant_scope=tenant_scope,
@@ -321,95 +417,4 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
         return last.cursor if last else None
 
 
-def get_run(
-    session: Session, run_id: uuid.UUID, *, tenant_id: uuid.UUID | None = None
-) -> SyncRun:
-    """One reconcile run by id (404 if unknown) — the router detail read."""
-    query = _runs.base_query().where(col(SyncRun.id) == run_id)
-    for condition in _tenant_conditions(SyncRun, tenant_id):
-        query = query.where(condition)
-    run = session.exec(query).first()
-    if run is None:
-        raise NotFoundError()
-    return run
-
-
-def list_runs(
-    session: Session,
-    *,
-    pagination: PaginationParams,
-    tenant_id: uuid.UUID | None = None,
-) -> tuple[list[SyncRun], int]:
-    """One page of reconcile runs, newest first."""
-    conditions = _tenant_conditions(SyncRun, tenant_id)
-    total = session.exec(select(func.count()).select_from(SyncRun).where(*conditions)).one()
-    rows = session.exec(
-        select(SyncRun)
-        .where(*conditions)
-        .order_by(col(SyncRun.started_at).desc(), col(SyncRun.id).desc())
-        .offset(pagination.skip)
-        .limit(pagination.limit)
-    ).all()
-    return list(rows), int(total)
-
-
-def list_record_logs(
-    session: Session,
-    *,
-    pagination: PaginationParams,
-    run_id: uuid.UUID,
-    tenant_id: uuid.UUID | None = None,
-) -> tuple[list[SyncRecordLog], int]:
-    """One page of a run's append-only record log, newest first."""
-    conditions = (col(SyncRecordLog.run_id) == run_id, *_tenant_conditions(SyncRecordLog, tenant_id))
-    total = session.exec(
-        select(func.count()).select_from(SyncRecordLog).where(*conditions)
-    ).one()
-    rows = session.exec(
-        select(SyncRecordLog)
-        .where(*conditions)
-        .order_by(col(SyncRecordLog.created_at).desc(), col(SyncRecordLog.id).desc())
-        .offset(pagination.skip)
-        .limit(pagination.limit)
-    ).all()
-    return list(rows), int(total)
-
-
-def list_mappings(
-    session: Session,
-    *,
-    pagination: PaginationParams,
-    entity_type: str | None = None,
-    tenant_id: uuid.UUID | None = None,
-) -> tuple[list[SyncMapping], int]:
-    """One page of identity mappings, optionally filtered to one *entity_type*."""
-    query = SyncService().base_query()
-    for condition in _tenant_conditions(SyncMapping, tenant_id):
-        query = query.where(condition)
-    if entity_type is not None:
-        query = query.where(col(SyncMapping.entity_type) == entity_type)
-    total = session.exec(select(func.count()).select_from(query.subquery())).one()
-    rows = session.exec(
-        query.order_by(col(SyncMapping.created_at).desc())
-        .offset(pagination.skip)
-        .limit(pagination.limit)
-    ).all()
-    return list(rows), int(total)
-
-
-def _tenant_conditions(model: type, tenant_id: uuid.UUID | None) -> tuple:
-    """Optional tenant filter for operator reads; no filter means all sync scopes."""
-    if tenant_id is None:
-        return ()
-    return (col(model.tenant_scope) == _tenant_scope(tenant_id),)
-
-
-
-
-__all__ = [
-    "SyncService",
-    "get_run",
-    "list_mappings",
-    "list_record_logs",
-    "list_runs",
-]
+__all__ = ["SyncService", "runs_service"]

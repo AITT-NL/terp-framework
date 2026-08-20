@@ -24,6 +24,15 @@ either by the host, by a container on the compose network, or by the browser, an
 value cannot be right for two of them: ``127.0.0.1:8000`` is the API from the host and the
 container's *own* loopback from inside the network. That distinction is not derivable from
 a variable's name or type, so the manifest states it and this check enforces it.
+
+The third finding is the manifest's own shape, and it comes first because it decides
+whether the other two mean anything. Studio's reader is fail-closed on the WHOLE file: one
+over-long ``description`` and every declared variable vanishes from the environment form
+and from the rendered ``.app.env`` — the app's secrets included. That verdict used to be
+Studio's alone, which put it a deploy (and a different machine) away from the edit that
+caused it; an authoring agent wrote a 500+ character description, the gate stayed green,
+and the app lost its whole manifest. The dialect it is judged against lives in
+``envschema``.
 """
 
 from __future__ import annotations
@@ -33,17 +42,14 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-#: The app's declared-variable manifest, at the project root.
-APP_ENV_SCHEMA_FILE = "environment.schema.json"
+from terp.cli.envschema import (
+    APP_ENV_SCHEMA_FILE,
+    declared_variables,
+    manifest_findings,
+)
 
 #: The file Studio renders the declared values into; the compose profiles forward it.
 APP_ENV_FILE = ".app.env"
-
-#: Where a declared variable's value is resolved. ``host`` and ``browser`` addresses are
-#: reached from outside the compose network (a developer's shell, a redirected browser);
-#: ``container`` addresses are dialled by a service on the network, where a loopback host
-#: means the container itself.
-RESOLVED_BY_VALUES = frozenset({"host", "container", "browser"})
 
 #: Hosts that mean "this machine" — inside a container, that is the container. A list of
 #: addresses to DETECT, not one to bind (ruff's S104 reads the literal, not its use).
@@ -123,28 +129,6 @@ def _forwards_app_env(service: object) -> bool:
         if isinstance(path, str) and pathlib.PurePosixPath(path).name == APP_ENV_FILE:
             return True
     return False
-
-
-def read_declared_variables(project_root: pathlib.Path) -> dict[str, dict]:
-    """The app's declared variables, or ``{}`` when it declares none.
-
-    Tolerant by design: an unusable manifest is Studio's verdict to give (it fails the
-    deploy closed with a directive message), not a reason for this check to turn an app's
-    gate red on a file it merely could not parse.
-    """
-    import json
-
-    path = project_root / APP_ENV_SCHEMA_FILE
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    properties = data.get("properties") if isinstance(data, dict) else None
-    if not isinstance(properties, dict):
-        return {}
-    return {name: prop for name, prop in properties.items() if isinstance(prop, dict)}
 
 
 def _read_env_file(path: pathlib.Path) -> dict[str, str]:
@@ -268,7 +252,7 @@ def _loopback_findings(
 
 def env_seam_findings(project_root: pathlib.Path) -> list[EnvSeamFinding]:
     """Every declared variable whose value cannot arrive through the seam it was promised."""
-    declared = read_declared_variables(project_root)
+    declared = declared_variables(project_root)
     if not declared:
         return []
     return [
@@ -286,7 +270,24 @@ def run_env_seams_check(project_root: pathlib.Path) -> tuple[int, str]:
     """
     if not (project_root / APP_ENV_SCHEMA_FILE).is_file():
         return 0, f"no {APP_ENV_SCHEMA_FILE} - app-declared variables not applicable"
-    declared = read_declared_variables(project_root)
+    # Shape first: a manifest Studio refuses declares nothing at all, so a seam verdict
+    # over it would answer a question that no longer applies.
+    defects = manifest_findings(project_root)
+    if defects:
+        lines = [
+            f"{APP_ENV_SCHEMA_FILE} is not usable as written, and Terp Studio's reader",
+            "fails closed on the WHOLE file: every declared variable -- the app's",
+            "secrets included -- disappears from the environment form and is never",
+            f"rendered into {APP_ENV_FILE}.",
+            "",
+            f"  {APP_ENV_SCHEMA_FILE}",
+        ]
+        for defect in defects:
+            subject = f"{defect.subject} " if defect.subject else ""
+            lines.append(f"    {subject}{defect.detail}")
+        lines += ["", "See: terp guide environment"]
+        return 1, "\n".join(lines)
+    declared = declared_variables(project_root)
     if not declared:
         return 0, f"{APP_ENV_SCHEMA_FILE} declares no variables - nothing to shadow"
     findings = env_seam_findings(project_root)

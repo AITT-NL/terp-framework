@@ -11,6 +11,7 @@ import pathlib
 import tomllib
 
 from terp.arch import assert_app_clean
+from terp.cli.verify import PROFILES
 from terp.migrations import assert_migrations_match_models, upgrade
 
 _APP_ROOT = pathlib.Path(__file__).resolve().parents[1] / "app"
@@ -23,12 +24,12 @@ def test_architecture() -> None:
 def test_generic_appsec_baseline_is_wired() -> None:
     # The Terp rules cover Terp-specific architecture; generic AppSec (command
     # injection, unsafe deserialization, weak hashes, ...) is delegated to ruff's
-    # bandit-derived `S` baseline (platform ADR 0085), which CI runs as a blocking
-    # step. This test keeps that delegation from being weakened silently: dropping
-    # the select, widening the excusals, excluding app code, or removing the CI
-    # step all require editing this test too -- a visible, reviewed decision.
-    # Per-line opt-outs stay available as a `noqa` comment naming the S rule,
-    # with a reason.
+    # bandit-derived `S` baseline (platform ADR 0085), which the `full` verify
+    # profile runs as a blocking check. This test keeps that delegation from being
+    # weakened silently: dropping the select, widening the excusals, excluding app
+    # code, or taking the profile out of CI all require editing this test too -- a
+    # visible, reviewed decision. Per-line opt-outs stay available as a `noqa`
+    # comment naming the S rule, with a reason.
     project_root = pathlib.Path(__file__).resolve().parents[1]
     config = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
     ruff = config.get("tool", {}).get("ruff", {})
@@ -55,9 +56,15 @@ def test_generic_appsec_baseline_is_wired() -> None:
             "(only .venv and generated Alembic revisions are sanctioned)"
         )
     ci = (project_root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "uv run ruff check ." in ci, (
-        ".github/workflows/ci.yml no longer runs the ruff `S` baseline as a "
-        "blocking gate step (see the platform ADR 0085)"
+    assert "terp verify --profile full" in ci, (
+        ".github/workflows/ci.yml no longer runs `terp verify --profile full`, the "
+        "blocking gate step that carries the ruff `S` baseline (see the platform "
+        "ADR 0085)"
+    )
+    # CI naming the profile only delegates the baseline if the profile still runs it.
+    assert any(check.command == "uv run ruff check ." for check in PROFILES["full"]), (
+        "the `full` verify profile no longer runs the ruff `S` baseline, so the gate "
+        "step above enforces nothing (see the platform ADR 0085)"
     )
 
 
