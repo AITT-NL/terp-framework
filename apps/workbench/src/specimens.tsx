@@ -288,6 +288,21 @@ const EMPTY_RESOURCE: Resource<LinkItem, string> = {
   mutate: noop,
 };
 
+// The failed create, and the only shape that paints ResourceList's `role="alert"` line: the
+// items are still listed and the write-gated form is still there, because a create that
+// failed changes neither. `cause` stays null so the copy is the resource's own string — the
+// code-to-copy map is exercised by `dataview-error`, and pinning a code here would make this
+// baseline depend on that table.
+const FAILED_RESOURCE: Resource<LinkItem, string> = {
+  items: LINK_RESOURCE.items,
+  loading: false,
+  error: "Could not save the link. Try again.",
+  cause: null,
+  reload: noop,
+  create: noop,
+  mutate: noop,
+};
+
 // `ModuleNav` reads the live pathname from TanStack Router (it marks the active tab), so
 // its specimen renders inside a minimal memory router pinned to "/records" — which is also
 // what puts the active-tab state in the picture. Everything else in the workbench stays
@@ -1118,6 +1133,25 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
           </SignedIn>
         ),
       },
+      {
+        // The error line, which nothing painted — so the danger ink on the framework's
+        // failed-create message sat in no baseline and axe never measured it in any of the
+        // five themes. Everything else is `resource-list` unchanged, so the two baselines
+        // differ in exactly one thing.
+        id: "resource-list-error",
+        title: "ResourceList — the create failed",
+        node: (
+          <SignedIn>
+            <ResourceList
+              title="Links"
+              resource={FAILED_RESOURCE}
+              renderItem={(item) => <span>{item.name}</span>}
+              createPlaceholder="New link name"
+              renderActions={() => <Button variant="ghost">Remove</Button>}
+            />
+          </SignedIn>
+        ),
+      },
     ],
   },
   {
@@ -1376,6 +1410,56 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
           >
             <p style={{ margin: 0 }}>Body content below the header.</p>
           </Page>
+        ),
+      },
+      {
+        // `Page`'s two async frames, which nothing pictured. The header staying put while the
+        // body is replaced is the frame's whole promise — the user keeps their place in the
+        // layers — and `loading-state` / `error-state` photograph those blocks standing alone,
+        // never inside the frame that swaps them in.
+        //
+        // The fixed-height GRID wrapper is not decoration, and a plain fixed-height div would
+        // not do. `Page`'s own grid declares `align-content: start`, and that declaration is
+        // unobservable unless the article is taller than its content: as a block child of a
+        // tall box the article is content-height, so start and stretch paint identically and
+        // the declaration would move into the sheet with no baseline able to see it. A grid
+        // wrapper stretches the article to the full 24rem, and then packing the two rows at
+        // the top rather than spreading them is exactly what the picture shows.
+        id: "page-loading",
+        title: "Page — the body is loading, the header stays",
+        node: (
+          <div style={{ height: "24rem", display: "grid", border: "1px solid var(--color-neutral-200)" }}>
+            <Page
+              title="Customer master"
+              breadcrumbs={[{ label: "Records", to: "/records" }]}
+              actions={<Button variant="primary">Publish</Button>}
+              isLoading
+            >
+              <p style={{ margin: 0 }}>Never rendered while isLoading is set.</p>
+            </Page>
+          </div>
+        ),
+      },
+      {
+        // Both props are set, and the picture has to be the error. `error` winning over
+        // `isLoading` is a documented `Page` behaviour with no other gate — without it a query
+        // that failed could sit on a spinner for ever — and it is only assertable in a picture
+        // if the picture is taken with both set. Same box and same header as `page-loading`, so
+        // the two differ in one thing.
+        id: "page-error",
+        title: "Page — the body failed, and error beats isLoading",
+        node: (
+          <div style={{ height: "24rem", display: "grid", border: "1px solid var(--color-neutral-200)" }}>
+            <Page
+              title="Customer master"
+              breadcrumbs={[{ label: "Records", to: "/records" }]}
+              actions={<Button variant="primary">Publish</Button>}
+              isLoading
+              error="The record could not be loaded."
+            >
+              <p style={{ margin: 0 }}>Never rendered while error is set.</p>
+            </Page>
+          </div>
         ),
       },
       {
