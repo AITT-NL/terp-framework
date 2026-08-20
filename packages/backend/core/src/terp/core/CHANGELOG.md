@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## 0.8.0 — 2026-08-18
+## 0.8.0 — 2026-08-20
 
 The second half of the frontend design system: components stop carrying their
 base styles as inline `style={}` and move them into the injected stylesheet,
