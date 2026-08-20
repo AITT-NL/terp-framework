@@ -11,10 +11,19 @@ a diff).
 
 ```bash
 npm run dev        # the workbench at http://localhost:5175
-npm run visual     # screenshots + axe, against the committed baselines
+npm run visual     # all three lanes at once — see the flake note before trusting a red run
+npm run visual:screens  # one lane at a time, which is what CI does and what is reliable
+npm run visual:a11y
+npm run visual:keyboard
 npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
+
+`npm run visual` is the convenient command and **not** the trustworthy one on a busy
+machine: it starts all three lanes in one Playwright process, which is itself the
+contention condition described under "No retries" below. CI never runs it — the workflow
+runs the three lanes as three separate steps. Reach for the per-lane scripts when a result
+has to mean something.
 
 81 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (405
 axe runs across five palettes); the screenshots cover the **two default** themes (162
@@ -232,6 +241,19 @@ itself, and the rule against running the Python suite and a browser lane togethe
 rule against running a browser lane beside **anything** heavy, including another browser lane.
 Neither is a reason to add retries — a lane that needs a retry to pass is not evidence, and the
 fix here is scheduling rather than tolerance.
+
+It returned a third time, and the trigger is narrower than "two suites": **one** bare
+`npx playwright test` is enough. That command runs all three lanes in a single Playwright
+process — 573 tests over eight workers, the screenshot lane's dev server and page loads
+competing with the axe lane's — and it failed `color-contrast` on three twilight specimens
+together (`chrome/page-loading`, `chrome/page-error`, `chrome/hub-card-bare`). The axe lane
+alone, same commit: all 81 twilight runs passed. The *identical* full command, run again:
+573 passed. Same shape as before, one worker pool rather than two.
+
+Which makes the scheduling rule concrete rather than advisory, and it had been missing its
+commands: CI already runs the three lanes as three separate steps, so it never meets this
+condition, while the README's own headline command did. There are per-lane scripts now.
+A rule with no command behind it is only obeyable by remembering it.
 
 **Baselines are split by platform** (`visual/__screenshots__/<platform>/`). Font
 rasterisation and antialiasing differ between Windows and Linux by far more than any
