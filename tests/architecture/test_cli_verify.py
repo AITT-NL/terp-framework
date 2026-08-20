@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import subprocess
 import sys
 
 import pytest
@@ -869,3 +870,193 @@ def test_verify_dispatches_env_seams_through_its_own_runner(
     assert envelope["ok"] is True
     # The no-op success shape for an app that declares nothing, reached in-process.
     assert "not applicable" in json.dumps(envelope)
+
+
+# --------------------------------------------------------------------------- #
+# the api-client runner
+#
+# It generates the typed client the frontend typecheck downstream of it reads, so it
+# is ordered first in every profile that type-checks — and its verdict is "can this
+# be produced at all", not a drift diff, because the client is gitignored.
+# --------------------------------------------------------------------------- #
+def _generating_frontend(root: pathlib.Path) -> pathlib.Path:
+    """A frontend that declares the codegen script and looks installed.
+
+    No lockfile on purpose: `_node_modules_problem` returns None without one, which
+    keeps these tests about the runner rather than about the platform diagnosis that
+    has its own suite.
+    """
+    frontend = root / "frontend"
+    (frontend / "node_modules").mkdir(parents=True)
+    (frontend / "package.json").write_text(
+        json.dumps({"scripts": {"generate": "openapi-typescript ../openapi.json"}}),
+        encoding="utf-8",
+    )
+    return frontend
+
+
+def test_an_app_with_no_frontend_skips_the_client_rather_than_failing(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Upgrading the framework must not fail a gate for a seam the app never wired."""
+    from terp.cli.verify import _run_api_client
+
+    exit_code, output = _run_api_client(tmp_path)
+
+    assert exit_code == 0
+    assert "not applicable" in output
+
+
+def test_an_unreadable_frontend_manifest_is_a_red_that_says_which_file(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Not a skip: whether this app generates a client cannot be established, and a
+    check that cannot reach its own subject must not report green."""
+    from terp.cli.verify import _run_api_client
+
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "frontend" / "package.json").write_text("{not json", encoding="utf-8")
+
+    exit_code, output = _run_api_client(tmp_path)
+
+    assert exit_code == 1
+    assert "frontend/package.json" in output
+    assert "unreadable" in output
+
+
+def test_a_frontend_without_the_generate_script_skips_with_the_adoption_hint(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The `note:` prefix, for the same reason routes-drift carries one: an opt-in
+    announced only in JSON does not get adopted."""
+    from terp.cli.verify import NOTE_PREFIX, _run_api_client
+
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "frontend" / "package.json").write_text('{"scripts": {}}', encoding="utf-8")
+
+    exit_code, output = _run_api_client(tmp_path)
+
+    assert exit_code == 0
+    assert output.startswith(NOTE_PREFIX)
+    assert "openapi-typescript" in output, "the hint has to name what to add"
+
+
+def test_a_broken_install_is_diagnosed_before_npm_is_spawned(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ordered ahead of the spawn deliberately: by the time npm has run, the reader is
+    already looking at a module-resolution trace instead of the fix."""
+    from terp.cli.verify import _run_api_client
+
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "frontend" / "package.json").write_text(
+        json.dumps({"scripts": {"generate": "openapi-typescript"}}), encoding="utf-8"
+    )
+
+    exit_code, output = _run_api_client(tmp_path)
+
+    assert exit_code == 1
+    assert "npm --prefix frontend ci" in output
+
+
+def test_an_app_ref_that_resolves_to_no_fastapi_app_is_a_red_not_a_crash(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """export_openapi refuses with SystemExit; the runner turns that into a verdict, or
+    the profile would abort mid-run and the remaining checks would never report."""
+    import terp.cli.openapi as openapi_module
+    from terp.cli.verify import _run_api_client
+
+    _generating_frontend(tmp_path)
+
+    def refuse(**_kwargs: object) -> pathlib.Path:
+        raise SystemExit("no app at app.main:build")
+
+    monkeypatch.setattr(openapi_module, "export_openapi", refuse)
+
+    exit_code, output = _run_api_client(tmp_path)
+
+    assert exit_code == 1
+    assert "could not export the OpenAPI document" in output
+    assert "no app at app.main:build" in output
+
+
+def _stub_generation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, *, returncode: int
+) -> list[dict[str, object]]:
+    """Stub the export and the npm spawn, recording how the spawn was invoked."""
+    import terp.cli.openapi as openapi_module
+    import terp.cli.verify as verify_module
+
+    monkeypatch.setattr(
+        openapi_module, "export_openapi", lambda **_k: tmp_path / "openapi.json"
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append({"argv": argv, **kwargs})
+        return subprocess.CompletedProcess(argv, returncode, "generated 1 file\n", "")
+
+    monkeypatch.setattr(verify_module.subprocess, "run", fake_run)
+    return calls
+
+
+def test_the_client_is_generated_from_the_app_root_and_reports_what_it_wrote(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    from terp.cli.verify import _run_api_client
+
+    _generating_frontend(tmp_path)
+    calls = _stub_generation(monkeypatch, tmp_path, returncode=0)
+    before = pathlib.Path.cwd()
+
+    exit_code, output = _run_api_client(tmp_path)
+
+    assert exit_code == 0
+    assert "wrote openapi.json" in output
+    assert "generated 1 file" in output, "npm's own output has to reach the reader"
+    (call,) = calls
+    assert call["argv"][1:] == ["--prefix", "frontend", "run", "generate"]
+    assert call["shell"] is not True if "shell" in call else True
+    assert pathlib.Path.cwd() == before, "the chdir must be undone even on the happy path"
+
+
+def test_a_failed_generation_says_why_the_typecheck_after_it_would_mislead(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The ordering is load-bearing, so the failure explains it: a red typecheck
+    downstream of a missing client is a verdict about the client, not about the app."""
+    from terp.cli.verify import _run_api_client
+
+    _generating_frontend(tmp_path)
+    _stub_generation(monkeypatch, tmp_path, returncode=2)
+
+    exit_code, output = _run_api_client(tmp_path)
+
+    assert exit_code == 2
+    assert "frontend typecheck" in output
+
+
+def test_the_profile_dispatches_the_api_client_runner_in_process(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The runner is reached by its `runner` tag, not by shelling out to its `command`
+    — which is what lets the check hold a callable and still publish a command a
+    reader can run by hand."""
+    api_client = VerifyCheck(
+        id="api-client",
+        category="build",
+        command="terp verify --only api-client",
+        runner="api-client",
+    )
+    monkeypatch.setitem(PROFILES, "quick", (api_client,))
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "quick", "--root", str(tmp_path), "--format", "json"])
+
+    assert excinfo.value.code == 0
+    (check,) = json.loads(capsys.readouterr().out)["checks"]
+    assert check["id"] == "api-client"
+    assert "not applicable" in check["output_tail"], "the runner ran, not its command string"
