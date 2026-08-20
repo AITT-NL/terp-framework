@@ -1,5 +1,4 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import type { CSSProperties } from "react";
 
 import { useStrings, useUiText } from "./uiText";
 import type { UiText } from "./uiText";
@@ -17,38 +16,17 @@ export interface ModuleNavProps {
   ariaLabel?: UiText;
 }
 
-const navStyle: CSSProperties = {
-  borderBottom: "1px solid var(--color-neutral-200)",
-};
-
-const listStyle: CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "var(--space-3)",
-};
-
-const linkStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "var(--space-2) 0",
-  color: "var(--color-neutral-600)",
-  textDecoration: "none",
-  borderBottom: "2px solid transparent",
-};
-
-const activeLinkStyle: CSSProperties = {
-  color: "var(--color-neutral-900)",
-  borderBottomColor: "var(--color-fg-accent)",
-};
-
 /**
  * Secondary horizontal navigation for intra-module sub-pages.
  *
  * Each tab links to a real TanStack Router route so sub-pages keep their own URL,
  * lazy loading, and back-button behavior. The active tab is matched exactly.
+ *
+ * It renders no inline styles: the strip, the list and the links take their geometry and
+ * ink from the injected react-core sheet (ADR 0094). The active tab is styled from
+ * `data-active`, which this component alone writes, rather than from the `aria-current` it
+ * also sets — a router `Link` merges its own `aria-current` last, so that attribute has a
+ * second author and would be the breadcrumb mistake again.
  */
 export function ModuleNav({ items, ariaLabel }: ModuleNavProps) {
   const strings = useStrings();
@@ -60,12 +38,8 @@ export function ModuleNav({ items, ariaLabel }: ModuleNavProps) {
   }
 
   return (
-    <nav
-      aria-label={resolve(ariaLabel ?? strings.moduleNavigationLabel)}
-      data-terp="module-nav"
-      style={navStyle}
-    >
-      <ul style={listStyle}>
+    <nav aria-label={resolve(ariaLabel ?? strings.moduleNavigationLabel)} data-terp="module-nav">
+      <ul data-terp="module-nav-list">
         {items.map((item) => {
           const label = resolve(item.label);
           const isActive = pathname === item.to;
@@ -75,7 +49,8 @@ export function ModuleNav({ items, ariaLabel }: ModuleNavProps) {
                 to={item.to}
                 activeOptions={{ exact: true }}
                 aria-current={isActive ? "page" : undefined}
-                style={{ ...linkStyle, ...(isActive ? activeLinkStyle : undefined) }}
+                data-terp="module-nav-link"
+                data-active={isActive ? "true" : undefined}
               >
                 {label}
               </Link>

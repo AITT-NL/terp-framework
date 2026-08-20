@@ -60,6 +60,20 @@ describe("ModuleNav", () => {
       "page",
     );
     expect(screen.getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current");
+
+    // The styling key is data-active, and the point is that it is NOT the aria-current
+    // beside it. A router Link merges its own active props last, so aria-current on this
+    // element has a second author — keying the accent edge on it would be the breadcrumb
+    // defect again the moment the two disagreed about "active", which they can, because the
+    // router compares the query string as well and this component compares the pathname.
+    const active = screen.getByRole("link", { name: "Projects" });
+    const inactive = screen.getByRole("link", { name: "Overview" });
+    expect(active).toHaveAttribute("data-terp", "module-nav-link");
+    expect(active).toHaveAttribute("data-active", "true");
+    expect(inactive).toHaveAttribute("data-terp", "module-nav-link");
+    expect(inactive).not.toHaveAttribute("data-active");
+    expect(active.getAttribute("style")).toBeNull();
+    expect(inactive.getAttribute("style")).toBeNull();
   });
 
   it("returns nothing for an empty tab list", () => {

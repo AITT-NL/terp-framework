@@ -848,6 +848,9 @@ describe("cascade structure", () => {
       "resource-list-empty",
       "resource-list-items",
       "resource-list-row",
+      "module-nav",
+      "module-nav-list",
+      "module-nav-link",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

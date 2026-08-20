@@ -166,6 +166,8 @@ const MARKERS = [
   "menu-item-icon",
   "menu-trigger",
   "module-nav",
+  "module-nav-link",
+  "module-nav-list",
   "nav-icon",
   "nav-icon-fallback",
   "page",
@@ -313,7 +315,6 @@ const UNMARKED_STYLED_SURFACES = [
  */
 const INLINE_BASE_STYLES: Record<string, number> = {
   "./LoginView.tsx": 9,
-  "./ModuleNav.tsx": 4,
   "./ProfileView.tsx": 3,
 };
 

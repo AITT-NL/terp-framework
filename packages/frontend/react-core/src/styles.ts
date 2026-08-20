@@ -13,12 +13,11 @@
  * anything. A new escalation is therefore a claim that some element still styles
  * itself inline on the same property — state it, with the file, or do not add it.
  *
- * The migration itself is not finished: three modules still declare module-scope
- * base style objects (16 between them, gated in markers.test.ts). They are just no
- * longer in anyone's way — of what they render, only `module-nav` carries a marker,
- * and no rule in `terp.state` targets it, so retiring the last escalations left
- * nothing inert. Checked by scanning the layer against those files rather than by
- * spot-checking a hover.
+ * The migration itself is not finished: two modules still declare module-scope base
+ * style objects (12 between them, gated in markers.test.ts). Neither renders a marker
+ * at all, so nothing in `terp.state` can reach either of them and retiring the last
+ * escalations left nothing inert. Checked by scanning the layer against those files
+ * rather than by spot-checking a hover.
  *
  * A migrated component gets its base here and renders no `style={}` for it —
  * though it may still pass an inline value the sheet has no business owning, which
@@ -517,6 +516,35 @@ textarea[data-terp="input"] {
 }
 [data-terp="tab-panel"] {
   color: var(--color-neutral-900);
+}
+
+/* Module navigation -------------------------------------------------------- */
+/* Secondary tabs for a module's sub-pages, and very nearly the same object as tab
+   above: a transparent 2px edge the active item colours, muted ink the active item
+   darkens. The difference is that these are router links rather than buttons, and
+   that difference decides where the active state is keyed — see terp.state.
+
+   The edges are logical (border-block-end) to match tab and appshell-footer rather
+   than the physical borderBottom the component declared. Identical in every writing
+   mode this framework ships, and the sheet already had one convention. */
+[data-terp="module-nav"] {
+  border-block-end: 1px solid var(--color-neutral-200);
+}
+[data-terp="module-nav-list"] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+[data-terp="module-nav-link"] {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2) 0;
+  color: var(--color-neutral-600);
+  text-decoration: none;
+  border-block-end: 2px solid transparent;
 }
 
 /* Breadcrumbs -------------------------------------------------------------- */
@@ -2687,6 +2715,24 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="tab"]:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Module navigation ------------------------------------------------------- */
+/* Which sub-page you are on, here for the same reason the selected tab is: the
+   accent edge and the darker ink have to beat the resting pair.
+
+   Keyed on data-active, which ModuleNav writes, and deliberately NOT on the
+   aria-current the same element also carries. That attribute has a second author:
+   TanStack's link props spread the router's own active props LAST, after the
+   caller's, so on a Link the router has the final word on aria-current. This is
+   the breadcrumb lesson in its exact form — reuse a semantic only where the
+   component is its sole author — and the two notions of "active" are not even the
+   same predicate here, because activeOptions.includeSearch defaults to true, so
+   the router additionally requires an exact query-string match while ModuleNav
+   compares the pathname alone. */
+[data-terp="module-nav-link"][data-active="true"] {
+  color: var(--color-neutral-900);
+  border-block-end-color: var(--color-fg-accent);
 }
 
 /* Hub cards --------------------------------------------------------------- */
