@@ -8,7 +8,7 @@ export { canPerform, DEFAULT_RANK_THRESHOLDS } from "./capabilities";
 export type { RankThresholds } from "./capabilities";
 export { createAuthClient } from "./createAuthClient";
 export type { AuthClientOptions, TokenGetter } from "./createAuthClient";
-export { Authorized, useCan } from "./Authorized";
+export { Authorized, useCan, useHasPermission, usePermissions } from "./Authorized";
 export type { AuthorizedProps } from "./Authorized";
 export { useResource } from "./useResource";
 export type { Resource, ResourceSource } from "./useResource";
@@ -109,6 +109,8 @@ export { Alert } from "./ui/Alert";
 export type { AlertProps, AlertTone } from "./ui/Alert";
 export { Markdown } from "./ui/Markdown";
 export type { MarkdownProps } from "./ui/Markdown";
+export { saveBlob, useEndpointDownload, fetchDownload, downloadUrl } from "./download";
+export type { DownloadTarget } from "./download";
 export { Field } from "./Field";
 export type { FieldProps } from "./Field";
 export { Stack, DetailList } from "./layout";
@@ -119,6 +121,7 @@ export {
   PROFILE_PATH,
   useRouteParam,
   useRouteParams,
+  useRouteSearch,
   useTerpNavigate,
 } from "./router";
 export type { BuildAppRouterOptions } from "./router";
@@ -129,6 +132,9 @@ export type {
   TerpRouteParamName,
   TerpRouteParams,
   TerpRoutePath,
+  TerpRouteSearch,
+  TerpRouteSearchKey,
+  TerpRouteSearchTable,
   TerpRouteTable,
 } from "./routeTypes";
 export { LoginView } from "./LoginView";

@@ -5,7 +5,13 @@ import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModuleManifest } from "@terpjs/contract";
 
-import { buildAppRouter, useRouteParam, useRouteParams, useTerpNavigate } from "./router";
+import {
+  buildAppRouter,
+  useRouteParam,
+  useRouteParams,
+  useRouteSearch,
+  useTerpNavigate,
+} from "./router";
 import { Page } from "./Page";
 import { TerpProvider, useAuth } from "./TerpProvider";
 
@@ -301,6 +307,190 @@ describe("buildAppRouter", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: "Thing abc" })).toBeInTheDocument(),
     );
+  });
+
+  it("useRouteSearch reads the route's declared query-string keys, absent ones as undefined", async () => {
+    // The hole this closes: a list screen's filters live in the query string, so before
+    // search was declarable EVERY filtered screen left the typed seam for the router's own
+    // useSearch — losing path and param checking too, on the majority of screens.
+    vi.stubGlobal("fetch", sessionFetch());
+
+    function ListView() {
+      const { status, page } = useRouteSearch("/records");
+      return (
+        <Page title="Records">
+          <p>{`status=${status ?? "-"} page=${page ?? "-"}`}</p>
+        </Page>
+      );
+    }
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider
+          router={buildAppRouter(
+            [
+              {
+                name: "records",
+                routes: [{ path: "/records", view: "List", search: ["status", "page"] }],
+              },
+            ],
+            {
+              views: { List: ListView },
+              title: "Terp",
+              history: createMemoryHistory({ initialEntries: ["/records?status=open"] }),
+            },
+          )}
+        />
+      </TerpProvider>,
+    );
+
+    // `status` came from the URL; `page` is declared but unset, which is `undefined` rather
+    // than a missing key a screen has to guard.
+    expect(await screen.findByText("status=open page=-")).toBeInTheDocument();
+  });
+
+  it("useRouteSearch returns only declared keys, so a stray URL key cannot reach a screen", async () => {
+    vi.stubGlobal("fetch", sessionFetch());
+
+    function ListView() {
+      const search = useRouteSearch("/records") as Record<string, string | undefined>;
+      return <Page title="Records">{`keys=${Object.keys(search).join(",") || "none"}`}</Page>;
+    }
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider
+          router={buildAppRouter(
+            [{ name: "records", routes: [{ path: "/records", view: "List", search: ["status"] }] }],
+            {
+              views: { List: ListView },
+              title: "Terp",
+              history: createMemoryHistory({
+                initialEntries: ["/records?status=open&smuggled=yes"],
+              }),
+            },
+          )}
+        />
+      </TerpProvider>,
+    );
+
+    expect(await screen.findByText("keys=status")).toBeInTheDocument();
+  });
+
+  it("useRouteSearch refuses a path the router never mounted, naming what is mounted", async () => {
+    vi.stubGlobal("fetch", sessionFetch());
+
+    function ListView() {
+      // A silently empty bag would hand the screen `undefined` for every key it asked
+      // for, which reads as "no filters applied" — the failure this refusal replaces.
+      let message = "no refusal";
+      try {
+        (useRouteSearch as (path: string) => unknown)("/typo");
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      return <Page title="Records">{message}</Page>;
+    }
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider
+          router={buildAppRouter([{ name: "records", routes: [{ path: "/records", view: "List" }] }], {
+            views: { List: ListView },
+            title: "Terp",
+            history: createMemoryHistory({ initialEntries: ["/records"] }),
+          })}
+        />
+      </TerpProvider>,
+    );
+
+    expect(await screen.findByText(/is not a mounted route/)).toBeInTheDocument();
+    expect(screen.getByText(/mounted: \/records/)).toBeInTheDocument();
+  });
+
+  it("useTerpNavigate carries search onto the URL, and clearing a key removes it", async () => {
+    // Replace, not merge (ADR 0096): clearing a filter means sending the key as
+    // undefined, and a merge would keep the old value — so "clear" would not clear.
+    vi.stubGlobal("fetch", sessionFetch());
+
+    function ListView() {
+      const navigate = useTerpNavigate();
+      const { status } = useRouteSearch("/records");
+      return (
+        <Page title="Records">
+          <p>{`status=${status ?? "-"}`}</p>
+          <button
+            type="button"
+            onClick={() => void navigate({ to: "/records", search: { status: "open" } })}
+          >
+            filter open
+          </button>
+          <button
+            type="button"
+            onClick={() => void navigate({ to: "/records", search: { status: undefined } })}
+          >
+            clear
+          </button>
+        </Page>
+      );
+    }
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider
+          router={buildAppRouter(
+            [{ name: "records", routes: [{ path: "/records", view: "List", search: ["status"] }] }],
+            {
+              views: { List: ListView },
+              title: "Terp",
+              history: createMemoryHistory({ initialEntries: ["/records"] }),
+            },
+          )}
+        />
+      </TerpProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "filter open" }));
+    await waitFor(() => expect(screen.getByText("status=open")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "clear" }));
+    await waitFor(() => expect(screen.getByText("status=-")).toBeInTheDocument());
+  });
+
+  it("a second composed router does not inherit the first one's declared searches", async () => {
+    // The declarations are published per router through a context, not a module-level
+    // table: a shared table would let one app embedding another (or one test process
+    // composing two) read routes it never mounted.
+    vi.stubGlobal("fetch", sessionFetch());
+    buildAppRouter([{ name: "a", routes: [{ path: "/a", view: "V", search: ["x"] }] }], {
+      views: { V: () => <Page title="A">a</Page> },
+      title: "Terp",
+      history: createMemoryHistory({ initialEntries: ["/a"] }),
+    });
+
+    function BView() {
+      let message = "no refusal";
+      try {
+        (useRouteSearch as (path: string) => unknown)("/a");
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      return <Page title="B">{message}</Page>;
+    }
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider
+          router={buildAppRouter([{ name: "b", routes: [{ path: "/b", view: "V" }] }], {
+            views: { V: BView },
+            title: "Terp",
+            history: createMemoryHistory({ initialEntries: ["/b"] }),
+          })}
+        />
+      </TerpProvider>,
+    );
+
+    expect(await screen.findByText(/"\/a" is not a mounted route/)).toBeInTheDocument();
   });
 
   it("gives breadcrumbs and hub cards the router's link without being asked", async () => {

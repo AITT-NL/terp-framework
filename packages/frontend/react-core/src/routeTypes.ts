@@ -26,6 +26,24 @@
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- augmentation target
 export interface TerpRouteTable {}
 
+/**
+ * The query-string half of the same table (ADR 0096): path -> its declared search keys.
+ *
+ * Params were checked and search keys were not, which sounds like a gap and behaves like
+ * a hole: a list screen's filters, its sort and its page cursor all live in the query
+ * string, so *every* screen with a filter had to leave the typed seam and reach for the
+ * router's own `useNavigate` / `useSearch` — losing path checking too, on the majority of
+ * screens. Declaring the keys in the manifest (`search: ["status", "page"]`) is what lets
+ * navigation and reads stay inside the checked seam.
+ *
+ * Keyed only for routes that declare keys, so a route with none refuses `search` outright
+ * rather than accepting anything. Values are `string | undefined`: a query parameter is
+ * text and is absent until set — parsing is the screen's business, and the declaration is
+ * what stops the *key* being a typo.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- augmentation target
+export interface TerpRouteSearchTable {}
+
 /** True when no `routes.gen.d.ts` has augmented {@link TerpRouteTable}. */
 type Ungenerated = keyof TerpRouteTable extends never ? true : false;
 
@@ -50,14 +68,40 @@ export type TerpRouteParamName = Ungenerated extends true
   : { [P in keyof TerpRouteTable]: keyof TerpRouteTable[P] }[keyof TerpRouteTable] & string;
 
 /**
- * A navigation target: a declared path, plus that path's params when it takes any.
- * A paramless route refuses a `params` object; a parameterised one requires it, with
- * the names the manifest declared. Before generating, this is the loose shape.
+ * One route's declared query-string keys, all optional.
+ *
+ * Three cases, and the middle one is the point. Before `terp routes` has generated, the
+ * shape is loose (like {@link TerpRouteParams}) so an app that has not adopted keeps
+ * today's behavior. Once generated, a route that declared keys gets exactly those; a
+ * route that declared **none** gets `Record<never, never>`, so passing `search` to it is a
+ * typecheck error rather than a value silently dropped into the URL.
+ */
+export type TerpRouteSearch<P extends TerpRoutePath> = P extends keyof TerpRouteSearchTable
+  ? TerpRouteSearchTable[P]
+  : Ungenerated extends true
+    ? Record<string, string | undefined>
+    : Record<never, never>;
+
+/** Every search key any route declares — or `string` before generating. */
+export type TerpRouteSearchKey = Ungenerated extends true
+  ? string
+  : { [P in keyof TerpRouteSearchTable]: keyof TerpRouteSearchTable[P] }[keyof TerpRouteSearchTable] &
+      string;
+
+/**
+ * A navigation target: a declared path, that path's params when it takes any, and that
+ * path's declared search keys when it reads any.
+ *
+ * A paramless route refuses a `params` object; a parameterised one requires it, with the
+ * names the manifest declared. `search` is always optional (a route may be visited with
+ * no filters applied) but its *keys* are the declared ones, so a typo is a typecheck
+ * error and a route that declares no search keys refuses the property. Before generating,
+ * this is the loose shape.
  */
 export type TerpNavigateTarget = Ungenerated extends true
-  ? { to: string; params?: Record<string, string> }
+  ? { to: string; params?: Record<string, string>; search?: Record<string, string | undefined> }
   : {
-      [P in keyof TerpRouteTable & string]: keyof TerpRouteTable[P] extends never
+      [P in keyof TerpRouteTable & string]: (keyof TerpRouteTable[P] extends never
         ? { to: P; params?: undefined }
-        : { to: P; params: TerpRouteTable[P] };
+        : { to: P; params: TerpRouteTable[P] }) & { search?: TerpRouteSearch<P> };
     }[keyof TerpRouteTable & string];

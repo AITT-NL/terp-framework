@@ -38,6 +38,26 @@ export const BOUNDARY_SPEC = {
    * react-core components (`Stack` for layout), never ad-hoc per screen. `className` would be
    * a side channel into hand-authored CSS, so it is refused alongside `style`.
    */
+  /**
+   * Extra guidance for an element whose named replacement does not fit every case, so the
+   * refusal states what to do instead of implying something is missing.
+   *
+   * `dialog` is the one that needed it. The replacement is `ConfirmDialog`, which is right
+   * for a confirmation and wrong advice for anything else — and an author who reads "use
+   * ConfirmDialog" for an edit form concludes the framework ships no dialog and that the
+   * rule cannot be obeyed. The guidance below is what a reporting app arrived at on its
+   * own, and recorded as the better outcome: the editor moved into an expanded row, so the
+   * finding that sent the author there stayed on screen while they fixed it.
+   */
+  restrictedElementGuidance: {
+    dialog:
+      "A modal is for a confirmation (ConfirmDialog) or an explicit post-action moment. " +
+      "An edit form or a detail view belongs in a routed page, or in an expanded row " +
+      "beside the thing it edits — which keeps the context that sent the author there on " +
+      "screen. If you have a case neither covers, say so rather than reaching for a raw " +
+      "<dialog>: the modal contract (focus trap, focus restore, Escape, top layer) is " +
+      "what ConfirmDialog exists to provide and a hand-rolled one silently drops.",
+  },
   restrictedAttributes: ["style", "className"],
   /**
    * Raw in-app anchors (`<a href="/...">`) bypass the router (full reload, no role-aware

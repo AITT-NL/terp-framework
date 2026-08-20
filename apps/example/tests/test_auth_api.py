@@ -69,6 +69,9 @@ def test_me_returns_the_authenticated_user(app_db: FastAPI, make_user) -> None:
         "email": "editor@example.com",
         "role_rank": int(Roles.EDITOR),
         "role_name": "editor",
+        # This user holds no grants, so the projection is empty — the wire still carries
+        # the key, so a UI reads it without guarding (ADR 0096).
+        "permissions": [],
     }
 
 

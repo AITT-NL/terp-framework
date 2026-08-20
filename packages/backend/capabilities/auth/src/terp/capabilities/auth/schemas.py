@@ -45,6 +45,20 @@ class CurrentUser(BaseSchema):
     email: str
     role_rank: int
     role_name: str
+    permissions: tuple[str, ...] = ()
+    """The caller's effective permission names, for the UI to gate on (ADR 0096).
+
+    Rank alone was not enough to hide what the server would refuse. A screen whose write
+    needs a *named* grant (``definitions.publish``) could only compare rank, so it hid by a
+    proxy and handled the 403 anyway — showing a button it knew might fail, or hiding one
+    the user was entitled to. This is the same set the guard enforces, projected for
+    display, so a UI can hide exactly what would be refused.
+
+    Empty for an app that mounts no grant capability (there are no named permissions to
+    hold), which is why it defaults rather than being required. It is a *display* input,
+    never an authorization decision: the server re-checks every request, and a client that
+    trusts this list has moved the gate to the wrong side of the wire.
+    """
 
 
 __all__ = ["AccessToken", "ClientCredentialsRequest", "CurrentUser", "LoginRequest"]

@@ -117,8 +117,11 @@ from terp.core.permissions import (
     AuthorizationRequirement,
     Permission,
     PermissionModel,
+    PermissionProjector,
     Role,
     as_role,
+    project_permissions,
+    register_permission_projector,
 )
 from terp.core.routing import read_only
 from terp.core.scheduling import (
@@ -209,6 +212,7 @@ __all__ = [
     "PermissionDeniedError",
     "PermissionEnforcer",
     "PermissionModel",
+    "PermissionProjector",
     "Policy",
     "Principal",
     "RateLimit",
@@ -265,10 +269,12 @@ __all__ = [
     "mark_shared_throttle_store",
     "mark_token_revocation_provider",
     "mask_config",
+    "project_permissions",
     "read_only",
     "register_decrypt_call_site",
     "register_job_tenant_context",
     "register_object_authz_predicate",
+    "register_permission_projector",
     "register_scope_predicate",
     "request_id_ctx",
     "resolve_all_migration_trees",

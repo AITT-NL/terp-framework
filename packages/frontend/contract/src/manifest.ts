@@ -26,6 +26,20 @@ export interface ModuleRoute {
   view: string;
   /** Minimum role required to see the route; omitted = any authenticated user. */
   role?: RoleName;
+  /**
+   * Query-string keys this route reads, e.g. `["status", "page"]`.
+   *
+   * Declared for the same reason params are: the router is realised at runtime, so
+   * nothing checks a search key either — and a list screen's filters live in the query
+   * string, which is why *most* screens were the ones bypassing the typed navigation
+   * seam entirely. `terp routes` emits these into the generated table, so navigating
+   * with an undeclared key (or reading one) is a typecheck error.
+   *
+   * Values are `string | undefined` and nothing more: a query parameter is text, and
+   * every key is absent until someone sets it. Parsing `page` into a number is the
+   * screen's business — declaring the key is what stops it being a typo.
+   */
+  search?: string[];
 }
 
 export interface NavItem {

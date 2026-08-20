@@ -7,9 +7,12 @@ object here, never a string in module code.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import IntEnum
+
+from sqlmodel import Session
 
 
 def _is_token(value: str) -> bool:
@@ -187,15 +190,71 @@ def as_role(value: Role | IntEnum) -> Role:
     raise TypeError("a role must be a Role or the legacy Roles enum")
 
 
+# --------------------------------------------------------------------------- #
+# The permission-projection seam (ADR 0096)
+# --------------------------------------------------------------------------- #
+
+# What a caller's *own* effective permission names are, for the UI to gate on. The
+# capability that owns grants fills this; the kernel and the auth capability never import
+# it, exactly like a scope predicate (ADR 0017).
+PermissionProjector = Callable[[Session, uuid.UUID], Iterable[str]]
+
+_permission_projectors: list[PermissionProjector] = []
+
+
+def register_permission_projector(projector: PermissionProjector) -> None:
+    """Register a source of a caller's effective permission names (idempotent).
+
+    The access capability registers its grant lookup here at import, so ``GET /me`` reports
+    what the caller may actually do without the auth capability importing access. More than
+    one may register (grants plus, say, a licence-derived set); the projections are unioned,
+    which is the only composition that cannot *remove* an authority the server would honour
+    — a UI that under-reports hides a button the user is entitled to, and one that
+    over-reports shows a button the server refuses, so the union is the honest side to err on
+    only because every projector is itself authoritative for what it returns.
+    """
+    if projector not in _permission_projectors:
+        _permission_projectors.append(projector)
+
+
+def registered_permission_projectors() -> tuple[PermissionProjector, ...]:
+    """Every registered projector, in registration order."""
+    return tuple(_permission_projectors)
+
+
+def project_permissions(session: Session, subject_id: uuid.UUID) -> tuple[str, ...]:
+    """The caller's effective permission names, sorted and deduplicated.
+
+    Empty when nothing is registered, which is the honest answer for an app that mounts no
+    grant capability: it has no named permissions, so a UI has nothing to gate on beyond
+    role rank. Sorted so the ``/me`` payload is stable — an unstable list would defeat any
+    client-side caching and make the response diff noisily in tests.
+    """
+    projected: set[str] = set()
+    for projector in _permission_projectors:
+        projected.update(projector(session, subject_id))
+    return tuple(sorted(projected))
+
+
+def reset_permission_projectors() -> None:
+    """Clear the registry (a test seam; capabilities re-register at import)."""
+    _permission_projectors.clear()
+
+
 __all__ = [
     "ADMIN",
     "AuthorizationRequirement",
     "EDITOR",
     "Permission",
     "PermissionModel",
+    "PermissionProjector",
     "Role",
     "VIEWER",
     "as_role",
+    "project_permissions",
+    "register_permission_projector",
+    "registered_permission_projectors",
+    "reset_permission_projectors",
     "requirement_from",
     "role_from_rank",
 ]

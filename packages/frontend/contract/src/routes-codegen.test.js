@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   canonicalPath,
-  extractRoutePaths,
+  extractRoutes,
   generateRouteTable,
   moduleFiles,
   paramNamesOf,
@@ -66,17 +66,17 @@ describe("param extraction from a path", () => {
 
 describe("extraction from a module manifest", () => {
   it("reads every route path a manifest declares", () => {
-    const { paths, problems } = extractRoutePaths(
+    const { routes, problems } = extractRoutes(
       manifest('{ path: "/records", view: "List" }, { path: "/records/:recordId", view: "Detail" }'),
       "module.tsx",
     );
     expect(problems).toEqual([]);
-    expect(paths).toEqual(["/records", "/records/:recordId"]);
+    expect(routes.map((route) => route.path)).toEqual(["/records", "/records/:recordId"]);
   });
 
   it("reads a manifest declared as a property value, not only `export const manifest`", () => {
     // The packaged admin area's shape: defineModuleManifest(...) inside an object literal.
-    const { paths, problems } = extractRoutePaths(
+    const { routes, problems } = extractRoutes(
       [
         'import { defineModuleManifest } from "@terpjs/contract";',
         "export const adminModule = {",
@@ -86,25 +86,25 @@ describe("extraction from a module manifest", () => {
       "module.tsx",
     );
     expect(problems).toEqual([]);
-    expect(paths).toEqual(["/admin"]);
+    expect(routes.map((route) => route.path)).toEqual(["/admin"]);
   });
 
   it("refuses a path that is not a plain string literal, naming file and line", () => {
-    const { paths, problems } = extractRoutePaths(
+    const { routes, problems } = extractRoutes(
       manifest("{ path: `/records/${base}`, view: \"List\" }"),
       "src/modules/records/module.tsx",
     );
-    expect(paths).toEqual([]);
+    expect(routes.map((route) => route.path)).toEqual([]);
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain("src/modules/records/module.tsx:4");
     expect(problems[0]).toContain("not a plain string literal");
   });
 
   it("refuses a spread route and a non-literal routes array", () => {
-    const spread = extractRoutePaths(manifest("...shared"), "module.tsx");
+    const spread = extractRoutes(manifest("...shared"), "module.tsx");
     expect(spread.problems[0]).toContain("not an object literal");
 
-    const dynamic = extractRoutePaths(
+    const dynamic = extractRoutes(
       [
         'import { defineModuleManifest } from "@terpjs/contract";',
         "export const manifest = defineModuleManifest({ name: \"x\", routes: buildRoutes() });",
@@ -115,20 +115,20 @@ describe("extraction from a module manifest", () => {
   });
 
   it("refuses a module slot with no manifest call at all", () => {
-    const { problems } = extractRoutePaths("export const views = {};", "module.tsx");
+    const { problems } = extractRoutes("export const views = {};", "module.tsx");
     expect(problems[0]).toContain("no defineModuleManifest");
   });
 
   it("refuses a route with no path", () => {
-    const { problems } = extractRoutePaths(manifest('{ view: "List" }'), "module.tsx");
+    const { problems } = extractRoutes(manifest('{ view: "List" }'), "module.tsx");
     expect(problems[0]).toContain("declares no `path`");
   });
 });
 
 describe("rendering the declaration file", () => {
   it("is deterministic: deduped, sorted, LF-only, one trailing newline", () => {
-    const first = renderRouteTable(["/b", "/a", "/b"]);
-    const second = renderRouteTable(["/b", "/b", "/a"]);
+    const first = renderRouteTable([{ path: "/b", search: [] }, { path: "/a", search: [] }, { path: "/b", search: [] }]);
+    const second = renderRouteTable([{ path: "/b", search: [] }, { path: "/b", search: [] }, { path: "/a", search: [] }]);
     expect(first).toBe(second);
     expect(first).not.toContain("\r");
     expect(first.endsWith("}\n")).toBe(true);
@@ -136,18 +136,95 @@ describe("rendering the declaration file", () => {
   });
 
   it("types a parameterised route's params and leaves a paramless route empty", () => {
-    const rendered = renderRouteTable(["/records/:recordId", "/records", "/s/:a/i/:b"]);
+    const rendered = renderRouteTable([{ path: "/records/:recordId", search: [] }, { path: "/records", search: [] }, { path: "/s/:a/i/:b", search: [] }]);
     expect(rendered).toContain('"/records": Record<never, never>;');
     expect(rendered).toContain('"/records/:recordId": { recordId: string };');
     expect(rendered).toContain('"/s/:a/i/:b": { a: string; b: string };');
   });
 
   it("augments the react-core table so the app's own types pick it up", () => {
-    const rendered = renderRouteTable(["/"]);
+    const rendered = renderRouteTable([{ path: "/", search: [] }]);
     expect(rendered).toContain('declare module "@terpjs/react-core"');
     expect(rendered).toContain("interface TerpRouteTable");
     // A module augmentation only applies from a file that IS a module.
     expect(rendered).toContain('import "@terpjs/react-core";');
+  });
+});
+
+describe("declared query-string keys", () => {
+  it("reads a route's search keys, and defaults to none", () => {
+    const { routes, problems } = extractRoutes(
+      manifest(
+        '{ path: "/records", view: "List", search: ["status", "page"] }, ' +
+          '{ path: "/records/:recordId", view: "Detail" }',
+      ),
+      "module.tsx",
+    );
+    expect(problems).toEqual([]);
+    expect(routes).toEqual([
+      { path: "/records", search: ["status", "page"] },
+      { path: "/records/:recordId", search: [] },
+    ]);
+  });
+
+  it("refuses keys that cannot be read statically, naming file and line", () => {
+    // Held to the same standard as `path`: a key list assembled at runtime would emit a
+    // table missing a key, which turns a real navigation into a type error.
+    const spread = extractRoutes(
+      manifest('{ path: "/r", view: "L", search: [...FILTERS] }'),
+      "module.tsx",
+    );
+    expect(spread.problems.join("\n")).toMatch(/search` key is not a plain string literal/);
+
+    const dynamic = extractRoutes(
+      manifest('{ path: "/r", view: "L", search: FILTERS }'),
+      "module.tsx",
+    );
+    expect(dynamic.problems.join("\n")).toMatch(/search` is not an array literal/);
+    expect(dynamic.problems[0]).toMatch(/^module\.tsx:4:/);
+  });
+
+  it("refuses a key that is not a plain identifier, because it cannot be a typed property", () => {
+    const { problems } = extractRoutes(
+      manifest('{ path: "/r", view: "L", search: ["not-an-identifier"] }'),
+      "module.tsx",
+    );
+    expect(problems.join("\n")).toMatch(/is not a plain identifier/);
+  });
+
+  it("emits a second table keyed only for routes that declare keys", () => {
+    const rendered = renderRouteTable([
+      { path: "/records", search: ["status"] },
+      { path: "/records/:recordId", search: [] },
+    ]);
+    expect(rendered).toContain('    "/records": Record<never, never>;');
+    expect(rendered).toContain("  interface TerpRouteSearchTable {");
+    expect(rendered).toContain('    "/records": { status?: string };');
+    // The route that declares no keys is absent from the SEARCH table (it is of course
+    // present in the params table above), so passing `search` to it stays a typecheck
+    // error rather than accepting anything.
+    const searchTable = rendered.slice(rendered.indexOf("interface TerpRouteSearchTable"));
+    expect(searchTable).not.toContain("/records/:recordId");
+  });
+
+  it("omits the search table entirely when no route declares a key", () => {
+    // An app that declares none gets exactly the file it had before route search existed
+    // — and no empty interface for its own linter to complain about.
+    const rendered = renderRouteTable([{ path: "/records", search: [] }]);
+    expect(rendered).not.toContain("TerpRouteSearchTable");
+  });
+
+  it("unions the keys when two manifests mount one path", () => {
+    const rendered = renderRouteTable([
+      { path: "/shared", search: ["b"] },
+      { path: "/shared", search: ["a", "b"] },
+    ]);
+    expect(rendered).toContain('    "/shared": { a?: string; b?: string };');
+  });
+
+  it("keys the search table by the canonical spelling, like the params table", () => {
+    const rendered = renderRouteTable([{ path: "/admin/users/$userId", search: ["q"] }]);
+    expect(rendered).toContain('    "/admin/users/:userId": { q?: string };');
   });
 });
 

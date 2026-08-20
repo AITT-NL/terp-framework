@@ -19,6 +19,25 @@ already stamps (ADR 0094).
 
 ### Changed
 
+- **The `<dialog>` refusal now names the alternative instead of only naming
+  `ConfirmDialog`.** Reported as "a ban with no replacement is only obeyable by not
+  building the feature" — with a request for a general `Dialog`. We are not shipping
+  one, and the reason is the reporting app's own code comment: it built the editor in
+  an expanded row instead and recorded that *"it turns out to be the better shape
+  anyway: the row stays visible, so the finding that sent the author here is still on
+  screen while they fix it."* The feature was built, differently and better; shipping
+  a general modal would remove the pressure that produced that.
+
+  What was genuinely broken is the wording. "Use ConfirmDialog" is right for a
+  confirmation and wrong advice for an edit form, and an author who reads it for one
+  concludes the framework is missing something and the rule cannot be obeyed. With no
+  severity dial (ADR 0059) the message *is* the control — it is the only thing between
+  a refused build and a correct fix. The refusal now names a routed page or an
+  expanded row, and asks for a report rather than a raw `<dialog>` if neither fits.
+  `BOUNDARY_SPEC.restrictedElementGuidance` carries it, so any other element whose
+  named replacement does not fit every case can say so; every element without an entry
+  keeps its plain one-line refusal.
+
 - **Every component's base styles have moved out of inline `style={}` and into the
   shipped stylesheet, keyed on the `data-terp` / `data-variant` attributes each
   component root already stamped — so for the first time an app's `theme.css` can
@@ -180,6 +199,86 @@ already stamps (ADR 0094).
   secondary ink.
 
 ### Added
+
+- **The query string joins the checked route table: `search` on a manifest route,
+  `useRouteSearch`, and `search` on `useTerpNavigate` (ADR 0096).** Friction
+  reported from building a control-plane-plus-worker app on Terp, and the sharpest
+  item in that report.
+
+  `useTerpNavigate` took `to` and `params`. A list screen's filters, its sort and
+  its page cursor all live in the **query string** — so every screen with a filter
+  had to reach for the router's own `useNavigate` / `useSearch`, and lost path and
+  param checking on the way out. The reporting app had five of six screens outside
+  the seam. The guarantee ADR 0092 bought was therefore missing on the majority of
+  screens, which is close to the worst possible distribution: it held exactly where
+  a typo was least likely.
+
+  A route declares its keys and `terp routes` emits a second table:
+
+  ```ts
+  { path: "/records", view: "List", search: ["status", "page"] }
+  ```
+  ```tsx
+  const { status, page } = useRouteSearch("/records");
+  void navigate({ to: "/records", search: { status: "open" } });
+  ```
+
+  Three limits, each deliberate. **Keys, not types** — every value is
+  `string | undefined`, because a query parameter is text and is absent until set;
+  parsing `page` is the screen's business, and a validation language in a manifest
+  would sit away from the screen that reads the value. **Replace, not merge** —
+  clearing a filter means sending the key as `undefined`, and a merge would keep the
+  old value, so "clear" would silently not clear. **Only declared keys are
+  returned** — a stray key someone hand-typed into the URL cannot reach a screen's
+  logic. A route that declares nothing refuses `search` outright; before
+  `terp routes` has generated, the shape stays loose, so an app that has not adopted
+  is unaffected.
+
+- **`GET /me` reports the caller's named permissions, so a UI can hide exactly what
+  the server would refuse.** `useCan` compares role *rank*, because rank was all the
+  wire carried. A screen whose write needs a named grant (`definitions.publish`) had
+  nothing to ask: it hid by rank as a proxy and handled the 403 anyway — showing a
+  button it knew might fail, or hiding one the user was entitled to. Both are wrong,
+  and neither is detectable from the client.
+
+  `CurrentUser.permissions` is filled through a registry seam
+  (`register_permission_projector`), not an import: the access capability registers
+  its grant lookup at import exactly as a scope predicate does, so auth and identity
+  never import the capability that owns grants, and an app that mounts none projects
+  an empty tuple. On the frontend, `usePermissions()` / `useHasPermission(name)` read
+  it and `Authorized` takes an optional `permission` **alongside** `action` — both
+  must pass, which is what the server does (a `Policy` carrying a `Permission`
+  enforces the rank floor *and* the grant), so a UI checking one of the two would
+  disagree with the endpoint in one direction or the other.
+
+  It is a **display** input and says so in three places. The guard re-checks every
+  request; a client that treats the list as authority has moved the gate to the wrong
+  side of the wire.
+
+- **`useEndpointDownload` — downloading an artifact the backend generates.**
+  `useFileDownload` covers a stored file id. An evidence bundle or a CSV export has
+  none, and the only routes to it were a raw `fetch` (refused: one typed egress path)
+  or a raw `<a href>`, which carries no bearer token and so 401s or silently saves an
+  error page under the intended filename. The reported outcome was the feature being
+  dropped rather than built.
+
+  It goes through the session client, so the base URL, the bearer token and the
+  credentials are the client's, and a non-2xx **rejects** instead of saving the error
+  body. `saveBlob` is the blob-to-anchor dance extracted once, with the object-URL
+  revoke in a `finally` — the leak every hand-rolled copy forgets — and
+  `useFileDownload` now uses it too. An unfilled `{placeholder}` fails closed rather
+  than requesting a literal `{id}`.
+
+- **`terp guide package-boundaries` — the recipe for an app with a second top-level
+  package.** A worker that cannot run under the gate (a legacy-DB connector, a
+  device, a non-Python runtime) lives beside `app/`, and the two must not import each
+  other. The report wanted `terp check` to own that contract; the answer is
+  import-linter, which is what the platform already uses for its own layer-0
+  keystone, and which fails with the offending import chain rather than a file:line.
+  The topic writes out the three contracts, the two-command gate (`terp check` over
+  `app/`, `lint-imports` over both), and the point that neither package may import
+  the other but **both may import a third** — which is how a shared contract package
+  replaces twin modules pinned against drift by a test.
 
 - **`defaultOpen` on `Combobox`, `DatePicker` and `DateRangePicker`.** The same
   uncontrolled-open shape `Popover` and `Menu` have always taken, so a filter
