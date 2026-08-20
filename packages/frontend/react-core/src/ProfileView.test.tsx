@@ -69,6 +69,21 @@ describe("ProfileView", () => {
     );
     expect(screen.getAllByText("jane.doe@example.com").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("editor (20)")).toBeInTheDocument();
+
+    // The identity block, which nothing asserted before: the initials tile was entirely
+    // unreached by any test, and is aria-hidden so axe skips it too. Markers plus the
+    // absence of a style attribute, because the geometry is a sheet rule now (ADR 0094) and
+    // jsdom computes no cascade. The address marker matters most of the three — its
+    // overflow-wrap has no specimen, since the mock session's address is short, so this is
+    // the only gate that the element a long address would need is still the marked one.
+    const avatar = document.querySelector('[data-terp="profile-avatar"]');
+    expect(avatar).not.toBeNull();
+    expect(avatar?.textContent).toBe("JD");
+    expect(avatar?.getAttribute("style")).toBeNull();
+    const email = document.querySelector('[data-terp="profile-email"]');
+    expect(email?.textContent).toBe("jane.doe@example.com");
+    expect(email?.getAttribute("style")).toBeNull();
+    expect(document.querySelectorAll('[data-terp="profile-card"]')).toHaveLength(2);
     // The stacked preference controls live here (settings surface).
     expect(screen.getByLabelText("Theme")).toBeInTheDocument();
     expect(screen.getByLabelText("Language")).toBeInTheDocument();

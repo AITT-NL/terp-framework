@@ -1,5 +1,3 @@
-import type { CSSProperties } from "react";
-
 import { Page } from "./Page";
 import { useAuth } from "./TerpProvider";
 import { LanguageSwitcher } from "./locale";
@@ -9,38 +7,15 @@ import { userInitials } from "./UserMenu";
 import { Button } from "./ui/Button";
 import { useStrings } from "./uiText";
 
-const avatarStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: "3.5rem",
-  height: "3.5rem",
-  flexShrink: 0,
-  borderRadius: "var(--radius-full)",
-  background: "var(--color-brand-primary)",
-  color: "var(--color-brand-primary-contrast)",
-  fontSize: "var(--font-size-lg)",
-  fontWeight: "var(--font-weight-medium)" as CSSProperties["fontWeight"],
-};
-
-const mutedStyle: CSSProperties = { margin: 0, color: "var(--color-neutral-600)" };
-
-const cardStyle: CSSProperties = {
-  display: "grid",
-  gap: "var(--space-4)",
-  padding: "var(--space-4)",
-  maxWidth: "32rem",
-  background: "var(--color-neutral-0)",
-  border: "1px solid var(--color-neutral-200)",
-  borderRadius: "var(--radius-lg)",
-};
-
 /**
  * The built-in profile / settings page the {@link UserMenu}'s Settings item opens.
  * `buildAppRouter` mounts it at `/profile` in every app (an app manifest claiming
  * that path wins): the signed-in identity (avatar, email, role — the server-validated
  * `/me` session, not token claims), the standard theme + language preferences, and
  * sign-out. A `Page` archetype, so it satisfies the routed-view frame control.
+ *
+ * It renders no inline styles: both cards, the avatar tile and the two identity lines take
+ * their geometry and ink from the injected react-core sheet (ADR 0094).
  */
 export function ProfileView() {
   const auth = useAuth();
@@ -52,14 +27,14 @@ export function ProfileView() {
   return (
     <Page title={strings.profile}>
       <Stack gap={4}>
-        <div style={cardStyle}>
+        <div data-terp="profile-card">
           <Stack direction="row" gap={3} align="center">
-            <span aria-hidden="true" style={avatarStyle}>
+            <span aria-hidden="true" data-terp="profile-avatar">
               {userInitials(user.email)}
             </span>
             <Stack gap={0}>
-              <strong style={{ overflowWrap: "anywhere" }}>{user.email}</strong>
-              <p style={mutedStyle}>{user.role_name}</p>
+              <strong data-terp="profile-email">{user.email}</strong>
+              <p data-terp="profile-role">{user.role_name}</p>
             </Stack>
           </Stack>
           <DetailList
@@ -69,7 +44,7 @@ export function ProfileView() {
             ]}
           />
         </div>
-        <div style={cardStyle}>
+        <div data-terp="profile-card">
           <ThemeToggle />
           <LanguageSwitcher />
           <div>

@@ -851,6 +851,10 @@ describe("cascade structure", () => {
       "module-nav",
       "module-nav-list",
       "module-nav-link",
+      "profile-card",
+      "profile-avatar",
+      "profile-email",
+      "profile-role",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

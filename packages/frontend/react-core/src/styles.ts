@@ -13,10 +13,10 @@
  * anything. A new escalation is therefore a claim that some element still styles
  * itself inline on the same property — state it, with the file, or do not add it.
  *
- * The migration itself is not finished: two modules still declare module-scope base
- * style objects (12 between them, gated in markers.test.ts). Neither renders a marker
- * at all, so nothing in `terp.state` can reach either of them and retiring the last
- * escalations left nothing inert. Checked by scanning the layer against those files
+ * The migration itself is not finished: ONE module still declares module-scope base
+ * style objects — `LoginView`, nine of them, gated in markers.test.ts. It renders no
+ * marker at all, so nothing in `terp.state` can reach it and retiring the last
+ * escalations left nothing inert. Checked by scanning the layer against that file
  * rather than by spot-checking a hover.
  *
  * A migrated component gets its base here and renders no `style={}` for it —
@@ -891,6 +891,53 @@ textarea[data-terp="input"] {
   letter-spacing: 0;
   color: var(--color-neutral-900);
   line-height: 1.3;
+}
+
+/* The profile screen ------------------------------------------------------- */
+/* The built-in /profile view: two cards, an avatar tile, and the identity lines.
+   Its cards are its own rather than the Card component's — the same declarations on
+   a different element — and folding the two together is a component decision, not a
+   styling one, so it stays a follow-up rather than riding in on a migration whose
+   whole contract is zero pixel movement.
+
+   overflow-wrap on the address is real and unobservable: the workbench session is a
+   fixed user whose address is short, so no specimen can paint the case it exists for
+   (an address has no spaces to break at, so a long one widens the card past its own
+   max-width instead of wrapping). Asserted in the unit test as the marker it keys on;
+   there is no picture of it and cannot be until the mock session is variable. */
+[data-terp="profile-card"] {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  max-width: 32rem;
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+}
+/* The initials tile. It is aria-hidden, so axe skips it by design and the declared
+   pairing is the only thing measuring its ink: brand-primary-contrast on
+   brand-primary is primary-button-label, which the contrast gate holds at AA in all
+   five themes. Exactly the shape of NavIcon's fallback tile, which failed at 1.60
+   for as long as nothing declared it. */
+[data-terp="profile-avatar"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-brand-primary);
+  color: var(--color-brand-primary-contrast);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+}
+[data-terp="profile-email"] {
+  overflow-wrap: anywhere;
+}
+[data-terp="profile-role"] {
+  margin: 0;
+  color: var(--color-neutral-600);
 }
 
 /* Hub cards --------------------------------------------------------------- */

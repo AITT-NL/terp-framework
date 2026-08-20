@@ -178,6 +178,10 @@ const MARKERS = [
   "page-title",
   "popover",
   "popover-panel",
+  "profile-avatar",
+  "profile-card",
+  "profile-email",
+  "profile-role",
   "radio",
   "radio-group",
   "radio-group-legend",
@@ -286,10 +290,7 @@ const MARKERS = [
  * `Field` has graduated: it renders a root plus label, label text, hint and error markers,
  * so each part of a form field is addressable from the sheet.
  */
-const UNMARKED_STYLED_SURFACES = [
-  "./LoginView.tsx",
-  "./ProfileView.tsx",
-];
+const UNMARKED_STYLED_SURFACES = ["./LoginView.tsx"];
 
 /**
  * How many module-scope base style objects each file still declares — the migration's own
@@ -313,10 +314,7 @@ const UNMARKED_STYLED_SURFACES = [
  * inline side of the line permanently, so counting them would make this list unable to reach
  * zero and therefore unable to mean anything.
  */
-const INLINE_BASE_STYLES: Record<string, number> = {
-  "./LoginView.tsx": 9,
-  "./ProfileView.tsx": 3,
-};
+const INLINE_BASE_STYLES: Record<string, number> = { "./LoginView.tsx": 9 };
 
 /**
  * `text` with comments removed, so prose naming a marker cannot stand in for rendering one.
