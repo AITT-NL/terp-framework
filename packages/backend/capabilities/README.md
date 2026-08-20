@@ -2,7 +2,8 @@
 
 Opt‑in cross‑cutting capabilities, each its own `terp-cap-*` distribution.
 Built so far: **`auth`, `identity`, `access`, `audit`, `eventbus`, `tenancy`,
-`users`, `groups`, `files`, `webhooks`, `oidc`, `outbox`, `sync`, `redis`,
+`users`, `groups`, `files`, `webhooks`, `oidc`, `outbox`, `leases`, `sync`,
+`redis`,
 `jobs_celery`, `scheduler_apscheduler`, and `scheduler_celery_beat`**.
 Capabilities that expose a router
 **self‑register** via a `terp.capabilities` entry point
@@ -31,6 +32,7 @@ Built capabilities (design §3.1, §6):
 | **webhooks** (outbound webhooks, sealed secrets) | `terp-cap-webhooks` | `terp.capabilities.webhooks` |
 | **oidc** (SSO via OpenID Connect) | `terp-cap-oidc` | `terp.capabilities.oidc` |
 | **outbox** (durable event delivery) | `terp-cap-outbox` | `terp.capabilities.outbox` |
+| **leases** (library; expiring, fenced custody of work + the stale-claim reaper, ADR 0095) | `terp-cap-leases` | `terp.capabilities.leases` |
 | **sync** (data synchronisation) | `terp-cap-sync` | `terp.capabilities.sync` |
 | **redis** (shared Idempotency/Throttle/Cache stores, ADR 0078; realtime tickets / OIDC state behind `[realtime]` / `[oidc]`, or both with `[all]`) | `terp-cap-redis` | `terp.capabilities.redis` |
 | **jobs_celery** (Celery job backend) | `terp-cap-jobs-celery` | `terp.capabilities.jobs_celery` |

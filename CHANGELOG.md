@@ -181,6 +181,85 @@ already stamps (ADR 0094).
 
 ### Added
 
+- **Expiring, fenced custody of work: `terp.core.leases` + `terp-cap-leases`, and a
+  reaper that puts the row back (ADR 0095).** Friction reported from building
+  queue-shaped work on Terp, twice, from two directions that turned out to be one
+  missing primitive.
+
+  First: a row a crashed worker took stays taken. A worker flips a request to
+  `claimed` and is then killed — OOM, a rescheduled pod, a dropped connection.
+  Nothing in the schema records *who* took it or *until when*, so nothing can tell
+  "still working" from "died three hours ago", and the only recovery is a
+  hand-written `UPDATE` by somebody with database access. Second: nothing enforces
+  "at most one active run per pipeline". Exclusivity *while a holder is alive* is
+  expressible today (a partial unique index, an optimistic-concurrency claim); what
+  is not is exclusivity **with an expiry** — and without the expiry, the mutex has
+  the first problem.
+
+  The evidence that decided it came from neither report. `terp-cap-sync`'s own
+  service docstring had been carrying this since it shipped: *"a job that dies
+  mid-loop leaves a `running` run whose work already committed per-record; the next
+  successful run supersedes its cursor — reaping stale runs is a follow-up."* Two
+  independent occurrences, one of them in the framework's own flagship consumer
+  capability, is the bar for promoting a pattern to a primitive.
+
+  A lease is a resource (an opaque `(kind, key)` — `LeaseResource.for_row(row)`, or
+  `LeaseResource("pipeline", pk)` for a mutex on something that is not a row at
+  all), a holder, an expiry, and an **epoch fence**. The fence is the part that is
+  easy to leave out and expensive to omit: expiry alone establishes that a holder
+  *may* have died, and does nothing about one that merely **paused** and wakes after
+  its own deadline to finish work a successor already took over. Every fenced
+  statement carries `AND epoch = :epoch`, and only a grant increments it, so a
+  superseded holder's renew, release and forfeit all match zero rows.
+
+  Take it inside the write that claims the row and the two can never disagree:
+
+  ```python
+  class RequestService(BaseService[RunRequest, ...]):
+      def _after_write(self, session, entity, action):
+          if entity.status == CLAIMED:
+              hold_lease(session, LeaseResource.for_row(entity),
+                         holder=self.worker_id, ttl_seconds=60)
+  ```
+
+  A resource somebody else holds raises `LeaseHeldError` *inside* the write unit, so
+  the row never reaches `claimed` at all — no compensating update to forget. Inside a
+  work loop, `guard.heartbeat()` is cheap (it writes only past the lease's half-life)
+  and **raises** `LeaseLostError` rather than returning a boolean a caller can forget
+  to check, because losing a lease means a successor may already be doing this work.
+
+  **This seam has no default store, on purpose.** Every other store seam here
+  (idempotency, throttle, cache) ships a safe in-process default, because degrading
+  one costs a re-execution or a cache miss. Degrading a lease costs *two workers
+  running the same work at once* — the exact thing it exists to prevent — and the
+  in-memory version cannot deliver the headline feature at all, since its state dies
+  with the very process whose crash the lease exists to survive. So the default is
+  `None`, the first lease call fails closed naming the missing wiring, and an app
+  that wants leases names its store: `create_app(lease_store=DatabaseLeaseStore(),
+  require_durable_leases=settings.is_production)`. That boot guard refuses the
+  in-memory store *and* `None`.
+
+  **The reaper is the half only your domain can write.** An expired lease frees a
+  resource; it does not free the work, and no generic mechanism knows whether the
+  right answer is "queue it again", "close it failed" or "leave it for a human". So
+  `register_lease_reaper(kind, recovery)` declares it once, and each cycle runs the
+  recovery **and** forfeits the lease in one transaction — the domain's own audited
+  `_save` nests into the reaper's write unit, so a recovery is as traceable as any
+  other mutation. A kind with no reaper is simply *released*, which is the correct
+  shape for a pure mutex. The cycle ships as a declared `leases.reap` job with a
+  `lease_reap_schedule` helper, so it runs on whatever an app already operates —
+  APScheduler, Celery beat, a `CronJob` — with no new daemon to deploy. A reaper that
+  only exists as a command is a reaper somebody has to remember to schedule.
+
+  `terp leases list --expired` names the holder and the deadline — the distinction a
+  bare `claimed` column cannot make — and calls out, per kind on the page, any kind
+  with **no** registered recovery, because "nothing reaped it" and "nobody declared a
+  recovery for it" look identical on the rows alone and the second is the mistake an
+  author actually makes. `terp leases reap` runs the same bounded, fenced cycle the
+  job runs. There is deliberately no force-release, in the CLI or the admin router:
+  taking a live lease from a holder that may still be running is the split brain the
+  fence exists to prevent. Recipe: `terp guide leases`.
+
 - **`defaultOpen` on `Combobox`, `DatePicker` and `DateRangePicker`.** The same
   uncontrolled-open shape `Popover` and `Menu` have always taken, so a filter
   panel can ship with its list already open — and so the subtree can be rendered
@@ -269,6 +348,20 @@ already stamps (ADR 0094).
   as firmly.
 
 ### Fixed
+
+- **`terp-cap-sync` no longer strands a `running` run, and no longer lets two
+  reconciles of one source overlap.** The deferred follow-up its own docstring
+  admitted to is closed rather than reworded: a reconcile now holds a lease on
+  `(tenant_scope, entity_type)` for its whole run — on the *source*, because that is
+  what must not overlap, and because a lease on a row that does not exist yet cannot
+  serialise the decision to create it. A competing reconcile is refused with
+  `LeaseHeldError` and retries on its next tick instead of opening a second run
+  against the same external system; one that dies mid-loop has its lease lapse and
+  its abandoned run closed `failed` with the reason on the row, so the source becomes
+  retryable. The heartbeat fails closed, so a worker that stalled past its expiry
+  stops rather than finishing over its successor. Leasing is **optional** here: an app
+  that wired no lease store reconciles exactly as before, so adopting it is a decision
+  about operational guarantees and never a migration.
 
 - **The calendar was three defects deep, and nothing in the repo could see any
   of them.** Its `role="grid"` held all 42 day buttons as *direct*

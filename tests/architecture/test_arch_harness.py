@@ -46,6 +46,7 @@ from terp.arch import (
     check_no_hardcoded_credentials,
     check_no_internal_imports,
     check_no_manual_actor_stamping,
+    check_no_manual_lease_columns,
     check_no_manual_ownership_checks,
     check_no_manual_version_assignment,
     check_no_naive_datetime,
@@ -2092,6 +2093,63 @@ def test_no_manual_actor_stamping(tmp_path: pathlib.Path) -> None:
         "    modified_by_id: uuid.UUID | None\n",
     )
     assert check_no_manual_actor_stamping(app) == []
+
+
+def test_no_manual_lease_columns(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # Hand-rolling custody-with-a-timeout on the module's own table is the pattern the
+    # lease seam replaces — and the hand-rolled version has no epoch, so nothing stops a
+    # worker paused past its expiry from finishing over its successor.
+    _write(
+        app,
+        "modules/requests/models.py",
+        "class RunRequest(BaseTable, table=True):\n"
+        "    status: str = Field(max_length=16)\n"
+        "    locked_by: str | None = Field(default=None, max_length=128)\n"
+        "    locked_until: datetime | None = None\n",
+    )
+    assert _rule_names(check_no_manual_lease_columns(app)) == {"no_manual_lease_columns"}
+    assert len(check_no_manual_lease_columns(app)) == 2  # one per hand-rolled column
+
+    # Every spelling of the same idea is caught, not just the outbox's pair.
+    for column in ("leased_until", "lease_expires_at", "heartbeat_at", "claim_expires_at"):
+        _write(
+            app,
+            "modules/requests/models.py",
+            "class RunRequest(BaseTable, table=True):\n"
+            f"    {column}: datetime | None = None\n",
+        )
+        assert _rule_names(check_no_manual_lease_columns(app)) == {"no_manual_lease_columns"}
+
+    # Clean: the row carries no lease of its own — the seam holds it, keyed on the row.
+    _write(
+        app,
+        "modules/requests/models.py",
+        "class RunRequest(BaseTable, table=True):\n"
+        "    status: str = Field(max_length=16)\n",
+    )
+    _write(
+        app,
+        "modules/requests/service.py",
+        "class RequestService(BaseService[RunRequest, RunRequestCreate, RunRequestUpdate]):\n"
+        "    model = RunRequest\n"
+        "\n"
+        "    def _after_write(self, session, entity, action):\n"
+        "        hold_lease(session, LeaseResource.for_row(entity), holder=self.me,\n"
+        "                   ttl_seconds=60)\n",
+    )
+    assert check_no_manual_lease_columns(app) == []
+
+    # Clean: a read DTO may surface the operator-facing fields of a lease it does not own —
+    # only a persisted column on a table model is policed.
+    _write(
+        app,
+        "modules/requests/schemas.py",
+        "class LeaseRead(BaseSchema):\n"
+        "    locked_by: str | None\n"
+        "    locked_until: datetime | None\n",
+    )
+    assert check_no_manual_lease_columns(app) == []
 
 
 def test_no_manual_ownership_checks(tmp_path: pathlib.Path) -> None:

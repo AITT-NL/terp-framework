@@ -41,6 +41,15 @@ a guard to make a change pass:
 5. **Own per-row writes with a trait** — never hand-roll an `owner_id` check; compose
    `OwnedMixin` for per-row write authorization (the `no_manual_ownership_checks` rule
    enforces it). Detail: `terp guide ownership`.
+6. **Lease work, never hand-roll custody** — a table must not declare its own
+   `locked_by` / `locked_until` / `heartbeat_at` pair (the `no_manual_lease_columns`
+   rule refuses it). Take a lease on `LeaseResource.for_row(row)` — or on a
+   `(kind, key)` mutex for something that is not a row — and register a reaper for
+   its kind, so an expiry actually puts the abandoned row back instead of needing a
+   hand-written `UPDATE`. The hand-rolled version has no epoch **fence**, so a worker
+   paused past its expiry finishes over the successor that took its work. Wire
+   `create_app(lease_store=DatabaseLeaseStore())`: this seam has **no** in-process
+   default on purpose. Detail: `terp guide leases`.
 
 ## Frontend conventions
 

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-leases"
+version = "0.7.0"
+description = "Terp lease capability — durable, fenced, expiring custody of work, with a reaper that recovers a crashed worker's claim."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.7.0",
+]
+
+# A LIBRARY capability (like terp-cap-sync): it owns a table, the durable LeaseStore, the
+# reap cycle and a mountable admin read router, but declares NO `terp.capabilities`
+# auto-discovery entry point. Leasing does nothing until an app wires the store, so the app
+# opts in explicitly — it passes create_app(lease_store=DatabaseLeaseStore()) and includes
+# the exported `module` in specs=[...]. Auto-mounting it in an app that never leases
+# anything would only expose an empty table.
+
+# Owns the `resource_lease` table, so it ships an independent, linear Alembic history (its
+# own `alembic_version_leases` table). `terp migrate` discovers this via the
+# `terp.migrations` group (ADR 0027).
+[project.entry-points."terp.migrations"]
+leases = "terp.capabilities.leases"
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.leases`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/leases"]
+
+# Where this package comes from. The shipped changelog (`terp guide changelog`)
+# ends at the installed version; the notes for a release you do not have yet
+# live at these URLs, which `pip show` and the index page both surface.
+[project.urls]
+Repository = "https://github.com/AITT-NL/terp-framework"
+Changelog = "https://github.com/AITT-NL/terp-framework/blob/main/CHANGELOG.md"

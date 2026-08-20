@@ -61,6 +61,11 @@ from terp.core.idempotency import (
     is_shared_idempotency_store,
 )
 from terp.core.jobs import JobQueue, configure_jobs, is_durable_job_queue
+from terp.core.leases import (
+    LeaseStore,
+    configure_leases,
+    is_durable_lease_store,
+)
 from terp.core.logging import configure_logging, get_request_id
 from terp.core.scheduling import configure_schedules
 from terp.core._internal.discovery import iter_capability_specs
@@ -841,6 +846,32 @@ def _validate_durable_jobs(
         )
 
 
+def _validate_durable_leases(
+    lease_store: LeaseStore | None, require_durable_leases: bool
+) -> None:
+    """Fail closed when durable leases are required but no surviving store is wired.
+
+    The boot half of the lease control (ADR 0095). A lease exists to make a *crash*
+    recoverable, so it has to outlive the process that took it: the in-memory store
+    (correct only within one process) dies with the worker whose orphaned row someone
+    then has to fix by hand, and two replicas each believe they hold the same resource.
+    ``require_durable_leases=True`` therefore refuses anything not marked via
+    :func:`~terp.core.mark_durable_lease_store` — including ``None``, because a promise
+    of exclusivity backed by no store at all is the worst of the three. Mirrors the
+    durable-jobs and shared-throttle-store boot guards; default ``False`` leaves an app
+    that never leases anything untouched.
+    """
+    if require_durable_leases and not is_durable_lease_store(lease_store):
+        raise BootError(
+            "require_durable_leases=True but the configured lease_store is not one whose "
+            "leases survive the holder's process; wire one marked via "
+            "terp.core.mark_durable_lease_store(...) (e.g. terp-cap-leases' "
+            "DatabaseLeaseStore, which keeps leases in the same database as the rows they "
+            "protect) so a crashed worker's claim can be reaped — or drop "
+            "require_durable_leases to run without leases"
+        )
+
+
 def _referenced_response_types(annotation: object) -> set[type]:
     """Every concrete class referenced by a ``response_model`` (generics unwrapped).
 
@@ -1152,6 +1183,8 @@ def create_app(
     require_shared_cache_store: bool = False,
     idempotency_store: IdempotencyStore | None = None,
     require_shared_idempotency_store: bool = False,
+    lease_store: LeaseStore | None = None,
+    require_durable_leases: bool = False,
     request_size_overrides: Mapping[str, int] | None = None,
 ) -> FastAPI:
     """Compose a FastAPI app from module specs (deny-by-default, guarded).
@@ -1282,6 +1315,18 @@ def create_app(
     app cannot silently dedupe per worker. It defaults ``False`` (the per-instance
     default is unchanged), mirroring *require_shared_throttle_store*.
 
+    *lease_store* installs the lease seam (ADR 0095): expiring, fenced custody of work
+    a worker might not live to finish — "at most one active run per pipeline", and the
+    recovery of a row a crashed worker left ``claimed``. Unlike every other store seam
+    here it has **no default**, because degrading a lease costs two workers running the
+    same work rather than a re-execution; an app that leases anything names its store
+    (``terp-cap-leases``' ``DatabaseLeaseStore``), and one that does not is unaffected.
+
+    *require_durable_leases* makes that a boot requirement: when ``True``, boot fails
+    closed unless *lease_store* is marked via ``mark_durable_lease_store`` — the
+    in-memory store dies with the very process whose crash the lease exists to survive.
+    It defaults ``False``.
+
     *request_size_overrides* retunes a mounted module's request-body ceiling per
     deployment (ADR 0067), keyed by **module name** (``{"files": 100 * 1024 * 1024}``).
     Each mounted spec's declared ``ModuleSpec.max_request_bytes`` already applies to its
@@ -1315,6 +1360,7 @@ def create_app(
     _validate_durable_jobs(job_queue, require_durable_jobs)
     _validate_shared_cache_store(cache_store, require_shared_cache_store)
     _validate_shared_idempotency_store(idempotency_store, require_shared_idempotency_store)
+    _validate_durable_leases(lease_store, require_durable_leases)
 
     settings = get_settings()
     if settings.is_production:
@@ -1353,6 +1399,7 @@ def create_app(
     configure_schedules(resolved_plane.schedules)
     configure_password_policy(resolved_plane.passwords)
     configure_cache(cache_store)
+    configure_leases(lease_store)
     # Secure by default: production hides the FastAPI docs/schema endpoints
     # (/docs /redoc /openapi.json) unless SecurityConfig.expose_api_docs opts in —
     # a production API's full schema is not public information. Development keeps

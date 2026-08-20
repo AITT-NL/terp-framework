@@ -56,6 +56,15 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def tenant_scope_for(tenant_id: uuid.UUID | None) -> str:
+    """The non-null tenant dimension the unique keys are built on.
+
+    ``global`` for a single-tenant app, so the constraints below never see a NULL and a
+    reconcile of one entity type cannot collide across tenants.
+    """
+    return str(tenant_id) if tenant_id is not None else _GLOBAL_TENANT_SCOPE
+
+
 class SyncMapping(BaseTable, table=True):
     """The identity ledger: one local row ↔ one remote row for an ``entity_type``.
 
@@ -152,4 +161,5 @@ __all__ = [
     "SyncMapping",
     "SyncRecordLog",
     "SyncRun",
+    "tenant_scope_for",
 ]

@@ -22,6 +22,7 @@ from terp.cli.capabilities import render_capabilities
 from terp.cli.dev import dev_plan, run_dev_command
 from terp.cli.docker import run_docker_dev_command
 from terp.cli.fmt import changed_python_files, run_fmt_command
+from terp.cli.leases import reap_leases_command, render_leases
 from terp.cli.jobs import (
     render_jobs,
     run_job_command,
@@ -364,6 +365,51 @@ Object-level (per-row) authorization (OwnedMixin)
   `# arch-allow-no_manual_ownership_checks`; a built-in owner-read filter is planned sugar.
   Endpoint authority (Policy), row-read visibility (register_scope_predicate) and row-write
   authority (OwnedMixin) are the three composable layers.
+""",
+    "leases": """\
+Leases: expiring, fenced custody of work (leases capability)
+
+- The problem: a worker flips a row to `claimed` (or opens a `running` run) and is then
+  killed. The row stays taken forever, and nothing distinguishes "still working" from
+  "died an hour ago" - the only recovery is a hand-written UPDATE. The mirror-image need,
+  "at most one active run per pipeline", is the same missing primitive.
+- A lease is a named resource + an opaque holder + an expiry + a monotonic epoch fence:
+      from terp.core import LeaseResource, hold_lease
+      resource = LeaseResource.for_row(run)              # ("sync_run", "<uuid>")
+      resource = LeaseResource("pipeline", str(pk))      # a domain mutex, not a row
+- Wire the durable store, or nothing is taken. There is deliberately NO in-process
+  default: a per-process lease would let two replicas hold one resource.
+      from terp.capabilities.leases import DatabaseLeaseStore, module as leases_module
+      create_app([..., leases_module], lease_store=DatabaseLeaseStore(),
+                 require_durable_leases=settings.is_production)
+- Take the lease inside the service's own write, so claim-the-row and take-the-lease
+  commit together - and a refusal leaves the row untouched instead of stuck in `claimed`:
+      class RequestService(BaseService[RunRequest, ...]):
+          def _after_write(self, session, entity, action):
+              if entity.status == CLAIMED:
+                  hold_lease(session, LeaseResource.for_row(entity),
+                             holder=self.worker_id, ttl_seconds=60)
+  hold_lease raises LeaseHeldError (409) when it is taken; acquire_lease returns None
+  instead, for a worker that would rather try the next candidate.
+- Heartbeat from inside the work loop. The guard writes only past the lease's half-life,
+  and RAISES LeaseLostError if it was taken over - losing a lease means a successor may
+  already be doing this work, so stopping is the only safe answer:
+      with hold_lease(session, resource, holder=me, ttl_seconds=60) as guard:
+          for record in records:
+              guard.heartbeat()
+- Expiry frees the RESOURCE; only your domain can put the ROW back. Register the recovery
+  once, per resource kind, and make it idempotent (reaping is at-least-once):
+      from terp.core import register_lease_reaper
+      register_lease_reaper("run_request", requeue_stale_request)
+  A kind with no reaper is simply released - the right answer for a pure mutex.
+- Then actually run the reaper, or nothing is recovered. Put the declared job on a cron
+  (several times per shortest TTL) and/or run it by hand:
+      lease_reap_schedule(cron="*/5 * * * *", purge_idle_seconds=86400)
+      terp leases reap --purge-idle-seconds 86400
+      terp leases list --expired          # what is stuck, and who was holding it
+- Never hand-roll lease columns on your own table (locked_by / locked_until /
+  heartbeat_at / lease_expires_at). The no_manual_lease_columns rule refuses them: a
+  hand-rolled lease has no fence, so a paused worker writes over its successor.
 """,
     "tenancy": """\
 Multi-tenant rows (tenancy capability)
@@ -1918,6 +1964,61 @@ def _build_parser() -> argparse.ArgumentParser:
         "--app-root", default=".", help="App root placed first on sys.path (default: .)"
     )
 
+    leases_parser = subcommands.add_parser(
+        "leases",
+        help="Inspect held/expired leases and recover a dead worker's claim (ADR 0095)",
+    )
+    leases_subcommands = leases_parser.add_subparsers(dest="leases_command", required=True)
+    leases_list_parser = leases_subcommands.add_parser(
+        "list", help="Show what is leased, by whom, until when - and what has lapsed"
+    )
+    leases_list_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app or factory (default: app.main:app)",
+    )
+    leases_list_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+    leases_list_parser.add_argument(
+        "--kind", default=None, help="Only this resource kind (e.g. sync_source)"
+    )
+    leases_list_parser.add_argument(
+        "--expired",
+        action="store_true",
+        help="Only lapsed leases: exactly what the next reap cycle will act on",
+    )
+    leases_list_parser.add_argument(
+        "--limit", type=int, default=50, help="Rows to show (default: 50)"
+    )
+    leases_reap_parser = leases_subcommands.add_parser(
+        "reap",
+        help="Run one recovery cycle now: the same bounded, fenced cycle the leases.reap job runs",
+    )
+    leases_reap_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app or factory (default: app.main:app)",
+    )
+    leases_reap_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+    leases_reap_parser.add_argument(
+        "--kind", default=None, help="Only recover this resource kind (default: every kind)"
+    )
+    leases_reap_parser.add_argument(
+        "--limit", type=int, default=100, help="Leases recovered per cycle (default: 100)"
+    )
+    leases_reap_parser.add_argument(
+        "--purge-idle-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Also delete free lease records idle this long (set it well above your longest "
+            "lease TTL; a row-shaped resource leaves one record per row ever processed)"
+        ),
+    )
+
     new_parser = subcommands.add_parser("new", help="Scaffold a canonical module")
     new_subcommands = new_parser.add_subparsers(dest="new_command", required=True)
     module_parser = new_subcommands.add_parser(
@@ -2309,6 +2410,28 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "jobs" and args.jobs_command == "scheduler":
         print(run_scheduler_command(app_ref=args.app, app_root=args.app_root))
+        return
+    if args.command == "leases" and args.leases_command == "list":
+        print(
+            render_leases(
+                app_ref=args.app,
+                app_root=args.app_root,
+                kind=args.kind,
+                expired_only=args.expired,
+                limit=args.limit,
+            )
+        )
+        return
+    if args.command == "leases" and args.leases_command == "reap":
+        print(
+            reap_leases_command(
+                app_ref=args.app,
+                app_root=args.app_root,
+                kind=args.kind,
+                limit=args.limit,
+                purge_idle_seconds=args.purge_idle_seconds,
+            )
+        )
         return
     if args.command == "new" and args.new_command == "module":
         paths = new_module(
