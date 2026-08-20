@@ -173,7 +173,123 @@ decision, 0001 onwards.
   taking a live lease from a holder that may still be running is the split brain the
   fence exists to prevent. Recipe: `terp guide leases`.
 
+- **Two declared token pairings for danger text, and a third gate that counts inline
+  style sites rather than style objects.** `--color-status-danger` has been painted as
+  text in three places — a `Field`'s error line, a failed create, a failed sign-in — and
+  neither pairing was declared, so the contrast gate measured it nowhere and axe only
+  where a specimen happened to paint it. `danger-on-card` and `danger-on-canvas` measure
+  5.29:1 at worst across the five themes and clear AAA in `contrast`, so they declare a
+  fact rather than open a ratchet. They matter most for the surfaces no lane can reach:
+  the sign-in error is set only inside a `catch`, so no specimen can render it, and a
+  declared pairing is the only gate such a surface will ever have.
+
+  The third gate exists because the other two were narrower than they looked, and four
+  of the packaged admin views proved it — they carried five base styles through the whole
+  migration while both ratchets read clean. The unmarked-surface worklist names files
+  with **no** marker at all, and every admin view rendered none, so each read as a view
+  composition and was excluded by the list's own rule; the style-object ledger counts
+  declarations annotated `CSSProperties`, and three of these were call-site literals with
+  the fourth an unannotated object. `INLINE_STYLE_SITES` counts sites per file, so the
+  only way out of it is to render no inline style — and the nine that remain are named
+  one by one, each either a measured value the sheet has no business owning or a caller's
+  own `style` forwarded to a root. Verified by putting one back: the new check names the
+  file while the old ledger stays silent.
+
+  Two claims in those gates were corrected in passing, both false before this release
+  touched them: `styles.test.ts` said three inline box-shadows remained and named
+  `AppShell`'s drawer and `DataViewCardList`'s card, which had both migrated releases
+  earlier — there is now none anywhere, which is what the shared focus ring's retired
+  escalation actually rests on. And `ui/Button.test.tsx` cited the login screen's
+  full-width submit as an example of a legitimate inline escape; a fixed 100% is layout
+  policy rather than a measured value, and it is a rule on the form now.
+
+- **Three workbench specimens and per-lane scripts.** `resource-list-error` paints the
+  failed-create message, whose ink had no baseline in any theme; `page-loading` and
+  `page-error` paint the frame's two async states, which `LoadingState` and `ErrorState`
+  had only ever been photographed outside of — and `page-error` sets both props at once,
+  because `error` winning over `isLoading` is a documented behaviour with no other gate.
+  81 specimens, 573 checks.
+
+  Both of the page specimens render inside a fixed-height **grid** wrapper, and that is
+  load-bearing rather than tidy: `Page`'s grid declares `align-content: start`, which is
+  unobservable while the article is content-height, so the declaration would otherwise
+  have moved into the sheet with no baseline able to see it. Confirmed by mutation — it
+  fails those four baselines and nothing else.
+
+  The scripts are `visual:screens`, `visual:a11y` and `visual:keyboard`, and they close a
+  contradiction the workbench README carried: it warned that a red `color-contrast`
+  result is only evidence when the lane had the machine to itself, and then offered
+  `npm run visual`, which starts all three lanes in one worker pool. That is the
+  contention condition, met a third time here — three twilight specimens failed together
+  on a full run, the axe lane alone passed all 81, and the identical full command passed
+  573 on the next attempt. CI never met it, because the workflow runs the three lanes as
+  three separate steps. A scheduling rule with no command behind it is obeyable only by
+  remembering it.
+
 ### Changed
+
+- **The styling migration is finished: the last five view components and the packaged
+  admin screens take their base styles from the shipped stylesheet, so every screen an
+  app renders is now restyleable from `theme.css`.** 0.8.0 moved every *component* and
+  said, as a count, that five modules still declared base style objects. Those five were
+  the view components — the page frame itself, the sign-in screen, the profile screen,
+  the module tab strip and the standard listing screen — which is to say the parts an
+  app sees most and could reach least. `Page` alone is the frame under every routed
+  view, `HubPage`, `OverviewPage` and `DetailPage` included.
+
+  **28 new markers, 159 to 187**, and the two ratchets that tracked the work are empty:
+  23 module-scope style objects to zero, and the unmarked-surface worklist from four
+  files to none. Zero pixel movement throughout, on both platforms — each component
+  measured against the baselines on its own, and every diff intentional or nothing.
+
+  The families an app's `theme.css` can now target: `page`, `page-header`,
+  `page-breadcrumbs`, `page-heading` and `page-title` for the frame; `login-view`,
+  `login-card`, `login-brand`, `login-title`, `login-form`, `login-sso`,
+  `login-separator`, `login-separator-rule` and `login-error` for the signed-out
+  screen; `profile-card`, `profile-avatar`, `profile-email` and `profile-role`;
+  `module-nav-list` and `module-nav-link`; `resource-list-create`,
+  `resource-list-error`, `resource-list-empty`, `resource-list-items` and
+  `resource-list-row`; and `admin-form`, `admin-section-title` and `admin-payload` for
+  the packaged admin area. `module-nav` and `resource-list` had markers already and get
+  a base rule for the first time.
+
+  `DetailPage` and `OverviewPage` deliberately take **no** marker, and that is a
+  decision rather than an omission. Each is a context provider wrapped around `Page`
+  and renders no element at all, so there is nothing to mark without inventing a box —
+  and the box is precisely what must not exist there. `Page`'s runtime slot check reads
+  its article's DOM children, so a wrapper around the body becomes the sole body-slot
+  child, matches no allow table, and refuses every governed page fail-closed;
+  `display: contents` is no escape, because that check is a DOM traversal and the node
+  is in the collection whether or not it generates a box. The same edge decides that
+  `Page`'s header stays a `<header>` element: the check drops it by tag name, so marking
+  it as a `<div>` — which is what marking an element normally looks like — would put it
+  back into the body set. Only a copier-generated project has the contract switched on,
+  so the example app could not have detected either.
+
+- **`ModuleNav`'s active tab is styled from `data-active`, not from the `aria-current`
+  beside it.** Both attributes are on the element and the component sets both from one
+  boolean, so the ARIA one looks like the better key — it is what the selected `Tabs`
+  tab uses. It is wrong here for a fact about the router rather than a matter of taste:
+  TanStack's link props spread the router's own active props **last**, after the
+  caller's, so on a `Link` the router has the final word on `aria-current`. That makes
+  this the breadcrumb defect's exact shape, and the rule it produced holds — reuse a
+  semantic only where the component is its sole author.
+
+  The sharper half is that the two notions of "active" are not the same predicate.
+  `activeOptions.includeSearch` defaults to true, so with exact matching the router also
+  requires an exact query-string match, while `ModuleNav` compares the pathname alone.
+  Router-active is therefore a strict subset: on any sub-page carrying a filter in the
+  URL, keying on `aria-current` would have withheld the accent edge from the tab the
+  user is standing on.
+
+- **The sign-in screen's separator ink moves from `--color-neutral-500` to
+  `--color-fg-subtle`, so midnight and twilight repaint it slightly.** The two tokens
+  are byte-identical in light and dark, so nothing moves in the two themes with
+  baselines; the other two get the value the contrast gate has been measuring all along.
+  Only `--color-fg-subtle` has a declared pairing, which is the whole point — this is
+  the rest of the migration that moved seventeen sheet rules in 0.8.0, not a new
+  argument. The "or" is `aria-hidden` but it is visible text, so it is held to AA rather
+  than treated as an ornament.
 
 - **The `<dialog>` refusal now names the alternative instead of only naming
   `ConfirmDialog`.** Reported as "a ban with no replacement is only obeyable by not
@@ -209,6 +325,19 @@ decision, 0001 onwards.
   stops rather than finishing over its successor. Leasing is **optional** here: an app
   that wired no lease store reconciles exactly as before, so adopting it is a decision
   about operational guarantees and never a migration.
+
+- **A failed sign-in was announced to nobody.** The error on the signed-out screen was a
+  plain paragraph: it appeared, it was red, and for anyone who could not see it nothing
+  had happened at all — the form simply sat there with the credentials still in it. It
+  carries `role="alert"` now, which `ResourceList`'s error has had since it existed, and
+  one attribute covers both the failed-credentials and the failed-SSO path. The
+  regression it prevents is the sort no lane can see: the assertion moved from finding
+  the text to finding the alert, and the text was always there.
+
+  Not fixed, and named because it is the same debt the toast viewport carries: the region
+  mounts together with its content, so a screen reader that was not already observing it
+  can still miss the insertion. The durable shape is a region that is always present and
+  empty until it has something to say, and that belongs with the toast's next change.
 
 ## 0.8.0 — 2026-08-20
 
