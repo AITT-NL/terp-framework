@@ -412,11 +412,16 @@ const styleImportMessage =
  * {@link catalogRuleId}). {@link restrictedSyntax} strips the tag for the ESLint config.
  */
 function restrictedSyntaxWithCatalogIds() {
-  const rawElements = Object.entries(BOUNDARY_SPEC.restrictedElements).map(([element, use]) => ({
-    catalogId: "frontend/token-styled-elements",
-    selector: `JSXOpeningElement[name.name='${element}']`,
-    message: `Use ${use} from @terpjs/react-core, not a raw <${element}>.`,
-  }));
+  const rawElements = Object.entries(BOUNDARY_SPEC.restrictedElements).map(([element, use]) => {
+    const guidance = BOUNDARY_SPEC.restrictedElementGuidance?.[element];
+    return {
+      catalogId: "frontend/token-styled-elements",
+      selector: `JSXOpeningElement[name.name='${element}']`,
+      message:
+        `Use ${use} from @terpjs/react-core, not a raw <${element}>.` +
+        (guidance === undefined ? "" : ` ${guidance}`),
+    };
+  });
   const rawAttributes = BOUNDARY_SPEC.restrictedAttributes.map((attribute) => ({
     catalogId: "frontend/no-inline-styling",
     selector: `JSXAttribute[name.name='${attribute}']`,

@@ -28,7 +28,12 @@ from terp.capabilities.auth import (
     verify_password,
     verify_password_dummy,
 )
-from terp.core import AuthenticationError, PermissionModel, Principal
+from terp.core import (
+    AuthenticationError,
+    PermissionModel,
+    Principal,
+    project_permissions,
+)
 
 from terp.capabilities.identity.models import FederatedIdentity, User
 from terp.capabilities.identity.service_accounts import ServiceAccountService
@@ -144,6 +149,10 @@ class IdentityService:
             email=user.email,
             role_rank=role.rank,
             role_name=role.name,
+            # The caller's named grants, through the projection seam (ADR 0096) rather than
+            # an import of the access capability: identity owns *who you are*, not what you
+            # may do, and an app that mounts no grant capability projects nothing.
+            permissions=project_permissions(session, user.id),
         )
 
     def token_version_for(self, session: Session, principal: Principal) -> int:

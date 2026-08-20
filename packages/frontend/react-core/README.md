@@ -63,6 +63,7 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
 | Export | Use |
 |---|---|
 | `Authorized`, `useCan` | Gate UI on `can(module, action)` — write buttons, admin panels. |
+| `usePermissions`, `useHasPermission` | The caller's **named** grants from `GET /me` (ADR 0096), for a screen whose write needs `definitions.publish` rather than a rank. `Authorized` takes an optional `permission` alongside `action`; both must pass, as the server's own guard does. Display only — the backend re-checks. |
 | `canPerform`, `DEFAULT_RANK_THRESHOLDS` | The role-rank predicate behind the gate. |
 | `visibleNav` | Filter nav items to what the current user may see. |
 
@@ -85,6 +86,7 @@ runtime, fail closed (ADR 0059), so every screen keeps the breadcrumb/title/erro
 | `useRouteParam` | Read one route param, fail closed: the declared param comes back as a string, an undeclared name throws a directive error instead of silently yielding `undefined`. Replaces the unchecked `useParams({ strict: false }) as {…}` cast (ADR 0092). Checked against the generated route table when the app has one. |
 | `useRouteParams` | Read a whole declared route's params, typed exactly: `const { recordId } = useRouteParams("/records/:recordId")`. With a generated route table, a typo in the path *or* a param name is a typecheck error. |
 | `useTerpNavigate` | Navigate by manifest path: `navigate({ to: "/records/:recordId", params: { recordId } })`. An undeclared path is a typecheck error and a parameterised route requires its params — a typo'd path used to be a dead link that shipped green. Takes the manifest's `:id` spelling and translates to the router's `$id`. |
+| `useRouteSearch` | Read a declared route's query-string keys, typed: `const { status, page } = useRouteSearch("/records")` (ADR 0096). Every value is `string | undefined`, and an undeclared key is a typecheck error — so a filtered list screen stays inside the checked seam instead of reaching for the router's own `useSearch`. Declare them in the manifest: `search: ["status", "page"]`. |
 | `ModuleNav` | Secondary horizontal tabs for intra-module sub-pages (real routes, not state). |
 | `PageActions` | Primary action + overflow menu for a page header. |
 
@@ -112,7 +114,8 @@ declare module "@terpjs/react-core" {
 ```
 
 From then on `useRouteParams("/records/:recordId")` is exact, `useRouteParam` refuses a
-param no route declares, and `useTerpNavigate` refuses an undeclared path. Regenerate
+param no route declares, `useRouteSearch` is keyed to the route's declared query-string
+keys, and `useTerpNavigate` refuses an undeclared path (or an undeclared `search` key). Regenerate
 after changing a manifest route — `terp verify`'s `routes-drift` check refuses a stale
 table and names the command (it runs before the typecheck, so a stale table reads as
 "regenerate", not as errors in your own screens). A route whose `path` is not a plain
@@ -158,6 +161,7 @@ marker, counted by the escape-hatch budget.
 | `ResourceList` | The standard simple CRUD list screen: titled section, write-gated create form, loading/error/empty states. Composable — screens needing more render their own React. |
 | `unwrap`, `unwrapOptional`, `ApiError` | Turn a generated-client result into data-or-throw; `ApiError` carries the envelope's `code` / `status` / `requestId`. `unwrapOptional` returns `null` on a 404 instead — for resources whose absence is a normal state (a `/latest` snapshot not yet published), the client-side analog of `BaseService.find` beside `get`. |
 | `FileUpload`, `useFileDownload` | The files-capability surface (ADR 0056/0057): a token-styled attachment picker that uploads through the typed client, and an authenticated download helper (a raw `<a href>` would carry no bearer token). |
+| `useEndpointDownload`, `saveBlob` | Download an artifact the backend **generates** — an evidence bundle, a CSV export — which has no stored file id (ADR 0096). Goes through the session client, so it carries the base URL and bearer token and rejects a non-2xx instead of saving the error body under the intended filename. |
 
 ## Feedback & states
 
@@ -168,7 +172,7 @@ marker, counted by the escape-hatch budget.
 | `ErrorState`, `describeError` | Human-readable failure block for a caught error. |
 | `ErrorMessagesProvider`, `useErrorMessage`, `DEFAULT_ERROR_MESSAGES` | Map stable backend error codes to copy; falls back to the envelope `detail`. |
 | `ToastProvider`, `useToast` | Transient success/error feedback (no toast library). |
-| `ConfirmDialog` | Accessible confirmation modal (native `<dialog>`); use before any destructive action. |
+| `ConfirmDialog` | Accessible confirmation modal (native `<dialog>`); use before any destructive action. A modal is for a confirmation or an explicit post-action moment — an edit form or a detail view belongs in a routed page, or in an expanded row beside the thing it edits (ADR 0096 §4). |
 
 ## Forms & primitives
 

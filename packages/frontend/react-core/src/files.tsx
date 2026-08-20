@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
+import { saveBlob } from "./download";
 import { useTerpClient } from "./TerpProvider";
 import { Button } from "./ui/Button";
 import { useStrings, useUiText, type UiText } from "./uiText";
@@ -91,17 +92,7 @@ export function useFileDownload(): (file: Pick<FileMeta, "id" | "filename">) => 
   return useCallback(
     async (file: Pick<FileMeta, "id" | "filename">) => {
       const blob = await fetchFileContent(client as unknown as TerpClient, file.id);
-      const url = URL.createObjectURL(blob);
-      try {
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = file.filename;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-      } finally {
-        URL.revokeObjectURL(url);
-      }
+      saveBlob(blob, file.filename);
     },
     [client],
   );

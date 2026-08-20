@@ -18,6 +18,12 @@ async function lint(code, filePath = MODULE_FILE) {
   return result.messages.map((message) => message.ruleId);
 }
 
+async function lintMessages(code, filePath = MODULE_FILE) {
+  const eslint = new ESLint({ overrideConfigFile: true, overrideConfig: terpBoundaries });
+  const [result] = await eslint.lintText(code, { filePath });
+  return result.messages.map((message) => message.message);
+}
+
 describe("terpBoundaries", () => {
   it("passes clean module code (react-core components + generated client)", async () => {
     const code = [
@@ -314,5 +320,23 @@ describe("terpBoundaries", () => {
   it("ignores a file-wide eslint-disable block comment", async () => {
     const code = ["/* eslint-disable */", "export const W = () => <button>x</button>;"].join("\n");
     expect(await lint(code)).toContain("no-restricted-syntax");
+  });
+
+  it("the dialog refusal says what to do instead of naming only ConfirmDialog", async () => {
+    // "Use ConfirmDialog" is right for a confirmation and wrong advice for an edit form,
+    // and an author who reads it for one concludes the rule cannot be obeyed. The reported
+    // evidence was an app that built the editor in an expanded row instead and recorded
+    // that as the better outcome — so the refusal carries that guidance, rather than the
+    // framework shipping a general modal whose absence produced the better UI.
+    const messages = await lintMessages("export const W = () => <dialog>x</dialog>;");
+    const refusal = messages.find((message) => message.includes("<dialog>"));
+    expect(refusal).toContain("ConfirmDialog");
+    expect(refusal).toContain("routed page");
+    expect(refusal).toContain("expanded row");
+  });
+
+  it("an element with no extra guidance keeps the plain one-line refusal", async () => {
+    const messages = await lintMessages("export const W = () => <button>x</button>;");
+    expect(messages).toContain("Use Button from @terpjs/react-core, not a raw <button>.");
   });
 });

@@ -7,6 +7,7 @@ import {
   useNavigate,
   useParams,
   useRouter,
+  useSearch,
   type AnyRoute,
   type RouterHistory,
 } from "@tanstack/react-router";
@@ -21,11 +22,18 @@ import type {
   TerpRouteParamName,
   TerpRouteParams,
   TerpRoutePath,
+  TerpRouteSearch,
 } from "./routeTypes";
 import { LAYOUT_CONTRACTS, LayoutContractContext } from "./layoutContract";
 import { visibleNav } from "./nav";
 import { NavLinkContext } from "./navLink";
 import { PageMarkerContext } from "./pageMarker";
+import {
+  RouteSearchContext,
+  declaredSearchKeys,
+  indexSearchKeys,
+  useRouteSearchIndex,
+} from "./routeSearch";
 import { useAuth } from "./TerpProvider";
 import { UserMenu } from "./UserMenu";
 import { useStrings } from "./uiText";
@@ -169,7 +177,54 @@ export function useTerpNavigate(): (target: TerpNavigateTarget) => Promise<void>
       // runtime TanStack types `params` as a reducer (or `true`), and merging over the
       // previous params is also the honest semantic for an in-place param change.
       params: (previous: Record<string, unknown>) => ({ ...previous, ...(target.params ?? {}) }),
+      // Search is REPLACED, not merged (ADR 0096). Merging reads as convenient and is the
+      // wrong default for the case this exists to serve: clearing a filter means sending
+      // the key as undefined, and a merge would keep the old value instead — so "clear"
+      // would silently not clear. A screen that wants to keep other keys passes them,
+      // which is also the only form that stays checkable against the declared key set.
+      search: dropUndefined(target.search),
     });
+}
+
+/**
+ * Drop `undefined` values so a cleared filter leaves the URL instead of appearing as
+ * `?status=undefined`, and an all-cleared search yields a bare path.
+ */
+function dropUndefined(
+  search: Record<string, string | undefined> | undefined,
+): Record<string, string> {
+  const kept: Record<string, string> = {};
+  for (const [key, value] of Object.entries(search ?? {})) {
+    if (value !== undefined) {
+      kept[key] = value;
+    }
+  }
+  return kept;
+}
+
+/**
+ * Read the current route's declared query-string keys (ADR 0096).
+ *
+ * ```tsx
+ * const { status, page } = useRouteSearch("/records");
+ * ```
+ *
+ * Every key is `string | undefined`, because a query parameter is text and is absent
+ * until someone sets it — so a screen destructures with defaults rather than branching on
+ * a bag of `unknown`. Reading a key the route did not declare is a typecheck error once
+ * `terp routes` has generated; before that the shape is loose, exactly like the params
+ * helpers. Undeclared keys present in the URL are **not** returned: the declaration is the
+ * surface, so a stray key someone hand-typed cannot leak into a screen's logic.
+ */
+export function useRouteSearch<P extends TerpRoutePath>(path: P): TerpRouteSearch<P> {
+  const search = useSearch({ strict: false }) as Record<string, unknown>;
+  const declared = declaredSearchKeys(useRouteSearchIndex(), path);
+  const resolved: Record<string, string | undefined> = {};
+  for (const name of declared) {
+    const value = search[name];
+    resolved[name] = typeof value === "string" ? value : undefined;
+  }
+  return resolved as TerpRouteSearch<P>;
 }
 
 export interface BuildAppRouterOptions {
@@ -251,6 +306,15 @@ export function buildAppRouter(
     );
   }
 
+  // The runtime half of the search declaration (ADR 0096): the generated table is types
+  // only, so `useRouteSearch` reads the keys from the manifests this router was built from,
+  // published per router through a context (never a module-level table, which every router
+  // in the process would share).
+  const searchKeys = new Map(indexSearchKeys(manifests));
+  if (!searchKeys.has(PROFILE_PATH)) {
+    searchKeys.set(PROFILE_PATH, []);
+  }
+
   function Shell() {
     const router = useRouter();
     const rank = useAuth().currentUser()?.role_rank ?? null;
@@ -330,15 +394,17 @@ export function buildAppRouter(
         return <Unauthorized />;
       }
       return (
-        <LayoutContractContext.Provider value={layoutContract}>
-          <PageMarkerContext.Provider
-            value={() => {
-              marked.current = true;
-            }}
-          >
-            <View />
-          </PageMarkerContext.Provider>
-        </LayoutContractContext.Provider>
+        <RouteSearchContext.Provider value={searchKeys}>
+          <LayoutContractContext.Provider value={layoutContract}>
+            <PageMarkerContext.Provider
+              value={() => {
+                marked.current = true;
+              }}
+            >
+              <View />
+            </PageMarkerContext.Provider>
+          </LayoutContractContext.Provider>
+        </RouteSearchContext.Provider>
       );
     }
     return createRoute({

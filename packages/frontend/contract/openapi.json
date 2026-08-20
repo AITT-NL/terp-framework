@@ -104,6 +104,14 @@
             "title": "Id",
             "type": "string"
           },
+          "permissions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
           "role_name": {
             "title": "Role Name",
             "type": "string"

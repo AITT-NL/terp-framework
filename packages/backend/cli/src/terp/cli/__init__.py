@@ -340,6 +340,57 @@ Recoverable deletes (SoftDeleteMixin)
   preserves the row and the history that cites it; bringing one back is an operator
   action, not an app one.
 """,
+    "package-boundaries": """\
+Boundaries for a second top-level package (an ungated worker)
+
+- The shape: an app whose work cannot run under the gate — a legacy-DB connector, a
+  device, a non-Python runtime — keeps a SECOND top-level package beside `app/`, and the
+  two must not import each other. `terp check` scans `app/` for Terp's own rules; it
+  deliberately does not own generic import-graph checks, because a graph contract is
+  exactly what a generic tool already does better (and terp.arch would then be a second,
+  weaker copy).
+- So declare the graph with import-linter, which the platform itself uses for its own
+  layer-0 keystone. In the app's pyproject.toml:
+      [tool.importlinter]
+      root_packages = ["app", "engine"]
+
+      [[tool.importlinter.contracts]]
+      name = "the engine never imports app (it runs outside the gate)"
+      type = "forbidden"
+      source_modules = ["engine"]
+      forbidden_modules = ["app"]
+
+      [[tool.importlinter.contracts]]
+      name = "app never imports the engine (the control plane records, never executes)"
+      type = "forbidden"
+      source_modules = ["app"]
+      forbidden_modules = ["engine"]
+
+      [[tool.importlinter.contracts]]
+      name = "plugins are reached only through the registry"
+      type = "forbidden"
+      source_modules = ["engine"]
+      forbidden_modules = ["engine.plugins"]
+      ignore_imports = ["engine.registry -> engine.plugins.*"]
+  Then `uv run lint-imports` in CI. That replaces a hand-rolled AST scan per boundary,
+  and it fails with the offending import chain rather than a file:line you have to trace.
+- What terp.arch still owns, because these are Terp semantics and not graph shape:
+  `no_dynamic_sql` (SQL must be a static, reviewable literal — the containment check an
+  app would otherwise hand-roll), `no_raw_outbound_http`, `no_adhoc_background_runtime`,
+  and every rule about BaseService / ModuleSpec / schemas. Run it on `app/` only: the
+  second package is not a Terp app, and scanning it would report rules it cannot satisfy.
+- The worker's own gate is therefore two commands, not one:
+      uv run terp check              # Terp rules, over app/
+      uv run lint-imports            # the declared package graph, over both
+- Sharing types across the boundary: neither package may import the other, but BOTH may
+  import a third. A `contracts/` package of frozen value objects (with `max_length` caps
+  declared, so the app half satisfies the input-schema rule) is one declaration and two
+  consumers — rather than twin modules pinned against drift by a test.
+- Reaching the app over HTTP is the sanctioned direction: the worker holds a service
+  account credential (`terp service-accounts create`), so its writes pass the same guard,
+  the same audit trail and the same actor stamping as anyone's. Give it a lease
+  (`terp guide leases`) so a claim it takes and dies on is recoverable.
+""",
     "ownership": """\
 Object-level (per-row) authorization (OwnedMixin)
 

@@ -26,10 +26,32 @@ from terp.core import (
     get_session,
 )
 from terp.core.app import register_error_handlers
+from terp.core.permissions import (
+    project_permissions,
+    register_permission_projector,
+    registered_permission_projectors,
+    reset_permission_projectors,
+)
 
 from terp.capabilities.auth import CurrentUser, build_me_module, build_me_router
 from terp.capabilities.identity import IdentityService
 from terp.capabilities.identity.models import User
+
+
+@pytest.fixture(autouse=True)
+def _isolate_permission_projectors() -> Iterator[None]:
+    """Snapshot the projector registry, and put it back afterwards.
+
+    Clearing it outright would disarm the access capability's own import-time
+    registration for whatever runs next — a capability registration is meant to outlive a
+    composed app (see :mod:`terp.core.runtime`), so a test that wipes it does damage it
+    cannot see.
+    """
+    before = registered_permission_projectors()
+    yield
+    reset_permission_projectors()
+    for projector in before:
+        register_permission_projector(projector)
 
 
 def _resolver(_session: object, principal: Principal) -> CurrentUser:
@@ -65,6 +87,9 @@ def test_me_router_returns_the_resolved_caller() -> None:
         "email": "caller@example.test",
         "role_rank": 20,
         "role_name": "editor",
+        # Empty, not absent: this resolver projects nothing, and an app that mounts no
+        # grant capability has no named permissions to hold (ADR 0096).
+        "permissions": [],
     }
 
 
@@ -134,3 +159,50 @@ def test_current_user_rejects_a_vanished_subject(session: Session) -> None:
         IdentityService().current_user(
             session, Principal(id=uuid.uuid4(), role=Roles.VIEWER)
         )
+
+
+def test_current_user_projects_the_callers_named_grants(session: Session) -> None:
+    """The gap this closes: rank alone could not tell a UI what the server would refuse.
+
+    A screen whose write needs ``definitions.publish`` had nothing to ask — it hid by rank
+    as a proxy and handled the 403 anyway. ``/me`` now carries the same names the guard
+    enforces, through a registered projector rather than an import of the grant capability.
+    """
+    user = User(
+        email="granted@example.test",
+        hashed_password="not-a-login-fixture",
+        role=int(Roles.EDITOR),
+        is_active=True,
+        token_version=0,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    register_permission_projector(lambda _session, subject: ["b.write", "a.read"])
+    try:
+        result = IdentityService().current_user(
+            session, Principal(id=user.id, role=Roles.EDITOR)
+        )
+    finally:
+        reset_permission_projectors()
+
+    # Sorted and deduplicated, so the payload is stable across requests.
+    assert result.permissions == ("a.read", "b.write")
+
+
+def test_permissions_from_several_projectors_are_unioned(session: Session) -> None:
+    subject = uuid.uuid4()
+    register_permission_projector(lambda _session, _subject: ["grants.one"])
+    register_permission_projector(lambda _session, _subject: ["licence.two", "grants.one"])
+    try:
+        assert project_permissions(session, subject) == ("grants.one", "licence.two")
+    finally:
+        reset_permission_projectors()
+
+
+def test_an_app_with_no_projector_reports_no_permissions(session: Session) -> None:
+    # The honest answer for an app that mounts no grant capability: it has no named
+    # permissions, so there is nothing for a UI to gate on beyond role rank.
+    reset_permission_projectors()
+    assert project_permissions(session, uuid.uuid4()) == ()

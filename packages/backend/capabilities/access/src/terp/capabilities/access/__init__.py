@@ -16,7 +16,11 @@ so it never imports the auth capability.
 
 from __future__ import annotations
 
-from terp.capabilities.access.deps import enforce_permission, require_permission
+from terp.capabilities.access.deps import (
+    enforce_permission,
+    project_granted_permissions,
+    require_permission,
+)
 from terp.capabilities.access.expansion import (
     SubjectExpander,
     register_subject_expander,
@@ -36,6 +40,7 @@ __all__ = [
     "GrantUpdate",
     "SubjectExpander",
     "enforce_permission",
+    "project_granted_permissions",
     "module",
     "register_subject_expander",
     "require_permission",

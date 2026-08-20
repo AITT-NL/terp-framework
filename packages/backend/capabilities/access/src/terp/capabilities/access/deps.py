@@ -31,6 +31,7 @@ from terp.core import (
     Principal,
     SessionDep,
     get_principal,
+    register_permission_projector,
 )
 
 from terp.capabilities.access.service import AccessService
@@ -75,4 +76,25 @@ def enforce_permission(
     return _service.has_permission(session, subject_id, permission_name)
 
 
-__all__ = ["enforce_permission", "require_permission"]
+def project_granted_permissions(session: Session, subject_id: uuid.UUID) -> tuple[str, ...]:
+    """Every permission *subject_id* holds, for the ``/me`` projection (ADR 0096).
+
+    The read-only counterpart of :func:`enforce_permission`: the same expanded subject set
+    (direct grants plus any a registered expander maps the caller to), returned as names
+    instead of a yes/no. Registered below, so ``GET /me`` reports it without the auth or
+    identity capability importing this one.
+
+    It is a **display** projection, never a decision: the guard still calls
+    :func:`enforce_permission` on every request. Reporting a permission the caller holds
+    cannot widen anything — a client that treats this list as authority has moved the gate
+    to the wrong side of the wire, which is why the DTO field says so too.
+    """
+    return tuple(sorted(_service.permissions_for(session, subject_id)))
+
+
+# Registered at import, like a scope predicate: an app that mounts this capability gets the
+# projection without wiring it, and one that does not projects nothing.
+register_permission_projector(project_granted_permissions)
+
+
+__all__ = ["enforce_permission", "project_granted_permissions", "require_permission"]
