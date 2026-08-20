@@ -58,8 +58,12 @@ jobs:
       - name: Install Playwright (Chromium + OS deps)
         run: npx playwright install --with-deps chromium
         working-directory: conformance
+      # `seed` is a one-shot: `--wait` treats any container that exits — even with 0 — as a
+      # failure (docker/compose#10596), so it runs after the long-lived services are healthy.
       - name: Start the workbench
-        run: docker compose up -d --wait api web seed
+        run: |
+          docker compose up -d --wait api web
+          docker compose run --rm seed
       - run: uv run terp verify --profile release --only conformance
       - name: Upload the Playwright report on failure
         if: failure()

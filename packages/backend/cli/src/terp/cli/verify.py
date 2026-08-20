@@ -209,7 +209,10 @@ _CONFORMANCE = VerifyCheck(
     category="conformance",
     command="npm --prefix conformance test",
     scope=("app/**", "frontend/**", "conformance/**"),
-    requires="the Docker workbench running (docker compose up -d --wait api web seed)",
+    requires=(
+        "the Docker workbench running (docker compose up -d --wait api web "
+        "&& docker compose run --rm seed)"
+    ),
 )
 
 #: The profiles, cheapest first; each is a superset of the previous.
