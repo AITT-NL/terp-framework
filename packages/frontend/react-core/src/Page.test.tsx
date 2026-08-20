@@ -18,13 +18,16 @@ describe("Page", () => {
       </Page>,
     );
 
-    expect(screen.getByRole("heading", { level: 1, name: "Tasks" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 1, name: "Tasks" })).toHaveStyle({
-      fontSize: "var(--font-size-lg)",
-      letterSpacing: "0",
-    });
-    expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
     const title = screen.getByRole("heading", { level: 1, name: "Tasks" });
+    expect(title).toBeInTheDocument();
+    // The marker, not the declaration. jsdom computes no cascade, so toHaveStyle could only
+    // ever see an inline style — asserting the title's font size was asserting that Page
+    // styles itself from a style object, which is the thing ADR 0094 removes. What a unit
+    // test can hold is the fact the sheet keys on; the type is gated by styles.test.ts for
+    // existence and by the page-header baseline for what it renders as.
+    expect(title).toHaveAttribute("data-terp", "page-title");
+    expect(title.getAttribute("style")).toBeNull();
+    expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
     const action = screen.getByRole("button", { name: "New" });
     expect(title.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("body")).toBeInTheDocument();

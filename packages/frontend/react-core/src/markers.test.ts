@@ -168,7 +168,12 @@ const MARKERS = [
   "module-nav",
   "nav-icon",
   "nav-icon-fallback",
+  "page",
   "page-actions",
+  "page-breadcrumbs",
+  "page-header",
+  "page-heading",
+  "page-title",
   "popover",
   "popover-panel",
   "radio",
@@ -254,6 +259,17 @@ const MARKERS = [
  * exactly this. A marker plus a `display: none` rule would have put a component with no visual
  * design into the sheet and offered an app the chance to un-hide it.
  *
+ * `DetailPage` and `OverviewPage` have left the same way, and they were on this list by
+ * mistake rather than by migration: each is a `LayoutSlotContext.Provider` wrapped around
+ * `Page` and renders no element of its own at all, so they are view compositions — which the
+ * paragraph above already excludes. There is nothing to mark without inventing a box, and the
+ * box is the one thing that must not exist here: `Page`'s slot check reads `article.children`,
+ * so a wrapper around the body — `display: contents` included, since that check is a DOM
+ * traversal and the node is still in the collection — becomes the sole body-slot child, is in
+ * no allow table, and fails every governed page closed. Their archetype identity is a context
+ * value, which is the right place for it: `Page` renders the only box either of them has, and
+ * it is marked.
+ *
  * Worth knowing about the shape of this list, because it flatters two files: it names files
  * with NO marker at all, so one marker on one element exempts the rest of the file. `toast.tsx`
  * and `ConfirmDialog.tsx` were never on it despite styling five and four unreachable elements
@@ -264,9 +280,7 @@ const MARKERS = [
  * so each part of a form field is addressable from the sheet.
  */
 const UNMARKED_STYLED_SURFACES = [
-  "./DetailPage.tsx",
   "./LoginView.tsx",
-  "./OverviewPage.tsx",
   "./ProfileView.tsx",
 ];
 
@@ -295,7 +309,6 @@ const UNMARKED_STYLED_SURFACES = [
 const INLINE_BASE_STYLES: Record<string, number> = {
   "./LoginView.tsx": 9,
   "./ModuleNav.tsx": 4,
-  "./Page.tsx": 5,
   "./ProfileView.tsx": 3,
   "./ResourceList.tsx": 2,
 };

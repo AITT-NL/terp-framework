@@ -13,8 +13,8 @@
  * anything. A new escalation is therefore a claim that some element still styles
  * itself inline on the same property — state it, with the file, or do not add it.
  *
- * The migration itself is not finished: five modules still declare module-scope
- * base style objects (23 between them, gated in markers.test.ts). They are just no
+ * The migration itself is not finished: four modules still declare module-scope
+ * base style objects (18 between them, gated in markers.test.ts). They are just no
  * longer in anyone's way — of what they render, only `module-nav` and
  * `resource-list` carry a marker, and no rule in `terp.state` targets either, so
  * retiring the last escalations left nothing inert. Checked by scanning the layer
@@ -804,6 +804,65 @@ textarea[data-terp="input"] {
   border-block-start: 1px solid var(--color-neutral-200);
   color: var(--color-fg-subtle);
   font-size: var(--font-size-xs);
+}
+
+/* The page frame ----------------------------------------------------------- */
+/* Every routed view is this shape: one header carrying the breadcrumb trail (when
+   there is a path back up) and the title row, then the body. HubPage, OverviewPage
+   and DetailPage are all this frame with a different trail.
+
+   The header is a <header> ELEMENT and Page has to keep it one, which is a
+   constraint this sheet cannot express and the component records at the site: the
+   layout contract's runtime slot check reads article.children and drops the header
+   by TAG NAME, so re-rendering it as a marked <div> would put it back into the body
+   set and fail every governed OverviewPage and DetailPage closed. Marking it is
+   additive; retagging it is not. The body likewise takes no wrapper — not even a
+   display: contents one, since that check is a DOM traversal and would see the node
+   whether or not it generates a box.
+
+   align-content: start is what keeps the rows at the top of a page taller than its
+   content — the loading and error frames, where the body is one small block. With
+   the default the two rows would spread to fill the height. It needs something to
+   stretch the article before it is observable at all, which is why page-loading and
+   page-error render inside a grid box rather than a plain tall div. */
+[data-terp="page"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-content: start;
+  min-width: 0;
+}
+[data-terp="page-header"] {
+  display: grid;
+  gap: var(--space-2);
+}
+/* The crumb row keeps a 2rem floor, and it is doing work rather than reserving
+   space for its own sake: the trail is shorter than 2rem at font-size-sm, so
+   dropping the floor closes the gap under the trail on every page that has one.
+   Measured — removing it moves all six baselines with a trail and nothing else. */
+[data-terp="page-breadcrumbs"] {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+}
+/* Title left, the actions slot right, wrapping rather than overflowing when a long
+   title meets a wide action cluster. */
+[data-terp="page-heading"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+/* The single h1 of the view. margin: 0 is load-bearing — the browser default h1
+   margin would otherwise fight the header's own gap. */
+[data-terp="page-title"] {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0;
+  color: var(--color-neutral-900);
+  line-height: 1.3;
 }
 
 /* Hub cards --------------------------------------------------------------- */

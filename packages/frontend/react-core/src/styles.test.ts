@@ -837,6 +837,11 @@ describe("cascade structure", () => {
       "appshell-header-group",
       "appshell-main",
       "appshell-footer",
+      "page",
+      "page-header",
+      "page-breadcrumbs",
+      "page-heading",
+      "page-title",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

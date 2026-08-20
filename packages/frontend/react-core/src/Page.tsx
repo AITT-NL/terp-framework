@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useContext, useEffect, useRef, useState } from "react";
 
 import { Breadcrumbs } from "./Breadcrumbs";
@@ -40,39 +40,6 @@ export interface PageProps {
   children: ReactNode;
 }
 
-const pageStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr)",
-  gap: "var(--space-4)",
-  alignContent: "start",
-  minWidth: 0,
-};
-
-const headerStyle: CSSProperties = { display: "grid", gap: "var(--space-2)" };
-
-const breadcrumbRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  minHeight: "2rem",
-};
-
-const titleRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--space-3)",
-  flexWrap: "wrap",
-};
-
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--font-size-lg)",
-  fontWeight: "var(--font-weight-semibold)" as CSSProperties["fontWeight"],
-  letterSpacing: 0,
-  color: "var(--color-neutral-900)",
-  lineHeight: 1.3,
-};
-
 /**
  * The base content-page frame: every routed view is constructed the same way — one
  * header holding the breadcrumb trail (when there is a path back up through the
@@ -85,6 +52,9 @@ const titleStyle: CSSProperties = {
  * The frame also owns the async body states: `error` (which wins, so a failed
  * query never hides behind a spinner) then `isLoading` replace the body while the
  * header stays put, so the user keeps their place in the layers.
+ *
+ * It renders no inline styles: the frame's geometry and the title's type come from the
+ * injected react-core sheet, matched on the `data-terp` markers stamped below (ADR 0094).
  */
 export function Page({
   title,
@@ -138,15 +108,21 @@ export function Page({
       children
     );
   return (
-    <article ref={articleRef} style={pageStyle}>
-      <header style={headerStyle}>
+    <article ref={articleRef} data-terp="page">
+      {/* A <header> ELEMENT, and it has to stay one. The slot check above drops the header
+          from the body set by tagName, so re-rendering this as a marked <div> would put it
+          back in and fail every governed OverviewPage / DetailPage closed. The marker is
+          additive; the tag is load-bearing. For the same reason the body below takes no
+          wrapper of its own — not even a display: contents one, since article.children is a
+          DOM traversal and would see it. */}
+      <header data-terp="page-header">
         {hasAncestors && (
-          <div style={breadcrumbRowStyle}>
+          <div data-terp="page-breadcrumbs">
             <Breadcrumbs items={trail} renderLink={renderLink} />
           </div>
         )}
-        <div style={titleRowStyle}>
-          <h1 style={titleStyle}>{resolve(title)}</h1>
+        <div data-terp="page-heading">
+          <h1 data-terp="page-title">{resolve(title)}</h1>
           {actions}
         </div>
       </header>
