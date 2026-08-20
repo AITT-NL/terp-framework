@@ -159,6 +159,15 @@ const MARKERS = [
   "language-switcher-label",
   "loading-state",
   "loading-state-spinner",
+  "login-brand",
+  "login-card",
+  "login-error",
+  "login-form",
+  "login-separator",
+  "login-separator-rule",
+  "login-sso",
+  "login-title",
+  "login-view",
   "markdown",
   "menu",
   "menu-item",
@@ -289,8 +298,14 @@ const MARKERS = [
  *
  * `Field` has graduated: it renders a root plus label, label text, hint and error markers,
  * so each part of a form field is addressable from the sheet.
+ *
+ * THE LIST IS EMPTY. `LoginView` was the last entry, and it is kept rather than deleted for
+ * the same reason as the ledger below: this is where a new unmarked styled surface has to
+ * argue for itself. Note what an empty list does NOT say, because the shape above already
+ * flatters two files — it names modules with NO marker at all, so one marker anywhere in a
+ * file exempts the rest of it.
  */
-const UNMARKED_STYLED_SURFACES = ["./LoginView.tsx"];
+const UNMARKED_STYLED_SURFACES: string[] = [];
 
 /**
  * How many module-scope base style objects each file still declares — the migration's own
@@ -313,8 +328,16 @@ const UNMARKED_STYLED_SURFACES = ["./LoginView.tsx"];
  * `Popover` positions its panel from a rect it measured — ADR 0094 §3 puts all three on the
  * inline side of the line permanently, so counting them would make this list unable to reach
  * zero and therefore unable to mean anything.
+ *
+ * IT HAS REACHED ZERO, and the honest reading of that is narrow. The detector matches a
+ * module-scope declaration annotated `CSSProperties`, which means a call-site literal and an
+ * unannotated module-scope object are both invisible to it. Four of the built-in admin views
+ * carried five base styles through this entire migration for exactly that reason — three as
+ * call-site literals, one as an unannotated `payloadStyle` — while both ratchets read clean.
+ * The next commit widens the detector and migrates them, so that zero means what it looks
+ * like it means.
  */
-const INLINE_BASE_STYLES: Record<string, number> = { "./LoginView.tsx": 9 };
+const INLINE_BASE_STYLES: Record<string, number> = {};
 
 /**
  * `text` with comments removed, so prose naming a marker cannot stand in for rendering one.

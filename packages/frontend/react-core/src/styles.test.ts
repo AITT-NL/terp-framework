@@ -534,11 +534,13 @@ describe("cascade structure", () => {
     // assertions because both had a real consumer until it migrated.
     //
     // The focus ring's !important could only ever beat an INLINE box-shadow on an element the
-    // selector matches, and there is none left: ConfirmDialog's dialog and Popover's panel were
-    // the two, and both took their surface from the sheet in stage 4. Of the three inline
-    // box-shadows remaining, AppShell's drawer and LoginView's panel sit on elements with no
-    // marker at all, and DataViewCardList's card is a div with onClick and no tabIndex, so it
-    // cannot match :focus-visible — which is why the sheet reaches it with :focus-within.
+    // selector matches, and there is now none anywhere in the package. ConfirmDialog's dialog
+    // and Popover's panel were the two that mattered and took their surface from the sheet in
+    // stage 4; the three that remained — AppShell's drawer, DataViewCardList's card and
+    // LoginView's card — went with those three components' own migrations, the last of them
+    // with LoginView. The DataView card is worth remembering anyway: it is a div with onClick
+    // and no tabIndex, so it cannot match :focus-visible at all, which is why the sheet reaches
+    // it with :focus-within.
     // Measured after removing it: a keyboard-focused primary button and a focused menu item both
     // still compute rgba(37,99,235,0.35) 0 0 0 3px, because the LAYER carries the ring, not the
     // escalation. That was always the claim in this file's header; the escalation was belt.
@@ -855,6 +857,15 @@ describe("cascade structure", () => {
       "profile-avatar",
       "profile-email",
       "profile-role",
+      "login-view",
+      "login-card",
+      "login-brand",
+      "login-title",
+      "login-form",
+      "login-sso",
+      "login-separator",
+      "login-separator-rule",
+      "login-error",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

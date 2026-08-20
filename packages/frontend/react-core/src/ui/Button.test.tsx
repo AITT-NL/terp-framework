@@ -39,9 +39,11 @@ describe("Button", () => {
   });
 
   it("still forwards an explicit style, so framework callers keep their escape", () => {
-    // The sheet owns the base; a one-off geometry override (LoginView's full-width submit)
-    // is inline and therefore still wins, which is the boundary ADR 0094 draws between
-    // styling policy and a measured value.
+    // The sheet owns the base, and the escape still has to work: a caller may pass a measured
+    // value the sheet has no business owning, and it wins because a style attribute outranks
+    // any author rule (ADR 0094 §3). It is no longer LoginView's full-width submit, which is
+    // what this comment used to cite — a fixed 100% is layout policy rather than a measured
+    // value, and the sheet could reach it, so it is a rule on the login form now.
     render(<Button style={{ width: "100%" }}>Wide</Button>);
     expect(screen.getByRole("button", { name: "Wide" }).style.width).toBe("100%");
   });

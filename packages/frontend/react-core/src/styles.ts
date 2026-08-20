@@ -13,11 +13,17 @@
  * anything. A new escalation is therefore a claim that some element still styles
  * itself inline on the same property — state it, with the file, or do not add it.
  *
- * The migration itself is not finished: ONE module still declares module-scope base
- * style objects — `LoginView`, nine of them, gated in markers.test.ts. It renders no
- * marker at all, so nothing in `terp.state` can reach it and retiring the last
- * escalations left nothing inert. Checked by scanning the layer against that file
- * rather than by spot-checking a hover.
+ * THE LEDGER IS EMPTY. No module declares a module-scope base style object any more,
+ * and the unmarked-surface worklist is empty with it — both gated in markers.test.ts,
+ * both kept rather than deleted, for the reason the escalation ledger below is kept:
+ * an empty gate is where the next entry has to justify itself.
+ *
+ * That is the ledger's measure, and it is narrower than "nothing styles itself inline".
+ * It counts module-scope `CSSProperties` declarations, so a call-site literal and an
+ * unannotated style object are both invisible to it — which is how the built-in admin
+ * views kept five base styles through the whole migration. The next commit widens the
+ * detector and migrates them, and until it lands this paragraph is the only place that
+ * says so.
  *
  * A migrated component gets its base here and renders no `style={}` for it —
  * though it may still pass an inline value the sheet has no business owning, which
@@ -891,6 +897,95 @@ textarea[data-terp="input"] {
   letter-spacing: 0;
   color: var(--color-neutral-900);
   line-height: 1.3;
+}
+
+/* The sign-in screen ------------------------------------------------------- */
+/* The one screen an unauthenticated user sees, and the only full-viewport page in
+   the package: a 100vh grid centring one card. The reset layer's box-sizing note
+   already names this page as the reason it exists — content-box plus 100vh plus
+   padding overflows the viewport by exactly the padding, which is a phantom
+   scrollbar on a page that fits.
+
+   The buttons fill their group, and that is a rule on the GROUP rather than a prop
+   on Button, because it has exactly one consumer in the package. Button declares
+   width: fit-content, which is a definite width — so grid stretch does NOT do this
+   for free, and dropping the declaration shrinks all four buttons to their labels.
+   Two selectors at (0,2,0) against the button's own (0,1,0), same layer, so
+   specificity settles it and source order never enters into it. A block prop on
+   Button would be a new public API minted for one internal caller; the sheet can
+   already reach the thing, which is the test stage 4 set when it deleted Menu's
+   style props.
+
+   The separator's ink moves from --color-neutral-500 to --color-fg-subtle, which is
+   the rest of the migration ec36a2b started rather than a new decision: the two
+   tokens are byte-identical in light and dark, and only fg-subtle has a declared
+   pairing (subtle-on-surface) for the gate to measure. So the screenshot themes do
+   not move and midnight and twilight get the value the gate has been measuring all
+   along. The "or" is aria-hidden but it is visible text, so it is held to AA rather
+   than treated as an ornament.
+
+   The error line has no specimen and cannot have one: the error is internal state set
+   only in a catch, and sso.error needs a real failed callback, which needs a URL the
+   lane owns. Its ink is gated statically instead — danger-on-card, declared for this
+   surface and measured in all five themes. */
+[data-terp="login-view"] {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: var(--color-neutral-50);
+  font-family: var(--font-family-sans);
+  color: var(--color-neutral-900);
+}
+[data-terp="login-card"] {
+  width: 100%;
+  max-width: 24rem;
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+[data-terp="login-brand"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-neutral-900);
+}
+[data-terp="login-title"] {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0;
+}
+[data-terp="login-form"],
+[data-terp="login-sso"] {
+  display: grid;
+  gap: var(--space-3);
+}
+[data-terp="login-form"] > [data-terp="button"],
+[data-terp="login-sso"] > [data-terp="button"] {
+  width: 100%;
+}
+[data-terp="login-separator"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-fg-subtle);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+[data-terp="login-separator-rule"] {
+  flex: 1;
+  border-block-start: 1px solid var(--color-neutral-200);
+}
+[data-terp="login-error"] {
+  margin: 0;
+  color: var(--color-status-danger);
+  font-size: var(--font-size-sm);
 }
 
 /* The profile screen ------------------------------------------------------- */

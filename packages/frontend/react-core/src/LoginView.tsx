@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CSSProperties, FormEvent } from "react";
+import type { FormEvent } from "react";
 
 import { TerpMark } from "./icons";
 import { useAuth, useSso } from "./TerpProvider";
@@ -7,67 +7,6 @@ import { useStrings } from "./uiText";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import type { SsoProvider } from "./sso";
-
-const pageStyle: CSSProperties = {
-  minHeight: "100vh",
-  display: "grid",
-  placeItems: "center",
-  padding: "var(--space-6)",
-  background: "var(--color-neutral-50)",
-  fontFamily: "var(--font-family-sans)",
-  color: "var(--color-neutral-900)",
-};
-
-const cardStyle: CSSProperties = {
-  width: "100%",
-  maxWidth: "24rem",
-  display: "grid",
-  gap: "var(--space-4)",
-  padding: "var(--space-6)",
-  background: "var(--color-neutral-0)",
-  border: "1px solid var(--color-neutral-200)",
-  borderRadius: "var(--radius-lg)",
-  boxShadow: "var(--shadow-md)",
-};
-
-const brandStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  color: "var(--color-neutral-900)",
-};
-
-const brandTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--font-size-xl)",
-  fontWeight: "var(--font-weight-bold)" as CSSProperties["fontWeight"],
-  letterSpacing: 0,
-};
-
-const formStyle: CSSProperties = { display: "grid", gap: "var(--space-3)" };
-
-const fullWidthStyle: CSSProperties = { width: "100%" };
-
-const separatorStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  color: "var(--color-neutral-500)",
-  fontSize: "var(--font-size-xs)",
-  textTransform: "uppercase",
-  letterSpacing: "0.06em",
-};
-
-const separatorRuleStyle: CSSProperties = {
-  flex: 1,
-  borderTop: "1px solid var(--color-neutral-200)",
-};
-
-const errorStyle: CSSProperties = {
-  margin: 0,
-  color: "var(--color-status-danger)",
-  fontSize: "var(--font-size-sm)",
-};
 
 export interface LoginViewProps {
   /**
@@ -95,6 +34,12 @@ export interface DevCredentials {
  * The default signed-out screen: collects credentials and calls the auth session. Used by
  * {@link renderTerpApp}/`RequireAuth` unless an app supplies its own login view. Pass
  * {@link LoginViewProps.ssoProviders} to add SSO provider buttons under the form.
+ *
+ * It renders no inline styles: the full-viewport page, the card, the brand row, both button
+ * groups, the separator and the error line take their geometry and ink from the injected
+ * react-core sheet (ADR 0094). The buttons fill their group through a rule on the group
+ * rather than a prop on `Button` — `Button` declares `width: fit-content`, so a grid does not
+ * stretch them for free, and a `block` prop for one internal caller is API this does not need.
  */
 export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps = {}) {
   const auth = useAuth();
@@ -133,13 +78,13 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
   const ssoError = sso.error !== null && sso.error !== undefined ? strings.ssoFailed : null;
 
   return (
-    <main style={pageStyle}>
-      <div style={cardStyle}>
-        <div style={brandStyle}>
+    <main data-terp="login-view">
+      <div data-terp="login-card">
+        <div data-terp="login-brand">
           <TerpMark />
-          <h1 style={brandTitleStyle}>{strings.signIn}</h1>
+          <h1 data-terp="login-title">{strings.signIn}</h1>
         </div>
-        <form style={formStyle} onSubmit={onSubmit}>
+        <form data-terp="login-form" onSubmit={onSubmit}>
           <Input
             type="email"
             placeholder={strings.email}
@@ -154,7 +99,7 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
             onChange={(event) => setPassword(event.target.value)}
             required
           />
-          <Button type="submit" disabled={busy} style={fullWidthStyle}>
+          <Button type="submit" disabled={busy}>
             {busy ? strings.signingIn : strings.signIn}
           </Button>
           {devCredentials ? (
@@ -162,7 +107,6 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
               type="button"
               variant="secondary"
               disabled={busy}
-              style={fullWidthStyle}
               onClick={() => {
                 setEmail(devCredentials.email);
                 setPassword(devCredentials.password);
@@ -175,19 +119,18 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
         </form>
         {ssoProviders.length > 0 ? (
           <>
-            <div style={separatorStyle} aria-hidden="true">
-              <span style={separatorRuleStyle} />
+            <div data-terp="login-separator" aria-hidden="true">
+              <span data-terp="login-separator-rule" />
               <span>{strings.orSeparator}</span>
-              <span style={separatorRuleStyle} />
+              <span data-terp="login-separator-rule" />
             </div>
-            <div style={formStyle}>
+            <div data-terp="login-sso">
               {ssoProviders.map((provider) => (
                 <Button
                   key={provider.name}
                   type="button"
                   variant="secondary"
                   disabled={busy}
-                  style={fullWidthStyle}
                   onClick={() => void onSso(provider)}
                 >
                   {`${strings.continueWith} ${provider.label ?? provider.name}`}
@@ -197,7 +140,7 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
           </>
         ) : null}
         {error ?? ssoError ? (
-          <p role="alert" style={errorStyle}>
+          <p role="alert" data-terp="login-error">
             {error ?? ssoError}
           </p>
         ) : null}
