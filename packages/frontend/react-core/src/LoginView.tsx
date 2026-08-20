@@ -196,7 +196,11 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
             </div>
           </>
         ) : null}
-        {error ?? ssoError ? <p style={errorStyle}>{error ?? ssoError}</p> : null}
+        {error ?? ssoError ? (
+          <p role="alert" style={errorStyle}>
+            {error ?? ssoError}
+          </p>
+        ) : null}
       </div>
     </main>
   );

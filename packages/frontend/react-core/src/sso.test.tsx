@@ -120,9 +120,12 @@ describe("SSO login (ADR 0058)", () => {
       </TerpProvider>,
     );
 
-    await waitFor(() =>
-      expect(screen.getByText("Single sign-on failed. Try again.")).toBeInTheDocument(),
-    );
+    // Announced, not merely displayed. This is the one screen whose user is not signed in
+    // yet, so a failure they cannot see leaves them with no signal at all that the sign-in
+    // did not happen — the form simply sits there. ResourceList's error has carried
+    // role="alert" since it existed; this one carried nothing.
+    const failure = await screen.findByRole("alert");
+    expect(failure).toHaveTextContent("Single sign-on failed. Try again.");
     expect(window.location.pathname).toBe("/");
   });
 });
