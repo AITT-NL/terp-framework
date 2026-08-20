@@ -82,7 +82,7 @@ already stamps (ADR 0094).
   primary button stopped showing a ring at all. States live in `terp.state` above
   `terp.base` precisely so a state rule wins on layer order rather than on luck.
 
-- **The `data-terp` marker vocabulary has grown, and one marker has moved.** Markers
+- **The `data-terp` marker vocabulary has grown, and two markers have moved.** Markers
   are the join between a component and both its styling and the layout contract's
   runtime slot check, so the inventory is pinned by a test and belongs in a release
   note. It went from **45 names at 0.7.0 to 159** — 114 new markers, none removed,
