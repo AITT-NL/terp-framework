@@ -719,6 +719,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Permissions
+             * @default []
+             */
+            permissions: string[];
             /** Role Name */
             role_name: string;
             /** Role Rank */
