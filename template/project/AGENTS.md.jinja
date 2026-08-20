@@ -115,6 +115,13 @@ variable, update the manifest in the same change:
   here rather than in production.
 - Add concise titles/descriptions; use `required` only when the app cannot operate
   without the variable. Validate the JSON and run the relevant gate after editing.
+- **Keep every text field to 500 characters** (`type`, `title`, `description`,
+  `format`, `group`, `resolvedBy`), and the manifest to 50 variables. Studio's reader
+  fails closed on the **whole file**: one over-long `description` and every declaration
+  — the app's secrets included — stops being rendered into `.app.env`. A description
+  that fully explains a variable is easily past the cap; write the long version here or
+  in the code and keep the manifest's to a sentence or two.
+  `uv run terp verify --only env-seams` refuses the manifest before Studio has to.
 
 Full explanation of the two seams and their precedence: `uv run terp guide environment`.
 

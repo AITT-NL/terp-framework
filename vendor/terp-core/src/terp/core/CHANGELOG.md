@@ -10,7 +10,106 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## 0.8.0 — 2026-08-18
+## 0.9.0
+
+### Added
+
+- **Expiring, fenced custody of work: `terp.core.leases` + `terp-cap-leases`, and a
+  reaper that puts the row back (ADR 0095).** Friction reported from building
+  queue-shaped work on Terp, twice, from two directions that turned out to be one
+  missing primitive.
+
+  First: a row a crashed worker took stays taken. A worker flips a request to
+  `claimed` and is then killed — OOM, a rescheduled pod, a dropped connection.
+  Nothing in the schema records *who* took it or *until when*, so nothing can tell
+  "still working" from "died three hours ago", and the only recovery is a
+  hand-written `UPDATE` by somebody with database access. Second: nothing enforces
+  "at most one active run per pipeline". Exclusivity *while a holder is alive* is
+  expressible today (a partial unique index, an optimistic-concurrency claim); what
+  is not is exclusivity **with an expiry** — and without the expiry, the mutex has
+  the first problem.
+
+  The evidence that decided it came from neither report. `terp-cap-sync`'s own
+  service docstring had been carrying this since it shipped: *"a job that dies
+  mid-loop leaves a `running` run whose work already committed per-record; the next
+  successful run supersedes its cursor — reaping stale runs is a follow-up."* Two
+  independent occurrences, one of them in the framework's own flagship consumer
+  capability, is the bar for promoting a pattern to a primitive.
+
+  A lease is a resource (an opaque `(kind, key)` — `LeaseResource.for_row(row)`, or
+  `LeaseResource("pipeline", pk)` for a mutex on something that is not a row at
+  all), a holder, an expiry, and an **epoch fence**. The fence is the part that is
+  easy to leave out and expensive to omit: expiry alone establishes that a holder
+  *may* have died, and does nothing about one that merely **paused** and wakes after
+  its own deadline to finish work a successor already took over. Every fenced
+  statement carries `AND epoch = :epoch`, and only a grant increments it, so a
+  superseded holder's renew, release and forfeit all match zero rows.
+
+  Take it inside the write that claims the row and the two can never disagree:
+
+  ```python
+  class RequestService(BaseService[RunRequest, ...]):
+      def _after_write(self, session, entity, action):
+          if entity.status == CLAIMED:
+              hold_lease(session, LeaseResource.for_row(entity),
+                         holder=self.worker_id, ttl_seconds=60)
+  ```
+
+  A resource somebody else holds raises `LeaseHeldError` *inside* the write unit, so
+  the row never reaches `claimed` at all — no compensating update to forget. Inside a
+  work loop, `guard.heartbeat()` is cheap (it writes only past the lease's half-life)
+  and **raises** `LeaseLostError` rather than returning a boolean a caller can forget
+  to check, because losing a lease means a successor may already be doing this work.
+
+  **This seam has no default store, on purpose.** Every other store seam here
+  (idempotency, throttle, cache) ships a safe in-process default, because degrading
+  one costs a re-execution or a cache miss. Degrading a lease costs *two workers
+  running the same work at once* — the exact thing it exists to prevent — and the
+  in-memory version cannot deliver the headline feature at all, since its state dies
+  with the very process whose crash the lease exists to survive. So the default is
+  `None`, the first lease call fails closed naming the missing wiring, and an app
+  that wants leases names its store: `create_app(lease_store=DatabaseLeaseStore(),
+  require_durable_leases=settings.is_production)`. That boot guard refuses the
+  in-memory store *and* `None`.
+
+  **The reaper is the half only your domain can write.** An expired lease frees a
+  resource; it does not free the work, and no generic mechanism knows whether the
+  right answer is "queue it again", "close it failed" or "leave it for a human". So
+  `register_lease_reaper(kind, recovery)` declares it once, and each cycle runs the
+  recovery **and** forfeits the lease in one transaction — the domain's own audited
+  `_save` nests into the reaper's write unit, so a recovery is as traceable as any
+  other mutation. A kind with no reaper is simply *released*, which is the correct
+  shape for a pure mutex. The cycle ships as a declared `leases.reap` job with a
+  `lease_reap_schedule` helper, so it runs on whatever an app already operates —
+  APScheduler, Celery beat, a `CronJob` — with no new daemon to deploy. A reaper that
+  only exists as a command is a reaper somebody has to remember to schedule.
+
+  `terp leases list --expired` names the holder and the deadline — the distinction a
+  bare `claimed` column cannot make — and calls out, per kind on the page, any kind
+  with **no** registered recovery, because "nothing reaped it" and "nobody declared a
+  recovery for it" look identical on the rows alone and the second is the mistake an
+  author actually makes. `terp leases reap` runs the same bounded, fenced cycle the
+  job runs. There is deliberately no force-release, in the CLI or the admin router:
+  taking a live lease from a holder that may still be running is the split brain the
+  fence exists to prevent. Recipe: `terp guide leases`.
+
+### Fixed
+
+- **`terp-cap-sync` no longer strands a `running` run, and no longer lets two
+  reconciles of one source overlap.** The deferred follow-up its own docstring
+  admitted to is closed rather than reworded: a reconcile now holds a lease on
+  `(tenant_scope, entity_type)` for its whole run — on the *source*, because that is
+  what must not overlap, and because a lease on a row that does not exist yet cannot
+  serialise the decision to create it. A competing reconcile is refused with
+  `LeaseHeldError` and retries on its next tick instead of opening a second run
+  against the same external system; one that dies mid-loop has its lease lapse and
+  its abandoned run closed `failed` with the reason on the row, so the source becomes
+  retryable. The heartbeat fails closed, so a worker that stalled past its expiry
+  stops rather than finishing over its successor. Leasing is **optional** here: an app
+  that wired no lease store reconciles exactly as before, so adopting it is a decision
+  about operational guarantees and never a migration.
+
+## 0.8.0 — 2026-08-20
 
 The second half of the frontend design system: components stop carrying their
 base styles as inline `style={}` and move them into the injected stylesheet,
@@ -181,85 +280,6 @@ already stamps (ADR 0094).
 
 ### Added
 
-- **Expiring, fenced custody of work: `terp.core.leases` + `terp-cap-leases`, and a
-  reaper that puts the row back (ADR 0095).** Friction reported from building
-  queue-shaped work on Terp, twice, from two directions that turned out to be one
-  missing primitive.
-
-  First: a row a crashed worker took stays taken. A worker flips a request to
-  `claimed` and is then killed — OOM, a rescheduled pod, a dropped connection.
-  Nothing in the schema records *who* took it or *until when*, so nothing can tell
-  "still working" from "died three hours ago", and the only recovery is a
-  hand-written `UPDATE` by somebody with database access. Second: nothing enforces
-  "at most one active run per pipeline". Exclusivity *while a holder is alive* is
-  expressible today (a partial unique index, an optimistic-concurrency claim); what
-  is not is exclusivity **with an expiry** — and without the expiry, the mutex has
-  the first problem.
-
-  The evidence that decided it came from neither report. `terp-cap-sync`'s own
-  service docstring had been carrying this since it shipped: *"a job that dies
-  mid-loop leaves a `running` run whose work already committed per-record; the next
-  successful run supersedes its cursor — reaping stale runs is a follow-up."* Two
-  independent occurrences, one of them in the framework's own flagship consumer
-  capability, is the bar for promoting a pattern to a primitive.
-
-  A lease is a resource (an opaque `(kind, key)` — `LeaseResource.for_row(row)`, or
-  `LeaseResource("pipeline", pk)` for a mutex on something that is not a row at
-  all), a holder, an expiry, and an **epoch fence**. The fence is the part that is
-  easy to leave out and expensive to omit: expiry alone establishes that a holder
-  *may* have died, and does nothing about one that merely **paused** and wakes after
-  its own deadline to finish work a successor already took over. Every fenced
-  statement carries `AND epoch = :epoch`, and only a grant increments it, so a
-  superseded holder's renew, release and forfeit all match zero rows.
-
-  Take it inside the write that claims the row and the two can never disagree:
-
-  ```python
-  class RequestService(BaseService[RunRequest, ...]):
-      def _after_write(self, session, entity, action):
-          if entity.status == CLAIMED:
-              hold_lease(session, LeaseResource.for_row(entity),
-                         holder=self.worker_id, ttl_seconds=60)
-  ```
-
-  A resource somebody else holds raises `LeaseHeldError` *inside* the write unit, so
-  the row never reaches `claimed` at all — no compensating update to forget. Inside a
-  work loop, `guard.heartbeat()` is cheap (it writes only past the lease's half-life)
-  and **raises** `LeaseLostError` rather than returning a boolean a caller can forget
-  to check, because losing a lease means a successor may already be doing this work.
-
-  **This seam has no default store, on purpose.** Every other store seam here
-  (idempotency, throttle, cache) ships a safe in-process default, because degrading
-  one costs a re-execution or a cache miss. Degrading a lease costs *two workers
-  running the same work at once* — the exact thing it exists to prevent — and the
-  in-memory version cannot deliver the headline feature at all, since its state dies
-  with the very process whose crash the lease exists to survive. So the default is
-  `None`, the first lease call fails closed naming the missing wiring, and an app
-  that wants leases names its store: `create_app(lease_store=DatabaseLeaseStore(),
-  require_durable_leases=settings.is_production)`. That boot guard refuses the
-  in-memory store *and* `None`.
-
-  **The reaper is the half only your domain can write.** An expired lease frees a
-  resource; it does not free the work, and no generic mechanism knows whether the
-  right answer is "queue it again", "close it failed" or "leave it for a human". So
-  `register_lease_reaper(kind, recovery)` declares it once, and each cycle runs the
-  recovery **and** forfeits the lease in one transaction — the domain's own audited
-  `_save` nests into the reaper's write unit, so a recovery is as traceable as any
-  other mutation. A kind with no reaper is simply *released*, which is the correct
-  shape for a pure mutex. The cycle ships as a declared `leases.reap` job with a
-  `lease_reap_schedule` helper, so it runs on whatever an app already operates —
-  APScheduler, Celery beat, a `CronJob` — with no new daemon to deploy. A reaper that
-  only exists as a command is a reaper somebody has to remember to schedule.
-
-  `terp leases list --expired` names the holder and the deadline — the distinction a
-  bare `claimed` column cannot make — and calls out, per kind on the page, any kind
-  with **no** registered recovery, because "nothing reaped it" and "nobody declared a
-  recovery for it" look identical on the rows alone and the second is the mistake an
-  author actually makes. `terp leases reap` runs the same bounded, fenced cycle the
-  job runs. There is deliberately no force-release, in the CLI or the admin router:
-  taking a live lease from a holder that may still be running is the split brain the
-  fence exists to prevent. Recipe: `terp guide leases`.
-
 - **`defaultOpen` on `Combobox`, `DatePicker` and `DateRangePicker`.** The same
   uncontrolled-open shape `Popover` and `Menu` have always taken, so a filter
   panel can ship with its list already open — and so the subtree can be rendered
@@ -349,19 +369,60 @@ already stamps (ADR 0094).
 
 ### Fixed
 
-- **`terp-cap-sync` no longer strands a `running` run, and no longer lets two
-  reconciles of one source overlap.** The deferred follow-up its own docstring
-  admitted to is closed rather than reworded: a reconcile now holds a lease on
-  `(tenant_scope, entity_type)` for its whole run — on the *source*, because that is
-  what must not overlap, and because a lease on a row that does not exist yet cannot
-  serialise the decision to create it. A competing reconcile is refused with
-  `LeaseHeldError` and retries on its next tick instead of opening a second run
-  against the same external system; one that dies mid-loop has its lease lapse and
-  its abandoned run closed `failed` with the reason on the row, so the source becomes
-  retryable. The heartbeat fails closed, so a worker that stalled past its expiry
-  stops rather than finishing over its successor. Leasing is **optional** here: an app
-  that wired no lease store reconciles exactly as before, so adopting it is a decision
-  about operational guarantees and never a migration.
+- **The generated CI no longer fails a green conformance run because the seed
+  container finished.** `docker compose up -d --wait api web seed` listed a
+  one-shot alongside the long-lived services, and `--wait` reports *any*
+  container that exits — including with status 0 — as a failure
+  ([docker/compose#10596](https://github.com/docker/compose/issues/10596)). The
+  workbench came up correctly (db → migrate → seed → api + web, every service
+  healthy), `seed` did its job, exited 0, and the step failed with exit code 1
+  before Playwright ever started — so an app whose whole gate was green saw a red
+  conformance job with no test output and an empty report artifact. The
+  scaffolded workflow now waits only on the services that stay up and runs the
+  one-shot after them:
+
+  ```yaml
+  docker compose up -d --wait api web
+  docker compose run --rm seed
+  ```
+
+  `api` already depends on `migrate` with `service_completed_successfully`, so
+  the ordering is unchanged. The framework's own `conformance.yml` and the
+  `terp verify` hint for the `conformance` check carry the same recipe. Existing
+  apps are not migrated automatically — apply the two lines to
+  `.github/workflows/ci.yml`.
+
+- **`terp verify --only env-seams` now judges `environment.schema.json`'s own
+  shape, so an app can no longer pass its gate with a manifest the deploy side
+  refuses.** The reader that renders the declared variables into `.app.env` is
+  fail closed on the *whole file*: one defect anywhere and every declaration —
+  the app's secrets included — disappears from the environment form and is never
+  rendered. That verdict used to be given only there, which put it a deploy (and
+  often a different machine) away from the edit that caused it. It happened: an
+  authoring agent explained `OIDC_REDIRECT_URI` well and wrote a `description`
+  past 500 characters, `terp verify --profile full` stayed green, and the app
+  lost its manifest — MariaDB password and all — with nothing in the gate, the
+  guide or the shipped manifest's own `$comment` mentioning a length limit.
+
+  The check now reports every defect at once (the reader raises on the first,
+  which would cost an author one gate run per mistake), naming the subject the
+  way the deploy-side message does — `OIDC_REDIRECT_URI.description must be a
+  string of at most 500 characters (it is 501)` — and states the consequence,
+  not just the rule. The dialect it judges against lives in
+  `terp.cli.envschema`: the `type`/`properties`/`required` shape, at most 50
+  variables, UPPER_SNAKE names, platform-owned and `VITE_*` names refused,
+  `type`/`title`/`description`/`format`/`group`/`resolvedBy` as strings of at
+  most 500 characters, `resolvedBy` in `host | container | browser`, and `enum`
+  as at most 50 strings of at most 200 characters. There is no package the two
+  sides can share, so the limits are mirrored with matching wording and held
+  equal case by case in `tests/architecture/test_cli_env_seams.py`.
+
+  The shape verdict is given *before* the seam verdict: a manifest that is
+  refused declares nothing, so reporting which seam supplies its variables would
+  answer a question that no longer applies and name the wrong fix. Still a plain
+  read of checked-in files — no Docker daemon, no `docker` binary. `terp guide
+  environment` grows the limits and the reason the 500-character cap is the one
+  an authoring agent walks into.
 
 - **The calendar was three defects deep, and nothing in the repo could see any
   of them.** Its `role="grid"` held all 42 day buttons as *direct*

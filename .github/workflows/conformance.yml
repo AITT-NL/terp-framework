@@ -43,10 +43,14 @@ jobs:
       - name: Install Playwright (Chromium + OS deps)
         run: npx playwright install --with-deps chromium
 
-      # Build + start the workbench and wait for it: db -> migrate -> seed -> api + web. No .env is
-      # present on a fresh checkout, so the API and web bind the default host ports (8000 / 5173).
+      # Build + start the workbench and wait for it: db -> migrate -> api + web, then the one-shot
+      # seed. No .env is present on a fresh checkout, so the API and web bind the default host
+      # ports (8000 / 5173). `seed` stays out of `--wait`: that flag treats any container that
+      # exits — even with 0 — as a failure (docker/compose#10596).
       - name: Start the workbench
-        run: docker compose -f apps/example/docker-compose.yml up -d --wait api web seed
+        run: |
+          docker compose -f apps/example/docker-compose.yml up -d --wait api web
+          docker compose -f apps/example/docker-compose.yml run --rm seed
 
       - name: Run the base-profile conformance suite (app-agnostic)
         env:
