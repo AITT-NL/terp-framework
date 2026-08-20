@@ -1194,6 +1194,20 @@
       "layer": "primitive"
     },
     {
+      "id": "danger-on-card",
+      "label": "danger text on a card",
+      "fg": "--color-status-danger",
+      "bg": "--color-neutral-0",
+      "layer": "primitive"
+    },
+    {
+      "id": "danger-on-canvas",
+      "label": "danger text on the canvas",
+      "fg": "--color-status-danger",
+      "bg": "--color-neutral-50",
+      "layer": "primitive"
+    },
+    {
       "id": "primary-button-label",
       "label": "primary button label",
       "fg": "--color-brand-primary-contrast",
