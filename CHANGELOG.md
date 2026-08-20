@@ -270,6 +270,29 @@ already stamps (ADR 0094).
 
 ### Fixed
 
+- **The generated CI no longer fails a green conformance run because the seed
+  container finished.** `docker compose up -d --wait api web seed` listed a
+  one-shot alongside the long-lived services, and `--wait` reports *any*
+  container that exits — including with status 0 — as a failure
+  ([docker/compose#10596](https://github.com/docker/compose/issues/10596)). The
+  workbench came up correctly (db → migrate → seed → api + web, every service
+  healthy), `seed` did its job, exited 0, and the step failed with exit code 1
+  before Playwright ever started — so an app whose whole gate was green saw a red
+  conformance job with no test output and an empty report artifact. The
+  scaffolded workflow now waits only on the services that stay up and runs the
+  one-shot after them:
+
+  ```yaml
+  docker compose up -d --wait api web
+  docker compose run --rm seed
+  ```
+
+  `api` already depends on `migrate` with `service_completed_successfully`, so
+  the ordering is unchanged. The framework's own `conformance.yml` and the
+  `terp verify` hint for the `conformance` check carry the same recipe. Existing
+  apps are not migrated automatically — apply the two lines to
+  `.github/workflows/ci.yml`.
+
 - **`terp verify --only env-seams` now judges `environment.schema.json`'s own
   shape, so an app can no longer pass its gate with a manifest the deploy side
   refuses.** The reader that renders the declared variables into `.app.env` is
