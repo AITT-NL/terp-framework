@@ -133,6 +133,16 @@ def test_layout_presets_render_a_home_module() -> None:
     assert "module_name" not in view
     # Blank: a plain archetype-framed welcome page pointing at `terp new module`.
     assert "Page" in view
+    # And its prose goes through the primitives, not bare elements. Not tidiness: app modules
+    # may not write `style` or `className`, and a bare <p> or <code> carries no `data-terp` for
+    # any rule to reach — so bare prose in the generated starter is text a generated app can
+    # never theme, and this file was the framework's own example of it.
+    assert "<Text" in view and "<Code" in view
+    # Comments stripped first, or the file's own explanation of this rule breaks it — which is
+    # exactly what happened when the explanation named the two elements. Prose about a scan is
+    # not exempt from the scan.
+    view_code = re.sub(r"(?m)^\s*//.*$", "", view)
+    assert "<p>" not in view_code and "<code>" not in view_code
     assert "terp new module" in view
     assert "style={{" not in view
 

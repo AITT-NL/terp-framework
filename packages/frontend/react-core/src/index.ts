@@ -111,6 +111,17 @@ export { Markdown } from "./ui/Markdown";
 export type { MarkdownProps } from "./ui/Markdown";
 export { saveBlob, useEndpointDownload, fetchDownload, downloadUrl } from "./download";
 export type { DownloadTarget } from "./download";
+export { Heading, Text, Code, Link } from "./typography";
+export type {
+  HeadingProps,
+  HeadingLevel,
+  HeadingSize,
+  TextProps,
+  TextTone,
+  TextSize,
+  CodeProps,
+  LinkProps,
+} from "./typography";
 export { Field } from "./Field";
 export type { FieldProps } from "./Field";
 export { Stack, Grid, Divider, DetailList } from "./layout";

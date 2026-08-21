@@ -60,16 +60,22 @@ export function Home() {
 {%- else -%}
 // The blank-shell landing — replace it with your first real screen. Add modules with
 // `uv run terp new module <name>` (or ask the agent); each drops in a routed, nav-linked slot.
-import { Page } from "@terpjs/react-core";
+//
+// `Text` and `Code` rather than the bare paragraph and code elements this used to render,
+// and that is the point rather than tidiness: app modules may not write `style` or
+// `className`, and a bare element carries no marker for a rule in the framework sheet to
+// reach — so bare prose here is text this app could never theme. This file was the
+// framework's own example of that.
+import { Code, Page, Text } from "@terpjs/react-core";
 
 export function Home() {
   return (
     <Page title="{{ project_name }}">
-      <p>
+      <Text measure="base">
         Your app is running: sign-in, admin and audit are already wired. Add your first
-        module with <code>uv run terp new module &lt;name&gt;</code> — it appears in the
+        module with <Code>uv run terp new module &lt;name&gt;</Code> — it appears in the
         navigation automatically.
-      </p>
+      </Text>
     </Page>
   );
 }

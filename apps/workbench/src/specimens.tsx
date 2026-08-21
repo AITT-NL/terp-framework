@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Code,
   Combobox,
   ConfirmDialog,
   DataView,
@@ -23,6 +24,8 @@ import {
   ErrorState,
   Field,
   Grid,
+  Heading,
+  NavLinkContext,
   HubCard,
   HubPage,
   Icon,
@@ -30,6 +33,7 @@ import {
   InMemoryDataViewRepository,
   Input,
   LanguageSwitcher,
+  Link,
   LoadingState,
   LoginView,
   Markdown,
@@ -47,6 +51,7 @@ import {
   Select,
   Stack,
   Switch,
+  Text,
   Tabs,
   TerpProvider,
   Textarea,
@@ -61,6 +66,7 @@ import type { NavItem } from "@terpjs/contract";
 import {
   createMemoryHistory,
   createRootRoute,
+  Link as RouterLink,
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
@@ -378,6 +384,51 @@ function moduleNavSpecimen(): ReactNode {
   });
   return <RouterProvider router={router} />;
 }
+
+/**
+ * `Link`'s in-app branch renders through the ambient `navLink` a Terp router publishes, so its
+ * marker lands on a wrapper and the rule reaches the anchor by descending. Without a router
+ * there is no `navLink` and the component falls back to a plain anchor — which is the OTHER
+ * branch, so a specimen of the routed one needs a router exactly as `ModuleNav` does.
+ */
+function routedLinkSpecimen(): ReactNode {
+  const rootRoute = createRootRoute({
+    component: () => (
+      <Text>
+        An in-app <Link to="/records">routed link</Link> beside an{" "}
+        <Link to="https://example.com" newTab>
+          external one
+        </Link>
+        , both inside a paragraph so the ink and the underline are read in context.
+      </Text>
+    ),
+  });
+  const router = createRouter({
+    routeTree: rootRoute,
+    history: createMemoryHistory({ initialEntries: ["/records"] }),
+  });
+  return (
+    <NavLinkContext.Provider value={({ to, children }) => <RouterLink to={to}>{children}</RouterLink>}>
+      <RouterProvider router={router} />
+    </NavLinkContext.Provider>
+  );
+}
+
+/** Long enough that the measure caps it — at two words the cap paints nothing. */
+const LOREM =
+  "A measure is the one typographic control that is about the container rather than the " +
+  "text, which is why it is capped in ch: the readable line length is a count of characters " +
+  "and follows the font size, so in rem it would stop being a measure the moment an app " +
+  "changed the type scale.";
+
+/** One line longer than the block, so the block's horizontal overflow is in the picture. */
+const CODE_SAMPLE = [
+  "renderTerpApp({",
+  '  title: "Terp",',
+  '  modules: import.meta.glob("./modules/*/module.tsx", { eager: true }),',
+  '  layoutContract: "standard",',
+  "});",
+].join("\n");
 
 const MARKDOWN_SAMPLE = [
   "## Connection notes",
@@ -1578,6 +1629,88 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             </Field>
           </Grid>
         ),
+      },
+      {
+        // Level and size are separate choices, and the last row is why: an h2 rendered at the
+        // smallest step. Forcing the two together is what makes an author pick the wrong
+        // element to get the right size, which is how a document's outline gets broken by a
+        // styling decision. There is no level 1 — Page renders the single h1 of every routed
+        // view, so a second one in a body would give the document two top-level headings.
+        id: "typography-headings",
+        title: "Heading — the three levels, and a level decoupled from its size",
+        node: (
+          <Stack gap={3}>
+            <Heading level={2}>Level 2, default size</Heading>
+            <Heading level={3}>Level 3, default size</Heading>
+            <Heading level={4}>Level 4, default size</Heading>
+            <Heading level={2} size="xl">
+              Level 2 at xl
+            </Heading>
+            <Heading level={2} size="sm">
+              Level 2 at sm
+            </Heading>
+          </Stack>
+        ),
+      },
+      {
+        // Every tone against every step, because tone is a colour and step is a metric and a
+        // regression in either is invisible in a specimen that varies only the other.
+        id: "typography-text",
+        title: "Text — three tones across the type steps",
+        node: (
+          <Stack gap={3}>
+            {(["default", "muted", "subtle"] as const).map((tone) => (
+              <Stack key={tone} gap={1}>
+                {(["xs", "sm", "base", "lg"] as const).map((size) => (
+                  <Text key={size} tone={tone} size={size}>
+                    {tone} · {size} — the quick brown fox jumps over the lazy dog.
+                  </Text>
+                ))}
+              </Stack>
+            ))}
+          </Stack>
+        ),
+      },
+      {
+        // The measure, which needs prose long enough to reach it — at two words the cap is in
+        // the sheet with nothing depending on it.
+        id: "typography-measure",
+        title: "Text — the two measures, against uncapped prose",
+        node: (
+          <Stack gap={3}>
+            <Text>{LOREM}</Text>
+            <Text measure="base">{LOREM}</Text>
+            <Text measure="narrow">{LOREM}</Text>
+          </Stack>
+        ),
+      },
+      {
+        // Inline inside a sentence, then a block in a box narrower than its longest line. The
+        // box is the point: at the specimen's own width the sample fits, so `overflow-x` was in
+        // the sheet with nothing depending on it — measured, the first recording of this
+        // specimen showed no clip at all. It also shows as a CLIP rather than a scrollbar,
+        // because headless Chromium gives an inner container an overlay bar that paints
+        // nothing at rest, which `dataview-wide` already found the hard way. The clip is why
+        // the <pre> is focusable: a scroll container a keyboard cannot reach cannot be
+        // scrolled (SC 2.1.1).
+        id: "typography-code",
+        title: "Code — inline in a sentence, and a block clipped by its container",
+        node: (
+          <Stack gap={3}>
+            <Text>
+              Set <Code>OIDC_CLIENT_ID</Code> in <Code>.env</Code> before running{" "}
+              <Code>terp dev</Code>.
+            </Text>
+            <div style={{ width: "26rem" }}>
+              <Code block>{CODE_SAMPLE}</Code>
+            </div>
+          </Stack>
+        ),
+      },
+      {
+        id: "typography-link",
+        title: "Link — routed and external, inside prose",
+        node: routedLinkSpecimen(),
       },
       {
         id: "nav-icons",

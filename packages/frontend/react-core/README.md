@@ -206,6 +206,10 @@ token spacing scale, so spacing is themed centrally):
 | `Card` | A token-styled surface (border + background + padding) grouping one block of a page — the sanctioned visual separation between sections. Optional header row: `title` (semantic `<h3>`), muted `description`, `actions` slot. `variant="plain"` keeps the heading and drops the box, for a titled region inside something that is already a surface — a section whose body is a `DataView` gets a border inside a border otherwise. There is no separate `Section` or `Surface`: both are this element with declarations removed. |
 | `Divider` | A rule between groups, as a semantic `<hr>` so the separation reaches the accessibility tree — `Separator` under its other name, shipped once. `orientation="vertical"` takes its height from its flex or grid line rather than inventing one, so it works between the items of a row `Stack` and is zero-height in a block parent. |
 | `DetailList` | Token-styled label/value pairs as a semantic `<dl>` (record metadata, expanded-row summaries). |
+| `Heading` | A section heading inside a page body — `h2`–`h4`, with `size` a **separate** choice from `level` so a visually small `h2` is expressible without picking the wrong element. No level 1: `Page` renders the single `h1` of every routed view. |
+| `Text` | Body copy with themeable ink — `tone` (default / muted / subtle), `size`, and an enumerable `measure` that caps the line length in `ch`. What a bare `<p>` in a module cannot be, since a bare element carries no marker for a rule to reach. |
+| `Code` | An identifier or a snippet in the mono family. `block` wraps it in a focusable `<pre>`, which is what preserves the whitespace and what makes a long line scrollable by keyboard. |
+| `Link` | A link with themeable ink, routing in-app paths through the surrounding router and degrading to a plain anchor outside one. An external `newTab` gets `rel="noreferrer"`. The boundary lint refuses a raw in-app `<a href="/…">`; this is the thing to use instead. |
 
 ## The packaged admin area
 

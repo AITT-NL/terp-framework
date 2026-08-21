@@ -660,6 +660,104 @@ textarea[data-terp="input"] {
   padding: 0;
 }
 
+/* Prose --------------------------------------------------------------------- */
+/* The first readers of the published type scale. --font-line-height-* and
+   --font-letter-spacing-* shipped in 0.7.0 with nothing reading them, and unlike the
+   motion family they could not simply be wired in: this sheet writes line heights of
+   1.2, 1.25, 1.3, 1.4 and 1.5, and the scale offers 1.2, 1.35, 1.5 and 1.7 — so only 8
+   of 32 literals map, and converting the rest would change rendered line heights across
+   a dozen components. That is a typography pass with its own baselines. New components
+   have nothing depending on their metrics, so they take the published scale and the
+   family gets honest consumers; tokens.guard.test.ts tracks what is still unread.
+
+   Headings carry no colour: they inherit the page's ink, so a heading inside a tinted
+   surface stays legible without a rule per surface. margin: 0 because the browser
+   default fights the parent's gap, which is the same reason page-title and card-title
+   both declare it. */
+[data-terp="heading"] {
+  margin: 0;
+  font-family: var(--font-family-sans);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-line-height-tight);
+  letter-spacing: var(--font-letter-spacing-tight);
+}
+[data-terp="heading"][data-size="sm"] {
+  font-size: var(--font-size-sm);
+  line-height: var(--font-line-height-snug);
+  letter-spacing: var(--font-letter-spacing-base);
+}
+[data-terp="heading"][data-size="base"] {
+  font-size: var(--font-size-base);
+  line-height: var(--font-line-height-snug);
+  letter-spacing: var(--font-letter-spacing-base);
+}
+[data-terp="heading"][data-size="lg"] { font-size: var(--font-size-lg); }
+[data-terp="heading"][data-size="xl"] { font-size: var(--font-size-xl); }
+
+/* Body copy. The base rule is the default tone and step, so neither stamps an
+   attribute. A measure is capped in ch rather than rem, because the readable line
+   length is a count of characters and follows the font size — in rem it would stop
+   being a measure the moment an app changed the type scale. */
+[data-terp="text"] {
+  margin: 0;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-base);
+  line-height: var(--font-line-height-base);
+  color: var(--color-fg-default);
+}
+[data-terp="text"][data-size="xs"] { font-size: var(--font-size-xs); }
+[data-terp="text"][data-size="sm"] { font-size: var(--font-size-sm); }
+[data-terp="text"][data-size="lg"] {
+  font-size: var(--font-size-lg);
+  line-height: var(--font-line-height-relaxed);
+}
+[data-terp="text"][data-tone="muted"] { color: var(--color-fg-muted); }
+[data-terp="text"][data-tone="subtle"] { color: var(--color-fg-subtle); }
+[data-terp="text"][data-measure="narrow"] { max-width: 48ch; }
+[data-terp="text"][data-measure="base"] { max-width: 72ch; }
+
+/* Code. The inline form takes a tinted chip so an identifier reads as one inside a
+   sentence; the block form drops the chip — a bordered box around a bordered box again —
+   and keeps the border on the <pre>. overflow-x on the block is what makes a long line
+   scroll rather than widen the page, and it is the reason the <pre> is focusable: a
+   scroll container a keyboard cannot reach cannot be scrolled at all (SC 2.1.1). */
+[data-terp="code"] {
+  font-family: var(--font-family-mono);
+  font-size: 0.875em;
+  padding: 0.1em 0.32em;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-100);
+  color: var(--color-fg-default);
+}
+[data-terp="code-block"] {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-50);
+  overflow-x: auto;
+  font-size: var(--font-size-sm);
+  line-height: var(--font-line-height-base);
+}
+[data-terp="code-block"] [data-terp="code"] {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* Links. Two selector shapes for one marker, because an in-app link's marker lands on a
+   wrapper: navLink accepts { to, children } and nothing else, so the router's own Link
+   cannot be handed an attribute. The external case marks the anchor itself. Same shape
+   HubCard already uses, for the same reason. */
+[data-terp="link"],
+[data-terp="link"] a {
+  color: var(--color-fg-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 /* Dividers ----------------------------------------------------------------- */
 /* An <hr>, so the separation reaches the accessibility tree and not only the pixels.
    Its own border reset first: a bare <hr> comes with a browser border and margin that

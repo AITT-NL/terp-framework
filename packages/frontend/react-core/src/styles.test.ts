@@ -1089,6 +1089,11 @@ describe("cascade structure", () => {
       "admin-payload",
       "grid",
       "divider",
+      "heading",
+      "text",
+      "code",
+      "code-block",
+      "link",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

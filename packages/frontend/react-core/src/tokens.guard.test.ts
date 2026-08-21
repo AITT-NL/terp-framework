@@ -47,12 +47,43 @@ const sheet = TERP_STYLES_CSS.replace(/\/\*[\s\S]*?\*\//g, "");
  * wiring one has to shrink this list, and publishing an eighth motion token has to
  * either name a reader or land here with a reason.
  */
-const UNREAD_MOTION_TOKENS = [
-  "--motion-duration-base",
-  "--motion-duration-slow",
-  "--motion-easing-entrance",
-  "--motion-easing-exit",
-];
+const UNREAD_TOKENS: Record<string, string[]> = {
+  "--motion-": [
+    "--motion-duration-base",
+    "--motion-duration-slow",
+    "--motion-easing-entrance",
+    "--motion-easing-exit",
+  ],
+  // The published type scale, wired in 4b by the prose components — and the reason it took a
+  // new component rather than a conversion is the interesting part. Every motion literal
+  // mapped exactly onto a token, so wiring those was inert. Here the sheet writes line heights
+  // of 1.2, 1.25, 1.3, 1.4 and 1.5 while the scale offers 1.2, 1.35, 1.5 and 1.7: only 8 of 32
+  // literals map. Converting those eight and leaving thirteen is a half-migration, and
+  // converting the rest CHANGES rendered line heights across a dozen components — a typography
+  // pass with its own baselines, not a token wiring done in passing. New components have
+  // nothing depending on their metrics, so they take the scale as published.
+  "--font-line-height-": [],
+  // `wide` is 0.08em, for the uppercase-label treatment nothing in the package uses; the
+  // sheet's two non-zero letter-spacings are 0.04em and 0.06em, so it maps onto neither.
+  "--font-letter-spacing-": ["--font-letter-spacing-wide"],
+};
+
+/**
+ * Bare `line-height` / `letter-spacing` values still in the sheet, as an exact multiset.
+ *
+ * The reconciliation debt, made a number so it cannot grow quietly. The scale above is now
+ * read, but these 32 declarations predate it and most map onto nothing in it — so a new rule
+ * that adds a 27th bare line height has to either use a token or come here and say why, and
+ * whoever does the typography pass has a target rather than a grep.
+ *
+ * Two entries are permanent rather than pending: `line-height: 0` and `line-height: 1` are
+ * icon and avatar boxes, where the line box is being removed rather than set to a step on a
+ * prose scale.
+ */
+const BARE_TYPE_LITERALS: Record<string, Record<string, number>> = {
+  "line-height": { "0": 2, "1": 4, "1.2": 4, "1.25": 7, "1.3": 2, "1.4": 3, "1.5": 4 },
+  "letter-spacing": { "0": 4, "0.04em": 1, "0.06em": 1 },
+};
 
 describe("design tokens", () => {
   it("only references custom properties the contract token sheet declares", () => {
@@ -109,20 +140,47 @@ describe("design tokens", () => {
     expect(offenders, "the breakpoint belongs in ./breakpoints.ts and nowhere else").toEqual([]);
   });
 
-  it("names every published motion token the sheet does not read", () => {
+  it("names every published token in a tracked family that the sheet does not read", () => {
     // The other direction of this file's join. The test above catches a `var()` naming a
     // token the contract never declared; this one catches a token the contract publishes
     // that nothing consumes — the `--color-fg-on-brand` shape, which was deleted for
     // being declared in five themes and read by none. A Studio editor built from the
     // manifest offers a control per published token, so an unread one is a knob that
     // does nothing.
-    const motionTokens = [
-      ...new Set([...tokensCss.matchAll(/(--motion-[a-z-]+)\s*:/g)].map((match) => match[1]!)),
-    ];
-    expect(motionTokens.length).toBeGreaterThan(UNREAD_MOTION_TOKENS.length);
-    expect(
-      motionTokens.filter((token) => !sheet.includes(`var(${token})`)).sort(),
-      "a published motion token gained or lost a reader — wire it, or record it here with a reason",
-    ).toEqual(UNREAD_MOTION_TOKENS);
+    for (const [family, unread] of Object.entries(UNREAD_TOKENS)) {
+      const published = [
+        ...new Set(
+          [...tokensCss.matchAll(new RegExp(`(${family}[a-z-]+)\\s*:`, "g"))].map(
+            (match) => match[1]!,
+          ),
+        ),
+      ];
+      expect(published.length, `${family} publishes nothing — is the prefix right?`).toBeGreaterThan(
+        unread.length,
+      );
+      expect(
+        published.filter((token) => !sheet.includes(`var(${token})`)).sort(),
+        `a published ${family} token gained or lost a reader — wire it, or record it with a reason`,
+      ).toEqual(unread);
+    }
+  });
+
+  it("holds the bare type literals at their recorded count", () => {
+    // The debt the type scale's arrival did not clear, as a ratchet. See BARE_TYPE_LITERALS:
+    // most of these map onto no step in the published scale, so converting them changes
+    // rendered line heights and belongs in a typography pass. What this stops is the count
+    // growing in the meantime.
+    for (const [property, expected] of Object.entries(BARE_TYPE_LITERALS)) {
+      const counts: Record<string, number> = {};
+      for (const match of sheet.matchAll(new RegExp(`\\b${property}:\\s*([^;]+);`, "g"))) {
+        const value = match[1]!.trim();
+        if (value.includes("var(")) continue;
+        counts[value] = (counts[value] ?? 0) + 1;
+      }
+      expect(
+        counts,
+        `${property}: use the published scale, or record the new literal here`,
+      ).toEqual(expected);
+    }
   });
 });
