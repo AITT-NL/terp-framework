@@ -31,12 +31,12 @@ axe runs across five palettes); the screenshots cover the **two default** themes
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, one that the contrast allowance list has not grown a new theme, one that
 the CI image tag still names the Playwright version in `package-lock.json`, a three-test
-keyboard lane for where a keystroke sends focus, and a two-test computed lane for the
-resolved values none of the other three can see. **575 checks.**
+keyboard lane for where a keystroke sends focus, and a three-test computed lane for the
+resolved values none of the other three can see. **576 checks.**
 
 Nothing derives those numbers, so they are only as good as the last person to add a specimen:
 `5N` axe runs, `2N` screenshots, three standalone checks (presence, theme allowance, image
-tag), three keyboard tests and two computed ones — at N=81, 405 + 162 + 3 + 3 + 2.
+tag), three keyboard tests and three computed ones — at N=81, 405 + 162 + 3 + 3 + 3.
 
 One of those 81 earns a note, because it is the only specimen whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's
@@ -84,12 +84,31 @@ Verified both ways before this file was trusted: a typo'd token name resolves
 `transition-property` to `all`, and the lane fails on that assertion rather than on the number,
 which is why the number is not the only thing asserted.
 
-Its second test gates a measurement the sheet had only claimed. The reduced-motion block's
-comment says "measured, not assumed: under `prefers-reduced-motion` the sidebar, a nav link and
-a hub card title all compute `transition-duration` 0s" — and nothing checked it. The three shapes
+Its reduced-motion test gates a measurement the sheet had only claimed. That block's comment
+says "measured, not assumed: under `prefers-reduced-motion` the sidebar, a nav link and a hub
+card title all compute `transition-duration` 0s" — and nothing checked it. The three shapes
 matter: `[data-terp]` reaches a marked element, while a nav link and a breadcrumb link are bare
 `<a>`s that the block reaches only through selectors of their own. Reduced motion had already
 been silently ignored once for exactly that reason.
+
+Its third test is the honest half of `scrollbar-gutter: stable`, and it is worth reading before
+writing anything else here, because the obvious version of it is vacuous and looks fine.
+**This Chromium reserves no layout space for the viewport scrollbar at all.** With the
+declaration removed, a solo specimen page and the many-screens-tall catalog both report a root
+box of 1280 in a 1280 viewport, and the specimen card comes out at 1232 on both — so there is
+no sideways jump in this browser to prevent, and an assertion that the two page shapes agree
+passes identically before and after. It measures the browser, not the sheet. What is checkable
+is the reservation itself: with the declaration the root box is 1270 on both shapes. The "no
+jump" property is left to the browsers that take scrollbar space, which is most desktop Chrome
+and Firefox on Windows and Linux — the users, just not the lane.
+
+Two traps that cost time there, recorded so they cost it once. `documentElement.clientWidth`
+cannot see any of this: for the root element it reports the viewport, so it reads 1280 whether
+or not a gutter is reserved. Use `getBoundingClientRect()`. And making the harness model a
+space-taking scrollbar is possible — Chromium takes a flag — and is deliberately not done,
+because it would also give every **inner** scroll container a space-taking bar, starting with
+the DataView's horizontal overflow, which is a change to component layout wearing a harness
+change's clothes.
 
 Same scoping discipline as the keyboard lane: cases where the **resolved value** is the contract,
 and nothing else.
@@ -277,7 +296,7 @@ fix here is scheduling rather than tolerance.
 
 It returned a third time, and the trigger is narrower than "two suites": **one** bare
 `npx playwright test` is enough. That command runs every lane in a single Playwright
-process — 575 tests over eight workers, the screenshot lane's dev server and page loads
+process — 576 tests over eight workers, the screenshot lane's dev server and page loads
 competing with the axe lane's — and it failed `color-contrast` on three twilight specimens
 together (`chrome/page-loading`, `chrome/page-error`, `chrome/hub-card-bare`). The axe lane
 alone, same commit: all 81 twilight runs passed. The *identical* full command, run again:

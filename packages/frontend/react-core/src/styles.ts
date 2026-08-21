@@ -182,9 +182,26 @@ body {
    they match every scrollable element globally). Paired with the color-scheme
    declaration on the token roots so any native chrome we do not restyle here
    (notably the native <select> option popup) also follows the theme. */
+/* And the gutter is reserved whether or not the page is currently long enough to need
+   it. Without this, every navigation between a page that fits and a page that does not
+   changes the width of the content box by the scrollbar's width, so the whole layout —
+   the header, the table, the centred login card — jumps sideways on the way in and back
+   on the way out. The document is the scroll container here (the sidebar is sticky in
+   normal flow rather than a scroller of its own), so the root is the right and only
+   place for it.
+
+   stable, not "stable both-edges": the gutter belongs where the scrollbar goes. The
+   cost is that a page which never scrolls is off true viewport centre by the gutter,
+   most visibly on the sign-in screen, and that is the trade every app that reserves the
+   gutter takes. It is layered, so an app that would rather have the jump can turn it off
+   from its own unlayered theme.css.
+
+   This one moves pixels, which is why it is a deliberate line here rather than something
+   to slip in beside a refactor: it narrows the content box of every scroll-free page. */
 html {
   scrollbar-width: thin;
   scrollbar-color: var(--color-neutral-300) transparent;
+  scrollbar-gutter: stable;
 }
 ::-webkit-scrollbar {
   width: 10px;

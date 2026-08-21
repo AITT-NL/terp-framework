@@ -70,6 +70,57 @@ test("the sheet's transitions resolve through the published motion scale", async
   expect(link!.property).toBe("background-color, color");
 });
 
+/**
+ * The laid-out width of the root box, and the viewport width it sits in.
+ *
+ * `getBoundingClientRect()`, and NOT `documentElement.clientWidth`, which is the obvious
+ * probe and the wrong one: for the root element `clientWidth` reports the viewport, so it
+ * reads 1280 whether or not a gutter is reserved. Measured on this page with the gutter
+ * live — `innerWidth` 1280, `clientWidth` 1280, root rect 1270 — so a test written against
+ * `clientWidth` passes identically before and after the declaration and proves nothing.
+ */
+async function rootWidth(page: import("@playwright/test").Page) {
+  return page.evaluate(() => ({
+    root: document.documentElement.getBoundingClientRect().width,
+    viewport: window.innerWidth,
+  }));
+}
+
+test("the scrollbar gutter is reserved on a page that fits and one that does not", async ({
+  page,
+}) => {
+  // `scrollbar-gutter: stable` exists so the content box is the same width whether or not a
+  // page overflows, which is what stops the whole layout shifting sideways and back as a
+  // user navigates between a short screen and a long one.
+  //
+  // What this lane can and cannot say about that is worth stating exactly, because the
+  // obvious test is vacuous here and looks fine. **This Chromium reserves no layout space
+  // for the viewport scrollbar at all.** Measured against the sheet with the declaration
+  // removed: a solo specimen page (does not overflow) and the full catalog (many screens
+  // tall) both report a root box of 1280 in a 1280 viewport, and the specimen card comes out
+  // at 1232 on both. So there is no jump in this browser to prevent, and an assertion that
+  // the two page shapes agree passes identically before and after the declaration — it
+  // measures the browser, not the sheet.
+  //
+  // What IS checkable is the reservation itself: with the declaration the root box is 1270
+  // on both page shapes. So this asserts the gutter is present, on both shapes, and the
+  // "no jump" property it buys is left to the browsers that take scrollbar space — which is
+  // most desktop Chrome and Firefox on Windows and Linux, i.e. the users, just not the lane.
+  //
+  // Note also that `documentElement.clientWidth` cannot see this at all (see rootWidth).
+  //
+  // Making the harness model a space-taking scrollbar is possible — Chromium takes a flag —
+  // and is deliberately not done: it would also give every INNER scroll container a
+  // space-taking bar, starting with the DataView's horizontal overflow, which is a change to
+  // component layout wearing a harness change's clothes.
+  for (const url of ["/?theme=light&only=button-variants", "/?theme=light"]) {
+    await page.goto(url);
+    await page.locator("[data-specimen]").first().waitFor({ state: "visible" });
+    const { root, viewport } = await rootWidth(page);
+    expect(root, `${url} reserves no scrollbar gutter`).toBeLessThan(viewport);
+  }
+});
+
 test("reduced motion reaches the three shapes the sheet names", async ({ page }) => {
   // The sheet claims this was "measured, not assumed", and nothing gated the measurement.
   // Three distinct shapes, and the middle one is the reason the block needs a selector list

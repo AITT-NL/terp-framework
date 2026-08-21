@@ -70,6 +70,11 @@ describe("injectTerpStyles", () => {
     expect(sheet).toContain("scrollbar-color: var(--color-neutral-300) transparent");
     expect(sheet).toContain("::-webkit-scrollbar");
     expect(sheet).toContain("::-webkit-scrollbar-thumb");
+    // And reserves the gutter, so the content box is the same width on a page that
+    // scrolls and a page that fits. The structural half; the workbench's computed lane
+    // measures the reserved width itself, which is the half that can tell whether the
+    // browser honoured it.
+    expect(sheet).toContain("scrollbar-gutter: stable");
   });
 });
 
