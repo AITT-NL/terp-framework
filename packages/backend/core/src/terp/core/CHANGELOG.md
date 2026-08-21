@@ -188,8 +188,8 @@ decision, 0001 onwards.
   migration while both ratchets read clean. The unmarked-surface worklist names files
   with **no** marker at all, and every admin view rendered none, so each read as a view
   composition and was excluded by the list's own rule; the style-object ledger counts
-  declarations annotated `CSSProperties`, and three of these were call-site literals with
-  the fourth an unannotated object. `INLINE_STYLE_SITES` counts sites per file, so the
+  declarations annotated `CSSProperties`, and four of these were call-site literals with
+  the fifth an unannotated object. `INLINE_STYLE_SITES` counts sites per file, so the
   only way out of it is to render no inline style — and the nine that remain are named
   one by one, each either a measured value the sheet has no business owning or a caller's
   own `style` forwarded to a root. Verified by putting one back: the new check names the

@@ -335,8 +335,9 @@ const UNMARKED_STYLED_SURFACES: string[] = [];
  * IT HAS REACHED ZERO, and the honest reading of that is narrow. The detector matches a
  * module-scope declaration annotated `CSSProperties`, which means a call-site literal and an
  * unannotated module-scope object are both invisible to it. Four of the built-in admin views
- * carried five base styles through this entire migration for exactly that reason — three as
- * call-site literals, one as an unannotated `payloadStyle` — while both ratchets read clean.
+ * carried five base styles through this entire migration for exactly that reason — four as
+ * call-site object literals (two of them the same `<h2>` declaration, two the same form
+ * measure) and one as an unannotated `payloadStyle` — while both ratchets read clean.
  * The next commit widens the detector and migrates them, so that zero means what it looks
  * like it means.
  */

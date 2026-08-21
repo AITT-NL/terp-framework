@@ -1041,7 +1041,7 @@ textarea[data-terp="input"] {
    ratchets for the entire migration — which is why they are here rather than in
    0.8.0. The worklist names files with NO marker at all, and every admin view
    rendered none, so it read as a view composition and was excluded on purpose. The
-   ledger counts module-scope CSSProperties declarations, and these were three
+   ledger counts module-scope CSSProperties declarations, and these were four
    call-site literals plus one unannotated object. Neither gate was wrong; both were
    narrower than they looked, and the same commit widens the measure.
 
