@@ -301,6 +301,70 @@ decision, 0001 onwards.
   Zero-diff, and checked rather than assumed: all 168 existing baselines byte-identical on
   both platforms.
 
+- **The layout vocabulary: `Grid`, responsive `Stack` props, `padding`, `Divider`, a plain
+  `Card`, the prose primitives, and `DetailList` as a real grid (ADR 0097).** The last of the
+  diagnosis's three structural blockers, and the only one that was a *capability* ceiling rather
+  than a quality one. App modules may not write `style` or `className`, so anything not
+  expressible as nested `Stack`s was not awkward to build — it was **unbuildable**. A
+  fifteen-field form shipped as one long vertical run because two columns could not be
+  expressed, in an app whose escape-hatch budgets were both `{}` across three thousand lines.
+  The guard rails held perfectly; the ceiling was the framework's.
+
+  **`Grid`** takes a fixed 1–4 columns or `"auto"` (the default), and `auto` is the responsive
+  answer with no breakpoint at all: a track floor reflows the grid to whatever its *container*
+  can hold, which is what a caller usually means and more nearly right than a viewport query.
+  `minColumn` is a four-step scale rather than a length, for the reason `gap` is a token index —
+  so there are no arbitrary widths. No `span`, and therefore no twelve-column option: a span
+  system needs a child component to carry it, and `columns={12}` without one is twelve narrow
+  cells rather than a layout system.
+
+  **`Stack`** gains `padding` — the dimension whose absence meant a padded region was reachable
+  only through a `Card`, which brought a border and background whether or not they were wanted —
+  and `{ narrow, wide }` pairs for `direction` and `gap`. **One cutover, not a scale:** the pair
+  changes over exactly where the shell becomes a drawer and the DataView becomes cards, so a
+  toolbar reflows when the chrome around it does.
+
+  **The prose primitives** — `Heading`, `Text`, `Code`, `Link` — close a narrower and worse gap
+  than "no typography". A module could always render a `<p>`; what it could not do was give it
+  any treatment, because a bare element carries no marker for a rule to reach. Bare prose in a
+  module is text the app can never theme, and the framework's own generated home page shipped
+  exactly that. `Heading` separates `level` from `size`, so a visually small `h2` needs no wrong
+  element, and offers no level 1 at all: `Page` renders the single `h1` of every routed view.
+
+  **`Divider`** is an `<hr>`, so the separation reaches the accessibility tree rather than only
+  the pixels — and it is `Separator` under its other name, shipped once. **`Card
+  variant="plain"`** keeps the heading and drops the box, for a titled region inside something
+  that is already a surface; boxed, a section whose body is a `DataView` gets a border inside a
+  border and the table loses its full width.
+
+  **`DetailList`** becomes a real grid: `layout="aligned"` puts every label in a shared column,
+  `"stacked"` puts it above its value, and `columns` takes two pairs per row. `inline` stays the
+  default, because every governed detail screen already renders one.
+
+  **Two components were deliberately not shipped, and that is the more useful half.** `Section`
+  and `Surface` were both on the list and both turn out to be `Card` with declarations removed —
+  `Card` already renders a `<section>` with an `<h3>`, a description, an actions slot and
+  children stacked on the token scale. A `Section` would have meant six more markers describing
+  the same DOM; a `Surface` is a `Card` with no title, which `Card` already is. What the list
+  was pointing at was the chrome, not a component, so it is a variant: three declarations, no
+  new markers, and usable in governed bodies immediately because the contract already admits
+  `Card`.
+
+  Every new prop is a closed set and becomes a `data-*` attribute with a rule each, so the
+  inline-style ledger stays at **nine sites** and every one of these is themeable from an app's
+  `theme.css`. Nothing an existing app renders changes: every default stamps no attribute, and
+  all 190 baselines were byte-identical on both platforms through the whole phase.
+
+- **The layout contract widens, on both halves, and the asymmetry is the decision (ADR 0079,
+  ADR 0097).** Shipping `Grid` without this would have shipped a component no governed page
+  could use — and only a copier-generated project has the contract switched on, so the example
+  app could not have detected it. `Grid` is admitted to **detail** bodies and not overview ones:
+  an overview body is a data collection, and a grid of summary cards is a hub, which has its own
+  archetype. `Divider` and `Text` join both. `Heading` joins neither, deliberately — a heading
+  in a governed body must **own** its section, and `Card` is how a section is owned; a bare
+  heading with siblings after it is a grouping the check cannot see. Both halves of the table
+  stay byte-equal, and the asymmetry is pinned by tests rather than left to the data.
+
 ### Changed
 
 - **The styling migration is finished: the last five view components and the packaged
@@ -435,7 +499,46 @@ decision, 0001 onwards.
   but not the benefit. The benefit is real on the browsers that take scrollbar space, which
   is most desktop Chrome and Firefox on Windows and Linux — the users, just not the lane.
 
+- **The published type scale gets its first readers, and the reconciliation it does *not* do is
+  now a number.** `--font-line-height-*` and `--font-letter-spacing-*` shipped in 0.7.0 read by
+  nothing — the motion-token shape again, resolved differently because the facts differ. Every
+  motion literal mapped exactly onto a token, so wiring those was inert. Here the sheet writes
+  line heights of 1.2, 1.25, 1.3, 1.4 and 1.5 while the scale offers 1.2, 1.35, 1.5 and 1.7:
+  **only 8 of 32 literals map.** Converting those eight and leaving thirteen is a
+  half-migration; converting the rest changes rendered line heights across a dozen components,
+  which is a typography pass with its own baselines rather than something done in passing.
+
+  New components have nothing depending on their metrics, so the prose primitives take the scale
+  as published and six of the seven tokens now have consumers. What remains is tracked rather
+  than hoped for: the unread-token gate generalises from motion to any tracked family, and gains
+  a ledger of the bare `line-height` / `letter-spacing` literals as an exact multiset — so a new
+  rule adding a 27th bare line height has to use a token or come and say why.
+
+- **The one viewport cutover is spelled in one place.** It was written twice, verbatim, as
+  `const MOBILE_BREAKPOINT = "(max-width: 768px)"` in both `AppShell` and `DataView` — the
+  duplication the diagnosis named — and the responsive `Stack` rules would have made a third
+  copy, in the stylesheet, where the first two could not see it. It now lives in one module,
+  which both components and the sheet take it from, held against the published
+  `--breakpoint-md` by a gate that also refuses a fourth copy.
+
+  The literal cannot become a `var()` and that is worth stating: CSS forbids a custom property
+  in a media-query condition and `matchMedia` takes a string, so reading the token would mean a
+  layout read on every mount, broken under SSR. And the sheet's query is
+  `not all and (max-width: 768px)` — the *complement* of the components' string rather than a
+  second literal — so the two halves partition the viewport by construction instead of by a
+  chosen epsilon, and the shell's existing behaviour at exactly 768px is untouched.
+
 ### Fixed
+
+- **A long unbreakable value no longer pushes a `DetailList` past its container.** The diagnosis
+  named the missing alignment and cited "nine pairs including two 64-character digests"; the
+  digests were the actual defect and it took two goes. An implicit grid column is `auto`, which
+  floors at *min-content*, so the track needed `minmax(0, 1fr)` — the same declaration `Grid`'s
+  fixed counts need for the same reason. That was not enough, and the specimen said so rather
+  than a review: a 64-character digest has nothing to break at, so it overflowed the column
+  whatever the column's floor. `overflow-wrap: anywhere` on the value is the fix — the same
+  answer `profile-email` already uses for a long address, where the sheet notes it as
+  unobservable because that screen's session is a fixed short one.
 
 - **`terp-cap-sync` no longer strands a `running` run, and no longer lets two
   reconciles of one source overlap.** The deferred follow-up its own docstring

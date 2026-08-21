@@ -36,9 +36,10 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
     description:
       "The standard three-level shape: hub bodies are card grids (HubCard only), " +
       "overview bodies are data collections (DataView / ResourceList + framework " +
-      "states), detail bodies are record sections (DetailList / Stack / Tabs + " +
-      "framework states); Card is allowed in overview and detail bodies as the " +
-      "sanctioned visual separation between sections. A bespoke screen composes " +
+      "states), detail bodies are record sections (DetailList / Stack / Grid / Tabs " +
+      "+ framework states); Card is allowed in overview and detail bodies as the " +
+      "sanctioned visual separation between sections, and Divider / Text as a rule " +
+      "between sections and a lead paragraph above them. A bespoke screen composes " +
       "the plain Page, which the contract deliberately leaves unconstrained.",
     slots: {
       HubPage: {
@@ -51,6 +52,8 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
           ModuleNav: "module-nav",
           Stack: "stack",
           Card: "card",
+          Divider: "divider",
+          Text: "text",
           EmptyState: "empty-state",
           ErrorState: "error-state",
           LoadingState: "loading-state",
@@ -66,6 +69,9 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
           ModuleNav: "module-nav",
           DataView: "dataview",
           Card: "card",
+          Grid: "grid",
+          Divider: "divider",
+          Text: "text",
           EmptyState: "empty-state",
           ErrorState: "error-state",
           LoadingState: "loading-state",

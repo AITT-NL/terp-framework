@@ -85,8 +85,10 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
 - **Slot-typed layout contracts (opt-in, ADR 0079)** — an app that checks in a
   `frontend/layout-contract.json` (and passes `layoutContract` to `renderTerpApp`) ratchets
   further: each archetype's body slot accepts only the contract's components (hub bodies:
-  `HubCard`; overview bodies: `DataView` / `ResourceList` / `Stack` / `Card` + framework
-  states; detail bodies: `DetailList` / `Stack` / `Tabs` / `Card` + framework states),
+  `HubCard`; overview bodies: `DataView` / `ResourceList` / `Stack` / `Card` / `Divider` /
+  `Text` + framework states; detail bodies: those plus `Grid` and `DetailList` / `Tabs`),
+  with `Grid` a detail-body component and not an overview one — an overview body is a
+  collection, and a grid of summary cards is a hub, which has its own archetype —
   direct children only, enforced two-layer (the
   `terp/layout-contract` lint half + a runtime DOM check, fail closed) with one directive
   message that states the fix. The plain `Page` stays unconstrained; recipe:

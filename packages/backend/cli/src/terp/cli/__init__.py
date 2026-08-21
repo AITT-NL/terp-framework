@@ -1034,11 +1034,16 @@ Layout contracts (slot-typed layouts, ADR 0079)
   and fix screens by following the enforcement messages).
 - The "standard" contract governs the body slot of each archetype:
       HubPage      -> HubCard only (a card grid landing)
-      OverviewPage -> DataView / ResourceList / ModuleNav / Stack / Card + the
-                      framework states (EmptyState / ErrorState / LoadingState /
-                      Alert) and ConfirmDialog
-      DetailPage   -> DetailList / Stack / Tabs / ModuleNav / DataView / Card + the
-                      same framework states and ConfirmDialog
+      OverviewPage -> DataView / ResourceList / ModuleNav / Stack / Card / Divider /
+                      Text + the framework states (EmptyState / ErrorState /
+                      LoadingState / Alert) and ConfirmDialog
+      DetailPage   -> DetailList / Stack / Grid / Tabs / ModuleNav / DataView / Card /
+                      Divider / Text + the same framework states and ConfirmDialog
+  Grid is a DETAIL-body component and not an overview one, deliberately: an overview
+  body is a data collection, and a grid of summary cards is a hub — which has its own
+  archetype. Heading is admitted nowhere: a heading in a governed body must OWN its
+  section, and Card (boxed, or variant="plain" for no chrome) is how a section is
+  owned; a bare heading with siblings after it is a grouping the check cannot see.
   The plain Page stays unconstrained — it is the sanctioned home for a bespoke screen.
   Only the slot's DIRECT children are governed: an allowed container's own subtree
   (a Card's body, a Stack's rows) is yours to compose — nesting content inside an

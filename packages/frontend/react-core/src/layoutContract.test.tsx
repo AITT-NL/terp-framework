@@ -20,7 +20,9 @@ import {
 } from "./layoutContract";
 import { OverviewPage } from "./OverviewPage";
 import { Page } from "./Page";
-import { DetailList, Stack } from "./layout";
+import { EmptyState } from "./EmptyState";
+import { DetailList, Divider, Grid, Stack } from "./layout";
+import { Text } from "./typography";
 import { PageActions } from "./PageActions";
 import { ThemeProvider, ThemeToggle } from "./theme";
 import { Button } from "./ui/Button";
@@ -242,14 +244,17 @@ describe("layout contract survives the roots the styling migration renames", () 
       "dataview",
       "detail-list",
       "dialog",
+      "divider",
       "empty-state",
       "error-state",
+      "grid",
       "hubcard",
       "loading-state",
       "module-nav",
       "resource-list",
       "stack",
       "tabs",
+      "text",
     ]);
   });
 
@@ -272,5 +277,69 @@ describe("layout contract survives the roots the styling migration renames", () 
     // Nested inside an allowed container is sanctioned composition — the check reads direct
     // children only, which is what makes a marked root safe to put anywhere below one.
     expect(screen.queryByTestId("refused")).toBeNull();
+  });
+});
+
+describe("what 4b's widening does and does not admit", () => {
+  it("accepts a Grid in a detail body, which is the two-column form case", () => {
+    // The diagnosis's headline evidence was a fifteen-field form shipped as one vertical run.
+    // Shipping `Grid` without this widening would have shipped a component no governed page
+    // could use — and only a copier-generated project has the contract switched on, so the
+    // example app could not have detected that either.
+    underContract(
+      <DetailPage title="Record" parents={[{ label: "Records", to: "/records" }]}>
+        <Grid columns={2}>
+          <span>one</span>
+          <span>two</span>
+        </Grid>
+      </DetailPage>,
+    );
+    return waitFor(() => {
+      expect(screen.queryByTestId("refused")).toBeNull();
+    });
+  });
+
+  it("still refuses a Grid in an overview body, because a grid there is a hub", () => {
+    // The asymmetry IS the decision, so it is pinned rather than left to the table. An
+    // overview body is a data collection; a grid of summary cards is a hub, and the contract
+    // has a hub archetype for that. Widening both slots identically would have been the easy
+    // move and would have dissolved the distinction the three levels exist to carry.
+    underContract(
+      <OverviewPage title="Records">
+        <Grid columns={2}>
+          <span>one</span>
+        </Grid>
+      </OverviewPage>,
+    );
+    return waitFor(() => {
+      expect(screen.getByTestId("refused").textContent).toBe(
+        slotViolationMessage("standard", "OverviewPage", '<div data-terp="grid">'),
+      );
+    });
+  });
+
+  it("accepts a Divider and a lead paragraph in both governed bodies", () => {
+    // A rule between sections and a paragraph above them — the two things a body wanted that
+    // needed no container. `Heading` is deliberately NOT admitted: a heading in a governed body
+    // must own its section, and `Card` (plain or boxed) is how a section is owned. A bare
+    // heading with siblings after it is a grouping the contract cannot see.
+    for (const page of [
+      <OverviewPage key="o" title="Records">
+        <Text>Lead paragraph.</Text>
+        <Divider />
+        <EmptyState title="No records yet" />
+      </OverviewPage>,
+      <DetailPage key="d" title="Record" parents={[{ label: "Records", to: "/records" }]}>
+        <Text>Lead paragraph.</Text>
+        <Divider />
+        <DetailList items={[{ label: "Owner", value: "Ada" }]} />
+      </DetailPage>,
+    ]) {
+      cleanup();
+      underContract(page);
+    }
+    return waitFor(() => {
+      expect(screen.queryByTestId("refused")).toBeNull();
+    });
   });
 });

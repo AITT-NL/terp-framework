@@ -63,7 +63,10 @@ for in-page tab sets and `Markdown` for safe rich text).
    `node_modules/@terpjs/react-core/src/dataview/README.md`).
 4. Style with design tokens (`var(--color-*)`, `var(--space-*)`) — no inline colours,
    no `style={}`, no `className`, no module-authored stylesheets: layout comes from
-   `Stack` / `DetailList` / the page archetypes; theming from the app's token source.
+   `Stack` / `Grid` / `DetailList` / `Divider` / the typography primitives (`Heading` /
+   `Text` / `Code` / `Link`) / the page archetypes; theming from the app's token source.
+   A bare `<p>` or `<code>` carries no marker for any rule to reach, so prose in a module
+   goes through `Text` and `Code` or it can never be themed.
 5. Every routed view renders a page archetype (`Page` / `OverviewPage` / `DetailPage` /
    `HubPage`) — the router refuses an unframed view at runtime. In-app links go through
    the router's `Link`, never a raw `<a href="/...">`. Generated apps also opt into the

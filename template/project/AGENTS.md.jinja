@@ -195,9 +195,11 @@ and no deep `@terpjs/*` imports. Every routed view renders a page archetype (`Pa
 This app also opts into the **`standard` layout contract** (ADR 0079,
 `frontend/layout-contract.json` + `layoutContract` in `main.tsx` — keep the two in
 sync): each archetype's body slot accepts only the contract's components (hub bodies:
-`HubCard`; overview bodies: `DataView` / `ResourceList` / `Stack` / `Card` + framework
-states; detail bodies: `DetailList` / `Stack` / `Tabs` / `Card` + framework states —
-direct children only; an allowed container's subtree is yours), checked at lint time
+`HubCard`; overview bodies: `DataView` / `ResourceList` / `Stack` / `Card` / `Divider` /
+`Text` + framework states; detail bodies: those plus `Grid`, `DetailList` and `Tabs` —
+`Grid` is a detail-body component and not an overview one, because an overview body is a
+collection and a grid of summary cards is a hub; direct children only, and an allowed
+container's subtree is yours), checked at lint time
 *and* at runtime — the plain `Page` stays free for bespoke screens, and every failure
 message states the fix (`uv run terp guide layouts`).
 Security defaults are refused too: `dangerouslySetInnerHTML` and DOM HTML-injection
