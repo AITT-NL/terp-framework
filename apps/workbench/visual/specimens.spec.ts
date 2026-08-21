@@ -51,6 +51,13 @@ test.describe("component specimens", () => {
     test.describe(theme, () => {
       for (const specimen of ALL_SPECIMENS) {
         test(`${specimen.groupId}/${specimen.id}`, async ({ page }) => {
+          // A per-specimen viewport, before the navigation so the first layout is the right
+          // one. Declared on the specimen, so the baseline still depends on the specimen
+          // alone — see `viewport` in src/specimens.tsx for the declarations it exists to
+          // make reachable at all.
+          if (specimen.viewport !== undefined) {
+            await page.setViewportSize(specimen.viewport);
+          }
           await page.goto(`/?theme=${theme}&only=${specimen.id}`);
           const target = page.locator(`[data-specimen="${specimen.id}"]`);
           // Wait for the element rather than a timeout: react-core compiles from source

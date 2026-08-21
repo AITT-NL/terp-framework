@@ -209,10 +209,19 @@ describe("cascade structure", () => {
   it("keeps the shell declarations no lane can reach", () => {
     // Three groups, and every one of them was established by mutation rather than assumed.
     //
-    // The sidebar's flex-shrink. It is a flex item with an explicit width in a container that
-    // has room to spare at the pinned 1280px viewport, so deleting it moves no baseline —
-    // measured. It bites at narrow DESKTOP widths, above the mobile breakpoint where the drawer
-    // takes over, which the screenshot lane cannot reach because the viewport is pinned.
+    // Two of the three have since GAINED a baseline, and the reason is worth keeping because
+    // the earlier version of this comment said flatly that the screenshot lane could not reach
+    // them: it could not, while the viewport was pinned at 1280 for every specimen. A
+    // per-specimen `viewport` in the workbench is what changed, and what these two assertions
+    // are now is belt rather than the sole gate.
+    //
+    // The sidebar's flex-shrink. At the pinned 1280 the row has room to spare, so deleting it
+    // moves no baseline — measured, and still true. It bites above the mobile breakpoint and
+    // below wide, and `app-shell-narrow` (820x900, with a DataView supplying the content
+    // pressure a short paragraph does not) is that band: removing the declaration now repaints
+    // 124,797 pixels there, in both themes, and leaves the other three shell specimens
+    // untouched. A row under no pressure never asks a flex item whether it may shrink, which
+    // is why the specimen needed the table and not just the narrower window.
     const base = layerBody("terp.base");
     const at = base.indexOf('[data-terp="appshell-sidebar"] {');
     expect(at, "the sidebar should have a base rule").toBeGreaterThan(-1);
@@ -233,10 +242,21 @@ describe("cascade structure", () => {
         `z-index: var(${token})`,
       );
     }
-    // And the mobile half of the shell, which the screenshot lane cannot render at all: the
-    // viewport is pinned at 1280 and the drawer needs 768 or less. The BEHAVIOUR is covered by
-    // AppShell.test.tsx (focus containment, inert page, close-on-nav) with a stubbed matchMedia;
-    // the geometry is covered by nothing, so these three exist as text or not at all.
+    // And the mobile half of the shell, where the three selectors below now differ from each
+    // other and the difference is the interesting part. The BEHAVIOUR is covered throughout by
+    // AppShell.test.tsx (focus containment, inert page, close-on-nav) with a stubbed
+    // matchMedia; what varies is the geometry.
+    //
+    // `appshell-main`'s tightened padding is painted: `app-shell-mobile` renders at 420x900,
+    // and moving that padding one step to the desktop value repaints 1,309 pixels there in both
+    // themes and nothing else.
+    //
+    // The other two still exist as text or not at all, and for a reason a viewport cannot fix:
+    // on mobile the sidebar renders only while the drawer is OPEN, and `drawerOpen` is internal
+    // state with no way in — the same wall `defaultCollapsed` was added to get past for the
+    // icon rail, and four rules shipped unpainted behind it then. So the drawer's own geometry
+    // and its backdrop wait for the shell work that gives them a door, not for a narrower
+    // window.
     for (const selector of [
       '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-sidebar"]',
       '[data-terp="appshell-backdrop"]',

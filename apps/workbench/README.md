@@ -26,19 +26,19 @@ contention condition described under "No retries" below. CI never runs it — th
 runs the four lanes as four separate steps. Reach for the per-lane scripts when a result
 has to mean something.
 
-81 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (405
-axe runs across five palettes); the screenshots cover the **two default** themes (162
+83 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (415
+axe runs across five palettes); the screenshots cover the **two default** themes (166
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, one that the contrast allowance list has not grown a new theme, one that
 the CI image tag still names the Playwright version in `package-lock.json`, a three-test
 keyboard lane for where a keystroke sends focus, and a three-test computed lane for the
-resolved values none of the other three can see. **576 checks.**
+resolved values none of the other three can see. **590 checks.**
 
 Nothing derives those numbers, so they are only as good as the last person to add a specimen:
 `5N` axe runs, `2N` screenshots, three standalone checks (presence, theme allowance, image
-tag), three keyboard tests and three computed ones — at N=81, 405 + 162 + 3 + 3 + 3.
+tag), three keyboard tests and three computed ones — at N=83, 415 + 166 + 3 + 3 + 3.
 
-One of those 81 earns a note, because it is the only specimen whose subject is a token
+One of those 83 earns a note, because it is the only specimen whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's
 `:root` value, so every other DataView specimen renders identical geometry whether the
 density tokens are read or hardcoded — which is exactly how four of them came to be
@@ -136,9 +136,10 @@ Three rules, because both consumers depend on them:
 - **One concern per specimen.** `button-variants` and `button-disabled` are separate so a
   disabled-state change cannot mask a variant change inside one baseline.
 
-And one flag, for the specimens that render something open: `overlay: true`. See "Overlays
-paint outside their box" below — it changes how both lanes capture the specimen, and keeps it
-off the catalog page.
+And two flags, both of which change how the lanes capture a specimen and both of which keep
+it off the catalog page. `overlay: true` for a specimen that renders something open — see
+"Overlays paint outside their box" below. And `viewport: { width, height }` for one whose
+subject only exists at a width the pinned 1280x900 is not — see "A viewport of its own".
 
 ## How the visual suite is kept honest
 
@@ -244,6 +245,46 @@ identically on every run with no backend. `ModuleNav` is the one component that 
 router (it reads the live pathname to mark the active tab); its specimen supplies a memory
 router pinned to one path, which is also what puts the active state in the picture.
 
+## A viewport of its own
+
+The config pins the viewport at 1280x900 so a baseline cannot depend on a window size. That is
+right, and it also puts a whole class of declaration out of reach of both lanes: anything that
+only applies at a width the pin is not. `styles.test.ts` said so about the shell in as many
+words — the mobile variant needs 768 or less, the sidebar's `flex-shrink` bites only between
+the breakpoint and wide — and asserted those rules as **text**, because "no baseline can hold
+it" was true.
+
+`viewport: { width, height }` on a specimen holds them. The per-specimen promise is untouched,
+because the size is declared next to the node rather than being a property of the machine or
+the run, and Playwright gives each test its own context so one specimen's viewport cannot leak
+into another's. Verified: adding the first two viewport specimens left all 164 existing
+baselines byte-identical.
+
+Two of them exist now, and both were confirmed to paint their subject rather than assumed to:
+
+- `app-shell-mobile` at 420x900 — the shell below its own breakpoint, drawer closed, which is
+  the first picture of the mobile variant anywhere. Moving `appshell-main`'s tightened padding
+  one step to the desktop value repaints 1,309 pixels here, in both themes, and nothing else.
+- `app-shell-narrow` at 820x900 — the band just above the breakpoint, where the sidebar's
+  `flex-shrink: 0` is the only thing keeping the rail at 15rem. Removing it repaints 124,797
+  pixels here and leaves the other three shell specimens untouched.
+
+The second one carries a lesson worth keeping: a narrower window was **not enough**. A flex row
+under no pressure never asks an item whether it may shrink, so the specimen needs content with
+a real min-content width — it renders a wide `DataView` — and with a short paragraph instead it
+would have been a green baseline over an unexercised declaration, which is the shape this whole
+file exists to distrust.
+
+Like `overlay`, a viewport specimen renders a link on the catalog page instead of its node. At
+the catalog's width the render would be the *wrong* composition under a title announcing the
+right one, and a reader takes a picture at its word.
+
+What a viewport cannot fix, and it is worth knowing before reaching for one: the mobile drawer's
+own geometry and its backdrop are still text-only assertions, because on mobile the sidebar
+renders only while the drawer is **open** and `drawerOpen` is internal state with no way in —
+the same wall `defaultCollapsed` was added to get past for the icon rail, where four rules had
+shipped unpainted behind it.
+
 ## Which themes get which lane
 
 The two lanes cover different theme sets on purpose, and the asymmetry is the point.
@@ -296,7 +337,7 @@ fix here is scheduling rather than tolerance.
 
 It returned a third time, and the trigger is narrower than "two suites": **one** bare
 `npx playwright test` is enough. That command runs every lane in a single Playwright
-process — 576 tests over eight workers, the screenshot lane's dev server and page loads
+process — 590 tests over eight workers, the screenshot lane's dev server and page loads
 competing with the axe lane's — and it failed `color-contrast` on three twilight specimens
 together (`chrome/page-loading`, `chrome/page-error`, `chrome/hub-card-bare`). The axe lane
 alone, same commit: all 81 twilight runs passed. The *identical* full command, run again:

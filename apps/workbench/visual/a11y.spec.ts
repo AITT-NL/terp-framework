@@ -81,6 +81,11 @@ test.describe("component accessibility", () => {
     test.describe(theme, () => {
       for (const specimen of ALL_SPECIMENS) {
         test(`${specimen.groupId}/${specimen.id}`, async ({ page }) => {
+          // Honoured here too, or a specimen that exists to render a narrow-viewport surface
+          // would be audited at a width that does not render it.
+          if (specimen.viewport !== undefined) {
+            await page.setViewportSize(specimen.viewport);
+          }
           await page.goto(`/?theme=${theme}&only=${specimen.id}`);
           const selector = `[data-specimen="${specimen.id}"]`;
           await page.locator(selector).waitFor({ state: "visible" });

@@ -248,6 +248,31 @@ decision, 0001 onwards.
   like the keyboard lane: cases where the resolved value IS the contract, and nothing else.
   It runs as its own CI step, never in one pool with the others.
 
+- **A specimen can declare a viewport of its own, which retires two text-only gates on the
+  shell (ADR 0097).** The workbench pins 1280x900 so a baseline cannot depend on a window
+  size. The cost, which `styles.test.ts` had been stating in as many words: anything that only
+  applies at a width the pin is not was out of reach of both lanes, so the shell's mobile
+  geometry and the sidebar's `flex-shrink` were asserted as text because "no baseline can hold
+  it" was true.
+
+  Two specimens hold them now, and both were confirmed to paint their subject rather than
+  assumed to. `app-shell-mobile` (420x900) is the first picture of the mobile variant anywhere;
+  moving `appshell-main`'s tightened padding one step to the desktop value repaints 1,309 pixels
+  there and nothing else. `app-shell-narrow` (820x900) is the band just above the breakpoint
+  where `flex-shrink: 0` is the only thing holding the rail at 15rem; removing it repaints
+  124,797 pixels there and leaves the other three shell specimens untouched.
+
+  The second carries the lesson: a narrower window was **not enough**. A flex row under no
+  pressure never asks an item whether it may shrink, so the specimen renders a wide `DataView`
+  rather than a paragraph — with the paragraph it would have been a green baseline over an
+  unexercised declaration. Adding both left all 164 existing baselines byte-identical on both
+  platforms, so the per-specimen promise survives a per-specimen viewport.
+
+  Still text-only, and a viewport cannot fix it: the drawer's own geometry and its backdrop
+  render only while `drawerOpen` is true, which is internal state with no way in — the wall
+  `defaultCollapsed` was added to get past for the icon rail, where four rules had shipped
+  unpainted behind it.
+
 ### Changed
 
 - **The styling migration is finished: the last five view components and the packaged

@@ -105,6 +105,25 @@ export interface Specimen {
    * `src/main.tsx` for why the catalog cannot hold an open one.
    */
   overlay?: true;
+  /**
+   * Render this specimen at a viewport of its own, rather than the pinned 1280x900.
+   *
+   * The config pins the viewport so a baseline cannot depend on a window size, which is
+   * right, and it also puts a whole class of declaration out of reach of both lanes: anything
+   * that only applies at a width the pin is not. `styles.test.ts` says so about the shell in
+   * as many words — the mobile drawer needs 768 or less, the sidebar's `flex-shrink` bites
+   * only between the breakpoint and wide — and those rules were asserted as *text* because
+   * "no baseline can hold it" was true.
+   *
+   * A per-specimen viewport is still fully determined by the specimen, so the per-specimen
+   * promise is untouched: the size is declared here, next to the node, rather than being a
+   * property of the machine or the run. It composes with `overlay`.
+   *
+   * Like `overlay`, a specimen with one renders its node **only on the solo page** — at the
+   * catalog's width the render would be the wrong one under a title claiming otherwise, which
+   * is worse than a link.
+   */
+  viewport?: { width: number; height: number };
 }
 
 export interface SpecimenGroup {
@@ -1633,6 +1652,65 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               )}
             >
               <p style={{ margin: 0 }}>Page content renders in the main region.</p>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // The shell below its own breakpoint, which no lane has ever rendered. The viewport is
+        // pinned at 1280 and the mobile variant needs 768 or less, so `styles.test.ts` asserts
+        // the mobile geometry as TEXT and says why in as many words: "no baseline can hold it".
+        // A per-specimen viewport is what holds it.
+        //
+        // Drawer CLOSED, which is the whole composition at this width: on mobile the sidebar
+        // renders only while the drawer is open, so this is the header, the main region at its
+        // tightened padding, and the footer. The open drawer — its geometry, the backdrop, the
+        // focus sentinels — needs a way into internal state that does not exist yet, exactly as
+        // the icon rail needed `defaultCollapsed`; it belongs with the shell work rather than
+        // here.
+        id: "app-shell-mobile",
+        title: "AppShell — below the mobile breakpoint, drawer closed",
+        viewport: { width: 420, height: 900 },
+        node: (
+          // The same 60rem box as its two desktop siblings, for the same measured reason: the
+          // shell declares min-height: 100vh, so a shorter box clips its own footer out of the
+          // element shot.
+          <div style={{ height: "60rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <p style={{ margin: 0 }}>Page content renders in the main region.</p>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // The desktop shell just above the breakpoint — the band between 769px and wide, which
+        // the pinned viewport also cannot reach. The sidebar's `flex-shrink: 0` is documented as
+        // biting here and nowhere else, and the content is deliberately something with a real
+        // min-content width rather than a short paragraph, because a row under no pressure
+        // never asks a flex item whether it may shrink.
+        id: "app-shell-narrow",
+        title: "AppShell — just above the mobile breakpoint, under content pressure",
+        viewport: { width: 820, height: 900 },
+        node: (
+          <div style={{ height: "60rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <DataView repository={SYNC_REPOSITORY} columns={WIDE_SYNC_COLUMNS} />
             </AppShell>
           </div>
         ),

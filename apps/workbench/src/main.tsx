@@ -172,6 +172,27 @@ function OverlayNotice({ id }: { id: string }) {
   );
 }
 
+/**
+ * What the catalog shows in place of a specimen that declares a viewport of its own.
+ *
+ * The same substitution as `OverlayNotice` for a different reason. A viewport specimen exists
+ * because some declaration only applies at a width the catalog is not — the shell's mobile
+ * variant, the sidebar's shrink between the breakpoint and wide — so rendering it here would
+ * paint the desktop composition under a title announcing the narrow one. A reader would take
+ * the picture at its word, which is worse than being sent one click away for the real thing.
+ */
+function ViewportNotice({ id, width, height }: { id: string; width: number; height: number }) {
+  return (
+    <p style={{ margin: 0, color: "var(--color-neutral-600)", fontSize: "var(--font-size-sm)" }}>
+      Renders at {width}×{height}, which this page is not —{" "}
+      <a style={linkStyle} href={`?only=${id}`}>
+        open it alone
+      </a>{" "}
+      (and size the window to match).
+    </p>
+  );
+}
+
 function Workbench() {
   const only = requestedSpecimen();
   if (only !== null) {
@@ -215,7 +236,13 @@ function Workbench() {
             // the page, so a change to one component fails one baseline and names it.
             <div key={specimen.id} data-specimen={specimen.id} style={specimenStyle}>
               <p style={specimenTitleStyle}>{specimen.title}</p>
-              {specimen.overlay === true ? <OverlayNotice id={specimen.id} /> : specimen.node}
+              {specimen.overlay === true ? (
+                <OverlayNotice id={specimen.id} />
+              ) : specimen.viewport !== undefined ? (
+                <ViewportNotice id={specimen.id} {...specimen.viewport} />
+              ) : (
+                specimen.node
+              )}
             </div>
           ))}
         </section>
