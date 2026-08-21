@@ -74,6 +74,30 @@
  * is what lets an app override any framework rule without `!important` — the
  * restyling this phase exists to enable.
  *
+ * ## Motion
+ *
+ * Every `transition` here names the published motion scale rather than a literal.
+ * It wrote `150ms ease` 28 times and `100ms ease` once while reading a motion token
+ * zero times — four duration tokens and three easings published in 2a with no reader,
+ * which is the shape `--color-fg-on-brand` was deleted for. Wiring them was provably
+ * inert: `--motion-duration-fast` IS `150ms`, `--motion-duration-instant` IS `100ms`
+ * and `--motion-easing-standard` IS `ease`, so all 29 literals mapped onto a token
+ * pair and no computed value changed.
+ *
+ * Four tokens stay unread, and that is a recorded position rather than an oversight:
+ * `--motion-duration-base`, `--motion-duration-slow`, `--motion-easing-entrance` and
+ * `--motion-easing-exit` map onto no literal this sheet contains. Deleting them is a
+ * contract change (the manifest publishes them); giving them readers means inventing
+ * overlay entrance/exit animations, which is a behaviour change dressed as a token
+ * wiring — and the screenshot lane runs with `animations: "disabled"`, so it could not
+ * see either the animation or a wrong duration in it. They are named in
+ * `tokens.guard.test.ts` as an exact list, so wiring one shrinks that list and
+ * publishing an eighth forces the decision instead of drifting.
+ *
+ * The spinner's `0.8s` is the one deliberate literal left. It is a rotation period
+ * rather than an interaction step, and the scale tops out at 400ms, so there is no
+ * token to name — the gate is scoped to `transition` for exactly that reason.
+ *
  * The injector is idempotent, SSR-safe (guarded on `document`), and appends
  * the rules through `textContent` — never `innerHTML` — so no HTML sink is
  * touched.
@@ -204,8 +228,12 @@ html {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   line-height: 1.2;
-  transition: background-color 150ms ease, color 150ms ease,
-    border-color 150ms ease, box-shadow 150ms ease, transform 100ms ease;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-easing-standard),
+    color var(--motion-duration-fast) var(--motion-easing-standard),
+    border-color var(--motion-duration-fast) var(--motion-easing-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-easing-standard),
+    transform var(--motion-duration-instant) var(--motion-easing-standard);
 }
 [data-terp="button"][data-variant="primary"] {
   background: var(--color-brand-primary);
@@ -337,7 +365,9 @@ html {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-normal);
   line-height: 1.25;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-easing-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-easing-standard);
 }
 input[data-terp="input"] {
   min-height: var(--density-control-min-height);
@@ -428,7 +458,7 @@ textarea[data-terp="input"] {
   block-size: 1.25rem;
   accent-color: var(--color-fg-accent);
   cursor: pointer;
-  transition: background-color 150ms ease;
+  transition: background-color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="radio-group"] {
   display: grid;
@@ -519,7 +549,10 @@ textarea[data-terp="input"] {
   margin-block-end: -1px;
   border-top-left-radius: var(--radius-sm);
   border-top-right-radius: var(--radius-sm);
-  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-easing-standard),
+    color var(--motion-duration-fast) var(--motion-easing-standard),
+    border-color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="tab-panel"] {
   color: var(--color-neutral-900);
@@ -584,7 +617,7 @@ textarea[data-terp="input"] {
 [data-terp="breadcrumbs"] a {
   color: var(--color-neutral-600);
   text-decoration: none;
-  transition: color 150ms ease;
+  transition: color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="breadcrumbs-separator"] {
   display: inline-flex;
@@ -635,7 +668,7 @@ textarea[data-terp="input"] {
   width: 15rem;
   background: var(--color-neutral-0);
   border-inline-end: 1px solid var(--color-neutral-200);
-  transition: width 150ms ease;
+  transition: width var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="appshell-sidebar"][data-collapsed="true"] {
   width: 4rem;
@@ -675,7 +708,7 @@ textarea[data-terp="input"] {
   text-decoration: none;
   border-radius: var(--radius-md);
   box-sizing: border-box;
-  transition: background-color 150ms ease;
+  transition: background-color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-brand"] {
   justify-content: center;
@@ -735,7 +768,9 @@ textarea[data-terp="input"] {
   overflow: hidden;
   box-sizing: border-box;
   min-height: 2.25rem;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-easing-standard),
+    color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 /* The collapsed rail's link geometry: one centred fixed-size icon in the content track.
    (0,3,1) against the base's (0,1,1), so it wins on specificity with no source-order
@@ -1141,7 +1176,9 @@ textarea[data-terp="input"] {
 [data-terp="hubcard"] {
   height: 100%;
   min-height: 0;
-  transition: box-shadow 150ms ease, transform 150ms ease;
+  transition:
+    box-shadow var(--motion-duration-fast) var(--motion-easing-standard),
+    transform var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="hubcard-body"] {
   display: grid;
@@ -1155,7 +1192,7 @@ textarea[data-terp="input"] {
   background: var(--color-neutral-0);
   color: var(--color-neutral-900);
   box-sizing: border-box;
-  transition: border-color 150ms ease;
+  transition: border-color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 /* -heading, not -title: in this sheet a heading is the BOX holding a title
    (card-heading, dataview-card-heading) and a title is the text box itself
@@ -1185,7 +1222,7 @@ textarea[data-terp="input"] {
   color: var(--color-neutral-900);
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
-  transition: color 150ms ease;
+  transition: color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 /* neutral-600 rather than fg-muted, and it is not the tinted-surface case: this text
    sits on the card's own neutral-0 and measures 7.58 / 7.94 / 7.50 / 7.60 / 18.42. */
@@ -2285,7 +2322,10 @@ button[data-terp="input"][data-placeholder="true"] {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-normal);
   line-height: 1.25;
-  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-easing-standard),
+    color var(--motion-duration-fast) var(--motion-easing-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-easing-standard);
 }
 /* The panel's contents. This sits INSIDE popover-panel, which supplies the
    surface — so the menu owns only the stacking of its items. */
@@ -2310,7 +2350,9 @@ button[data-terp="input"][data-placeholder="true"] {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-normal);
   line-height: 1.25;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-easing-standard),
+    color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 /* Destructive is the one enumerable choice an item has, so it is an attribute.
    The disabled treatment is a state rule keyed on :disabled, because the element
@@ -2579,7 +2621,10 @@ button[data-terp="input"][data-placeholder="true"] {
    because that is where the hover rules needing it live. Same correction 817f572
    made for Tabs and Breadcrumbs. */
 [data-terp="iconbutton"] {
-  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-easing-standard),
+    color var(--motion-duration-fast) var(--motion-easing-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-easing-standard);
 }
 
 /* Popover ------------------------------------------------------------------ */
@@ -3034,7 +3079,7 @@ button[data-terp="input"][data-placeholder="true"] {
   table-layout: fixed;
 }
 [data-terp="dataview-table"] tbody tr {
-  transition: background-color 150ms ease;
+  transition: background-color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="dataview-table"] tbody tr:hover td {
   background: var(--color-neutral-50);

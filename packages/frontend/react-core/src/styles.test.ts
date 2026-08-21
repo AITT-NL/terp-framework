@@ -454,6 +454,30 @@ describe("cascade structure", () => {
     }
   });
 
+  it("times every transition off the published motion scale, never a literal", () => {
+    // The scale shipped in 2a and was read by nothing: this sheet wrote `150ms ease`
+    // 28 times and `100ms ease` once across 16 declarations, and read a motion token
+    // zero times — so a Studio editor built from the manifest would have offered four
+    // duration controls that moved nothing. Wiring them was inert by construction:
+    // --motion-duration-fast IS 150ms, --motion-duration-instant IS 100ms and
+    // --motion-easing-standard IS ease, so every literal mapped onto a token pair.
+    //
+    // This gate has to be structural, and that is the whole reason it exists here
+    // rather than in a baseline. The screenshot lane runs with
+    // `animations: "disabled"`, so a duration is invisible to it: a wrong value — or
+    // literal number 30 — would move no pixel and nothing would say so.
+    //
+    // Scoped to `transition` on purpose. The spinner's `animation: terp-spin 0.8s` is
+    // a rotation period rather than an interaction step and the scale tops out at
+    // 400ms, so there is no token for it to name.
+    const declarations = [...css.matchAll(/transition:\s*([^;]+);/g)].map((match) => match[1]!);
+    expect(declarations.length).toBeGreaterThan(10);
+    expect(
+      declarations.filter((value) => /\d+m?s\b/.test(value)),
+      "a transition's duration belongs on the published motion scale, not in the rule",
+    ).toEqual([]);
+  });
+
   it("declares a gap rule for every step SpaceToken allows", () => {
     // gap moved from a computed inline value to a rule per step, so the union and the sheet
     // are now two lists maintained by hand. Widening SpaceToken without adding rules would

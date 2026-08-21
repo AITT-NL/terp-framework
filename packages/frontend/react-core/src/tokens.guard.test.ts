@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+import { TERP_STYLES_CSS } from "./styles";
+
 // Vitest stubs .css imports to empty modules, so the sheet is read from disk.
 const tokensCss = readFileSync(
   new URL("../../contract/src/tokens.css", import.meta.url),
@@ -20,6 +22,36 @@ const sources = import.meta.glob("./**/*.{ts,tsx}", {
 const declared = new Set(
   [...tokensCss.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((match) => match[1]!),
 );
+
+/** The framework sheet with its comments removed — prose naming a token is not a reader. */
+const sheet = TERP_STYLES_CSS.replace(/\/\*[\s\S]*?\*\//g, "");
+
+/**
+ * Published motion tokens no rule in the sheet reads, as an exact list.
+ *
+ * The other three are wired: every `transition` in the sheet names
+ * `--motion-duration-fast` / `--motion-duration-instant` with
+ * `--motion-easing-standard`, which was inert by construction because those tokens'
+ * values ARE the `150ms` / `100ms` / `ease` literals they replaced.
+ *
+ * These four are not, and leaving them that way is a position rather than an omission.
+ * They map onto no literal this sheet contains, so there is nothing to convert. The two
+ * ways out are both worse than naming them here: deleting them is a **contract change**,
+ * since `tokens.manifest.json` publishes them and a consumer may already read one; and
+ * giving them readers means inventing overlay entrance/exit animations, which is a
+ * behaviour change wearing a token wiring's clothes — and one the screenshot lane cannot
+ * see either way, because it runs with `animations: "disabled"`.
+ *
+ * Exact equality in both directions, which is what makes it a decision instead of drift:
+ * wiring one has to shrink this list, and publishing an eighth motion token has to
+ * either name a reader or land here with a reason.
+ */
+const UNREAD_MOTION_TOKENS = [
+  "--motion-duration-base",
+  "--motion-duration-slow",
+  "--motion-easing-entrance",
+  "--motion-easing-exit",
+];
 
 describe("design tokens", () => {
   it("only references custom properties the contract token sheet declares", () => {
@@ -48,5 +80,22 @@ describe("design tokens", () => {
     // prefers-color-scheme media query) flip it.
     expect(tokensCss).toContain("color-scheme: light");
     expect(tokensCss.match(/color-scheme: dark/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+  });
+
+  it("names every published motion token the sheet does not read", () => {
+    // The other direction of this file's join. The test above catches a `var()` naming a
+    // token the contract never declared; this one catches a token the contract publishes
+    // that nothing consumes — the `--color-fg-on-brand` shape, which was deleted for
+    // being declared in five themes and read by none. A Studio editor built from the
+    // manifest offers a control per published token, so an unread one is a knob that
+    // does nothing.
+    const motionTokens = [
+      ...new Set([...tokensCss.matchAll(/(--motion-[a-z-]+)\s*:/g)].map((match) => match[1]!)),
+    ];
+    expect(motionTokens.length).toBeGreaterThan(UNREAD_MOTION_TOKENS.length);
+    expect(
+      motionTokens.filter((token) => !sheet.includes(`var(${token})`)).sort(),
+      "a published motion token gained or lost a reader — wire it, or record it here with a reason",
+    ).toEqual(UNREAD_MOTION_TOKENS);
   });
 });

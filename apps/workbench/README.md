@@ -11,30 +11,32 @@ a diff).
 
 ```bash
 npm run dev        # the workbench at http://localhost:5175
-npm run visual     # all three lanes at once — see the flake note before trusting a red run
+npm run visual     # all four lanes at once — see the flake note before trusting a red run
 npm run visual:screens  # one lane at a time, which is what CI does and what is reliable
 npm run visual:a11y
 npm run visual:keyboard
+npm run visual:computed
 npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
 
 `npm run visual` is the convenient command and **not** the trustworthy one on a busy
-machine: it starts all three lanes in one Playwright process, which is itself the
+machine: it starts all four lanes in one Playwright process, which is itself the
 contention condition described under "No retries" below. CI never runs it — the workflow
-runs the three lanes as three separate steps. Reach for the per-lane scripts when a result
+runs the four lanes as four separate steps. Reach for the per-lane scripts when a result
 has to mean something.
 
 81 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (405
 axe runs across five palettes); the screenshots cover the **two default** themes (162
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, one that the contrast allowance list has not grown a new theme, one that
-the CI image tag still names the Playwright version in `package-lock.json`, and a three-test
-keyboard lane for the one thing neither of the others can see. **573 checks.**
+the CI image tag still names the Playwright version in `package-lock.json`, a three-test
+keyboard lane for where a keystroke sends focus, and a two-test computed lane for the
+resolved values none of the other three can see. **575 checks.**
 
 Nothing derives those numbers, so they are only as good as the last person to add a specimen:
 `5N` axe runs, `2N` screenshots, three standalone checks (presence, theme allowance, image
-tag) and three keyboard tests — at N=81, 405 + 162 + 3 + 3.
+tag), three keyboard tests and two computed ones — at N=81, 405 + 162 + 3 + 3 + 2.
 
 One of those 81 earns a note, because it is the only specimen whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's
@@ -60,6 +62,37 @@ bug and against the fix; measured both ways before this file existed.
 
 It holds cases where a keystroke's effect on focus IS the contract, and nothing else. Anything
 about appearance belongs in a baseline; anything about the static tree belongs to axe.
+
+## The computed lane
+
+`visual/computed.spec.ts`, and it exists because of a blind spot in the sentence above. "Anything
+about appearance belongs in a baseline" is only true of appearance a baseline can *see*, and this
+config sets `animations: "disabled"` — deliberately, so the spinner keyframes do not make every
+run differ. The cost of that, which was not written down anywhere until now: **every duration and
+easing in the sheet is invisible to the screenshot lane.** A transition at 150ms, at 400ms, or
+gone entirely produces byte-identical baselines. axe reads a static tree and says nothing about
+computed style either.
+
+Phase 4 walked straight into it. Wiring the published motion scale into the sheet replaced 29
+literal `150ms ease` / `100ms ease` pairs with `var()` reads, and a `var()` inside a shorthand
+fails in one specific way: if the substitution is invalid, the whole declaration becomes invalid
+at computed-value time and falls back to the property's **initial** value — `transition: all 0s
+ease 0s`. Every element still paints identically at rest, every baseline still passes, axe still
+finds nothing, and every transition in the package is silently dead. A structural test over the
+sheet proves it *names* a token; only reading what the browser resolved can tell the difference.
+Verified both ways before this file was trusted: a typo'd token name resolves
+`transition-property` to `all`, and the lane fails on that assertion rather than on the number,
+which is why the number is not the only thing asserted.
+
+Its second test gates a measurement the sheet had only claimed. The reduced-motion block's
+comment says "measured, not assumed: under `prefers-reduced-motion` the sidebar, a nav link and
+a hub card title all compute `transition-duration` 0s" — and nothing checked it. The three shapes
+matter: `[data-terp]` reaches a marked element, while a nav link and a breadcrumb link are bare
+`<a>`s that the block reaches only through selectors of their own. Reduced motion had already
+been silently ignored once for exactly that reason.
+
+Same scoping discipline as the keyboard lane: cases where the **resolved value** is the contract,
+and nothing else.
 
 ## Why it is not inside react-core
 
@@ -243,15 +276,15 @@ Neither is a reason to add retries — a lane that needs a retry to pass is not 
 fix here is scheduling rather than tolerance.
 
 It returned a third time, and the trigger is narrower than "two suites": **one** bare
-`npx playwright test` is enough. That command runs all three lanes in a single Playwright
-process — 573 tests over eight workers, the screenshot lane's dev server and page loads
+`npx playwright test` is enough. That command runs every lane in a single Playwright
+process — 575 tests over eight workers, the screenshot lane's dev server and page loads
 competing with the axe lane's — and it failed `color-contrast` on three twilight specimens
 together (`chrome/page-loading`, `chrome/page-error`, `chrome/hub-card-bare`). The axe lane
 alone, same commit: all 81 twilight runs passed. The *identical* full command, run again:
 573 passed. Same shape as before, one worker pool rather than two.
 
 Which makes the scheduling rule concrete rather than advisory, and it had been missing its
-commands: CI already runs the three lanes as three separate steps, so it never meets this
+commands: CI already runs the lanes as separate steps, so it never meets this
 condition, while the README's own headline command did. There are per-lane scripts now.
 A rule with no command behind it is only obeyable by remembering it.
 
@@ -260,7 +293,7 @@ rasterisation and antialiasing differ between Windows and Linux by far more than
 tolerance that would still catch a real change, so a single shared set leaves whichever
 platform did not record it permanently red. Each platform records and compares its own.
 
-Both sets are recorded, so all three lanes run in CI (`.github/workflows/frontend.yml`).
+Both sets are recorded, so all four lanes run in CI (`.github/workflows/frontend.yml`).
 The `win32` set comes from a developer machine; the `linux` set was recorded in
 `mcr.microsoft.com/playwright:v1.62.0-noble`, and CI runs the screenshot lane **inside that
 same image** rather than on the bare runner. That last part is the load-bearing half: a

@@ -106,12 +106,18 @@ jobs:
       # moved out of `style={}` and into the injected sheet, so the unit tests no longer
       # assert paint and the rendered result is what has to be checked. It ran nowhere in CI.
       #
-      # All three lanes run here. The accessibility lane runs in full — axe over every
-      # specimen in all five themes — and is what holds both contrast ratchets at empty. The
-      # keyboard lane asserts where focus goes after a keystroke, which is a behaviour rather
-      # than a picture, so there is nothing platform-specific to record. It also covers the one
-      # repair in this area that a unit test cannot gate, since the failure depends on the
-      # browser moving focus to <body> when the focused node is removed and jsdom does not.
+      # All four lanes run here, as four steps — never one command, because a single
+      # `playwright test` starts them in one worker pool and that contention is what makes a
+      # red color-contrast result meaningless. The accessibility lane runs in full — axe over
+      # every specimen in all five themes — and is what holds both contrast ratchets at empty.
+      # The keyboard lane asserts where focus goes after a keystroke, which is a behaviour
+      # rather than a picture, so there is nothing platform-specific to record. It also covers
+      # the one repair in this area that a unit test cannot gate, since the failure depends on
+      # the browser moving focus to <body> when the focused node is removed and jsdom does not.
+      # The computed lane reads values the other three cannot see at all: screenshots run with
+      # `animations: "disabled"`, so every duration and easing in the sheet is invisible to
+      # them, and a `var()` that fails to substitute inside a shorthand falls back to the
+      # property's initial value — which paints identically at rest and kills the transition.
       #
       # The screenshot lane is the one with a recorded baseline, and it runs in a container
       # rather than on the runner directly. Baselines are split by platform because font
@@ -141,6 +147,10 @@ jobs:
       - name: Keyboard — where focus goes, which no baseline and no static tree can say
         working-directory: apps/workbench
         run: npx playwright test visual/keyboard.spec.ts --reporter=line
+
+      - name: Computed — the resolved values disabled animations and a static tree cannot show
+        working-directory: apps/workbench
+        run: npx playwright test visual/computed.spec.ts --reporter=line
 
       - name: Screenshots — every specimen against the committed linux baselines
         run: |
