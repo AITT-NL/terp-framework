@@ -19,6 +19,13 @@ import {
   verifySlotChildren,
 } from "./layoutContract";
 import { OverviewPage } from "./OverviewPage";
+
+// The public surface, as source: the archetype-coverage check below derives its list from
+// the entry point's own exports rather than restating one. `raw.d.ts` declares the ambient
+// ImportMeta.glob type this shares with the other scanning tests in the package.
+const entryPoint = Object.values(
+  import.meta.glob("./index.ts", { query: "?raw", import: "default", eager: true }),
+)[0] as string;
 import { Page } from "./Page";
 import { EmptyState } from "./EmptyState";
 import { DetailList, Divider, Grid, Stack } from "./layout";
@@ -67,6 +74,75 @@ describe("layout contract parity (docs/data can't drift)", () => {
   it("phrases the identical directive message on both halves", () => {
     expect(slotViolationMessage("standard", "HubPage", "<div>")).toBe(
       lintLayouts.slotViolationMessage("standard", "HubPage", "<div>"),
+    );
+  });
+});
+
+describe("every archetype the package exports is governed, or says it is not", () => {
+  // The gap this closes was a green build. `verifySlotChildren` returns null for a slot the
+  // table does not name (layoutContract.ts:138-141) and the lint rule early-returns the same
+  // way, so an archetype exported WITHOUT a table entry is silently ungoverned by both halves
+  // of the control — no error, no warning, and a governed app renders it with the body slot
+  // wide open. Nothing asserted the two lists agreed, which means "forgot the table entry"
+  // was indistinguishable from "deliberately unconstrained".
+  //
+  // Derived from the public surface rather than restated as a list, because a list is the
+  // thing that was missing: a new `FormPage` export joins this check by existing, and has to
+  // either take a slot or come here and say why.
+  const exported = [
+    ...new Set(
+      [...entryPoint.matchAll(/^export \{([^}]*)\} from/gm)]
+        .flatMap((match) => match[1]!.split(","))
+        .map((name) => name.trim())
+        // `endsWith` rather than a `\w*Page$` regex, which cannot match "Page" itself:
+        // after the leading capital there is no "Page" left to match. The vacuity guard below
+        // caught that on the first run, which is the whole reason it is there.
+        .filter((name) => /^[A-Z]\w*$/.test(name) && name.endsWith("Page")),
+    ),
+  ].sort();
+
+  /**
+   * Archetypes with no slot entry, and the reason each is unconstrained.
+   *
+   * One entry, and it is the contract's own pressure valve rather than an omission: the
+   * plain `Page` is what a bespoke screen composes when no archetype fits, and the
+   * contract's description says so in as many words. Anything else added here is a claim
+   * that a screen shape has no vocabulary, which is the claim the table exists to refuse.
+   */
+  const DELIBERATELY_UNCONSTRAINED: Record<string, string> = {
+    Page: "the bespoke pressure valve — a screen no archetype fits composes this, and the contract leaves it open by design",
+  };
+
+  it("finds the archetype exports it is meant to check", () => {
+    // Vacuity guard: a regex that matched nothing would make every assertion below pass.
+    expect(exported).toEqual(["DetailPage", "HubPage", "OverviewPage", "Page"]);
+  });
+
+  it("gives every exported archetype a slot, or a named reason for having none", () => {
+    const slots = LAYOUT_CONTRACTS.standard!.slots;
+    for (const archetype of exported) {
+      const governed = archetype in slots;
+      const excused = archetype in DELIBERATELY_UNCONSTRAINED;
+      expect(
+        governed || excused,
+        `${archetype} is exported but has no LAYOUT_CONTRACTS.standard.slots entry, so both ` +
+          "halves of the layout contract silently skip it. Add the slot (in this file AND in " +
+          "eslint-boundaries/src/layouts.js), or add it to DELIBERATELY_UNCONSTRAINED with the " +
+          "reason its body has no vocabulary.",
+      ).toBe(true);
+      expect(
+        governed && excused,
+        `${archetype} is both governed and excused — the excuse is stale, delete it`,
+      ).toBe(false);
+    }
+  });
+
+  it("names no slot that no archetype exports", () => {
+    // The other direction: a slot for an archetype that was renamed or withdrawn is a table
+    // entry nothing can ever satisfy, and the message it phrases names a component that is
+    // no longer there.
+    expect(Object.keys(LAYOUT_CONTRACTS.standard!.slots).sort()).toEqual(
+      exported.filter((name) => !(name in DELIBERATELY_UNCONSTRAINED)),
     );
   });
 });

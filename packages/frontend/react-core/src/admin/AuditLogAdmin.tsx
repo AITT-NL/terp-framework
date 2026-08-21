@@ -97,7 +97,14 @@ export function AuditLogAdmin() {
               ]}
             />
             {event.payload !== null && (
-              <pre data-terp="admin-payload">{JSON.stringify(event.payload, null, 2)}</pre>
+              // tabIndex, for the reason `Code` block carries one: `admin-payload` declares
+              // `overflow-x: auto`, so a wide payload is a scroll container, and a scroll
+              // container no keyboard can reach is the SC 2.1.1 failure axe reports as
+              // `scrollable-region-focusable`. Found by the workbench specimen the moment one
+              // existed — the marker had no baseline and axe had never rendered it.
+              <pre data-terp="admin-payload" tabIndex={0}>
+                {JSON.stringify(event.payload, null, 2)}
+              </pre>
             )}
           </div>
         )}

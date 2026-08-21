@@ -19,6 +19,7 @@ import {
   DatePicker,
   DateRangePicker,
   DetailList,
+  DetailPage,
   Divider,
   EmptyState,
   ErrorState,
@@ -41,6 +42,7 @@ import {
   MenuItem,
   ModuleNav,
   NavIcon,
+  OverviewPage,
   Page,
   PageActions,
   Popover,
@@ -58,6 +60,7 @@ import {
   ThemeToggle,
   ToastProvider,
   Tooltip,
+  UserCreate,
   useToast,
   UserMenu,
 } from "@terpjs/react-core";
@@ -66,6 +69,7 @@ import type { NavItem } from "@terpjs/contract";
 import {
   createMemoryHistory,
   createRootRoute,
+  createRoute,
   Link as RouterLink,
   createRouter,
   RouterProvider,
@@ -264,6 +268,25 @@ const syncRepositoryOptions = {
 };
 
 const SYNC_REPOSITORY = new InMemoryDataViewRepository(SYNC_ROWS, syncRepositoryOptions);
+
+/**
+ * A redacted audit payload, formatted the way `AuditLogAdmin` formats one
+ * (`JSON.stringify(payload, null, 2)`), with two lines deliberately past the box's width.
+ *
+ * The long lines are the whole point: `admin-payload` declares `overflow-x: auto`, and a
+ * `<pre>` whose longest line fits paints identically without it. ~190 characters each, which
+ * is past the 34rem container the specimen constrains it to — see `admin-payload` for what
+ * happens when nothing constrains it. Written as a literal rather than stringified from an
+ * object so the exact rendered characters — and therefore the baseline — are fixed by this
+ * file and not by the runtime's key ordering.
+ */
+const AUDIT_PAYLOAD = `{
+  "action": "update",
+  "target_type": "sync_definition",
+  "before": { "window": "01:00-03:00 UTC", "retention_days": 30, "target": "terp://ledger/customers", "source": "sap://prd/customers", "cursor": "0x00000000000004d2", "checksum": "9f2c1b7e4a83d015c6b2" },
+  "after": { "window": "02:00-04:00 UTC", "retention_days": 90, "target": "terp://ledger/customers", "source": "sap://prd/customers", "cursor": "0x00000000000004d2", "checksum": "1a77e0c93b4d528fa610" },
+  "redacted": ["credential_ref"]
+}`;
 const EMPTY_REPOSITORY = new InMemoryDataViewRepository<SyncRow>([], syncRepositoryOptions);
 
 // The two repositories nothing else in the catalog can produce, and both are hand-built rather
@@ -383,6 +406,46 @@ function moduleNavSpecimen(): ReactNode {
     history: createMemoryHistory({ initialEntries: ["/records"] }),
   });
   return <RouterProvider router={router} />;
+}
+
+/**
+ * Mounts a packaged admin screen the way the app does: a memory router whose route tree
+ * carries the real `/admin/...` paths, inside the provider stack those screens read.
+ *
+ * All three pieces are load-bearing rather than defensive. `UserCreate` calls
+ * `useNavigate`, so it cannot render without a router at all. Its breadcrumb trail renders
+ * TanStack `Link`s at `/admin` and `/admin/users`, so those paths have to EXIST in the tree
+ * or every render logs an unmatched-route warning — the specimen would still screenshot,
+ * which is exactly why the routes are registered rather than left to warn. And the screen
+ * reads `useTerpClient` and `useToast`, which are context, not fetches: nothing here calls
+ * the network, because the form only POSTs on submit and a specimen never submits.
+ *
+ * That last property is what makes a real packaged screen a legal specimen at all. The
+ * registry's rule is no live data, and the admin screens that FETCH on mount (the users,
+ * groups and audit overviews) cannot honour it — see `admin-section-title` and
+ * `admin-payload` below for what stands in for them and why.
+ */
+function adminScreenSpecimen(node: ReactNode, path: string): ReactNode {
+  const rootRoute = createRootRoute();
+  const routes = ["/admin", "/admin/users", "/admin/users/new", "/admin/users/$userId"].map(
+    (routePath) =>
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: routePath,
+        component: () => (routePath === path ? node : null),
+      }),
+  );
+  const router = createRouter({
+    routeTree: rootRoute.addChildren(routes),
+    history: createMemoryHistory({ initialEntries: [path] }),
+  });
+  return (
+    <TerpProvider baseUrl="">
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
+    </TerpProvider>
+  );
 }
 
 /**
@@ -2030,6 +2093,74 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The first picture of a governed OVERVIEW body anywhere, and the reason it needs
+        // three children rather than one is a rule, not composition taste.
+        //
+        // `Page` is already pictured — `page-header`, `page-loading` and `page-error` all
+        // render it directly. What had no picture is either archetype that WRAPS it, and with
+        // it the shape the layout contract actually admits: 4b widened the overview slot to
+        // take `Text` as a lead paragraph and `Divider` as a rule between sections, and no
+        // specimen has ever rendered either inside a governed body. Three children also put
+        // TWO of the page grid's `gap: var(--space-4)` rows between body siblings in frame;
+        // `page-header` has one body child, so it only ever exercised the header-to-body gap.
+        //
+        // No `parents`, which is the overview's own trail contract: a module's top-level
+        // listing omits the redundant current-page-only crumb, so this is the one archetype
+        // specimen with a title row and no breadcrumb above it.
+        id: "overview-page",
+        title: "OverviewPage — lead paragraph, rule, collection",
+        node: (
+          <OverviewPage title="Sync definitions" actions={<Button variant="primary">New sync</Button>}>
+            <Text tone="muted">
+              Every definition that moves records between a source system and the ledger.
+            </Text>
+            <Divider />
+            <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} />
+          </OverviewPage>
+        ),
+      },
+      {
+        // The detail archetype, and the two things only it can show.
+        //
+        // The breadcrumb trail is REQUIRED here — `parents` is non-optional on `DetailPage`
+        // precisely so a record is never orphaned from its overview — so this is the trail at
+        // its real depth (hub, overview, record) rather than the single ancestor `page-header`
+        // renders.
+        //
+        // And the body is the record-sections shape the contract admits: `DetailList` for the
+        // record's own fields, a rule, then a `Card` whose body is a `DataView`. That last
+        // pairing is the case `variant="plain"` was shipped for in 4b, and this is the first
+        // specimen to render it in that case rather than alone: the section's heading sits
+        // flush above a table that keeps its own full width and its own single border, which
+        // is what boxing it would take away. `card-plain` shows the variant; this shows why.
+        id: "detail-page",
+        title: "DetailPage — record fields, rule, a boxed collection",
+        node: (
+          <DetailPage
+            title="Customer master"
+            parents={[
+              { label: "Records", to: "/records" },
+              { label: "Sync definitions", to: "/records/syncs" },
+            ]}
+            actions={<Button variant="secondary">Run now</Button>}
+          >
+            <DetailList
+              layout="aligned"
+              items={[
+                { label: "Source", value: "sap://prd/customers" },
+                { label: "Target", value: "terp://ledger/customers" },
+                { label: "Window", value: "02:00–04:00 UTC" },
+                { label: "Retention", value: "90 days" },
+              ]}
+            />
+            <Divider />
+            <Card title="Recent runs" variant="plain">
+              <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} />
+            </Card>
+          </DetailPage>
+        ),
+      },
+      {
         id: "hub-page",
         title: "HubPage — card grid with stats",
         node: (
@@ -2260,6 +2391,102 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             >
               <DataView repository={SYNC_REPOSITORY} columns={WIDE_SYNC_COLUMNS} />
             </AppShell>
+          </div>
+        ),
+      },
+    ],
+  },
+  {
+    // The packaged admin screens. Three markers — `admin-form`, `admin-section-title`,
+    // `admin-payload` — shipped with NO baseline on either platform and were never rendered by
+    // the axe lane, which is how five base styles survived the entire 0094 migration inside
+    // views both ratchets read as clean. The sheet's own comment on that block says so.
+    //
+    // The three specimens below are deliberately not the same KIND of specimen, and the
+    // difference is the honest part rather than an inconsistency. `admin-user-create` mounts
+    // the real packaged screen, because that screen fetches nothing on mount. The other two
+    // owners — `GroupDetail` and `AuditLogAdmin` — build an HTTP repository and load on mount,
+    // and the registry's first rule is no live data: a stubbed fetch would put the DataView's
+    // loading frame in the shot on a slow run, which is a flake in the direction that looks
+    // like a real diff. So those two reproduce the SURFACE the sheet styles, in the real
+    // components that carry it, and the screens' own composition stays covered by
+    // `admin/admin.test.tsx`. Stated here rather than discovered later.
+    id: "admin",
+    title: "Packaged admin screens",
+    specimens: [
+      {
+        // The real `UserCreate`, mounted the way the app mounts it (see adminScreenSpecimen).
+        //
+        // `admin-form` is `max-width: 32rem` and nothing else, so the picture only means
+        // something at a width GREATER than the cap with content that would otherwise stretch:
+        // the specimen card is ~1232px here and every `Input` inside is full-width, so the cap
+        // is the only thing between the fields and the right edge. At a narrower viewport the
+        // declaration would be a no-op and the baseline would gate nothing.
+        id: "admin-user-create",
+        title: "UserCreate — the packaged provisioning form",
+        node: adminScreenSpecimen(<UserCreate />, "/admin/users/new"),
+      },
+      {
+        // `admin-section-title` reproduced in place: two `h2`s heading two sections of a
+        // record screen, which is exactly where `GroupDetail` renders them (its members list
+        // and its permission grants).
+        //
+        // Both of the rule's declarations need a neighbour to be observable at all.
+        // `font-size: var(--font-size-base)` is only interesting against the page's own `h1`,
+        // which is `font-size-lg` — the UA default for an `h2` is LARGER than that, so without
+        // the rule a section outranks the view it sits in, and the two have to be in one frame
+        // to see it. And `margin: 0` only shows against a sibling to collapse into, which is
+        // why there are two sections rather than one.
+        id: "admin-section-title",
+        title: "Admin section headings — h2 under the page h1",
+        node: (
+          <Page title="Warehouse operators">
+            <h2 data-terp="admin-section-title">Members</h2>
+            <DetailList
+              items={[
+                { label: "Direct members", value: "14" },
+                { label: "Inherited", value: "3" },
+              ]}
+            />
+            <h2 data-terp="admin-section-title">Permission grants</h2>
+            <DetailList
+              items={[
+                { label: "records.read", value: "Granted" },
+                { label: "records.publish", value: "Granted" },
+              ]}
+            />
+          </Page>
+        ),
+      },
+      {
+        // The audit event's redacted payload, in a box narrower than its longest line.
+        //
+        // The fixed-width wrapper IS the specimen, and the first version of this did not have
+        // one — it rendered the payload inside a real expanded `DataViewTable` row, the way
+        // `AuditLogAdmin` does, and measuring that is what showed it gated nothing. In a table
+        // cell the `<pre>` came out 1594px with `scrollWidth === clientWidth`: it never
+        // scrolled, it GREW, and it pushed the table to 1626px. `overflow-x: auto` cannot fire
+        // on a box that is never narrower than its content, and a `<td>` under `table-layout:
+        // auto` is shrink-to-fit, so nothing constrains it there. So the declaration is inert
+        // in its own production context — carried as a debt, because the fix is the DataView's
+        // expanded-cell width model and that belongs with the column-sizing work, not here.
+        //
+        // A block-level `<pre>` in an ordinary container does the opposite: it fills the
+        // container and scrolls its own overflow. This constrains the container and pictures
+        // the rule doing its job, which is the thing a baseline can hold; the numbers behind
+        // both halves are asserted in visual/computed.spec.ts.
+        id: "admin-payload",
+        title: "Audit payload — JSON wider than a constrained box",
+        node: (
+          <div style={{ width: "34rem", display: "grid", gap: "var(--space-3)" }}>
+            <DetailList
+              items={[
+                { label: "Target", value: "sync_definition 4d2c1b7e" },
+                { label: "Actor", value: "9f2c1b7e" },
+                { label: "Request", value: "req_01HQ8ZK4" },
+              ]}
+            />
+            <pre data-terp="admin-payload" tabIndex={0}>{AUDIT_PAYLOAD}</pre>
           </div>
         ),
       },

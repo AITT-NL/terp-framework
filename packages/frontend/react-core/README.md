@@ -133,11 +133,15 @@ An app can ratchet the archetype control further with a named **layout contract*
 `terp/layout-contract` lint half — keep the two in sync; the project template generates
 both). Each governed archetype's body slot then accepts **only** the contract's
 components — `standard`: hub bodies hold `HubCard` only; overview bodies hold
-`DataView` / `ResourceList` / `ModuleNav` / `Stack` / `Card` plus the framework states
-(`EmptyState` / `ErrorState` / `LoadingState` / `Alert`) and `ConfirmDialog`; detail
-bodies hold `DetailList` / `Stack` / `Tabs` / `ModuleNav` / `DataView` / `Card` plus
-the same states. The plain `Page` stays unconstrained (the sanctioned home for a
-bespoke screen). Only the slot's **direct** children are governed — an allowed
+`DataView` / `ResourceList` / `ModuleNav` / `Stack` / `Card` / `Divider` / `Text` plus
+the framework states (`EmptyState` / `ErrorState` / `LoadingState` / `Alert`) and
+`ConfirmDialog`; detail bodies hold `DetailList` / `Stack` / `Tabs` / `ModuleNav` /
+`DataView` / `Card` / `Grid` / `Divider` / `Text` plus the same states. The asymmetry is
+deliberate and pinned by tests rather than left to the table: `Grid` joins **detail**
+bodies only (an overview body is a collection, and a grid of summary cards is a hub,
+which has its own archetype), while `Heading` joins **neither** — a heading in a governed
+body must own its section, and `Card` is how a section is owned. The plain `Page` stays
+unconstrained (the sanctioned home for a bespoke screen). Only the slot's **direct** children are governed — an allowed
 container's own subtree (a `Card` body, a `Stack` of rows) is the app's to compose.
 Enforcement is two-layer and fail-closed: the lint rule checks static JSX
 children; the archetypes verify the rendered DOM (sanctioned components stamp a
@@ -145,7 +149,9 @@ children; the archetypes verify the rendered DOM (sanctioned components stamp a
 message** — contract, slot, what was found, what is allowed, and the fix — so a
 failing check tells the author (human or agent) exactly how to build the screen.
 `LAYOUT_CONTRACTS` exports the table; no config means no checks (fully backwards
-compatible). The one opt-out is a justified `// terp-allow-layout-contract: <reason>`
+compatible). Every exported archetype must appear in it or name its reason for not
+appearing — an archetype missing from the table is silently ungoverned by both halves,
+which used to be a green build. The one opt-out is a justified `// terp-allow-layout-contract: <reason>`
 marker, counted by the escape-hatch budget.
 
 ## Data

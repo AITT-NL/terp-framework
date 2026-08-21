@@ -14,6 +14,56 @@ decision, 0001 onwards.
 
 ### Added
 
+- **The two governed archetypes and the packaged admin screens get their first pictures, and
+  one of them found a defect on its first run (ADR 0079, ADR 0097).** `OverviewPage` and
+  `DetailPage` had **zero** pixel coverage, and the three admin markers — `admin-form`,
+  `admin-section-title`, `admin-payload` — had no baseline on either platform and were never
+  rendered by the axe lane. That is how five base styles survived the whole 0094 migration
+  inside views both ratchets read as clean; the sheet's own comment on that block says so.
+  Five specimens close it: 224 baselines per platform now, and 561 axe runs.
+
+  `Page` itself was never the gap — `page-header`, `page-loading` and `page-error` picture it
+  directly. What had no picture is either archetype that *wraps* it, and with it the body shape
+  the contract actually admits: `overview-page` renders a lead `Text`, a `Divider` and a
+  `DataView`, which is the widening 4b shipped and which no specimen had ever rendered inside a
+  governed body. Three body children also put two of the page grid's gaps in frame, where
+  `page-header`'s single child only ever exercised the header-to-body one.
+
+  Two of the three admin specimens are a different *kind* of specimen from the third, and that
+  is the honest part rather than an inconsistency. `admin-user-create` mounts the **real**
+  packaged screen, because it fetches nothing on mount — a memory router carrying the real
+  `/admin/...` paths, inside the provider stack it reads. `GroupDetail` and `AuditLogAdmin`
+  build an HTTP repository and load on mount, and the registry's first rule is no live data: a
+  stubbed fetch would put the DataView's loading frame in the shot on a slow run, which is a
+  flake in the direction that looks like a real diff. Those two reproduce the surface the sheet
+  styles, and say so at the site.
+
+  And `admin-payload` had to be built twice, which is the reusable part. The first version
+  rendered the payload inside a real expanded `DataViewTable` row and **gated nothing**:
+  measured, the `<pre>` came out 1594px with `scrollWidth === clientWidth`, so it never
+  scrolled — it grew, and pushed the table from 1232 to 1626. A `<td>` under `table-layout:
+  auto` is shrink-to-fit, so nothing constrains the box, and `overflow-x: auto` on a box that is
+  never narrower than its content is inert. The picture looked like coverage either way.
+  Constrained to 34rem, the same content gives 544 against a 1594 scroll width, and deleting the
+  declaration now repaints both baselines by ~91,500 pixels *and* fails the computed lane. The
+  declaration therefore remains inert in `AuditLogAdmin` itself — carried as a debt, because the
+  fix is the DataView's expanded-cell width model and that belongs with the column-sizing work.
+
+- **An exported page archetype with no slot-table entry was a green build (ADR 0079).**
+  `verifySlotChildren` returns null for a slot the table does not name, and the lint rule
+  early-returns the same way — so an archetype exported *without* an entry is silently
+  ungoverned by **both** halves of the control: no error, no warning, and a governed app renders
+  it with the body slot wide open. Nothing asserted the two lists agreed, which made "forgot the
+  table entry" indistinguishable from "deliberately unconstrained".
+
+  Three assertions, derived from the entry point's own exports rather than restating a list —
+  a list is the thing that was missing. A new archetype joins the check by existing, and has to
+  take a slot or name its reason; a slot naming an archetype nobody exports fails the other
+  direction. The plain `Page` is the one excused entry, for the contract's own reason: it is the
+  bespoke pressure valve. The vacuity guard earned itself immediately, catching that
+  `/^[A-Z]\w*Page$/` cannot match `"Page"` — after the leading capital there is no `Page` left
+  to match, so the derived list was silently one short.
+
 - **A fourth workbench lane, for values the other three cannot see:
   `visual/computed.spec.ts` (ADR 0097).** The screenshot lane runs with
   `animations: "disabled"` — deliberately, so the spinner keyframes do not make every run
@@ -230,6 +280,19 @@ decision, 0001 onwards.
   chosen epsilon, and the shell's existing behaviour at exactly 768px is untouched.
 
 ### Fixed
+
+- **The audit payload was a scroll container no keyboard could reach.** `admin-payload` declares
+  `overflow-x: auto`, so a wide payload scrolls — and the `<pre>` carried no `tabIndex`, which is
+  the WCAG 2.1.1 failure axe reports as `scrollable-region-focusable`. `Code` block already
+  carries one for exactly this reason, with a comment at the site saying so; the audit screen's
+  `<pre>` predates it and nothing connected the two.
+
+  Found by the axe lane on the first run in which a specimen rendered the marker at all, which
+  is the point of the coverage above rather than a coincidence: those three admin markers had
+  never been rendered by that lane, in any theme. Latent rather than live today, because the
+  same measurement that found the inert `overflow-x` shows the box never actually scrolls inside
+  a table cell — but fixing the width model without this would create the trap, and fixing this
+  without the width model costs one tab stop on a box that is going to need it.
 
 - **A `Link`'s caller attributes reached a wrapper instead of the anchor, and two layout
   primitives had no list reset.** Both are the same shape — something that worked in one branch

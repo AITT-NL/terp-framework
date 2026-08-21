@@ -181,3 +181,40 @@ test("reduced motion reaches the three shapes the sheet names", async ({ page })
   await page.locator('[data-terp="breadcrumbs"]').waitFor({ state: "visible" });
   expect((await transitionOf(page, '[data-terp="breadcrumbs"] a'))!.duration).toBe("0s");
 });
+
+test("the audit payload is a scroll container, not a box that grew", async ({ page }) => {
+  // `admin-payload` declares `overflow-x: auto`, and whether that does anything is a fact
+  // about resolved layout rather than about the sheet — so a structural test cannot tell the
+  // two apart and the baseline can only see the consequence.
+  //
+  // It is here because the first version of the specimen gated NOTHING and looked like it did.
+  // Rendered inside a real expanded `DataViewTable` row — the way `AuditLogAdmin` renders it —
+  // the `<pre>` measured 1594px with `scrollWidth === clientWidth`: it never scrolled, it grew,
+  // and it pushed the table from 1232 to 1626. A `<td>` under `table-layout: auto` is
+  // shrink-to-fit, so nothing there ever constrains the box, and `overflow-x` on a box that is
+  // never narrower than its content is inert. The picture was a clipped `<pre>` either way.
+  //
+  // So the specimen constrains the container, and this reads the numbers back: content wider
+  // than the box, and the box scrolling rather than the page. Deleting `overflow-x: auto`
+  // repaints both payload baselines by ~91,500 pixels AND fails this, which is the pair worth
+  // having — one says the picture changed, the other says why.
+  await page.goto("/?theme=light&only=admin-payload");
+  await page.locator('[data-terp="admin-payload"]').waitFor({ state: "visible" });
+  const box = await page.evaluate(() => {
+    const pre = document.querySelector('[data-terp="admin-payload"]')!;
+    return {
+      client: pre.clientWidth,
+      scroll: pre.scrollWidth,
+      overflowX: getComputedStyle(pre).overflowX,
+      // A scroll container has to be reachable by keyboard (SC 2.1.1) — the same reason
+      // `Code` block carries one. axe reports the absence as `scrollable-region-focusable`,
+      // and it did, on this specimen's first run.
+      tabIndex: (pre as HTMLElement).tabIndex,
+    };
+  });
+  expect(box.overflowX).toBe("auto");
+  expect(box.scroll, "the payload must be wider than its box or the rule is inert").toBeGreaterThan(
+    box.client,
+  );
+  expect(box.tabIndex).toBe(0);
+});
