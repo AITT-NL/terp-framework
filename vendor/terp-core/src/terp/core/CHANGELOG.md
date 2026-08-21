@@ -33,10 +33,14 @@ decision, 0001 onwards.
   is the honest part rather than an inconsistency. `admin-user-create` mounts the **real**
   packaged screen, because it fetches nothing on mount — a memory router carrying the real
   `/admin/...` paths, inside the provider stack it reads. `GroupDetail` and `AuditLogAdmin`
-  build an HTTP repository and load on mount, and the registry's first rule is no live data: a
-  stubbed fetch would put the DataView's loading frame in the shot on a slow run, which is a
-  flake in the direction that looks like a real diff. Those two reproduce the surface the sheet
-  styles, and say so at the site.
+  build an HTTP repository and load on mount, and the reason for not stubbing one is narrower
+  than "no live data": `admin.test.tsx` already stubs `fetch`, and the screenshot lane would
+  likely survive it, since `toHaveScreenshot` shoots until two consecutive frames match and a
+  microtask-resolved mock settles inside that. **axe is the lane that would not.** It reads
+  the tree once, with no stability retry and no wait for data, so a run that scoped the
+  loading frame would pass on an empty `DataView` and report nothing — worse than no coverage,
+  because it looks like coverage. Those two reproduce the surface the sheet styles instead,
+  and say so at the site.
 
   And `admin-payload` had to be built twice, which is the reusable part. The first version
   rendered the payload inside a real expanded `DataViewTable` row and **gated nothing**:

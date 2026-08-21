@@ -2405,12 +2405,20 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
     // The three specimens below are deliberately not the same KIND of specimen, and the
     // difference is the honest part rather than an inconsistency. `admin-user-create` mounts
     // the real packaged screen, because that screen fetches nothing on mount. The other two
-    // owners — `GroupDetail` and `AuditLogAdmin` — build an HTTP repository and load on mount,
-    // and the registry's first rule is no live data: a stubbed fetch would put the DataView's
-    // loading frame in the shot on a slow run, which is a flake in the direction that looks
-    // like a real diff. So those two reproduce the SURFACE the sheet styles, in the real
-    // components that carry it, and the screens' own composition stays covered by
-    // `admin/admin.test.tsx`. Stated here rather than discovered later.
+    // owners — `GroupDetail` and `AuditLogAdmin` — build an HTTP repository and load on mount.
+    //
+    // A stubbed `fetch` is not out of reach: `admin/admin.test.tsx` already does exactly that
+    // with `vi.stubGlobal`, and the screenshot lane would probably survive it, because
+    // `toHaveScreenshot` keeps shooting until two consecutive frames match and a mock
+    // resolving on a microtask would settle inside that. The reason is the OTHER lane. axe
+    // reads the tree once, with no stability retry and no wait for data — so a run that
+    // scoped the loading frame would pass on an empty DataView and report nothing, which is
+    // worse than having no coverage because it looks like coverage. Adding a mock-server
+    // surface to a registry whose first rule is no live data, in order to gain a lane that
+    // can silently measure the wrong tree, is the trade being declined here.
+    //
+    // So those two reproduce the SURFACE the sheet styles, in the real components that carry
+    // it, and the screens' own composition stays covered by `admin/admin.test.tsx`.
     id: "admin",
     title: "Packaged admin screens",
     specimens: [
