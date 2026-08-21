@@ -226,6 +226,27 @@ decision, 0001 onwards.
   three separate steps. A scheduling rule with no command behind it is obeyable only by
   remembering it.
 
+- **The Standard moves to 0.25.0, and the lease rule it adds is enforced from this
+  release.** `backend/no_manual_lease_columns` refuses an application table that
+  declares its own lease bookkeeping — a holder column paired with an expiry, a
+  heartbeat stamp, or an equivalent claim deadline. **An existing app with a
+  queue-shaped table can newly fail its own gate**, which is the point: the pattern is
+  refused because the hand-rolled form reliably omits the half that makes a lease safe,
+  and until this release there was nothing to use instead.
+
+  The check itself was already here. `terp.arch`'s `check_no_manual_lease_columns`
+  shipped with the lease seam, and the Standard had no entry for it — so the framework
+  implemented a rule its own pinned spec did not catalogue, and the gate said so:
+  *rules shipped without a spec/catalog/backend entry*. That is a lockstep failure
+  rather than a design question, and the fix is the release that was already staged.
+
+  Both pins move together, as ADR 0082 requires: `terp-spec==0.25.0` and
+  `@terpjs/spec` 0.25.0, with `terp.arch.SPEC_VERSION` and the ESLint adapter's
+  `SPEC_VERSION` alongside them — four constants a test holds to one value. The
+  Standard is now 82 rules, 69 backend and 13 frontend; the escape hatch is
+  `# arch-allow-no-manual-lease-columns: <reason>` and the recipe is
+  `terp guide leases`.
+
 ### Changed
 
 - **The styling migration is finished: the last five view components and the packaged
