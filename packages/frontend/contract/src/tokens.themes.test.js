@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { APPEARANCE_MECHANISM_TOKENS } from "./appearance-mechanism.js";
 import { parseRules } from "./css-rules.js";
 
 // The token sheet's theme structure. `tokens.guard.test.ts` in react-core proves every
@@ -132,9 +133,29 @@ describe("token sheet themes", () => {
     // Space, radius, font and shadow are theme-invariant by design: declared once and
     // inherited. Re-declaring one in a single theme is how a theme quietly grows its
     // own spacing scale.
+    //
+    // The appearance switch is the one non-colour that varies per theme, and it is subtracted
+    // by name rather than by a pattern — a prefix exemption would let a whole family through.
     const theme = declarationsFor(selector);
-    const geometry = [...theme.keys()].filter((token) => !isColour(token));
+    const geometry = [...theme.keys()].filter(
+      (token) => !isColour(token) && !APPEARANCE_MECHANISM_TOKENS.includes(token),
+    );
     expect(geometry).toEqual([]);
+  });
+
+  it.each(overlayCases)("declares the whole appearance switch in $selector", ({ selector }) => {
+    // The other direction, and the one that matters: half a switch is worse than none. A theme
+    // declaring `show-light` and forgetting `show-dark` inherits the base value for the second,
+    // so a dark theme would display BOTH marks — and the gate above would say nothing, because
+    // subtracting a token from a check is not the same as requiring it.
+    const theme = declarationsFor(selector);
+    const declared = APPEARANCE_MECHANISM_TOKENS.filter((token) => theme.has(token));
+    expect(declared).toEqual(APPEARANCE_MECHANISM_TOKENS);
+    // And exactly one of the two shows, or the switch is not a switch.
+    const shown = APPEARANCE_MECHANISM_TOKENS.filter(
+      (token) => theme.get(token) === "block",
+    );
+    expect(shown).toHaveLength(1);
   });
 
   it.each([{ name: BASE.name, appearance: BASE.appearance, selector: BASE_SELECTOR }, ...overlayCases])(

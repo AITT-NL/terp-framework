@@ -45,8 +45,30 @@ interface AppShellBaseProps {
   renderLink: (item: NavItem, children: ReactNode, context: AppShellLinkContext) => ReactNode;
   /** Turns the product brand into the home link; defaults to a plain anchor to `/`. */
   renderBrandLink?: RenderBrandLink;
-  /** Brand mark at the top of the sidebar; default: the {@link TerpMark} placeholder. */
+  /**
+   * Brand mark at the top of the sidebar; default: the {@link TerpMark} placeholder.
+   *
+   * It renders inside a box of `--shell-brand-size`, so an asset larger than the icon rail no
+   * longer clips it — which is why there is no separate "collapsed mark" slot. The rail already
+   * separates the two halves of a brand: `logo` is the mark and `title` is the wordmark, and
+   * collapsing hides the title. An app whose logo is a wide lockup should split it that way
+   * rather than supply a third asset.
+   */
   logo?: ReactNode;
+  /**
+   * The mark to show on **dark-appearance** themes, when the app's brand does not survive one.
+   *
+   * The bundled icons all stroke in `currentColor` and need nothing here; a company mark
+   * usually cannot, and a dark-ink one is invisible on three of the five shipped themes. Pass
+   * this and both marks render, with CSS showing one — the theme is `<html data-theme>`, which
+   * an app may set with no provider mounted at all, so resolving it in React would be wrong for
+   * every shell that is not inside `renderTerpApp`.
+   *
+   * Which themes count as dark is not a list in the stylesheet. `themes.json` already declares
+   * each theme's `appearance` and the token build emits the switch from it, so a sixth theme
+   * cannot forget to answer.
+   */
+  logoDark?: ReactNode;
   /** Extra header content, rendered before the theme / language controls. */
   headerActions?: ReactNode;
   /**
@@ -243,6 +265,7 @@ export function AppShell({
   renderLink,
   renderBrandLink = defaultRenderBrandLink,
   logo,
+  logoDark,
   headerActions,
   contentWidth = "full",
   density,
@@ -355,11 +378,29 @@ export function AppShell({
   // the collapsed one (reached from the sidebar's data-collapsed) and the mobile one
   // (reached from the drawer's brand row, which only exists on mobile). The DOM already
   // says which it is.
+  // A box of its own around the mark, which is the thing that makes an app's asset usable:
+  // the rail is 4rem wide and the brand link used to hand whatever it was given straight to a
+  // flex row, so an oversized logo was clipped by the aside's `overflow-x: hidden` with nothing
+  // to say so. One declared size caps it in every placement.
+  //
+  // Both marks render when a dark one is given, and the SHEET picks — see `logoDark`. When it
+  // is not, there is one child and no attribute, so the common case adds a wrapper and nothing
+  // else.
+  const mark = logo ?? <TerpMark />;
   const brand = renderBrandLink({
     to: "/",
     children: (
       <>
-        {logo ?? <TerpMark />}
+        <span data-terp="appshell-mark">
+          {logoDark === undefined ? (
+            mark
+          ) : (
+            <>
+              <span data-appearance="light">{mark}</span>
+              <span data-appearance="dark">{logoDark}</span>
+            </>
+          )}
+        </span>
         <strong data-terp="appshell-brand-title">{resolvedTitle}</strong>
       </>
     ),

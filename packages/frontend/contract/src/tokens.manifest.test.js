@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { APPEARANCE_MECHANISM_TOKENS } from "./appearance-mechanism.js";
 import { parseRules } from "./css-rules.js";
 
 // The published token manifest: the same tokens as machine-readable data.
@@ -44,8 +45,22 @@ describe("token manifest", () => {
     // Either direction is a real failure: a token missing from the manifest is invisible to
     // every tool that reads it, and a token in the manifest that the sheet does not declare
     // is a control that would silently do nothing.
+    //
+    // The appearance switch is the exception and is subtracted by name. It is the theme's own
+    // `appearance` in the form a stylesheet can branch on, not a value anyone designs, and its
+    // values are `block` / `none` — a theme editor offering that pair offers a way to break the
+    // switch rather than a way to theme anything. The list is exact, so a third such property
+    // has to arrive here and say the same thing about itself.
     const manifestNames = manifest.tokens.map((token) => token.name).sort();
-    expect(manifestNames).toEqual([...base.keys()].sort());
+    const declaredNames = [...base.keys()].filter(
+      (name) => !APPEARANCE_MECHANISM_TOKENS.includes(name),
+    );
+    expect(manifestNames).toEqual(declaredNames.sort());
+    // And they really are declared — subtracting a name that is not there would hide a
+    // manifest gap rather than an exemption.
+    for (const name of APPEARANCE_MECHANISM_TOKENS) {
+      expect(base.has(name), `${name} is not declared on the base root`).toBe(true);
+    }
   });
 
   it("publishes the theme list the sheet was generated from", () => {

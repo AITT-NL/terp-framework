@@ -3,6 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The tab mark. `public/favicon.svg` is served at the site root by Vite and copied into the
+      production build as-is, so replacing that one file is the whole change — no import, no
+      hashed asset name, nothing here to edit.
+
+      Declared rather than left to the browser's default request for /favicon.ico: this is a
+      single-page app, so an unrouted request does not 404, it returns index.html, and the tab
+      shows a generic globe with no sign that anything went wrong.
+
+      The file carries both appearances in its own `prefers-color-scheme` block, because a
+      favicon is a separate document that never sees this page's tokens.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{{ project_name }}</title>
   </head>
   <body>

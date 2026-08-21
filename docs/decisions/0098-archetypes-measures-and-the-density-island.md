@@ -246,6 +246,58 @@ link's outline and ring on both edges. The computed lane asserts the **pair** �
 header, `auto` in the sidebar — because a rule that simply set `visible` everywhere would satisfy
 half of it while silently taking the sidebar's scrolling away.
 
+### 9. The brand mark gets a box, a pair, and no third slot
+
+Three things were missing from the brand and only two of them turned out to be slots.
+
+**A box.** The brand link handed whatever it was given straight into a flex row, so an app's
+asset sized itself — and an oversized one was clipped by the sidebar's `overflow-x: hidden`,
+with nothing to say so, in the 4rem rail where a mark most needs to survive. `--shell-brand-size`
+is published and the mark renders inside it. Zero-diff: the default `TerpMark` is 28px and the
+token is `1.75rem`, so the box is exactly the size of the thing that used to be the flex item.
+
+**A pair, because a brand is not a `currentColor` glyph.** Every bundled icon strokes in
+`currentColor` and themes for free; a company mark usually cannot, and a dark-ink one is
+invisible on three of the five shipped themes — so an app with a real logo could not use them.
+`logoDark` renders a second mark and the **stylesheet** picks.
+
+Not React, and that is the load-bearing part. The theme is `<html data-theme>`, which an app may
+set from its own `main.tsx` with no `ThemeProvider` mounted at all, and `AppShell` is used
+directly by every specimen and every test. A React branch would need a context the shell does
+not require, and would fail by showing the wrong mark rather than by failing.
+
+Which themes count as dark is the part that would rot. Enumerating them in the framework
+stylesheet is a list that goes stale the first time a theme is added — and stales *silently*,
+on the new theme only. `themes.json` already requires an `appearance` per theme and the token
+build already emits `color-scheme` from it, so it emits `--appearance-show-light` /
+`--appearance-show-dark` from the same field. A sixth theme cannot forget to answer.
+
+That pair is a **mechanism, not a design token**, and saying so cost two widened gates —
+which is the right price, because both gates were stating something true and now state it more
+precisely. Geometry is theme-invariant *except* this pair, subtracted by name rather than by
+prefix; and the manifest names every base-root token *except* this pair, because a theme editor
+offering `block` / `none` offers a way to break the switch rather than a way to theme anything.
+The list lives in a hand-written module rather than being imported from the generator that emits
+it: importing it would make every future addition self-approving. A third such property fails
+both gates until someone writes down why. And a new gate covers the half a subtraction cannot:
+every theme must declare **both** halves and show exactly one, because a theme that declared
+only `show-light` would inherit the base value for the other and display both marks.
+
+**No third slot**, and the refusal is the useful part. A separate collapsed mark was on the list
+until the rail was looked at: the rail already separates the two halves of a brand, because
+`logo` is the mark and `title` is the wordmark, and collapsing hides the title. An app whose
+logo is a wide lockup should split it that way rather than supply a third asset — and the only
+thing that was actually missing for that to work is the box above.
+
+**The tab is the other half of the seam.** The template's `index.html` declared no icon at all,
+which in a single-page app is worse than a 404: the browser's default request for
+`/favicon.ico` is answered with `index.html`, so it receives HTML where it asked for an image and
+falls back to a generic mark with nothing logged anywhere. The template now ships
+`public/favicon.svg` and links it, and the file carries both appearances in its own
+`prefers-color-scheme` block — a favicon is a separate document and never sees the page's
+tokens, so `var(--color-brand-primary)` there would resolve to nothing and paint an empty
+square. Gated in both directions: the file must exist and the link must point at it.
+
 ## Consequences
 
 - Existing apps get all of it on a version bump with no app-file edits. **One** change moves
@@ -265,7 +317,12 @@ half of it while silently taking the sidebar's scrolling away.
   first of those was a slot that existed on `AppShell` all along and was unreachable from the
   entry point every app uses.
 - The header placement adds two baselines and no diffs: every existing shell specimen is
-  byte-identical, because the attribute it is keyed on is absent unless an app asks.
+  byte-identical, because the attribute it is keyed on is absent unless an app asks. The brand
+  box adds two more and likewise moves nothing, because the box is the size of the mark that was
+  already there.
+- `--shell-brand-size` is a fifth published shell token; `--appearance-show-light` /
+  `--appearance-show-dark` are deliberately **not** published, and the two gates that let them
+  through name them one by one.
 
 ## What 0097 still owes, and why it is not amended here
 

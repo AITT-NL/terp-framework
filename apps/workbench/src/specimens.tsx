@@ -207,6 +207,23 @@ const SELECT_OPTIONS = [
 
 // `AppShell` takes `renderLink` as a prop precisely so it does not depend on a router, which
 // is what lets the shell render here at all — a plain anchor is enough for a still image.
+// A brand asset that does NOT theme, which is the case the light/dark pair exists for. Fixed
+// hexes on purpose: the bundled icons all stroke in currentColor and need no pair at all, so a
+// specimen drawn that way would paint the switch and prove nothing about it.
+const BRAND_MARK_LIGHT = (
+  <svg width="28" height="28" viewBox="0 0 28 28" role="img" aria-hidden="true" focusable={false}>
+    <rect width="28" height="28" rx="7" fill="#0f172a" />
+    <path d="M8 19 14 8l6 11Z" fill="#ffffff" />
+  </svg>
+);
+
+const BRAND_MARK_DARK = (
+  <svg width="28" height="28" viewBox="0 0 28 28" role="img" aria-hidden="true" focusable={false}>
+    <rect width="28" height="28" rx="7" fill="#f8fafc" />
+    <path d="M8 19 14 8l6 11Z" fill="#0f172a" />
+  </svg>
+);
+
 const SHELL_NAV: readonly NavItem[] = [
   { label: "Overview", to: "/", icon: "home" },
   { label: "Records", to: "/records", icon: "list" },
@@ -2714,6 +2731,39 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                   density="comfortable"
                 />
               </Stack>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // The brand seam: a fixed-colour mark that cannot survive both appearances, so the app
+        // supplies a pair and the SHEET picks. The two baselines are the gate and they only work
+        // as a pair — the light one must show the dark-ink mark and the dark one the light-ink
+        // mark, so deleting either switch rule, or getting the two the wrong way round, moves
+        // exactly one of them.
+        //
+        // Collapsed as well, which is the other half of the seam: the rail is 4rem, and before
+        // the mark had a box of its own an oversized asset was clipped by the aside's
+        // overflow-x: hidden with nothing to say so. There is no separate collapsed-mark slot
+        // and this is why — `logo` is the mark, `title` is the wordmark, and the rail already
+        // hides the second.
+        id: "app-shell-brand-pair",
+        title: "AppShell — a brand mark per appearance, in the collapsed rail",
+        node: (
+          <div style={{ height: "30rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              logo={BRAND_MARK_LIGHT}
+              logoDark={BRAND_MARK_DARK}
+              defaultCollapsed
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <Text tone="muted">One asset per appearance; the theme decides.</Text>
             </AppShell>
           </div>
         ),

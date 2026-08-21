@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The default browser-tab mark, and the second half of one seam: `logo` in `main.tsx` is the
+  mark inside the app, this is the mark outside it. Replace both when the app gets a brand —
+  they are the two places a mark lives and neither implies the other.
+
+  Fixed colours rather than the design tokens, because an SVG loaded as a favicon is a separate
+  document: it never sees the page's stylesheet, so `var(--color-brand-primary)` would resolve
+  to nothing and the tab would show an empty square. What it CAN do is carry its own media
+  query, which is why the two appearances are declared here instead.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28">
+  <style>
+    .ground { fill: #2563eb; }
+    .mark { fill: none; stroke: #ffffff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    @media (prefers-color-scheme: dark) {
+      .ground { fill: #60a5fa; }
+      .mark { stroke: #0f172a; }
+    }
+  </style>
+  <rect class="ground" width="28" height="28" rx="7" />
+  <path class="mark" d="M7 10.5 14 6l7 4.5M9 12.5V21h10v-8.5" />
+</svg>

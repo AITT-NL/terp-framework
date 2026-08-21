@@ -25,8 +25,21 @@ renderTerpApp({
     en: LOCALE_EN,
     nl: LOCALE_NL,
   },
-  // The sidebar shows a placeholder mark until the app supplies its own logo here, e.g.
-  // logo: <img src="/logo.svg" alt="" width={28} height={28} />,
+  // The brand mark lives in two places and neither implies the other: `logo` is the mark
+  // inside the app, `public/favicon.svg` is the mark in the browser tab. Until both are
+  // replaced the app shows terp's placeholder in both.
+  //
+  //   logo: <img src="/logo.svg" alt="" />,
+  //
+  // Sizing is the shell's, not yours: it renders the mark in a box of --shell-brand-size, so
+  // a logo larger than the collapsed icon rail is scaled down rather than clipped. Move that
+  // token from theme.css to change it.
+  //
+  // If the mark has fixed colours and cannot survive a dark theme — most company logos
+  // cannot, and this app ships three dark themes — supply the second asset too and the
+  // stylesheet picks per theme, with no code of yours involved:
+  //
+  //   logoDark: <img src="/logo-dark.svg" alt="" />,
 {%- if use_sso %}
   // The SSO button on the sign-in screen. The backend mounts the OIDC module once the
   // OIDC_* variables are set (see .env.example + app/auth.py); until then, clicking it

@@ -244,6 +244,39 @@ describe("AppShell", () => {
     expect(document.body.style.overflow).toBe("");
   });
 
+  describe("the brand mark", () => {
+    it("gives the mark a box of its own, with one child when there is no dark pair", () => {
+      renderShell({ logo: <img src="/logo.svg" alt="" /> });
+
+      const box = document.querySelector('[data-terp="appshell-mark"]');
+      expect(box).not.toBeNull();
+      expect(box!.children).toHaveLength(1);
+      // No attribute in the common case: the switch exists only when there is something to
+      // switch between, so an app that passes one asset renders one node and no mechanism.
+      expect(box!.querySelector("[data-appearance]")).toBeNull();
+    });
+
+    it("renders both marks when a dark one is given, and labels which is which", () => {
+      renderShell({
+        logo: <img src="/logo-light.svg" alt="" />,
+        logoDark: <img src="/logo-dark.svg" alt="" />,
+      });
+
+      const box = document.querySelector('[data-terp="appshell-mark"]')!;
+      // Both are in the DOM and the SHEET picks — the theme is `<html data-theme>`, which an
+      // app may set with no provider mounted, so a React branch would be wrong for every shell
+      // outside `renderTerpApp`. That is why this asserts presence rather than absence.
+      expect(box.querySelector('[data-appearance="light"] img')).toHaveAttribute(
+        "src",
+        "/logo-light.svg",
+      );
+      expect(box.querySelector('[data-appearance="dark"] img')).toHaveAttribute(
+        "src",
+        "/logo-dark.svg",
+      );
+    });
+  });
+
   describe('navPlacement="header"', () => {
     it("moves the whole navigation into the header and renders no sidebar", () => {
       renderShell({ navPlacement: "header" });

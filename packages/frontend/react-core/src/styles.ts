@@ -1107,6 +1107,41 @@ textarea[data-terp="input"] {
   justify-content: center;
   padding-inline: 0;
 }
+/* The brand mark's box (ADR 0098 §9). The brand link used to hand whatever it was given
+   straight into a flex row, so an app's asset sized itself and an oversized one was clipped by
+   the aside's overflow-x: hidden with nothing to say so — in the 4rem rail, which is exactly
+   where a brand most needs to survive. One declared size, published as --shell-brand-size, caps
+   it in every placement, and the descendant rule catches the img or svg inside a wrapper rather
+   than only a direct child.
+   Zero-diff for every shell shipped so far: the default TerpMark is 28px and the token is
+   1.75rem, so the box is exactly the size of the thing that used to be the flex item. */
+[data-terp="appshell-mark"] {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--shell-brand-size);
+  height: var(--shell-brand-size);
+}
+[data-terp="appshell-mark"] * {
+  max-width: 100%;
+  max-height: 100%;
+}
+/* The light/dark pair, and the switch is a token because the alternative rots. The framework
+   ships five themes and three of them are dark; a company mark with dark ink is invisible on
+   those three, and the bundled icons' currentColor answer is not available to a brand asset.
+   Enumerating the dark themes HERE would be a list that goes stale the first time one is added,
+   so the token build emits --appearance-show-light / --appearance-show-dark from each theme's
+   declared appearance — the same field it already emits color-scheme from, and one
+   themes.json requires. A sixth theme cannot forget to answer.
+   The values are block / none rather than this rule's own display type, so a theme never has
+   to know what layout the shell uses: the box above does the centring, not the mark. */
+[data-terp="appshell-mark"] > [data-appearance="light"] {
+  display: var(--appearance-show-light);
+}
+[data-terp="appshell-mark"] > [data-appearance="dark"] {
+  display: var(--appearance-show-dark);
+}
 [data-terp="appshell-brand-row"] {
   display: flex;
   align-items: center;

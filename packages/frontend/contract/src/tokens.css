@@ -7,6 +7,10 @@
      text-field carets) into the light palette so it never renders as foreign
      OS-dark chrome. Each theme block below sets its own. */
   color-scheme: light;
+  /* The appearance as something a stylesheet can branch on — see appearanceSwitch above.
+     color-scheme records the same fact and no selector can read it. */
+  --appearance-show-light: block;
+  --appearance-show-dark: none;
   --color-brand-primary: #2563eb;
   --color-brand-primary-contrast: #ffffff;
   --color-brand-primary-hover: #1d4ed8;
@@ -100,6 +104,7 @@
   --shell-sidebar-width-collapsed: 4rem;
   --shell-header-height: 3rem;
   --shell-content-max-width: 80rem;
+  --shell-brand-size: 1.75rem;
   --breakpoint-sm: 480px;
   --breakpoint-md: 768px;
   --breakpoint-lg: 1024px;
@@ -138,6 +143,8 @@
    The slate-neutral dark counterpart to light, and the theme the OS dark preference selects. */
 [data-theme='dark'] {
   color-scheme: dark;
+  --appearance-show-light: none;
+  --appearance-show-dark: block;
   --color-brand-primary: #1d4ed8;
   --color-brand-primary-contrast: #ffffff;
   --color-brand-primary-hover: #2563eb;
@@ -192,6 +199,8 @@
    A near-black dark for low light and OLED displays: cooler neutrals, a deeper canvas than dark, and a deeper accent that holds a white label at AA. */
 [data-theme='midnight'] {
   color-scheme: dark;
+  --appearance-show-light: none;
+  --appearance-show-dark: block;
   --color-brand-primary: #0b4ea8;
   --color-brand-primary-contrast: #ffffff;
   --color-brand-primary-hover: #1158c7;
@@ -246,6 +255,8 @@
    A warm violet-tinted dark. Its neutrals sit in a different hue family from dark and midnight, which is what proves a theme is a palette rather than a lightness setting. */
 [data-theme='twilight'] {
   color-scheme: dark;
+  --appearance-show-light: none;
+  --appearance-show-dark: block;
   --color-brand-primary: #5b21b6;
   --color-brand-primary-contrast: #ffffff;
   --color-brand-primary-hover: #6d28d9;
@@ -300,6 +311,8 @@
    A high-contrast light theme: white surfaces, near-black text, darkened accents and visible borders. Every declared text pairing reaches AAA, not just AA. Not wired to `prefers-contrast: more` — that needs a dark high-contrast counterpart first, or a user who asked for both more contrast and dark would be handed a light theme. */
 [data-theme='contrast'] {
   color-scheme: light;
+  --appearance-show-light: block;
+  --appearance-show-dark: none;
   --color-brand-primary: #0842a0;
   --color-brand-primary-contrast: #ffffff;
   --color-brand-primary-hover: #05275a;
@@ -354,6 +367,8 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
+    --appearance-show-light: none;
+    --appearance-show-dark: block;
     --color-brand-primary: #1d4ed8;
     --color-brand-primary-contrast: #ffffff;
     --color-brand-primary-hover: #2563eb;

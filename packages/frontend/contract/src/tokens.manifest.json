@@ -972,6 +972,14 @@
       "themeable": false
     },
     {
+      "name": "--shell-brand-size",
+      "category": "shell",
+      "values": {
+        "light": "1.75rem"
+      },
+      "themeable": false
+    },
+    {
       "name": "--breakpoint-sm",
       "category": "breakpoint",
       "values": {

@@ -81,7 +81,8 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   comes from the react-core primitives (`Stack`, `Grid`, `DetailList`, the page archetypes);
   theming from the token source.
 - **The shell's geometry is tokens, not props** — `--shell-sidebar-width-expanded`,
-  `--shell-sidebar-width-collapsed`, `--shell-header-height` and `--shell-content-max-width`
+  `--shell-sidebar-width-collapsed`, `--shell-header-height`, `--shell-content-max-width`
+  and `--shell-brand-size`
   are published, so an app moves any of them from its own unlayered `theme.css` with no prop
   and no shell edit. Capping content at the measure is the one part that is a prop, because
   it is a choice rather than a length: `contentWidth: "measured"` on `renderTerpApp` leaves

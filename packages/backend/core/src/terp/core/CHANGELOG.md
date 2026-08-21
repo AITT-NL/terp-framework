@@ -144,6 +144,56 @@ decision, 0001 onwards.
   also documented as an exported `MAIN_CONTENT_ID` and never re-exported from the entry point, so
   the one argument for sharing it had no consumer either.
 
+- **The brand seam: a box, a mark per appearance, a favicon — and no third slot
+  (ADR 0098 §9).** Three things were missing from the brand and only two of them turned out to
+  be slots.
+
+  **A box.** The brand link handed whatever it was given straight into a flex row, so an app's
+  asset sized itself and an oversized one was clipped by the sidebar's `overflow-x: hidden` with
+  nothing to say so — in the 4rem rail, which is where a mark most needs to survive.
+  `--shell-brand-size` is published as a fifth shell token and the mark renders inside it.
+  Zero-diff: the default `TerpMark` is 28px and the token is `1.75rem`, so the box is exactly the
+  size of the thing that used to be the flex item, and all 242 existing baselines are
+  byte-identical.
+
+  **A mark per appearance, because a brand is not a `currentColor` glyph.** Every bundled icon
+  strokes in `currentColor` and themes for free; a company mark usually cannot, and a dark-ink
+  one is invisible on three of the five shipped themes — so an app with a real logo could not
+  use them. `logoDark` renders a second mark and the **stylesheet** picks. Not React, and that is
+  load-bearing: the theme is `<html data-theme>`, which an app may set with no `ThemeProvider`
+  mounted, and a React branch would fail by showing the wrong mark rather than by failing.
+
+  Which themes count as dark is the part that would rot — a list in the framework stylesheet
+  goes stale the first time a theme is added, silently and on the new theme only. `themes.json`
+  already requires an `appearance` and the token build already emits `color-scheme` from it, so
+  it now emits `--appearance-show-light` / `--appearance-show-dark` from the same field. A sixth
+  theme cannot forget to answer.
+
+  That pair is a **mechanism, not a design token**, and saying so cost two widened gates — the
+  right price, because both were stating something true and now state it more precisely.
+  Geometry stays theme-invariant *except* this pair, subtracted by name rather than by prefix;
+  the manifest names every base-root token *except* this pair, because a theme editor offering
+  `block` / `none` offers a way to break the switch rather than a way to theme anything. The
+  list is hand-written rather than imported from the generator that emits it, or every future
+  addition would approve itself. A **new** gate covers what a subtraction cannot: every theme
+  must declare both halves and show exactly one, since a theme declaring only `show-light` would
+  inherit the other and display both marks. Four mutations, four reds.
+
+  **No third slot**, and the refusal is the useful part. A separate collapsed mark was on the
+  list until the rail was looked at: the rail already separates the two halves of a brand,
+  because `logo` is the mark and `title` is the wordmark, and collapsing hides the title. An app
+  whose logo is a wide lockup should split it that way rather than supply a third asset — and
+  the only thing missing for that to work was the box.
+
+  **The tab is the other half of the seam.** The template's `index.html` declared no icon, which
+  in a single-page app is worse than a 404: the browser's default request for `/favicon.ico` is
+  answered with `index.html`, so it gets HTML where it asked for an image and falls back to a
+  generic mark with nothing logged anywhere. The template ships `public/favicon.svg` and links
+  it, and the file carries both appearances in its own `prefers-color-scheme` block — a favicon
+  is a separate document that never sees the page's tokens, so `var(--color-brand-primary)`
+  there would resolve to nothing and paint an empty square. Gated in both directions, and the
+  `main.tsx` comment now names both places a mark lives instead of one.
+
 - **The shell can put its navigation in the header, and moving it moves its surface with it
   (ADR 0098 §8).** `AppShell` has had exactly one shape — a full-height sidebar collapsing to an
   icon rail — which is right for the app it was built against and wrong for the one the template

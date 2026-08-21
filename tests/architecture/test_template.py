@@ -230,6 +230,23 @@ def test_frontend_skeleton_present() -> None:
     assert 'import.meta.glob("./modules/*/module.tsx"' in main
 
 
+def test_frontend_ships_a_favicon_that_index_html_actually_links() -> None:
+    # Both halves, because either one alone is silently useless: a file nothing references is
+    # never fetched, and a link to a missing file leaves the tab on the browser default with
+    # no error anywhere. A single-page app makes that worse than a 404 — the unrouted request
+    # for /favicon.ico returns index.html, so the browser gets HTML where it asked for an icon
+    # and simply gives up.
+    frontend = _PROJECT / "frontend"
+    favicon = frontend / "public" / "favicon.svg"
+    assert favicon.exists(), "the template ships no default tab mark"
+    index = (frontend / "index.html.jinja").read_text(encoding="utf-8")
+    assert 'href="/favicon.svg"' in index
+    assert 'rel="icon"' in index
+    # And it carries both appearances itself. A favicon is a separate document that never sees
+    # the page's tokens, so this is the only place its dark variant can live.
+    assert "prefers-color-scheme: dark" in favicon.read_text(encoding="utf-8")
+
+
 def test_frontend_templates_have_no_unescaped_jsx_double_braces() -> None:
     # In a copier .jinja file `{{ ... }}` is a Jinja expression, so a JSX inline-style
     # object (`style={{ ... }}`) would be mis-parsed. The frontend starter must avoid it.

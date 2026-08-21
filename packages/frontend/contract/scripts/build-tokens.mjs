@@ -94,6 +94,34 @@ for (const theme of themes) {
 }
 rmSync(buildDir, { recursive: true, force: true });
 
+/**
+ * The appearance switch: the one theme fact CSS can consume but cannot select on.
+ *
+ * `color-scheme` already records whether a theme reads light or dark, and it is the right
+ * answer for native chrome — but there is no selector for it, so nothing in a stylesheet can
+ * branch on it. Anything that must render one way under a light theme and another under a dark
+ * one therefore needs the same fact in custom-property form. Its first consumer is `AppShell`'s
+ * brand mark: the bundled icons all stroke in `currentColor`, but a company logo usually cannot,
+ * and a dark-ink one is invisible on three of the five shipped themes.
+ *
+ * Derived rather than declared per theme, and that is the whole reason it lives here. A
+ * stylesheet enumerating which themes are dark is a list that rots the first time one is added,
+ * silently — the wrong mark, on the new theme only. `appearance` is required by `themes.json`,
+ * validated above, and named in the registry's own comment as one of the four things a theme
+ * file cannot imply. So a sixth theme cannot forget to answer.
+ *
+ * Values are `block` / `none` rather than any particular layout keyword: a consumer centres
+ * from the BOX around the thing it is showing, so a theme never has to know what layout that
+ * consumer uses.
+ *
+ * Deliberately NOT in the token manifest, and the two gates that had to be widened for it say
+ * why in their own files: it is a mechanism, not a design knob, and a theme editor offering
+ * `block` / `none` as an editable pair offers a way to break the switch.
+ */
+const appearanceSwitch = (appearance) =>
+  `  --appearance-show-light: ${appearance === "light" ? "block" : "none"};
+  --appearance-show-dark: ${appearance === "dark" ? "block" : "none"};`;
+
 const themeBlocks = overlays
   .map(
     (theme) => `
@@ -101,6 +129,7 @@ const themeBlocks = overlays
    ${theme.description} */
 [data-theme='${theme.name}'] {
   color-scheme: ${theme.appearance};
+${appearanceSwitch(theme.appearance)}
 ${compiled.get(theme.name)}
 }
 `,
@@ -118,6 +147,9 @@ const output = `/**
      text-field carets) into the ${base.appearance} palette so it never renders as foreign
      OS-${base.appearance === "light" ? "dark" : "light"} chrome. Each theme block below sets its own. */
   color-scheme: ${base.appearance};
+  /* The appearance as something a stylesheet can branch on — see appearanceSwitch above.
+     color-scheme records the same fact and no selector can read it. */
+${appearanceSwitch(base.appearance)}
 ${compiled.get(base.name)}
 }
 ${themeBlocks}
@@ -125,6 +157,7 @@ ${themeBlocks}
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: ${systemDark.appearance};
+${appearanceSwitch(systemDark.appearance).replace(/^ {2}/gm, "    ")}
 ${compiled.get(systemDark.name).replace(/^ {2}/gm, "    ")}
   }
 }
