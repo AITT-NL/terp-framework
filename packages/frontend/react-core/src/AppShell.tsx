@@ -70,8 +70,6 @@ export interface AppShellProps {
 /** The `localStorage` key the sidebar's collapsed choice persists under. */
 export const SIDEBAR_STORAGE_KEY = "terp.sidebar";
 
-
-
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(
     () =>

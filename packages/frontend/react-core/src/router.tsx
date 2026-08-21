@@ -323,7 +323,13 @@ export function buildAppRouter(
       // Publish the router's Link so every layout component that renders an in-app link
       // (Breadcrumbs, HubCard) navigates client-side by default. Forgetting `renderLink`
       // used to degrade the app silently: a raw anchor, a full page reload, no error.
-      <NavLinkContext.Provider value={({ to, children }) => <Link to={to}>{children}</Link>}>
+      <NavLinkContext.Provider
+        value={({ to, children, attributes }) => (
+          <Link to={to} {...attributes}>
+            {children}
+          </Link>
+        )}
+      >
       <AppShell
         title={options.title}
         logo={options.logo}

@@ -61,7 +61,16 @@ export interface HeadingProps extends Omit<HTMLAttributes<HTMLHeadingElement>, "
 
 const DEFAULT_HEADING_SIZE: Record<HeadingLevel, HeadingSize> = { 2: "lg", 3: "base", 4: "sm" };
 
-/** A section heading inside a page body — `h2`–`h4`, with its size a separate choice. */
+/**
+ * A section heading inside a page body — `h2`–`h4`, with its size a separate choice.
+ *
+ * `data-size` is stamped for every heading, which breaks the idiom the rest of the package
+ * follows — density, Button's `md`, Grid's `auto`, Card's `boxed` and Text's own default all
+ * leave the default unstamped because the base rule *is* the default. A heading has no single
+ * default to fold into a base rule: the default depends on the level, so the base rule carries
+ * the weight and metrics and every size carries its own step. Stamping all three is what keeps
+ * the sheet from needing a rule per level as well as per size.
+ */
 export function Heading({ level, size, children, ...rest }: HeadingProps) {
   const Component = `h${level}` as "h2" | "h3" | "h4";
   const step = size ?? DEFAULT_HEADING_SIZE[level];
@@ -91,6 +100,11 @@ export interface TextProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
    * A measure is the one typographic control that is about the container rather than the text,
    * and it is enumerable here — `"narrow"` / `"base"` — rather than a length, so there are no
    * arbitrary column widths for the same reason `gap` is a token index.
+   *
+   * It caps a **block**, so it does nothing on `as="span"` — `max-width` has no effect on an
+   * inline box. That combination is a no-op rather than an error, which is worth knowing because
+   * the failure is silent; the visible cue is prose that simply never wraps where it was asked
+   * to.
    */
   measure?: "narrow" | "base";
   children?: ReactNode;
@@ -143,6 +157,8 @@ export function Code({ block = false, children, ...rest }: CodeProps) {
     );
   }
   return (
+    // tabIndex after the spread, not before: a caller removing it would leave a scroll
+    // container no keyboard can reach, which is the SC 2.1.1 failure it exists to prevent.
     <pre {...rest} data-terp="code-block" tabIndex={0}>
       <code data-terp="code">{children}</code>
     </pre>
@@ -160,6 +176,32 @@ export interface LinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>,
 /** Whether `to` is an in-app path rather than an external destination. */
 function isInApp(to: string): boolean {
   return to.startsWith("/");
+}
+
+/** A scheme (`https:`, `mailto:`, `tel:`) or a same-page fragment — an anchor's own business. */
+function isExternal(to: string): boolean {
+  return to.startsWith("#") || /^[a-z][a-z0-9+.\-]*:/i.test(to);
+}
+
+/**
+ * Refuse a destination that is neither, fail closed and directive.
+ *
+ * `to="records"` — no leading slash, no scheme — used to fall through to the external branch
+ * and render a relative anchor: a full page reload to a URL resolved against wherever the user
+ * happened to be, with the role-aware guard skipped. A caller writing that means the route, and
+ * every route in a manifest is absolute, so the silent reload is never what was wanted. Loud is
+ * strictly better, and it matches how `useRouteParam` and `useTerpNavigate` treat a path they
+ * cannot honour.
+ */
+function assertRoutable(to: string): void {
+  if (!isInApp(to) && !isExternal(to)) {
+    throw new Error(
+      `Link "to" must be an in-app path ("/records"), an absolute URL ` +
+        `("https://example.com"), or a fragment ("#section") — got "${to}". A bare relative ` +
+        "path renders an anchor that reloads the page and skips the router's guard; every " +
+        "route a manifest declares is absolute, so add the leading slash.",
+    );
+  }
 }
 
 /**
@@ -180,17 +222,22 @@ function isInApp(to: string): boolean {
  */
 export function Link({ to, newTab = false, children, ...rest }: LinkProps) {
   const navLink = useNavLink();
+  assertRoutable(to);
   if (isInApp(to) && navLink !== null) {
-    // The marker goes on a wrapper rather than on the anchor, and this is `HubCard`'s pattern
-    // for the same unavoidable reason: `navLink` takes `{ to, children }` and nothing else, so
-    // there is no way to hand the router's own `Link` an attribute. A `<span>` is inline, so it
-    // adds no box to a line of prose, and the rule reaches the anchor by descending. Widening
-    // the renderer's signature would be the alternative and would change a published type for
-    // every stack that implements it.
+    // Two destinations for two kinds of attribute, and the split is deliberate.
+    //
+    // The caller's own attributes go to the ANCHOR through the renderer's `attributes`, because
+    // that is the only place they mean anything: an `aria-label` on a wrapper is ignored, so it
+    // would be silently dropped for an in-app path and honoured for an external one — the same
+    // prop behaving differently depending on whether the destination starts with a slash.
+    //
+    // The MARKER stays on the wrapper, which is `HubCard`'s pattern. It could travel through
+    // `attributes` too, and must not: an app supplying its own renderer that destructures only
+    // `{ to, children }` is source-compatible and forwards nothing, and the failure would be an
+    // unstyled link with no error. A component's own styling hook cannot depend on a caller
+    // honouring a seam. The `<span>` is inline, so it adds no box to a line of prose.
     return (
-      <span {...rest} data-terp="link">
-        {navLink({ to, children })}
-      </span>
+      <span data-terp="link">{navLink({ to, children, attributes: rest })}</span>
     );
   }
   const external = !isInApp(to) && newTab;

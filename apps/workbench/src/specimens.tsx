@@ -408,7 +408,13 @@ function routedLinkSpecimen(): ReactNode {
     history: createMemoryHistory({ initialEntries: ["/records"] }),
   });
   return (
-    <NavLinkContext.Provider value={({ to, children }) => <RouterLink to={to}>{children}</RouterLink>}>
+    <NavLinkContext.Provider
+      value={({ to, children, attributes }) => (
+        <RouterLink to={to} {...attributes}>
+          {children}
+        </RouterLink>
+      )}
+    >
       <RouterProvider router={router} />
     </NavLinkContext.Provider>
   );
@@ -1766,6 +1772,37 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         id: "typography-link",
         title: "Link — routed and external, inside prose",
         node: routedLinkSpecimen(),
+      },
+      {
+        // `as="ul"` on both primitives, which is the only thing that paints their list reset.
+        // A <ul> arrives with a 40px inline padding and a marker per child from the UA sheet,
+        // and both components document this use — so without the reset the documented use
+        // rendered bulleted and indented, and no specimen rendered a list to notice.
+        id: "layout-as-list",
+        title: "Stack and Grid — rendered as lists, which needs the UA reset",
+        node: (
+          <Stack gap={4}>
+            <Stack as="ul" gap={2}>
+              <li>
+                <GridCell label="Stack as ul · one" />
+              </li>
+              <li>
+                <GridCell label="Stack as ul · two" />
+              </li>
+            </Stack>
+            <Grid as="ul" columns={3} gap={2}>
+              <li>
+                <GridCell label="Grid as ul · one" />
+              </li>
+              <li>
+                <GridCell label="two" />
+              </li>
+              <li>
+                <GridCell label="three" />
+              </li>
+            </Grid>
+          </Stack>
+        ),
       },
       {
         id: "nav-icons",

@@ -450,6 +450,14 @@ textarea[data-terp="input"] {
   flex-direction: column;
   gap: var(--space-2);
   margin: 0;
+  /* The list reset both of these primitives document a use for and neither had. as="ul" is
+     offered by Stack and Grid alike, and a <ul> arrives with a 40px inline padding and a
+     marker per child from the UA sheet — so the documented use rendered bulleted and indented.
+     hubpage-grid and resource-list-items already carry exactly this, because both are always
+     lists; these two are lists only when asked, which is why it was missed. A no-op on a div,
+     and the data-padding rules outweigh it at (0,2,0) when an inset is asked for. */
+  padding: 0;
+  list-style: none;
 }
 [data-terp="stack"][data-direction="row"] { flex-direction: row; }
 [data-terp="stack"][data-gap="0"] { gap: var(--space-0); }
@@ -518,6 +526,9 @@ textarea[data-terp="input"] {
   align-items: stretch;
   min-width: 0;
   margin: 0;
+  /* See the note on stack above: the same reset, for the same documented as="ul". */
+  padding: 0;
+  list-style: none;
 }
 [data-terp="grid"][data-min-column="xs"] {
   grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
