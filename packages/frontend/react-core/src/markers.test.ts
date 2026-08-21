@@ -370,6 +370,13 @@ const INLINE_BASE_STYLES: Record<string, number> = {};
  * one fails until this record is corrected. Comments are stripped first, because this file's
  * own prose says `style={}` repeatedly and the measure is otherwise a grep of its own
  * documentation.
+ *
+ * Counted with a regex rather than by splitting on the literal `style={`, and that is not
+ * tidying. JSX permits whitespace around the `=`, so `style = {{ … }}` and a value on the
+ * next line are both valid and both invisible to a literal split — either would have let a
+ * base style back in past a green gate, which is the exact failure this list exists to
+ * prevent. Verified: the two forms count 0 under the split and 1 under the regex, while
+ * every file above counts identically either way.
  */
 const INLINE_STYLE_SITES: Record<string, number> = {
   "./LoadingState.tsx": 1,
@@ -526,7 +533,7 @@ describe("data-terp markers", () => {
     // render no inline style at all.
     const sites: Record<string, number> = {};
     for (const [file, text] of production) {
-      const count = stripComments(text).split("style={").length - 1;
+      const count = stripComments(text).match(/style\s*=\s*\{/g)?.length ?? 0;
       if (count > 0) {
         sites[file] = count;
       }
