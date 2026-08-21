@@ -2908,10 +2908,21 @@ button[data-terp="input"][data-placeholder="true"] {
    TanStack's link props spread the router's own active props LAST, after the
    caller's, so on a Link the router has the final word on aria-current. This is
    the breadcrumb lesson in its exact form — reuse a semantic only where the
-   component is its sole author — and the two notions of "active" are not even the
-   same predicate here, because activeOptions.includeSearch defaults to true, so
-   the router additionally requires an exact query-string match while ModuleNav
-   compares the pathname alone. */
+   component is its sole author.
+
+   The two notions of "active" are not the same predicate, and they diverge in BOTH
+   directions, which is worth knowing before touching either. activeOptions
+   .includeSearch defaults to true, so the router additionally demands an exact
+   query-string match that ModuleNav does not — the router is narrower there. And
+   with exact matching the router compares through exactPathTest, which is
+   removeTrailingSlash(a) === removeTrailingSlash(b), while ModuleNav compares
+   pathname === item.to raw — so on a path with a trailing slash the ROUTER is
+   active and ModuleNav is not, and this rule withholds the accent edge from a tab
+   the router considers current. That second case is a real defect and it is older
+   than this rule: the inline styling it replaced read the same isActive, so the
+   behaviour is unchanged and only the reasoning was wrong. Fixing the predicate
+   belongs with the navigation model, because that is what decides what "active"
+   should mean. */
 [data-terp="module-nav-link"][data-active="true"] {
   color: var(--color-neutral-900);
   border-block-end-color: var(--color-fg-accent);

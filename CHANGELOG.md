@@ -275,12 +275,17 @@ decision, 0001 onwards.
   this the breadcrumb defect's exact shape, and the rule it produced holds — reuse a
   semantic only where the component is its sole author.
 
-  The sharper half is that the two notions of "active" are not the same predicate.
-  `activeOptions.includeSearch` defaults to true, so with exact matching the router also
-  requires an exact query-string match, while `ModuleNav` compares the pathname alone.
-  Router-active is therefore a strict subset: on any sub-page carrying a filter in the
-  URL, keying on `aria-current` would have withheld the accent edge from the tab the
-  user is standing on.
+  The sharper half is that the two notions of "active" are not the same predicate, and
+  they diverge in **both** directions. `activeOptions.includeSearch` defaults to true, so
+  with exact matching the router also requires an exact query-string match while
+  `ModuleNav` compares the pathname alone — there the router is narrower, and keying on
+  `aria-current` would have withheld the accent edge from the tab a user is standing on
+  whenever a filter is in the URL. But the router compares paths through
+  `removeTrailingSlash` and `ModuleNav` compares them raw, so on a trailing slash the
+  router is active and `ModuleNav` is not — and the accent edge goes missing on a tab the
+  router calls current. That second case is a real defect rather than a consequence of
+  this change: the inline styling it replaced read the same `isActive`, so the behaviour
+  is unchanged and it is the navigation model's to fix.
 
 - **The sign-in screen's separator ink moves from `--color-neutral-500` to
   `--color-fg-subtle`, so midnight and twilight repaint it slightly.** The two tokens
