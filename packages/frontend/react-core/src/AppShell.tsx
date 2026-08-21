@@ -49,6 +49,24 @@ export interface AppShellProps {
   logo?: ReactNode;
   /** Extra header content, rendered before the theme / language controls. */
   headerActions?: ReactNode;
+  /**
+   * Cap the routed content at the published measure (`--shell-content-max-width`), leaving
+   * each page's own header spanning the full track above it.
+   *
+   * `"full"` is the default and stamps **nothing**, which is the density prop's shape and for
+   * the same reason: full width is what the sheet already does, so an attribute for it would
+   * match no rule. So no existing app moves by a pixel until it asks.
+   *
+   * The measure and the full-width band are one mechanism rather than two features — a band
+   * only reads as a band once the column beside it is narrower — and the mechanism is the page
+   * grid it already had, not a portal and not a wrapper. Both alternatives were rejected on
+   * facts about this codebase rather than taste; see ADR 0097 §2 and the rule in `styles.ts`.
+   *
+   * "Full width" means the full width of the article's own track. `appshell-main`'s padding
+   * sits outside it, so this is a measure within the content column rather than a bleed to the
+   * window edge — which would need a negative margin, and therefore an inline site.
+   */
+  contentWidth?: "full" | "measured";
   /** Pinned to the bottom of the sidebar (the {@link UserMenu}); may read the rail state. */
   navFooter?: ReactNode | ((context: AppShellSlotContext) => ReactNode);
   /** Footer line under the content; default: a muted line with the app title. */
@@ -154,6 +172,7 @@ export function AppShell({
   renderBrandLink = defaultRenderBrandLink,
   logo,
   headerActions,
+  contentWidth = "full",
   navFooter,
   footer,
   defaultCollapsed = false,
@@ -234,6 +253,10 @@ export function AppShell({
   // in one place — this component's media query — rather than being restated as a CSS
   // @media rule that could drift from it.
   const shellVariant = isMobile ? "mobile" : "desktop";
+  // Hoisted for the same reason `collapsedAttribute` is: the default stamps nothing, so the
+  // expression has a branch, and a conditional written at the attribute is the form the marker
+  // scanner reads every literal out of.
+  const contentWidthAttribute = contentWidth === "measured" ? "measured" : undefined;
   const resolvedTitle = resolve(title);
 
   // The brand takes no style object and needs none: its three looks are the resting one,
@@ -321,7 +344,11 @@ export function AppShell({
   );
 
   return (
-    <div data-terp="appshell" data-variant={shellVariant}>
+    <div
+      data-terp="appshell"
+      data-variant={shellVariant}
+      data-content-width={contentWidthAttribute}
+    >
       {isMobile ? (
         drawerOpen && (
           <>

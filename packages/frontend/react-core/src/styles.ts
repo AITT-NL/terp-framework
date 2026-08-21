@@ -1002,13 +1002,13 @@ textarea[data-terp="input"] {
   top: 0;
   height: 100vh;
   overflow-x: hidden;
-  width: 15rem;
+  width: var(--shell-sidebar-width-expanded);
   background: var(--color-neutral-0);
   border-inline-end: 1px solid var(--color-neutral-200);
   transition: width var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="appshell-sidebar"][data-collapsed="true"] {
-  width: 4rem;
+  width: var(--shell-sidebar-width-collapsed);
 }
 /* The mobile drawer, reached from the shell root's variant rather than from an attribute
    of its own — the viewport is one fact and the root owns it. 100dvh rather than 100vh so
@@ -1159,7 +1159,7 @@ textarea[data-terp="input"] {
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
-  min-height: 3rem;
+  min-height: var(--shell-header-height);
   box-sizing: border-box;
   background: var(--color-neutral-0);
   border-block-end: 1px solid var(--color-neutral-200);
@@ -1270,6 +1270,30 @@ textarea[data-terp="input"] {
   letter-spacing: 0;
   color: var(--color-neutral-900);
   line-height: 1.3;
+}
+/* The content measure, and the subheader band, which are ONE declaration rather than two
+   features (ADR 0097 §2). A full-width band only means anything once the column beside it is
+   constrained, and constraining the column is what leaves the header spanning the full track.
+
+   No new element and no portal, and both were considered rather than assumed. A wrapper
+   around the body — display: contents included — becomes the sole child of article.children
+   and fails every governed page closed, because that slot check is a DOM traversal and sees
+   the node whether or not it generates a box. A portal leaves no node and survives that, but
+   createPortal needs a container that exists when the child renders and the shell can only
+   publish one through state: first commit local, second commit in the band, a one-frame jump
+   on every navigation traded for nothing.
+
+   Neither is needed, because [data-terp="page"] is ALREADY a single-column grid. The header
+   keeps the track; every other child takes the measure. So the band is the header that was
+   always there.
+
+   Gated on an attribute the SHELL stamps, so nothing moves for any app today: with
+   data-content-width absent this rule matches nothing at all. And "full width" means the full
+   width of the article's own track — appshell-main's padding is outside it, so this is a
+   measure within the content column rather than a bleed to the window edge, which would need
+   a negative margin and therefore an inline site. */
+[data-terp="appshell"][data-content-width="measured"] [data-terp="page"] > *:not(header) {
+  max-width: var(--shell-content-max-width);
 }
 
 /* The sign-in screen ------------------------------------------------------- */

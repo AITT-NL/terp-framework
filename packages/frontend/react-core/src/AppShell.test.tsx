@@ -117,6 +117,47 @@ describe("AppShell", () => {
     ).not.toHaveAttribute("data-collapsed");
   });
 
+  it("stamps data-content-width only when the measure is asked for", () => {
+    // The default has to stamp NOTHING, and that is the assertion rather than a detail: the
+    // rule is keyed on `[data-content-width="measured"]`, so an attribute for the full-width
+    // case would match nothing while looking like it configured something — and every app on
+    // the default must render byte-identically to before the prop existed.
+    const { unmount } = renderShell();
+    expect(document.querySelector('[data-terp="appshell"]')).not.toHaveAttribute(
+      "data-content-width",
+    );
+    unmount();
+
+    renderShell({ contentWidth: "full" });
+    expect(
+      document.querySelector('[data-terp="appshell"]'),
+      'contentWidth="full" is the sheet\'s own behaviour, so it stamps no attribute',
+    ).not.toHaveAttribute("data-content-width");
+    cleanup();
+
+    renderShell({ contentWidth: "measured" });
+    expect(document.querySelector('[data-terp="appshell"]')).toHaveAttribute(
+      "data-content-width",
+      "measured",
+    );
+  });
+
+  it("keeps the measure attribute on the shell root, above the page it constrains", () => {
+    // Ownership, which the selector depends on: the rule descends from the shell root to
+    // `[data-terp="page"]`, so the attribute cannot live on `main` or on the page itself. A
+    // later refactor moving it one element down would break the measure with no test failing
+    // unless this says where it belongs.
+    renderShell({ contentWidth: "measured" });
+    const root = document.querySelector('[data-terp="appshell"]')!;
+    expect(root.getAttribute("data-content-width")).toBe("measured");
+    for (const marker of ["appshell-column", "appshell-main", "appshell-header"]) {
+      expect(
+        document.querySelector(`[data-terp="${marker}"]`),
+        `${marker} must not carry the measure attribute — the rule keys on the shell root`,
+      ).not.toHaveAttribute("data-content-width");
+    }
+  });
+
   it("renders a custom logo and footer in their slots", () => {
     renderShell({ logo: <span>MyMark</span>, footer: <span>v1.2.3</span> });
     expect(screen.getByText("MyMark")).toBeInTheDocument();

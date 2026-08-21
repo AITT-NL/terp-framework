@@ -908,6 +908,38 @@
       "themeable": false
     },
     {
+      "name": "--shell-sidebar-width-expanded",
+      "category": "shell",
+      "values": {
+        "light": "15rem"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--shell-sidebar-width-collapsed",
+      "category": "shell",
+      "values": {
+        "light": "4rem"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--shell-header-height",
+      "category": "shell",
+      "values": {
+        "light": "3rem"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--shell-content-max-width",
+      "category": "shell",
+      "values": {
+        "light": "80rem"
+      },
+      "themeable": false
+    },
+    {
       "name": "--breakpoint-sm",
       "category": "breakpoint",
       "values": {

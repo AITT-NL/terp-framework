@@ -66,6 +66,15 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   // `wide` is 0.08em, for the uppercase-label treatment nothing in the package uses; the
   // sheet's two non-zero letter-spacings are 0.04em and 0.06em, so it maps onto neither.
   "--font-letter-spacing-": ["--font-letter-spacing-wide"],
+  // The shell's published geometry, tracked from the day it shipped rather than after
+  // something rots. All four have readers — two sidebar widths, the header's floor and the
+  // content measure — so the list is empty, and empty is the assertion: a fifth shell token
+  // added without a rule to read it lands here and has to justify itself. That is the exact
+  // offence `--color-fg-on-brand` was deleted for, and the reason it went unnoticed for a
+  // release is that only three families were tracked at all. (Still only four: `--color-`,
+  // `--space-`, `--radius-` and the rest publish unread tokens with nothing to say so. The
+  // sidebar colour family is currently in that state — see the shell work that wires it.)
+  "--shell-": [],
 };
 
 /**

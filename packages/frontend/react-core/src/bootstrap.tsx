@@ -100,6 +100,12 @@ export interface RenderTerpAppOptions {
   /** Footer line under the content; default: a muted line with the app title. */
   footer?: ReactNode;
   /**
+   * Cap routed content at the published measure, with each page's header on the full track
+   * ({@link AppShell.contentWidth}); default `"full"`, which changes nothing. Move the measure
+   * itself from an app's own `theme.css`: `--shell-content-max-width`.
+   */
+  contentWidth?: "full" | "measured";
+  /**
    * Ship the packaged admin area (default `true`): the admin-gated sidebar entry, the
    * `/admin` hub, and the users / groups / audit screens over the base-profile
    * capabilities. An app route claiming one of its paths overrides that screen;
@@ -234,6 +240,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
     title: options.title,
     logo: options.logo,
     footer: options.footer,
+    contentWidth: options.contentWidth,
     layoutContract: options.layoutContract,
   });
   const root = options.rootElement ?? document.getElementById("root");

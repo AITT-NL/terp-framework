@@ -14,6 +14,57 @@ decision, 0001 onwards.
 
 ### Added
 
+- **The shell's geometry is four published tokens, and the content measure exists at last
+  (ADR 0097 §1, §2).** The two sidebar widths and the header's floor were literals in the
+  sheet, and there was **no content max-width and no way to add one** — so a wide table
+  stretched edge to edge on a large monitor with no measure control anywhere in the framework.
+
+  `--shell-sidebar-width-expanded`, `--shell-sidebar-width-collapsed`, `--shell-header-height`
+  and `--shell-content-max-width`, in one `shell` family so the manifest carries them as one
+  category and an app tunes them together from its own unlayered `theme.css` with **no prop at
+  all**. Tokens rather than props is the decision and it is not stylistic: four CSS lengths as
+  props are four inline styles on the shell root, which is 0094 §3's permanent-inline kind — so
+  the ledger would have grown by four for something that is not a measured value but a theming
+  knob. As tokens the guard refuses one the contract has not published, and the Studio gains
+  four manifest controls for free. Wiring the three existing literals was **provably** inert:
+  the token values *are* the literals, and all 224 baselines stayed byte-identical on both
+  platforms.
+
+  The measure ships behind `contentWidth` on the shell (also on `buildAppRouter` and
+  `renderTerpApp`), default `"full"`, which stamps nothing — the density prop's shape, for the
+  density prop's reason: full width is what the sheet already does, so an attribute for it
+  would match no rule. With it absent, not one declaration applies.
+
+  **The measure and the subheader band are one declaration, not two features.** A full-width
+  band only reads as a band once the column beside it is narrower, and `[data-terp="page"]` is
+  *already* a single-column grid — so the band is the page's existing `<header>` keeping the
+  track while its siblings take the measure. No new element, no new marker, no portal. Both
+  alternatives were rejected on facts rather than taste: a body wrapper (`display: contents`
+  included) becomes the sole entry in `article.children` and fails every governed page closed,
+  because that slot check is a DOM traversal; and `createPortal` needs a container that exists
+  when the child renders, so the shell could only publish one through state — first commit
+  local, second commit in the band, a one-frame jump on every navigation.
+
+  One thing stated rather than left to be discovered: "full width" is the full width of the
+  article's own track. `appshell-main`'s padding sits outside it, so this is a measure within
+  the content column, not a bleed to the window edge — which would need a negative margin and
+  therefore an inline site.
+
+  And the specimen needed 1920, which was arithmetic rather than preference and was measured
+  rather than predicted. The rule fires only once the article's track exceeds the 80rem
+  measure, and the track is far narrower than the window: 1280 gives article 898 / body 898,
+  1600 gives 1218 / 1218, and only 1920 gives 1538 / 1280. **Both** the pinned viewport and the
+  obvious wider one would have recorded a green baseline over a declaration that never fired. A
+  predicted figure had said 1632/352px by subtracting only the sidebar and the main padding;
+  the specimen's own box and the scrollbar gutter come off too. Moving the measure one step
+  (80rem → 72rem) now repaints 42,296 pixels on exactly those two baselines and fails the
+  computed lane.
+
+  `tokens.guard.test.ts` tracks the `--shell-` family from the day it shipped, as an empty
+  list: a fifth shell token with no reader lands there and has to justify itself. That is the
+  offence `--color-fg-on-brand` was deleted for, and it went unnoticed for a release because
+  only three families were tracked at all.
+
 - **The two governed archetypes and the packaged admin screens get their first pictures, and
   one of them found a defect on its first run (ADR 0079, ADR 0097).** `OverviewPage` and
   `DetailPage` had **zero** pixel coverage, and the three admin markers — `admin-form`,

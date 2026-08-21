@@ -218,3 +218,72 @@ test("the audit payload is a scroll container, not a box that grew", async ({ pa
   );
   expect(box.tabIndex).toBe(0);
 });
+
+test("the content measure caps the body and leaves the header on the full track", async ({
+  page,
+}) => {
+  // The measure and the subheader band are one mechanism (ADR 0097 §2), and the baseline can
+  // only say "these two are different widths". The numbers are the contract, so they live
+  // here: the page's own header keeps the article's full track while every other direct child
+  // is capped at `--shell-content-max-width`.
+  //
+  // It is also the anti-vacuity guard for `app-shell-measured`, and that is not theoretical.
+  // The rule only fires once the article's track is wider than the 80rem measure, and the
+  // article is much narrower than the window — the sidebar, `appshell-main`'s padding, the
+  // specimen's own box and the scrollbar gutter all come off it. Measured at three widths:
+  // 1280 gives article 898 / body 898, 1600 gives 1218 / 1218, and only 1920 gives 1538 / 1280.
+  // So both the pinned viewport AND the obvious wider one would have recorded a green baseline
+  // over a declaration that never fired.
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.goto("/?theme=light&only=app-shell-measured");
+  await page.locator('[data-terp="page"]').waitFor({ state: "visible" });
+
+  const measured = await page.evaluate(() => {
+    const article = document.querySelector('[data-terp="page"]')!;
+    const header = article.querySelector(':scope > header')!;
+    const body = [...article.children].filter((child) => child.tagName !== "HEADER");
+    const width = (element: Element) => Math.round(element.getBoundingClientRect().width);
+    return {
+      article: width(article),
+      header: width(header),
+      body: body.map(width),
+      token: getComputedStyle(document.documentElement)
+        .getPropertyValue("--shell-content-max-width")
+        .trim(),
+    };
+  });
+
+  expect(measured.token).toBe("80rem");
+  // The header spans the track, and the track is genuinely wider than the measure — assert
+  // that rather than a bare inequality, or the test passes on a page too narrow to cap.
+  expect(measured.header).toBe(measured.article);
+  expect(
+    measured.article,
+    "the specimen's viewport must leave a track wider than the measure, or nothing is capped",
+  ).toBeGreaterThan(1280);
+  // Every body child sits at the measure, not at the track.
+  expect(measured.body.length).toBeGreaterThan(0);
+  expect(measured.body).toEqual(measured.body.map(() => 1280));
+});
+
+test("the measure applies to nothing until the shell asks for it", async ({ page }) => {
+  // The other half of "nothing moves for any app today". With `contentWidth` left at its
+  // default the shell stamps no attribute, so the rule matches nothing — and the way to show
+  // that is a shell WITHOUT the attribute at a width where the capped one is visibly capped.
+  // `app-shell` is that shell; rendered at 1920 its body must reach the full track.
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.goto("/?theme=light&only=app-shell");
+  await page.locator('[data-terp="appshell"]').waitFor({ state: "visible" });
+  const shell = await page.evaluate(() => {
+    const root = document.querySelector('[data-terp="appshell"]')!;
+    const main = root.querySelector('[data-terp="appshell-main"]')!;
+    const child = main.firstElementChild;
+    return {
+      attribute: root.getAttribute("data-content-width"),
+      main: Math.round(main.getBoundingClientRect().width),
+      child: child === null ? null : Math.round(child.getBoundingClientRect().width),
+    };
+  });
+  expect(shell.attribute).toBeNull();
+  expect(shell.main).toBeGreaterThan(1280);
+});

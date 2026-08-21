@@ -78,8 +78,15 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   is a complete colour set held to WCAG AA on every declared text pairing (`contrast` to AAA);
   geometry is declared once in `:root` and inherited.
 - **No `style={}`, no `className`, no module-authored stylesheets in app modules** — layout
-  comes from the react-core primitives (`Stack`, `DetailList`, the page archetypes); theming
-  from the token source.
+  comes from the react-core primitives (`Stack`, `Grid`, `DetailList`, the page archetypes);
+  theming from the token source.
+- **The shell's geometry is tokens, not props** — `--shell-sidebar-width-expanded`,
+  `--shell-sidebar-width-collapsed`, `--shell-header-height` and `--shell-content-max-width`
+  are published, so an app moves any of them from its own unlayered `theme.css` with no prop
+  and no shell edit. Capping content at the measure is the one part that is a prop, because
+  it is a choice rather than a length: `contentWidth: "measured"` on `renderTerpApp` leaves
+  each page's own header spanning the full track above the capped column. The default changes
+  nothing.
 - **Every routed view renders a page archetype** (`Page` / `OverviewPage` / `DetailPage` /
   `HubPage`) — `buildAppRouter` refuses an unframed view at runtime, fail closed.
 - **Slot-typed layout contracts (opt-in, ADR 0079)** — an app that checks in a

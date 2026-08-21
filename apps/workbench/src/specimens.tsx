@@ -2370,6 +2370,59 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The content measure and the band it creates, which are one mechanism and need one
+        // picture (ADR 0097 §2). Three things are only visible here, and the viewport is the
+        // one that was measured rather than predicted.
+        //
+        // `--shell-content-max-width` is 80rem = 1280px, and the rule caps nothing until the
+        // article's own track is wider than that. Measured, at three widths, with this
+        // specimen's wrapper, `appshell-main`'s padding and the scrollbar gutter all in play:
+        //
+        //     1280 -> article 898, body 898     (rule matches, caps nothing)
+        //     1600 -> article 1218, body 1218   (still nothing)
+        //     1920 -> article 1538, body 1280   (258px of cap, and a band)
+        //
+        // So the pinned 1280 is not merely a weak picture of this rule, it is a green baseline
+        // over a declaration that never fires — and so is 1600, which was the first guess. A
+        // predicted figure said 1632/352px at 1920 by subtracting only the sidebar and the main
+        // padding; the real track is 1538 because the specimen's own box and the gutter come
+        // off too. Threshold-shaped rules need the number from the browser.
+        //
+        // The body has to be something that WANTS the full width, for the reason
+        // `app-shell-narrow` needed a DataView rather than a paragraph: a short block is
+        // narrower than the measure either way, so the rule would apply to nothing observable.
+        //
+        // And the page needs a header with a trail, because the band IS that header — no new
+        // element, no portal. Without breadcrumbs the header row is one short title and the
+        // full-track behaviour has nothing to show; with them the trail runs the full 1538
+        // while the table below it stops at 1280, which is the whole shape.
+        id: "app-shell-measured",
+        title: "AppShell — content capped at the measure, header on the full track",
+        viewport: { width: 1920, height: 900 },
+        node: (
+          <div style={{ height: "50rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              contentWidth="measured"
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <Page
+                title="Sync definitions"
+                breadcrumbs={[{ label: "Records", to: "/records" }]}
+                actions={<Button variant="primary">New sync</Button>}
+              >
+                <DataView repository={SYNC_REPOSITORY} columns={WIDE_SYNC_COLUMNS} />
+              </Page>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
         // The desktop shell just above the breakpoint — the band between 769px and wide, which
         // the pinned viewport also cannot reach. The sidebar's `flex-shrink: 0` is documented as
         // biting here and nowhere else, and the content is deliberately something with a real

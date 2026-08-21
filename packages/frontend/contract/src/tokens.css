@@ -92,6 +92,10 @@
   --z-index-popover: 60;
   --z-index-tooltip: 70;
   --z-index-toast: 100;
+  --shell-sidebar-width-expanded: 15rem;
+  --shell-sidebar-width-collapsed: 4rem;
+  --shell-header-height: 3rem;
+  --shell-content-max-width: 80rem;
   --breakpoint-sm: 480px;
   --breakpoint-md: 768px;
   --breakpoint-lg: 1024px;

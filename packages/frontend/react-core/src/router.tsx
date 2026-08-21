@@ -236,6 +236,11 @@ export interface BuildAppRouterOptions {
   logo?: ReactNode;
   /** Footer line under the content; default: a muted line with the app title. */
   footer?: ReactNode;
+  /**
+   * Cap routed content at the published measure, with each page's header on the full track
+   * ({@link AppShell.contentWidth}); default `"full"`, which changes nothing.
+   */
+  contentWidth?: "full" | "measured";
   /** Role-name -> minimum rank; an unknown role is denied (fail closed). */
   roleRanks?: Record<string, number>;
   /** Rendered when the current user may not access a route (default: a simple message). */
@@ -334,6 +339,7 @@ export function buildAppRouter(
         title={options.title}
         logo={options.logo}
         footer={options.footer}
+        contentWidth={options.contentWidth}
         nav={nav}
         renderBrandLink={({ to, children }) => (
           <Link to={to} data-terp="appshell-brand">

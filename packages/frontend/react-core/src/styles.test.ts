@@ -242,6 +242,33 @@ describe("cascade structure", () => {
         `z-index: var(${token})`,
       );
     }
+    // The shell's three geometry literals, same shape and the same reason. `15rem`, `4rem` and
+    // `3rem` are now published tokens an app moves from its own unlayered `theme.css` with no
+    // prop at all (ADR 0097 §1), and restating any of them as a number here would move no
+    // baseline — the values are identical, which is what made the conversion provably
+    // zero-diff — while quietly taking the knob away again. `tokens.guard.test.ts` holds the
+    // other direction: a shell token nothing reads fails there.
+    for (const [declaration, what] of [
+      ["width: var(--shell-sidebar-width-expanded)", "the expanded sidebar"],
+      ["width: var(--shell-sidebar-width-collapsed)", "the collapsed icon rail"],
+      ["min-height: var(--shell-header-height)", "the sticky header's floor"],
+    ] as const) {
+      expect(base, `${what} must read its token rather than restating the length`).toContain(
+        declaration,
+      );
+    }
+    // And the content measure, which no structural check can reach through a marker: it is the
+    // one shell rule keyed on a descendant of an attribute rather than on a marker of its own,
+    // because the mechanism is deliberately NOT a new element (ADR 0097 §2). The `:not(header)`
+    // is the whole band: the header keeps the page grid's full track while its siblings take
+    // the measure.
+    expect(
+      base,
+      "the content measure must stay a page-grid constraint gated by the shell's attribute",
+    ).toContain(
+      '[data-terp="appshell"][data-content-width="measured"] [data-terp="page"] > *:not(header) {',
+    );
+    expect(base).toContain("max-width: var(--shell-content-max-width)");
     // And the mobile half of the shell, where the three selectors below now differ from each
     // other and the difference is the interesting part. The BEHAVIOUR is covered throughout by
     // AppShell.test.tsx (focus containment, inert page, close-on-nav) with a stubbed
