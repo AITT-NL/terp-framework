@@ -1372,8 +1372,9 @@ textarea[data-terp="input"] {
    a negative margin and therefore an inline site.
 
    WIDTH, not max-width, and that is the whole correctness of the rule rather than a
-   preference. This selector weighs (0,3,1) — three attributes plus the element inside
-   :not() — so as a max-width it OUTRANKS every component that declares a narrower one, and
+   preference. This selector weighs (0,4,0) — four attribute selectors, three of them here and
+   one inside :not(), and the universal contributes nothing — so as a max-width it OUTRANKS
+   every component that declares a narrower one, and
    five of them are legal children of a governed body: resource-list (40rem), admin-form
    (32rem), dialog (26rem) and text[data-measure] at 48ch and 72ch. Measured before it was
    fixed: an admin-form inside a measured shell computed max-width 1280px instead of 512px,

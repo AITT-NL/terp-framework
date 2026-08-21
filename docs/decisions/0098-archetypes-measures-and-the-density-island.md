@@ -84,8 +84,10 @@ card's clothes*. Folding those three into the archetype is the follow-up.
 
 ### 4. The content measure is a `width`, not a `max-width`, and that is correctness
 
-Its selector weighs (0,3,1). As a `max-width` it therefore **out-specifies** every component
-declaring a narrower one, and five are legal children of a governed body. Measured before the
+Its selector weighs (0,4,0) — four attribute selectors, one of them inside `:not()`, with the
+universal contributing nothing. As a `max-width` it therefore **out-specifies** every component
+declaring a narrower one, and five are legal children of a governed body: `admin-form` at
+(0,1,0), `text[data-measure]` at (0,2,0), and the rest below that. Measured before the
 fix: an `admin-form` inside a measured shell computed `max-width: 1280px` instead of `512px`, so
 the packaged provisioning form rendered two and a half times too wide — and `resource-list`
 (40rem), `dialog` (26rem) and both `Text` measures lost theirs too, including the very prop this
@@ -99,7 +101,11 @@ property at higher specificity.**
 
 The exemption is keyed on the `page-header` **marker** rather than the `header` **tag**, because
 `:not(header)` exempts any `<header>` a bespoke page happens to render as a direct child — which
-would hand it a second full-width band it never asked for.
+would hand it a second full-width band it never asked for. That swap is also what took the
+selector from (0,3,1) to (0,4,0): an attribute inside `:not()` weighs more than an element does.
+It strengthens the argument above rather than weakening it — and it is the reason the number is
+stated here rather than left to be recomputed, since the first three places it was written down
+kept the pre-swap figure.
 
 ### 5. The comfortable island ships, because the shell density is what asked
 
@@ -111,7 +117,15 @@ ADR 0094 §4 deferred a comfortable copy of the density tokens "until something 
 That was harmless while nothing could make an ancestor compact. `AppShell density="compact"`
 makes `DataView density="comfortable"` a legal combination that silently does nothing — the
 defect shape this phase has refused four times. So the deferral ends here rather than being
-renewed: comfortable gains named tokens and a rule, and both values are stamped.
+renewed: comfortable gains named tokens and a rule, and a component stamps whichever value it
+was asked for.
+
+**Asked for, and not defaulted** — which shipped wrong once and is worth the sentence. Giving
+`AppShell` a `density` default of `"comfortable"` reads as harmless, because comfortable is the
+`:root` value. It is not, and the island is exactly why: now that comfortable has a rule,
+stamping it on the shell root overrides `data-density="compact"` on `<html>`, which 0094 §4
+names as *the app-wide case*. An unasked-for shell prop must not beat an app-wide choice, so
+absence means "inherit whatever is above me".
 
 It composes through **inheritance, not specificity**. The nearest ancestor carrying either
 attribute sets the live tokens for its subtree, so an island re-sets them; the two selectors

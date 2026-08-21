@@ -274,7 +274,7 @@ describe("cascade structure", () => {
       .toBeNull();
     const measureBody = measureRule![1]!;
     // WIDTH, not max-width, and this assertion is the gate on that. The selector weighs
-    // (0,3,1), so as a max-width it outranks every component declaring a narrower one —
+    // (0,4,0), so as a max-width it outranks every component declaring a narrower one —
     // resource-list, admin-form, dialog and both text measures — and an admin-form inside a
     // measured shell computed 1280px instead of 512px. As a width it composes, because CSS
     // resolves max-width after width. Nothing renders differently for a child with no measure

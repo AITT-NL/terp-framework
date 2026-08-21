@@ -327,7 +327,7 @@ test("the measure composes with a component's own narrower measure instead of re
   // The regression guard for the defect that made the measure a `width` rather than a
   // `max-width`, and it is here rather than in a baseline because no picture can hold it.
   //
-  // The measure's selector weighs (0,3,1) — three attributes plus the element inside
+  // The measure's selector weighs (0,4,0) — four attribute selectors, one of them inside
   // `:not()` — so as a `max-width` it outranked every component declaring a narrower one, and
   // five of them are legal children of a governed body. Measured before the fix: an
   // `admin-form` inside a measured shell computed 1280px instead of 512px, so the packaged
