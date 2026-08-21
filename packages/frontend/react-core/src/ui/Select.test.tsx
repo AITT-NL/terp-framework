@@ -44,14 +44,55 @@ describe("Select — the options list", () => {
     expect(screen.getByRole("option")).toHaveTextContent("nl:status.open");
   });
 
-  it("renders the placeholder as a disabled, empty-valued leading row", () => {
+  it("shows the placeholder as the selected row, not just as an option", () => {
+    // The selection is the assertion, and the markup-only version of this test was green
+    // against a real bug. HTML's selectedness algorithm picks the first option that is NOT
+    // disabled, so a disabled placeholder row is skipped and the control opens on the first
+    // real choice: measured, `value=open, selectedIndex=1`, with a "Choose a status" row sitting
+    // in the list that the user never saw. Every markup assertion below passed throughout.
     render(<Select aria-label="Status" options={STATUSES} placeholder="Choose a status" />);
-    const first = screen.getAllByRole("option")[0] as HTMLOptionElement;
-    // All three properties matter: an enabled placeholder is selectable, and a non-empty
-    // value would submit the prompt text as data.
-    expect(first.textContent).toBe("Choose a status");
-    expect(first.value).toBe("");
-    expect(first.disabled).toBe(true);
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(select.selectedIndex).toBe(0);
+    expect(select.options[0]!.textContent).toBe("Choose a status");
+    // Still disabled and still empty-valued: an enabled placeholder is re-selectable, and a
+    // non-empty value would submit the prompt text as data.
+    expect(select.options[0]!.disabled).toBe(true);
+    expect(select.options[0]!.value).toBe("");
+  });
+
+  it("lets an explicit value win over the placeholder", () => {
+    // The other half: starting empty is a default for the unpinned case, not an override. A
+    // caller who pins a value gets it, and the placeholder stays in the list as the row they
+    // came from.
+    render(
+      <Select aria-label="Status" options={STATUSES} placeholder="Choose" defaultValue="doing" />,
+    );
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    expect(select.value).toBe("doing");
+    expect(select.selectedIndex).toBe(2);
+  });
+
+  it("resolves a placeholder descriptor too, not only a plain string", () => {
+    // `placeholder` is typed `UiText`, and a `string`-only version would have compiled just as
+    // well while rendering "[object Object]" on screen — the string test above cannot tell the
+    // two apart, so this is the assertion that can.
+    //
+    // (An earlier version of this comment claimed `SelectHTMLAttributes` already declares
+    // `placeholder?: string` and that the union therefore intersects with it. It does not:
+    // `placeholder` is declared on `AllHTMLAttributes`, `InputHTMLAttributes` and
+    // `TextareaHTMLAttributes` only. There is no intersection here, and the prop is simply
+    // ours.)
+    render(
+      <UiTextProvider resolveText={(text) => (typeof text === "string" ? text : `nl:${text.id}`)}>
+        <Select
+          aria-label="Status"
+          options={STATUSES}
+          placeholder={{ id: "status.choose", message: "Choose a status" }}
+        />
+      </UiTextProvider>,
+    );
+    expect(screen.getAllByRole("option")[0]).toHaveTextContent("nl:status.choose");
   });
 
   it("hands onValueChange the selected value, and still fires the raw onChange", () => {
@@ -119,6 +160,64 @@ describe("Select — what did not change", () => {
     for (const select of container.querySelectorAll("select")) {
       expect(select.getAttribute("style")).toBeNull();
     }
+  });
+
+  it("still accepts a multiple select with an array value", () => {
+    // A regression this file exists to prevent, because it happened. The first version of the
+    // options work put the narrowed `value?: T` on BOTH branches, which quietly made
+    // `<Select multiple value={["a", "b"]}>` a typecheck error — a shape a raw `<select>` has
+    // and this component had always accepted. Nothing in the repo used it, so no gate noticed;
+    // it was found by probing the type rather than by running the suite.
+    //
+    // The narrowing only earns anything where `T` can be inferred, which is the options list.
+    // So the raw-children branch keeps `SelectHTMLAttributes` untouched, and this case is the
+    // assertion that says so. It has to COMPILE as much as pass.
+    render(
+      <Select aria-label="Tags" multiple value={["a", "b"]} onChange={() => {}}>
+        <option value="a">A</option>
+        <option value="b">B</option>
+        <option value="c">C</option>
+      </Select>,
+    );
+    const select = screen.getByRole("listbox") as HTMLSelectElement;
+    expect(select.multiple).toBe(true);
+    expect([...select.selectedOptions].map((option) => option.value)).toEqual(["a", "b"]);
+  });
+
+  it("still accepts a numeric value with numeric option children", () => {
+    // The other shape the over-eager narrowing broke: `value?: string | number` is what
+    // `SelectHTMLAttributes` declares, and a rank ladder rendered as numbers is the obvious
+    // caller — `UserCreate` was written that way before it moved to an options list.
+    render(
+      <Select aria-label="Rank" value={20} onChange={() => {}}>
+        <option value={10}>Viewer</option>
+        <option value={20}>Editor</option>
+      </Select>,
+    );
+    expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("20");
+  });
+
+  it("keeps React's own read-only diagnostic for a value with no handler", () => {
+    // The change that removed this was an unconditional onChange wrapper: React's
+    // `checkControlledValueProps` short-circuits on `props.onChange`, so attaching one always
+    // silenced the "you provided a `value` prop to a form field without an `onChange` handler"
+    // warning. The control then looked editable, never updated, and said nothing about it —
+    // strictly worse than before the options list existed. The wrapper is attached only when
+    // there is something to call.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<Select aria-label="Status" options={STATUSES} value="open" />);
+    const logged = errors.mock.calls.map((call) => String(call[0])).join(" ");
+    errors.mockRestore();
+    expect(logged).toContain("without an `onChange` handler");
+  });
+
+  it("still renders with neither options nor children", () => {
+    // Legal before this component took an options list — a screen that renders its select
+    // before its choices have loaded — so `children` stays optional on that branch. Making it
+    // required was an unannounced breaking type change that nothing in the repo exercised.
+    render(<Select aria-label="Empty" />);
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
   });
 
   it("forwards arbitrary select attributes to the element", () => {

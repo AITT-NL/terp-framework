@@ -89,11 +89,29 @@ describe("every archetype the package exports is governed, or says it is not", (
   // Derived from the public surface rather than restated as a list, because a list is the
   // thing that was missing: a new `FormPage` export joins this check by existing, and has to
   // either take a slot or come here and say why.
+  // Two independent derivations, unioned, because each has a blind spot the other covers.
+  //
+  // The named-export scan reads `export { X } from` and `export { X as Y } from` — the alias
+  // form matters, since the exported name is what a consumer writes. It cannot see
+  // `export * from`, and index.ts already contains one (`./dataview`), so on its own this
+  // derivation would let an archetype re-exported through a sub-namespace escape all three
+  // assertions below INCLUDING the vacuity guard, which is built from the same scan.
+  //
+  // The filename scan covers exactly that: an archetype lives in `<Name>Page.tsx` by
+  // convention, wherever in the tree it sits. It cannot see an archetype declared inside some
+  // other file — which the export scan can.
+  const namedExports = [...entryPoint.matchAll(/^export \{([^}]*)\} from/gm)]
+    .flatMap((match) => match[1]!.split(","))
+    // `A as B` exports B; a bare name exports itself.
+    .map((entry) => entry.trim().split(/\s+as\s+/).pop()!.trim());
+  const archetypeFiles = Object.keys(
+    import.meta.glob("./**/*Page.tsx", { query: "?raw", import: "default", eager: true }),
+  )
+    .filter((file) => !file.includes(".test."))
+    .map((file) => file.split("/").pop()!.replace(/\.tsx$/, ""));
   const exported = [
     ...new Set(
-      [...entryPoint.matchAll(/^export \{([^}]*)\} from/gm)]
-        .flatMap((match) => match[1]!.split(","))
-        .map((name) => name.trim())
+      [...namedExports, ...archetypeFiles]
         // `endsWith` rather than a `\w*Page$` regex, which cannot match "Page" itself:
         // after the leading capital there is no "Page" left to match. The vacuity guard below
         // caught that on the first run, which is the whole reason it is there.
@@ -114,8 +132,31 @@ describe("every archetype the package exports is governed, or says it is not", (
   };
 
   it("finds the archetype exports it is meant to check", () => {
-    // Vacuity guard: a regex that matched nothing would make every assertion below pass.
+    // Vacuity guard: a derivation that matched nothing would make every assertion below pass.
     expect(exported).toEqual(["DetailPage", "HubPage", "OverviewPage", "Page"]);
+  });
+
+  it("pins the namespace re-exports, which neither derivation can look inside", () => {
+    // `export * from "./x"` is opaque to both scans: the filename scan only sees files named
+    // `*Page.tsx`, and the named-export scan sees no names at all. So the set of namespace
+    // re-exports is pinned instead — adding one is the moment to check it carries no archetype,
+    // and this assertion is what forces that look.
+    const namespaces = [...entryPoint.matchAll(/^export \* from "([^"]+)"/gm)].map(
+      (match) => match[1]!,
+    );
+    expect(namespaces).toEqual(["./dataview"]);
+  });
+
+  it("keeps no excuse for an archetype that is no longer exported", () => {
+    // The reverse-direction test filters these keys out of its comparison, so a stale excuse
+    // changes nothing there and would sit in the file for ever — quietly claiming that a
+    // component nobody exports is deliberately unconstrained.
+    for (const excused of Object.keys(DELIBERATELY_UNCONSTRAINED)) {
+      expect(
+        exported,
+        `${excused} is excused from the slot table but is not an exported archetype — the excuse is stale`,
+      ).toContain(excused);
+    }
   });
 
   it("gives every exported archetype a slot, or a named reason for having none", () => {

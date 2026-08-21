@@ -207,8 +207,15 @@ test("the audit payload is a scroll container, not a box that grew", async ({ pa
       scroll: pre.scrollWidth,
       overflowX: getComputedStyle(pre).overflowX,
       // A scroll container has to be reachable by keyboard (SC 2.1.1) — the same reason
-      // `Code` block carries one. axe reports the absence as `scrollable-region-focusable`,
-      // and it did, on this specimen's first run.
+      // Code block carries one. axe reports the absence as scrollable-region-focusable, and it
+      // did, on this specimen's first run.
+      //
+      // This assertion holds the SPECIMEN to the component, not the component to the contract:
+      // the specimen writes its own <pre> with its own literal tabIndex, so deleting the
+      // attribute from AuditLogAdmin would leave every lane here green. The component's own
+      // gate is in admin.test.tsx ("keeps the audit payload's scroll container reachable by
+      // keyboard"), which renders the packaged screen and expands a real row. Worth saying,
+      // because a test that asserts its own fixture back to itself reads exactly like coverage.
       tabIndex: (pre as HTMLElement).tabIndex,
     };
   });
@@ -267,23 +274,108 @@ test("the content measure caps the body and leaves the header on the full track"
 });
 
 test("the measure applies to nothing until the shell asks for it", async ({ page }) => {
-  // The other half of "nothing moves for any app today". With `contentWidth` left at its
-  // default the shell stamps no attribute, so the rule matches nothing — and the way to show
-  // that is a shell WITHOUT the attribute at a width where the capped one is visibly capped.
-  // `app-shell` is that shell; rendered at 1920 its body must reach the full track.
+  // The other half of "nothing moves for any app today": with `contentWidth` at its default the
+  // shell stamps no attribute and the rule matches nothing.
+  //
+  // The first version of this test could not fail, and the way it could not is worth keeping.
+  // It loaded `app-shell` — whose body is a bare `<p>`, with no `[data-terp="page"]` anywhere —
+  // so the second half of the selector under test matched nothing regardless of the attribute;
+  // it then measured `main.firstElementChild` into a variable and never asserted it, leaving
+  // two assertions about a flex column's width that the measure cannot affect in either state.
+  // A control that shares no mechanism with the thing it controls for is not a control.
+  //
+  // So the control is the SAME tree, with the attribute removed at runtime: a page that is
+  // demonstrably capped, uncapped by exactly the one input under test. No second specimen, and
+  // nothing left to differ except the attribute.
   await page.setViewportSize({ width: 1920, height: 900 });
-  await page.goto("/?theme=light&only=app-shell");
-  await page.locator('[data-terp="appshell"]').waitFor({ state: "visible" });
-  const shell = await page.evaluate(() => {
-    const root = document.querySelector('[data-terp="appshell"]')!;
-    const main = root.querySelector('[data-terp="appshell-main"]')!;
-    const child = main.firstElementChild;
+  await page.goto("/?theme=light&only=app-shell-measured");
+  await page.locator('[data-terp="page"]').waitFor({ state: "visible" });
+
+  const bodyWidth = () =>
+    page.evaluate(() => {
+      const article = document.querySelector('[data-terp="page"]')!;
+      const body = [...article.children].filter(
+        (child) => child.getAttribute("data-terp") !== "page-header",
+      );
+      return {
+        attribute: document
+          .querySelector('[data-terp="appshell"]')!
+          .getAttribute("data-content-width"),
+        article: Math.round(article.getBoundingClientRect().width),
+        body: body.map((child) => Math.round(child.getBoundingClientRect().width)),
+      };
+    });
+
+  const capped = await bodyWidth();
+  expect(capped.attribute).toBe("measured");
+  expect(capped.body).toEqual(capped.body.map(() => 1280));
+
+  await page.evaluate(() => {
+    document.querySelector('[data-terp="appshell"]')!.removeAttribute("data-content-width");
+  });
+
+  const uncapped = await bodyWidth();
+  expect(uncapped.attribute).toBeNull();
+  // The same children, now at the full track — so the attribute is doing the whole job.
+  expect(uncapped.article).toBeGreaterThan(1280);
+  expect(uncapped.body).toEqual(uncapped.body.map(() => uncapped.article));
+});
+
+test("the measure composes with a component's own narrower measure instead of replacing it", async ({
+  page,
+}) => {
+  // The regression guard for the defect that made the measure a `width` rather than a
+  // `max-width`, and it is here rather than in a baseline because no picture can hold it.
+  //
+  // The measure's selector weighs (0,3,1) — three attributes plus the element inside
+  // `:not()` — so as a `max-width` it outranked every component declaring a narrower one, and
+  // five of them are legal children of a governed body. Measured before the fix: an
+  // `admin-form` inside a measured shell computed 1280px instead of 512px, so the packaged
+  // provisioning form rendered two and a half times too wide. The shell was WIDENING the
+  // components that already carry their own measure — `Text`'s `measure` prop included, which
+  // is the prop this mechanism was modelled on.
+  //
+  // As a `width` it composes, because CSS resolves `max-width` after `width`. Each of the five
+  // must come back at its OWN measure, and a child with none must come back at the shell's —
+  // that last case is what stops a fix that simply disables the rule from passing.
+  //
+  // Probes are injected rather than rendered as specimens on purpose: the contract is a
+  // cascade interaction across five unrelated components, and a specimen holding all of them
+  // would be a kitchen sink whose picture proves nothing about any single one.
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.goto("/?theme=light&only=app-shell-measured");
+  await page.locator('[data-terp="page"]').waitFor({ state: "visible" });
+
+  const widths = await page.evaluate(() => {
+    const article = document.querySelector('[data-terp="page"]')!;
+    const probe = (marker: string, attribute?: [string, string]) => {
+      const element = document.createElement("div");
+      element.setAttribute("data-terp", marker);
+      if (attribute !== undefined) {
+        element.setAttribute(attribute[0], attribute[1]);
+      }
+      article.append(element);
+      const width = Math.round(element.getBoundingClientRect().width);
+      element.remove();
+      return width;
+    };
     return {
-      attribute: root.getAttribute("data-content-width"),
-      main: Math.round(main.getBoundingClientRect().width),
-      child: child === null ? null : Math.round(child.getBoundingClientRect().width),
+      // 32rem, 40rem and 26rem respectively — each component's own declaration.
+      adminForm: probe("admin-form"),
+      resourceList: probe("resource-list"),
+      dialog: probe("dialog"),
+      // 48ch, which is a font-relative measure and therefore not a round pixel count.
+      textNarrow: probe("text", ["data-measure", "narrow"]),
+      // No measure of its own, so this one takes the shell's.
+      stack: probe("stack"),
     };
   });
-  expect(shell.attribute).toBeNull();
-  expect(shell.main).toBeGreaterThan(1280);
+
+  expect(widths.adminForm, "admin-form declares max-width: 32rem").toBe(512);
+  expect(widths.resourceList, "resource-list declares max-width: 40rem").toBe(640);
+  expect(widths.dialog, "dialog declares max-width: 26rem").toBe(416);
+  expect(widths.textNarrow, "Text measure=narrow declares max-width: 48ch").toBeLessThan(512);
+  // And the shell's measure still applies where nothing else claims one, or a "fix" that
+  // deleted the rule would satisfy every assertion above.
+  expect(widths.stack, "a child with no measure of its own takes the shell's").toBe(1280);
 });

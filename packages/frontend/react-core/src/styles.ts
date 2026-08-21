@@ -1287,13 +1287,43 @@ textarea[data-terp="input"] {
    keeps the track; every other child takes the measure. So the band is the header that was
    always there.
 
+   The exemption is keyed on the page-header MARKER rather than on the header TAG, and that
+   distinction is a fix rather than a detail. A :not(header) exempts every <header> that happens
+   to be a direct child, so a bespoke screen writing
+   <Page><header>section head</header><DataView/></Page> — legal, since the plain Page is
+   deliberately unconstrained by the layout contract — would get a second full-width band it
+   never asked for, silently. The frame's own header is the only thing meant to span the track,
+   and the marker says so. (The layout contract's runtime check still drops the header by TAG
+   name, because that check runs where no marker is guaranteed; the two mechanisms answer
+   different questions and only this one is a style.)
+
+   And no backticks in this block, which is not a style note: a backtick here TERMINATES
+   TERP_STYLES_CSS and the parse fails somewhere else entirely with "try inserting a
+   semicolon". This comment cost that mistake once while being written.
+
    Gated on an attribute the SHELL stamps, so nothing moves for any app today: with
    data-content-width absent this rule matches nothing at all. And "full width" means the full
    width of the article's own track — appshell-main's padding is outside it, so this is a
    measure within the content column rather than a bleed to the window edge, which would need
-   a negative margin and therefore an inline site. */
-[data-terp="appshell"][data-content-width="measured"] [data-terp="page"] > *:not(header) {
-  max-width: var(--shell-content-max-width);
+   a negative margin and therefore an inline site.
+
+   WIDTH, not max-width, and that is the whole correctness of the rule rather than a
+   preference. This selector weighs (0,3,1) — three attributes plus the element inside
+   :not() — so as a max-width it OUTRANKS every component that declares a narrower one, and
+   five of them are legal children of a governed body: resource-list (40rem), admin-form
+   (32rem), dialog (26rem) and text[data-measure] at 48ch and 72ch. Measured before it was
+   fixed: an admin-form inside a measured shell computed max-width 1280px instead of 512px,
+   so the packaged provisioning form rendered two and a half times too wide. The shell would
+   have been WIDENING the very components that already carry their own measure — including the
+   Text prop this mechanism was modelled on.
+
+   As a width it composes instead of competing, because CSS resolves max-width AFTER width:
+   min(100%, measure) caps a child that has no measure of its own, and a child that has one
+   still wins with it. min() rather than a bare token so a track narrower than the measure is
+   untouched rather than overflowing. */
+[data-terp="appshell"][data-content-width="measured"]
+  [data-terp="page"] > *:not([data-terp="page-header"]) {
+  width: min(100%, var(--shell-content-max-width));
 }
 
 /* The sign-in screen ------------------------------------------------------- */

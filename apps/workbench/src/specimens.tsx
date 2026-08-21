@@ -274,11 +274,11 @@ const SYNC_REPOSITORY = new InMemoryDataViewRepository(SYNC_ROWS, syncRepository
  * (`JSON.stringify(payload, null, 2)`), with two lines deliberately past the box's width.
  *
  * The long lines are the whole point: `admin-payload` declares `overflow-x: auto`, and a
- * `<pre>` whose longest line fits paints identically without it. ~190 characters each, which
- * is past the 34rem container the specimen constrains it to — see `admin-payload` for what
- * happens when nothing constrains it. Written as a literal rather than stringified from an
- * object so the exact rendered characters — and therefore the baseline — are fixed by this
- * file and not by the runtime's key ordering.
+ * `<pre>` whose longest line fits paints identically without it. 204 and 203 characters
+ * including their indent, which is well past the 34rem container the specimen constrains them
+ * to — see `admin-payload` for what happens when nothing constrains it. Written as a literal
+ * rather than stringified from an object so the exact rendered characters — and therefore the
+ * baseline — are fixed by this file and not by the runtime's key ordering.
  */
 const AUDIT_PAYLOAD = `{
   "action": "update",
@@ -416,14 +416,15 @@ function moduleNavSpecimen(): ReactNode {
  * `useNavigate`, so it cannot render without a router at all. Its breadcrumb trail renders
  * TanStack `Link`s at `/admin` and `/admin/users`, so those paths have to EXIST in the tree
  * or every render logs an unmatched-route warning — the specimen would still screenshot,
- * which is exactly why the routes are registered rather than left to warn. And the screen
- * reads `useTerpClient` and `useToast`, which are context, not fetches: nothing here calls
- * the network, because the form only POSTs on submit and a specimen never submits.
+ * which is exactly why the routes are registered rather than left to warn. And `TerpProvider`
+ * is here because the screen reads `useTerpClient`.
  *
- * That last property is what makes a real packaged screen a legal specimen at all. The
- * registry's rule is no live data, and the admin screens that FETCH on mount (the users,
- * groups and audit overviews) cannot honour it — see `admin-section-title` and
- * `admin-payload` below for what stands in for them and why.
+ * What this screen does NOT do is fetch its own data: the form only POSTs on submit, and a
+ * specimen never submits. It is not network-free — `TerpProvider` boots by exchanging the
+ * refresh cookie and loading `/me`, two requests the dev server's own `workbench-mock-auth`
+ * plugin answers with a fixed user (see vite.config.ts, which exists for exactly this). The
+ * distinction that matters for a specimen is narrower than "no network": nothing the SCREEN
+ * renders depends on a response arriving.
  */
 function adminScreenSpecimen(node: ReactNode, path: string): ReactNode {
   const rootRoute = createRootRoute();
@@ -2400,7 +2401,12 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         title: "AppShell — content capped at the measure, header on the full track",
         viewport: { width: 1920, height: 900 },
         node: (
-          <div style={{ height: "50rem", border: "1px solid var(--color-neutral-200)" }}>
+          // 60rem, matching its three sibling shell specimens rather than the 50rem this
+          // started with. The shell declares min-height: 100vh, so in an 800px box at a 900px
+          // viewport it lays out taller than its container and paints past the card's edge —
+          // and the element screenshot clips to the card, so the footer was cropped out of both
+          // recorded baselines.
+          <div style={{ height: "60rem", border: "1px solid var(--color-neutral-200)" }}>
             <AppShell
               title="Terp workbench"
               nav={SHELL_NAV}
@@ -2460,18 +2466,24 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
     // the real packaged screen, because that screen fetches nothing on mount. The other two
     // owners — `GroupDetail` and `AuditLogAdmin` — build an HTTP repository and load on mount.
     //
-    // A stubbed `fetch` is not out of reach: `admin/admin.test.tsx` already does exactly that
-    // with `vi.stubGlobal`, and the screenshot lane would probably survive it, because
-    // `toHaveScreenshot` keeps shooting until two consecutive frames match and a mock
-    // resolving on a microtask would settle inside that. The reason is the OTHER lane. axe
-    // reads the tree once, with no stability retry and no wait for data — so a run that
-    // scoped the loading frame would pass on an empty DataView and report nothing, which is
-    // worse than having no coverage because it looks like coverage. Adding a mock-server
-    // surface to a registry whose first rule is no live data, in order to gain a lane that
-    // can silently measure the wrong tree, is the trade being declined here.
+    // Mounting them is possible, and an earlier version of this note gave a bad reason for
+    // not doing it — that a mock server would break the registry's no-live-data rule. This app
+    // ALREADY has one: `workbench-mock-auth` in vite.config.ts answers the auth boot with a
+    // fixed user, and its own comment calls that the determinism rule applied to the session.
+    // So the precedent runs the other way, and extending it with audit and group fixtures is
+    // the better long-term answer rather than a forbidden one.
     //
-    // So those two reproduce the SURFACE the sheet styles, in the real components that carry
-    // it, and the screens' own composition stays covered by `admin/admin.test.tsx`.
+    // What is actually in the way is the axe lane. It reads the tree ONCE, with no stability
+    // retry and no wait for data, so a run that scoped the loading frame would pass on an empty
+    // DataView and report nothing — worse than no coverage, because it looks like coverage.
+    // (The screenshot lane would likely survive: `toHaveScreenshot` keeps shooting until two
+    // consecutive frames match.) Closing that means teaching the axe lane to wait for a row,
+    // which is a change to the harness rather than to a specimen.
+    //
+    // So for now those two reproduce the SURFACE the sheet styles, in the real components that
+    // carry it, the screens' own composition stays covered by `admin/admin.test.tsx` — and the
+    // one claim about a real component that a reproduced surface CANNOT make, the audit
+    // payload's `tabIndex`, is asserted there instead.
     id: "admin",
     title: "Packaged admin screens",
     specimens: [
@@ -2524,13 +2536,20 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         //
         // The fixed-width wrapper IS the specimen, and the first version of this did not have
         // one — it rendered the payload inside a real expanded `DataViewTable` row, the way
-        // `AuditLogAdmin` does, and measuring that is what showed it gated nothing. In a table
-        // cell the `<pre>` came out 1594px with `scrollWidth === clientWidth`: it never
-        // scrolled, it GREW, and it pushed the table to 1626px. `overflow-x: auto` cannot fire
-        // on a box that is never narrower than its content, and a `<td>` under `table-layout:
-        // auto` is shrink-to-fit, so nothing constrains it there. So the declaration is inert
-        // in its own production context — carried as a debt, because the fix is the DataView's
-        // expanded-cell width model and that belongs with the column-sizing work, not here.
+        // `AuditLogAdmin` does on DESKTOP, and measuring that is what showed it gated nothing.
+        // In a table cell the `<pre>` came out 1594px with `scrollWidth === clientWidth`: it
+        // never scrolled, it GREW, and it pushed the table to 1626px. `overflow-x: auto` cannot
+        // fire on a box that is never narrower than its content, and a `<td>` under
+        // `table-layout: auto` is shrink-to-fit, so nothing constrains it there.
+        //
+        // "Inert in production" would be too strong, though, and an earlier version of this
+        // said it: `DataView` renders CARDS below the 768px breakpoint, and the expanded panel
+        // then lands in a plain block `dataview-card-expanded` div. There the `<pre>` fills its
+        // container and scrolls exactly as it does here — so on a phone the declaration is live,
+        // which is also what makes the `tabIndex` on the real component a live fix rather than a
+        // precaution. The desktop table cell is the case where it does nothing, and the fix for
+        // that is the DataView's expanded-cell width model, which belongs with the
+        // column-sizing work.
         //
         // A block-level `<pre>` in an ordinary container does the opposite: it fills the
         // container and scrolls its own overflow. This constrains the container and pictures

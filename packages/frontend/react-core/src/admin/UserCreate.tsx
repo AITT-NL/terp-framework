@@ -101,10 +101,13 @@ export function UserCreate() {
           </Field>
           <Field label={strings.role}>
             {/* `options` + `onValueChange` rather than an `<option>` per rank and a raw
-                change event: the same three rows, as data, with the cast gone. The rank is a
-                number in the ladder and a string in the DOM, which is why `String(rank)` is
-                the option value and `role` is kept as a string until the POST body coerces
-                it — the one place the two representations legitimately meet. */}
+                change event: the same three rows, as data. No cast is removed here — this file
+                never had one, because `role` was already a plain string — and `T` degrades to
+                `string` for the same reason, since the option values are `String(rank)` rather
+                than members of a declared union. What this conversion buys is the list, not the
+                type: the rank is a number in the ladder and a string in the DOM, which is why
+                `String(rank)` is the option value and `role` stays a string until the POST body
+                coerces it. The typed half has its exhibit in an app that owns an enum. */}
             <Select
               options={roles.map((option) => ({
                 value: String(option.rank),

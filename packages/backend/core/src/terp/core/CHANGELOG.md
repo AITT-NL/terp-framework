@@ -71,7 +71,8 @@ decision, 0001 onwards.
   `admin-section-title`, `admin-payload` — had no baseline on either platform and were never
   rendered by the axe lane. That is how five base styles survived the whole 0094 migration
   inside views both ratchets read as clean; the sheet's own comment on that block says so.
-  Five specimens close it: 224 baselines per platform now, and 561 axe runs.
+  Six specimens close it across this section: 113 specimens, 226 baselines per platform and 565
+  axe runs.
 
   `Page` itself was never the gap — `page-header`, `page-loading` and `page-error` picture it
   directly. What had no picture is either archetype that *wraps* it, and with it the body shape
@@ -80,18 +81,26 @@ decision, 0001 onwards.
   governed body. Three body children also put two of the page grid's gaps in frame, where
   `page-header`'s single child only ever exercised the header-to-body one.
 
-  Two of the three admin specimens are a different *kind* of specimen from the third, and that
-  is the honest part rather than an inconsistency. `admin-user-create` mounts the **real**
-  packaged screen, because it fetches nothing on mount — a memory router carrying the real
-  `/admin/...` paths, inside the provider stack it reads. `GroupDetail` and `AuditLogAdmin`
-  build an HTTP repository and load on mount, and the reason for not stubbing one is narrower
-  than "no live data": `admin.test.tsx` already stubs `fetch`, and the screenshot lane would
-  likely survive it, since `toHaveScreenshot` shoots until two consecutive frames match and a
-  microtask-resolved mock settles inside that. **axe is the lane that would not.** It reads
-  the tree once, with no stability retry and no wait for data, so a run that scoped the
-  loading frame would pass on an empty `DataView` and report nothing — worse than no coverage,
-  because it looks like coverage. Those two reproduce the surface the sheet styles instead,
-  and say so at the site.
+  Two of the three admin specimens are a different *kind* of specimen from the third.
+  `admin-user-create` mounts the **real** packaged screen, in a memory router carrying the real
+  `/admin/...` paths — it renders nothing that waits on a response, because the form only POSTs
+  on submit. `GroupDetail` and `AuditLogAdmin` load on mount, and those two reproduce the
+  surface the sheet styles instead.
+
+  The reason recorded for that at first was wrong and is worth correcting rather than quietly
+  restating: it claimed a mock server would breach the registry's no-live-data rule. The
+  workbench **already has one** — `workbench-mock-auth` in its vite config answers the auth
+  boot with a fixed user, and its own comment calls that the determinism rule applied to the
+  session. So extending it with audit and group fixtures is the better long-term answer, not a
+  forbidden one. What is actually in the way is the **axe lane**: it reads the tree once, with
+  no stability retry and no wait for data, so a run that scoped the loading frame would pass on
+  an empty `DataView` and report nothing — worse than no coverage, because it looks like
+  coverage. Closing it means teaching that lane to wait for a row, which is a harness change.
+
+  And the one claim a reproduced surface cannot make — that the *real* component keeps the
+  payload's scroll container reachable — is asserted in `admin.test.tsx` instead, against the
+  packaged screen with a real row expanded. The audit fixture serves one row now for exactly
+  that; the note explaining why it served none is replaced by the test.
 
   And `admin-payload` had to be built twice, which is the reusable part. The first version
   rendered the payload inside a real expanded `DataViewTable` row and **gated nothing**:
@@ -100,9 +109,16 @@ decision, 0001 onwards.
   auto` is shrink-to-fit, so nothing constrains the box, and `overflow-x: auto` on a box that is
   never narrower than its content is inert. The picture looked like coverage either way.
   Constrained to 34rem, the same content gives 544 against a 1594 scroll width, and deleting the
-  declaration now repaints both baselines by ~91,500 pixels *and* fails the computed lane. The
-  declaration therefore remains inert in `AuditLogAdmin` itself — carried as a debt, because the
-  fix is the DataView's expanded-cell width model and that belongs with the column-sizing work.
+  never narrower than its content is inert. The picture looked like coverage either way.
+  Constrained to 34rem, the same content gives 544 against a 1594 scroll width, and deleting the
+  declaration now repaints both baselines by ~91,500 pixels *and* fails the computed lane.
+
+  "Inert in production" would be too strong, and an earlier draft of this entry said it.
+  `DataView` renders **cards** below the 768px breakpoint, and the expanded panel then lands in
+  a plain block div where the payload fills its container and scrolls exactly as the specimen
+  does. So the declaration is live on a phone and does nothing in a desktop table cell — which
+  is also what makes the `tabIndex` below a live fix rather than a precaution. The desktop half
+  waits on the DataView's expanded-cell width model, with the column-sizing work.
 
 - **An exported page archetype with no slot-table entry was a green build (ADR 0079).**
   `verifySlotChildren` returns null for a slot the table does not name, and the lint rule
@@ -132,9 +148,29 @@ decision, 0001 onwards.
   that works in one branch and does nothing in the other, which is the defect shape found twice
   in one release — so the combination does not typecheck at all. Verified by mutation in the
   example app, where a `"dong"` typo now reports *Type '"dong"' is not assignable to type
-  'TaskStatus'. Did you mean '"doing"'?* instead of shipping an option nobody can select. Both
-  readers were converted in the same commit, and the packaged form's baseline is byte-identical:
-  the options path renders the same DOM.
+  'TaskStatus'. Did you mean '"doing"'?* instead of shipping an option nobody can select.
+
+  Both readers were converted in the same commit and the packaged form's baseline is
+  byte-identical, but only one of them exhibits the typed half: `UserCreate`'s rank ladder is
+  `String(rank)`, so `T` degrades to `string` there and no cast was removed, because that file
+  never had one. The cast the feature exists to remove is the app-side
+  `setStatus(event.target.value as Status)`, and the example app is where it goes.
+
+  Three things about the type were each found by breaking the alternative, and none of them is
+  cosmetic. `onValueChange` sits **outside** the union: inside it the prop has two signatures,
+  TypeScript cannot contextually type a parameter across a union of signatures, and
+  `onValueChange={(value) => …}` came back as an implicit `any` — invisible to anyone passing a
+  function by reference, which is how it survived the first attempt. Its parameter is
+  `NoInfer`, because otherwise the *callback* becomes the inference site on the raw-children
+  branch: `<Select onValueChange={setStatus}><option value="dong"/></Select>` took `T` from the
+  callback and never compared the children to it, allowing precisely the typo the prop is for.
+  And `value` is `NoInfer` too, or a wrong value widens the parameter it is checked against.
+
+  Two shapes the first version broke and this one keeps, both unused in the repo and therefore
+  caught by probing the type rather than by the suite: a `multiple` select with a
+  `readonly string[]` value, and a numeric `value`. Narrowing them bought nothing, since `T`
+  can only come from an options list. A `<Select>` with neither options nor children compiles
+  too — `children` is optional, not required.
 
 - **A fourth workbench lane, for values the other three cannot see:
   `visual/computed.spec.ts` (ADR 0097).** The screenshot lane runs with
@@ -361,10 +397,20 @@ decision, 0001 onwards.
 
   Found by the axe lane on the first run in which a specimen rendered the marker at all, which
   is the point of the coverage above rather than a coincidence: those three admin markers had
-  never been rendered by that lane, in any theme. Latent rather than live today, because the
-  same measurement that found the inert `overflow-x` shows the box never actually scrolls inside
-  a table cell — but fixing the width model without this would create the trap, and fixing this
-  without the width model costs one tab stop on a box that is going to need it.
+  never been rendered by that lane, in any theme.
+
+  **Live rather than latent, on a phone.** A first draft of this entry called it latent, on the
+  strength of the measurement showing the payload never scrolls inside a desktop table cell.
+  That measurement is about one of the two layouts: below 768px `DataView` renders cards, the
+  expanded panel lands in a plain block div, and the payload becomes a real scroll container
+  with a ~200-character line in a ≤768px box. So a keyboard user on a narrow viewport could not
+  reach it, which is the case the fix answers. On desktop it currently adds a tab stop to a box
+  that does not yet scroll — the honest cost, and it resolves when the expanded-cell width model
+  lands.
+
+  Gated on the real component, which the workbench cannot do: a specimen writes its own `<pre>`
+  with its own literal `tabIndex`, so every lane there stays green with the attribute deleted
+  from `AuditLogAdmin`. `admin.test.tsx` renders the packaged screen and expands a row.
 
 - **A `Link`'s caller attributes reached a wrapper instead of the anchor, and two layout
   primitives had no list reset.** Both are the same shape — something that worked in one branch

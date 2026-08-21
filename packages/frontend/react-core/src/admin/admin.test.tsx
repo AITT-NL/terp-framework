@@ -313,7 +313,27 @@ function stubAdminFetch() {
       });
     }
     if (path.endsWith("/api/v1/audit/")) {
-      return jsonResponse(emptyPage);
+      // One row, and it earns its place rather than padding the fixture: the audit screen's
+      // expanded panel is the only place `admin-payload` renders, so with an empty page that
+      // <pre> — and the `tabIndex` that keeps its scroll container reachable — could not be
+      // asserted anywhere. The comment below this fixture used to say exactly that.
+      return jsonResponse({
+        items: [
+          {
+            id: "e1",
+            created_at: "2026-08-21T09:30:00Z",
+            action: "update",
+            target_type: "sync_definition",
+            target_id: "4d2c1b7e-0000-4000-8000-000000000001",
+            actor_id: "9f2c1b7e-0000-4000-8000-000000000002",
+            request_id: "req_01HQ8ZK4",
+            payload: { window: "02:00-04:00 UTC", retention_days: 90 },
+          },
+        ],
+        total: 1,
+        skip: 0,
+        limit: 25,
+      });
     }
     return jsonResponse(emptyPage);
   });
@@ -524,11 +544,11 @@ describe("the packaged admin area", () => {
     // reasoning as the create form above: markers plus the absence of a style attribute,
     // because no admin screen has a specimen.
     //
-    // The third, the audit payload, has no assertion here and it is worth saying why rather
-    // than quietly having none: the audit fixture serves an empty page, so no row exists to
-    // expand and the <pre> never renders in any test. Giving it one means adding rows to a
-    // fixture several tests share, which is not a change a styling migration should make.
-    // It is held by styles.test.ts (the rule exists) and by the values being a verbatim copy.
+    // The third, the audit payload, has its own test below now. It had none for a while, and
+    // the reason was recorded here rather than left implicit: the audit fixture served an empty
+    // page, so no row existed to expand and the <pre> never rendered in any test. That stayed
+    // true until the payload gained a `tabIndex` — a claim about the real component that no
+    // workbench specimen can make, because the specimen writes its own markup.
     renderAdminApp("/admin/groups/g1");
     const headings = await waitFor(() => {
       const found = document.querySelectorAll('[data-terp="admin-section-title"]');
@@ -539,6 +559,34 @@ describe("the packaged admin area", () => {
       expect(heading.tagName).toBe("H2");
       expect(heading.getAttribute("style")).toBeNull();
     }
+  });
+
+  it("keeps the audit payload's scroll container reachable by keyboard", async () => {
+    // The gate for the SC 2.1.1 fix, and it has to be here rather than in the workbench.
+    // `admin-payload` declares `overflow-x: auto`, so a wide payload is a scroll container, and
+    // a scroll container no keyboard can reach is what axe reports as
+    // `scrollable-region-focusable`. The workbench specimen renders its own `<pre>` with its own
+    // literal `tabIndex`, so every lane there would stay green with the attribute deleted from
+    // this component — the specimen would be asserting its own markup back to itself. This
+    // reads the packaged screen.
+    renderAdminApp("/admin/audit");
+    // Expanding the row is what renders the panel; the trigger is the row's own expand control.
+    const expand = await waitFor(() => {
+      const found = document.querySelector('[data-terp="dataview-expand-cell"] button');
+      expect(found).not.toBeNull();
+      return found as HTMLButtonElement;
+    });
+    fireEvent.click(expand);
+    const payload = await waitFor(() => {
+      const found = document.querySelector('[data-terp="admin-payload"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(payload.tagName).toBe("PRE");
+    expect(payload.tabIndex).toBe(0);
+    // And still no inline style — the third of the three surfaces the admin views used to
+    // style at the call site, which is what the note above refers to.
+    expect(payload.getAttribute("style")).toBeNull();
   });
 
   it("clears group destructive state when navigating between detail records in place", async () => {

@@ -262,13 +262,31 @@ describe("cascade structure", () => {
     // because the mechanism is deliberately NOT a new element (ADR 0097 §2). The `:not(header)`
     // is the whole band: the header keeps the page grid's full track while its siblings take
     // the measure.
+    // Selector AND declaration read out of ONE rule body, not as two independent substrings
+    // of the layer. Asserted separately, an empty measure rule plus the declaration moved onto
+    // some other rule during a consolidation would satisfy both — and the only baseline that
+    // moved would read as an intentional layout change.
+    const measureRule =
+      /\[data-terp="appshell"\]\[data-content-width="measured"\]\s*\n?\s*\[data-terp="page"\] > \*:not\(\[data-terp="page-header"\]\) \{([^}]*)\}/.exec(
+        base,
+      );
+    expect(measureRule, "the content measure must be one rule keyed on the shell's attribute").not
+      .toBeNull();
+    const measureBody = measureRule![1]!;
+    // WIDTH, not max-width, and this assertion is the gate on that. The selector weighs
+    // (0,3,1), so as a max-width it outranks every component declaring a narrower one —
+    // resource-list, admin-form, dialog and both text measures — and an admin-form inside a
+    // measured shell computed 1280px instead of 512px. As a width it composes, because CSS
+    // resolves max-width after width. Nothing renders differently for a child with no measure
+    // of its own, which is why only a probe found it.
     expect(
-      base,
-      "the content measure must stay a page-grid constraint gated by the shell's attribute",
-    ).toContain(
-      '[data-terp="appshell"][data-content-width="measured"] [data-terp="page"] > *:not(header) {',
-    );
-    expect(base).toContain("max-width: var(--shell-content-max-width)");
+      measureBody,
+      "the measure must be a width, or it outranks every component's own narrower max-width",
+    ).toContain("width: min(100%, var(--shell-content-max-width))");
+    expect(
+      base.includes("max-width: var(--shell-content-max-width)"),
+      "as a max-width the measure would widen resource-list, admin-form, dialog and Text",
+    ).toBe(false);
     // And the mobile half of the shell, where the three selectors below now differ from each
     // other and the difference is the interesting part. The BEHAVIOUR is covered throughout by
     // AppShell.test.tsx (focus containment, inert page, close-on-nav) with a stubbed
