@@ -2674,6 +2674,49 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The comfortable island: a compact shell with one deliberately comfortable table
+        // inside it. This is the picture the density vocabulary was missing, and the thing it
+        // shows is a NEGATIVE — that the inner DataView did not inherit the shell's density.
+        //
+        // Before this, `density="comfortable"` stamped nothing, on the reasoning that
+        // comfortable was the sheet's own :root value. That held only while nothing could make
+        // an ancestor compact. A shell density makes the combination legal and silently
+        // inert — the defect shape this phase has refused three times — so comfortable gained
+        // named tokens and a rule of its own, and the two now compose through inheritance
+        // rather than through absence.
+        //
+        // Two DataViews, because one cannot show an island. The first inherits the shell's
+        // compact cells; the second sits beside it at the comfortable padding. If the island
+        // rule were deleted, the two would become identical and this baseline would say so.
+        id: "app-shell-density-island",
+        title: "AppShell — a compact shell with one comfortable table in it",
+        node: (
+          <div style={{ height: "44rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              density="compact"
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <Stack gap={4}>
+                <Text tone="muted">Inheriting the shell: compact cells.</Text>
+                <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} />
+                <Text tone="muted">An island: comfortable, inside the same compact shell.</Text>
+                <DataView
+                  repository={SYNC_REPOSITORY}
+                  columns={SYNC_COLUMNS}
+                  density="comfortable"
+                />
+              </Stack>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
         // The desktop shell just above the breakpoint — the band between 769px and wide, which
         // the pinned viewport also cannot reach. The sidebar's `flex-shrink: 0` is documented as
         // biting here and nowhere else, and the content is deliberately something with a real

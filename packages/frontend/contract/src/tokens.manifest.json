@@ -788,6 +788,30 @@
       "themeable": false
     },
     {
+      "name": "--density-comfortable-control-min-height",
+      "category": "density",
+      "values": {
+        "light": "2.25rem"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--density-comfortable-cell-pad-y",
+      "category": "density",
+      "values": {
+        "light": "0.75rem"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--density-comfortable-cell-pad-x",
+      "category": "density",
+      "values": {
+        "light": "0.75rem"
+      },
+      "themeable": false
+    },
+    {
       "name": "--radius-sm",
       "category": "radius",
       "values": {

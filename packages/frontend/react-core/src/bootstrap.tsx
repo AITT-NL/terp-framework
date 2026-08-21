@@ -114,6 +114,11 @@ export interface RenderTerpAppOptions {
    */
   contentWidth?: "full" | "measured";
   /**
+   * App-wide density (default `"comfortable"`) — one attribute on the shell root, from which
+   * every control height and cell padding follows by token inheritance.
+   */
+  density?: "comfortable" | "compact";
+  /**
    * Ship the packaged admin area (default `true`): the admin-gated sidebar entry, the
    * `/admin` hub, and the users / groups / audit screens over the base-profile
    * capabilities. An app route claiming one of its paths overrides that screen;
@@ -250,6 +255,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
     headerActions: options.headerActions,
     footer: options.footer,
     contentWidth: options.contentWidth,
+    density: options.density,
     layoutContract: options.layoutContract,
   });
   const root = options.rootElement ?? document.getElementById("root");

@@ -243,6 +243,8 @@ export interface BuildAppRouterOptions {
    * ({@link AppShell.contentWidth}); default `"full"`, which changes nothing.
    */
   contentWidth?: "full" | "measured";
+  /** App-wide density ({@link AppShell.density}); default `"comfortable"`. */
+  density?: "comfortable" | "compact";
   /** Role-name -> minimum rank; an unknown role is denied (fail closed). */
   roleRanks?: Record<string, number>;
   /** Rendered when the current user may not access a route (default: a simple message). */
@@ -343,6 +345,7 @@ export function buildAppRouter(
         headerActions={options.headerActions}
         footer={options.footer}
         contentWidth={options.contentWidth}
+        density={options.density}
         nav={nav}
         renderBrandLink={({ to, children }) => (
           <Link to={to} data-terp="appshell-brand">

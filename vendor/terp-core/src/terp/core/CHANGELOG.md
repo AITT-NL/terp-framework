@@ -14,6 +14,33 @@ decision, 0001 onwards.
 
 ### Added
 
+- **Density reaches the shell, and the comfortable island exists (ADR 0094 §4).** `AppShell`
+  takes `density`, threaded through `buildAppRouter` and `renderTerpApp`: one attribute on the
+  shell root, from which every control height and cell padding follows by token inheritance,
+  with no prop on anything below.
+
+  Shipping that alone would have created a defect, and `DataView`'s own docstring had been
+  describing it for two releases: *"inside an already-compact subtree, `density="comfortable"`
+  does not make [anything comfortable] … until the shell takes a density of its own."*
+  Comfortable was the **absence** of an attribute, and an absence cannot override an ancestor.
+  That was harmless while nothing could make an ancestor compact. A shell density makes
+  `AppShell density="compact"` + `DataView density="comfortable"` a legal combination that
+  silently does nothing — the exact shape this phase has now refused four times.
+
+  So comfortable gained named tokens and a rule of its own, which is the vocabulary ADR 0094
+  deferred *until something asked*. The mechanism is the compact rule mirrored, and it composes
+  through **inheritance rather than specificity**: the nearest ancestor carrying either
+  attribute sets the live tokens for its subtree, so an island simply re-sets them, and the two
+  selectors never match the same element so they never compete. Unlayered, for the compact
+  rule's reason — inside a layer it would lose to the contract's own `:root` values whenever the
+  attribute lands on `<html>`.
+
+  Zero-diff by construction and checked as such: the comfortable values *are* the `:root`
+  values, so stamping the attribute where nothing above is compact computes exactly what it
+  computed before — all 238 existing baselines byte-identical, including `dataview-compact`.
+  What the island costs is one specimen with two tables, because one table cannot show an
+  island: deleting the rule collapses them into each other and repaints 20,274 pixels.
+
 - **The sidebar paints from its own colour family, four releases after that family shipped.**
   `--color-sidebar-bg` / `-fg` / `-muted` / `-accent` / `-border` were declared in **all five
   themes** and read by **nothing** — twenty-five declarations, zero readers. That is the offence

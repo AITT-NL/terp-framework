@@ -67,6 +67,16 @@ export interface AppShellProps {
    * window edge — which would need a negative margin, and therefore an inline site.
    */
   contentWidth?: "full" | "measured";
+  /**
+   * App-wide density (default `"comfortable"`), stamped on the shell root.
+   *
+   * The tokens do the work through inheritance, so every control and every cell in the tree
+   * follows without a prop of its own. An app can still move either value set from its own
+   * `theme.css`, and a subtree can override it — a `DataView density="comfortable"` inside a
+   * compact shell really is comfortable now, which it was not before this prop existed. That
+   * island is the vocabulary ADR 0094 deferred until something asked; this is what asked.
+   */
+  density?: "comfortable" | "compact";
   /** Pinned to the bottom of the sidebar (the {@link UserMenu}); may read the rail state. */
   navFooter?: ReactNode | ((context: AppShellSlotContext) => ReactNode);
   /** Footer line under the content; default: a muted line with the app title. */
@@ -196,6 +206,7 @@ export function AppShell({
   logo,
   headerActions,
   contentWidth = "full",
+  density = "comfortable",
   navFooter,
   footer,
   defaultCollapsed = false,
@@ -281,6 +292,9 @@ export function AppShell({
   // expression has a branch, and a conditional written at the attribute is the form the marker
   // scanner reads every literal out of.
   const contentWidthAttribute = contentWidth === "measured" ? "measured" : undefined;
+  // Stamped for both values, unlike the pre-island behaviour: comfortable now has a rule of
+  // its own, so a shell inside something compact can still be comfortable.
+  const densityAttribute = density;
   const resolvedTitle = resolve(title);
 
   // The brand takes no style object and needs none: its three looks are the resting one,
@@ -375,6 +389,7 @@ export function AppShell({
       data-terp="appshell"
       data-variant={shellVariant}
       data-content-width={contentWidthAttribute}
+      data-density={densityAttribute}
     >
       {/* First in the DOM, so it is the first thing a keyboard reaches on load — which is the
           whole contract, and why it cannot be placed anywhere more convenient. Visually hidden

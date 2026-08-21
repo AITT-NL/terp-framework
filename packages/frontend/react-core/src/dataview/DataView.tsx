@@ -49,7 +49,14 @@ interface DataViewBaseProps<T> {
    *
    * `"comfortable"` stamps NO attribute, because comfortable IS the token sheet's
    * `:root` value and an attribute for it would match no rule. The consequence worth
-   * knowing: inside an already-compact subtree, `density="comfortable"` does not make
+   * (Historic note, since the prop's behaviour changed: `"comfortable"` used to stamp
+   * nothing, on the grounds that comfortable was the sheet's own `:root` value — which was
+   * true until the shell could make an ancestor compact. Both values are stamped now, and
+   * both have a rule. Where nothing above is compact the two compute identically, so the
+   * change is zero-diff by construction.)
+   *
+   * What used to be worth knowing: inside an already-compact subtree, `density="comfortable"`
+   * did not make
    * this view comfortable again. Expressing that needs a named comfortable copy of
    * each live token, which ADR 0094 defers until something asks — nothing can ask
    * until the shell takes a density of its own.
@@ -147,7 +154,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
   const { strings, resolve } = useDataViewText();
   const embedded = props.variant === "embedded";
   // Only the compact value is expressible as an attribute; see the prop's doc comment.
-  const densityAttribute = props.density === "compact" ? "compact" : undefined;
+  const densityAttribute = props.density;
   // Hoisted rather than written inline at the two roots, which is what the density
   // attribute above already does and what keeps the marker scanner out of a trap: it
   // reads a whole expression container, so every string literal inside one counts as a

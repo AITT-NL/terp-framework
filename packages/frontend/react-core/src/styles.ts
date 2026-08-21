@@ -145,6 +145,25 @@ export const TERP_STYLES_CSS = `
    depend on that at all: a custom property declared on an ancestor is inherited
    rather than cascaded against, so a DataView stamping the attribute on itself
    wins over :root whatever the source order. */
+/* The comfortable island, which ADR 0094 deferred "until something asks" — and the shell
+   taking a density of its own is what asked. DataView's own docstring names the gap: inside an
+   already-compact subtree, density="comfortable" did not make anything comfortable, because
+   comfortable was the ABSENCE of an attribute and absence cannot override an ancestor.
+   That was fine while nothing could put a DataView inside a compact subtree. With
+   AppShell density="compact" it becomes a legal prop combination that silently does nothing —
+   the defect shape this phase has refused to ship three times.
+   The mechanism is the compact rule mirrored, and it works through INHERITANCE rather than
+   specificity: the nearest ancestor carrying either attribute sets the live tokens for its
+   subtree, so an island simply re-sets them. The two selectors never match the same element,
+   so they never compete. Unlayered for the compact rule's reason — inside a layer it would
+   lose to the contract's own unlayered :root values whenever the attribute lands on <html>.
+   The values are the :root values by construction, so stamping comfortable where nothing is
+   compact computes exactly what it computed before: provably zero-diff. */
+[data-density="comfortable"] {
+  --density-control-min-height: var(--density-comfortable-control-min-height);
+  --density-cell-pad-y: var(--density-comfortable-cell-pad-y);
+  --density-cell-pad-x: var(--density-comfortable-cell-pad-x);
+}
 [data-density="compact"] {
   --density-control-min-height: var(--density-compact-control-min-height);
   --density-cell-pad-y: var(--density-compact-cell-pad-y);
