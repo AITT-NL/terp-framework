@@ -103,6 +103,8 @@
  * touched.
  */
 
+import { WIDE_VIEWPORT_QUERY } from "./breakpoints";
+
 /** The `<style>` element id used to detect a prior injection. */
 export const TERP_STYLES_ID = "terp-core-styles";
 
@@ -458,6 +460,30 @@ textarea[data-terp="input"] {
 [data-terp="stack"][data-gap="6"] { gap: var(--space-6); }
 [data-terp="stack"][data-gap="8"] { gap: var(--space-8); }
 [data-terp="stack"][data-wrap="true"] { flex-wrap: wrap; }
+/* The wide half of a responsive Stack. This block must stay AFTER the rules above and not
+   merely above the Grid family: a stack with direction {narrow: "row", wide: "column"}
+   carries both data-direction="row" and data-direction-wide="column", and the two selectors
+   weigh the same (0,2,0), so nothing but source order decides which wins above the cutover.
+   Same for every gap pair. styles.test.ts pins the order, because getting it backwards
+   renders the narrow value at every width and looks like the prop not working.
+
+   The query is INTERPOLATED from ./breakpoints, which is the one \${…} in this sheet and is
+   deliberate rather than a slip: it is the complement of the exact string AppShell and
+   DataView hand to matchMedia, so the two halves of the cutover partition the viewport by
+   construction. Written out here they would be two literals that agree until someone edits
+   one. (The convention of grepping this literal for \${ still holds — there should be
+   exactly this one.) */
+@media ${WIDE_VIEWPORT_QUERY} {
+  [data-terp="stack"][data-direction-wide="column"] { flex-direction: column; }
+  [data-terp="stack"][data-direction-wide="row"] { flex-direction: row; }
+  [data-terp="stack"][data-gap-wide="0"] { gap: var(--space-0); }
+  [data-terp="stack"][data-gap-wide="1"] { gap: var(--space-1); }
+  [data-terp="stack"][data-gap-wide="2"] { gap: var(--space-2); }
+  [data-terp="stack"][data-gap-wide="3"] { gap: var(--space-3); }
+  [data-terp="stack"][data-gap-wide="4"] { gap: var(--space-4); }
+  [data-terp="stack"][data-gap-wide="6"] { gap: var(--space-6); }
+  [data-terp="stack"][data-gap-wide="8"] { gap: var(--space-8); }
+}
 
 /* Grids -------------------------------------------------------------------- */
 /* The two-dimensional primitive. The base rule is the DEFAULT shape — auto-fit at the

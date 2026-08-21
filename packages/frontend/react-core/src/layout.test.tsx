@@ -51,6 +51,54 @@ describe("Stack", () => {
     expect(el.style.display).toBe("");
   });
 
+  it("splits a responsive prop into a narrow attribute and a wide one", () => {
+    // jsdom evaluates no media query, so the unit-level claim is the attributes and nothing
+    // more — which is the honest boundary. That the rules then apply at the right width is a
+    // browser fact, held by the `stack-responsive-*` specimen pair at 420 and 900.
+    render(
+      <Stack
+        data-testid="toolbar"
+        direction={{ narrow: "column", wide: "row" }}
+        gap={{ narrow: 2, wide: 4 }}
+      >
+        <span>a</span>
+      </Stack>,
+    );
+    const el = screen.getByTestId("toolbar");
+    expect(el).toHaveAttribute("data-direction", "column");
+    expect(el).toHaveAttribute("data-direction-wide", "row");
+    expect(el).toHaveAttribute("data-gap", "2");
+    expect(el).toHaveAttribute("data-gap-wide", "4");
+    expect(el.getAttribute("style")).toBeNull();
+  });
+
+  it("stamps no wide attribute when the prop is not responsive", () => {
+    // The back-compatibility claim, asserted as absence: every Stack in every consuming app
+    // passes scalars, so it must render exactly the attributes it always did — which is why
+    // adding the feature moved no baseline anywhere.
+    render(
+      <Stack data-testid="plain" direction="row" gap={4}>
+        <span>a</span>
+      </Stack>,
+    );
+    const el = screen.getByTestId("plain");
+    expect(el).toHaveAttribute("data-direction", "row");
+    expect(el).toHaveAttribute("data-gap", "4");
+    expect(el.hasAttribute("data-direction-wide")).toBe(false);
+    expect(el.hasAttribute("data-gap-wide")).toBe(false);
+  });
+
+  it("accepts a responsive gap of 0, which a falsy check would drop", () => {
+    // `gap: 0` is a legal step and the only one that is falsy, so a `value.wide || undefined`
+    // anywhere in the split would silently render the narrow gap at every width.
+    render(
+      <Stack data-testid="zero" gap={{ narrow: 4, wide: 0 }}>
+        <span>a</span>
+      </Stack>,
+    );
+    expect(screen.getByTestId("zero")).toHaveAttribute("data-gap-wide", "0");
+  });
+
   it("works as a form (submit handler fires)", () => {
     let submitted = false;
     render(

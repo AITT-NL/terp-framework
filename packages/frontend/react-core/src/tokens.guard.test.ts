@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+import { NARROW_VIEWPORT, WIDE_VIEWPORT_QUERY } from "./breakpoints";
 import { TERP_STYLES_CSS } from "./styles";
 
 // Vitest stubs .css imports to empty modules, so the sheet is read from disk.
@@ -80,6 +81,32 @@ describe("design tokens", () => {
     // prefers-color-scheme media query) flip it.
     expect(tokensCss).toContain("color-scheme: light");
     expect(tokensCss.match(/color-scheme: dark/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+  });
+
+  it("spells the one viewport cutover from the published token, in one place", () => {
+    // The breakpoint is the other token family nothing can `var()`: CSS forbids a custom
+    // property in a media-query condition, and `matchMedia` takes a string, so neither
+    // consumer can read `--breakpoint-md` the way a colour is read. The literal is therefore
+    // unavoidable — and unguarded it was already written twice, verbatim, in `AppShell` and
+    // `DataView`, which is the duplication the diagnosis named.
+    //
+    // So this holds three things together that CANNOT agree by construction: the token the
+    // contract publishes, the string the components hand to `matchMedia`, and the query the
+    // stylesheet uses. The third one at least is the complement of the second by construction
+    // rather than by a second literal.
+    const declaredMd = /--breakpoint-md:\s*([^;]+);/.exec(tokensCss)?.[1]?.trim();
+    expect(declaredMd, "the contract should publish --breakpoint-md").toBe("768px");
+    expect(NARROW_VIEWPORT).toBe(`(max-width: ${declaredMd})`);
+    expect(WIDE_VIEWPORT_QUERY).toBe(`not all and ${NARROW_VIEWPORT}`);
+    expect(sheet).toContain(`@media ${WIDE_VIEWPORT_QUERY}`);
+
+    // And nobody re-spells it. The two components import the constant now; a third copy is
+    // exactly how the first two came to disagree with nothing noticing.
+    const offenders = Object.entries(sources)
+      .filter(([file]) => !file.includes(".test.") && file !== "./breakpoints.ts")
+      .filter(([, text]) => text.includes("max-width: 768px"))
+      .map(([file]) => file);
+    expect(offenders, "the breakpoint belongs in ./breakpoints.ts and nowhere else").toEqual([]);
   });
 
   it("names every published motion token the sheet does not read", () => {

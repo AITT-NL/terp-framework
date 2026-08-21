@@ -1357,6 +1357,47 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The narrow half of a responsive Stack, and half of the only gate a media query can
+        // have. jsdom evaluates no media query and a structural test can only say the rule
+        // exists, so the pair below is what proves the cutover applies at the width it claims:
+        // same node, two viewports, and the baselines must differ in BOTH the axis and the gap.
+        //
+        // 420 is well below the 768px cutover the shell and the DataView already use — one
+        // breakpoint in the framework, so a toolbar changes over exactly when the chrome does.
+        id: "stack-responsive-narrow",
+        title: "Stack — responsive direction and gap, below the cutover",
+        viewport: { width: 420, height: 900 },
+        node: (
+          <Stack direction={{ narrow: "column", wide: "row" }} gap={{ narrow: 2, wide: 6 }}>
+            <Button size="sm">Filter</Button>
+            <Button size="sm" variant="secondary">
+              Export
+            </Button>
+            <Button size="sm" variant="ghost">
+              Reset
+            </Button>
+          </Stack>
+        ),
+      },
+      {
+        // The wide half. 900 rather than the pinned 1280 for no reason except that it is
+        // unambiguously above the cutover and narrow enough that the row is legible as a row.
+        id: "stack-responsive-wide",
+        title: "Stack — the same node, above the cutover",
+        viewport: { width: 900, height: 900 },
+        node: (
+          <Stack direction={{ narrow: "column", wide: "row" }} gap={{ narrow: 2, wide: 6 }}>
+            <Button size="sm">Filter</Button>
+            <Button size="sm" variant="secondary">
+              Export
+            </Button>
+            <Button size="sm" variant="ghost">
+              Reset
+            </Button>
+          </Stack>
+        ),
+      },
+      {
         // The fixed counts. Visible at the specimen's own width, so no contrived box needed —
         // and the four rules are what a caller reaches for when the count is the design rather
         // than a consequence of the container.

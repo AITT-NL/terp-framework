@@ -2,6 +2,7 @@ import type { NavItem } from "@terpjs/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import { NARROW_VIEWPORT } from "./breakpoints";
 import { Icon, NavIcon, TerpMark } from "./icons";
 import { LanguageSwitcher } from "./locale";
 import { injectTerpStyles } from "./styles";
@@ -69,21 +70,20 @@ export interface AppShellProps {
 /** The `localStorage` key the sidebar's collapsed choice persists under. */
 export const SIDEBAR_STORAGE_KEY = "terp.sidebar";
 
-/** Below this width the sidebar becomes an overlay drawer (matches DataView's card cutover). */
-const MOBILE_BREAKPOINT = "(max-width: 768px)";
+
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(
     () =>
       typeof window !== "undefined" &&
       typeof window.matchMedia === "function" &&
-      window.matchMedia(MOBILE_BREAKPOINT).matches,
+      window.matchMedia(NARROW_VIEWPORT).matches,
   );
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return;
     }
-    const media = window.matchMedia(MOBILE_BREAKPOINT);
+    const media = window.matchMedia(NARROW_VIEWPORT);
     const onChange = (event: MediaQueryListEvent) => setIsMobile(event.matches);
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);

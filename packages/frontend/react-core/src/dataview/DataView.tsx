@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import { NARROW_VIEWPORT } from "../breakpoints";
 import { EmptyState } from "../EmptyState";
 import { ErrorState } from "../ErrorState";
 import type { BadgeTone } from "../ui/Badge";
@@ -26,7 +27,6 @@ import type {
   ViewStateRepository,
 } from "./types";
 
-const MOBILE_BREAKPOINT = "(max-width: 768px)";
 /** Embedded views render all rows; the parent owns paging. */
 const EMBEDDED_PAGE_SIZE = 10_000;
 
@@ -129,13 +129,13 @@ function useIsMobile(): boolean {
     () =>
       typeof window !== "undefined" &&
       typeof window.matchMedia === "function" &&
-      window.matchMedia(MOBILE_BREAKPOINT).matches,
+      window.matchMedia(NARROW_VIEWPORT).matches,
   );
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return;
     }
-    const media = window.matchMedia(MOBILE_BREAKPOINT);
+    const media = window.matchMedia(NARROW_VIEWPORT);
     const onChange = () => setIsMobile(media.matches);
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);

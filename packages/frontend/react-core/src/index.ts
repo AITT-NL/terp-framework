@@ -119,6 +119,7 @@ export type {
   GridProps,
   GridColumns,
   GridMinColumn,
+  Responsive,
   DetailListProps,
   DetailItem,
   SpaceToken,

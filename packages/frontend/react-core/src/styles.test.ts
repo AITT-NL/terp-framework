@@ -503,6 +503,54 @@ describe("cascade structure", () => {
     ).toEqual([]);
   });
 
+  it("puts the responsive Stack rules after the ones they override", () => {
+    // A stack with direction { narrow: "row", wide: "column" } carries BOTH
+    // data-direction="row" and data-direction-wide="column", and the two selectors weigh the
+    // same (0,2,0) — so nothing but source order decides which applies above the cutover.
+    // Backwards, the narrow value renders at every width, which looks exactly like the prop
+    // not working rather than like a cascade mistake.
+    //
+    // The same tie the focus ring and the loading cursor both turned on, and the third time
+    // it has mattered in this sheet: equal specificity in one layer is settled by position,
+    // and position is the one thing a reader cannot see from the rule.
+    const base = layerBody("terp.base");
+    const wideAt = base.indexOf("@media not all and (max-width: 768px)");
+    expect(wideAt, "the wide half of the responsive props should be in terp.base").toBeGreaterThan(
+      -1,
+    );
+    for (const selector of [
+      '[data-terp="stack"][data-direction="row"]',
+      '[data-terp="stack"][data-gap="8"]',
+    ]) {
+      const at = base.indexOf(selector);
+      expect(at, `${selector} should exist`).toBeGreaterThan(-1);
+      expect(at, `${selector} must be declared before the wide block that overrides it`).toBeLessThan(
+        wideAt,
+      );
+    }
+  });
+
+  it("declares a wide-half gap rule for every step SpaceToken allows", () => {
+    // The narrow half is covered by the roll-call below; this is its counterpart. A responsive
+    // gap whose wide step has no rule silently renders the narrow gap at every width — which
+    // is the failure mode of the whole responsive idea, and invisible unless a specimen happens
+    // to be recorded at both viewports.
+    const base = layerBody("terp.base");
+    const wide = base.slice(base.indexOf("@media not all and (max-width: 768px)"));
+    for (const token of [0, 1, 2, 3, 4, 6, 8]) {
+      expect(
+        declaresRuleFor(wide, `[data-terp="stack"][data-gap-wide="${token}"]`),
+        `the wide half has no rule for gap ${token}`,
+      ).toBe(true);
+    }
+    for (const direction of ["column", "row"]) {
+      expect(
+        declaresRuleFor(wide, `[data-terp="stack"][data-direction-wide="${direction}"]`),
+        `the wide half has no rule for direction ${direction}`,
+      ).toBe(true);
+    }
+  });
+
   it("pins the four Grid track floors, which no baseline can hold", () => {
     // The grid specimens gate the MECHANISM and not the values, and the gap between those two
     // was measured rather than assumed. An auto-fit grid quantises: a floor only changes the

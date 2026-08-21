@@ -67,13 +67,23 @@ locally. The ledger stays where it is. And the Studio gets four more manifest-pu
 controls for free, because the manifest is generated from the token sources — which is the
 same leverage 2b bought and the reason a knob belongs in the token layer if it can live there.
 
-**The one exception, and its consequence.** The mobile breakpoint cannot be a custom property:
-CSS forbids custom properties in media-query conditions, and the shell reads the breakpoint
-through `matchMedia` in JavaScript, not through CSS at all. It therefore stays a prop. The
-consequence has to be stated rather than discovered: the responsive layout primitives
-(decision 3) key on the **token** breakpoint scale and are not overridable per app, while the
-shell's own mobile cutover is. Two knobs, one of them global. Pretending they are one is the
-kind of drift 0093 exists to prevent.
+**The one exception.** The mobile breakpoint cannot be a custom property: CSS forbids custom
+properties in media-query conditions, and the shell reads it through `matchMedia` in
+JavaScript, not through CSS at all. So the number is a literal wherever it is used.
+
+**Amended in 4b.** This paragraph originally concluded that the breakpoint "stays a prop", and
+that the responsive primitives would therefore key on the token while the shell's own cutover
+would be overridable — "two knobs, one of them global". Building it produced the opposite and
+better shape, so no prop was added. The literal now lives in exactly one module
+(`./breakpoints.ts`), which `AppShell`, `DataView` and the stylesheet all take it from — it had
+previously been written verbatim in two components, which is the duplication the diagnosis
+named — and `tokens.guard.test.ts` holds all three against the published `--breakpoint-md` and
+refuses a fourth copy anywhere in the package. One cutover, one spelling, one gate.
+
+That leaves the question of an app *overriding* it open for 4d rather than answered here. If
+the shell ever takes such a prop, the responsive primitives will not follow it, because a rule
+in a shipped stylesheet cannot: that divergence would be real then, and the honest place to
+record it is the commit that creates it.
 
 ### 2. The content measure is a page-grid constraint gated by a shell attribute — not a portal
 
@@ -112,9 +122,30 @@ So responsive props become attribute pairs read under media queries whose breakp
 token values, written as literals because CSS cannot read a custom property in a media
 condition, and pinned against the tokens by a test so the two cannot drift.
 
+**Amended in 4b, by building it.** Two parts of this turned out to be wrong in the same
+direction — the design was broader than the need.
+
+*One breakpoint, not a scale.* `Stack`'s responsive props take `{ narrow, wide }` around a
+single cutover, and that cutover is the one `AppShell` and `DataView` already use, so a
+toolbar changes over at exactly the width the chrome around it does. A scale of four would be
+a rule per value per breakpoint in the sheet for cases nobody has asked for, which is the
+vocabulary-without-a-consumer trap. And the two halves are a **partition by construction**
+rather than by a chosen epsilon: the sheet's query is
+`not all and (max-width: 768px)` — literally the complement of the string the components hand
+to `matchMedia`, interpolated from one module so the two cannot drift. The conventional
+`767.98px` / `768px` pairing would have worked and would also have moved the shell's existing
+behaviour at exactly 768px, which a Stack prop has no business doing.
+
+*`Grid` needs no responsive prop at all,* and this is the better answer rather than a
+retreat. `columns="auto"` reflows to what the **container** can hold, which is what a caller
+usually means and is more nearly right than a viewport query — a grid inside a narrow panel
+should go one-column whatever the window is doing. So the sheet gained exactly one `@media`
+block in this phase, for `Stack`, and none for `Grid`.
+
 Container queries are the more correct answer to the question apps will eventually ask — a
-`Grid` inside a narrow panel should go one-column regardless of the viewport — and they are
-deliberately not taken yet. `container-type: inline-size` applies `contain: inline-size`,
+`Grid` inside a narrow panel should go one-column regardless of the viewport, and `auto`
+delivers that for the column-count case without them — and they are deliberately not taken
+yet. `container-type: inline-size` applies `contain: inline-size`,
 which makes an element's inline size independent of its contents; putting that on `Page`'s
 article or on `Card` is a layout change to be measured, not assumed, and it is not the change
 this phase is making. Recorded as the option, with the measurement it owes.
@@ -141,9 +172,11 @@ honest: an app wanting `17.5rem` cannot have it. That is the trade `gap` already
 `Stack`'s `align` and `justify` stay inline and stay at one site, because they accept any
 alignment keyword CSS defines — unchanged. But this is where the collision bites: a responsive
 `align` can be neither inline (there is no inline media query) nor an attribute (the value set
-is open). **So responsive forms are offered for `direction`, `gap` and `columns` only** — the
-closed sets — and the alignment props stay single-valued. Refusing a prop is the right answer
-here; minting a rule per alignment keyword, or adding a tenth inline site, are both worse.
+is open). **So responsive forms are offered for `direction` and `gap` only** — the closed sets
+that something asked for — and the alignment props stay single-valued. Refusing a prop is the
+right answer here; minting a rule per alignment keyword, or adding a tenth inline site, are
+both worse. (This originally also named `columns`; see the amendment to decision 3 — `auto`
+covers that case without a breakpoint, so the prop was never built.)
 
 ### 5. Navigation is ordered groups declared by the app, items declared by modules
 

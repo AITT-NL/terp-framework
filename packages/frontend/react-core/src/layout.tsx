@@ -6,13 +6,37 @@ import type { UiText } from "./uiText";
 /** The spacing scale — indexes into the `--space-*` design tokens (no arbitrary pixel gaps). */
 export type SpaceToken = 0 | 1 | 2 | 3 | 4 | 6 | 8;
 
+/**
+ * A value, or one value below the framework's viewport cutover and another above it.
+ *
+ * There is one cutover and not a scale of them, deliberately: `wide` is the complement of the
+ * width at which the shell becomes a drawer and the DataView becomes cards, so a responsive
+ * `Stack` changes over at exactly the moment the chrome around it does. A second breakpoint is
+ * a rule per value per breakpoint in the sheet, and nothing has asked for one — the same reason
+ * the density scale has two steps rather than five.
+ */
+export type Responsive<T> = T | { narrow: T; wide: T };
+
+/** Split a possibly-responsive prop into its two halves. */
+function responsive<T>(value: Responsive<T>): { narrow: T; wide: T | undefined } {
+  return value !== null && typeof value === "object" && "narrow" in value
+    ? { narrow: value.narrow, wide: value.wide }
+    : { narrow: value as T, wide: undefined };
+}
+
 export interface StackProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
   /** The rendered element (`"div"` by default; use `"form"`, `"section"`, `"ul"`, …). */
   as?: ElementType;
-  /** Main axis: `"column"` (default) stacks, `"row"` lines up. */
-  direction?: "column" | "row";
+  /**
+   * Main axis: `"column"` (default) stacks, `"row"` lines up.
+   *
+   * Takes a {@link Responsive} pair for the toolbar case — `{ narrow: "column", wide: "row" }`
+   * is a row of controls that stacks below the cutover, which was previously inexpressible
+   * without a `style` an app module may not write.
+   */
+  direction?: Responsive<"column" | "row">;
   /** Gap between children, as a step on the token spacing scale (default `2`). */
-  gap?: SpaceToken;
+  gap?: Responsive<SpaceToken>;
   /** Cross-axis alignment (e.g. `"center"`, `"start"`, `"end"`, `"stretch"`). */
   align?: CSSProperties["alignItems"];
   /** Main-axis distribution (e.g. `"space-between"`, `"center"`, `"end"`). */
@@ -49,12 +73,19 @@ export function Stack({
           ...(align !== undefined ? { alignItems: align } : undefined),
           ...(justify !== undefined ? { justifyContent: justify } : undefined),
         };
+  // A responsive prop is two attributes, and the wide half is stamped only when it was asked
+  // for — so a non-responsive Stack renders exactly the attributes it always did and every
+  // existing baseline is untouched by construction.
+  const directions = responsive(direction);
+  const gaps = responsive(gap);
   return (
     <Component
       {...rest}
       data-terp="stack"
-      data-direction={direction}
-      data-gap={String(gap)}
+      data-direction={directions.narrow}
+      data-direction-wide={directions.wide}
+      data-gap={String(gaps.narrow)}
+      data-gap-wide={gaps.wide === undefined ? undefined : String(gaps.wide)}
       data-wrap={wrap ? "true" : undefined}
       style={alignment}
     />
