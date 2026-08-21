@@ -14,6 +14,10 @@ import re
 
 _TEMPLATE = pathlib.Path(__file__).resolve().parents[2] / "template"
 _PROJECT = _TEMPLATE / "project"
+_CODEGEN = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "packages/frontend/contract/src/routes-codegen.js"
+)
 
 
 def test_copier_config_declares_inputs_and_subdirectory() -> None:
@@ -390,3 +394,48 @@ def test_project_ships_conformance_e2e() -> None:
     ci = (_PROJECT / ".github" / "workflows" / "ci.yml.jinja").read_text()
     assert "playwright install" in ci
     assert "docker compose up" in ci
+
+
+def test_template_route_table_matches_what_the_generator_emits() -> None:
+    """The template ships a COMMITTED copy of a generated file, and a scaffolded app
+    runs `terp routes --check` against it in its own CI — so a reworded generator and
+    a stale template copy fail the app rather than the framework.
+
+    That is exactly what happened: ADR 0096 added declared query-string keys and
+    reworded the generator's header to name `useRouteSearch`, the template's copy kept
+    the old wording, and three of the four layout presets went red in
+    template-acceptance while every gate in this suite stayed green. The search table
+    itself was never the problem — the generator omits it when no route declares keys,
+    which is precisely so this file stays valid.
+
+    Compared as the generator's own header literals rather than as a pasted copy, so
+    the next rewording fails here, in seconds, instead of in a scaffolded app's CI.
+    """
+    codegen = _CODEGEN.read_text(encoding="utf-8")
+    start = codegen.index("const HEADER = [")
+    block = codegen[start : codegen.index("];", start)]
+    literal = re.compile(r"""^\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'),?\s*$""", re.M)
+    header = [
+        match.group(1)[1:-1].replace('\\"', '"').replace("\\'", "'")
+        for match in literal.finditer(block)
+    ]
+    assert header, "could not read HEADER out of routes-codegen.js"
+    assert header[-1].strip() == "interface TerpRouteTable {", (
+        f"HEADER no longer ends by opening the route table: {header[-1]!r}"
+    )
+
+    table = (
+        _PROJECT / "frontend/src/routes.gen.d.ts.jinja"
+    ).read_text(encoding="utf-8").splitlines()
+    assert table[: len(header)] == header, (
+        "template/project/frontend/src/routes.gen.d.ts.jinja is stale against "
+        "routes-codegen.js — re-render its header from the generator's HEADER"
+    )
+    # The module-less presets declare exactly one route and no search keys, so the
+    # generator emits one entry and the two closes. `hub-all-capabilities` mounts more
+    # and is excluded from the acceptance check for that reason.
+    assert table[len(header) :] == [
+        '    "/": Record<never, never>;',
+        "  }",
+        "}",
+    ], f"unexpected route-table body: {table[len(header):]!r}"
