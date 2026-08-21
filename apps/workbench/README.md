@@ -26,19 +26,19 @@ contention condition described under "No retries" below. CI never runs it — th
 runs the four lanes as four separate steps. Reach for the per-lane scripts when a result
 has to mean something.
 
-94 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (470
-axe runs across five palettes); the screenshots cover the **two default** themes (188
+97 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (485
+axe runs across five palettes); the screenshots cover the **two default** themes (194
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, one that the contrast allowance list has not grown a new theme, one that
 the CI image tag still names the Playwright version in `package-lock.json`, a three-test
 keyboard lane for where a keystroke sends focus, and a four-test computed lane for the
-resolved values none of the other three can see. **668 checks.**
+resolved values none of the other three can see. **689 checks.**
 
 Nothing derives those numbers, so they are only as good as the last person to add a specimen:
 `5N` axe runs, `2N` screenshots, three standalone checks (presence, theme allowance, image
-tag), three keyboard tests and four computed ones — at N=94, 470 + 188 + 3 + 3 + 4.
+tag), three keyboard tests and four computed ones — at N=97, 485 + 194 + 3 + 3 + 4.
 
-One of those 94 earns a note, because it is the only specimen whose subject is a token
+One of those 97 earns a note, because it is the only specimen whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's
 `:root` value, so every other DataView specimen renders identical geometry whether the
 density tokens are read or hardcoded — which is exactly how four of them came to be
@@ -359,7 +359,7 @@ fix here is scheduling rather than tolerance.
 
 It returned a third time, and the trigger is narrower than "two suites": **one** bare
 `npx playwright test` is enough. That command runs every lane in a single Playwright
-process — 668 tests over eight workers, the screenshot lane's dev server and page loads
+process — 689 tests over eight workers, the screenshot lane's dev server and page loads
 competing with the axe lane's — and it failed `color-contrast` on three twilight specimens
 together (`chrome/page-loading`, `chrome/page-error`, `chrome/hub-card-bare`). The axe lane
 alone, same commit: all 81 twilight runs passed. The *identical* full command, run again:

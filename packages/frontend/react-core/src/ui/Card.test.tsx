@@ -41,4 +41,17 @@ describe("Card", () => {
     const card = screen.getByText("alleen inhoud").closest('[data-terp="card"]');
     expect(card?.querySelector('[data-terp="card-header"]')).toBeNull();
   });
+  it("names the plain variant and leaves the boxed default unmarked", () => {
+    // The chrome-less titled region. A variant rather than a `Section` component of its own,
+    // because a chrome-less region is this element with three declarations removed — a second
+    // component would have meant six more markers describing the same DOM, and a `Surface` is
+    // a Card with no title, which this already is.
+    const { rerender } = render(<Card variant="plain" title="Plain">body</Card>);
+    const plain = screen.getByRole("heading", { name: "Plain" }).closest("section");
+    expect(plain).toHaveAttribute("data-variant", "plain");
+    rerender(<Card title="Boxed">body</Card>);
+    const boxed = screen.getByRole("heading", { name: "Boxed" }).closest("section");
+    expect(boxed!.hasAttribute("data-variant")).toBe(false);
+    expect(boxed!.getAttribute("style")).toBeNull();
+  });
 });

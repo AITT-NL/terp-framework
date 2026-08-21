@@ -7,8 +7,27 @@ import type { UiText } from "../uiText";
 
 injectTerpStyles();
 
+/** Chrome, or none: `"plain"` keeps the heading and drops the box. */
+export type CardVariant = "boxed" | "plain";
+
 export interface CardProps
   extends Omit<HTMLAttributes<HTMLElement>, "style" | "title"> {
+  /**
+   * Whether the block carries a box (default `"boxed"`) or just its heading (`"plain"`).
+   *
+   * `"plain"` is the labelled-region case: a titled group inside something that is already a
+   * surface, where a second border reads as a frame around a frame. The commonest instance is
+   * a section whose body is a `DataView` — boxed, the table gets a border inside a border and
+   * loses its full width.
+   *
+   * It is a variant rather than a `Section` component of its own, and that is a decision worth
+   * knowing. A chrome-less titled region is exactly this element with three declarations
+   * removed: `Card` already renders a `<section>` with an `<h3>` and stacks its children on
+   * the token scale. A second component would have meant six more markers describing the same
+   * DOM, and a `Surface` — the third name the diagnosis suggested — is a `Card` with no title,
+   * which this already is. Two names for one box is the `LoadingButton` mistake.
+   */
+  variant?: CardVariant;
   /** Optional section heading, rendered as an `<h3>` in the card's header row. */
   title?: UiText;
   /** Optional muted one-liner under the title (what this block is about). */
@@ -31,6 +50,7 @@ export interface CardProps
  * spacing scale.
  */
 export function Card({
+  variant = "boxed",
   title,
   description,
   actions,
@@ -42,7 +62,14 @@ export function Card({
   const resolve = useUiText();
   const hasHeader = title !== undefined || actions !== undefined;
   return (
-    <Component {...rest} data-terp="card" data-gap={String(gap)}>
+    <Component
+      {...rest}
+      data-terp="card"
+      // `boxed` is the base rule, so its attribute would describe the default twice — the
+      // idiom density, Button's `md` and Grid's `auto` all use.
+      data-variant={variant === "boxed" ? undefined : variant}
+      data-gap={String(gap)}
+    >
       {hasHeader ? (
         <div data-terp="card-header">
           <div data-terp="card-heading">

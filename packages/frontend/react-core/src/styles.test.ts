@@ -675,6 +675,15 @@ describe("cascade structure", () => {
           `${marker} has no rule for gap ${token}`,
         ).toBe(true);
       }
+      // Padding is the same bargain on the same scale, and it is the dimension Stack did not
+      // have at all — a padded region used to be reachable only through a Card, which brought
+      // its border and background whether or not they were wanted.
+      for (const marker of ["stack", "grid"]) {
+        expect(
+          declaresRuleFor(base, `[data-terp="${marker}"][data-padding="${token}"]`),
+          `${marker} has no rule for padding ${token}`,
+        ).toBe(true);
+      }
     }
   });
 
@@ -1079,6 +1088,7 @@ describe("cascade structure", () => {
       "admin-section-title",
       "admin-payload",
       "grid",
+      "divider",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DetailList, Grid, Stack } from "./layout";
+import { DetailList, Divider, Grid, Stack } from "./layout";
 
 afterEach(cleanup);
 
@@ -99,6 +99,29 @@ describe("Stack", () => {
     expect(screen.getByTestId("zero")).toHaveAttribute("data-gap-wide", "0");
   });
 
+  it("names padding on the token scale, including the falsy zero step", () => {
+    // `padding={0}` is a legal step and the only falsy one, so a truthiness check anywhere in
+    // the stamp would silently drop it and inherit the container's inset instead.
+    const { rerender } = render(
+      <Stack data-testid="padded" padding={4}>
+        <span>a</span>
+      </Stack>,
+    );
+    expect(screen.getByTestId("padded")).toHaveAttribute("data-padding", "4");
+    rerender(
+      <Stack data-testid="padded" padding={0}>
+        <span>a</span>
+      </Stack>,
+    );
+    expect(screen.getByTestId("padded")).toHaveAttribute("data-padding", "0");
+    rerender(
+      <Stack data-testid="padded">
+        <span>a</span>
+      </Stack>,
+    );
+    expect(screen.getByTestId("padded").hasAttribute("data-padding")).toBe(false);
+  });
+
   it("works as a form (submit handler fires)", () => {
     let submitted = false;
     render(
@@ -185,6 +208,26 @@ describe("Grid", () => {
     const el = screen.getByTestId("grid");
     expect(el).toHaveAttribute("data-align", "center");
     expect(el.getAttribute("style")).toBeNull();
+  });
+});
+
+describe("Divider", () => {
+  it("is an hr, so the separation reaches the accessibility tree", () => {
+    // A bordered div is what a module reaches for without a primitive, and it says nothing to
+    // a screen reader. The element is the point of the component.
+    render(<Divider data-testid="rule" />);
+    const el = screen.getByTestId("rule");
+    expect(el.tagName).toBe("HR");
+    expect(el).toHaveAttribute("data-terp", "divider");
+    expect(el.hasAttribute("data-orientation")).toBe(false);
+    expect(el.getAttribute("style")).toBeNull();
+  });
+
+  it("announces a vertical rule as one, which hr does not imply", () => {
+    render(<Divider data-testid="rule" orientation="vertical" />);
+    const el = screen.getByTestId("rule");
+    expect(el).toHaveAttribute("data-orientation", "vertical");
+    expect(el).toHaveAttribute("aria-orientation", "vertical");
   });
 });
 

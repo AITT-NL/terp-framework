@@ -460,6 +460,16 @@ textarea[data-terp="input"] {
 [data-terp="stack"][data-gap="6"] { gap: var(--space-6); }
 [data-terp="stack"][data-gap="8"] { gap: var(--space-8); }
 [data-terp="stack"][data-wrap="true"] { flex-wrap: wrap; }
+/* Padding, the dimension Stack did not have — which is why a padded region was reachable
+   only through a Card, whose border and background came along whether or not they were
+   wanted. A step on the same token scale as gap, so there are no arbitrary insets. */
+[data-terp="stack"][data-padding="0"] { padding: var(--space-0); }
+[data-terp="stack"][data-padding="1"] { padding: var(--space-1); }
+[data-terp="stack"][data-padding="2"] { padding: var(--space-2); }
+[data-terp="stack"][data-padding="3"] { padding: var(--space-3); }
+[data-terp="stack"][data-padding="4"] { padding: var(--space-4); }
+[data-terp="stack"][data-padding="6"] { padding: var(--space-6); }
+[data-terp="stack"][data-padding="8"] { padding: var(--space-8); }
 /* The wide half of a responsive Stack. This block must stay AFTER the rules above and not
    merely above the Grid family: a stack with direction {narrow: "row", wide: "column"}
    carries both data-direction="row" and data-direction-wide="column", and the two selectors
@@ -536,6 +546,13 @@ textarea[data-terp="input"] {
 [data-terp="grid"][data-align="start"] { align-items: start; }
 [data-terp="grid"][data-align="center"] { align-items: center; }
 [data-terp="grid"][data-align="end"] { align-items: end; }
+[data-terp="grid"][data-padding="0"] { padding: var(--space-0); }
+[data-terp="grid"][data-padding="1"] { padding: var(--space-1); }
+[data-terp="grid"][data-padding="2"] { padding: var(--space-2); }
+[data-terp="grid"][data-padding="3"] { padding: var(--space-3); }
+[data-terp="grid"][data-padding="4"] { padding: var(--space-4); }
+[data-terp="grid"][data-padding="6"] { padding: var(--space-6); }
+[data-terp="grid"][data-padding="8"] { padding: var(--space-8); }
 
 /* Detail lists ------------------------------------------------------------- */
 /* The term and value are inline boxes inside a block row, which is what makes
@@ -629,6 +646,43 @@ textarea[data-terp="input"] {
 [data-terp="card-heading"] {
   min-width: 0;
 }
+/* Chrome off, heading kept. Three declarations removed rather than a second component
+   with six markers of its own describing the same DOM: a titled region inside something
+   that is already a surface wants no second border, and the commonest instance is a
+   section whose body is a DataView — boxed, the table gets a border inside a border and
+   loses the full width its own scroll container gives it.
+
+   padding: 0 rather than dropping the declaration, because the base rule sets it and an
+   absent value inherits nothing useful. */
+[data-terp="card"][data-variant="plain"] {
+  background: none;
+  border-color: transparent;
+  padding: 0;
+}
+
+/* Dividers ----------------------------------------------------------------- */
+/* An <hr>, so the separation reaches the accessibility tree and not only the pixels.
+   Its own border reset first: a bare <hr> comes with a browser border and margin that
+   differ between engines, which is most of why a module reaches for a bordered div.
+
+   The vertical form takes its height from its flex or grid line rather than inventing
+   one, so it works between the items of a row Stack and is zero-height in a block
+   parent. That is worth knowing before reaching for it, and it is why its specimen
+   renders inside a fixed-height row — with equal-height siblings there would be nothing
+   to see either way. */
+[data-terp="divider"] {
+  border: 0;
+  margin: 0;
+  align-self: stretch;
+  background: var(--color-neutral-200);
+  block-size: 1px;
+  inline-size: auto;
+}
+[data-terp="divider"][data-orientation="vertical"] {
+  block-size: auto;
+  inline-size: 1px;
+}
+
 [data-terp="card-actions"] {
   flex-shrink: 0;
 }

@@ -102,7 +102,7 @@ export type { TabItem, TabsProps } from "./ui/Tabs";
 export { Badge } from "./ui/Badge";
 export type { BadgeProps, BadgeTone } from "./ui/Badge";
 export { Card } from "./ui/Card";
-export type { CardProps } from "./ui/Card";
+export type { CardProps, CardVariant } from "./ui/Card";
 export { Tooltip } from "./ui/Tooltip";
 export type { TooltipProps } from "./ui/Tooltip";
 export { Alert } from "./ui/Alert";
@@ -113,12 +113,13 @@ export { saveBlob, useEndpointDownload, fetchDownload, downloadUrl } from "./dow
 export type { DownloadTarget } from "./download";
 export { Field } from "./Field";
 export type { FieldProps } from "./Field";
-export { Stack, Grid, DetailList } from "./layout";
+export { Stack, Grid, Divider, DetailList } from "./layout";
 export type {
   StackProps,
   GridProps,
   GridColumns,
   GridMinColumn,
+  DividerProps,
   Responsive,
   DetailListProps,
   DetailItem,

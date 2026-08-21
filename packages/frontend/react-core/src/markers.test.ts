@@ -131,6 +131,7 @@ const MARKERS = [
   "dialog-body",
   "dialog-description",
   "dialog-title",
+  "divider",
   "drawer-focus-end",
   "drawer-focus-start",
   "empty-state",

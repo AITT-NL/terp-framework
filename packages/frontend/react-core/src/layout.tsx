@@ -37,6 +37,14 @@ export interface StackProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
   direction?: Responsive<"column" | "row">;
   /** Gap between children, as a step on the token spacing scale (default `2`). */
   gap?: Responsive<SpaceToken>;
+  /**
+   * Inset around the children, as a step on the token spacing scale (default none).
+   *
+   * The dimension the diagnosis named first — "no padding" — and the one that made a padded
+   * region reachable only through a `Card`, whose border and background came with it whether
+   * they were wanted or not.
+   */
+  padding?: SpaceToken;
   /** Cross-axis alignment (e.g. `"center"`, `"start"`, `"end"`, `"stretch"`). */
   align?: CSSProperties["alignItems"];
   /** Main-axis distribution (e.g. `"space-between"`, `"center"`, `"end"`). */
@@ -57,6 +65,7 @@ export function Stack({
   as: Component = "div",
   direction = "column",
   gap = 2,
+  padding,
   align,
   justify,
   wrap = false,
@@ -86,6 +95,7 @@ export function Stack({
       data-direction-wide={directions.wide}
       data-gap={String(gaps.narrow)}
       data-gap-wide={gaps.wide === undefined ? undefined : String(gaps.wide)}
+      data-padding={padding === undefined ? undefined : String(padding)}
       data-wrap={wrap ? "true" : undefined}
       style={alignment}
     />
@@ -115,6 +125,8 @@ export interface GridProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
   minColumn?: GridMinColumn;
   /** Gap between cells, as a step on the token spacing scale (default `4`). */
   gap?: SpaceToken;
+  /** Inset around the cells, as a step on the token spacing scale (default none). */
+  padding?: SpaceToken;
   /**
    * Block alignment of each cell within its row (default `"stretch"`).
    *
@@ -153,6 +165,7 @@ export function Grid({
   columns = "auto",
   minColumn = "sm",
   gap = 4,
+  padding,
   align = "stretch",
   ...rest
 }: GridProps) {
@@ -166,7 +179,39 @@ export function Grid({
       data-columns={columns === "auto" ? undefined : String(columns)}
       data-min-column={columns === "auto" && minColumn !== "sm" ? minColumn : undefined}
       data-gap={String(gap)}
+      data-padding={padding === undefined ? undefined : String(padding)}
       data-align={align === "stretch" ? undefined : align}
+    />
+  );
+}
+
+export interface DividerProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
+  /** `"horizontal"` (default) rules across a column; `"vertical"` separates a row. */
+  orientation?: "horizontal" | "vertical";
+}
+
+/**
+ * A rule between two groups of content — `Separator` under its other common name, shipped
+ * once rather than twice.
+ *
+ * An `<hr>`, so the separation is in the accessibility tree rather than only in the pixels; a
+ * bordered `<div>` is what a module reaches for when it has no primitive, and it says nothing
+ * to a screen reader. The vertical form carries `aria-orientation`, which `<hr>` does not
+ * imply.
+ *
+ * The vertical case needs a height from somewhere and deliberately does not invent one: it
+ * stretches to its flex or grid line, so it works between the items of a row `Stack` and is
+ * zero-height in a plain block parent. That is the one thing about it worth knowing before
+ * reaching for it, and the reason its specimen renders inside a fixed-height row.
+ */
+export function Divider({ orientation = "horizontal", ...rest }: DividerProps) {
+  return (
+    <hr
+      {...rest}
+      data-terp="divider"
+      // Horizontal is the base rule, so only the vertical case carries an attribute.
+      data-orientation={orientation === "vertical" ? "vertical" : undefined}
+      aria-orientation={orientation === "vertical" ? "vertical" : undefined}
     />
   );
 }

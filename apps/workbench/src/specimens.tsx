@@ -18,6 +18,7 @@ import {
   DatePicker,
   DateRangePicker,
   DetailList,
+  Divider,
   EmptyState,
   ErrorState,
   Field,
@@ -626,6 +627,74 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               { label: "Direction", value: "Source to destination" },
             ]}
           />
+        ),
+      },
+      {
+        // The variant's motivating case rather than a demonstration of it: a titled region whose
+        // body is a DataView. Boxed, the table gets a border inside a border and loses the full
+        // width its own scroll container gives it — frame inside a frame. The pair is what makes
+        // that legible, so both are in one shot.
+        id: "card-plain",
+        title: "Card — plain beside boxed, each holding a table",
+        node: (
+          <Stack gap={4}>
+            <Card title="Boxed" description="A border inside a border.">
+              <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} variant="embedded" />
+            </Card>
+            <Card variant="plain" title="Plain" description="The heading, and no second box.">
+              <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} variant="embedded" />
+            </Card>
+          </Stack>
+        ),
+      },
+      {
+        // Both orientations, and the vertical one needs the contrived row: it takes its height
+        // from its flex line rather than inventing one, so in a block parent it is zero-height
+        // and the rule would be in the sheet with nothing depending on it.
+        id: "divider-orientations",
+        title: "Divider — horizontal in a column, vertical in a row",
+        node: (
+          <Stack gap={4}>
+            <Stack gap={3}>
+              <span>Above the rule</span>
+              <Divider />
+              <span>Below it</span>
+            </Stack>
+            <Stack direction="row" gap={3} align="stretch">
+              <span>Left</span>
+              <Divider orientation="vertical" />
+              <span>Middle</span>
+              <Divider orientation="vertical" />
+              <span>Right</span>
+            </Stack>
+          </Stack>
+        ),
+      },
+      {
+        // Padding, on both primitives, against a visible edge — without the border there is
+        // nothing in the picture to measure the inset against. Two steps rather than all seven:
+        // the roll-call in styles.test.ts is what holds every step, the same division the gap
+        // rules already use.
+        id: "layout-padding",
+        title: "Stack and Grid — the inset they previously could not express",
+        node: (
+          <Stack gap={4}>
+            {([2, 6] as const).map((step) => (
+              <div key={step} style={{ border: "1px dashed var(--color-neutral-300)" }}>
+                <Stack padding={step} gap={2}>
+                  <GridCell label={`Stack padding ${step}`} />
+                </Stack>
+              </div>
+            ))}
+            {([2, 6] as const).map((step) => (
+              <div key={step} style={{ border: "1px dashed var(--color-neutral-300)" }}>
+                <Grid columns={2} padding={step} gap={2}>
+                  <GridCell label={`Grid padding ${step}`} />
+                  <GridCell label="two" />
+                </Grid>
+              </div>
+            ))}
+          </Stack>
         ),
       },
       {

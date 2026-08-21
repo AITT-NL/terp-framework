@@ -201,9 +201,10 @@ token spacing scale, so spacing is themed centrally):
 
 | Export | Use |
 |---|---|
-| `Stack` | The layout primitive: a flex container with a token gap. Vertical by default (forms, sections); `direction="row"` + `justify` for toolbars; `as="form"` etc. for semantics. |
+| `Stack` | The layout primitive: a flex container with a token gap. Vertical by default (forms, sections); `direction="row"` + `justify` for toolbars; `as="form"` etc. for semantics. `padding` insets on the same token scale; `direction` and `gap` also take a `{ narrow, wide }` pair, which changes over at the one viewport cutover the shell and the DataView already use. |
 | `Grid` | The two-dimensional primitive, and the one that lifts a real ceiling — a two-column form could not be expressed at all before it. `columns` takes a fixed 1–4 or `"auto"` (the default), which reflows to whatever the **container** can hold with no breakpoint anywhere; `minColumn` is the track floor for `auto`; `gap` indexes the spacing scale; `align` is a closed four. Renders no inline style. No `span`, and therefore no twelve-column option — a span system needs a child component to carry it. |
-| `Card` | A token-styled surface (border + background + padding) grouping one block of a page — the sanctioned visual separation between sections. Optional header row: `title` (semantic `<h3>`), muted `description`, `actions` slot. |
+| `Card` | A token-styled surface (border + background + padding) grouping one block of a page — the sanctioned visual separation between sections. Optional header row: `title` (semantic `<h3>`), muted `description`, `actions` slot. `variant="plain"` keeps the heading and drops the box, for a titled region inside something that is already a surface — a section whose body is a `DataView` gets a border inside a border otherwise. There is no separate `Section` or `Surface`: both are this element with declarations removed. |
+| `Divider` | A rule between groups, as a semantic `<hr>` so the separation reaches the accessibility tree — `Separator` under its other name, shipped once. `orientation="vertical"` takes its height from its flex or grid line rather than inventing one, so it works between the items of a row `Stack` and is zero-height in a block parent. |
 | `DetailList` | Token-styled label/value pairs as a semantic `<dl>` (record metadata, expanded-row summaries). |
 
 ## The packaged admin area
