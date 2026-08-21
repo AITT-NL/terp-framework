@@ -73,8 +73,12 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   // offence `--color-fg-on-brand` was deleted for, and the reason it went unnoticed for a
   // release is that only three families were tracked at all. (Still only four: `--color-`,
   // `--space-`, `--radius-` and the rest publish unread tokens with nothing to say so. The
-  // sidebar colour family is currently in that state — see the shell work that wires it.)
+  // sidebar colour family WAS in that state for four releases — five tokens declared in every
+  // theme and read by nothing — which is the offence `--color-fg-on-brand` was deleted for. The
+  // difference there is that the vocabulary was wrong; here it was right and the readers were
+  // missing, so the fix was to wire them. Tracked from now on.)
   "--shell-": [],
+  "--color-sidebar-": [],
 };
 
 /**

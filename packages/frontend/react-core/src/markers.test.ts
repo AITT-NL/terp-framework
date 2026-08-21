@@ -60,6 +60,7 @@ const MARKERS = [
   "appshell-nav-label",
   "appshell-nav-list",
   "appshell-sidebar",
+  "appshell-skip-link",
   "badge",
   "breadcrumbs",
   "breadcrumbs-current",

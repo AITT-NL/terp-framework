@@ -97,6 +97,14 @@ export interface RenderTerpAppOptions {
   modules: Record<string, unknown>;
   /** Brand mark in the sidebar (any rendered node); default: the placeholder TerpMark. */
   logo?: ReactNode;
+  /**
+   * Extra header content, rendered before the theme / language controls.
+   *
+   * `AppShell` has had this slot all along and `renderTerpApp` did not pass it, so the only way
+   * to reach it was to abandon the one-call bootstrap for `TerpProvider` + `buildAppRouter` —
+   * a slot that existed and was unreachable from the entry point every app uses.
+   */
+  headerActions?: ReactNode;
   /** Footer line under the content; default: a muted line with the app title. */
   footer?: ReactNode;
   /**
@@ -239,6 +247,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
     views,
     title: options.title,
     logo: options.logo,
+    headerActions: options.headerActions,
     footer: options.footer,
     contentWidth: options.contentWidth,
     layoutContract: options.layoutContract,

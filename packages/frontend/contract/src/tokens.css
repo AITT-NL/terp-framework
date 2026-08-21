@@ -88,6 +88,7 @@
   --z-index-base: 0;
   --z-index-sticky: 30;
   --z-index-backdrop: 40;
+  --z-index-skip-link: 45;
   --z-index-drawer: 50;
   --z-index-popover: 60;
   --z-index-tooltip: 70;

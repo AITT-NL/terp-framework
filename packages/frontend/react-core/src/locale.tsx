@@ -60,6 +60,7 @@ export const LOCALE_NL: LocaleCatalog = {
     role: "Rol",
     home: "Start",
     primaryNavigationLabel: "Hoofdnavigatie",
+    skipToContent: "Naar de inhoud",
     collapseSidebar: "Zijbalk inklappen",
     expandSidebar: "Zijbalk uitklappen",
     openNavigation: "Navigatie openen",

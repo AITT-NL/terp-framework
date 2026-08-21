@@ -993,6 +993,7 @@ describe("cascade structure", () => {
       "radio",
       "switch",
       "stack",
+      "appshell-skip-link",
       "splitpage-panes",
       "splitpane",
       "detail-list",

@@ -274,6 +274,13 @@ const syncRepositoryOptions = {
 const SYNC_REPOSITORY = new InMemoryDataViewRepository(SYNC_ROWS, syncRepositoryOptions);
 
 /**
+ * The split's list rows. Plain strings rendered as buttons: focusable, so the keyboard lane has
+ * a tab sequence to assert, and long enough that the pane's track and its `min-width: 0` are
+ * both under real content pressure. Nothing here waits on a session.
+ */
+const SPLIT_ROWS = ["Customer master", "Sales orders", "Warehouse stock", "Ledger entries"];
+
+/**
  * A redacted audit payload, formatted the way `AuditLogAdmin` formats one
  * (`JSON.stringify(payload, null, 2)`), with two lines deliberately past the box's width.
  *
@@ -2257,8 +2264,8 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // track and the pane's own `min-width: 0` only do anything under content pressure. A
         // paragraph would shrink quietly and prove neither.
         //
-        // Both panes also carry something FOCUSABLE — a per-row action in the list, an action on
-        // the record in the detail — and that is not decoration. `visual/keyboard.spec.ts`
+        // Both panes also carry something FOCUSABLE — a button per row, an action on the record
+        // in the detail — and that is not decoration. `visual/keyboard.spec.ts`
         // asserts the tab order runs list-then-detail at both layouts, and the first version of
         // this specimen had plain spans in the list and a bare Card beside it: nothing focusable
         // in either pane, so the sequence under test was empty and the assertion vacuous. The
@@ -2272,46 +2279,54 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         id: "split-page",
         title: "SplitPage — list beside the record it selects",
         node: (
-          <SignedIn>
-            <SplitPage
-              title="Sync definitions"
-              parents={[{ label: "Records", to: "/records" }]}
-              actions={<Button variant="primary">New sync</Button>}
-            >
-              {/* LINK_RESOURCE, the fixture `resource-list` already uses, rather than a second
-                  one of the same shape. A ResourceList rather than a DataView on purpose: the
-                  list pane is the narrow track, and a DataView there pictures its own horizontal
-                  overflow instead of the split's tracks.
-                  And NO `title`, which its own docs ask for under a Page — the pane's `label` is
-                  already the accessible name, and the prop renders a bare <h1>, so passing it
-                  here put a second h1 on the page at the UA default size, visibly larger than
-                  the page's own. Recorded rather than styled around: that h1 carries no marker
-                  and no rule, so nothing in the sheet or the gates can see it. */}
-              <SplitPane role="list" label="Definitions">
-                <ResourceList
-                  resource={LINK_RESOURCE}
-                  renderItem={(item) => <span>{item.name}</span>}
-                  renderActions={() => <Button variant="ghost">Open</Button>}
+          <SplitPage
+            title="Sync definitions"
+            parents={[{ label: "Records", to: "/records" }]}
+            actions={<Button variant="primary">New sync</Button>}
+          >
+            {/* Buttons in a Stack rather than a `ResourceList`, and that is a determinism
+                fix rather than a simplification. `ResourceList` wraps its row actions in
+                `<Authorized action="write">`, which resolves only after the auth boot's two
+                round-trips — so the rows appeared or did not depending on when the shot was
+                taken, and the FIRST recording of these two baselines caught the state without
+                them: 385px tall against 430 once the session landed. `toHaveScreenshot` keeps
+                shooting until two consecutive frames match, which stabilises on whichever
+                state it finds and cannot tell one from the other.
+                So the rule is narrower than the registry's "no live data": a specimen may sit
+                behind the auth seam, because the dev server answers it with a fixed user — but
+                nothing it RENDERS may depend on the session having resolved. `SignedIn` alone
+                is fine; `Authorized` content inside it is not.
+                (`ResourceList` also renders a bare, unmarked `<h1>` for its optional `title`,
+                which its own docs warn about under a Page. That is a separate finding and it
+                is recorded in the changelog rather than worked around here.) */}
+            <SplitPane role="list" label="Definitions">
+              <Stack as="ul" gap={1}>
+                {SPLIT_ROWS.map((row) => (
+                  <li key={row}>
+                    <Button variant="ghost" fullWidth>
+                      {row}
+                    </Button>
+                  </li>
+                ))}
+              </Stack>
+            </SplitPane>
+            <SplitPane role="detail" label="Selected definition">
+              <Card
+                title="Customer master"
+                description="sap://prd/customers"
+                actions={<Button variant="secondary">Run now</Button>}
+              >
+                <DetailList
+                  layout="aligned"
+                  items={[
+                    { label: "Window", value: "02:00–04:00 UTC" },
+                    { label: "Retention", value: "90 days" },
+                    { label: "Last run", value: "1284 rows" },
+                  ]}
                 />
-              </SplitPane>
-              <SplitPane role="detail" label="Selected definition">
-                <Card
-                  title="Customer master"
-                  description="sap://prd/customers"
-                  actions={<Button variant="secondary">Run now</Button>}
-                >
-                  <DetailList
-                    layout="aligned"
-                    items={[
-                      { label: "Window", value: "02:00–04:00 UTC" },
-                      { label: "Retention", value: "90 days" },
-                      { label: "Last run", value: "1284 rows" },
-                    ]}
-                  />
-                </Card>
-              </SplitPane>
-            </SplitPage>
-          </SignedIn>
+              </Card>
+            </SplitPane>
+          </SplitPage>
         ),
       },
       {
@@ -2328,26 +2343,28 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         title: "SplitPage — stacked below the breakpoint, list first",
         viewport: { width: 700, height: 900 },
         node: (
-          <SignedIn>
-            <SplitPage title="Sync definitions" listWidth="md">
-              <SplitPane role="list" label="Definitions">
-                <ResourceList
-                  resource={LINK_RESOURCE}
-                  renderItem={(item) => <span>{item.name}</span>}
-                  renderActions={() => <Button variant="ghost">Open</Button>}
-                />
-              </SplitPane>
-              <SplitPane role="detail" label="Selected definition">
-                <Card
-                  title="Customer master"
-                  description="sap://prd/customers"
-                  actions={<Button variant="secondary">Run now</Button>}
-                >
-                  <DetailList items={[{ label: "Retention", value: "90 days" }]} />
-                </Card>
-              </SplitPane>
-            </SplitPage>
-          </SignedIn>
+          <SplitPage title="Sync definitions" listWidth="md">
+            <SplitPane role="list" label="Definitions">
+              <Stack as="ul" gap={1}>
+                {SPLIT_ROWS.map((row) => (
+                  <li key={row}>
+                    <Button variant="ghost" fullWidth>
+                      {row}
+                    </Button>
+                  </li>
+                ))}
+              </Stack>
+            </SplitPane>
+            <SplitPane role="detail" label="Selected definition">
+              <Card
+                title="Customer master"
+                description="sap://prd/customers"
+                actions={<Button variant="secondary">Run now</Button>}
+              >
+                <DetailList items={[{ label: "Retention", value: "90 days" }]} />
+              </Card>
+            </SplitPane>
+          </SplitPage>
         ),
       },
       {
@@ -2613,6 +2630,45 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               >
                 <DataView repository={SYNC_REPOSITORY} columns={WIDE_SYNC_COLUMNS} />
               </Page>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // The mobile drawer, open — the first picture of four rules that shipped four releases
+        // ago and have never been painted.
+        //
+        // `styles.test.ts` asserts them as TEXT, with "no baseline can hold it" written beside
+        // them, and that was true: below the breakpoint the sidebar renders only while
+        // `drawerOpen` is set, which is internal state with no way in. A per-specimen viewport
+        // was not enough — `app-shell-mobile` already renders at 420x900 and shows the drawer
+        // CLOSED. `defaultDrawerOpen` is the door, the same one `defaultCollapsed` opened for
+        // the icon rail, where four rules were likewise unpainted behind it.
+        //
+        // What comes into frame: the drawer's `position: fixed` / `100dvh` / drawer z-index /
+        // shadow, the backdrop's `inset: 0` and its 40% black, and the brand row with its close
+        // button — which exists only on mobile and had no picture either.
+        //
+        // `overlay: true`, and not as a precaution: the drawer is `position: fixed` and the
+        // backdrop is `inset: 0`, so both paint outside the specimen element's box. An element
+        // shot would clip to the card and record the page behind them.
+        id: "app-shell-drawer-open",
+        title: "AppShell — the mobile drawer, open over its backdrop",
+        viewport: { width: 420, height: 900 },
+        overlay: true,
+        node: (
+          <div style={{ height: "50rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              defaultDrawerOpen
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <p style={{ margin: 0 }}>The page behind the drawer, inert while it is open.</p>
             </AppShell>
           </div>
         ),

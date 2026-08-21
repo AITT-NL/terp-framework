@@ -81,12 +81,35 @@ export interface AppShellProps {
    * unpainted. Four were.
    */
   defaultCollapsed?: boolean;
+  /**
+   * Start with the mobile drawer open.
+   *
+   * The same door `defaultCollapsed` opened for the icon rail, for the same reason and with the
+   * same evidence behind it. Below the breakpoint the sidebar renders **only** while
+   * `drawerOpen` is true, and that is internal state with no way in — so the drawer's own
+   * geometry (`position: fixed`, `100dvh`, the drawer z-index, the shadow) and its backdrop
+   * have shipped unpainted, asserted in `styles.test.ts` as text with "no baseline can hold it"
+   * written beside them. Four rules, true for four releases.
+   *
+   * Dev/specimen affordance rather than an app-facing one: an app opening the drawer on load
+   * is showing every mobile user a menu they did not ask for. It exists so the rules can be
+   * photographed.
+   */
+  defaultDrawerOpen?: boolean;
   /** The routed page content. */
   children: ReactNode;
 }
 
 /** The `localStorage` key the sidebar's collapsed choice persists under. */
 export const SIDEBAR_STORAGE_KEY = "terp.sidebar";
+
+/**
+ * The id the skip link targets and `main` carries.
+ *
+ * Exported because an app rendering its own chrome around `buildAppRouter` still wants one
+ * skip target rather than two, and a second literal is how the two would drift apart.
+ */
+export const MAIN_CONTENT_ID = "terp-main";
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(
@@ -176,13 +199,14 @@ export function AppShell({
   navFooter,
   footer,
   defaultCollapsed = false,
+  defaultDrawerOpen = false,
   children,
 }: AppShellProps) {
   const resolve = useUiText();
   const strings = useStrings();
   const isMobile = useIsMobile();
   const [collapsed, setCollapsed] = useState(() => readStoredCollapsed(defaultCollapsed));
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(defaultDrawerOpen);
   const drawerRef = useRef<HTMLElement>(null);
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -278,7 +302,10 @@ export function AppShell({
       ref={isMobile ? drawerRef : undefined}
       role={isMobile ? "dialog" : undefined}
       aria-modal={isMobile ? true : undefined}
-      aria-label={isMobile ? strings.primaryNavigationLabel : undefined}
+      // Named on BOTH branches now. The desktop aside is a complementary landmark and carried no
+      // accessible name, so a screen reader's landmark list showed an anonymous region beside a
+      // named one — the mobile branch had a label only because the dialog role demanded it.
+      aria-label={strings.primaryNavigationLabel}
       tabIndex={isMobile ? -1 : undefined}
       onKeyDown={isMobile ? onDrawerKeyDown : undefined}
       data-terp="appshell-sidebar"
@@ -349,6 +376,15 @@ export function AppShell({
       data-variant={shellVariant}
       data-content-width={contentWidthAttribute}
     >
+      {/* First in the DOM, so it is the first thing a keyboard reaches on load — which is the
+          whole contract, and why it cannot be placed anywhere more convenient. Visually hidden
+          until focused (the sheet shares that with the drawer's focus sentinels) and then
+          painted above the sticky header.
+          The shell owns this because the shell owns the landmarks: `main` is rendered here, and
+          nothing above it knows the id to point at. */}
+      <a data-terp="appshell-skip-link" href={`#${MAIN_CONTENT_ID}`}>
+        {strings.skipToContent}
+      </a>
       {isMobile ? (
         drawerOpen && (
           <>
@@ -391,7 +427,14 @@ export function AppShell({
             <LanguageSwitcher variant="inline" />
           </div>
         </header>
-        <main data-terp="appshell-main">{children}</main>
+        {/* tabIndex -1 so the skip link actually MOVES focus. Following a fragment link sets
+            the sequential-navigation starting point, but a non-focusable target leaves
+            document.activeElement on <body> — so the link would jump the viewport and leave the
+            next Tab going back into the chrome it exists to skip. -1 keeps it out of the tab
+            order while making it programmatically focusable, which is the whole trick. */}
+        <main id={MAIN_CONTENT_ID} data-terp="appshell-main" tabIndex={-1}>
+          {children}
+        </main>
         <footer data-terp="appshell-footer">{footer ?? <small>{resolvedTitle}</small>}</footer>
       </div>
     </div>

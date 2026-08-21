@@ -876,6 +876,14 @@
       "themeable": false
     },
     {
+      "name": "--z-index-skip-link",
+      "category": "zIndex",
+      "values": {
+        "light": "45"
+      },
+      "themeable": false
+    },
+    {
       "name": "--z-index-drawer",
       "category": "zIndex",
       "values": {
@@ -1384,6 +1392,27 @@
       "label": "muted text on a danger-toned row or card",
       "fg": "--color-fg-muted",
       "bg": "--color-status-danger-soft",
+      "layer": "semantic"
+    },
+    {
+      "id": "sidebar-nav-link",
+      "label": "a resting sidebar navigation link",
+      "fg": "--color-sidebar-muted",
+      "bg": "--color-sidebar-bg",
+      "layer": "semantic"
+    },
+    {
+      "id": "sidebar-brand",
+      "label": "the product name at the top of the sidebar",
+      "fg": "--color-sidebar-fg",
+      "bg": "--color-sidebar-bg",
+      "layer": "semantic"
+    },
+    {
+      "id": "sidebar-nav-link-hover",
+      "label": "a hovered sidebar navigation link",
+      "fg": "--color-sidebar-fg",
+      "bg": "--color-sidebar-accent",
       "layer": "semantic"
     }
   ],

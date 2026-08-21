@@ -86,6 +86,8 @@ export interface TerpStrings {
   home: string;
   /** Accessible name of the sidebar `nav` landmark. */
   primaryNavigationLabel: string;
+  /** The shell's skip link — the first thing a keyboard reaches, jumping past the chrome. */
+  skipToContent: string;
   /** Accessible label of the header toggle when it collapses the expanded sidebar. */
   collapseSidebar: string;
   /** Accessible label of the header toggle when it expands the collapsed sidebar. */
@@ -238,6 +240,7 @@ export const DEFAULT_STRINGS: TerpStrings = {
   role: "Role",
   home: "Home",
   primaryNavigationLabel: "Primary",
+  skipToContent: "Skip to content",
   collapseSidebar: "Collapse sidebar",
   expandSidebar: "Expand sidebar",
   openNavigation: "Open navigation",

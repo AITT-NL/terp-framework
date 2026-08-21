@@ -234,6 +234,8 @@ export interface BuildAppRouterOptions {
   title: string;
   /** Brand mark in the sidebar (any rendered node); default: the placeholder TerpMark. */
   logo?: ReactNode;
+  /** Extra header content, rendered before the theme / language controls. */
+  headerActions?: ReactNode;
   /** Footer line under the content; default: a muted line with the app title. */
   footer?: ReactNode;
   /**
@@ -338,6 +340,7 @@ export function buildAppRouter(
       <AppShell
         title={options.title}
         logo={options.logo}
+        headerActions={options.headerActions}
         footer={options.footer}
         contentWidth={options.contentWidth}
         nav={nav}

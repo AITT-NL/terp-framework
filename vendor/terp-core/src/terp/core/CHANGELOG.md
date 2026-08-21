@@ -14,6 +14,74 @@ decision, 0001 onwards.
 
 ### Added
 
+- **The sidebar paints from its own colour family, four releases after that family shipped.**
+  `--color-sidebar-bg` / `-fg` / `-muted` / `-accent` / `-border` were declared in **all five
+  themes** and read by **nothing** — twenty-five declarations, zero readers. That is the offence
+  `--color-fg-on-brand` was deleted for; the difference is that there the vocabulary was wrong,
+  and here it was right and the readers were missing. So wiring is the fix and deleting would
+  have been the mistake. It went unnoticed because `tokens.guard.test.ts` tracked three token
+  families and `--color-` was not one of them; it tracks this one now, as an empty list.
+
+  Mostly inert, measured rather than assumed: seventeen of the twenty-five already equalled the
+  neutral the sheet was reading. Two things move. The light sidebar goes `#ffffff` → `#f8fafc`,
+  the faint separation from the canvas that every dark theme already had and light never did.
+  And the nav link's resting ink dims in every theme — light `#334155` → `#475569`, dark
+  `#e2e8f0` → `#b4c0d0` — which is the deliberate half: a sidebar's resting links are secondary
+  to the page, and the active one should carry the weight.
+
+  Verified as a transformation rather than accepted as a diff, and the light/dark asymmetry is
+  what makes it checkable. Light repaints **205,159 px** on each of the three full-shell
+  specimens and **54,353** on the collapsed rail — a narrower sidebar, less area, consistent
+  with a *background* change. Dark repaints **666** and **164** — three hundred times smaller,
+  consistent with only the link ink moving, which is exactly what the token values predict since
+  dark's background, border and foreground are byte-identical to the neutrals they replaced.
+  `app-shell-mobile` does not move at all: its sidebar renders only when the drawer is open.
+
+  Three pairings are now declared and gated — the resting link, the brand, the hovered link —
+  each measured before being declared, not after: 7.24:1 light, 7.94 dark, 7.50 midnight, 7.60
+  twilight, 18.42 for `contrast` against its AAA floor. A fourth was **withdrawn**: the
+  sidebar's edge against the canvas fails a 3:1 non-text floor in four themes, and it should —
+  WCAG 1.4.11 covers UI components and graphical objects needed to understand content, and a
+  decorative separator beside a surface that already differs in background is neither. Declaring
+  it would have forced darkening a decorative line in five themes for no accessibility gain. The
+  reason is recorded in `token-pairs.json` so it is not re-added.
+
+- **`defaultDrawerOpen`, and four rules get their first picture.** Below the breakpoint the
+  sidebar renders only while `drawerOpen` is true, which is internal state with no way in — so
+  the drawer's `position: fixed`, its `100dvh`, its z-index and shadow, and the backdrop's
+  `inset: 0` have shipped unpainted since they were written. `styles.test.ts` asserts them as
+  text with "no baseline can hold it" beside them, and that was true: a per-specimen viewport is
+  not enough, because `app-shell-mobile` already renders at 420×900 and shows the drawer
+  **closed**. This is the same door `defaultCollapsed` opened for the icon rail, where four
+  rules were likewise unpainted behind it.
+
+  `overlay: true`, and not as a precaution: the drawer is `position: fixed` and the backdrop is
+  `inset: 0`, so an element shot would clip to the card and record the page behind them.
+
+- **Skip to content, which the shell owns because the shell owns the landmarks.** There was no
+  skip link, `main` had no id, and the desktop `aside` had no accessible name at all — an
+  anonymous complementary landmark beside a named one, because the mobile branch had a label
+  only where the `dialog` role demanded it. All three close together.
+
+  The half that decides whether it works is where focus lands. Following a fragment link sets
+  the browser's sequential-navigation starting point but leaves `document.activeElement` on
+  `<body>` unless the target is focusable — so a skip link over a plain `<main id>` scrolls the
+  viewport, leaves focus in the chrome, and sends the next Tab straight back into the navigation
+  it exists to skip. It looks correct in a screenshot and under a manual click. `main` carries
+  `tabIndex={-1}`, and the keyboard lane asserts the landing rather than the reaching; removing
+  it puts `activeElement` at `null` and fails.
+
+  The visible rule sits in `terp.state`, which is load-bearing rather than filing: the resting
+  half is the shared visually-hidden block in `terp.base`, whose winning selector weighs (0,3,0)
+  and is not comparable to this one, so layer order settles it with nothing to reason about.
+  `--z-index-skip-link` (45) sits above the sticky header and its backdrop and below the drawer —
+  a keyboard user inside an open drawer is in a focus trap and should not be able to tab out to
+  it.
+
+- **`renderTerpApp` passes `headerActions` through.** The slot has existed on `AppShell` all
+  along; reaching it meant abandoning the one-call bootstrap for `TerpProvider` +
+  `buildAppRouter`. A slot that exists and is unreachable from the entry point every app uses.
+
 - **Three archetypes, and the fourth is declined (ADR 0079, ADR 0097).** `FormPage`,
   `SettingsPage` and `SplitPage` + `SplitPane`, each in both halves of the layout-contract table,
   each with a specimen and both platform baselines.
@@ -448,6 +516,22 @@ decision, 0001 onwards.
   chosen epsilon, and the shell's existing behaviour at exactly 768px is untouched.
 
 ### Fixed
+
+- **Two workbench specimens were nondeterministic, and had recorded the wrong state.** The split
+  specimens put a `ResourceList` in the list pane with `renderActions`, which `ResourceList`
+  wraps in `<Authorized action="write">` — so the rows rendered only once the auth boot's two
+  round-trips resolved. The baselines committed with them caught the state *without* the
+  actions: 385px tall against 430 once the session landed.
+
+  `toHaveScreenshot` cannot see this. It keeps shooting until two consecutive frames match, so
+  it stabilises on whichever state it finds and reports both as settled — which is why the
+  recording and the comparison disagreed while each was individually stable.
+
+  The rule that follows is narrower than the registry's "no live data", and worth having
+  explicitly: a specimen **may** sit behind the auth seam, because the dev server's own
+  `workbench-mock-auth` plugin answers it with a fixed user — but nothing it *renders* may
+  depend on that session having resolved. `SignedIn` alone is fine; `Authorized` content inside
+  it is not. Both panes now use plain buttons and need no session at all.
 
 - **`ResourceList`'s optional title renders a second `h1`, and an unstyled one.** Found while
   composing the split's list pane. The prop's own doc says to omit it under a `Page` "whose title

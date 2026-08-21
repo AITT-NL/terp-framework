@@ -194,3 +194,48 @@ for (const { name, width, height } of [
     }
   });
 }
+
+test("the skip link is the first tab stop, and Enter moves focus into main", async ({ page }) => {
+  // Two claims, because the first one alone is the version that looks right and does nothing.
+  //
+  // Reaching the link is easy: it is first in the DOM. What decides whether it WORKS is where
+  // focus ends up after activating it — and following a fragment link sets the browser's
+  // sequential-navigation starting point without moving document.activeElement unless the
+  // target is focusable. A skip link over a plain <main id> therefore scrolls the viewport,
+  // leaves focus in the chrome, and sends the next Tab straight back into the navigation it
+  // exists to skip. It looks correct in a screenshot and in a manual click.
+  //
+  // Probed with a REAL Tab rather than .focus(), because the resting rule hides the link and
+  // only :focus-visible reveals it — and a programmatic focus does not match :focus-visible.
+  await page.goto("/?theme=light&only=app-shell");
+  await page.locator('[data-terp="appshell"]').waitFor({ state: "visible" });
+
+  await page.keyboard.press("Tab");
+  const first = await page.evaluate(() => {
+    const active = document.activeElement as HTMLElement | null;
+    return {
+      marker: active?.getAttribute("data-terp") ?? null,
+      text: active?.textContent ?? null,
+      visible: active === null ? false : active.getBoundingClientRect().width > 1,
+    };
+  });
+  expect(first.marker, "the skip link must be the first thing Tab reaches").toBe(
+    "appshell-skip-link",
+  );
+  expect(first.text).toBe("Skip to content");
+  // And it has to become visible, or a sighted keyboard user cannot see where they are.
+  expect(first.visible, "the focused skip link must leave its 1px hidden box").toBe(true);
+
+  await page.keyboard.press("Enter");
+  const landed = await page.evaluate(() => {
+    const active = document.activeElement;
+    return {
+      marker: active?.getAttribute("data-terp") ?? null,
+      id: active?.id ?? null,
+    };
+  });
+  expect(landed.marker, "Enter must move focus to main, not merely scroll to it").toBe(
+    "appshell-main",
+  );
+  expect(landed.id).toBe("terp-main");
+});

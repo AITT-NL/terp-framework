@@ -991,7 +991,23 @@ textarea[data-terp="input"] {
      shell's hover rule has keyed on it since before this migration.
 
    That is why nothing here needs a style object handed across a public boundary, which
-   is what AppShellLinkContext.style and RenderBrandLink's style param used to be. */
+   is what AppShellLinkContext.style and RenderBrandLink's style param used to be.
+
+   The sidebar paints from its OWN colour family now — --color-sidebar-bg / -fg / -muted /
+   -accent / -border — rather than from the neutral ramp. Those five were declared in all five
+   themes and read by NOTHING, which is exactly the offence --color-fg-on-brand was deleted
+   for; the difference is that here the vocabulary is right and the readers were missing, so
+   wiring is the fix and deleting would have been the mistake. It went unnoticed for four
+   releases because tokens.guard.test.ts tracked three families and --color- was not one.
+
+   Mostly inert, and measured rather than assumed: of the twenty-five declarations, seventeen
+   already equalled the neutral the sheet was reading. Two things actually move. The light
+   sidebar goes #ffffff -> #f8fafc, a faint separation from the canvas that the dark themes
+   always had and light never did. And the nav link's resting ink dims in every theme — light
+   #334155 -> #475569, dark #e2e8f0 -> #b4c0d0 — which is the deliberate half: a sidebar's
+   resting links are secondary to the page, and the active one is what should carry weight.
+   Every new pairing was checked before being wired, not after: 7.24:1 light, 7.94 dark, 7.50
+   midnight, 7.60 twilight, and 18.42 for contrast against its AAA floor. */
 [data-terp="appshell"] {
   display: flex;
   align-items: stretch;
@@ -1017,8 +1033,8 @@ textarea[data-terp="input"] {
   height: 100vh;
   overflow-x: hidden;
   width: var(--shell-sidebar-width-expanded);
-  background: var(--color-neutral-0);
-  border-inline-end: 1px solid var(--color-neutral-200);
+  background: var(--color-sidebar-bg);
+  border-inline-end: 1px solid var(--color-sidebar-border);
   transition: width var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="appshell-sidebar"][data-collapsed="true"] {
@@ -1055,7 +1071,7 @@ textarea[data-terp="input"] {
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
   min-height: 2.25rem;
-  color: var(--color-neutral-900);
+  color: var(--color-sidebar-fg);
   text-decoration: none;
   border-radius: var(--radius-md);
   box-sizing: border-box;
@@ -1080,7 +1096,7 @@ textarea[data-terp="input"] {
   white-space: nowrap;
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-neutral-900);
+  color: var(--color-sidebar-fg);
   letter-spacing: 0;
 }
 [data-terp="appshell-nav"] {
@@ -1111,7 +1127,7 @@ textarea[data-terp="input"] {
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
-  color: var(--color-neutral-700);
+  color: var(--color-sidebar-muted);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   text-decoration: none;
@@ -1143,6 +1159,7 @@ textarea[data-terp="input"] {
    the component picked between two objects per render, and the collapsed branch was
    painted by nothing, because the rail state was internal and no specimen could reach it.
    That is what defaultCollapsed is for. */
+[data-terp="appshell-skip-link"],
 [data-terp="drawer-focus-start"],
 [data-terp="drawer-focus-end"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-brand-title"],
@@ -3353,8 +3370,8 @@ button[data-terp="input"][data-placeholder="true"] {
    The rail's scrollbar suppression moved from an attribute on the nav to the sidebar's,
    because collapsed is one fact and it now has one owner. */
 [data-terp="appshell-nav"] a:hover:not([aria-current="page"]) {
-  background: var(--color-neutral-100);
-  color: var(--color-neutral-900);
+  background: var(--color-sidebar-accent);
+  color: var(--color-sidebar-fg);
 }
 [data-terp="appshell-nav"] a[aria-current="page"] {
   background: var(--color-brand-primary-soft);
@@ -3370,7 +3387,36 @@ button[data-terp="input"][data-placeholder="true"] {
   height: 0;
 }
 [data-terp="appshell-brand"]:hover {
-  background: var(--color-neutral-100);
+  background: var(--color-sidebar-accent);
+}
+/* The skip link, visible only while focused.
+   In terp.state, and that is not filing: the resting half is the shared visually-hidden block
+   in terp.base, which sets position, a 1px box and clip. Un-hiding has to beat all of it, and
+   the two selectors are not comparable on specificity — the hidden one is a five-selector list
+   whose winning member weighs (0,3,0). Layer order settles it with nothing to reason about.
+   :focus-visible rather than :focus, matching the sheet's shared ring: a skip link reached by
+   pointer is a link nobody asked to see.
+   Above the sticky header (30) and its backdrop (40), below the drawer (50) — a keyboard user
+   inside an open drawer is in a focus trap and should not be able to tab out to this. */
+[data-terp="appshell-skip-link"]:focus-visible {
+  position: fixed;
+  top: var(--space-2);
+  inset-inline-start: var(--space-2);
+  z-index: var(--z-index-skip-link);
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  clip: auto;
+  overflow: visible;
+  background: var(--color-neutral-0);
+  color: var(--color-fg-accent);
+  border: var(--border-width-thin) solid var(--color-fg-accent);
+  border-radius: var(--radius-md);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
 }
 
 /* Tabs -------------------------------------------------------------------- */
