@@ -113,8 +113,16 @@ export { saveBlob, useEndpointDownload, fetchDownload, downloadUrl } from "./dow
 export type { DownloadTarget } from "./download";
 export { Field } from "./Field";
 export type { FieldProps } from "./Field";
-export { Stack, DetailList } from "./layout";
-export type { StackProps, DetailListProps, DetailItem, SpaceToken } from "./layout";
+export { Stack, Grid, DetailList } from "./layout";
+export type {
+  StackProps,
+  GridProps,
+  GridColumns,
+  GridMinColumn,
+  DetailListProps,
+  DetailItem,
+  SpaceToken,
+} from "./layout";
 export {
   buildAppRouter,
   DEFAULT_ROLE_RANKS,

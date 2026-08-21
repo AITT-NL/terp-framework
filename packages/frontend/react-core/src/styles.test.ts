@@ -503,6 +503,65 @@ describe("cascade structure", () => {
     ).toEqual([]);
   });
 
+  it("pins the four Grid track floors, which no baseline can hold", () => {
+    // The grid specimens gate the MECHANISM and not the values, and the gap between those two
+    // was measured rather than assumed. An auto-fit grid quantises: a floor only changes the
+    // rendered column count when it crosses a threshold for the container's width. At
+    // `grid-min-column`'s 66rem, moving the md floor 20rem -> 22rem drops it from three columns
+    // to two and repaints 63,524 pixels — while moving it 20rem -> 21rem changes **nothing**,
+    // and all ten grid baselines pass. So the pictures prove the attribute selects a different
+    // floor; only this proves which floor.
+    //
+    // The same shape as the shell declarations below, and the reason the values are pinned here
+    // rather than promoted to tokens: four published tokens with one consumer is the vocabulary
+    // the density cell tokens were deleted for. They become tokens the day an app asks.
+    const base = layerBody("terp.base");
+    for (const [attribute, floor] of [
+      [null, "16rem"],
+      ["xs", "10rem"],
+      ["md", "20rem"],
+      ["lg", "26rem"],
+    ] as const) {
+      const selector =
+        attribute === null
+          ? '[data-terp="grid"]'
+          : `[data-terp="grid"][data-min-column="${attribute}"]`;
+      const at = base.indexOf(`${selector} {`);
+      expect(at, `${selector} should have a rule`).toBeGreaterThan(-1);
+      expect(
+        base.slice(at, base.indexOf("}", at)),
+        `${selector} should floor its tracks at ${floor}`,
+      ).toContain(`minmax(min(${floor}, 100%), 1fr)`);
+    }
+    // sm is the default and therefore the base rule, so it has no attribute of its own — and
+    // its floor is the same 16rem the hub grid uses, which is why the two agree by construction
+    // instead of by coincidence.
+    expect(
+      declaresRuleFor(base, '[data-terp="grid"][data-min-column="sm"]'),
+      "sm is the base rule; an attribute rule for it means the default is described twice",
+    ).toBe(false);
+    const hub = base.indexOf('[data-terp="hubpage-grid"] {');
+    expect(base.slice(hub, base.indexOf("}", hub))).toContain("minmax(min(16rem, 100%), 1fr)");
+  });
+
+  it("floors every fixed Grid column at zero, not at min-content", () => {
+    // `repeat(N, 1fr)` looks equivalent and is not: a bare 1fr floors at the track's
+    // min-content size, so one long unbroken word in a cell widens its column and the grid
+    // overflows its container. A two-column form of long field labels walks straight into it,
+    // which is the case Grid exists for. minmax(0, 1fr) is the fix, and it is invisible to
+    // every baseline that does not happen to contain an overflowing word.
+    const base = layerBody("terp.base");
+    for (const count of [1, 2, 3, 4]) {
+      const selector = `[data-terp="grid"][data-columns="${count}"]`;
+      const at = base.indexOf(`${selector} {`);
+      expect(at, `${selector} should have a rule`).toBeGreaterThan(-1);
+      expect(
+        base.slice(at, base.indexOf("}", at)),
+        `${selector} must floor its tracks at 0, or a long word widens the column`,
+      ).toContain("minmax(0, 1fr)");
+    }
+  });
+
   it("declares a rule for every size Button names, and none for its default", () => {
     // The same bargain the gap rules strike: the union and the sheet are two lists kept by
     // hand, so widening ButtonSize without adding a rule would silently fall back to the
@@ -562,7 +621,7 @@ describe("cascade structure", () => {
     // silently fall back to the default gap rather than fail.
     const base = layerBody("terp.base");
     for (const token of [0, 1, 2, 3, 4, 6, 8]) {
-      for (const marker of ["stack", "card"]) {
+      for (const marker of ["stack", "card", "grid"]) {
         expect(
           declaresRuleFor(base, `[data-terp="${marker}"][data-gap="${token}"]`),
           `${marker} has no rule for gap ${token}`,
@@ -971,6 +1030,7 @@ describe("cascade structure", () => {
       "admin-form",
       "admin-section-title",
       "admin-payload",
+      "grid",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

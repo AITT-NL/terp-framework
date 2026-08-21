@@ -202,6 +202,7 @@ token spacing scale, so spacing is themed centrally):
 | Export | Use |
 |---|---|
 | `Stack` | The layout primitive: a flex container with a token gap. Vertical by default (forms, sections); `direction="row"` + `justify` for toolbars; `as="form"` etc. for semantics. |
+| `Grid` | The two-dimensional primitive, and the one that lifts a real ceiling — a two-column form could not be expressed at all before it. `columns` takes a fixed 1–4 or `"auto"` (the default), which reflows to whatever the **container** can hold with no breakpoint anywhere; `minColumn` is the track floor for `auto`; `gap` indexes the spacing scale; `align` is a closed four. Renders no inline style. No `span`, and therefore no twelve-column option — a span system needs a child component to carry it. |
 | `Card` | A token-styled surface (border + background + padding) grouping one block of a page — the sanctioned visual separation between sections. Optional header row: `title` (semantic `<h3>`), muted `description`, `actions` slot. |
 | `DetailList` | Token-styled label/value pairs as a semantic `<dl>` (record metadata, expanded-row summaries). |
 

@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DetailList, Stack } from "./layout";
+import { DetailList, Grid, Stack } from "./layout";
 
 afterEach(cleanup);
 
@@ -67,6 +67,76 @@ describe("Stack", () => {
     );
     screen.getByText("go").click();
     expect(submitted).toBe(true);
+  });
+});
+
+describe("Grid", () => {
+  it("leaves every default unstamped, because the defaults ARE the base rule", () => {
+    // auto columns, the sm track floor and stretched cells are what the base rule declares, so
+    // their attributes would describe the standard shape a second time. Same idiom as density's
+    // "comfortable" and Button's md — and asserted as absence, deliberately, because a later
+    // change that starts stamping them would leave the sheet with two accounts of one default.
+    render(
+      <Grid data-testid="grid">
+        <span>a</span>
+      </Grid>,
+    );
+    const el = screen.getByTestId("grid");
+    expect(el.tagName).toBe("DIV");
+    expect(el).toHaveAttribute("data-terp", "grid");
+    expect(el).toHaveAttribute("data-gap", "4");
+    expect(el.hasAttribute("data-columns")).toBe(false);
+    expect(el.hasAttribute("data-min-column")).toBe(false);
+    expect(el.hasAttribute("data-align")).toBe(false);
+    expect(el.getAttribute("style")).toBeNull();
+  });
+
+  it("names a fixed count, the element and the gap", () => {
+    render(
+      <Grid data-testid="grid" as="ul" columns={3} gap={2}>
+        <li>a</li>
+      </Grid>,
+    );
+    const el = screen.getByTestId("grid");
+    expect(el.tagName).toBe("UL");
+    // A number prop, a text attribute: `columns={3}` has to produce "3" or the rule misses.
+    expect(el).toHaveAttribute("data-columns", "3");
+    expect(el).toHaveAttribute("data-gap", "2");
+    expect(el.getAttribute("style")).toBeNull();
+  });
+
+  it("names a non-default track floor, and only while the columns are auto", () => {
+    // `minColumn` is meaningless at a fixed count — the tracks are counted, not floored — so
+    // stamping it there would put an attribute on the element that no rule reads and that a
+    // reader would take for an active choice.
+    const { rerender } = render(
+      <Grid data-testid="grid" minColumn="lg">
+        <span>a</span>
+      </Grid>,
+    );
+    expect(screen.getByTestId("grid")).toHaveAttribute("data-min-column", "lg");
+    rerender(
+      <Grid data-testid="grid" columns={2} minColumn="lg">
+        <span>a</span>
+      </Grid>,
+    );
+    const fixed = screen.getByTestId("grid");
+    expect(fixed).toHaveAttribute("data-columns", "2");
+    expect(fixed.hasAttribute("data-min-column")).toBe(false);
+  });
+
+  it("keeps alignment an attribute, unlike Stack's, and takes no style", () => {
+    // The deliberate divergence: Stack's align is an open set of CSS keywords and stays inline
+    // (ADR 0094 §3); Grid's is a closed four, so it is an attribute and Grid renders no inline
+    // style at all. That is what keeps a new primitive out of the inline-style ledger.
+    render(
+      <Grid data-testid="grid" align="center">
+        <span>a</span>
+      </Grid>,
+    );
+    const el = screen.getByTestId("grid");
+    expect(el).toHaveAttribute("data-align", "center");
+    expect(el.getAttribute("style")).toBeNull();
   });
 });
 

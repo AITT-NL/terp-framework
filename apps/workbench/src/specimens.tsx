@@ -21,6 +21,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  Grid,
   HubCard,
   HubPage,
   Icon,
@@ -130,6 +131,38 @@ export interface SpecimenGroup {
   id: string;
   title: string;
   specimens: Specimen[];
+}
+
+/**
+ * A visible cell for the grid specimens.
+ *
+ * Grid tracks are invisible by themselves, so a specimen of a grid needs something with an
+ * edge in every cell or the picture is a paragraph of labels. `lines` makes a cell taller
+ * than its neighbours, which is the only way the alignment rules paint differently from each
+ * other at all.
+ *
+ * Inline styles, which is legal here and would not be in react-core: this is the workbench's
+ * own scaffolding rather than a component, and `markers.test.ts` scans the package, not this
+ * app. It is deliberately NOT a `Card` — a Card would put a real component's geometry between
+ * the reader and the tracks being demonstrated.
+ */
+function GridCell({ label, lines = 1 }: { label: string; lines?: number }) {
+  return (
+    <div
+      style={{
+        background: "var(--color-neutral-100)",
+        border: "1px solid var(--color-neutral-300)",
+        borderRadius: "var(--radius-sm)",
+        padding: "var(--space-2)",
+        fontSize: "var(--font-size-xs)",
+        color: "var(--color-neutral-700)",
+      }}
+    >
+      {Array.from({ length: lines }, (_, index) => (
+        <div key={index}>{index === 0 ? label : " "}</div>
+      ))}
+    </div>
+  );
 }
 
 const BUTTON_VARIANTS = ["primary", "secondary", "danger", "ghost"] as const;
@@ -1321,6 +1354,119 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               <Badge tone="info" label="stacked two" />
             </Stack>
           </Stack>
+        ),
+      },
+      {
+        // The fixed counts. Visible at the specimen's own width, so no contrived box needed —
+        // and the four rules are what a caller reaches for when the count is the design rather
+        // than a consequence of the container.
+        id: "grid-columns",
+        title: "Grid — the four fixed column counts",
+        node: (
+          <Stack gap={4}>
+            {([1, 2, 3, 4] as const).map((count) => (
+              <Grid key={count} columns={count} gap={2}>
+                {Array.from({ length: count }, (_, index) => (
+                  <GridCell key={index} label={`${count}× · ${index + 1}`} />
+                ))}
+              </Grid>
+            ))}
+          </Stack>
+        ),
+      },
+      {
+        // The responsive claim, and it needs the boxes to say anything at all: `auto` reflows
+        // to what its CONTAINER can hold, so at the specimen's full width every case would be
+        // one wide row and the picture would prove nothing. Three widths, one grid, no media
+        // query anywhere — which is the whole argument for `auto` over a breakpoint prop.
+        //
+        // The widths are picked so the counts actually differ, which took arithmetic rather
+        // than taste: a track floor of 16rem with a 0.5rem gap fits three columns only above
+        // 49rem, so the obvious 48rem produced two and read as though `auto` barely worked.
+        // 52 / 36 / 18 gives 3 -> 2 -> 1.
+        id: "grid-auto-fit",
+        title: "Grid — auto, reflowing to three container widths",
+        node: (
+          <Stack gap={4}>
+            {(["52rem", "36rem", "18rem"] as const).map((width) => (
+              <div key={width} style={{ width, border: "1px dashed var(--color-neutral-300)" }}>
+                <Grid gap={2}>
+                  <GridCell label="one" />
+                  <GridCell label="two" />
+                  <GridCell label="three" />
+                </Grid>
+              </div>
+            ))}
+          </Stack>
+        ),
+      },
+      {
+        // The four track floors. Pinned to 66rem with SIX cells, because that is the
+        // combination at which all four differ — 6, 4, 3 and 2 columns. Both halves needed
+        // arithmetic: at 48rem sm and md both yielded two, and with four cells xs and sm both
+        // filled a single row, so either shortcut left two of the three non-default rules
+        // unpainted. At the specimen's own width they would all fit everything. Same trap
+        // `dataview-compact` exists to avoid for the density tokens.
+        id: "grid-min-column",
+        title: "Grid — the four track floors, at one container width",
+        node: (
+          <Stack gap={4}>
+            {(["xs", "sm", "md", "lg"] as const).map((minColumn) => (
+              <div
+                key={minColumn}
+                style={{ width: "66rem", border: "1px dashed var(--color-neutral-300)" }}
+              >
+                <Grid minColumn={minColumn} gap={2}>
+                  {Array.from({ length: 6 }, (_, index) => (
+                    <GridCell key={index} label={`${minColumn} · ${index + 1}`} />
+                  ))}
+                </Grid>
+              </div>
+            ))}
+          </Stack>
+        ),
+      },
+      {
+        // The alignment rules, and this one CANNOT be observed without the contrived context:
+        // with cells of equal height, stretch, start, center and end paint identically, so the
+        // three non-default rules would be in the sheet with nothing depending on them. Each
+        // row therefore holds one tall cell and one short one.
+        id: "grid-align",
+        title: "Grid — block alignment, with cells of unequal height",
+        node: (
+          <Stack gap={4}>
+            {(["stretch", "start", "center", "end"] as const).map((align) => (
+              <Grid key={align} columns={3} gap={2} align={align}>
+                <GridCell label={align} />
+                <GridCell label="tall" lines={3} />
+                <GridCell label="short" />
+              </Grid>
+            ))}
+          </Stack>
+        ),
+      },
+      {
+        // The use the primitive exists for, rather than a demonstration of it. The diagnosis's
+        // sharpest piece of evidence was a fifteen-field form shipped as one long vertical run
+        // because two columns could not be expressed at all — app modules may not write `style`
+        // or `className`, so this was unbuildable rather than awkward. This is that form.
+        id: "grid-two-column-form",
+        title: "Grid — a two-column form, which was previously unbuildable",
+        node: (
+          <Grid columns={2} gap={4} align="start">
+            <Field label="Integration name">
+              <Input defaultValue="Customer master" aria-label="Integration name" />
+            </Field>
+            <Field label="Source system">
+              <Input defaultValue="sap://prd/s1" aria-label="Source system" />
+            </Field>
+            <Field label="Target system" hint="Where records land after mapping.">
+              <Input defaultValue="terp://ledger/s1" aria-label="Target system" />
+            </Field>
+            <Field label="Retention (days)">
+              <Input defaultValue="90" aria-label="Retention in days" />
+            </Field>
+          </Grid>
         ),
       },
       {

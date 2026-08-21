@@ -61,6 +61,85 @@ export function Stack({
   );
 }
 
+/** Fixed column count, or `"auto"` — as many columns as fit above `minColumn`. */
+export type GridColumns = 1 | 2 | 3 | 4 | "auto";
+
+/** Track floor for an `"auto"` grid: the width below which a column stops being one. */
+export type GridMinColumn = "xs" | "sm" | "md" | "lg";
+
+export interface GridProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
+  /** The rendered element (`"div"` by default; use `"ul"`, `"section"`, `"dl"`, …). */
+  as?: ElementType;
+  /**
+   * Columns: a fixed count, or `"auto"` (the default) for as many as fit above
+   * {@link GridProps.minColumn}.
+   *
+   * `"auto"` is the responsive answer and it takes no breakpoint: the track floor makes the
+   * grid reflow to whatever its **container** can hold, which is what a caller almost always
+   * means and is more nearly right than a viewport query — a grid inside a narrow panel
+   * should go one-column whatever the window is doing.
+   */
+  columns?: GridColumns;
+  /** Track floor for an `"auto"` grid (default `"sm"`); ignored at a fixed count. */
+  minColumn?: GridMinColumn;
+  /** Gap between cells, as a step on the token spacing scale (default `4`). */
+  gap?: SpaceToken;
+  /**
+   * Block alignment of each cell within its row (default `"stretch"`).
+   *
+   * A closed set of four, unlike `Stack`'s `align` — see the note on {@link Grid}.
+   */
+  align?: "start" | "center" | "end" | "stretch";
+  children?: ReactNode;
+}
+
+/**
+ * The two-dimensional layout primitive, and the one that lifts a real ceiling: with `Stack`
+ * as the entire vocabulary, a two-column form could not be expressed at all, so a fifteen-field
+ * form shipped as one long vertical run. App modules may not write `style` or `className`
+ * (ADR 0059), so that was not awkwardness — it was unbuildable.
+ *
+ * Every prop is a closed set and becomes a `data-*` attribute with a rule each, so `Grid`
+ * renders **no inline style** and stays out of the inline-style ledger (ADR 0097). Three
+ * consequences of that are worth knowing, because each was a choice:
+ *
+ * - **`align` takes four values, where `Stack`'s takes any alignment keyword.** The divergence
+ *   is deliberate rather than an oversight. `Stack`'s is open because it was already inline
+ *   when ADR 0094 drew the line, and an open vocabulary stays inline; a *new* component picks
+ *   the closed set so it needs no `style` at all. `justify` is absent for the same reason it
+ *   would be least useful: a grid's tracks already fill their container, so distributing them
+ *   is a question about the tracks rather than the cells, and no consumer has asked.
+ * - **`minColumn` is a scale, not a length.** `Icon`'s `size` takes any CSS length and stays
+ *   inline for it; a grid's column floor could have gone the same way. It is a scale instead
+ *   for the reason `Stack`'s `gap` is a token index: so there are no arbitrary widths. An app
+ *   wanting 17.5rem cannot have it, which is the same trade `gap` already makes.
+ * - **There is no `span`,** and therefore no twelve-column option. A span system needs a child
+ *   component to carry it, and a `columns={12}` with no way to span is a grid of twelve narrow
+ *   cells rather than a layout system — worse than not offering it.
+ */
+export function Grid({
+  as: Component = "div",
+  columns = "auto",
+  minColumn = "sm",
+  gap = 4,
+  align = "stretch",
+  ...rest
+}: GridProps) {
+  return (
+    <Component
+      {...rest}
+      data-terp="grid"
+      // The defaults are the base rule, so their attributes match nothing and are left off —
+      // the shape density and Button's `md` already use. String(columns) rather than the
+      // number, because a `data-` attribute is text and `columns={2}` must produce "2".
+      data-columns={columns === "auto" ? undefined : String(columns)}
+      data-min-column={columns === "auto" && minColumn !== "sm" ? minColumn : undefined}
+      data-gap={String(gap)}
+      data-align={align === "stretch" ? undefined : align}
+    />
+  );
+}
+
 export interface DetailItem {
   /** The item's label (rendered as `<dt>`). */
   label: UiText;

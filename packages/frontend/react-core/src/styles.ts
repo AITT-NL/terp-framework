@@ -459,6 +459,58 @@ textarea[data-terp="input"] {
 [data-terp="stack"][data-gap="8"] { gap: var(--space-8); }
 [data-terp="stack"][data-wrap="true"] { flex-wrap: wrap; }
 
+/* Grids -------------------------------------------------------------------- */
+/* The two-dimensional primitive. The base rule is the DEFAULT shape — auto-fit at the
+   sm track floor, stretched cells — so the three defaults match no attribute, exactly
+   as density's "comfortable" and Button's md do.
+
+   min(16rem, 100%) rather than a bare 16rem, and the min() is load-bearing rather than
+   defensive: a bare floor wider than the container makes the single track overflow it,
+   so a grid in a narrow panel would scroll sideways instead of going one-column. Same
+   mechanism the hub grid uses, and the same 16rem, so the two agree by construction
+   rather than by coincidence.
+
+   The four floors are rem literals rather than tokens on purpose. They are a design
+   scale with exactly one consumer today, and vocabulary published before something
+   reads it gets retired here — the four density cell tokens were deleted for precisely
+   that and came back with their readers. They become tokens the day an app asks to move
+   them, which is also when a compact counterpart would have to be decided. */
+[data-terp="grid"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  gap: var(--space-4);
+  align-items: stretch;
+  min-width: 0;
+  margin: 0;
+}
+[data-terp="grid"][data-min-column="xs"] {
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+}
+[data-terp="grid"][data-min-column="md"] {
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+}
+[data-terp="grid"][data-min-column="lg"] {
+  grid-template-columns: repeat(auto-fit, minmax(min(26rem, 100%), 1fr));
+}
+/* A fixed count. minmax(0, 1fr) rather than a bare 1fr, because 1fr floors at the
+   track's min-content size — so one long unbroken word in a cell widens its column and
+   the grid overflows its container, which is the failure a two-column form of long field
+   labels walks straight into. */
+[data-terp="grid"][data-columns="1"] { grid-template-columns: minmax(0, 1fr); }
+[data-terp="grid"][data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+[data-terp="grid"][data-columns="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+[data-terp="grid"][data-columns="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+[data-terp="grid"][data-gap="0"] { gap: var(--space-0); }
+[data-terp="grid"][data-gap="1"] { gap: var(--space-1); }
+[data-terp="grid"][data-gap="2"] { gap: var(--space-2); }
+[data-terp="grid"][data-gap="3"] { gap: var(--space-3); }
+[data-terp="grid"][data-gap="4"] { gap: var(--space-4); }
+[data-terp="grid"][data-gap="6"] { gap: var(--space-6); }
+[data-terp="grid"][data-gap="8"] { gap: var(--space-8); }
+[data-terp="grid"][data-align="start"] { align-items: start; }
+[data-terp="grid"][data-align="center"] { align-items: center; }
+[data-terp="grid"][data-align="end"] { align-items: end; }
+
 /* Detail lists ------------------------------------------------------------- */
 /* The term and value are inline boxes inside a block row, which is what makes
    "Label: value" read as one line and wrap as one paragraph. */

@@ -26,19 +26,19 @@ contention condition described under "No retries" below. CI never runs it — th
 runs the four lanes as four separate steps. Reach for the per-lane scripts when a result
 has to mean something.
 
-87 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (435
-axe runs across five palettes); the screenshots cover the **two default** themes (174
+92 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (460
+axe runs across five palettes); the screenshots cover the **two default** themes (184
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, one that the contrast allowance list has not grown a new theme, one that
 the CI image tag still names the Playwright version in `package-lock.json`, a three-test
 keyboard lane for where a keystroke sends focus, and a four-test computed lane for the
-resolved values none of the other three can see. **619 checks.**
+resolved values none of the other three can see. **654 checks.**
 
 Nothing derives those numbers, so they are only as good as the last person to add a specimen:
 `5N` axe runs, `2N` screenshots, three standalone checks (presence, theme allowance, image
-tag), three keyboard tests and four computed ones — at N=87, 435 + 174 + 3 + 3 + 4.
+tag), three keyboard tests and four computed ones — at N=92, 460 + 184 + 3 + 3 + 4.
 
-One of those 87 earns a note, because it is the only specimen whose subject is a token
+One of those 92 earns a note, because it is the only specimen whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's
 `:root` value, so every other DataView specimen renders identical geometry whether the
 density tokens are read or hardcoded — which is exactly how four of them came to be
@@ -184,6 +184,19 @@ the run is scoped to one specimen regardless.
 
 The bare address still renders the whole catalog. That is what a human opens, and what the
 "every specimen is present exactly once" check reads.
+
+**A baseline gates what a rule DOES, which is not always what it SAYS.** `Grid`'s auto-fit
+tracks are the clean example, and the gap was measured rather than reasoned about. An auto-fit
+grid quantises: a track floor only changes the rendered column count when it crosses a
+threshold for the container's width. At `grid-min-column`'s 66rem, moving the `md` floor from
+20rem to 22rem drops it from three columns to two and repaints 63,524 pixels — while moving it
+from 20rem to **21rem changes nothing at all**, and all ten grid baselines pass.
+
+So five specimens prove the attribute selects a different floor, and none of them proves *which*
+floor. The values are pinned in `styles.test.ts` instead, which is the same division of labour
+the shell declarations already use. Worth knowing before writing a specimen for anything
+threshold-shaped — a media query, a `clamp()`, a `min()` — because the picture will look like
+coverage either way.
 
 ## Overlays paint outside their box
 
@@ -346,7 +359,7 @@ fix here is scheduling rather than tolerance.
 
 It returned a third time, and the trigger is narrower than "two suites": **one** bare
 `npx playwright test` is enough. That command runs every lane in a single Playwright
-process — 619 tests over eight workers, the screenshot lane's dev server and page loads
+process — 654 tests over eight workers, the screenshot lane's dev server and page loads
 competing with the axe lane's — and it failed `color-contrast` on three twilight specimens
 together (`chrome/page-loading`, `chrome/page-error`, `chrome/hub-card-bare`). The axe lane
 alone, same commit: all 81 twilight runs passed. The *identical* full command, run again:
