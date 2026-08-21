@@ -68,13 +68,19 @@ export interface AppShellProps {
    */
   contentWidth?: "full" | "measured";
   /**
-   * App-wide density (default `"comfortable"`), stamped on the shell root.
+   * App-wide density, stamped on the shell root. **No default**, and that matters.
    *
    * The tokens do the work through inheritance, so every control and every cell in the tree
-   * follows without a prop of its own. An app can still move either value set from its own
-   * `theme.css`, and a subtree can override it — a `DataView density="comfortable"` inside a
-   * compact shell really is comfortable now, which it was not before this prop existed. That
-   * island is the vocabulary ADR 0094 deferred until something asked; this is what asked.
+   * follows without a prop of its own, and a subtree can override it — a
+   * `DataView density="comfortable"` inside a compact shell really is comfortable now, which
+   * it was not before this prop existed. That island is the vocabulary ADR 0094 deferred until
+   * something asked; this is what asked.
+   *
+   * Omitting the prop stamps **nothing**, rather than stamping `"comfortable"`. A default that
+   * stamped would silently override `data-density` on `<html>` — which ADR 0094 §4 names as
+   * *the app-wide case* and which an app sets from its own `theme.css` today. An unasked-for
+   * shell prop must not win against an app-wide choice, so absence means "inherit whatever is
+   * above me" and the two values mean what they say.
    */
   density?: "comfortable" | "compact";
   /** Pinned to the bottom of the sidebar (the {@link UserMenu}); may read the rail state. */
@@ -206,7 +212,7 @@ export function AppShell({
   logo,
   headerActions,
   contentWidth = "full",
-  density = "comfortable",
+  density,
   navFooter,
   footer,
   defaultCollapsed = false,
@@ -292,8 +298,10 @@ export function AppShell({
   // expression has a branch, and a conditional written at the attribute is the form the marker
   // scanner reads every literal out of.
   const contentWidthAttribute = contentWidth === "measured" ? "measured" : undefined;
-  // Stamped for both values, unlike the pre-island behaviour: comfortable now has a rule of
-  // its own, so a shell inside something compact can still be comfortable.
+  // Stamped for whichever value was ASKED for, and for neither when the prop is absent.
+  // Both values now have a rule — comfortable is no longer the absence of an attribute — so
+  // passing it is a real instruction rather than a no-op. Passing nothing has to stay a
+  // no-op, or the shell would override an app's own <html data-density>.
   const densityAttribute = density;
   const resolvedTitle = resolve(title);
 

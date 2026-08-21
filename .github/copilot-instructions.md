@@ -40,7 +40,7 @@ primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/`<table>`/`
 `EventSource` / `sendBeacon`), data collections via `DataView`
 ([dataview README](../packages/frontend/react-core/src/dataview/README.md)),
 design‑token styling (`style`, `className` and module stylesheets are refused in app
-modules — layout via `Stack` / the page archetypes), in-app links via the router (no raw
+modules — layout via `Stack` / `Grid` / the page archetypes), in-app links via the router (no raw
 `<a href="/...">`), every routed view framed by a page archetype (refused at runtime
 otherwise), optional slot-typed layout contracts (ADR 0079: a checked-in
 `layout-contract.json` + `layoutContract` at bootstrap constrain each archetype's body

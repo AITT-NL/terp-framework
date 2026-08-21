@@ -117,6 +117,38 @@ describe("AppShell", () => {
     ).not.toHaveAttribute("data-collapsed");
   });
 
+  it("stamps no density unless one is asked for, so an app's own html-level choice wins", () => {
+    // The regression this exists to prevent shipped for one commit. The prop was defaulted to
+    // "comfortable" and stamped unconditionally, which reads as harmless — comfortable is the
+    // :root value, after all. It is not: comfortable now has a RULE of its own (that is what
+    // makes an island possible), so stamping it on the shell root overrides
+    // `data-density="compact"` set on <html>, which ADR 0094 section 4 names as the app-wide
+    // case and which an app sets from its own theme.css.
+    //
+    // So absence has to mean "inherit whatever is above me". The two values mean what they say.
+    const { unmount } = renderShell();
+    expect(
+      document.querySelector('[data-terp="appshell"]'),
+      "an unasked-for shell prop must not beat an app-wide choice",
+    ).not.toHaveAttribute("data-density");
+    unmount();
+
+    renderShell({ density: "compact" });
+    expect(document.querySelector('[data-terp="appshell"]')).toHaveAttribute(
+      "data-density",
+      "compact",
+    );
+    cleanup();
+
+    // And comfortable IS stamped when asked for, because it is now an instruction rather than
+    // a no-op: it is how a shell inside something compact says it is not.
+    renderShell({ density: "comfortable" });
+    expect(document.querySelector('[data-terp="appshell"]')).toHaveAttribute(
+      "data-density",
+      "comfortable",
+    );
+  });
+
   it("stamps data-content-width only when the measure is asked for", () => {
     // The default has to stamp NOTHING, and that is the assertion rather than a detail: the
     // rule is keyed on `[data-content-width="measured"]`, so an attribute for the full-width

@@ -3130,9 +3130,12 @@ button[data-terp="input"][data-placeholder="true"] {
 
    The stacking level is the token that was published for it. Every component in
    the package hardcoded its own number while a full --z-index-* family sat
-   unread. AppShell still writes 50/40/30 for drawer/backdrop/sticky and comes
-   right with its own migration; the toast viewport already reads
-   --z-index-toast. Tooltip's z-index:
+   unread. That is finished: AppShell reads --z-index-drawer, --z-index-backdrop
+   and --z-index-sticky, the skip link reads --z-index-skip-link, and the toast
+   viewport reads --z-index-toast. (This paragraph said "AppShell still writes
+   50/40/30 ... and comes right with its own migration" for a release after that
+   migration landed, which is the shape of stale comment worth naming: it read as
+   a known gap rather than as a finished one.) Tooltip's z-index:
    1 above is deliberately NOT a token — the tooltip is absolutely positioned
    inside its own anchor, so 1 is a local lift within a stacking context rather
    than a place in the app-wide order. */

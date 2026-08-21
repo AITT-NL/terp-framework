@@ -277,8 +277,12 @@ a harness change's clothes.
   with no app-file edits, which is the propagation lever the whole direction rests on. Nothing
   here adds a build step, a CSS export or a runtime dependency; react-core still publishes
   unbuilt `src/` and imports nothing but React.
-- Two changes move pixels for every app: the scrollbar gutter (decision 8) and nothing else.
-  The content measure, the archetypes and the primitives are inert until an app opts in.
+- One change moves pixels for every app: the scrollbar gutter (decision 8). The content
+  measure, the archetypes and the primitives are inert until an app opts in. (This bullet read
+  "Two changes ... and nothing else" and then named one, which is a sentence that survived an
+  edit rather than a second change nobody can find. **Amended in 4d:** there is now a second,
+  and it is not this decision's — wiring the sidebar's own colour family gives the light theme a
+  faint sidebar background and dims the resting nav-link ink in every theme. See ADR 0098 §6.)
 - A new archetype is not a new template preset. The four presets (`blank`, `hub`, `process`,
   `portal`) are generated *home shapes* asserted by name; an archetype is a component. None of
   the archetypes added here generates a different landing screen, so the preset list does not
