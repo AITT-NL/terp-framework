@@ -121,6 +121,47 @@ test("the scrollbar gutter is reserved on a page that fits and one that does not
   }
 });
 
+test("the three button cursors resolve, and loading beats disabled", async ({ page }) => {
+  // A cursor is invisible to every other lane: Playwright does not paint a pointer into a
+  // screenshot and axe does not read one, so no baseline in this suite has ever held
+  // `cursor: pointer`, `not-allowed` or `progress` — three declarations, all unobservable.
+  //
+  // The pair that matters is the last two. A loading button IS disabled, the component sets
+  // both, and the disabled rule lives in terp.state — so a `data-loading` rule in terp.base
+  // loses on layer order and the cursor silently stays `not-allowed`, which tells a user "you
+  // may not" where the truth is "not yet". `styles.test.ts` pins the structure that produces
+  // the right answer; this reads the answer.
+  await page.goto("/?theme=light&only=button-variants");
+  await page.locator('[data-terp="button"]').first().waitFor({ state: "visible" });
+  expect(
+    await page.evaluate(
+      () => getComputedStyle(document.querySelector('[data-terp="button"]')!).cursor,
+    ),
+  ).toBe("pointer");
+
+  await page.goto("/?theme=light&only=button-disabled");
+  await page.locator('[data-terp="button"]').first().waitFor({ state: "visible" });
+  expect(
+    await page.evaluate(
+      () => getComputedStyle(document.querySelector('[data-terp="button"]')!).cursor,
+    ),
+  ).toBe("not-allowed");
+
+  await page.goto("/?theme=light&only=button-loading");
+  await page.locator('[data-terp="button"]').first().waitFor({ state: "visible" });
+  const loading = await page.evaluate(() => {
+    const button = document.querySelector('[data-terp="button"][data-loading="true"]')!;
+    return {
+      cursor: getComputedStyle(button).cursor,
+      disabled: (button as HTMLButtonElement).disabled,
+      busy: button.getAttribute("aria-busy"),
+    };
+  });
+  // Disabled and busy as well as progress — the assertion is that all three hold at once,
+  // because `progress` on a control a second click could still fire is decoration.
+  expect(loading).toEqual({ cursor: "progress", disabled: true, busy: "true" });
+});
+
 test("reduced motion reaches the three shapes the sheet names", async ({ page }) => {
   // The sheet claims this was "measured, not assumed", and nothing gated the measurement.
   // Three distinct shapes, and the middle one is the reason the block needs a selector list

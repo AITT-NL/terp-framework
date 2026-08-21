@@ -178,7 +178,7 @@ marker, counted by the escape-hatch budget.
 
 | Export | Use |
 |---|---|
-| `Button` | Token-styled, content-sized command (`variant`: primary / secondary / danger / ghost; optional leading `icon`). Explicit `width: 100%` opts into full width. |
+| `Button` | Token-styled command: `variant` (primary / secondary / danger / ghost), `size` (sm / md / lg, composing with density), `loading` (spinner in the icon slot, `aria-busy`, and disabled so a second click cannot start the request twice), `fullWidth` to fill the container instead of the label, and an optional leading `icon`. Content-sized by default. |
 | `Input`, `Select`, `Textarea` | Token-styled controls with stable framework typography, independent of surrounding display text (raw elements are lint-refused). Numeric inputs suppress unthemeable browser steppers. |
 | `Combobox` | Accessible autocomplete/typeahead single-select: filterable options, controlled or uncontrolled value, loading state, disabled state, and ARIA combobox/listbox keyboard navigation. |
 | `DatePicker`, `DateRangePicker` | Locale-aware calendar popover controls with keyboard-navigable month grids, min/max bounds, and range selection for ERP date filters. |

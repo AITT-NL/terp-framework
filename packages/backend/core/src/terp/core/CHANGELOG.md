@@ -273,6 +273,34 @@ decision, 0001 onwards.
   `defaultCollapsed` was added to get past for the icon rail, where four rules had shipped
   unpainted behind it.
 
+- **`Button` gains `size`, `loading` and `fullWidth`, and the framework's own sign-in screen
+  stops working around their absence (ADR 0097).** It had `variant` and `icon` and nothing
+  else, and the gaps were paid for in ways that show what a missing prop costs. Full width was
+  reachable only as `style={{ width: "100%" }}`, which app modules may not write (ADR 0059) —
+  a shape the framework could produce and its consumers could not ask for, and one `LoginView`
+  had to reach through a rule on its button *group* instead. A busy submit was hand-rolled out
+  of `disabled` plus a swapped label, with no spinner and no `aria-busy`.
+
+  All three are attributes with a rule each, so all three are themeable and none adds an
+  inline style — the ledger stays at nine sites. Two decisions inside that are worth knowing.
+  `data-size` is stamped only for `sm` and `lg`, because the standard control's geometry IS
+  the base rule, exactly as "comfortable" is the token sheet's `:root` value and the attribute
+  for it matches no rule. And the two sizes are a `calc()` off `--density-control-min-height`
+  rather than heights of their own, which is what makes size and density compose without
+  either knowing about the other: measured, a small button in a compact subtree comes out 4px
+  shorter, the token's own step.
+
+  `loading` sets `disabled` too, so a second click cannot start the same request twice, and it
+  wins over an explicit `disabled={false}`. Its cursor is the one non-obvious part: a loading
+  button is also `:disabled`, and that rule lives in `terp.state`, so a `data-loading` rule in
+  `terp.base` loses on layer order and the cursor silently stays `not-allowed` — telling a user
+  "you may not" where the truth is "not yet". Verified in a browser, because no lane had ever
+  held a cursor at all: Playwright paints no pointer into a screenshot.
+
+  `LoginView` now passes the props on all four of its buttons and the group rule retires.
+  Zero-diff, and checked rather than assumed: all 168 existing baselines byte-identical on
+  both platforms.
+
 ### Changed
 
 - **The styling migration is finished: the last five view components and the packaged

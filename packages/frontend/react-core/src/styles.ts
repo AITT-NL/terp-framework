@@ -270,6 +270,33 @@ html {
   background: transparent;
   color: var(--color-neutral-700);
 }
+/* Size. Two rules, not three: the standard control's geometry is the base rule above, so
+   md is the absence of an attribute — the same shape density takes, where "comfortable" is
+   the token sheet's own :root value and the attribute for it matches no rule.
+
+   The heights are a calc() off the density token rather than a second family of tokens,
+   and that is what makes size and density compose without either knowing about the other:
+   a small button in a compact subtree resolves 2rem - 0.5rem, because the compact
+   re-scoping has already moved the token this reads. A --control-height-sm of its own
+   would have needed a compact counterpart, a re-scoping line, and a rule to keep the two
+   in step, to express something the space scale already says. */
+[data-terp="button"][data-size="sm"] {
+  min-height: calc(var(--density-control-min-height) - var(--space-2));
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-xs);
+}
+[data-terp="button"][data-size="lg"] {
+  min-height: calc(var(--density-control-min-height) + var(--space-2));
+  padding: 0 var(--space-6);
+  font-size: var(--font-size-base);
+}
+/* Full width beats the base rule's width: fit-content on specificity — (0,2,0) against
+   (0,1,0) in the same layer — so it needs neither a layer of its own nor an escalation.
+   It exists as a prop because the only other way to reach it was the caller writing
+   style={{ width: "100%" }}, which app modules may not do. */
+[data-terp="button"][data-full-width="true"] {
+  width: 100%;
+}
 [data-terp="button-icon"] {
   display: inline-flex;
   align-items: center;
@@ -1017,10 +1044,6 @@ textarea[data-terp="input"] {
 [data-terp="login-sso"] {
   display: grid;
   gap: var(--space-3);
-}
-[data-terp="login-form"] > [data-terp="button"],
-[data-terp="login-sso"] > [data-terp="button"] {
-  width: 100%;
 }
 [data-terp="login-separator"] {
   display: flex;
@@ -2773,6 +2796,17 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="button"]:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+/* A loading button IS disabled — the component sets both — so this has to sit here rather
+   than in terp.base beside the other attribute-keyed button rules. In terp.base it would
+   lose to the :disabled rule above on layer order and the cursor would silently stay
+   not-allowed, which reads as "you may not" where the truth is "not yet". Declared after
+   it so source order settles the tie the equal (0,2,0) specificity leaves.
+
+   Neither cursor is visible to any lane: Playwright's screenshots do not paint a pointer.
+   The computed lane asserts both. */
+[data-terp="button"][data-loading="true"] {
+  cursor: progress;
 }
 
 /* Icon-only buttons: the shell's two header toggles, four pagination arrows, the

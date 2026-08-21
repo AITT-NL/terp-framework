@@ -390,6 +390,73 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The three sizes side by side, which is the only way the middle one carries any
+        // information: md is the base rule, so a specimen of it alone is
+        // indistinguishable from `button-variants`. Baseline-relevant detail — the sizes
+        // differ in height, horizontal padding AND label size, so all three have to be in
+        // one shot for a change to any of them to name itself.
+        id: "button-sizes",
+        title: "Button — the three control sizes",
+        node: (
+          <Stack direction="row" gap={2} align="center" wrap>
+            <Button size="sm">Small</Button>
+            <Button>Standard</Button>
+            <Button size="lg">Large</Button>
+          </Stack>
+        ),
+      },
+      {
+        // Compact density beside the same three, because the sizes calc() off the density
+        // token rather than declaring heights of their own — so this is the only picture of
+        // the two dimensions composing, and the only thing that would notice if a size
+        // stopped following density.
+        id: "button-sizes-compact",
+        title: "Button — the three sizes at compact density",
+        node: (
+          <div data-density="compact">
+            <Stack direction="row" gap={2} align="center" wrap>
+              <Button size="sm">Small</Button>
+              <Button>Standard</Button>
+              <Button size="lg">Large</Button>
+            </Stack>
+          </div>
+        ),
+      },
+      {
+        // Loading, with and without an icon of its own, because the spinner REPLACES the icon
+        // rather than joining it — so the two cases are the same width and that is the claim.
+        // Both are also `:disabled`, which is why the opacity here matches `button-disabled`.
+        id: "button-loading",
+        title: "Button — loading, replacing the icon slot",
+        node: (
+          <Stack direction="row" gap={2} align="center" wrap>
+            <Button loading>Saving</Button>
+            <Button loading icon={<Icon name="download" />}>
+              Exporting
+            </Button>
+            <Button loading variant="secondary" size="sm">
+              Checking
+            </Button>
+          </Stack>
+        ),
+      },
+      {
+        // Full width, in a box narrower than the specimen card so the fill is visible as a
+        // fill rather than as the card's own width. Beside a default button, which shrink-wraps
+        // its label — the pair is what makes `width: fit-content` and `width: 100%` legible as
+        // a difference.
+        id: "button-full-width",
+        title: "Button — filling its container, beside one that does not",
+        node: (
+          <div style={{ width: "18rem" }}>
+            <Stack gap={2}>
+              <Button fullWidth>Full width</Button>
+              <Button>Content width</Button>
+            </Stack>
+          </div>
+        ),
+      },
+      {
         id: "button-with-icon",
         title: "Button — with a leading glyph",
         node: (

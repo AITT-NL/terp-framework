@@ -76,7 +76,7 @@ export type { LoadingStateProps, InlineSpinnerProps } from "./LoadingState";
 export { ToastProvider, useToast } from "./toast";
 export type { ToastApi, ToastOptions, ToastProviderProps, ToastVariant } from "./toast";
 export { Button } from "./ui/Button";
-export type { ButtonProps, ButtonVariant } from "./ui/Button";
+export type { ButtonProps, ButtonSize, ButtonVariant } from "./ui/Button";
 export { Input } from "./ui/Input";
 export type { InputProps } from "./ui/Input";
 export { Select } from "./ui/Select";

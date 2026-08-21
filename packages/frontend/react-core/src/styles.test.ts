@@ -503,6 +503,59 @@ describe("cascade structure", () => {
     ).toEqual([]);
   });
 
+  it("declares a rule for every size Button names, and none for its default", () => {
+    // The same bargain the gap rules strike: the union and the sheet are two lists kept by
+    // hand, so widening ButtonSize without adding a rule would silently fall back to the
+    // standard geometry rather than fail.
+    //
+    // And the converse, which is the part worth pinning: md must have NO rule of its own. Its
+    // geometry is the base rule, exactly as "comfortable" is the token sheet's :root value, and
+    // a data-size="md" rule appearing here would mean the component had started stamping the
+    // attribute for its default — leaving two places that describe the standard control.
+    const base = layerBody("terp.base");
+    for (const size of ["sm", "lg"]) {
+      expect(
+        declaresRuleFor(base, `[data-terp="button"][data-size="${size}"]`),
+        `Button has no rule for size ${size}`,
+      ).toBe(true);
+    }
+    expect(
+      declaresRuleFor(base, '[data-terp="button"][data-size="md"]'),
+      "md is the base rule; a rule of its own means the default is described twice",
+    ).toBe(false);
+    // Sizes read the density token rather than heights of their own, which is what makes the
+    // two dimensions compose: the compact re-scoping moves the token these calc() off.
+    const at = base.indexOf('[data-terp="button"][data-size="sm"]');
+    expect(
+      base.slice(at, base.indexOf("}", at)),
+      "a size that hardcodes its height stops following density",
+    ).toContain("var(--density-control-min-height)");
+  });
+
+  it("keeps the loading cursor where it can beat the disabled cursor", () => {
+    // A loading button is also `:disabled` — the component sets both — and the disabled rule
+    // lives in terp.state. So a `data-loading` rule in terp.base loses on layer order and the
+    // cursor silently stays `not-allowed`, which tells a user "you may not" where the truth is
+    // "not yet". It has to be in terp.state, and after the disabled rule, because the two weigh
+    // the same (0,2,0) and nothing but source order separates them.
+    //
+    // This is the focus-ring lesson in miniature, and it is invisible to every other lane:
+    // Playwright's screenshots do not paint a pointer, so no baseline has ever held either
+    // cursor. The computed lane asserts the resolved values; this asserts the structure that
+    // produces them.
+    const state = layerBody("terp.state");
+    const base = layerBody("terp.base");
+    expect(
+      declaresRuleFor(base, '[data-terp="button"][data-loading="true"]'),
+      "in terp.base this rule loses to the disabled cursor and does nothing",
+    ).toBe(false);
+    const disabledAt = state.indexOf('[data-terp="button"]:disabled');
+    const loadingAt = state.indexOf('[data-terp="button"][data-loading="true"]');
+    expect(disabledAt, "the disabled rule should be in terp.state").toBeGreaterThan(-1);
+    expect(loadingAt, "the loading rule should be in terp.state").toBeGreaterThan(-1);
+    expect(loadingAt).toBeGreaterThan(disabledAt);
+  });
+
   it("declares a gap rule for every step SpaceToken allows", () => {
     // gap moved from a computed inline value to a rule per step, so the union and the sheet
     // are now two lists maintained by hand. Widening SpaceToken without adding rules would

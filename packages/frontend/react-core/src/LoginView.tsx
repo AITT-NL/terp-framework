@@ -37,9 +37,16 @@ export interface DevCredentials {
  *
  * It renders no inline styles: the full-viewport page, the card, the brand row, both button
  * groups, the separator and the error line take their geometry and ink from the injected
- * react-core sheet (ADR 0094). The buttons fill their group through a rule on the group
- * rather than a prop on `Button` — `Button` declares `width: fit-content`, so a grid does not
- * stretch them for free, and a `block` prop for one internal caller is API this does not need.
+ * react-core sheet (ADR 0094).
+ *
+ * Two things here used to be worked around and are not any more, which is worth recording
+ * because the workarounds were both reasonable while they lasted. The buttons filled their
+ * group through a rule on the GROUP, because `Button` declares `width: fit-content` — a
+ * definite width, so a grid does not stretch them for free — and a prop for one internal
+ * caller was API the package did not need. `Button` has `fullWidth` now, so the rule retires
+ * and the four call sites say what they mean. And the submit button hand-rolled a busy state
+ * out of `disabled` plus a swapped label; `loading` is that state, and it adds the spinner and
+ * the `aria-busy` the hand-rolled version never had.
  */
 export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps = {}) {
   const auth = useAuth();
@@ -99,13 +106,14 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
             onChange={(event) => setPassword(event.target.value)}
             required
           />
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" fullWidth loading={busy}>
             {busy ? strings.signingIn : strings.signIn}
           </Button>
           {devCredentials ? (
             <Button
               type="button"
               variant="secondary"
+              fullWidth
               disabled={busy}
               onClick={() => {
                 setEmail(devCredentials.email);
@@ -130,6 +138,7 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
                   key={provider.name}
                   type="button"
                   variant="secondary"
+                  fullWidth
                   disabled={busy}
                   onClick={() => void onSso(provider)}
                 >
