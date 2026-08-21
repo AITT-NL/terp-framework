@@ -14,7 +14,7 @@ decision, 0001 onwards.
 
 ### Added
 
-- **Density reaches the shell, and the comfortable island exists (ADR 0094 §4).** `AppShell`
+- **Density reaches the shell, and the comfortable island exists (ADR 0094 §4, ADR 0098 §5).** `AppShell`
   takes `density`, threaded through `buildAppRouter` and `renderTerpApp`: one attribute on the
   shell root, from which every control height and cell padding follows by token inheritance,
   with no prop on anything below.
@@ -41,7 +41,8 @@ decision, 0001 onwards.
   What the island costs is one specimen with two tables, because one table cannot show an
   island: deleting the rule collapses them into each other and repaints 20,274 pixels.
 
-- **The sidebar paints from its own colour family, four releases after that family shipped.**
+- **The sidebar paints from its own colour family, four releases after that family shipped
+  (ADR 0098 §6).**
   `--color-sidebar-bg` / `-fg` / `-muted` / `-accent` / `-border` were declared in **all five
   themes** and read by **nothing** — twenty-five declarations, zero readers. That is the offence
   `--color-fg-on-brand` was deleted for; the difference is that there the vocabulary was wrong,
@@ -85,7 +86,7 @@ decision, 0001 onwards.
   `overlay: true`, and not as a precaution: the drawer is `position: fixed` and the backdrop is
   `inset: 0`, so an element shot would clip to the card and record the page behind them.
 
-- **Skip to content, which the shell owns because the shell owns the landmarks.** There was no
+- **Skip to content, which the shell owns because the shell owns the landmarks (ADR 0098 §7).** There was no
   skip link, `main` had no id, and the desktop `aside` had no accessible name at all — an
   anonymous complementary landmark beside a named one, because the mobile branch had a label
   only where the `dialog` role demanded it. All three close together.
@@ -109,7 +110,7 @@ decision, 0001 onwards.
   along; reaching it meant abandoning the one-call bootstrap for `TerpProvider` +
   `buildAppRouter`. A slot that exists and is unreachable from the entry point every app uses.
 
-- **Three archetypes, and the fourth is declined (ADR 0079, ADR 0097).** `FormPage`,
+- **Three archetypes, and the fourth is declined (ADR 0098).** `FormPage`,
   `SettingsPage` and `SplitPage` + `SplitPane`, each in both halves of the layout-contract table,
   each with a specimen and both platform baselines.
 
