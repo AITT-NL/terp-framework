@@ -223,23 +223,65 @@ export interface DetailItem {
   value: ReactNode;
 }
 
+/** How a pair is arranged. */
+export type DetailListLayout = "inline" | "aligned" | "stacked";
+
 export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, "style"> {
   /** The label/value pairs to render, in order. */
   items: readonly DetailItem[];
+  /**
+   * How each pair reads (default `"inline"` — `Label: value` on one line).
+   *
+   * `"aligned"` puts every label in a shared left column, so the values line up; `"stacked"`
+   * puts the label above its value, which is what a narrow column or a long value wants.
+   *
+   * The default is the old behaviour on purpose: this component is in the `standard` layout
+   * contract's detail-page slot, so every governed detail screen already renders one.
+   */
+  layout?: DetailListLayout;
+  /** Pairs per row (default `1`). */
+  columns?: 1 | 2;
 }
 
 /**
  * Token-styled label/value pairs as a semantic `<dl>` — record metadata on a detail page,
- * an expanded row's summary. Centralizes the "Label: value" pattern so modules never
- * hand-style definition lists.
+ * an expanded row's summary.
+ *
+ * A real grid rather than an inline run, which is the thing the diagnosis was pointing at: nine
+ * pairs including two 64-character digests, "through an inline run 4px apart with no
+ * alignment". Two fixes rather than one, and the second was the actual defect:
+ *
+ * - `layout="aligned"` gives the labels a shared column. The row wrapper becomes
+ *   `display: contents` so the `<dt>` and `<dd>` are grid items of the `<dl>` itself — no DOM
+ *   change, and the only way to align across rows without one.
+ * - **The tracks are floored at zero.** An implicit grid column is `auto`, which floors at
+ *   *min-content* — so a 64-character digest with nothing to break on widened the column and
+ *   pushed the list past its container. `minmax(0, 1fr)` is what stops that, and it is the same
+ *   declaration `Grid`'s fixed counts need for the same reason.
+ *
+ * The colon lives in the sheet rather than in the markup, because it belongs to the inline
+ * layout alone — `aligned` and `stacked` must not have one, and a text node cannot be
+ * withdrawn by a rule. It is decorative either way: the `<dt>` / `<dd>` pairing is what carries
+ * the relationship to assistive tech.
  */
-export function DetailList({ items, ...rest }: DetailListProps) {
+export function DetailList({
+  items,
+  layout = "inline",
+  columns = 1,
+  ...rest
+}: DetailListProps) {
   const text = useUiText();
   return (
-    <dl {...rest} data-terp="detail-list">
+    <dl
+      {...rest}
+      data-terp="detail-list"
+      // `inline` and one column are the base rule, so neither stamps an attribute.
+      data-layout={layout === "inline" ? undefined : layout}
+      data-columns={columns === 1 ? undefined : String(columns)}
+    >
       {items.map((item, index) => (
-        <div key={index}>
-          <dt data-terp="detail-list-term">{text(item.label)}: </dt>
+        <div key={index} data-terp="detail-list-row">
+          <dt data-terp="detail-list-term">{text(item.label)}</dt>
           <dd data-terp="detail-list-value">{item.value}</dd>
         </div>
       ))}

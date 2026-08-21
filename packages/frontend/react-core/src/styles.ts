@@ -561,14 +561,66 @@ textarea[data-terp="input"] {
   margin: 0;
   display: grid;
   gap: var(--space-1);
+  grid-template-columns: minmax(0, 1fr);
+}
+[data-terp="detail-list-row"] {
+  min-width: 0;
 }
 [data-terp="detail-list-term"] {
   display: inline;
   font-weight: var(--font-weight-medium);
 }
+/* The colon belongs to the inline layout alone, so it is a rule rather than a text node —
+   aligned and stacked must not have one, and no rule can withdraw a text node. Decorative
+   either way: the dt/dd pairing is what carries the relationship to assistive tech. */
+[data-terp="detail-list"]:not([data-layout]) [data-terp="detail-list-term"]::after {
+  content: ": ";
+  white-space: pre;
+}
 [data-terp="detail-list-value"] {
   display: inline;
   margin: 0;
+  min-width: 0;
+  /* Flooring the track at 0 is not enough on its own, and the specimen is what showed it: a
+     64-character digest has nothing to break at, so it overflows the column whatever the
+     column's floor. This is the declaration that makes it wrap. Same answer profile-email
+     already uses for a long address — where it is noted as unobservable, because that
+     screen's session is a fixed short one; detail-list-long-value is the first picture of
+     the mechanism anywhere in the suite. */
+  overflow-wrap: anywhere;
+}
+/* Two pairs per row. minmax(0, 1fr) rather than 1fr for the reason Grid's fixed counts need
+   it: a bare 1fr floors at min-content, and a 64-character digest with nothing to break on
+   then widens its column and pushes the list past its container — which is the defect the
+   diagnosis was describing, rather than the missing alignment it named. */
+[data-terp="detail-list"][data-columns="2"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--space-4);
+}
+/* Aligned: every label in a shared column. The row wrapper becomes display: contents so the
+   dt and dd are grid items of the dl itself — the only way to align across rows without
+   changing the DOM, and the reason the wrapper needed a marker at all. */
+[data-terp="detail-list"][data-layout="aligned"] {
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-3);
+}
+[data-terp="detail-list"][data-layout="aligned"][data-columns="2"] {
+  grid-template-columns: repeat(2, auto minmax(0, 1fr));
+}
+[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"] {
+  display: contents;
+}
+[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"],
+[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-value"],
+[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"],
+[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-value"] {
+  display: block;
+}
+/* Stacked: label above value. The label takes the muted step so the pair reads as one unit
+   rather than two lines of equal weight. */
+[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"] {
+  font-size: var(--font-size-xs);
+  color: var(--color-fg-muted);
 }
 
 /* Checkboxes / radios / switches ------------------------------------------- */

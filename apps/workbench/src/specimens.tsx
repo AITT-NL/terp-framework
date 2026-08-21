@@ -414,6 +414,17 @@ function routedLinkSpecimen(): ReactNode {
   );
 }
 
+/** Shared pairs, so the three layout specimens differ in exactly one thing. */
+const RECORD_PAIRS = [
+  { label: "Status", value: "Published" },
+  { label: "Revision", value: "14" },
+  { label: "Direction", value: "Source to destination" },
+  { label: "Owner", value: "Integrations team" },
+];
+
+/** 64 hex characters with nothing to break on — the value the old `auto` track overflowed. */
+const LONG_DIGEST = "9f2c1b7ae4d08c3f5a6b2e1d4c7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f";
+
 /** Long enough that the measure caps it — at two words the cap paints nothing. */
 const LOREM =
   "A measure is the one typographic control that is about the container rather than the " +
@@ -743,6 +754,50 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                   <GridCell label={`Grid padding ${step}`} />
                   <GridCell label="two" />
                 </Grid>
+              </div>
+            ))}
+          </Stack>
+        ),
+      },
+      {
+        // The alignment the diagnosis asked for: every label in a shared column, so the values
+        // line up down the list. The row wrapper goes display: contents for it, which is what
+        // makes the dt and dd grid items of the dl itself.
+        id: "detail-list-aligned",
+        title: "DetailList — labels in a shared column",
+        node: <DetailList layout="aligned" items={RECORD_PAIRS} />,
+      },
+      {
+        // Label above value, which is what a narrow column or a long value wants — and the
+        // layout in which the inline colon would be wrong, hence the colon living in the sheet.
+        id: "detail-list-stacked",
+        title: "DetailList — label above value",
+        node: <DetailList layout="stacked" items={RECORD_PAIRS} />,
+      },
+      {
+        id: "detail-list-two-column",
+        title: "DetailList — two aligned pairs per row",
+        node: <DetailList layout="aligned" columns={2} items={RECORD_PAIRS} />,
+      },
+      {
+        // The defect rather than the feature, and it needs the narrow box: an implicit grid
+        // column is `auto`, which floors at min-content, so a 64-character digest with nothing
+        // to break on widened its column and pushed the list past its container. At the
+        // specimen's own width every value fits and the fix paints nothing — measured, the
+        // whole suite passed the rewrite with zero diffs. This is the context that sees it.
+        id: "detail-list-long-value",
+        title: "DetailList — an unbreakable digest in a narrow container",
+        node: (
+          <Stack gap={4}>
+            {(["inline", "aligned", "stacked"] as const).map((layout) => (
+              <div key={layout} style={{ width: "22rem", border: "1px dashed var(--color-neutral-300)" }}>
+                <DetailList
+                  layout={layout}
+                  items={[
+                    { label: "Layout", value: layout },
+                    { label: "Fingerprint", value: LONG_DIGEST },
+                  ]}
+                />
               </div>
             ))}
           </Stack>

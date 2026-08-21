@@ -26,19 +26,19 @@ contention condition described under "No retries" below. CI never runs it — th
 runs the four lanes as four separate steps. Reach for the per-lane scripts when a result
 has to mean something.
 
-102 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (510
-axe runs across five palettes); the screenshots cover the **two default** themes (204
+106 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (530
+axe runs across five palettes); the screenshots cover the **two default** themes (212
 comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
 present exactly once, one that the contrast allowance list has not grown a new theme, one that
 the CI image tag still names the Playwright version in `package-lock.json`, a three-test
 keyboard lane for where a keystroke sends focus, and a four-test computed lane for the
-resolved values none of the other three can see. **724 checks.**
+resolved values none of the other three can see. **752 checks.**
 
 Nothing derives those numbers, so they are only as good as the last person to add a specimen:
 `5N` axe runs, `2N` screenshots, three standalone checks (presence, theme allowance, image
-tag), three keyboard tests and four computed ones — at N=102, 510 + 204 + 3 + 3 + 4.
+tag), three keyboard tests and four computed ones — at N=106, 530 + 212 + 3 + 3 + 4.
 
-One of those 102 earns a note, because it is the only specimen whose subject is a token
+One of those 106 earns a note, because it is the only specimen whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's
 `:root` value, so every other DataView specimen renders identical geometry whether the
 density tokens are read or hardcoded — which is exactly how four of them came to be
@@ -359,7 +359,7 @@ fix here is scheduling rather than tolerance.
 
 It returned a third time, and the trigger is narrower than "two suites": **one** bare
 `npx playwright test` is enough. That command runs every lane in a single Playwright
-process — 724 tests over eight workers, the screenshot lane's dev server and page loads
+process — 752 tests over eight workers, the screenshot lane's dev server and page loads
 competing with the axe lane's — and it failed `color-contrast` on three twilight specimens
 together (`chrome/page-loading`, `chrome/page-error`, `chrome/hub-card-bare`). The axe lane
 alone, same commit: all 81 twilight runs passed. The *identical* full command, run again:
@@ -377,6 +377,25 @@ then omits a brand-new module and the container fails with `Cannot find module`,
 minutes in, on a run that looked like it was going to work. `git add -A` before creating the
 stash commit is the whole fix. The export must come from git rather than a copy for the reason
 the image matters at all: a `node_modules` built on win32 does not run in the container.
+
+**And once, in the SCREENSHOT lane** — the first time the flake has appeared outside axe, so
+it is recorded rather than absorbed. On a full linux run in the container,
+`dark/user-menu-open` failed by 95,396 pixels (ratio 0.09); the same test passed on the
+recording run twenty minutes earlier, and all six `user-menu` cases passed in isolation
+immediately after. A diff that size on a viewport shot is roughly the panel's own area, so the
+panel was absent or elsewhere rather than a glyph being off.
+
+Two explanations are already ruled out, which is the useful part. It is not a regression from
+the change in flight: `UserMenu` does not use `DetailList`, so nothing that commit touched
+reaches it. And it is not a paint at a stale position: `Popover` positions its panel in a
+`useLayoutEffect`, which runs before paint, so an unpositioned panel is never painted by
+construction — and `toHaveScreenshot` compares consecutive shots for stability on top of that.
+
+No retry was added and no fix is claimed: a flake that does not reproduce cannot be shown to be
+fixed, which is the same honesty the axe flake above was first recorded with. If it returns, the
+next thing to suspect is the interaction between the portalled panel and the viewport-shot path
+that `overlay: true` takes — every other specimen is an element shot, and this is the only
+family where the subject is outside the element being measured.
 
 **Baselines are split by platform** (`visual/__screenshots__/<platform>/`). Font
 rasterisation and antialiasing differ between Windows and Linux by far more than any

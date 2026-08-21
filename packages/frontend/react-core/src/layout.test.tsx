@@ -232,6 +232,42 @@ describe("Divider", () => {
 });
 
 describe("DetailList", () => {
+  it("leaves the inline default unstamped, and marks each row", () => {
+    // `inline` and one column are the base rule. The row marker is new and load-bearing: the
+    // aligned layout turns the wrapper into `display: contents` so the dt and dd become grid
+    // items of the dl itself, which is the only way to align labels across rows without
+    // changing the DOM — and a rule cannot reach an unmarked wrapper.
+    render(<DetailList data-testid="dl" items={[{ label: "Owner", value: "Ada" }]} />);
+    const el = screen.getByTestId("dl");
+    expect(el.hasAttribute("data-layout")).toBe(false);
+    expect(el.hasAttribute("data-columns")).toBe(false);
+    expect(el.querySelector('[data-terp="detail-list-row"]')).not.toBeNull();
+    expect(el.getAttribute("style")).toBeNull();
+  });
+
+  it("names a layout and a column count", () => {
+    render(
+      <DetailList
+        data-testid="dl"
+        layout="aligned"
+        columns={2}
+        items={[{ label: "Owner", value: "Ada" }]}
+      />,
+    );
+    const el = screen.getByTestId("dl");
+    expect(el).toHaveAttribute("data-layout", "aligned");
+    expect(el).toHaveAttribute("data-columns", "2");
+  });
+
+  it("puts no colon in the markup, because two layouts must not have one", () => {
+    // The colon is a rule on the inline layout, not a text node — `aligned` and `stacked` must
+    // not carry one, and no rule can withdraw a text node. It is decorative either way: the
+    // dt/dd pairing is what carries the relationship to assistive tech, so moving it out of the
+    // markup also stops it being read aloud.
+    render(<DetailList items={[{ label: "Owner", value: "Ada" }]} />);
+    expect(screen.getByText("Owner").textContent).toBe("Owner");
+  });
+
   it("renders label/value pairs as a definition list", () => {
     render(
       <DetailList

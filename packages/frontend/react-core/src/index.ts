@@ -133,6 +133,7 @@ export type {
   DividerProps,
   Responsive,
   DetailListProps,
+  DetailListLayout,
   DetailItem,
   SpaceToken,
 } from "./layout";

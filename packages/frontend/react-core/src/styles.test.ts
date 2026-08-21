@@ -1094,6 +1094,7 @@ describe("cascade structure", () => {
       "code",
       "code-block",
       "link",
+      "detail-list-row",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),
