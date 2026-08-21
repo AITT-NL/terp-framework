@@ -296,12 +296,11 @@ describe("cascade structure", () => {
     // and moving that padding one step to the desktop value repaints 1,309 pixels there in both
     // themes and nothing else.
     //
-    // The other two still exist as text or not at all, and for a reason a viewport cannot fix:
-    // on mobile the sidebar renders only while the drawer is OPEN, and `drawerOpen` is internal
-    // state with no way in — the same wall `defaultCollapsed` was added to get past for the
-    // icon rail, and four rules shipped unpainted behind it then. So the drawer's own geometry
-    // and its backdrop wait for the shell work that gives them a door, not for a narrower
-    // window.
+    // The other two DID wait for a door, and it arrived: `defaultDrawerOpen` plus the
+    // `app-shell-drawer-open` specimen (420x900, overlay) paint the drawer's own geometry and
+    // its backdrop for the first time. So this loop is belt for all three now rather than the
+    // sole gate for two of them — the message below still says "no baseline can hold it", which
+    // was true when it was written and is not any more.
     for (const selector of [
       '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-sidebar"]',
       '[data-terp="appshell-backdrop"]',
@@ -309,7 +308,8 @@ describe("cascade structure", () => {
     ]) {
       expect(
         declaresRuleFor(base, selector),
-        `${selector} is mobile-only, so no baseline can hold it`,
+        `${selector} is mobile-only; app-shell-mobile and app-shell-drawer-open are the only ` +
+          "pictures of it",
       ).toBe(true);
     }
   });

@@ -114,8 +114,12 @@ export interface RenderTerpAppOptions {
    */
   contentWidth?: "full" | "measured";
   /**
-   * App-wide density (default `"comfortable"`) — one attribute on the shell root, from which
-   * every control height and cell padding follows by token inheritance.
+   * App-wide density — one attribute on the shell root, from which every control height and cell
+   * padding follows by token inheritance.
+   *
+   * **No default.** Omitting it stamps nothing, so an app setting `data-density` on `<html>`
+   * (ADR 0094 §4's app-wide case) still reaches everything; a shell default would silently win
+   * against it.
    */
   density?: "comfortable" | "compact";
   /**

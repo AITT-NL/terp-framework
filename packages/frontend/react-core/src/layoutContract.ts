@@ -40,9 +40,10 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
       "+ framework states); Card is allowed in overview and detail bodies as the " +
       "sanctioned visual separation between sections, and Divider / Text as a rule " +
       "between sections and a lead paragraph above them. Three specialised shapes sit " +
-      "beside those: a form body is a form container (Stack) with optional Grid / Card " +
-      "sections and no Field at the top level, since a run of bare fields cannot be " +
-      "submitted; a settings body is Card sections and holds no collection; and a split " +
+      "beside those: a form body is a container (Stack) with optional Grid / Card " +
+      "sections and no Field at the top level, so the body is always a container rather " +
+      "than a loose run of controls; a settings body is Card sections and holds no " +
+      "collection; and a split " +
       "body is two SplitPanes and nothing else. A bespoke screen composes " +
       "the plain Page, which the contract deliberately leaves unconstrained.",
     slots: {

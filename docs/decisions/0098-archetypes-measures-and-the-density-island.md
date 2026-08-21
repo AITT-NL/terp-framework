@@ -38,10 +38,17 @@ rather than an archetype one.
 
 Each new slot **refuses** something, and the refusals are the substance:
 
-- A bare `Field` at the top of a **form** body. A run of fields is a form that cannot be
-  submitted — Enter does nothing without a `<form>`, and the house spelling of one is
-  `Stack as="form"`. Admitting `Field` would sanction precisely the screen that looks finished
-  and cannot be used by keyboard.
+- A bare `Field` at the top of a **form** body, so the body is always a container rather than a
+  loose run of controls.
+
+  The stronger claim — that this prevents a form which cannot be submitted — is one this ADR
+  made first and it is **wrong**, so it is corrected here rather than quietly dropped. Both
+  halves of the contract match on `data-terp` markers, and `Stack` renders the same marker
+  whether or not it was given `as="form"`. `<Stack><Field/></Stack>` therefore passes and is
+  still unsubmittable by Enter. Closing that would need a second marker for the form case: six
+  more names describing the same DOM, which is the `Section` trade 4b declined. The general
+  point is worth keeping — **a contract keyed on markers can constrain what a body contains,
+  never how a component was configured.**
 - A collection in a **settings** body. No `DataView`, no `DetailList`, no `Tabs`: a settings
   screen whose body is a table is an overview wearing the wrong chrome. `Card` is how a titled
   region is owned here, which is the decision 4b made when it refused to ship `Section` — this
@@ -116,7 +123,8 @@ ADR 0094 §4 deferred a comfortable copy of the density tokens "until something 
 
 That was harmless while nothing could make an ancestor compact. `AppShell density="compact"`
 makes `DataView density="comfortable"` a legal combination that silently does nothing — the
-defect shape this phase has refused four times. So the deferral ends here rather than being
+shape this phase keeps refusing, most recently in the union that makes `Select`'s two forms
+mutually exclusive. So the deferral ends here rather than being
 renewed: comfortable gains named tokens and a rule, and a component stamps whichever value it
 was asked for.
 
@@ -135,7 +143,7 @@ And zero-diff by construction, because the comfortable values *are* the `:root` 
 ### 6. The sidebar reads its own colour family; its edge is not a declared pairing
 
 `--color-sidebar-bg` / `-fg` / `-muted` / `-accent` / `-border` were declared in all five themes
-and read by nothing — twenty-five declarations, zero readers, for four releases. That is the
+and read by nothing — twenty-five declarations, zero readers, for three releases. That is the
 offence `--color-fg-on-brand` was deleted for, and the difference decides the remedy: there the
 vocabulary was wrong, here the readers were missing. Wiring is the fix; deleting would have been
 the mistake.
@@ -143,8 +151,14 @@ the mistake.
 It survived because `tokens.guard.test.ts` tracked three token families and `--color-` was not
 one of them. It tracks this one now.
 
-Three pairings are declared and gated. A fourth is **deliberately not**: the sidebar's edge
-against the canvas fails a 3:1 non-text floor in four themes, and it should — WCAG 1.4.11 covers
+**One** pairing is newly declared and gated — the hovered link. The resting link and the brand
+were already in `token-pairs.json` as `sidebar-muted-text` and `sidebar-text`, declared when the
+family shipped and gated ever since against tokens nothing read; a first draft added
+byte-identical duplicates of both, which would have reported one defect twice and inflated the
+coverage count. A further pairing is **deliberately not** declared: the sidebar's edge against
+the canvas fails a 3:1 non-text floor in four themes — 1.18:1 light, 1.35 midnight, 1.50
+twilight, 1.72 dark, with only `contrast` clearing it at 7.00 — and it should, because WCAG
+1.4.11 covers
 UI components and graphical objects needed to understand content, and a decorative separator
 beside a surface that already differs in background is neither. Declaring it would have forced
 darkening a decorative line in five themes for no accessibility gain, or booking an allowance
@@ -161,12 +175,35 @@ in a screenshot and under a manual click.
 
 `main` carries `tabIndex={-1}`. The keyboard lane asserts the **landing**, not the reaching.
 
+Three things follow from that `tabIndex`, and two of them were wrong in the first build:
+
+- **The target must not paint the shared focus ring.** `main` carries a `data-terp` marker, and
+  with a `tabIndex` it comes into scope of `[data-terp]:focus-visible` — so following the link
+  outlined the whole content column plus a 3px halo. The ring's job is to say which *control*
+  takes the next keystroke; a scroll target that took focus programmatically is not one. Scoped
+  to this marker rather than to `[tabindex="-1"]`, because other elements take `-1` for other
+  reasons and some of them are controls.
+- **The link must not exist while the drawer is open.** The drawer is `aria-modal` and the column
+  below it is `inert`. A link outside both, pointing *at* the inert subtree, contradicts each of
+  them, and whether a keyboard route to it exists depends on where the browser's
+  sequential-navigation starting point happens to be — not something an accessibility guarantee
+  should rest on. Stacking order does not help: z-index has no bearing on tab order, and the
+  first build's comment claimed it did.
+- **The id is per instance,** not a module constant, because a page with two shells otherwise
+  renders two `<main id="terp-main">` and both links jump to the first one. The workbench
+  catalogue is that page.
+
 ## Consequences
 
-- Existing apps get all of it on a version bump with no app-file edits. Two changes move pixels:
-  the sidebar's colour family (a faint light-theme background and a dimmer resting link ink) and
-  nothing else. The archetypes, both measures and the density island are inert until an app opts
-  in.
+- Existing apps get all of it on a version bump with no app-file edits. **One** change moves
+  pixels: the sidebar's colour family — a faint light-theme background, a dimmer resting nav-link
+  ink in every theme, and a different hover wash in four of the five. The archetypes, both
+  measures and the density island are inert until an app opts in.
+
+  (This bullet was written as "Two changes move pixels … and nothing else" and then named one,
+  which is the sentence shape the same series had just corrected in 0097. Worth recording rather
+  than quietly fixing: the defect is not a typo, it is what happens when a count is written
+  before the list it counts.)
 - `DataView`'s `density` prop changes behaviour: `"comfortable"` now stamps an attribute where it
   previously stamped nothing. Zero-diff wherever nothing above is compact, which is everywhere
   today.
@@ -178,8 +215,9 @@ in a screenshot and under a manual click.
 ## What 0097 still owes, and why it is not amended here
 
 0097 §5 (navigation as ordered groups) and §6 (one owned active predicate) are **unbuilt**, and
-this repo's convention is to amend an ADR *by building it* — both of 0097's existing amendments
-say so in as many words. Two problems are already visible and are recorded here so they are not
+this repo's convention is to amend an ADR *by building it* — 0097's second amendment says so
+verbatim ("Amended in 4b, by building it") and its first says the same in other words ("building
+it produced the opposite and better shape"). Two problems are already visible and are recorded here so they are not
 rediscovered, but the amendments belong to the commit that resolves them:
 
 - **`visible: (ctx) => boolean` cannot live on the contract.** `NavItem` is on the

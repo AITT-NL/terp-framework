@@ -25,7 +25,9 @@ decision, 0001 onwards.
   Comfortable was the **absence** of an attribute, and an absence cannot override an ancestor.
   That was harmless while nothing could make an ancestor compact. A shell density makes
   `AppShell density="compact"` + `DataView density="comfortable"` a legal combination that
-  silently does nothing — the exact shape this phase has now refused four times.
+  silently does nothing — the shape this phase keeps refusing, most recently in the union
+  that makes `Select`'s two forms mutually exclusive. (A running tally was written into five
+  places in one commit and two of them said three. A citation keeps where a count rots.)
 
   So comfortable gained named tokens and a rule of its own, which is the vocabulary ADR 0094
   deferred *until something asked*. The mechanism is the compact rule mirrored, and it composes
@@ -37,11 +39,12 @@ decision, 0001 onwards.
 
   Zero-diff by construction and checked as such: the comfortable values *are* the `:root`
   values, so stamping the attribute where nothing above is compact computes exactly what it
-  computed before — all 238 existing baselines byte-identical, including `dataview-compact`.
+  computed before — all **236** existing baselines byte-identical at that commit, including
+  `dataview-compact`.
   What the island costs is one specimen with two tables, because one table cannot show an
   island: deleting the rule collapses them into each other and repaints 20,274 pixels.
 
-- **The sidebar paints from its own colour family, four releases after that family shipped
+- **The sidebar paints from its own colour family, three releases after that family shipped
   (ADR 0098 §6).**
   `--color-sidebar-bg` / `-fg` / `-muted` / `-accent` / `-border` were declared in **all five
   themes** and read by **nothing** — twenty-five declarations, zero readers. That is the offence
@@ -50,12 +53,18 @@ decision, 0001 onwards.
   have been the mistake. It went unnoticed because `tokens.guard.test.ts` tracked three token
   families and `--color-` was not one of them; it tracks this one now, as an empty list.
 
-  Mostly inert, measured rather than assumed: seventeen of the twenty-five already equalled the
-  neutral the sheet was reading. Two things move. The light sidebar goes `#ffffff` → `#f8fafc`,
-  the faint separation from the canvas that every dark theme already had and light never did.
-  And the nav link's resting ink dims in every theme — light `#334155` → `#475569`, dark
-  `#e2e8f0` → `#b4c0d0` — which is the deliberate half: a sidebar's resting links are secondary
-  to the page, and the active one should carry the weight.
+  Mostly inert, **recounted** rather than estimated: **fifteen** of the twenty-five already
+  equalled the neutral the sheet was reading — background, foreground and border agree in every
+  theme except the light background. Ten move, in three groups, and an earlier draft of this
+  entry named two of them: it counted the resting declarations and forgot that `accent` is one
+  of the five.
+
+  The light sidebar goes `#ffffff` → `#f8fafc`, the faint separation from the canvas that every
+  dark theme already had and light never did. The nav link's resting ink dims in every theme —
+  light `#334155` → `#475569`, dark `#e2e8f0` → `#b4c0d0` — which is the deliberate half: a
+  sidebar's resting links are secondary to the page, and the active one should carry the weight.
+  And the **hover wash** changes in four themes: every one but light, where the two values
+  already agree.
 
   Verified as a transformation rather than accepted as a diff, and the light/dark asymmetry is
   what makes it checkable. Light repaints **205,159 px** on each of the three full-shell
@@ -65,10 +74,16 @@ decision, 0001 onwards.
   dark's background, border and foreground are byte-identical to the neutrals they replaced.
   `app-shell-mobile` does not move at all: its sidebar renders only when the drawer is open.
 
-  Three pairings are now declared and gated — the resting link, the brand, the hovered link —
-  each measured before being declared, not after: 7.24:1 light, 7.94 dark, 7.50 midnight, 7.60
-  twilight, 18.42 for `contrast` against its AAA floor. A fourth was **withdrawn**: the
-  sidebar's edge against the canvas fails a 3:1 non-text floor in four themes, and it should —
+  **One** pairing is newly declared — the hovered link — measured before being declared rather
+  than after. The resting link and the brand were already in `token-pairs.json` as
+  `sidebar-muted-text` and `sidebar-text`, declared when the family shipped and gated ever
+  since against tokens nothing read; a first draft added byte-identical duplicates of both,
+  which would have reported one defect twice and inflated the coverage count. All of them
+  measure 7.24:1 light, 7.94 dark, 7.50 midnight, 7.60 twilight and 18.42 for `contrast`
+  against its AAA floor. A further pairing was **withdrawn**: the
+  sidebar's edge against the canvas fails a 3:1 non-text floor in four themes — 1.18:1 light,
+  1.35 midnight, 1.50 twilight and 1.72 dark, with only `contrast` clearing it at 7.00 — and
+  it should, because
   WCAG 1.4.11 covers UI components and graphical objects needed to understand content, and a
   decorative separator beside a surface that already differs in background is neither. Declaring
   it would have forced darkening a decorative line in five themes for no accessibility gain. The
@@ -87,9 +102,11 @@ decision, 0001 onwards.
   `inset: 0`, so an element shot would clip to the card and record the page behind them.
 
 - **Skip to content, which the shell owns because the shell owns the landmarks (ADR 0098 §7).** There was no
-  skip link, `main` had no id, and the desktop `aside` had no accessible name at all — an
-  anonymous complementary landmark beside a named one, because the mobile branch had a label
-  only where the `dialog` role demanded it. All three close together.
+  skip link and `main` had no id. The same change also named the desktop `aside`, which looked
+  like a third fix and was not: the `nav` immediately inside it already carries that exact
+  string, so the landmark list gained a "Primary" complementary containing a "Primary"
+  navigation. Reverted to mobile-only, where the `dialog` role demands a name. Naming the aside
+  is a separate decision with a string to choose, not a side effect of adding a skip link.
 
   The half that decides whether it works is where focus lands. Following a fragment link sets
   the browser's sequential-navigation starting point but leaves `document.activeElement` on
@@ -99,12 +116,33 @@ decision, 0001 onwards.
   `tabIndex={-1}`, and the keyboard lane asserts the landing rather than the reaching; removing
   it puts `activeElement` at `null` and fails.
 
+  The target also must not paint the shared focus ring. `main` carries a `data-terp` marker and
+  now a `tabIndex`, which together put it in scope of `[data-terp]:focus-visible` — so following
+  the link outlined the entire content column, header to footer, plus a 3px halo. The ring says
+  which *control* takes the next keystroke; a scroll target that took focus programmatically is
+  not one.
+
   The visible rule sits in `terp.state`, which is load-bearing rather than filing: the resting
-  half is the shared visually-hidden block in `terp.base`, whose winning selector weighs (0,3,0)
-  and is not comparable to this one, so layer order settles it with nothing to reason about.
-  `--z-index-skip-link` (45) sits above the sticky header and its backdrop and below the drawer —
-  a keyboard user inside an open drawer is in a focus trap and should not be able to tab out to
-  it.
+  half is the shared visually-hidden block in `terp.base`, and a selector list takes the
+  specificity of the member that **matches** — here `[data-terp="appshell-skip-link"]` at
+  (0,1,0), the same weight as the un-hiding rule. (A first draft cited the list's (0,3,0)
+  member, which is the collapsed-rail selector and never matches a skip link; on that reading
+  the two rules would have been a source-order coin flip rather than a layer decision.) Layer
+  order settles it with nothing to reason about.
+
+  `--z-index-skip-link` (45) sits above the sticky header and its backdrop so it is not painted
+  under the chrome it overlaps, and below the drawer because nothing paints over an open modal.
+  Stacking order does **not** keep it out of the drawer's focus trap and a first draft claimed
+  it did — z-index has no bearing on tab order. The link is simply **not rendered** while the
+  drawer is open: the drawer is `aria-modal` and the column below it is `inert`, so a link that
+  sits outside both and points *at* the inert subtree is the one element contradicting each of
+  them, and with the drawer open there is nothing to skip to anyway.
+
+  The id is **per shell instance** (`useId`), not a module constant. A constant is wrong wherever
+  two shells mount together — every one renders `<main id="terp-main">` and a link to it, so each
+  link jumps to the first shell on the page. The workbench catalogue is exactly that page. It was
+  also documented as an exported `MAIN_CONTENT_ID` and never re-exported from the entry point, so
+  the one argument for sharing it had no consumer either.
 
 - **`renderTerpApp` passes `headerActions` through.** The slot has existed on `AppShell` all
   along; reaching it meant abandoning the one-call bootstrap for `TerpProvider` +

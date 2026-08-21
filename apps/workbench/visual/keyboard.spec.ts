@@ -229,13 +229,54 @@ test("the skip link is the first tab stop, and Enter moves focus into main", asy
   await page.keyboard.press("Enter");
   const landed = await page.evaluate(() => {
     const active = document.activeElement;
+    const link = document.querySelector('[data-terp="appshell-skip-link"]') as HTMLAnchorElement | null;
     return {
       marker: active?.getAttribute("data-terp") ?? null,
-      id: active?.id ?? null,
+      id: active?.id ?? "",
+      href: (link?.getAttribute("href") ?? "").replace(/^#/, ""),
     };
   });
   expect(landed.marker, "Enter must move focus to main, not merely scroll to it").toBe(
     "appshell-main",
   );
-  expect(landed.id).toBe("terp-main");
+  // The id is per shell instance (useId), not a constant, so the contract is that the LINK
+  // points at the element that took focus — asserting a literal would pin the id scheme and
+  // did: this line read `toBe("terp-main")` until the constant was replaced, and it failed on
+  // `_r_0_` while the behaviour was correct.
+  expect(landed.id).toBe(landed.href);
+  expect(landed.id, "the skip target must carry an id at all").not.toBe("");
+});
+
+test("the open drawer keeps focus, including away from the new skip link", async ({ page }) => {
+  // The drawer is role="dialog" aria-modal, so escaping it is a real defect and not a nicety.
+  // Adding a skip link OUTSIDE the inert content column was the plausible way to break that:
+  // the link sits before the drawer in DOM order and is not covered by the inert attribute the
+  // shell puts on appshell-column, so shift-Tab past the drawer's first element is exactly the
+  // route that would reach it — and following it would move focus into inert content.
+  //
+  // It does not, because the drawer's two focus sentinels bounce focus back to the far edge.
+  // Asserted in BOTH directions, since only one of them is the interesting one and a test that
+  // walked forward alone would say nothing about the route that worries.
+  await page.setViewportSize({ width: 420, height: 900 });
+  await page.goto("/?theme=light&only=app-shell-drawer-open");
+  await page.locator('[data-terp="appshell-sidebar"]').waitFor({ state: "visible" });
+
+  const where = () =>
+    page.evaluate(() => {
+      const active = document.activeElement;
+      return active === null || active.closest('[data-terp="appshell-sidebar"]') === null
+        ? (active?.getAttribute("data-terp") ?? active?.tagName.toLowerCase() ?? "none")
+        : null;
+    });
+
+  // A full cycle forward — more steps than the drawer has focusables, so it wraps at least once.
+  for (let step = 0; step < 12; step += 1) {
+    await page.keyboard.press("Tab");
+    expect(await where(), `Tab step ${step + 1} left the drawer`).toBeNull();
+  }
+  // And backwards, which is the direction the skip link is actually in.
+  for (let step = 0; step < 6; step += 1) {
+    await page.keyboard.press("Shift+Tab");
+    expect(await where(), `Shift+Tab step ${step + 1} left the drawer`).toBeNull();
+  }
 });

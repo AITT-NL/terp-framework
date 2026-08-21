@@ -243,7 +243,10 @@ export interface BuildAppRouterOptions {
    * ({@link AppShell.contentWidth}); default `"full"`, which changes nothing.
    */
   contentWidth?: "full" | "measured";
-  /** App-wide density ({@link AppShell.density}); default `"comfortable"`. */
+  /**
+   * App-wide density ({@link AppShell.density}). **No default** — omitting it stamps nothing, so
+   * an app's own `data-density` on `<html>` still reaches the tree.
+   */
   density?: "comfortable" | "compact";
   /** Role-name -> minimum rank; an unknown role is denied (fail closed). */
   roleRanks?: Record<string, number>;

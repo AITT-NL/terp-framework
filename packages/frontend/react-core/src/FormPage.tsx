@@ -22,12 +22,17 @@ export interface FormPageProps extends Omit<PageProps, "breadcrumbs"> {
  * from its last field is worse than one sitting over it. And the body slot admits the shape a
  * form actually has rather than the shape a record screen has.
  *
- * **The body is a form, so `Field` is deliberately not admitted directly.** A run of bare
- * fields is a form that cannot submit: Enter does nothing without a `<form>` element, and the
- * house spelling of one is `Stack as="form"`. Admitting `Field` at the top level would sanction
- * exactly the screen that looks finished and cannot be submitted by keyboard. So the slot takes
+ * **The body is a container, so `Field` is deliberately not admitted directly.** The slot takes
  * the form container, plus `Grid` for a two-column arrangement inside a wide form, `Card` for a
  * grouped section, `Divider` and `Text` between them, and the framework states.
+ *
+ * What that refusal does and does not buy is worth stating exactly, because the obvious claim is
+ * too strong. It keeps fields out of the top level, so a form body is always a container — which
+ * is the shape the archetype is for. It does **not** guarantee the form can be submitted: both
+ * halves of the contract match on `data-terp` markers, and `Stack` renders the same marker
+ * whether or not it was given `as="form"`. So `<Stack><Field/></Stack>` passes and is still
+ * unsubmittable by Enter. Closing that would mean a second marker for the form case, which is
+ * six more names describing the same DOM — the `Section` trade 4b already declined.
  *
  * It renders no element of its own — the slot context and `Page`, nothing between them, because
  * a wrapper around the body would become the sole entry in `article.children` and fail every
@@ -36,7 +41,14 @@ export interface FormPageProps extends Omit<PageProps, "breadcrumbs"> {
 export function FormPage({ parents, measure = "narrow", ...page }: FormPageProps) {
   return (
     <LayoutSlotContext.Provider value="FormPage">
-      <Page breadcrumbs={parents} measure={measure} {...page} />
+      {/* Spread FIRST, then the archetype's own props — `HubPage`'s order, not
+          `DetailPage`'s. `Omit<PageProps, "breadcrumbs">` removes the key from the type but not
+          from a runtime object, and a JSX spread gets no excess-property check: a wrapper
+          forwarding `{...props}` with a present-but-undefined `breadcrumbs` would otherwise
+          overwrite `parents` and silently drop the trail this archetype requires.
+          (`DetailPage` and `OverviewPage` still spread last. Same latent shape, pre-existing,
+          and left for a change that can re-record their baselines rather than this one.) */}
+      <Page {...page} breadcrumbs={parents} measure={measure} />
     </LayoutSlotContext.Provider>
   );
 }

@@ -1,5 +1,5 @@
 import type { NavItem } from "@terpjs/contract";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { NARROW_VIEWPORT } from "./breakpoints";
@@ -119,13 +119,16 @@ export interface AppShellProps {
 /** The `localStorage` key the sidebar's collapsed choice persists under. */
 export const SIDEBAR_STORAGE_KEY = "terp.sidebar";
 
-/**
- * The id the skip link targets and `main` carries.
+/*
+ * The skip link's target id is per-INSTANCE (see `useId` below), not a module constant.
  *
- * Exported because an app rendering its own chrome around `buildAppRouter` still wants one
- * skip target rather than two, and a second literal is how the two would drift apart.
+ * A constant was the first shape and it is wrong wherever two shells mount together: every one
+ * of them renders `<main id="terp-main">` and a link to `#terp-main`, so the ids collide and
+ * each link jumps to the first shell on the page rather than to its own content. The workbench
+ * catalogue is exactly that page — three shells at once — which is how it was found. It was
+ * also documented as exported and never actually re-exported from the entry point, so the one
+ * argument for a shared constant had no consumer either.
  */
-export const MAIN_CONTENT_ID = "terp-main";
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(
@@ -224,6 +227,8 @@ export function AppShell({
   const isMobile = useIsMobile();
   const [collapsed, setCollapsed] = useState(() => readStoredCollapsed(defaultCollapsed));
   const [drawerOpen, setDrawerOpen] = useState(defaultDrawerOpen);
+  // Per shell instance, so two shells on one page get two distinct skip targets.
+  const mainId = useId();
   const drawerRef = useRef<HTMLElement>(null);
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -324,10 +329,14 @@ export function AppShell({
       ref={isMobile ? drawerRef : undefined}
       role={isMobile ? "dialog" : undefined}
       aria-modal={isMobile ? true : undefined}
-      // Named on BOTH branches now. The desktop aside is a complementary landmark and carried no
-      // accessible name, so a screen reader's landmark list showed an anonymous region beside a
-      // named one — the mobile branch had a label only because the dialog role demanded it.
-      aria-label={strings.primaryNavigationLabel}
+      // Mobile only, which is where it started. Labelling the desktop aside as well looked like
+      // an improvement and was not: the `nav` immediately inside it already carries this exact
+      // string, so the landmark list gained a "Primary" complementary containing a "Primary"
+      // navigation — two nested entries with the same name, which is the disambiguation failure
+      // `SplitPane` documents rather than a fix for it. An unnamed complementary wrapping a
+      // named navigation is the lesser problem; giving the aside a name of its own is a
+      // separate decision with a string to choose, not a side effect of adding a skip link.
+      aria-label={isMobile ? strings.primaryNavigationLabel : undefined}
       tabIndex={isMobile ? -1 : undefined}
       onKeyDown={isMobile ? onDrawerKeyDown : undefined}
       data-terp="appshell-sidebar"
@@ -404,10 +413,20 @@ export function AppShell({
           until focused (the sheet shares that with the drawer's focus sentinels) and then
           painted above the sticky header.
           The shell owns this because the shell owns the landmarks: `main` is rendered here, and
-          nothing above it knows the id to point at. */}
-      <a data-terp="appshell-skip-link" href={`#${MAIN_CONTENT_ID}`}>
-        {strings.skipToContent}
-      </a>
+          nothing above it knows the id to point at.
+
+          NOT rendered while the mobile drawer is open, and that is a correctness fix rather
+          than tidying. The drawer is role="dialog" aria-modal, and the column below carries
+          `inert` — so this link is the one element that contradicts both: it sits outside the
+          modal, outside the inert subtree, and points AT the inert subtree. Whether a keyboard
+          route to it exists depends on where the browser's sequential-navigation starting point
+          happens to be, which is not a thing an accessibility guarantee should rest on. With
+          the drawer open there is also nothing to skip to. */}
+      {!(isMobile && drawerOpen) && (
+        <a data-terp="appshell-skip-link" href={`#${mainId}`}>
+          {strings.skipToContent}
+        </a>
+      )}
       {isMobile ? (
         drawerOpen && (
           <>
@@ -455,7 +474,7 @@ export function AppShell({
             document.activeElement on <body> — so the link would jump the viewport and leave the
             next Tab going back into the chrome it exists to skip. -1 keeps it out of the tab
             order while making it programmatically focusable, which is the whole trick. */}
-        <main id={MAIN_CONTENT_ID} data-terp="appshell-main" tabIndex={-1}>
+        <main id={mainId} data-terp="appshell-main" tabIndex={-1}>
           {children}
         </main>
         <footer data-terp="appshell-footer">{footer ?? <small>{resolvedTitle}</small>}</footer>

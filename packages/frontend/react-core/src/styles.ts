@@ -151,7 +151,8 @@ export const TERP_STYLES_CSS = `
    comfortable was the ABSENCE of an attribute and absence cannot override an ancestor.
    That was fine while nothing could put a DataView inside a compact subtree. With
    AppShell density="compact" it becomes a legal prop combination that silently does nothing —
-   the defect shape this phase has refused to ship three times.
+   the shape this phase keeps refusing, most recently in Select's options union. (A running tally
+   lived here and in four other places, and two of them said three. A citation keeps.)
    The mechanism is the compact rule mirrored, and it works through INHERITANCE rather than
    specificity: the nearest ancestor carrying either attribute sets the live tokens for its
    subtree, so an island simply re-sets them. The two selectors never match the same element,
@@ -1019,13 +1020,19 @@ textarea[data-terp="input"] {
    wiring is the fix and deleting would have been the mistake. It went unnoticed for four
    releases because tokens.guard.test.ts tracked three families and --color- was not one.
 
-   Mostly inert, and measured rather than assumed: of the twenty-five declarations, seventeen
-   already equalled the neutral the sheet was reading. Two things actually move. The light
-   sidebar goes #ffffff -> #f8fafc, a faint separation from the canvas that the dark themes
-   always had and light never did. And the nav link's resting ink dims in every theme — light
-   #334155 -> #475569, dark #e2e8f0 -> #b4c0d0 — which is the deliberate half: a sidebar's
-   resting links are secondary to the page, and the active one is what should carry weight.
-   Every new pairing was checked before being wired, not after: 7.24:1 light, 7.94 dark, 7.50
+   Mostly inert, and recounted rather than estimated: of the twenty-five declarations, FIFTEEN
+   already equalled the neutral the sheet was reading — background, foreground and border agree
+   in every theme except the light background. Ten move, in three groups.
+
+   The light sidebar goes #ffffff -> #f8fafc, a faint separation from the canvas that the dark
+   themes always had and light never did. The nav link's resting ink dims in every theme (light
+   #334155 -> #475569, dark #e2e8f0 -> #b4c0d0), which is the deliberate half: a sidebar's
+   resting links are secondary to the page and the active one should carry the weight. And the
+   hover wash changes in four themes — every one but light, where the two values agree — which
+   an earlier version of this comment did not mention at all, because it counted the resting
+   declarations and forgot that accent is one of the five.
+
+   Every text pairing was checked before being wired, not after: 7.24:1 light, 7.94 dark, 7.50
    midnight, 7.60 twilight, and 18.42 for contrast against its AAA floor. */
 [data-terp="appshell"] {
   display: flex;
@@ -1172,7 +1179,9 @@ textarea[data-terp="input"] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Visually hidden, four elements, one rule. Two are the drawer's focus sentinels, which
+/* Visually hidden, five elements, one rule. One is the skip link, which is the whole point of
+   the block for it: hidden at rest and un-hidden by a rule in terp.state. Two are the drawer's
+   focus sentinels, which
    must stay focusable and so cannot be display: none. The other two are the brand title
    and the nav labels in the icon rail, which were a style-object TERNARY before this —
    the component picked between two objects per render, and the collapsed branch was
@@ -1247,6 +1256,19 @@ textarea[data-terp="input"] {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-normal);
   line-height: 1.25;
+}
+/* The drawer's close button sits INSIDE the sidebar, so its INK comes from the sidebar family
+   and not from the header toggle's neutral. Everything else it shares with the toggle above —
+   both are icon buttons in shell chrome, and only the colour depends on which chrome.
+   Wiring the sidebar family without this left two adjacent controls in the same drawer on two
+   different ramps: in dark a nav link hovering to #334155 beside a close button hovering to
+   #263449, and in contrast a blue wash beside a grey one.
+   An override, NOT a split of the rule above. Splitting it was the first attempt and it moved
+   the shared declarations into this selector, so the header toggle lost its background, border,
+   radius, cursor and type — visible immediately as ~1,160 repainted pixels on every shell
+   specimen, which is how a one-line edit to a grouped selector announces itself. */
+[data-terp="appshell-brand-row"] > [data-terp="iconbutton"] {
+  color: var(--color-sidebar-muted);
 }
 [data-terp="appshell-main"] {
   flex-grow: 1;
@@ -3412,15 +3434,42 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="appshell-brand"]:hover {
   background: var(--color-sidebar-accent);
 }
+/* And its hover, for the same reason: the shared iconbutton hover wash is a neutral, which is
+   the header toggle's context and not this one's. */
+[data-terp="appshell-brand-row"] > [data-terp="iconbutton"]:hover {
+  background: var(--color-sidebar-accent);
+  color: var(--color-sidebar-fg);
+}
 /* The skip link, visible only while focused.
    In terp.state, and that is not filing: the resting half is the shared visually-hidden block
-   in terp.base, which sets position, a 1px box and clip. Un-hiding has to beat all of it, and
-   the two selectors are not comparable on specificity — the hidden one is a five-selector list
-   whose winning member weighs (0,3,0). Layer order settles it with nothing to reason about.
+   in terp.base, which sets position, a 1px box and clip, and un-hiding has to beat all of it.
+   On specificity it would not — a selector list takes the specificity of the member that
+   MATCHES, and for this element that member is [data-terp="appshell-skip-link"] at (0,1,0),
+   the same weight as this rule. (An earlier version of this comment cited the list's (0,3,0)
+   member, which is the collapsed-rail selector and never matches a skip link; that reading
+   would have made the rules a source-order coin flip rather than a layer decision.) Layer
+   order settles it with nothing to reason about.
    :focus-visible rather than :focus, matching the sheet's shared ring: a skip link reached by
    pointer is a link nobody asked to see.
-   Above the sticky header (30) and its backdrop (40), below the drawer (50) — a keyboard user
-   inside an open drawer is in a focus trap and should not be able to tab out to this. */
+   Above the sticky header (30) and its backdrop (40) so it is not painted under the chrome it
+   sits over; below the drawer (50) because nothing should paint over an open modal. Stacking
+   order does NOT keep it out of the drawer's focus trap and this comment used to say it did —
+   z-index has no bearing on tab order. The link is simply not RENDERED while the drawer is
+   open; see AppShell. */
+/* The skip link's target takes focus and must NOT paint the shared ring.
+   The main element carries a data-terp marker and now a tabIndex of -1, which together put it
+   in scope of the shared [data-terp]:focus-visible ring — so activating the skip link outlined
+   the entire content column, header to footer, plus a 3px halo. Measured: it matches
+   :focus-visible, with a 2px solid outline and rgba(37,99,235,0.35) 0 0 0 3px. The ring exists
+   to say which CONTROL will take the next keystroke; a scroll target that was focused
+   programmatically is not one, and the visible result of following a skip link should be the
+   content rather than a box drawn around it.
+   Scoped to this marker rather than to tabindex=-1 in general: other elements take -1 for other
+   reasons and some of them are controls. */
+[data-terp="appshell-main"]:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
 [data-terp="appshell-skip-link"]:focus-visible {
   position: fixed;
   top: var(--space-2);

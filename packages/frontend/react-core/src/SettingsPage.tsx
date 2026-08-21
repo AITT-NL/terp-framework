@@ -43,7 +43,8 @@ export function SettingsPage({
 }: SettingsPageProps): ReactNode {
   return (
     <LayoutSlotContext.Provider value="SettingsPage">
-      <Page breadcrumbs={parents} measure={measure} {...page} />
+      {/* Spread first, then the archetype's own props — see `FormPage` for why. */}
+      <Page {...page} breadcrumbs={parents} measure={measure} />
     </LayoutSlotContext.Provider>
   );
 }

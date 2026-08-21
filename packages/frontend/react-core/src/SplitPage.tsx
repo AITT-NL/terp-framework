@@ -30,7 +30,14 @@ export type SplitPageProps = Omit<PageProps, "children" | "measure"> & {
    * style with nowhere to persist.
    */
   listWidth?: SplitListWidth;
-  /** The two panes — a `SplitPane role="list"` and a `SplitPane role="detail"`. */
+  /**
+   * The two panes, **list first** — a `SplitPane role="list"` then a `SplitPane role="detail"`.
+   *
+   * Order is load-bearing: the tracks are filled by grid auto-placement, so the first pane takes
+   * the narrow one. The contract can see that both children are `SplitPane`s and cannot see
+   * which is which, so this is a convention the render makes obvious rather than a rule the
+   * runtime enforces.
+   */
   children: ReactNode;
 };
 
@@ -95,7 +102,24 @@ export function SplitPage({
 export type SplitPaneRole = "list" | "detail";
 
 export interface SplitPaneProps {
-  /** Which half this is; decides which track it takes and nothing else. */
+  /**
+   * Which half this is.
+   *
+   * It does **not** place the pane. The row's tracks are `minmax(0, <listWidth>) minmax(0, 1fr)`
+   * and grid auto-placement fills them in DOM order, so the FIRST pane gets the narrow track
+   * whatever its role says — write the list first. A `detail`-first composition renders the
+   * record in the narrow column, which is wrong and immediately visible.
+   *
+   * Placing by role instead was considered and refused: it would render correctly whatever the
+   * DOM order, and correct-looking is exactly the wrong failure here. Tab order follows the DOM
+   * and CSS cannot change it, so a `detail`-first tree would then read left-to-right and tab
+   * right-to-left — the WCAG 1.3.2 / 2.4.3 mismatch, silent. Leaving placement to the DOM makes
+   * a mis-ordered split look mis-ordered.
+   *
+   * What the role does carry: the pane's identity for anything that needs to tell the two apart
+   * (`visual/keyboard.spec.ts` asserts the tab order through it), and a hook for a rule should
+   * one ever need to distinguish them.
+   */
   role: SplitPaneRole;
   /**
    * The pane's accessible name.
@@ -112,8 +136,9 @@ export interface SplitPaneProps {
  * One half of a {@link SplitPage} — the list, or the detail beside it.
  *
  * A named `<section>`, so the two halves are distinguishable landmarks, and the only component
- * the split's row admits. It renders no inline style: which track it takes comes from `role`,
- * one attribute with a rule each.
+ * the split's row admits. It renders no inline style, and no style at all beyond a
+ * `min-width: 0` floor: which track it takes comes from its POSITION, not from `role` — see the
+ * prop for why that is the safer of the two.
  */
 export function SplitPane({ role, label, children }: SplitPaneProps) {
   const resolve = useUiText();

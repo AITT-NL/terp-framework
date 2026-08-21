@@ -2683,7 +2683,9 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // an ancestor compact. A shell density makes the combination legal and silently
         // inert — the defect shape this phase has refused three times — so comfortable gained
         // named tokens and a rule of its own, and the two now compose through inheritance
-        // rather than through absence.
+        // rather than through absence. (An earlier version of this note counted how many
+        // times the phase had refused that shape, and disagreed with the four other places
+        // that counted it. A citation keeps; a tally rots.)
         //
         // Two DataViews, because one cannot show an island. The first inherits the shell's
         // compact cells; the second sits beside it at the comfortable padding. If the island
