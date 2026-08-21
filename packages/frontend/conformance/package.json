@@ -1,6 +1,6 @@
 {
   "name": "@terpjs/conformance",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
   "description": "Terp conformance \u2014 app-agnostic Playwright end-to-end flows over a running Terp stack (base profile: auth gating + session lifecycle) plus the login/role helpers an app's own e2e suite composes.",
   "main": "./dist/index.js",
