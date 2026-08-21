@@ -216,7 +216,7 @@ decision, 0001 onwards.
   have moved into the sheet with no baseline able to see it. Confirmed by mutation — it
   fails those four baselines and nothing else.
 
-  The scripts are `visual:screens`, `visual:a11y` and `visual:keyboard`, and they close a
+  The scripts are `visual:screens`, `visual:a11y`, `visual:keyboard` and `visual:computed`, and they close a
   contradiction the workbench README carried: it warned that a red `color-contrast`
   result is only evidence when the lane had the machine to itself, and then offered
   `npm run visual`, which starts all three lanes in one worker pool. That is the
@@ -225,6 +225,28 @@ decision, 0001 onwards.
   573 on the next attempt. CI never met it, because the workflow runs the three lanes as
   three separate steps. A scheduling rule with no command behind it is obeyable only by
   remembering it.
+
+- **A fourth workbench lane, for values the other three cannot see:
+  `visual/computed.spec.ts` (ADR 0097).** The screenshot lane runs with
+  `animations: "disabled"` — deliberately, so the spinner keyframes do not make every run
+  differ — and the cost of that was never written down: **every duration and easing in the
+  sheet is invisible to it.** A transition at 150ms, at 400ms, or gone entirely produces
+  byte-identical baselines, and axe reads a static tree, so neither lane says anything about
+  a computed value.
+
+  That gap has a sharp edge, which is what made the lane necessary rather than nice. A
+  `var()` inside a shorthand that fails to substitute makes the whole declaration invalid at
+  computed-value time and falls back to the property's initial value — `transition: all 0s
+  ease 0s`. Every element still paints identically at rest, every baseline still passes, axe
+  still finds nothing, and every transition in the package is silently dead. A structural
+  test proves the sheet *names* a token; only reading the resolved value separates the two.
+
+  Three tests, and it also gates two claims the sheet had only made in a comment: that
+  reduced motion reaches a marked element, a nav link **and** a breadcrumb link — the last
+  two bare `<a>`s the block reaches only through selectors of their own, one of which it had
+  silently failed to reach before — and that the scrollbar gutter is really reserved. Scoped
+  like the keyboard lane: cases where the resolved value IS the contract, and nothing else.
+  It runs as its own CI step, never in one pool with the others.
 
 ### Changed
 
@@ -314,6 +336,51 @@ decision, 0001 onwards.
   `BOUNDARY_SPEC.restrictedElementGuidance` carries it, so any other element whose
   named replacement does not fit every case can say so; every element without an entry
   keeps its plain one-line refusal.
+
+- **Every transition in the framework stylesheet is timed off the published motion scale,
+  so moving a motion token now moves something (ADR 0097).** The seven motion tokens
+  shipped in 0.7.0 and nothing read them: the sheet wrote `150ms ease` 28 times and
+  `100ms ease` once across sixteen declarations while reading a motion token zero times. An
+  app could set `--motion-duration-fast` from its `theme.css` and watch nothing happen, and
+  a Studio editor built from the token manifest would have offered four duration controls
+  that moved nothing.
+
+  Inert by construction, and the values were checked rather than assumed:
+  `--motion-duration-fast` **is** `150ms`, `--motion-duration-instant` **is** `100ms` and
+  `--motion-easing-standard` **is** `ease`, so all 29 literals mapped onto a token pair and
+  no computed value changed — 164 baselines and 406 axe runs unmoved.
+
+  Four tokens stay unread and are now named as an exact list rather than resolved either
+  way, because both resolutions are worse than the record:
+  `--motion-duration-base`, `--motion-duration-slow`, `--motion-easing-entrance` and
+  `--motion-easing-exit` map onto no literal in the sheet. Deleting them is a contract
+  change, since the manifest publishes them; giving them readers means shipping overlay
+  entrance and exit animations, which is a behaviour change wearing a token wiring's
+  clothes. The spinner's `0.8s` stays a literal: a rotation period is not an interaction
+  step, and the scale tops out at 400ms.
+
+- **The scrollbar gutter is reserved, so a page no longer shifts sideways when content
+  crosses the fold (ADR 0097).** `scrollbar-gutter: stable` joins the reset layer's
+  existing `html` rules, next to the themed scrollbars. Navigating from a screen that fits
+  to one that scrolls used to change the width of the content box by the scrollbar's width,
+  moving the header, the table and the centred sign-in card with it.
+
+  **This one moves pixels, and it moves them everywhere:** it narrows every scroll-free page
+  by the gutter. Measured in the workbench at exactly 10px on 162 of 164 baselines, with
+  **zero** height changes across 31 distinct size pairs — a uniform shave, nothing reflowed —
+  and the re-record was verified as that transformation rather than accepted as a diff. The
+  only baselines that changed without resizing are the eleven overlay specimens, which are
+  viewport shots at a fixed 1280x900, so a narrower page moves their content instead. It is
+  layered, so an app that would rather have the jump turns it off from its own unlayered
+  `theme.css`.
+
+  One honest limit came out of measuring it: **the harness's Chromium reserves no layout
+  space for the viewport scrollbar at all.** With the declaration removed, a solo specimen
+  page and the many-screens-tall catalog both report a root box of 1280 in a 1280 viewport.
+  So there is no jump in that browser to prevent, an assertion that the two page shapes
+  agree would pass identically before and after, and the lane can witness the reservation
+  but not the benefit. The benefit is real on the browsers that take scrollbar space, which
+  is most desktop Chrome and Firefox on Windows and Linux — the users, just not the lane.
 
 ### Fixed
 
