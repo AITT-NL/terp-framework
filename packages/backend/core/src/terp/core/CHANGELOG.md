@@ -10,7 +10,262 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
 decision, 0001 onwards.
 
-## 0.9.0
+## 0.10.0
+
+### Added
+
+- **A fourth workbench lane, for values the other three cannot see:
+  `visual/computed.spec.ts` (ADR 0097).** The screenshot lane runs with
+  `animations: "disabled"` — deliberately, so the spinner keyframes do not make every run
+  differ — and the cost of that was never written down: **every duration and easing in the
+  sheet is invisible to it.** A transition at 150ms, at 400ms, or gone entirely produces
+  byte-identical baselines, and axe reads a static tree, so neither lane says anything about
+  a computed value.
+
+  That gap has a sharp edge, which is what made the lane necessary rather than nice. A
+  `var()` inside a shorthand that fails to substitute makes the whole declaration invalid at
+  computed-value time and falls back to the property's initial value — `transition: all 0s
+  ease 0s`. Every element still paints identically at rest, every baseline still passes, axe
+  still finds nothing, and every transition in the package is silently dead. A structural
+  test proves the sheet *names* a token; only reading the resolved value separates the two.
+
+  Three tests, and it also gates two claims the sheet had only made in a comment: that
+  reduced motion reaches a marked element, a nav link **and** a breadcrumb link — the last
+  two bare `<a>`s the block reaches only through selectors of their own, one of which it had
+  silently failed to reach before — and that the scrollbar gutter is really reserved. Scoped
+  like the keyboard lane: cases where the resolved value IS the contract, and nothing else.
+  It runs as its own CI step, never in one pool with the others.
+
+- **A specimen can declare a viewport of its own, which retires two text-only gates on the
+  shell (ADR 0097).** The workbench pins 1280x900 so a baseline cannot depend on a window
+  size. The cost, which `styles.test.ts` had been stating in as many words: anything that only
+  applies at a width the pin is not was out of reach of both lanes, so the shell's mobile
+  geometry and the sidebar's `flex-shrink` were asserted as text because "no baseline can hold
+  it" was true.
+
+  Two specimens hold them now, and both were confirmed to paint their subject rather than
+  assumed to. `app-shell-mobile` (420x900) is the first picture of the mobile variant anywhere;
+  moving `appshell-main`'s tightened padding one step to the desktop value repaints 1,309 pixels
+  there and nothing else. `app-shell-narrow` (820x900) is the band just above the breakpoint
+  where `flex-shrink: 0` is the only thing holding the rail at 15rem; removing it repaints
+  124,797 pixels there and leaves the other three shell specimens untouched.
+
+  The second carries the lesson: a narrower window was **not enough**. A flex row under no
+  pressure never asks an item whether it may shrink, so the specimen renders a wide `DataView`
+  rather than a paragraph — with the paragraph it would have been a green baseline over an
+  unexercised declaration. Adding both left all 164 existing baselines byte-identical on both
+  platforms, so the per-specimen promise survives a per-specimen viewport.
+
+  Still text-only, and a viewport cannot fix it: the drawer's own geometry and its backdrop
+  render only while `drawerOpen` is true, which is internal state with no way in — the wall
+  `defaultCollapsed` was added to get past for the icon rail, where four rules had shipped
+  unpainted behind it.
+
+- **`Button` gains `size`, `loading` and `fullWidth`, and the framework's own sign-in screen
+  stops working around their absence (ADR 0097).** It had `variant` and `icon` and nothing
+  else, and the gaps were paid for in ways that show what a missing prop costs. Full width was
+  reachable only as `style={{ width: "100%" }}`, which app modules may not write (ADR 0059) —
+  a shape the framework could produce and its consumers could not ask for, and one `LoginView`
+  had to reach through a rule on its button *group* instead. A busy submit was hand-rolled out
+  of `disabled` plus a swapped label, with no spinner and no `aria-busy`.
+
+  All three are attributes with a rule each, so all three are themeable and none adds an
+  inline style — the ledger stays at nine sites. Two decisions inside that are worth knowing.
+  `data-size` is stamped only for `sm` and `lg`, because the standard control's geometry IS
+  the base rule, exactly as "comfortable" is the token sheet's `:root` value and the attribute
+  for it matches no rule. And the two sizes are a `calc()` off `--density-control-min-height`
+  rather than heights of their own, which is what makes size and density compose without
+  either knowing about the other: measured, a small button in a compact subtree comes out 4px
+  shorter, the token's own step.
+
+  `loading` sets `disabled` too, so a second click cannot start the same request twice, and it
+  wins over an explicit `disabled={false}`. Its cursor is the one non-obvious part: a loading
+  button is also `:disabled`, and that rule lives in `terp.state`, so a `data-loading` rule in
+  `terp.base` loses on layer order and the cursor silently stays `not-allowed` — telling a user
+  "you may not" where the truth is "not yet". Verified in a browser, because no lane had ever
+  held a cursor at all: Playwright paints no pointer into a screenshot.
+
+  `LoginView` now passes the props on all four of its buttons and the group rule retires.
+  Zero-diff, and checked rather than assumed: all 168 existing baselines byte-identical on
+  both platforms.
+
+- **The layout vocabulary: `Grid`, responsive `Stack` props, `padding`, `Divider`, a plain
+  `Card`, the prose primitives, and `DetailList` as a real grid (ADR 0097).** The last of the
+  diagnosis's three structural blockers, and the only one that was a *capability* ceiling rather
+  than a quality one. App modules may not write `style` or `className`, so anything not
+  expressible as nested `Stack`s was not awkward to build — it was **unbuildable**. A
+  fifteen-field form shipped as one long vertical run because two columns could not be
+  expressed, in an app whose escape-hatch budgets were both `{}` across three thousand lines.
+  The guard rails held perfectly; the ceiling was the framework's.
+
+  **`Grid`** takes a fixed 1–4 columns or `"auto"` (the default), and `auto` is the responsive
+  answer with no breakpoint at all: a track floor reflows the grid to whatever its *container*
+  can hold, which is what a caller usually means and more nearly right than a viewport query.
+  `minColumn` is a four-step scale rather than a length, for the reason `gap` is a token index —
+  so there are no arbitrary widths. No `span`, and therefore no twelve-column option: a span
+  system needs a child component to carry it, and `columns={12}` without one is twelve narrow
+  cells rather than a layout system.
+
+  **`Stack`** gains `padding` — the dimension whose absence meant a padded region was reachable
+  only through a `Card`, which brought a border and background whether or not they were wanted —
+  and `{ narrow, wide }` pairs for `direction` and `gap`. **One cutover, not a scale:** the pair
+  changes over exactly where the shell becomes a drawer and the DataView becomes cards, so a
+  toolbar reflows when the chrome around it does.
+
+  **The prose primitives** — `Heading`, `Text`, `Code`, `Link` — close a narrower and worse gap
+  than "no typography". A module could always render a `<p>`; what it could not do was give it
+  any treatment, because a bare element carries no marker for a rule to reach. Bare prose in a
+  module is text the app can never theme, and the framework's own generated home page shipped
+  exactly that. `Heading` separates `level` from `size`, so a visually small `h2` needs no wrong
+  element, and offers no level 1 at all: `Page` renders the single `h1` of every routed view.
+
+  **`Divider`** is an `<hr>`, so the separation reaches the accessibility tree rather than only
+  the pixels — and it is `Separator` under its other name, shipped once. **`Card
+  variant="plain"`** keeps the heading and drops the box, for a titled region inside something
+  that is already a surface; boxed, a section whose body is a `DataView` gets a border inside a
+  border and the table loses its full width.
+
+  **`DetailList`** becomes a real grid: `layout="aligned"` puts every label in a shared column,
+  `"stacked"` puts it above its value, and `columns` takes two pairs per row. `inline` stays the
+  default, because every governed detail screen already renders one.
+
+  **Two components were deliberately not shipped, and that is the more useful half.** `Section`
+  and `Surface` were both on the list and both turn out to be `Card` with declarations removed —
+  `Card` already renders a `<section>` with an `<h3>`, a description, an actions slot and
+  children stacked on the token scale. A `Section` would have meant six more markers describing
+  the same DOM; a `Surface` is a `Card` with no title, which `Card` already is. What the list
+  was pointing at was the chrome, not a component, so it is a variant: three declarations, no
+  new markers, and usable in governed bodies immediately because the contract already admits
+  `Card`.
+
+  Every new prop is a closed set and becomes a `data-*` attribute with a rule each, so the
+  inline-style ledger stays at **nine sites** and every one of these is themeable from an app's
+  `theme.css`. Nothing an existing app renders changes: every default stamps no attribute, and
+  all 190 baselines were byte-identical on both platforms through the whole phase.
+
+- **The layout contract widens, on both halves, and the asymmetry is the decision (ADR 0079,
+  ADR 0097).** Shipping `Grid` without this would have shipped a component no governed page
+  could use — and only a copier-generated project has the contract switched on, so the example
+  app could not have detected it. `Grid` is admitted to **detail** bodies and not overview ones:
+  an overview body is a data collection, and a grid of summary cards is a hub, which has its own
+  archetype. `Divider` and `Text` join both. `Heading` joins neither, deliberately — a heading
+  in a governed body must **own** its section, and `Card` is how a section is owned; a bare
+  heading with siblings after it is a grouping the check cannot see. Both halves of the table
+  stay byte-equal, and the asymmetry is pinned by tests rather than left to the data.
+
+### Changed
+
+- **Every transition in the framework stylesheet is timed off the published motion scale,
+  so moving a motion token now moves something (ADR 0097).** The seven motion tokens
+  shipped in 0.7.0 and nothing read them: the sheet wrote `150ms ease` 28 times and
+  `100ms ease` once across sixteen declarations while reading a motion token zero times. An
+  app could set `--motion-duration-fast` from its `theme.css` and watch nothing happen, and
+  a Studio editor built from the token manifest would have offered four duration controls
+  that moved nothing.
+
+  Inert by construction, and the values were checked rather than assumed:
+  `--motion-duration-fast` **is** `150ms`, `--motion-duration-instant` **is** `100ms` and
+  `--motion-easing-standard` **is** `ease`, so all 29 literals mapped onto a token pair and
+  no computed value changed — 164 baselines and 406 axe runs unmoved.
+
+  Four tokens stay unread and are now named as an exact list rather than resolved either
+  way, because both resolutions are worse than the record:
+  `--motion-duration-base`, `--motion-duration-slow`, `--motion-easing-entrance` and
+  `--motion-easing-exit` map onto no literal in the sheet. Deleting them is a contract
+  change, since the manifest publishes them; giving them readers means shipping overlay
+  entrance and exit animations, which is a behaviour change wearing a token wiring's
+  clothes. The spinner's `0.8s` stays a literal: a rotation period is not an interaction
+  step, and the scale tops out at 400ms.
+
+- **The scrollbar gutter is reserved, so a page no longer shifts sideways when content
+  crosses the fold (ADR 0097).** `scrollbar-gutter: stable` joins the reset layer's
+  existing `html` rules, next to the themed scrollbars. Navigating from a screen that fits
+  to one that scrolls used to change the width of the content box by the scrollbar's width,
+  moving the header, the table and the centred sign-in card with it.
+
+  **This one moves pixels, and it moves them everywhere:** it narrows every scroll-free page
+  by the gutter. Measured in the workbench at exactly 10px on 162 of 164 baselines, with
+  **zero** height changes across 31 distinct size pairs — a uniform shave, nothing reflowed —
+  and the re-record was verified as that transformation rather than accepted as a diff. The
+  only baselines that changed without resizing are the eleven overlay specimens, which are
+  viewport shots at a fixed 1280x900, so a narrower page moves their content instead. It is
+  layered, so an app that would rather have the jump turns it off from its own unlayered
+  `theme.css`.
+
+  One honest limit came out of measuring it: **the harness's Chromium reserves no layout
+  space for the viewport scrollbar at all.** With the declaration removed, a solo specimen
+  page and the many-screens-tall catalog both report a root box of 1280 in a 1280 viewport.
+  So there is no jump in that browser to prevent, an assertion that the two page shapes
+  agree would pass identically before and after, and the lane can witness the reservation
+  but not the benefit. The benefit is real on the browsers that take scrollbar space, which
+  is most desktop Chrome and Firefox on Windows and Linux — the users, just not the lane.
+
+- **The published type scale gets its first readers, and the reconciliation it does *not* do is
+  now a number.** `--font-line-height-*` and `--font-letter-spacing-*` shipped in 0.7.0 read by
+  nothing — the motion-token shape again, resolved differently because the facts differ. Every
+  motion literal mapped exactly onto a token, so wiring those was inert. Here the sheet writes
+  line heights of 1.2, 1.25, 1.3, 1.4 and 1.5 while the scale offers 1.2, 1.35, 1.5 and 1.7:
+  **only 8 of 32 literals map.** Converting those eight and leaving thirteen is a
+  half-migration; converting the rest changes rendered line heights across a dozen components,
+  which is a typography pass with its own baselines rather than something done in passing.
+
+  New components have nothing depending on their metrics, so the prose primitives take the scale
+  as published and six of the seven tokens now have consumers. What remains is tracked rather
+  than hoped for: the unread-token gate generalises from motion to any tracked family, and gains
+  a ledger of the bare `line-height` / `letter-spacing` literals as an exact multiset — so a new
+  rule adding a 27th bare line height has to use a token or come and say why.
+
+- **The one viewport cutover is spelled in one place.** It was written twice, verbatim, as
+  `const MOBILE_BREAKPOINT = "(max-width: 768px)"` in both `AppShell` and `DataView` — the
+  duplication the diagnosis named — and the responsive `Stack` rules would have made a third
+  copy, in the stylesheet, where the first two could not see it. It now lives in one module,
+  which both components and the sheet take it from, held against the published
+  `--breakpoint-md` by a gate that also refuses a fourth copy.
+
+  The literal cannot become a `var()` and that is worth stating: CSS forbids a custom property
+  in a media-query condition and `matchMedia` takes a string, so reading the token would mean a
+  layout read on every mount, broken under SSR. And the sheet's query is
+  `not all and (max-width: 768px)` — the *complement* of the components' string rather than a
+  second literal — so the two halves partition the viewport by construction instead of by a
+  chosen epsilon, and the shell's existing behaviour at exactly 768px is untouched.
+
+### Fixed
+
+- **A `Link`'s caller attributes reached a wrapper instead of the anchor, and two layout
+  primitives had no list reset.** Both are the same shape — something that worked in one branch
+  and silently did nothing in the other.
+
+  `Link` placed the caller's attributes on its wrapper for an in-app path and on the anchor for
+  an external one, so the same `aria-label` either named the link or vanished, decided by
+  whether the destination started with a slash. On a `<span>` around a link an `aria-label` is
+  ignored: the link keeps its content as its accessible name and the caller's intent disappears
+  with no error. The cause was a real constraint — `NavLinkRenderer` took `{ to, children }` and
+  nothing else — so the seam gains one optional key for attributes bound for the anchor. An
+  implementation that destructures only the first two stays source-compatible. The *marker*
+  deliberately does not travel that way: a renderer that ignores the key would leave an unstyled
+  link with no error, and a component's styling hook cannot depend on a caller honouring a seam.
+
+  `Stack` and `Grid` both document `as="ul"` and neither reset the UA list styling, so the
+  documented use rendered bulleted and indented. `hubpage-grid` and `resource-list-items` already
+  carry that reset because both are *always* lists; these two are lists only when asked, and no
+  specimen rendered either as one — so nothing could notice. Fixing it moved none of the 214
+  existing baselines.
+
+  And a `Link` to a bare relative path is refused rather than silently reloading the page:
+  `to="records"` fell through to the external branch and rendered a relative anchor, skipping the
+  router's guard. Every route a manifest declares is absolute.
+
+- **A long unbreakable value no longer pushes a `DetailList` past its container.** The diagnosis
+  named the missing alignment and cited "nine pairs including two 64-character digests"; the
+  digests were the actual defect and it took two goes. An implicit grid column is `auto`, which
+  floors at *min-content*, so the track needed `minmax(0, 1fr)` — the same declaration `Grid`'s
+  fixed counts need for the same reason. That was not enough, and the specimen said so rather
+  than a review: a 64-character digest has nothing to break at, so it overflowed the column
+  whatever the column's floor. `overflow-wrap: anywhere` on the value is the fix — the same
+  answer `profile-email` already uses for a long address, where the sheet notes it as
+  unobservable because that screen's session is a fixed short one.
+
+## 0.9.0 — 2026-08-21
 
 ### Added
 
@@ -216,7 +471,7 @@ decision, 0001 onwards.
   have moved into the sheet with no baseline able to see it. Confirmed by mutation — it
   fails those four baselines and nothing else.
 
-  The scripts are `visual:screens`, `visual:a11y`, `visual:keyboard` and `visual:computed`, and they close a
+  The scripts are `visual:screens`, `visual:a11y` and `visual:keyboard`, and they close a
   contradiction the workbench README carried: it warned that a red `color-contrast`
   result is only evidence when the lane had the machine to itself, and then offered
   `npm run visual`, which starts all three lanes in one worker pool. That is the
@@ -226,144 +481,26 @@ decision, 0001 onwards.
   three separate steps. A scheduling rule with no command behind it is obeyable only by
   remembering it.
 
-- **A fourth workbench lane, for values the other three cannot see:
-  `visual/computed.spec.ts` (ADR 0097).** The screenshot lane runs with
-  `animations: "disabled"` — deliberately, so the spinner keyframes do not make every run
-  differ — and the cost of that was never written down: **every duration and easing in the
-  sheet is invisible to it.** A transition at 150ms, at 400ms, or gone entirely produces
-  byte-identical baselines, and axe reads a static tree, so neither lane says anything about
-  a computed value.
+- **The Standard moves to 0.25.0, and the lease rule it adds is enforced from this
+  release.** `backend/no_manual_lease_columns` refuses an application table that
+  declares its own lease bookkeeping — a holder column paired with an expiry, a
+  heartbeat stamp, or an equivalent claim deadline. **An existing app with a
+  queue-shaped table can newly fail its own gate**, which is the point: the pattern is
+  refused because the hand-rolled form reliably omits the half that makes a lease safe,
+  and until this release there was nothing to use instead.
 
-  That gap has a sharp edge, which is what made the lane necessary rather than nice. A
-  `var()` inside a shorthand that fails to substitute makes the whole declaration invalid at
-  computed-value time and falls back to the property's initial value — `transition: all 0s
-  ease 0s`. Every element still paints identically at rest, every baseline still passes, axe
-  still finds nothing, and every transition in the package is silently dead. A structural
-  test proves the sheet *names* a token; only reading the resolved value separates the two.
+  The check itself was already here. `terp.arch`'s `check_no_manual_lease_columns`
+  shipped with the lease seam, and the Standard had no entry for it — so the framework
+  implemented a rule its own pinned spec did not catalogue, and the gate said so:
+  *rules shipped without a spec/catalog/backend entry*. That is a lockstep failure
+  rather than a design question, and the fix is the release that was already staged.
 
-  Three tests, and it also gates two claims the sheet had only made in a comment: that
-  reduced motion reaches a marked element, a nav link **and** a breadcrumb link — the last
-  two bare `<a>`s the block reaches only through selectors of their own, one of which it had
-  silently failed to reach before — and that the scrollbar gutter is really reserved. Scoped
-  like the keyboard lane: cases where the resolved value IS the contract, and nothing else.
-  It runs as its own CI step, never in one pool with the others.
-
-- **A specimen can declare a viewport of its own, which retires two text-only gates on the
-  shell (ADR 0097).** The workbench pins 1280x900 so a baseline cannot depend on a window
-  size. The cost, which `styles.test.ts` had been stating in as many words: anything that only
-  applies at a width the pin is not was out of reach of both lanes, so the shell's mobile
-  geometry and the sidebar's `flex-shrink` were asserted as text because "no baseline can hold
-  it" was true.
-
-  Two specimens hold them now, and both were confirmed to paint their subject rather than
-  assumed to. `app-shell-mobile` (420x900) is the first picture of the mobile variant anywhere;
-  moving `appshell-main`'s tightened padding one step to the desktop value repaints 1,309 pixels
-  there and nothing else. `app-shell-narrow` (820x900) is the band just above the breakpoint
-  where `flex-shrink: 0` is the only thing holding the rail at 15rem; removing it repaints
-  124,797 pixels there and leaves the other three shell specimens untouched.
-
-  The second carries the lesson: a narrower window was **not enough**. A flex row under no
-  pressure never asks an item whether it may shrink, so the specimen renders a wide `DataView`
-  rather than a paragraph — with the paragraph it would have been a green baseline over an
-  unexercised declaration. Adding both left all 164 existing baselines byte-identical on both
-  platforms, so the per-specimen promise survives a per-specimen viewport.
-
-  Still text-only, and a viewport cannot fix it: the drawer's own geometry and its backdrop
-  render only while `drawerOpen` is true, which is internal state with no way in — the wall
-  `defaultCollapsed` was added to get past for the icon rail, where four rules had shipped
-  unpainted behind it.
-
-- **`Button` gains `size`, `loading` and `fullWidth`, and the framework's own sign-in screen
-  stops working around their absence (ADR 0097).** It had `variant` and `icon` and nothing
-  else, and the gaps were paid for in ways that show what a missing prop costs. Full width was
-  reachable only as `style={{ width: "100%" }}`, which app modules may not write (ADR 0059) —
-  a shape the framework could produce and its consumers could not ask for, and one `LoginView`
-  had to reach through a rule on its button *group* instead. A busy submit was hand-rolled out
-  of `disabled` plus a swapped label, with no spinner and no `aria-busy`.
-
-  All three are attributes with a rule each, so all three are themeable and none adds an
-  inline style — the ledger stays at nine sites. Two decisions inside that are worth knowing.
-  `data-size` is stamped only for `sm` and `lg`, because the standard control's geometry IS
-  the base rule, exactly as "comfortable" is the token sheet's `:root` value and the attribute
-  for it matches no rule. And the two sizes are a `calc()` off `--density-control-min-height`
-  rather than heights of their own, which is what makes size and density compose without
-  either knowing about the other: measured, a small button in a compact subtree comes out 4px
-  shorter, the token's own step.
-
-  `loading` sets `disabled` too, so a second click cannot start the same request twice, and it
-  wins over an explicit `disabled={false}`. Its cursor is the one non-obvious part: a loading
-  button is also `:disabled`, and that rule lives in `terp.state`, so a `data-loading` rule in
-  `terp.base` loses on layer order and the cursor silently stays `not-allowed` — telling a user
-  "you may not" where the truth is "not yet". Verified in a browser, because no lane had ever
-  held a cursor at all: Playwright paints no pointer into a screenshot.
-
-  `LoginView` now passes the props on all four of its buttons and the group rule retires.
-  Zero-diff, and checked rather than assumed: all 168 existing baselines byte-identical on
-  both platforms.
-
-- **The layout vocabulary: `Grid`, responsive `Stack` props, `padding`, `Divider`, a plain
-  `Card`, the prose primitives, and `DetailList` as a real grid (ADR 0097).** The last of the
-  diagnosis's three structural blockers, and the only one that was a *capability* ceiling rather
-  than a quality one. App modules may not write `style` or `className`, so anything not
-  expressible as nested `Stack`s was not awkward to build — it was **unbuildable**. A
-  fifteen-field form shipped as one long vertical run because two columns could not be
-  expressed, in an app whose escape-hatch budgets were both `{}` across three thousand lines.
-  The guard rails held perfectly; the ceiling was the framework's.
-
-  **`Grid`** takes a fixed 1–4 columns or `"auto"` (the default), and `auto` is the responsive
-  answer with no breakpoint at all: a track floor reflows the grid to whatever its *container*
-  can hold, which is what a caller usually means and more nearly right than a viewport query.
-  `minColumn` is a four-step scale rather than a length, for the reason `gap` is a token index —
-  so there are no arbitrary widths. No `span`, and therefore no twelve-column option: a span
-  system needs a child component to carry it, and `columns={12}` without one is twelve narrow
-  cells rather than a layout system.
-
-  **`Stack`** gains `padding` — the dimension whose absence meant a padded region was reachable
-  only through a `Card`, which brought a border and background whether or not they were wanted —
-  and `{ narrow, wide }` pairs for `direction` and `gap`. **One cutover, not a scale:** the pair
-  changes over exactly where the shell becomes a drawer and the DataView becomes cards, so a
-  toolbar reflows when the chrome around it does.
-
-  **The prose primitives** — `Heading`, `Text`, `Code`, `Link` — close a narrower and worse gap
-  than "no typography". A module could always render a `<p>`; what it could not do was give it
-  any treatment, because a bare element carries no marker for a rule to reach. Bare prose in a
-  module is text the app can never theme, and the framework's own generated home page shipped
-  exactly that. `Heading` separates `level` from `size`, so a visually small `h2` needs no wrong
-  element, and offers no level 1 at all: `Page` renders the single `h1` of every routed view.
-
-  **`Divider`** is an `<hr>`, so the separation reaches the accessibility tree rather than only
-  the pixels — and it is `Separator` under its other name, shipped once. **`Card
-  variant="plain"`** keeps the heading and drops the box, for a titled region inside something
-  that is already a surface; boxed, a section whose body is a `DataView` gets a border inside a
-  border and the table loses its full width.
-
-  **`DetailList`** becomes a real grid: `layout="aligned"` puts every label in a shared column,
-  `"stacked"` puts it above its value, and `columns` takes two pairs per row. `inline` stays the
-  default, because every governed detail screen already renders one.
-
-  **Two components were deliberately not shipped, and that is the more useful half.** `Section`
-  and `Surface` were both on the list and both turn out to be `Card` with declarations removed —
-  `Card` already renders a `<section>` with an `<h3>`, a description, an actions slot and
-  children stacked on the token scale. A `Section` would have meant six more markers describing
-  the same DOM; a `Surface` is a `Card` with no title, which `Card` already is. What the list
-  was pointing at was the chrome, not a component, so it is a variant: three declarations, no
-  new markers, and usable in governed bodies immediately because the contract already admits
-  `Card`.
-
-  Every new prop is a closed set and becomes a `data-*` attribute with a rule each, so the
-  inline-style ledger stays at **nine sites** and every one of these is themeable from an app's
-  `theme.css`. Nothing an existing app renders changes: every default stamps no attribute, and
-  all 190 baselines were byte-identical on both platforms through the whole phase.
-
-- **The layout contract widens, on both halves, and the asymmetry is the decision (ADR 0079,
-  ADR 0097).** Shipping `Grid` without this would have shipped a component no governed page
-  could use — and only a copier-generated project has the contract switched on, so the example
-  app could not have detected it. `Grid` is admitted to **detail** bodies and not overview ones:
-  an overview body is a data collection, and a grid of summary cards is a hub, which has its own
-  archetype. `Divider` and `Text` join both. `Heading` joins neither, deliberately — a heading
-  in a governed body must **own** its section, and `Card` is how a section is owned; a bare
-  heading with siblings after it is a grouping the check cannot see. Both halves of the table
-  stay byte-equal, and the asymmetry is pinned by tests rather than left to the data.
+  Both pins move together, as ADR 0082 requires: `terp-spec==0.25.0` and
+  `@terpjs/spec` 0.25.0, with `terp.arch.SPEC_VERSION` and the ESLint adapter's
+  `SPEC_VERSION` alongside them — four constants a test holds to one value. The
+  Standard is now 82 rules, 69 backend and 13 frontend; the escape hatch is
+  `# arch-allow-no-manual-lease-columns: <reason>` and the recipe is
+  `terp guide leases`.
 
 ### Changed
 
@@ -454,91 +591,7 @@ decision, 0001 onwards.
   named replacement does not fit every case can say so; every element without an entry
   keeps its plain one-line refusal.
 
-- **Every transition in the framework stylesheet is timed off the published motion scale,
-  so moving a motion token now moves something (ADR 0097).** The seven motion tokens
-  shipped in 0.7.0 and nothing read them: the sheet wrote `150ms ease` 28 times and
-  `100ms ease` once across sixteen declarations while reading a motion token zero times. An
-  app could set `--motion-duration-fast` from its `theme.css` and watch nothing happen, and
-  a Studio editor built from the token manifest would have offered four duration controls
-  that moved nothing.
-
-  Inert by construction, and the values were checked rather than assumed:
-  `--motion-duration-fast` **is** `150ms`, `--motion-duration-instant` **is** `100ms` and
-  `--motion-easing-standard` **is** `ease`, so all 29 literals mapped onto a token pair and
-  no computed value changed — 164 baselines and 406 axe runs unmoved.
-
-  Four tokens stay unread and are now named as an exact list rather than resolved either
-  way, because both resolutions are worse than the record:
-  `--motion-duration-base`, `--motion-duration-slow`, `--motion-easing-entrance` and
-  `--motion-easing-exit` map onto no literal in the sheet. Deleting them is a contract
-  change, since the manifest publishes them; giving them readers means shipping overlay
-  entrance and exit animations, which is a behaviour change wearing a token wiring's
-  clothes. The spinner's `0.8s` stays a literal: a rotation period is not an interaction
-  step, and the scale tops out at 400ms.
-
-- **The scrollbar gutter is reserved, so a page no longer shifts sideways when content
-  crosses the fold (ADR 0097).** `scrollbar-gutter: stable` joins the reset layer's
-  existing `html` rules, next to the themed scrollbars. Navigating from a screen that fits
-  to one that scrolls used to change the width of the content box by the scrollbar's width,
-  moving the header, the table and the centred sign-in card with it.
-
-  **This one moves pixels, and it moves them everywhere:** it narrows every scroll-free page
-  by the gutter. Measured in the workbench at exactly 10px on 162 of 164 baselines, with
-  **zero** height changes across 31 distinct size pairs — a uniform shave, nothing reflowed —
-  and the re-record was verified as that transformation rather than accepted as a diff. The
-  only baselines that changed without resizing are the eleven overlay specimens, which are
-  viewport shots at a fixed 1280x900, so a narrower page moves their content instead. It is
-  layered, so an app that would rather have the jump turns it off from its own unlayered
-  `theme.css`.
-
-  One honest limit came out of measuring it: **the harness's Chromium reserves no layout
-  space for the viewport scrollbar at all.** With the declaration removed, a solo specimen
-  page and the many-screens-tall catalog both report a root box of 1280 in a 1280 viewport.
-  So there is no jump in that browser to prevent, an assertion that the two page shapes
-  agree would pass identically before and after, and the lane can witness the reservation
-  but not the benefit. The benefit is real on the browsers that take scrollbar space, which
-  is most desktop Chrome and Firefox on Windows and Linux — the users, just not the lane.
-
-- **The published type scale gets its first readers, and the reconciliation it does *not* do is
-  now a number.** `--font-line-height-*` and `--font-letter-spacing-*` shipped in 0.7.0 read by
-  nothing — the motion-token shape again, resolved differently because the facts differ. Every
-  motion literal mapped exactly onto a token, so wiring those was inert. Here the sheet writes
-  line heights of 1.2, 1.25, 1.3, 1.4 and 1.5 while the scale offers 1.2, 1.35, 1.5 and 1.7:
-  **only 8 of 32 literals map.** Converting those eight and leaving thirteen is a
-  half-migration; converting the rest changes rendered line heights across a dozen components,
-  which is a typography pass with its own baselines rather than something done in passing.
-
-  New components have nothing depending on their metrics, so the prose primitives take the scale
-  as published and six of the seven tokens now have consumers. What remains is tracked rather
-  than hoped for: the unread-token gate generalises from motion to any tracked family, and gains
-  a ledger of the bare `line-height` / `letter-spacing` literals as an exact multiset — so a new
-  rule adding a 27th bare line height has to use a token or come and say why.
-
-- **The one viewport cutover is spelled in one place.** It was written twice, verbatim, as
-  `const MOBILE_BREAKPOINT = "(max-width: 768px)"` in both `AppShell` and `DataView` — the
-  duplication the diagnosis named — and the responsive `Stack` rules would have made a third
-  copy, in the stylesheet, where the first two could not see it. It now lives in one module,
-  which both components and the sheet take it from, held against the published
-  `--breakpoint-md` by a gate that also refuses a fourth copy.
-
-  The literal cannot become a `var()` and that is worth stating: CSS forbids a custom property
-  in a media-query condition and `matchMedia` takes a string, so reading the token would mean a
-  layout read on every mount, broken under SSR. And the sheet's query is
-  `not all and (max-width: 768px)` — the *complement* of the components' string rather than a
-  second literal — so the two halves partition the viewport by construction instead of by a
-  chosen epsilon, and the shell's existing behaviour at exactly 768px is untouched.
-
 ### Fixed
-
-- **A long unbreakable value no longer pushes a `DetailList` past its container.** The diagnosis
-  named the missing alignment and cited "nine pairs including two 64-character digests"; the
-  digests were the actual defect and it took two goes. An implicit grid column is `auto`, which
-  floors at *min-content*, so the track needed `minmax(0, 1fr)` — the same declaration `Grid`'s
-  fixed counts need for the same reason. That was not enough, and the specimen said so rather
-  than a review: a 64-character digest has nothing to break at, so it overflowed the column
-  whatever the column's floor. `overflow-wrap: anywhere` on the value is the fix — the same
-  answer `profile-email` already uses for a long address, where the sheet notes it as
-  unobservable because that screen's session is a fixed short one.
 
 - **`terp-cap-sync` no longer strands a `running` run, and no longer lets two
   reconciles of one source overlap.** The deferred follow-up its own docstring
