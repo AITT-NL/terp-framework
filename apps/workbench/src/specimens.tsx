@@ -20,6 +20,7 @@ import {
   DateRangePicker,
   DetailList,
   DetailPage,
+  FormPage,
   Divider,
   EmptyState,
   ErrorState,
@@ -51,6 +52,9 @@ import {
   RadioGroup,
   ResourceList,
   Select,
+  SettingsPage,
+  SplitPage,
+  SplitPane,
   Stack,
   Switch,
   Text,
@@ -2159,6 +2163,191 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} />
             </Card>
           </DetailPage>
+        ),
+      },
+      {
+        // The form archetype, and the two things only it shows.
+        //
+        // `measure="narrow"` is its default, so the whole frame — header included — caps at
+        // 32rem against a ~1232px specimen card. That asymmetry with the shell's content
+        // measure is the design rather than an inconsistency: a wide page with a narrow column
+        // wants its title spanning the track, a form does not, and a Save button a screen-width
+        // from its last field is worse than one sitting over it. This is the only picture of a
+        // capped HEADER anywhere.
+        //
+        // And the body is a `Stack as="form"` rather than a run of `Field`s, which is the
+        // contract's one real refusal here: bare fields cannot be submitted, because Enter does
+        // nothing without a form element. The specimen renders the legal shape so the picture
+        // and the slot table agree.
+        id: "form-page",
+        title: "FormPage — a capped frame around one form",
+        node: (
+          <FormPage
+            title="New sync definition"
+            parents={[{ label: "Sync definitions", to: "/records/syncs" }]}
+            actions={
+              <PageActions
+                secondary={<Button variant="secondary">Cancel</Button>}
+                primary={<Button variant="primary">Create</Button>}
+              />
+            }
+          >
+            <Stack as="form" gap={4}>
+              <Field label="Name">
+                <Input defaultValue="Customer master" />
+              </Field>
+              <Field label="Source system" hint="Where records are read from.">
+                <Select
+                  options={[
+                    { value: "sap", label: "SAP production" },
+                    { value: "ledger", label: "Ledger" },
+                  ]}
+                  defaultValue="sap"
+                />
+              </Field>
+              <Field label="Retention" error="Must be between 1 and 3650 days.">
+                <Input type="number" defaultValue="90" />
+              </Field>
+            </Stack>
+          </FormPage>
+        ),
+      },
+      {
+        // The settings archetype: `Card` sections and nothing that holds a collection.
+        //
+        // Two sections rather than one, because the gap between them is the only thing the
+        // page grid contributes here and one card cannot show it. And no `parents`, which is
+        // the difference from `FormPage` in the trail: a preferences screen is a destination,
+        // not something reached from the thing it writes into, so this is the narrow frame
+        // WITHOUT a breadcrumb above it — the other half of the pair.
+        id: "settings-page",
+        title: "SettingsPage — capped frame, Card sections, no trail",
+        node: (
+          <SettingsPage title="Preferences">
+            <Card title="Appearance" description="How the app looks on this device.">
+              <Stack gap={3}>
+                <Field label="Theme">
+                  <Select
+                    options={[
+                      { value: "system", label: "Follow the system" },
+                      { value: "dark", label: "Dark" },
+                    ]}
+                    defaultValue="system"
+                  />
+                </Field>
+                <Switch label="Compact rows" defaultChecked />
+              </Stack>
+            </Card>
+            <Card title="Notifications" description="What gets sent, and where.">
+              <Stack gap={3}>
+                <Switch label="Email on failure" defaultChecked />
+                <Switch label="Daily digest" />
+              </Stack>
+            </Card>
+          </SettingsPage>
+        ),
+      },
+      {
+        // The split archetype at its wide layout. The panes are only two columns above the
+        // 768px cutover — below it they stack, list first — so this is the picture of the
+        // two-column half and `split-page-narrow` below is the other.
+        //
+        // The list pane holds something with a real minimum width, for the reason
+        // `app-shell-narrow` needed a DataView rather than a paragraph: the `minmax(0, 24rem)`
+        // track and the pane's own `min-width: 0` only do anything under content pressure. A
+        // paragraph would shrink quietly and prove neither.
+        //
+        // Both panes also carry something FOCUSABLE — a per-row action in the list, an action on
+        // the record in the detail — and that is not decoration. `visual/keyboard.spec.ts`
+        // asserts the tab order runs list-then-detail at both layouts, and the first version of
+        // this specimen had plain spans in the list and a bare Card beside it: nothing focusable
+        // in either pane, so the sequence under test was empty and the assertion vacuous. The
+        // lane's own guard caught it. A master-detail list whose rows cannot be activated is
+        // also not one.
+        //
+        // Hence `SignedIn` around both: `ResourceList`'s row actions are write-gated, so they
+        // need the auth context, which the dev server's own `workbench-mock-auth` plugin
+        // answers with a fixed rank-30 user. The `resource-list` specimen already relies on
+        // exactly that.
+        id: "split-page",
+        title: "SplitPage — list beside the record it selects",
+        node: (
+          <SignedIn>
+            <SplitPage
+              title="Sync definitions"
+              parents={[{ label: "Records", to: "/records" }]}
+              actions={<Button variant="primary">New sync</Button>}
+            >
+              {/* LINK_RESOURCE, the fixture `resource-list` already uses, rather than a second
+                  one of the same shape. A ResourceList rather than a DataView on purpose: the
+                  list pane is the narrow track, and a DataView there pictures its own horizontal
+                  overflow instead of the split's tracks.
+                  And NO `title`, which its own docs ask for under a Page — the pane's `label` is
+                  already the accessible name, and the prop renders a bare <h1>, so passing it
+                  here put a second h1 on the page at the UA default size, visibly larger than
+                  the page's own. Recorded rather than styled around: that h1 carries no marker
+                  and no rule, so nothing in the sheet or the gates can see it. */}
+              <SplitPane role="list" label="Definitions">
+                <ResourceList
+                  resource={LINK_RESOURCE}
+                  renderItem={(item) => <span>{item.name}</span>}
+                  renderActions={() => <Button variant="ghost">Open</Button>}
+                />
+              </SplitPane>
+              <SplitPane role="detail" label="Selected definition">
+                <Card
+                  title="Customer master"
+                  description="sap://prd/customers"
+                  actions={<Button variant="secondary">Run now</Button>}
+                >
+                  <DetailList
+                    layout="aligned"
+                    items={[
+                      { label: "Window", value: "02:00–04:00 UTC" },
+                      { label: "Retention", value: "90 days" },
+                      { label: "Last run", value: "1284 rows" },
+                    ]}
+                  />
+                </Card>
+              </SplitPane>
+            </SplitPage>
+          </SignedIn>
+        ),
+      },
+      {
+        // The split's own cutover, and it needs a viewport of its own for the reason the
+        // shell's mobile specimen does: the two-column rule lives in the sheet's single
+        // wide-viewport block, so at the pinned 1280 it always applies and the stacked layout
+        // is unreachable. 700x900 is below the 768px breakpoint the chrome around it uses.
+        //
+        // What the picture is FOR is the order: list first, detail under it, which is also the
+        // tab sequence. A `row-reverse` or an `order` in the two-column rule would look right
+        // wide and read backwards narrow, and `visual/keyboard.spec.ts` holds the same property
+        // at both widths.
+        id: "split-page-narrow",
+        title: "SplitPage — stacked below the breakpoint, list first",
+        viewport: { width: 700, height: 900 },
+        node: (
+          <SignedIn>
+            <SplitPage title="Sync definitions" listWidth="md">
+              <SplitPane role="list" label="Definitions">
+                <ResourceList
+                  resource={LINK_RESOURCE}
+                  renderItem={(item) => <span>{item.name}</span>}
+                  renderActions={() => <Button variant="ghost">Open</Button>}
+                />
+              </SplitPane>
+              <SplitPane role="detail" label="Selected definition">
+                <Card
+                  title="Customer master"
+                  description="sap://prd/customers"
+                  actions={<Button variant="secondary">Run now</Button>}
+                >
+                  <DetailList items={[{ label: "Retention", value: "90 days" }]} />
+                </Card>
+              </SplitPane>
+            </SplitPage>
+          </SignedIn>
         ),
       },
       {

@@ -993,6 +993,8 @@ describe("cascade structure", () => {
       "radio",
       "switch",
       "stack",
+      "splitpage-panes",
+      "splitpane",
       "detail-list",
       "combobox",
       "combobox-list",

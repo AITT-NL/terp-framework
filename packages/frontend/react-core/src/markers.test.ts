@@ -212,6 +212,8 @@ const MARKERS = [
   "resource-list-items",
   "resource-list-row",
   "spinner-ring",
+  "splitpage-panes",
+  "splitpane",
   "stack",
   "switch",
   "tab",

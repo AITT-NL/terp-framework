@@ -11,6 +11,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import * as lintLayouts from "../../eslint-boundaries/src/layouts.js";
 
 import { DetailPage } from "./DetailPage";
+import { FormPage } from "./FormPage";
+import { SettingsPage } from "./SettingsPage";
+import { SplitPage, SplitPane } from "./SplitPage";
+import { Input } from "./ui/Input";
+import { Field } from "./Field";
 import { HubCard, HubPage } from "./HubPage";
 import {
   LAYOUT_CONTRACTS,
@@ -133,7 +138,15 @@ describe("every archetype the package exports is governed, or says it is not", (
 
   it("finds the archetype exports it is meant to check", () => {
     // Vacuity guard: a derivation that matched nothing would make every assertion below pass.
-    expect(exported).toEqual(["DetailPage", "HubPage", "OverviewPage", "Page"]);
+    expect(exported).toEqual([
+      "DetailPage",
+      "FormPage",
+      "HubPage",
+      "OverviewPage",
+      "Page",
+      "SettingsPage",
+      "SplitPage",
+    ]);
   });
 
   it("pins the namespace re-exports, which neither derivation can look inside", () => {
@@ -369,6 +382,7 @@ describe("layout contract survives the roots the styling migration renames", () 
       "loading-state",
       "module-nav",
       "resource-list",
+      "splitpane",
       "stack",
       "tabs",
       "text",
@@ -432,6 +446,88 @@ describe("what 4b's widening does and does not admit", () => {
       expect(screen.getByTestId("refused").textContent).toBe(
         slotViolationMessage("standard", "OverviewPage", '<div data-terp="grid">'),
       );
+    });
+  });
+
+  it("refuses a bare Field at the top of a form body, because that form cannot submit", () => {
+    // The one refusal in FormPage's slot that is a decision rather than an omission. A run of
+    // bare fields looks like a finished form and cannot be submitted: Enter does nothing
+    // without a <form>, and the house spelling of one is `Stack as="form"`. So the slot takes
+    // the container and not the fields — which is the opposite of what a reader would guess
+    // from "a form page's body is fields".
+    underContract(
+      <FormPage title="New sync" parents={[{ label: "Syncs", to: "/syncs" }]}>
+        <Field label="Name">
+          <Input />
+        </Field>
+      </FormPage>,
+    );
+    return waitFor(() => {
+      expect(screen.getByTestId("refused")).toHaveTextContent(
+        /the FormPage body slot accepts only Stack \/ Grid \/ Card/,
+      );
+    });
+  });
+
+  it("accepts a form body that is a form container with sections beside it", () => {
+    underContract(
+      <FormPage title="New sync" parents={[{ label: "Syncs", to: "/syncs" }]}>
+        <Text>Every definition needs a source and a target.</Text>
+        <Stack as="form">
+          <Field label="Name">
+            <Input />
+          </Field>
+        </Stack>
+      </FormPage>,
+    );
+    return waitFor(() => {
+      expect(screen.queryByTestId("refused")).not.toBeInTheDocument();
+    });
+  });
+
+  it("refuses a collection in a settings body, because that screen is an overview", () => {
+    // SettingsPage's slot is Card sections and nothing that holds a collection. A settings
+    // screen whose body is a table is an overview with the wrong chrome, and the contract is
+    // where that distinction is enforceable rather than advisory.
+    underContract(
+      <SettingsPage title="Preferences">
+        <DetailList items={[{ label: "Theme", value: "Dark" }]} />
+      </SettingsPage>,
+    );
+    return waitFor(() => {
+      expect(screen.getByTestId("refused")).toHaveTextContent(
+        /the SettingsPage body slot accepts only Card \/ Stack/,
+      );
+    });
+  });
+
+  it("refuses anything but a SplitPane inside a split, and accepts the two panes", async () => {
+    // The split governs its PANE ROW rather than the page body, which is HubPage's shape and
+    // not DetailPage's — so this is the assertion that the choice actually took effect. A
+    // Card dropped straight into the split is the realistic mistake.
+    underContract(
+      <SplitPage title="Syncs">
+        <Card title="Not a pane" />
+      </SplitPage>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("refused")).toHaveTextContent(
+        /the SplitPage body slot accepts only SplitPane/,
+      );
+    });
+    cleanup();
+    underContract(
+      <SplitPage title="Syncs">
+        <SplitPane role="list" label="Definitions">
+          <DetailList items={[{ label: "Customer master", value: "ok" }]} />
+        </SplitPane>
+        <SplitPane role="detail" label="Selected definition">
+          <Card title="Customer master" />
+        </SplitPane>
+      </SplitPage>,
+    );
+    await waitFor(() => {
+      expect(screen.queryByTestId("refused")).not.toBeInTheDocument();
     });
   });
 

@@ -97,3 +97,100 @@ test("Tab out of an open menu continues the tab order after the trigger", async 
   await expect(page.locator('[role="menu"]')).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Save draft" })).toBeFocused();
 });
+
+/**
+ * Which pane each focusable element belongs to, in tab order.
+ *
+ * Reads the pane from the element's ancestor `data-role`, so the answer is about structure
+ * rather than about position — a check on coordinates would pass a layout that visually
+ * reversed the panes as long as it also reversed the DOM.
+ */
+async function paneTabOrder(page: import("@playwright/test").Page, steps: number) {
+  const seen: (string | null)[] = [];
+  for (let step = 0; step < steps; step += 1) {
+    await page.keyboard.press("Tab");
+    seen.push(
+      await page.evaluate(() => {
+        const active = document.activeElement;
+        const pane = active?.closest('[data-terp="splitpane"]') ?? null;
+        return pane === null ? null : pane.getAttribute("data-role");
+      }),
+    );
+  }
+  return seen;
+}
+
+for (const { name, width, height } of [
+  { name: "two columns", width: 1280, height: 900 },
+  { name: "stacked", width: 700, height: 900 },
+]) {
+  test(`the split's tab order is list then detail — ${name}`, async ({ page }) => {
+    // The keyboard property `SplitPage` owns, asserted as TWO claims, because the obvious one
+    // alone cannot fail for the reason it names.
+    //
+    // A first version asserted only that Tab visits the list before the detail. That is a fact
+    // about DOM order, and CSS cannot change it — so `direction: rtl`, `row-reverse` or a
+    // `grid-column` putting the detail track first would each leave this green while the screen
+    // read backwards. Which is precisely the WCAG 1.3.2 / 2.4.3 failure the test was written
+    // for: a reading order that disagrees with the focus order.
+    //
+    // So the second claim is geometric — the list pane must PAINT before the detail pane, left
+    // of it in two columns and above it when stacked — and together they say the two orders
+    // agree. Neither a DOM swap nor a CSS reorder survives the pair.
+    //
+    // At both widths, because the two-column rule lives in a media block: one width alone
+    // cannot tell "correct" from "correct here".
+    const id = width < 768 ? "split-page-narrow" : "split-page";
+    await page.setViewportSize({ width, height });
+    await page.goto(`/?theme=light&only=${id}`);
+    await page.locator('[data-terp="splitpage-panes"]').waitFor({ state: "visible" });
+
+    // One full document cycle, then filter to the steps that landed in a pane. Both halves of
+    // that were arrived at by getting them wrong.
+    //
+    // A round eight steps wrapped past the end and began a second pass, returning
+    // `list -> list -> list -> detail -> list -> list -> list` — an assertion right about the
+    // property and wrong about the window it holds over. And bounding the walk to the PANES'
+    // own focusable count under-reaches instead: this specimen has a breadcrumb link and a page
+    // action ahead of them, so the first steps never enter a pane at all.
+    //
+    // Counting every focusable on the page and filtering is exact, because one cycle visits
+    // each exactly once — so the filtered sequence IS the pane order, with no arithmetic about
+    // what precedes the panes.
+    const SELECTOR = "a[href], button:not(:disabled), input:not(:disabled), select, textarea";
+    const total = await page.locator(SELECTOR).count();
+    const inPanes = await page.locator(`[data-terp="splitpane"] :is(${SELECTOR})`).count();
+    expect(inPanes, "the panes must contain something focusable to order").toBeGreaterThan(1);
+    const order = (await paneTabOrder(page, total)).filter((role) => role !== null);
+    expect(order.length, "one cycle should visit every pane focusable once").toBe(inPanes);
+    // Every list stop precedes every detail stop: compare against the sorted-by-first-seen
+    // sequence rather than a hard-coded list, so adding a focusable element to a pane does not
+    // rewrite the assertion.
+    const firstDetail = order.indexOf("detail");
+    const lastList = order.lastIndexOf("list");
+    expect(firstDetail, "the detail pane must be reachable by Tab").toBeGreaterThan(-1);
+    expect(lastList, "the list pane must be reachable by Tab").toBeGreaterThan(-1);
+    expect(lastList, `tab order was ${order.join(" -> ")}`).toBeLessThan(firstDetail);
+
+    // And the panes paint in that same order, which is the half CSS can break.
+    const boxes = await page.evaluate(() => {
+      const box = (role: string) => {
+        const rect = document
+          .querySelector(`[data-terp="splitpane"][data-role="${role}"]`)!
+          .getBoundingClientRect();
+        return { left: Math.round(rect.left), top: Math.round(rect.top) };
+      };
+      return { list: box("list"), detail: box("detail") };
+    });
+    const stacked = boxes.list.left === boxes.detail.left;
+    if (stacked) {
+      expect(boxes.list.top, "stacked, the list must paint above the detail").toBeLessThan(
+        boxes.detail.top,
+      );
+    } else {
+      expect(boxes.list.left, "in two columns, the list must paint left of the detail").toBeLessThan(
+        boxes.detail.left,
+      );
+    }
+  });
+}

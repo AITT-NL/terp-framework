@@ -39,7 +39,11 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
       "states), detail bodies are record sections (DetailList / Stack / Grid / Tabs " +
       "+ framework states); Card is allowed in overview and detail bodies as the " +
       "sanctioned visual separation between sections, and Divider / Text as a rule " +
-      "between sections and a lead paragraph above them. A bespoke screen composes " +
+      "between sections and a lead paragraph above them. Three specialised shapes sit " +
+      "beside those: a form body is a form container (Stack) with optional Grid / Card " +
+      "sections and no Field at the top level, since a run of bare fields cannot be " +
+      "submitted; a settings body is Card sections and holds no collection; and a split " +
+      "body is two SplitPanes and nothing else. A bespoke screen composes " +
       "the plain Page, which the contract deliberately leaves unconstrained.",
     slots: {
       HubPage: {
@@ -60,6 +64,36 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
           Alert: "alert",
           ConfirmDialog: "dialog",
         },
+      },
+      FormPage: {
+        components: {
+          Stack: "stack",
+          Grid: "grid",
+          Card: "card",
+          Divider: "divider",
+          Text: "text",
+          EmptyState: "empty-state",
+          ErrorState: "error-state",
+          LoadingState: "loading-state",
+          Alert: "alert",
+          ConfirmDialog: "dialog",
+        },
+      },
+      SettingsPage: {
+        components: {
+          Card: "card",
+          Stack: "stack",
+          Divider: "divider",
+          Text: "text",
+          EmptyState: "empty-state",
+          ErrorState: "error-state",
+          LoadingState: "loading-state",
+          Alert: "alert",
+          ConfirmDialog: "dialog",
+        },
+      },
+      SplitPage: {
+        components: { SplitPane: "splitpane" },
       },
       DetailPage: {
         components: {

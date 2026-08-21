@@ -23,6 +23,23 @@ export interface PageProps {
   renderLink?: RenderBreadcrumbLink;
   /** Optional page-level actions, rendered on the heading row (e.g. a primary `Button`). */
   actions?: ReactNode;
+  /**
+   * Cap the whole frame — header included — at a readable measure (default `"full"`).
+   *
+   * `"narrow"` is the single-column-of-controls shape: a create/edit form, a settings screen.
+   * The header is capped WITH the body here, unlike the shell's own content measure, and that
+   * asymmetry is the point rather than an inconsistency. A wide page with a narrow column wants
+   * its title and actions spanning the full track, because the band is what tells you the page
+   * is wider than its text. A form does not: a Save button floating a screen-width away from
+   * the field it saves is worse than one sitting over it.
+   *
+   * `data-measure` is the same attribute name `Text` uses for the same concept, keyed per
+   * marker, so there is one vocabulary for "measure" rather than two.
+   *
+   * `FormPage` and `SettingsPage` default it on; every other archetype leaves it `"full"`,
+   * which stamps nothing.
+   */
+  measure?: "full" | "narrow";
   /** Show the loading state instead of the body (the header stays for orientation). */
   isLoading?: boolean;
   /** Loading slot; defaults to the standard {@link LoadingState} spinner block. */
@@ -61,6 +78,7 @@ export function Page({
   breadcrumbs,
   renderLink,
   actions,
+  measure = "full",
   isLoading,
   loadingState,
   error,
@@ -107,8 +125,12 @@ export function Page({
     ) : (
       children
     );
+  // Hoisted, the density/collapsed idiom: the default stamps nothing, so the expression has a
+  // branch, and a conditional written at the attribute is the form the marker scanner reads
+  // every string literal out of.
+  const measureAttribute = measure === "narrow" ? "narrow" : undefined;
   return (
-    <article ref={articleRef} data-terp="page">
+    <article ref={articleRef} data-terp="page" data-measure={measureAttribute}>
       {/* A <header> ELEMENT, and it has to stay one. The slot check above drops the header
           from the body set by tagName, so re-rendering this as a marked <div> would put it
           back in and fail every governed OverviewPage / DetailPage closed. The marker is

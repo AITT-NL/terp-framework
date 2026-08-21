@@ -501,6 +501,20 @@ textarea[data-terp="input"] {
   [data-terp="stack"][data-gap-wide="4"] { gap: var(--space-4); }
   [data-terp="stack"][data-gap-wide="6"] { gap: var(--space-6); }
   [data-terp="stack"][data-gap-wide="8"] { gap: var(--space-8); }
+  /* The split's two columns, at the one cutover the chrome around it already uses.
+     Three list tracks, three rules, no length ever handed in as a style — the listWidth
+     prop is a step for the reason Grid's minColumn is (ADR 0097 §4). The detail track is
+     minmax(0, 1fr) so it takes the remainder and still lets a wide table scroll inside
+     itself rather than widening the row. */
+  [data-terp="splitpage-panes"][data-list-width="sm"] {
+    grid-template-columns: minmax(0, 18rem) minmax(0, 1fr);
+  }
+  [data-terp="splitpage-panes"][data-list-width="md"] {
+    grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);
+  }
+  [data-terp="splitpage-panes"][data-list-width="lg"] {
+    grid-template-columns: minmax(0, 32rem) minmax(0, 1fr);
+  }
 }
 
 /* Grids -------------------------------------------------------------------- */
@@ -1239,6 +1253,20 @@ textarea[data-terp="input"] {
   align-content: start;
   min-width: 0;
 }
+/* The narrow frame: a form or a settings screen, capped header and all.
+   32rem is not a new number. It is exactly what admin-form declares on the two packaged create
+   screens and what ProfileView's card carries, and 4b already named that card as a page measure
+   wearing a card's clothes. So this is the mechanism those three were each hand-rolling, and
+   folding them into it is the follow-up rather than part of shipping it.
+   max-width on the ARTICLE, not width on its children, which is the opposite of the shell's
+   content measure one rule above. Two reasons. The header is meant to be capped here — a Save
+   button a screen-width from its field is worse than one over it — so there is nothing to
+   exempt and no :not() to write. And capping the article composes with the shell measure by
+   construction instead of competing with it: the article is already at most the shell's measure,
+   and this takes it narrower still. */
+[data-terp="page"][data-measure="narrow"] {
+  max-width: 32rem;
+}
 [data-terp="page-header"] {
   display: grid;
   gap: var(--space-2);
@@ -1324,6 +1352,27 @@ textarea[data-terp="input"] {
 [data-terp="appshell"][data-content-width="measured"]
   [data-terp="page"] > *:not([data-terp="page-header"]) {
   width: min(100%, var(--shell-content-max-width));
+}
+
+/* The split archetype ------------------------------------------------------ */
+/* A list beside the record it selects. Mobile-first: one column, list first, so the tab
+   sequence is the reading order in both layouts and the stacked case needs no rule at all.
+   The two-column form lives in the sheet's ONE existing wide-viewport block further down,
+   rather than opening a second @media — same reason Stack's responsive rules went there.
+
+   align-items: start so a short detail pane does not stretch to the list's height, which is
+   what makes the two read as panes rather than as table cells. */
+[data-terp="splitpage-panes"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+  min-width: 0;
+}
+/* Each pane is a min-width: 0 grid item, or a wide DataView inside one refuses to shrink and
+   pushes the row past its track — the same floor Grid's cells carry, for the same reason. */
+[data-terp="splitpane"] {
+  min-width: 0;
 }
 
 /* The sign-in screen ------------------------------------------------------- */

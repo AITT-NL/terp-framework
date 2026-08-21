@@ -59,6 +59,17 @@ export { OverviewPage } from "./OverviewPage";
 export type { OverviewPageProps } from "./OverviewPage";
 export { DetailPage } from "./DetailPage";
 export type { DetailPageProps } from "./DetailPage";
+export { FormPage } from "./FormPage";
+export type { FormPageProps } from "./FormPage";
+export { SettingsPage } from "./SettingsPage";
+export type { SettingsPageProps } from "./SettingsPage";
+export { SplitPage, SplitPane } from "./SplitPage";
+export type {
+  SplitPageProps,
+  SplitPaneProps,
+  SplitPaneRole,
+  SplitListWidth,
+} from "./SplitPage";
 export { HubPage, HubCard } from "./HubPage";
 export type { HubPageProps, HubCardProps, RenderHubCardLink } from "./HubPage";
 export { UiTextProvider, useStrings, useUiText, resolveUiText, DEFAULT_STRINGS } from "./uiText";

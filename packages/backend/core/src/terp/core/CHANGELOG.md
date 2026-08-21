@@ -14,6 +14,66 @@ decision, 0001 onwards.
 
 ### Added
 
+- **Three archetypes, and the fourth is declined (ADR 0079, ADR 0097).** `FormPage`,
+  `SettingsPage` and `SplitPage` + `SplitPane`, each in both halves of the layout-contract table,
+  each with a specimen and both platform baselines.
+
+  **`Page` gains `measure`,** and `FormPage` / `SettingsPage` default it on. `"narrow"` caps the
+  whole frame — header included — at 32rem, which is the opposite of the shell's content measure
+  one rule above it, and deliberately: a wide page with a narrow column wants its title spanning
+  the track, because the band is what tells you the page is wider than its text. A form does not.
+  A Save button a screen-width from the field it saves is worse than one sitting over it.
+
+  32rem is not a new number. It is exactly what `admin-form` declares on both packaged create
+  screens and what `ProfileView`'s card carries — and 4b already named that card as *a page
+  measure wearing a card's clothes*. So this is the mechanism three surfaces were each
+  hand-rolling; folding them into it is the follow-up rather than part of shipping it.
+
+  **`SplitPage` is built on `HubPage`, not on `DetailPage`,** and that is the decision worth
+  knowing. The obvious shape for two panes is one body slot holding two children — but the
+  runtime check takes a single slot owner and reads `article.children`, so two panes would be two
+  indistinguishable entries in one slot. Teaching the contract two slots per archetype was the
+  invasive option. Instead the panes are the governed thing: the archetype owns the row element
+  and admits `SplitPane` in it and nothing else, exactly as `HubPage` owns its grid and admits
+  `HubCard`. `verifySlotChildren`, the mirrored table's shape and the message builder are all
+  untouched. It therefore provides no `LayoutSlotContext` — for `HubPage`'s reason: the row
+  carries a marker no allow table names, so a slot context above it would refuse every split page
+  on its own body.
+
+  The slots refuse three things on purpose, and each refusal is the useful half. A **bare `Field`
+  at the top of a form body**, because a run of fields cannot be submitted — Enter does nothing
+  without a `<form>`, and the house spelling of one is `Stack as="form"`; admitting `Field` would
+  sanction the screen that looks finished and cannot be used by keyboard. A **collection in a
+  settings body**, because a settings screen whose body is a table is an overview with the wrong
+  chrome. And **anything but a `SplitPane`** inside a split.
+
+  **`DashboardPage` is declined,** the phase's sixth refused duplicate. `HubPage`'s own docstring
+  already calls a card carrying a `stat` a lightweight dashboard, and its grid is
+  `repeat(auto-fit, minmax(min(16rem, 100%), 1fr))` with `grid-auto-rows: 1fr` — a uniform
+  equal-height tile grid, which is what a dashboard of tiles is. What a real dashboard needs
+  beyond that is *spanning* tiles, and `Grid` refused `span` in 4b. So a `DashboardPage` today
+  would be `HubPage` with non-navigable tiles: two names for one grid, which is the
+  `LoadingButton` mistake. It earns its place the day spans do.
+
+  The split's keyboard contract is asserted as **two** claims, because the obvious one cannot
+  fail for the reason it names. Asserting that Tab visits the list before the detail is a fact
+  about DOM order, and CSS cannot change it — so `row-reverse`, `direction: rtl` or a
+  `grid-column` putting the detail first would each leave it green while the screen read
+  backwards, which is exactly the WCAG 1.3.2 / 2.4.3 failure. The second claim is geometric: the
+  list pane must paint left of the detail in two columns and above it when stacked. Verified by
+  mutation with an `order: -1` on the detail pane — a CSS-only change the DOM assertion passes
+  and the pair does not.
+
+  Two things about that lane were wrong before they were right, both caught by its own guards. A
+  round eight tab steps wrapped past the end of the document and began a second pass; bounding it
+  to the panes' own focusable count then under-reached, because a breadcrumb link and a page
+  action sit ahead of them. It walks one full document cycle and filters. And the first version of
+  the split specimens had **nothing focusable in either pane** — plain spans in the list, a bare
+  card beside it — so the sequence under test was empty and the assertion vacuous. A master-detail
+  list whose rows cannot be activated is also not one.
+
+  117 specimens now, 234 baselines per platform, 585 axe runs.
+
 - **The shell's geometry is four published tokens, and the content measure exists at last
   (ADR 0097 §1, §2).** The two sidebar widths and the header's floor were literals in the
   sheet, and there was **no content max-width and no way to add one** — so a wide table
@@ -388,6 +448,18 @@ decision, 0001 onwards.
   chosen epsilon, and the shell's existing behaviour at exactly 768px is untouched.
 
 ### Fixed
+
+- **`ResourceList`'s optional title renders a second `h1`, and an unstyled one.** Found while
+  composing the split's list pane. The prop's own doc says to omit it under a `Page` "whose title
+  is the `h1`" — and passing it there does exactly what that warns about: a second `h1` in the
+  document outline, at the UA default size, visibly *larger* than the page's own title at
+  `font-size-lg`. It is the same shape `admin-section-title` exists to fix for `h2`.
+
+  Not fixed here, and the reason is worth stating rather than leaving as silence: that `h1`
+  carries no `data-terp` marker and no rule, so neither the marker inventory nor the base-rule
+  roster can see it, and giving it either moves the existing `resource-list` baselines. That is
+  its own change with its own picture. The split specimens use the documented shape — no title,
+  since `SplitPane`'s `label` is already the pane's accessible name.
 
 - **The audit payload was a scroll container no keyboard could reach.** `admin-payload` declares
   `overflow-x: auto`, so a wide payload scrolls — and the `<pre>` carried no `tabIndex`, which is
