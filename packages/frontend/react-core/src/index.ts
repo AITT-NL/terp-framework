@@ -80,7 +80,7 @@ export type { ButtonProps, ButtonSize, ButtonVariant } from "./ui/Button";
 export { Input } from "./ui/Input";
 export type { InputProps } from "./ui/Input";
 export { Select } from "./ui/Select";
-export type { SelectProps } from "./ui/Select";
+export type { SelectProps, SelectOption } from "./ui/Select";
 export { Textarea } from "./ui/Textarea";
 export type { TextareaProps } from "./ui/Textarea";
 export { Popover } from "./ui/Popover";

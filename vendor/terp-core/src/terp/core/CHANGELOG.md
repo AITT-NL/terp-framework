@@ -64,6 +64,23 @@ decision, 0001 onwards.
   `/^[A-Z]\w*Page$/` cannot match `"Page"` — after the leading capital there is no `Page` left
   to match, so the derived list was silently one short.
 
+- **`Select` takes typed options, so a closed enum stops needing a local wrapper.** It accepted
+  raw `<option>` children and nothing else, so every enum meant one hand-written element per
+  member *plus* `setStatus(event.target.value as Status)` on the way out — and the cast is
+  exactly where a wrong value gets in. It now also takes `options: SelectOption<T>[]` with a
+  typed `onValueChange`, inferring `T` from the list, plus a `placeholder` that renders the
+  disabled empty-valued leading row every app was writing by hand.
+
+  `SelectOption<T>` carries the type parameter `ComboboxOption` does not; widening `Combobox` to
+  match is additive and can follow the day something asks. The two forms are a **union**, not
+  two optional props: rendering `options` while silently ignoring `children` would be a prop
+  that works in one branch and does nothing in the other, which is the defect shape found twice
+  in one release — so the combination does not typecheck at all. Verified by mutation in the
+  example app, where a `"dong"` typo now reports *Type '"dong"' is not assignable to type
+  'TaskStatus'. Did you mean '"doing"'?* instead of shipping an option nobody can select. Both
+  readers were converted in the same commit, and the packaged form's baseline is byte-identical:
+  the options path renders the same DOM.
+
 - **A fourth workbench lane, for values the other three cannot see:
   `visual/computed.spec.ts` (ADR 0097).** The screenshot lane runs with
   `animations: "disabled"` — deliberately, so the spinner keyframes do not make every run

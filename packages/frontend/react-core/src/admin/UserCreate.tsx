@@ -100,13 +100,19 @@ export function UserCreate() {
             />
           </Field>
           <Field label={strings.role}>
-            <Select value={role} onChange={(event) => setRole(event.target.value)}>
-              {roles.map((option) => (
-                <option key={option.rank} value={option.rank}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
+            {/* `options` + `onValueChange` rather than an `<option>` per rank and a raw
+                change event: the same three rows, as data, with the cast gone. The rank is a
+                number in the ladder and a string in the DOM, which is why `String(rank)` is
+                the option value and `role` is kept as a string until the POST body coerces
+                it — the one place the two representations legitimately meet. */}
+            <Select
+              options={roles.map((option) => ({
+                value: String(option.rank),
+                label: option.label,
+              }))}
+              value={role}
+              onValueChange={setRole}
+            />
           </Field>
         </Stack>
       </div>

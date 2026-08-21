@@ -2,12 +2,32 @@ import { Button, Field, Input, OverviewPage, ResourceList, Select, Stack } from 
 import { useState } from "react";
 import type { FormEvent } from "react";
 
+import type { SelectOption } from "@terpjs/react-core";
+
 import { useTasks } from "./useTasks";
+
+/** The task lifecycle, as a closed set — the thing the Select is checked against. */
+type TaskStatus = "open" | "doing" | "done";
+
+/**
+ * The status choices as data.
+ *
+ * Typed `SelectOption<TaskStatus>[]`, which is what makes the list and the state agree: a
+ * fourth row spelled "dong" is a typecheck error here rather than an option the app can
+ * select and the backend rejects. Before `Select` took an options list this was three
+ * hand-written `<option>` elements plus `setStatus(event.target.value)` — the value arriving
+ * as a bare `string`, so nothing connected the markup to the union at all.
+ */
+const TASK_STATUSES: SelectOption<TaskStatus>[] = [
+  { value: "open", label: "open" },
+  { value: "doing", label: "doing" },
+  { value: "done", label: "done" },
+];
 
 /** A multi-field create form (title + status), composed from the shared form primitives. */
 function NewTaskForm({ onAdd }: { onAdd: (title: string, status: string) => Promise<void> }) {
   const [title, setTitle] = useState("");
-  const [status, setStatus] = useState("open");
+  const [status, setStatus] = useState<TaskStatus>("open");
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -29,11 +49,7 @@ function NewTaskForm({ onAdd }: { onAdd: (title: string, status: string) => Prom
         <Input value={title} onChange={(event) => setTitle(event.target.value)} />
       </Field>
       <Field label="Status">
-        <Select value={status} onChange={(event) => setStatus(event.target.value)}>
-          <option value="open">open</option>
-          <option value="doing">doing</option>
-          <option value="done">done</option>
-        </Select>
+        <Select options={TASK_STATUSES} value={status} onValueChange={setStatus} />
       </Field>
       <Button type="submit">Add</Button>
     </Stack>
