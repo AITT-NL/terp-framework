@@ -123,6 +123,13 @@ export interface RenderTerpAppOptions {
    */
   density?: "comfortable" | "compact";
   /**
+   * Where the primary navigation lives on desktop ({@link AppShell.navPlacement}): the
+   * full-height `"sidebar"` (default, and what every shell renders today) or `"header"`, a
+   * horizontal row in the header with no sidebar at all. Below the mobile breakpoint both are
+   * the drawer.
+   */
+  navPlacement?: "sidebar" | "header";
+  /**
    * Ship the packaged admin area (default `true`): the admin-gated sidebar entry, the
    * `/admin` hub, and the users / groups / audit screens over the base-profile
    * capabilities. An app route claiming one of its paths overrides that screen;
@@ -260,6 +267,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
     footer: options.footer,
     contentWidth: options.contentWidth,
     density: options.density,
+    navPlacement: options.navPlacement,
     layoutContract: options.layoutContract,
   });
   const root = options.rootElement ?? document.getElementById("root");

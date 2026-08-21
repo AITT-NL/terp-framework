@@ -2719,6 +2719,49 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The header placement: no sidebar at all, the nav in a horizontal row, the brand and
+        // the user menu in the header with it. Deleting the list rule collapses the four links
+        // back into a vertical grid inside the header, which is unmissable here; deleting the
+        // surface rule moves the light header from #f8fafc back to #ffffff, which is small and
+        // still a diff. The third rule of the three — overflow: visible on the nav — no
+        // baseline can hold, because it only matters around a focus ring; the computed lane
+        // asserts it against the sidebar shell, where the same nav is a scroll container.
+        //
+        // navFooter is a plain button rather than the real UserMenu on purpose. UserMenu needs
+        // TerpProvider, and an async boot is exactly the nondeterminism that recorded two split
+        // panes at their pre-auth width earlier in this phase — toHaveScreenshot stabilises on
+        // whichever state it finds and reports nothing.
+        id: "app-shell-header-nav",
+        title: "AppShell — the navigation in the header, with no sidebar",
+        node: (
+          <div style={{ height: "44rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              navPlacement="header"
+              navFooter={
+                <Button variant="secondary" size="sm">
+                  Account
+                </Button>
+              }
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <Stack gap={4}>
+                <Text tone="muted">
+                  Few destinations, no permanent chrome: the shape the template&rsquo;s portal
+                  preset asks for.
+                </Text>
+                <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} />
+              </Stack>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
         // The desktop shell just above the breakpoint — the band between 769px and wide, which
         // the pinned viewport also cannot reach. The sidebar's `flex-shrink: 0` is documented as
         // biting here and nowhere else, and the content is deliberately something with a real

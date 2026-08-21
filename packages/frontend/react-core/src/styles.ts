@@ -1284,6 +1284,43 @@ textarea[data-terp="input"] {
   color: var(--color-fg-subtle);
   font-size: var(--font-size-xs);
 }
+/* The header placement (ADR 0098 §8): the nav moves into the header and the sidebar is not
+   rendered at all. Three rules, and the attribute is stamped only on desktop and only when the
+   prop asked for it, so none of them needs a [data-variant] guard and no existing shell is in
+   scope of any of them.
+
+   The header BECOMES the sidebar surface, which is one declaration doing the work of six.
+   Every part of the navigation — the brand, its title, the resting link, the hover wash, the
+   active link — already reads --color-sidebar-*, so moving the surface carries the whole family
+   with it and not one property is overridden here. It is also the only reading that survives
+   theming: an app that paints its sidebar navy gets a navy header with the same legible ink,
+   where per-property overrides would have given it navy ink on a white header. The declared
+   sidebar pairings are therefore still exactly the pairings in play and the contrast gate needs
+   nothing new — which is the check that the mechanism is right rather than merely short.
+
+   In the shipped themes this moves almost nothing: --color-sidebar-bg equals
+   --color-neutral-0 in four of the five, and in light it is the same #f8fafc the sidebar
+   already uses. The rule is load-bearing for an app's theme, not for ours. */
+[data-terp="appshell"][data-nav-placement="header"] [data-terp="appshell-header"] {
+  background: var(--color-sidebar-bg);
+  border-block-end-color: var(--color-sidebar-border);
+}
+/* The list turns horizontal. Flex rather than a row of grid columns, because the header is
+   already a wrapping row: a nav with more items than fit takes a second line and the header
+   grows, instead of overflowing to somewhere no pointer can reach. */
+[data-terp="appshell"][data-nav-placement="header"] [data-terp="appshell-nav-list"] {
+  display: flex;
+  flex-wrap: wrap;
+}
+/* The nav keeps its flex-grow from the sidebar rule, which here takes the slack between the
+   brand and the header group and pins the controls right with no margin of its own.
+   overflow is a FIX rather than a reset: the sidebar's nav is a vertical scroll container, and
+   a computed overflow-y of auto forces overflow-x to auto as well, so in a header — where the
+   box is exactly one link tall — a focused link's 2px outline and 3px ring would be clipped on
+   both edges by a scroller that can never scroll. */
+[data-terp="appshell"][data-nav-placement="header"] [data-terp="appshell-nav"] {
+  overflow: visible;
+}
 
 /* The page frame ----------------------------------------------------------- */
 /* Every routed view is this shape: one header carrying the breadcrumb trail (when

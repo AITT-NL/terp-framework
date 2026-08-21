@@ -86,7 +86,10 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   and no shell edit. Capping content at the measure is the one part that is a prop, because
   it is a choice rather than a length: `contentWidth: "measured"` on `renderTerpApp` leaves
   each page's own header spanning the full track above the capped column. The default changes
-  nothing.
+  nothing. Where the navigation *sits* is the other prop of that kind:
+  `navPlacement: "header"` drops the sidebar on desktop and runs the nav as a horizontal row in
+  the header, for an app whose destinations are few enough that permanent chrome is a tax. The
+  header then takes the sidebar's surface, so an app's `--color-sidebar-*` still governs it.
 - **Every routed view renders a page archetype** (`Page` / `OverviewPage` / `DetailPage` /
   `HubPage`) — `buildAppRouter` refuses an unframed view at runtime, fail closed.
 - **Slot-typed layout contracts (opt-in, ADR 0079)** — an app that checks in a

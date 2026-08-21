@@ -144,6 +144,55 @@ decision, 0001 onwards.
   also documented as an exported `MAIN_CONTENT_ID` and never re-exported from the entry point, so
   the one argument for sharing it had no consumer either.
 
+- **The shell can put its navigation in the header, and moving it moves its surface with it
+  (ADR 0098 §8).** `AppShell` has had exactly one shape — a full-height sidebar collapsing to an
+  icon rail — which is right for the app it was built against and wrong for the one the template
+  already offers to generate. The `portal` preset is "a personal landing for customers, staff or
+  suppliers"; it gets 15rem of permanent chrome for three destinations, and an app cannot opt
+  out, because it may write neither `style` nor `className` and the shell took no say in the
+  matter. `navPlacement="header"` renders the same brand, the same nav and the same user menu in
+  the header, and no sidebar at all.
+
+  **Desktop-only, and the attribute says so.** Below the breakpoint both placements are the
+  drawer — a horizontal row of links does not fit 420px, and the drawer exists already, focus
+  trap and all. The shell derives the attribute from the viewport rather than stamping it from
+  the prop, the way it already derives `data-collapsed`, which is what frees every rule keyed on
+  it from a `[data-variant="desktop"]` guard: the attribute is absent whenever it would not be
+  true.
+
+  **The header becomes the sidebar surface**, which is one declaration where six overrides would
+  have gone. The brand, its title, the resting link, the hover wash and the active link all read
+  `--color-sidebar-*` already, so moving the *surface* carries the family with it. It is also the
+  only reading that survives theming: an app painting its sidebar navy gets a navy header with
+  the same legible ink, where per-property overrides would have handed it navy ink on a white
+  header. The check that the mechanism is right rather than merely short is that **the contrast
+  gate needs nothing new** — the declared sidebar pairings are still exactly the pairings in
+  play. In the shipped themes it moves almost nothing: `--color-sidebar-bg` equals
+  `--color-neutral-0` in four of the five.
+
+  **No toggle, and the user menu moves with the nav.** The toggle carries `aria-expanded`, so
+  rendering it with no sidebar would announce a state about an element that does not exist; the
+  brand takes its slot. The user menu goes to the end of the header group — losing it is the
+  failure a placement prop invites, since it is where an app puts sign-out.
+
+  **`defaultCollapsed` is `never` under `"header"`,** because a legal combination that silently
+  does nothing is the shape this phase keeps refusing. The same fact has a second half that a
+  type cannot cover: the rail choice is *persisted*, so a user who had collapsed the sidebar
+  before the app moved its nav would get icon-only links in a header with room for labels, and
+  the attribute that normally reveals the rail state lands nowhere. `railCollapsed` forces false,
+  with a test that fails on the leak — one of five mutations run against the five new
+  assertions, all five red.
+
+  Two baselines added, none changed: every existing shell specimen is byte-identical, because
+  the attribute is absent unless an app asks. The third of the three new rules —
+  `overflow: visible` on the header-placed nav — no baseline can hold, and it is a fix rather
+  than a reset: the sidebar's nav is a vertical scroll container, and a computed `overflow-y`
+  other than `visible` forces `overflow-x` to `auto` as well, so in a header, where the box is
+  exactly one link tall, that scroller can never scroll and its only effect is clipping a focused
+  link's outline and ring on both edges. The computed lane asserts the **pair** — `visible` in
+  the header, `auto` in the sidebar — because a rule that set `visible` everywhere would satisfy
+  half of it while quietly taking the sidebar's scrolling away.
+
 - **`renderTerpApp` passes `headerActions` through.** The slot has existed on `AppShell` all
   along; reaching it meant abandoning the one-call bootstrap for `TerpProvider` +
   `buildAppRouter`. A slot that exists and is unreachable from the entry point every app uses.

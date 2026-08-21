@@ -248,6 +248,13 @@ export interface BuildAppRouterOptions {
    * an app's own `data-density` on `<html>` still reaches the tree.
    */
   density?: "comfortable" | "compact";
+  /**
+   * Where the primary navigation lives on desktop ({@link AppShell.navPlacement}): the
+   * full-height `"sidebar"` (default, and what every shell renders today) or `"header"`, a
+   * horizontal row in the header with no sidebar at all. Below the mobile breakpoint both are
+   * the drawer.
+   */
+  navPlacement?: "sidebar" | "header";
   /** Role-name -> minimum rank; an unknown role is denied (fail closed). */
   roleRanks?: Record<string, number>;
   /** Rendered when the current user may not access a route (default: a simple message). */
@@ -349,6 +356,7 @@ export function buildAppRouter(
         footer={options.footer}
         contentWidth={options.contentWidth}
         density={options.density}
+        navPlacement={options.navPlacement}
         nav={nav}
         renderBrandLink={({ to, children }) => (
           <Link to={to} data-terp="appshell-brand">

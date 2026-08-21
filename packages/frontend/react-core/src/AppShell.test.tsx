@@ -243,4 +243,62 @@ describe("AppShell", () => {
     expect(screen.queryByRole("navigation", { name: "Primary" })).not.toBeInTheDocument();
     expect(document.body.style.overflow).toBe("");
   });
+
+  describe('navPlacement="header"', () => {
+    it("moves the whole navigation into the header and renders no sidebar", () => {
+      renderShell({ navPlacement: "header" });
+
+      const header = screen.getByRole("banner");
+      const navigation = screen.getByRole("navigation", { name: "Primary" });
+      // The same nav, in a different parent — the assertion is containment rather than
+      // existence, because existence passes in both placements.
+      expect(header).toContainElement(navigation);
+      expect(header).toContainElement(screen.getByRole("link", { name: "Terp" }));
+      // The user menu follows it. Losing it is the failure a placement prop invites, since it
+      // is where an app puts sign-out and the sidebar was the only thing holding it.
+      expect(header).toContainElement(screen.getByText("pinned footer"));
+      expect(document.querySelector('[data-terp="appshell-sidebar"]')).toBeNull();
+      expect(document.querySelector('[data-terp="appshell"]')).toHaveAttribute(
+        "data-nav-placement",
+        "header",
+      );
+    });
+
+    it("renders no sidebar toggle, because there is no sidebar to collapse", () => {
+      renderShell({ navPlacement: "header" });
+
+      // Not a tidying assertion: the button carries aria-expanded, so rendering it would
+      // announce a state about an element that does not exist.
+      expect(screen.queryByRole("button", { name: "Collapse sidebar" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Expand sidebar" })).toBeNull();
+      expect(document.querySelector("[aria-expanded]")).toBeNull();
+    });
+
+    it("does not leak a persisted rail choice into the header's link context", () => {
+      // The regression this exists for: `collapsed` is persisted, so a user who had collapsed
+      // the rail before the app moved its nav would get icon-only links in a header with room
+      // for labels — and the sidebar attribute that normally reveals the state lands nowhere.
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
+      renderShell({
+        navPlacement: "header",
+        navFooter: ({ collapsed }) => <p>{collapsed ? "rail" : "full"}</p>,
+      });
+
+      expect(screen.getByText("full")).toBeInTheDocument();
+    });
+
+    it("is desktop-only: below the breakpoint it is still the drawer", () => {
+      stubMobileViewport();
+      renderShell({ navPlacement: "header" });
+
+      // The attribute is derived from the viewport, not stamped from the prop, which is what
+      // lets every rule keyed on it skip a [data-variant] guard.
+      expect(document.querySelector('[data-terp="appshell"]')).not.toHaveAttribute(
+        "data-nav-placement",
+      );
+      expect(screen.queryByRole("navigation", { name: "Primary" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+      expect(screen.getByRole("dialog", { name: "Primary" })).toBeInTheDocument();
+    });
+  });
 });

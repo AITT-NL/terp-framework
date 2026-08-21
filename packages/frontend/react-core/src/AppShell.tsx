@@ -30,7 +30,7 @@ export type AppShellLinkContext = AppShellSlotContext;
 
 export type RenderBrandLink = (props: { to: string; children: ReactNode }) => ReactNode;
 
-export interface AppShellProps {
+interface AppShellBaseProps {
   /** Product / app title shown next to the logo at the top of the sidebar. */
   title: UiText;
   /** Sidebar nav, already filtered for the current user (see `visibleNav`). */
@@ -88,16 +88,6 @@ export interface AppShellProps {
   /** Footer line under the content; default: a muted line with the app title. */
   footer?: ReactNode;
   /**
-   * Start with the desktop sidebar collapsed to its icon rail, when no choice has been
-   * persisted yet. The user's own toggle still wins and still persists.
-   *
-   * It exists for the same reason `Menu` and both date pickers take `defaultOpen`: the
-   * rail is internal state read from `localStorage`, so without a way in it can be
-   * rendered by no specimen and no test, and every rule that only applies to it is
-   * unpainted. Four were.
-   */
-  defaultCollapsed?: boolean;
-  /**
    * Start with the mobile drawer open.
    *
    * The same door `defaultCollapsed` opened for the icon rail, for the same reason and with the
@@ -115,6 +105,44 @@ export interface AppShellProps {
   /** The routed page content. */
   children: ReactNode;
 }
+
+/**
+ * Where the primary navigation lives, and it is a union rather than two independent props
+ * because one combination of them would be legal and inert.
+ *
+ * `"sidebar"` is the default and stamps nothing — full-height chrome on the left, collapsing
+ * to an icon rail, which is every shell the framework has rendered so far. `"header"` moves
+ * the nav into the header as a horizontal row and drops the sidebar entirely, for an app whose
+ * destinations are few enough that 15rem of permanent chrome is a tax: the template's `portal`
+ * preset names that app in as many words — "a personal landing for customers, staff or
+ * suppliers" — and today it renders into chrome designed for a 21-module internal tool.
+ *
+ * **Desktop only.** Below the breakpoint both placements are the drawer, because a horizontal
+ * row of links does not fit a 420px viewport and the drawer already exists. So this changes
+ * nothing a phone renders, which is also why the attribute is derived from the viewport rather
+ * than stamped from the prop.
+ *
+ * `defaultCollapsed` is `never` under `"header"`: with no sidebar there is nothing to collapse,
+ * so the pair would type-check, do nothing, and give no sign of it — the shape this phase keeps
+ * refusing, most recently in `Select`'s options union.
+ */
+type AppShellNavPlacementProps =
+  | {
+      navPlacement?: "sidebar";
+      /**
+       * Start with the desktop sidebar collapsed to its icon rail, when no choice has been
+       * persisted yet. The user's own toggle still wins and still persists.
+       *
+       * It exists for the same reason `Menu` and both date pickers take `defaultOpen`: the
+       * rail is internal state read from `localStorage`, so without a way in it can be
+       * rendered by no specimen and no test, and every rule that only applies to it is
+       * unpainted. Four were.
+       */
+      defaultCollapsed?: boolean;
+    }
+  | { navPlacement: "header"; defaultCollapsed?: never };
+
+export type AppShellProps = AppShellBaseProps & AppShellNavPlacementProps;
 
 /** The `localStorage` key the sidebar's collapsed choice persists under. */
 export const SIDEBAR_STORAGE_KEY = "terp.sidebar";
@@ -199,7 +227,9 @@ function PanelIcon() {
  * - a full-height sidebar: brand (logo + title) on top, the role-filtered nav with
  *   per-item icons, and the `navFooter` (the {@link UserMenu}) pinned to the bottom.
  *   On desktop it collapses to an icon rail (persisted in `localStorage`); below the
- *   mobile breakpoint it becomes an overlay drawer with a backdrop;
+ *   mobile breakpoint it becomes an overlay drawer with a backdrop. With
+ *   `navPlacement="header"` there is no sidebar on desktop at all: the same brand, the same
+ *   nav and the same user menu render in the header, and the drawer still handles mobile;
  * - a **sticky** header over the content: the sidebar toggle on the left, then
  *   `headerActions` and the standard theme + language controls on the right;
  * - the routed `children` in a `main` landmark, with a slim `footer` underneath.
@@ -216,6 +246,7 @@ export function AppShell({
   headerActions,
   contentWidth = "full",
   density,
+  navPlacement = "sidebar",
   navFooter,
   footer,
   defaultCollapsed = false,
@@ -287,8 +318,17 @@ export function AppShell({
     });
   }
 
-  // The drawer always shows labels; the desktop rail hides them when collapsed.
-  const railCollapsed = !isMobile && collapsed;
+  // Desktop only, and derived rather than stamped from the prop: below the breakpoint both
+  // placements ARE the drawer, so a shell asked for a header nav on a phone renders exactly
+  // what it renders today. Deriving it here is what lets every rule keyed on the attribute skip
+  // a [data-variant="desktop"] guard — the attribute is absent whenever it would not be true.
+  const headerNav = !isMobile && navPlacement === "header";
+  // The drawer always shows labels; the desktop rail hides them when collapsed. `headerNav`
+  // forces it false rather than leaving the persisted choice to leak: with no sidebar the
+  // attribute lands nowhere, but `context.collapsed` still reaches `renderLink` and
+  // `navFooter`, so a user who had collapsed the rail before the app moved its nav would get
+  // icon-only links in a header with room for labels.
+  const railCollapsed = !isMobile && !headerNav && collapsed;
   const context: AppShellSlotContext = { collapsed: railCollapsed };
   // Hoisted, the density-attribute idiom: the marker scanner reads a whole expression
   // container, so a conditional written at the attribute reports every literal in it as a
@@ -308,6 +348,7 @@ export function AppShell({
   // passing it is a real instruction rather than a no-op. Passing nothing has to stay a
   // no-op, or the shell would override an app's own <html data-density>.
   const densityAttribute = density;
+  const navPlacementAttribute = headerNav ? "header" : undefined;
   const resolvedTitle = resolve(title);
 
   // The brand takes no style object and needs none: its three looks are the resting one,
@@ -323,6 +364,38 @@ export function AppShell({
       </>
     ),
   });
+
+  // Hoisted out of the aside, because the header placement renders the SAME nodes in a
+  // different parent — same markers, same link renderer, same labels. Which is the point:
+  // the two placements are one navigation with two geometries, not two navigations, so
+  // nothing about a link's identity or its active state depends on where it sits.
+  const navigation = (
+    <nav
+      data-terp="appshell-nav"
+      aria-label={strings.primaryNavigationLabel}
+      onClick={isMobile ? closeDrawer : undefined}
+    >
+      <ul data-terp="appshell-nav-list">
+        {nav.map((item) => (
+          <li key={item.to} title={railCollapsed ? item.label : undefined}>
+            {renderLink(
+              item,
+              <>
+                <NavIcon name={item.icon} label={item.label} />
+                <span data-terp="appshell-nav-label">{item.label}</span>
+              </>,
+              { collapsed: railCollapsed },
+            )}
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+
+  // The user menu. Pinned to the bottom of the sidebar when there is one, and last in the
+  // header group when there is not — losing it entirely is the failure a placement prop
+  // invites, since it is where an app puts sign-out.
+  const footerSlot = typeof navFooter === "function" ? navFooter(context) : navFooter;
 
   const sidebar = (
     <aside
@@ -370,27 +443,8 @@ export function AppShell({
           </button>
         </div>
       ) : brand}
-      <nav
-        data-terp="appshell-nav"
-        aria-label={strings.primaryNavigationLabel}
-        onClick={isMobile ? closeDrawer : undefined}
-      >
-        <ul data-terp="appshell-nav-list">
-          {nav.map((item) => (
-            <li key={item.to} title={railCollapsed ? item.label : undefined}>
-              {renderLink(
-                item,
-                <>
-                  <NavIcon name={item.icon} label={item.label} />
-                  <span data-terp="appshell-nav-label">{item.label}</span>
-                </>,
-                { collapsed: railCollapsed },
-              )}
-            </li>
-          ))}
-        </ul>
-      </nav>
-      {typeof navFooter === "function" ? navFooter(context) : navFooter}
+      {navigation}
+      {footerSlot}
       {isMobile && (
         <span
           data-terp="drawer-focus-end"
@@ -407,6 +461,7 @@ export function AppShell({
       data-variant={shellVariant}
       data-content-width={contentWidthAttribute}
       data-density={densityAttribute}
+      data-nav-placement={navPlacementAttribute}
     >
       {/* First in the DOM, so it is the first thing a keyboard reaches on load — which is the
           whole contract, and why it cannot be placed anywhere more convenient. Visually hidden
@@ -437,7 +492,7 @@ export function AppShell({
           </>
         )
       ) : (
-        sidebar
+        !headerNav && sidebar
       )}
       <div
         data-terp="appshell-column"
@@ -445,28 +500,39 @@ export function AppShell({
         aria-hidden={isMobile && drawerOpen ? true : undefined}
       >
         <header data-terp="appshell-header">
-          <button
-            ref={toggleRef}
-            type="button"
-            data-terp="iconbutton"
-            aria-expanded={isMobile ? drawerOpen : !collapsed}
-            aria-label={
-              isMobile
-                ? drawerOpen
-                  ? strings.closeNavigation
-                  : strings.openNavigation
-                : collapsed
-                  ? strings.expandSidebar
-                  : strings.collapseSidebar
-            }
-            onClick={toggleSidebar}
-          >
-            <PanelIcon />
-          </button>
+          {/* No toggle under the header placement, and that is a correctness point rather
+              than tidying: the control exists to collapse the sidebar, and there is no
+              sidebar. Rendering it anyway would leave an aria-expanded whose target does not
+              exist — a button announcing a state about nothing. The brand takes the slot
+              instead, which is the other thing the sidebar was carrying. */}
+          {headerNav ? (
+            brand
+          ) : (
+            <button
+              ref={toggleRef}
+              type="button"
+              data-terp="iconbutton"
+              aria-expanded={isMobile ? drawerOpen : !collapsed}
+              aria-label={
+                isMobile
+                  ? drawerOpen
+                    ? strings.closeNavigation
+                    : strings.openNavigation
+                  : collapsed
+                    ? strings.expandSidebar
+                    : strings.collapseSidebar
+              }
+              onClick={toggleSidebar}
+            >
+              <PanelIcon />
+            </button>
+          )}
+          {headerNav && navigation}
           <div data-terp="appshell-header-group">
             {headerActions}
             <ThemeToggle variant="inline" />
             <LanguageSwitcher variant="inline" />
+            {headerNav && footerSlot}
           </div>
         </header>
         {/* tabIndex -1 so the skip link actually MOVES focus. Following a fragment link sets

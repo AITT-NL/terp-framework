@@ -1,4 +1,10 @@
-# 0098 — Three archetypes, two kinds of measure, and the density island
+# 0098 — Archetypes, measures, the density island, and a shell that can move its navigation
+
+<!-- The filename still says `archetypes-measures-and-the-density-island`, which is what
+     this ADR covered when it was opened. It gained the skip link (§7) and the header
+     placement (§8) as 4d finished, and an ADR is cited by number rather than by slug, so
+     the heading widened and the file did not. Recorded rather than renamed: a broken
+     link is a worse cost than a slug one section out of date. -->
 
 - **Status:** Accepted
 - **Date:** 2026-08-21
@@ -193,6 +199,53 @@ Three things follow from that `tabIndex`, and two of them were wrong in the firs
   renders two `<main id="terp-main">` and both links jump to the first one. The workbench
   catalogue is that page.
 
+### 8. The nav can live in the header, and moving it moves its surface with it
+
+`AppShell` has had one shape: a full-height sidebar, collapsing to an icon rail. That is right
+for the app it was built against and wrong for the one the template already offers to
+generate — the `portal` preset, "a personal landing for customers, staff or suppliers", which
+gets 15rem of permanent chrome for three destinations. An app cannot opt out, because it cannot
+write `style` or `className` and the shell takes no say in the matter.
+
+`navPlacement="header"` renders the same brand, the same nav and the same user menu inside the
+header and no sidebar at all. Four decisions inside that.
+
+**It is desktop-only, and the attribute says so.** Below the breakpoint both placements are the
+drawer — a horizontal row of links does not fit 420px, and the drawer already exists, focus trap
+and all. So the shell derives the attribute from the viewport rather than stamping it from the
+prop, exactly as it derives `data-collapsed`. Every rule keyed on it is then free of a
+`[data-variant="desktop"]` guard, because the attribute is absent whenever it would not be true.
+
+**The header becomes the sidebar surface** — one declaration where six overrides would have
+gone. The brand, the brand title, the resting link, the hover wash and the active link all
+already read `--color-sidebar-*`; moving the *surface* carries the family with it and nothing is
+overridden. It is also the only reading that survives theming: an app painting its sidebar navy
+gets a navy header with the same legible ink, where per-property overrides would have given it
+navy ink on a white header. The proof the mechanism is right rather than merely short is that
+the contrast gate needs nothing new — the declared sidebar pairings are still exactly the
+pairings in play.
+
+**No toggle**, and that is correctness rather than tidying: the control carries `aria-expanded`,
+so rendering it with no sidebar would announce a state about an element that does not exist. The
+brand takes the slot, which is the other thing the sidebar was carrying. The user menu moves to
+the end of the header group — losing it is the failure a placement prop invites, since it is
+where an app puts sign-out.
+
+**`defaultCollapsed` is `never` under `"header"`.** With no sidebar there is nothing to collapse,
+so the pair would type-check, do nothing and give no sign of it. Two things follow from the same
+fact and only one of them is a type: the rail choice is *persisted*, so a user who had collapsed
+the sidebar before the app moved its nav would get icon-only links in a header with room for
+labels, and the attribute that normally reveals the rail state lands nowhere. `railCollapsed`
+forces false, with a test that fails on the leak.
+
+The third of the three rules — `overflow: visible` on the header-placed nav — is a fix and no
+baseline can hold it. The sidebar's nav is a vertical scroll container, and a computed
+`overflow-y` other than `visible` forces `overflow-x` to `auto` too; in a header the box is
+exactly one link tall, so that scroller can never scroll and its only effect is to clip a focused
+link's outline and ring on both edges. The computed lane asserts the **pair** — visible in the
+header, `auto` in the sidebar — because a rule that simply set `visible` everywhere would satisfy
+half of it while silently taking the sidebar's scrolling away.
+
 ## Consequences
 
 - Existing apps get all of it on a version bump with no app-file edits. **One** change moves
@@ -208,9 +261,11 @@ Three things follow from that `tabIndex`, and two of them were wrong in the firs
   previously stamped nothing. Zero-diff wherever nothing above is compact, which is everywhere
   today.
 - The inline-style ledger stays at nine files. Every prop added here is a closed set.
-- `renderTerpApp` reaches `headerActions`, `contentWidth` and `density`; the first of those was a
-  slot that existed on `AppShell` all along and was unreachable from the entry point every app
-  uses.
+- `renderTerpApp` reaches `headerActions`, `contentWidth`, `density` and `navPlacement`; the
+  first of those was a slot that existed on `AppShell` all along and was unreachable from the
+  entry point every app uses.
+- The header placement adds two baselines and no diffs: every existing shell specimen is
+  byte-identical, because the attribute it is keyed on is absent unless an app asks.
 
 ## What 0097 still owes, and why it is not amended here
 

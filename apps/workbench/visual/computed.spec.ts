@@ -379,3 +379,39 @@ test("the measure composes with a component's own narrower measure instead of re
   // deleted the rule would satisfy every assertion above.
   expect(widths.stack, "a child with no measure of its own takes the shell's").toBe(1280);
 });
+
+test("the header-placed nav is not a scroll container", async ({ page }) => {
+  // The third of the header placement's three rules, and the only one no baseline can hold:
+  // `overflow` only shows itself around something that overflows, and at rest nothing does.
+  //
+  // It is a fix rather than a reset. The nav's sidebar rule sets `overflow-y: auto` so a long
+  // nav scrolls inside a full-height column — and a computed `overflow-y` other than `visible`
+  // forces `overflow-x` to `auto` as well. In the header the box is exactly one link tall, so
+  // that scroller can never scroll and its only effect is to clip a focused link's 2px outline
+  // and 3px ring on both edges.
+  //
+  // The pair is the assertion: the same marker, the same component, two placements. Without
+  // the sidebar half a rule that simply set `overflow: visible` everywhere would pass here and
+  // silently take the sidebar's scrolling away.
+  const overflowOf = (selector: string) =>
+    page.evaluate((css) => {
+      const element = document.querySelector(css);
+      if (element === null) {
+        return null;
+      }
+      const style = getComputedStyle(element);
+      return { x: style.overflowX, y: style.overflowY };
+    }, selector);
+
+  await page.goto("/?theme=light&only=app-shell-header-nav");
+  await page.locator('[data-terp="appshell-nav"]').waitFor({ state: "visible" });
+  expect(await page.locator('[data-terp="appshell-sidebar"]').count()).toBe(0);
+  expect(await overflowOf('[data-terp="appshell-nav"]')).toEqual({
+    x: "visible",
+    y: "visible",
+  });
+
+  await page.goto("/?theme=light&only=app-shell");
+  await page.locator('[data-terp="appshell-sidebar"]').waitFor({ state: "visible" });
+  expect(await overflowOf('[data-terp="appshell-nav"]')).toEqual({ x: "auto", y: "auto" });
+});
