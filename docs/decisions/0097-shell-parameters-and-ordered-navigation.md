@@ -319,6 +319,55 @@ only the drawer. No baseline could have caught that: the header-groups specimen 
 missing baseline is *written* before it fails, so its first recording would have captured the
 defect and called it the truth. It is gated by a computed-value assertion instead.
 
+**The badge half, amended in 4e — and this one is a refusal rather than a build.** Nothing ships.
+`NavItem` gains no `badge`, and the shell gains no `badges` prop. The reasoning is worth keeping
+because the second half of it was not obvious and only appeared once the first half was settled.
+
+*The manifest cannot hold it, which was the easy part.* A `ModuleManifest` is a build-time
+literal — stack-agnostic, serialisable, emitted by a generator — so a live count cannot live
+there by construction. What is left is a static string, and a static string is close to useless:
+"New" never stops being new, and nothing ever clears it. The same reasoning that turned `visible`
+into `permission` applies, and it does not rescue this field the way it rescued that one.
+
+*A shell prop was the obvious replacement and it fails for a better reason.* `badges` keyed by
+path would be reachable and serialisable-free, and one objection people reach for does **not**
+apply: a key naming an item this user cannot see should render nothing, which is the same
+fail-open behaviour a declared-but-unreferenced group already has. It fails because a nav badge
+requires four decisions and the **shell has strictly less information than the caller for every
+one of them**:
+
+- **Tone.** `Badge` publishes five. Whether `3` is informational or dangerous is domain knowledge
+  the shell does not have and cannot infer.
+- **The collapsed rail.** At `--shell-sidebar-width-collapsed` the link is one centred icon with
+  the label visually hidden and there is no room for a pill. Hiding the badge discards exactly the
+  thing it was added for; rendering a corner dot discards the count *and* requires the shell to
+  override `Badge`'s own padding and font size, which is the shell reaching into another
+  component's internals — the ownership line ADR 0094 draws, in the direction it refuses.
+- **`aria-live`.** A count that changes inside a `navigation` landmark either interrupts the user
+  on every change or changes silently. Which is correct depends on whether the number is urgent,
+  and urgency is the caller's fact.
+- **The content type.** `ReactNode` lets an app pass anything and makes the rail's `title`
+  fallback impossible, because a node cannot be interpolated into a string attribute. `string`
+  makes the fallback possible and forces the shell to construct the `Badge`, which reopens tone.
+
+*The seam that answers all four already exists, and is unreachable — which is the finding worth
+recording.* `AppShell.renderLink` receives the item, the shell's rendered children and
+`collapsed`; an app rendering its own badge there decides content, tone, rail behaviour and
+politeness with the information to decide them. But `buildAppRouter` supplies that prop itself and
+neither `BuildAppRouterOptions` nor `RenderTerpAppOptions` exposes it, so no app using a sanctioned
+entry point can reach it. That is the shape this ADR's own Context complains about for
+`headerActions` — "a slot that exists is unreachable from the one-call bootstrap every app uses" —
+still true one slot over.
+
+It is deliberately **not** fixed here. Exposing `renderLink` wholesale would let an app replace the
+link that 4e's §6 work just made load-bearing: the `activeOptions: { exact: true }` plus the
+shell-supplied `aria-current` are what keep exactly one item current, and an app that overrides
+the renderer silently gets two again. A narrower slot — a per-item decoration that leaves the
+anchor alone — is the shape that would work, and it is a decision with no asker: no capability
+this framework ships produces a count, and neither the packaged admin area, the example app nor
+the project template has anything to put in a badge. This section records the design so that the
+first app that does have one starts from the four questions rather than from the prop.
+
 ### 6. "Active" is one predicate, and the component owns it
 
 `ModuleNav` computes `isActive` as `pathname === item.to`, a raw string compare, while the

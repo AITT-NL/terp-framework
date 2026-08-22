@@ -897,6 +897,38 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **The navigation model closes without a badge, and that is a decision (ADR 0097 §5, amended in
+  4e).** ADR 0097 listed `badge` among the fields `NavItem` would gain. It will not gain one, and
+  the shell does not get a `badges` prop either. No code changes; this is here because an app
+  author reading that decision would otherwise be waiting for a field that is never coming.
+
+  The manifest half is the easy half: a `ModuleManifest` is a build-time literal, so a live count
+  cannot live in one by construction, and what remains is a static string — "New" that never stops
+  being new and that nothing ever clears.
+
+  The shell-prop half fails for a better reason. A `badges` map keyed by path would be perfectly
+  reachable, and the objection people reach for does **not** apply: a key naming an item this user
+  cannot see should render nothing, which is the same fail-open behaviour a declared-but-
+  unreferenced group already has. It fails because a nav badge needs four decisions and the shell
+  has strictly less information than the caller for every one — the **tone** (five exist; whether
+  `3` is informational or dangerous is domain knowledge), the **collapsed rail** (no room for a
+  pill at 4rem, so either the count is discarded or the shell overrides `Badge`'s own padding and
+  font size, reaching into another component's internals), **`aria-live`** (a count changing inside
+  a navigation landmark either interrupts on every change or changes silently, and which is right
+  depends on urgency the shell cannot see), and the **content type** (a `ReactNode` cannot be
+  interpolated into the rail's `title` attribute; a `string` forces the shell to build the `Badge`
+  and reopens tone).
+
+  The seam that answers all four already exists and is unreachable, which is the part worth
+  recording. `AppShell.renderLink` receives the item, the rendered children and `collapsed` — but
+  `buildAppRouter` supplies it, and neither entry point exposes it. That is the same shape this
+  ADR's own Context complains about for `headerActions`, one slot over. It is deliberately not
+  fixed here: exposing the renderer wholesale would let an app replace the link that 4e's active
+  predicate just made load-bearing, and quietly get two current items again. A narrower per-item
+  decoration slot is the shape that would work, and it has no asker — no capability this framework
+  ships produces a count, and neither the packaged admin area, the example app nor the project
+  template has anything to put in a badge.
+
 - **Every transition in the framework stylesheet is timed off the published motion scale,
   so moving a motion token now moves something (ADR 0097).** The seven motion tokens
   shipped in 0.7.0 and nothing read them: the sheet wrote `150ms ease` 28 times and
