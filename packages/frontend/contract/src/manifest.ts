@@ -51,6 +51,19 @@ export interface NavItem {
   icon?: string;
   /** Minimum role required to show the nav item. */
   role?: RoleName;
+  /**
+   * Match the URL exactly rather than as a segment-aligned prefix.
+   *
+   * The default is the prefix, and that is the useful behaviour: a detail page under a section
+   * keeps the section's tab lit, so `/records/123` leaves "Records" current. Set this where a
+   * destination should own only itself — typically a landing page that also has children in the
+   * nav, where the parent would otherwise stay lit on every child.
+   *
+   * It does not decide WHICH item is current when several match; that is a property of the set,
+   * and the adapter resolves it by longest match. This only says whether this item is a
+   * candidate at all.
+   */
+  exact?: boolean;
 }
 
 export interface ModuleManifest {

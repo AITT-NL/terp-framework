@@ -28,6 +28,8 @@ export type { ResourceListProps } from "./ResourceList";
 export { RequireAuth } from "./RequireAuth";
 export type { RequireAuthProps } from "./RequireAuth";
 export { visibleNav } from "./nav";
+export { activeNavPath, isNavItemActive } from "./navActive";
+export type { NavActiveCandidate } from "./navActive";
 export {
   AppShell,
   SIDEBAR_STORAGE_KEY,

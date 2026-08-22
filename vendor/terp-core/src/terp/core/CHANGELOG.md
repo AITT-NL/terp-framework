@@ -144,6 +144,42 @@ decision, 0001 onwards.
   also documented as an exported `MAIN_CONTENT_ID` and never re-exported from the entry point, so
   the one argument for sharing it had no consumer either.
 
+- **One predicate decides which nav item is current, and it is a property of the SET
+  (ADR 0097 §6, amended in 4e).** `isNavItemActive` and `activeNavPath` ship as pure functions
+  with no consumer yet — the shell and `ModuleNav` adopt them next — because the shape of the
+  answer was worth settling on its own.
+
+  The framework had two notions of "active" and they disagreed: `ModuleNav` compared
+  `pathname === item.to` raw while the `Link` it rendered compared through the router, and the
+  sheet's own comment beside the rule said so and deferred the fix to "the navigation model".
+  What that comment did not know is that the interesting problem is **arity**, not comparison.
+  "At most one item is current" is a property of the whole set, and a router computes
+  `isActive` per link with no knowledge of siblings — so a nav listing `/settings` and
+  `/settings/users` gets **two** links the router considers active at `/settings/users`, two
+  `aria-current="page"` attributes and two painted tabs. A screen reader says "current page"
+  twice and neither link is wrong on its own terms. This ships today, in every app: the
+  packaged `/admin` item sits alongside the example app's `/admin/grants` and
+  `/admin/webhooks`.
+
+  Per-item `exact` is not the fix, which is worth stating because it was the first answer:
+  turn it on to stop that and `/settings/appearance` — a real route that is not itself a nav
+  item — lights nothing at all. **Longest segment-aligned match wins** handles both, and
+  `NavItem.exact` is offered for the narrower job it is actually good at: a landing page that
+  should own only itself.
+
+  Two details that each removed a special case rather than adding one. Matching on **segments**
+  rather than string prefixes means `/` claims nothing but itself, which retires the
+  hand-written `exact: item.to === "/"` the router adapter carried — that flag was working
+  around a prefix test the adapter did not have. And normalising both operands the way the
+  router does (collapse repeated slashes, then drop a trailing one) means the root needs no
+  rule of its own: `//foo` was the single shape a segment test would have let through, and an
+  earlier draft special-cased the root and justified it with `/profile`, which the segment test
+  already rejects. Six mutations, six reds, including one that stayed green first time and
+  showed the justification was wrong.
+
+  Search and hash are ignored on purpose: a nav tab's identity is its path, so filtering a list
+  must not unhighlight the tab the user is standing on.
+
 - **The brand seam: a box, a mark per appearance, a favicon — and no third slot
   (ADR 0098 §9).** Three things were missing from the brand and only two of them turned out to
   be slots.
