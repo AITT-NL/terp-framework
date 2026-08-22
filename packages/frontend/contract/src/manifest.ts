@@ -102,6 +102,57 @@ export interface NavItem {
    * candidate at all.
    */
   exact?: boolean;
+  /**
+   * The {@link NavGroup} this item belongs to, by id.
+   *
+   * An item naming a group the app has not declared falls into the default headerless group
+   * rather than disappearing, and that is the deliberate direction to fail. A group is declared
+   * once by the **app**; the item is declared by a **module** that ships on its own schedule, so
+   * an id with no declaration yet is the normal first-run state of a module the app has not
+   * finished adopting. Silently dropping the link would hide a working screen and report nothing.
+   */
+  group?: string;
+  /**
+   * Sort key against the item's siblings inside its group.
+   *
+   * Absent is 0, so a positive number sorts below every unordered sibling and a negative one
+   * above — CSS `order` semantics, which is the vocabulary this framework already speaks.
+   * The sort is stable, so items that tie keep their declaration order and a manifest that
+   * declares no order anywhere renders exactly as it does today.
+   */
+  order?: number;
+}
+
+/**
+ * A named section of the primary navigation, declared once by the **app**.
+ *
+ * A group spans modules — a "Sales" group holds items contributed by several of them — so no
+ * module can own its label or its position, and it is the one part of the navigation model that
+ * cannot live on a module manifest. Items reference it by {@link NavItem.group}.
+ *
+ * Declaring groups is optional and additive: an app that declares none renders one flat,
+ * unlabelled list, which is what every app renders today.
+ */
+export interface NavGroup {
+  /** Referenced by {@link NavItem.group}. */
+  id: string;
+  /**
+   * Rendered above the group's list.
+   *
+   * `null` renders **no label element at all** — a positioning-only group, which is how an app
+   * places its otherwise-ungrouped items somewhere other than the end without inventing a
+   * heading for them. Required rather than optional so that "no label" is a decision the
+   * declaration states, not an omission.
+   */
+  label: string | null;
+  /**
+   * Sort key against sibling groups.
+   *
+   * Absent is 0 and the sort is stable, so groups that tie keep declaration order. The default
+   * headerless group is **not** part of this sort: it is always emitted last. See
+   * `groupNav` in `@terpjs/react-core` for why.
+   */
+  order?: number;
 }
 
 export interface ModuleManifest {

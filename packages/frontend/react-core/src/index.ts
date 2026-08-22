@@ -27,8 +27,8 @@ export { ResourceList } from "./ResourceList";
 export type { ResourceListProps } from "./ResourceList";
 export { RequireAuth } from "./RequireAuth";
 export type { RequireAuthProps } from "./RequireAuth";
-export { isDeclarationVisible, visibleNav } from "./nav";
-export type { NavVisibilityContext } from "./nav";
+export { groupNav, isDeclarationVisible, visibleNav } from "./nav";
+export type { NavSection, NavVisibilityContext } from "./nav";
 export { activeNavPath, isNavItemActive } from "./navActive";
 export type { NavActiveCandidate } from "./navActive";
 export {

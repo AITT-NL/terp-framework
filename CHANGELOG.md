@@ -727,6 +727,69 @@ decision, 0001 onwards.
   heading with siblings after it is a grouping the check cannot see. Both halves of the table
   stay byte-equal, and the asymmetry is pinned by tests rather than left to the data.
 
+- **The navigation gains groups, and the app declares them (ADR 0097 §5, amended in 4e).**
+  `NavGroup` (`{ id, label, order }`) lands on the stack-agnostic manifest, `NavItem` gains
+  `group` and `order`, and `groupNav` ships as a pure function with no consumer yet — the shell
+  adopts it next. Landing the model on its own because every interesting decision here is about
+  what happens when a declaration is *missing*, and those were worth settling before anything
+  rendered them.
+
+  A group spans modules — a "Sales" group holds items contributed by several of them — so no
+  module can own its label or its position. That is why it is the one part of the navigation
+  model that is **not** on a module manifest, and it is the defect ADR 0097 names in its own
+  Context: sidebar order is "an accident of `import.meta.glob` key order".
+
+  **Additive by construction rather than by intention.** An app that declares no groups gets one
+  section holding exactly the items it passed, in the order it passed them — `groups` defaults to
+  empty, every item falls into the default bucket, and a stable sort over keys that are all 0 is
+  the identity function. That is the code path, not a promise about it.
+
+  Four rules, each a decision about an absence:
+
+  **An item naming an undeclared group falls open into the ungrouped bucket.** The app declares
+  groups; a module declares items and ships on its own schedule, so an id with no declaration yet
+  is the ordinary state of a module the app has not finished adopting. The two ways to be wrong
+  are not symmetric: an ungrouped link is in the wrong place and works, a dropped link is a
+  screen the user cannot reach with nothing saying why. Nothing warns about it either — this is
+  a state the design calls normal, and a diagnostic for a normal state teaches people to ignore
+  diagnostics.
+
+  **A group left empty renders nothing at all.** Reachable on a first render rather than in
+  theory: the packaged `/admin` entry declares `role: "admin"`, so a group holding it is empty
+  for everyone else once `visibleNav` has run. A label over a void names a place the user is
+  being refused and cannot see.
+
+  **The ungrouped bucket is emitted LAST**, and this is the rule that changed under review. It
+  was specified first, and the case that overturned it is the case every app has. The packaged
+  admin area is appended after an app's own manifests, so its nav entry renders last today — and
+  no app authors that entry, so no app can give it a `group`. Emitting the bucket first would
+  hoist it to the top of the sidebar the moment an app declared its first group, with no way to
+  put it back. Emitting last leaves it exactly where it is. The trade is real and stated: an app
+  that groups a *minority* of its items sees the ungrouped majority sink below them — which is
+  app-authored, visible on first render, and fixed in one line with
+  `{ id: "main", label: null, order: -1 }`, since a `null` label renders no heading and the group
+  becomes pure positioning. The admin case has no such fix, which is what made it decisive.
+
+  **Absent `order` is 0, everywhere, and the sort is stable.** Not `Infinity` — a single numbered
+  item would then leap above an entire unnumbered list, breaking the additivity above. Absent-is-0
+  is CSS `order` semantics exactly, which is the vocabulary a token-styled framework already
+  speaks.
+
+  A duplicate group id is not an error in `groupNav`: the first declaration wins and the function
+  stays total, so a render can never throw. `buildAppRouter` refuses it at composition time
+  instead, where an authoring error can be reported once rather than on every frame.
+
+  Nine mutations, nine reds, each killing its own gate. Two of them exist because the first draft
+  of the gate could not fail: "sorts stably" is unfalsifiable by *deleting* the sort, since
+  `Array.prototype.sort` is stable by specification and a tied array comes out in declaration
+  order either way — the comparator that does reorder ties is
+  `((a.order ?? 0) - (b.order ?? 0)) || -1`, measured here to reverse a tied array at every
+  length from two upward. And "sorts on order" only separates `?? 0` from `?? Infinity` if the
+  fixture carries a **positive** order beside an absent one.
+
+  No DOM and no CSS in this commit, so no baseline can move and the visual lanes are not
+  implicated.
+
 ### Changed
 
 - **Every transition in the framework stylesheet is timed off the published motion scale,
