@@ -1,3 +1,4 @@
+import type { IconName } from "@terpjs/contract";
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -39,7 +40,7 @@ const ToastContext = createContext<ToastApi | null>(null);
 
 const DEFAULT_DURATION_MS = 5000;
 
-const iconName: Record<ToastVariant, string> = {
+const iconName: Record<ToastVariant, IconName> = {
   success: "check",
   error: "x",
   warning: "bell",

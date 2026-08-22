@@ -1,3 +1,4 @@
+import type { IconName } from "@terpjs/contract";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -32,7 +33,7 @@ const THEMES: readonly Theme[] = [
   "system",
 ];
 
-const THEME_ICONS: Record<Theme, string> = {
+const THEME_ICONS: Record<Theme, IconName> = {
   light: "sun",
   dark: "moon",
   midnight: "moon-stars",

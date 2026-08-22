@@ -228,6 +228,33 @@ the same shape as the `Theme` union's hand-written copy, for the same stated rea
 opposite direction. An app naming an icon outside the set gets a typecheck error instead of a
 silent letter tile. Runtime behaviour is unchanged: the fallback stays.
 
+**The icon half, amended in 4e by building it.** The decision is right and the mechanism is one
+keyword smaller than described. `ICON_NAMES` is published by the contract `as const` and
+`IconName` derives from it, exactly as this section says — but react-core's table is not held to
+it by a *parity test*. It is held by `satisfies Record<IconName, ReactNode>`, which is exhaustive
+in **both** directions at compile time: a glyph whose name is not declared is an excess-property
+error and a declared name with no glyph is a missing-property error. A parity test could only run
+after a build that had already succeeded, and would itself need maintaining. Both directions were
+mutated and both are red.
+
+The `as const` needs a guard of its own, because losing it is the failure that leaves everything
+compiling and checking nothing: `IconName` would widen to `string` and every use of it would still
+typecheck. It is guarded by a deliberate `@ts-expect-error` assigning an invalid name — remove the
+`as const` and the directive becomes *unused*, which TypeScript reports as an error. That guard
+cannot be built out of a scan of the name set, because the scan would be built out of the thing
+being checked.
+
+One correction to the scope. This section says the name is checked on the manifest; it also has to
+be checked on `Icon`, and **not** on `NavIcon`, and the difference is the failure mode rather than
+the audience. `NavIcon` falls back to the label's initial in a tile — visible, designed, and gated
+by a specimen — so an unknown name there produces something and its `name` stays `string`. `Icon`
+rendered *nothing*. That distinction was not academic: the workbench's own icon gallery contained
+`<Icon name="close" />`, there is no `close` glyph (it is `x`), and it shipped a blank cell with a
+caption under it. The baseline recorded the blank and passed for several releases, because a
+missing glyph and a glyph that is not there are the same picture. Typing `Icon.name` turns that
+into a build failure, and it is the clearest evidence this decision produced: the rule about legal
+combinations that silently do nothing had a live instance inside the tool built to catch them.
+
 **The group half, amended in 4e by building it.** The shape above survives — groups are declared
 once by the app, referenced by items, and the model is additive — but four of the things this
 section says a group *is* did not, and the ordering rule it implies is wrong in the one case every

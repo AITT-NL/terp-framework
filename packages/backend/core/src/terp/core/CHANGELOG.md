@@ -852,6 +852,49 @@ decision, 0001 onwards.
   re-run, it kills exactly the assertion it should. Four lanes: 253 screenshots, 626 axe runs,
   7 keyboard, 10 computed.
 
+- **Icon names are checked, and the tool built to catch silent no-ops contained one
+  (ADR 0097 §5, amended in 4e).** `@terpjs/contract` publishes `ICON_NAMES` as data with
+  `IconName` derived from it, so `NavItem.icon` and `Icon`'s `name` are checked names: a typo is
+  a typecheck error where it used to be a picture of nothing.
+
+  **The evidence came from the workbench itself.** Its icon gallery rendered
+  `<Icon name="close" />`. There is no `close` glyph — it is `x` — so the specimen showed nine
+  glyphs and one empty cell with a caption underneath, and its baseline recorded the blank and
+  passed for several releases. Nothing could have caught it: a missing glyph and a glyph that is
+  not there are the same picture, axe has nothing to say about an element that renders no
+  content, and the name was a plain `string`. Reintroducing the typo is now a build failure.
+
+  So the type lands on `Icon` and **not** on `NavIcon`, and the difference is the failure mode
+  rather than the audience. `NavIcon` falls back to the label's initial in a tile — visible,
+  designed, and gated by a specimen of its own — so an unknown name there produces something, and
+  its `name` stays `string`. `Icon` rendered nothing, and silence is the thing the type exists to
+  make impossible. The same reasoning types the two internal lookup tables that feed `Icon`
+  (the theme picker's and the toast's), which are exactly where a typo would have gone unseen.
+
+  **Held by `satisfies`, not by a parity test.** `satisfies Record<IconName, ReactNode>` on the
+  glyph table is exhaustive in both directions at compile time — a glyph whose name is not
+  declared is an excess-property error, a declared name with no glyph is a missing-property
+  error — which is strictly stronger than the test ADR 0097 §5 asked for, since a test can only
+  run after a build that already succeeded. The exported `ICON_GLYPHS` stays a string-keyed
+  record so `NavIcon` can keep indexing it with a `string`.
+
+  **`as const` is guarded, because losing it would leave everything compiling and checking
+  nothing.** Without it `IconName` widens to `string` and every check built on it still passes.
+  It is pinned by a deliberate `@ts-expect-error` assigning an invalid name: drop the `as const`
+  and the directive becomes *unused*, which TypeScript reports as an error. That guard cannot be
+  built out of a scan of the name set, because the scan would be built out of the thing being
+  checked.
+
+  Six mutations, six reds, each naming itself in the diagnostic: the missing `as const`
+  (`Unused '@ts-expect-error' directive`), a glyph with no declared name, a declared name with no
+  glyph, a manifest naming an icon that does not exist, a lookup table holding an unchecked name,
+  and the original `close` typo reintroduced.
+
+  One baseline pair moved — the icon gallery, now showing ten glyphs instead of nine and a
+  blank — and the two stale `win32` copies were **deleted** rather than left behind, with `icons`
+  added to the `LINUX_ONLY` set. A baseline whose content is a known defect is worse than no
+  baseline: it certifies the bug. Every other baseline was byte-identical.
+
 ### Changed
 
 - **Every transition in the framework stylesheet is timed off the published motion scale,

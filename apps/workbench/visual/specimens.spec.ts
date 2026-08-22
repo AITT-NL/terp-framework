@@ -106,6 +106,15 @@ test.describe("component specimens", () => {
 const LINUX_ONLY = new Set([
   "app-shell-brand-pair",
   "app-shell-header-nav",
+  // Here for a different reason than the rest, and worth reading before someone re-records it.
+  // The others were never recordable on win32. This one WAS recorded, and what it recorded was a
+  // bug: the gallery rendered `<Icon name="close" />`, there is no `close` glyph, and the
+  // baseline captured the resulting blank cell and passed for several releases — a missing glyph
+  // and a glyph that is not there are the same picture. The typo is a build failure now, but the
+  // win32 pair still showed the blank and could not be re-recorded here, so it was deleted
+  // rather than left behind. A baseline whose content is a known defect is worse than none: it
+  // certifies the bug.
+  "icons",
   "app-shell-nav-groups",
   "app-shell-nav-groups-collapsed",
   "app-shell-header-nav-groups",

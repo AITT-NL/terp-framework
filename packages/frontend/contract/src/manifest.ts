@@ -10,6 +10,8 @@
  */
 
 /** A role name as understood by the app's backend (e.g. "viewer" | "editor" | "admin"). */
+import type { IconName } from "./icons";
+
 export type RoleName = string;
 
 export interface ModuleRoute {
@@ -66,8 +68,16 @@ export interface NavItem {
   label: string;
   /** Destination path; should match a {@link ModuleRoute.path}. */
   to: string;
-  /** Icon identifier the stack maps to its own icon set. */
-  icon?: string;
+  /**
+   * Which bundled glyph the item shows, by name.
+   *
+   * A **checked** name ({@link IconName}), which is the one deliberately breaking part of the
+   * navigation model: a misspelled icon used to render the label's first letter in a tile, which
+   * looks like a considered fallback rather than like a typo, so it survived review and shipped.
+   * It is now a typecheck error at the manifest. Runtime behaviour is unchanged — the fallback
+   * still exists and still handles the honest case of an item with no icon at all.
+   */
+  icon?: IconName;
   /** Minimum role required to show the nav item. */
   role?: RoleName;
   /**

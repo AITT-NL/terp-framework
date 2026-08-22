@@ -1,3 +1,4 @@
+import type { IconName } from "@terpjs/contract";
 import type { ReactNode } from "react";
 
 import { injectTerpStyles } from "./styles";
@@ -27,8 +28,28 @@ const svgProps = {
   focusable: false,
 } as const;
 
-/** The bundled glyphs, keyed by the names a manifest's `NavItem.icon` may use. */
-export const ICON_GLYPHS: Record<string, ReactNode> = {
+// `IconName` must be the literal union, not `string`. Drop the `as const` from `ICON_NAMES` in
+// the contract and this directive becomes unused, which TypeScript reports as an error — which
+// is the point of writing it here rather than trusting the annotation over there. A scan cannot
+// check this, because the thing being checked is what the scan would be built out of.
+// @ts-expect-error the union must reject a name that is not in it
+const _iconNameIsNotWidened: IconName = "no-such-glyph";
+void _iconNameIsNotWidened;
+
+/**
+ * The bundled glyphs, keyed by the names a manifest's `NavItem.icon` may use.
+ *
+ * `satisfies Record<IconName, ReactNode>` is exhaustive in **both** directions at compile time:
+ * a glyph whose name is not in {@link ICON_NAMES} is an excess-property error, and a name with
+ * no glyph is a missing-property error. That is strictly stronger than the parity test ADR 0097
+ * §5 asked for — a test can only run after a build that already succeeded, and it would have to
+ * be kept in sync by hand — and it costs one keyword.
+ *
+ * The exported type stays `Record<string, ReactNode>` deliberately. `NavIcon` indexes this table
+ * with a `string` (its fallback is a designed behaviour, not an error), so narrowing the export
+ * would make that a type error at a call site the design wants to keep working.
+ */
+const GLYPHS = {
   home: (
     <svg {...svgProps}>
       <path d="M3 10.5 12 3l9 7.5" />
@@ -433,7 +454,17 @@ export const ICON_GLYPHS: Record<string, ReactNode> = {
       <path d="M13 3 4 14h6l-1 7 9-11h-6l1-7Z" />
     </svg>
   ),
-};
+} satisfies Record<IconName, ReactNode>;
+
+/**
+ * The glyph table as the package publishes it.
+ *
+ * Typed as a string-keyed record rather than an IconName-keyed one, and that is not laziness:
+ * NavIcon looks a glyph up by a plain string on purpose, so a narrower index signature would
+ * break the one call site whose unknown-name behaviour is designed. The exhaustiveness lives on
+ * the declaration above, where it belongs.
+ */
+export const ICON_GLYPHS: Record<string, ReactNode> = GLYPHS;
 
 export interface NavIconProps {
   /** Glyph name (a `NavItem.icon` value); unknown / missing falls back to the initial. */
@@ -460,8 +491,22 @@ export function NavIcon({ name, label }: NavIconProps) {
 }
 
 export interface IconProps {
-  /** Glyph name from {@link ICON_GLYPHS}; unknown names render nothing. */
-  name: string;
+  /**
+   * Which glyph to render, by checked name.
+   *
+   * A checked name here and a plain `string` on {@link NavIconProps}, and the difference is the
+   * failure mode rather than the audience. `NavIcon` falls back to the label's initial in a
+   * tile — visible, designed, and gated by a specimen — so an unknown name there produces
+   * something. `Icon` rendered **nothing**: an empty box where a glyph should be, which is
+   * exactly the silent no-op this codebase refuses everywhere else.
+   *
+   * That was not hypothetical. The workbench's own icon gallery rendered
+   * `<Icon name="close" />` — there is no `close` glyph, the glyph is `x` — and shipped a blank
+   * cell with a caption under it. Its baseline recorded the blank and passed for releases,
+   * because a missing glyph and a glyph that is not there look identical. The type is what
+   * turns that into a build failure.
+   */
+  name: IconName;
   /**
    * CSS length applied to width & height (default `1em`, so the glyph tracks
    * the surrounding text size). All strokes use `currentColor`.

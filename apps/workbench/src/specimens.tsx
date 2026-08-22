@@ -69,7 +69,7 @@ import {
   UserMenu,
 } from "@terpjs/react-core";
 import type { BadgeTone, DataViewColumn, DataViewRepository, Resource } from "@terpjs/react-core";
-import type { NavGroup, NavItem } from "@terpjs/contract";
+import type { IconName, NavGroup, NavItem } from "@terpjs/contract";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -1937,7 +1937,13 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         title: "Icon — a representative sample",
         node: (
           <Stack direction="row" gap={3} wrap align="center">
-            {[
+            {/* The last entry used to be "close", which is not a glyph — the glyph is "x" — so
+                this gallery rendered nine icons and one empty cell with a caption under it, and
+                its baseline recorded the blank and passed for releases. A missing glyph and a
+                glyph that is not there look identical, which is why no lane found it. Icon's
+                `name` is a checked name now, so the typo is a build failure rather than a
+                picture of nothing. */}
+            {([
               "plus",
               "download",
               "search",
@@ -1947,8 +1953,8 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               "layers",
               "settings",
               "check",
-              "close",
-            ].map((name) => (
+              "x",
+            ] satisfies IconName[]).map((name) => (
               <Stack key={name} gap={1} align="center">
                 <Icon name={name} />
                 <span style={{ fontSize: "var(--font-size-xs)" }}>{name}</span>
