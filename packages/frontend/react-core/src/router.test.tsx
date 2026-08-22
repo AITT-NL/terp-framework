@@ -944,3 +944,70 @@ describe("buildAppRouter — the shell's navigation subscription", () => {
     expect(new Set(seen).size).toBe(1);
   });
 });
+
+describe("buildAppRouter — a declared permission gates the ROUTE, not just the link", () => {
+  // The asymmetry this exists to prevent: hiding a nav link while leaving its route reachable by
+  // URL is not a weaker form of authorization, it is the appearance of one. `role` has never had
+  // that gap — it is declared on both NavItem and ModuleRoute — and `permission` does not get to
+  // introduce it. The mutation that motivated this test (gate the route on `role` alone) left the
+  // whole suite green.
+  const gated: ModuleManifest[] = [
+    {
+      name: "billing",
+      routes: [{ path: "/export", view: "Export", permission: "billing.export" }],
+      nav: [{ label: "Export", to: "/export", permission: "billing.export" }],
+    },
+  ];
+  const gatedViews = { Export: () => <Page title="Export view">export body</Page> };
+
+  function sessionWithPermissions(permissions: string[]) {
+    return vi.fn<typeof fetch>(async (input) => {
+      const url = (input as Request).url;
+      if (url.endsWith("/api/v1/auth/login")) {
+        return jsonResponse({ access_token: "t", token_type: "bearer" });
+      }
+      return jsonResponse({
+        id: "1",
+        email: "editor@example.com",
+        role_rank: 20,
+        role_name: "editor",
+        permissions,
+      });
+    });
+  }
+
+  async function renderWith(permissions: string[]) {
+    vi.stubGlobal("fetch", sessionWithPermissions(permissions));
+    const router = buildAppRouter(gated, {
+      views: gatedViews,
+      title: "Terp",
+      history: createMemoryHistory({ initialEntries: ["/export"] }),
+    });
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+  }
+
+  it("renders the view when the grant is held", async () => {
+    await renderWith(["billing.export"]);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Export view" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("link", { name: "Export" })).toBeInTheDocument();
+  });
+
+  it("refuses the route when the grant is missing, even though the rank clears", async () => {
+    // rank 20 clears every role floor this manifest declares — the ONLY thing withheld is the
+    // named grant, so a route gated on `role` alone would render the page in full.
+    await renderWith([]);
+    await waitFor(() =>
+      expect(screen.getByText("You do not have access to this page.")).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("heading", { name: "Export view" })).not.toBeInTheDocument();
+    // ...and the link is gone too, which is the half that was already working.
+    expect(screen.queryByRole("link", { name: "Export" })).not.toBeInTheDocument();
+  });
+});

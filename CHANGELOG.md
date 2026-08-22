@@ -144,6 +144,43 @@ decision, 0001 onwards.
   also documented as an exported `MAIN_CONTENT_ID` and never re-exported from the entry point, so
   the one argument for sharing it had no consumer either.
 
+- **Nav and route visibility is declarative data, and it gates the route as well as the link
+  (ADR 0097 §5, amended in 4e).** `NavItem` and `ModuleRoute` take `permission`, a named grant
+  from `CurrentUser.permissions`, **ANDed** with the `role` they already had.
+
+  0097 specified `visible: (ctx) => boolean`. A function cannot live on the manifest — it is
+  stack-agnostic, serialisable, and a generator emits it — so the predicate had to become data.
+  The interesting part is what the data can honestly say. 0097's `NavContext` named module
+  grants, per-module role ranks, superuser and internal-versus-external; `CurrentUser` carries
+  **none** of the four. It carries `role_rank`, `role_name` and `permissions`, and the last is
+  the general mechanism the decision never named. So the context is two fields built from what
+  `/me` actually returns, rather than four built from a wish.
+
+  The AND is not a design choice, it is a mirror: a server `Policy` carrying a `Permission`
+  enforces the permission's role floor **and** the grant, which is the same reasoning the
+  `Authorized` component's own `permission` prop already records. Reusing that shape means the
+  navigation gains the gate the buttons already have instead of a second vocabulary for one idea.
+  No combinator, and the decisive reason is on the server: `AuthzRef` is one ref per read and one
+  per write, so an any-of on the client could express a gate no `Policy` can declare, and a
+  client gate with no possible server counterpart can only drift from the endpoint it mirrors.
+
+  **It is declared on `ModuleRoute` too, and that is the half worth insisting on.** A nav-only
+  gate hides the link and leaves the route reachable by URL, which is not a weaker form of
+  authorization but the appearance of one. `role` has never had that asymmetry — it is declared
+  on both — and `permission` does not get to introduce it. The mutation that removed the route
+  gate left the entire suite green, which is how the missing test was found.
+
+  `visibleNav`'s context is a **required** argument, and the break is deliberate. Optional would
+  have been source-compatible and silently wrong: an existing two-argument caller would fail
+  closed on every item that gained a `permission` and quietly drop links from a sidebar with no
+  error anywhere. Required turns it into a typecheck error at the one call site each app has.
+  Listed here with the icon union as the release's breaking changes.
+
+  Fails closed three ways, each with a test: signed out (rank is null before permissions are
+  consulted), an unknown or misspelled name, and an app that mounts no grant capability — whose
+  empty list must hide everything that names a permission rather than waving it through. Five
+  mutations, five reds, including the two that started green.
+
 - **The shell decides which nav item is current, and the router is told rather than asked
   (ADR 0097 §6, amended in 4e).** `AppShell` takes `activePath`, resolves the set once, and
   passes `active` on the link context it already had. `buildAppRouter` supplies the router's

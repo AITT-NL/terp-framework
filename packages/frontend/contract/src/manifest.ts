@@ -27,6 +27,25 @@ export interface ModuleRoute {
   /** Minimum role required to see the route; omitted = any authenticated user. */
   role?: RoleName;
   /**
+   * Also require this named permission grant — the caller must hold it in
+   * `CurrentUser.permissions`.
+   *
+   * **ANDed with `role`**, and that is deliberately what the server does: a `Policy` carrying a
+   * `Permission` enforces the permission's role floor *and* the grant, so a client checking
+   * only one would disagree with the endpoint in one direction or the other. The same reasoning
+   * the `Authorized` component's `permission` prop already records.
+   *
+   * Deliberately not a combinator. The server's own declaration is one ref per read and one per
+   * write (`AuthzRef = Role | Permission | Roles`), so an any-of here could express a gate no
+   * `Policy` can declare — and a client gate that cannot correspond to a server gate can only
+   * drift from the endpoint it mirrors.
+   *
+   * A *display* and *routing* gate only; the server re-checks every request. Fails closed:
+   * unknown or misspelled names are simply absent from the grant list, and an app that mounts
+   * no grant capability has an empty list, which correctly hides everything that names one.
+   */
+  permission?: string;
+  /**
    * Query-string keys this route reads, e.g. `["status", "page"]`.
    *
    * Declared for the same reason params are: the router is realised at runtime, so
@@ -51,6 +70,25 @@ export interface NavItem {
   icon?: string;
   /** Minimum role required to show the nav item. */
   role?: RoleName;
+  /**
+   * Also require this named permission grant — the caller must hold it in
+   * `CurrentUser.permissions`.
+   *
+   * **ANDed with `role`**, and that is deliberately what the server does: a `Policy` carrying a
+   * `Permission` enforces the permission's role floor *and* the grant, so a client checking
+   * only one would disagree with the endpoint in one direction or the other. The same reasoning
+   * the `Authorized` component's `permission` prop already records.
+   *
+   * Deliberately not a combinator. The server's own declaration is one ref per read and one per
+   * write (`AuthzRef = Role | Permission | Roles`), so an any-of here could express a gate no
+   * `Policy` can declare — and a client gate that cannot correspond to a server gate can only
+   * drift from the endpoint it mirrors.
+   *
+   * A *display* and *routing* gate only; the server re-checks every request. Fails closed:
+   * unknown or misspelled names are simply absent from the grant list, and an app that mounts
+   * no grant capability has an empty list, which correctly hides everything that names one.
+   */
+  permission?: string;
   /**
    * Match the URL exactly rather than as a segment-aligned prefix.
    *

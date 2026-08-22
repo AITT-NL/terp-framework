@@ -196,6 +196,31 @@ the default headerless group, which renders as one flat list with no header. Ite
 and `visible` is an additional AND — both must pass, so the composition fails closed.
 `visibleNav` stays exported and stays working.
 
+**Amended in 4e, by building the predicate half** (the group half is still ahead). Three
+corrections, and the first was already flagged in ADR 0098 as owed.
+
+*`visible: (ctx) => boolean` cannot exist.* This manifest is stack-agnostic, serialisable, and
+emitted by a generator; a function does not survive any of those. The predicate is data:
+`permission`, a named grant, ANDed with `role` exactly as this section says the composition
+should work.
+
+*The `NavContext` named here has no source.* Module grants, per-module role ranks, superuser and
+internal-versus-external — `CurrentUser` carries **none** of the four. It carries `role_rank`,
+`role_name` and `permissions`, and the last is the general mechanism this decision never named.
+The context is therefore two fields built from what `/me` returns. The AND is not a design
+choice either: a server `Policy` carrying a `Permission` enforces the permission's role floor
+*and* the grant, so the client mirrors one server declaration rather than inventing a second
+policy language. That is also why there is no any-of — `AuthzRef` is one ref per read and one
+per write, so a combinator could express a gate no `Policy` can declare.
+
+*"`visibleNav` stays exported and stays working" was half right.* It stays exported; its context
+argument is **required**, which is a break. Optional would have been source-compatible and
+silently wrong — an existing two-argument caller would fail closed on every item that gained a
+`permission` and drop links from a sidebar with no error. And the gate belongs on `ModuleRoute`
+as well as `NavItem`, which this section does not say: hiding a link while leaving its route
+reachable by URL is the appearance of authorization rather than a weaker form of it. `role` never
+had that asymmetry; `permission` does not get to introduce one.
+
 One part is deliberately breaking, at the type level, because it is the whole point of the
 fix: `icon` becomes a checked name. Contract cannot import react-core, so the name set is
 published as data by the contract and react-core's union is held to it by a parity test —

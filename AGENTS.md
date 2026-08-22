@@ -80,6 +80,10 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
 - **No `style={}`, no `className`, no module-authored stylesheets in app modules** — layout
   comes from the react-core primitives (`Stack`, `Grid`, `DetailList`, the page archetypes);
   theming from the token source.
+- **Nav and route visibility is declarative data, not a predicate** — `NavItem` and
+  `ModuleRoute` take `role` and `permission`, ANDed and fail-closed, resolved by the adapter
+  against what `/me` returns. A function on the manifest would not survive the boundary: it is
+  stack-agnostic, serialisable, and a generator emits it.
 - **The shell's geometry is tokens, not props** — `--shell-sidebar-width-expanded`,
   `--shell-sidebar-width-collapsed`, `--shell-header-height`, `--shell-content-max-width`
   and `--shell-brand-size`

@@ -26,7 +26,7 @@ import type {
   TerpRouteSearch,
 } from "./routeTypes";
 import { LAYOUT_CONTRACTS, LayoutContractContext } from "./layoutContract";
-import { visibleNav } from "./nav";
+import { isDeclarationVisible, visibleNav } from "./nav";
 import { NavLinkContext } from "./navLink";
 import type { NavLinkRenderer } from "./navLink";
 import { PageMarkerContext } from "./pageMarker";
@@ -338,8 +338,12 @@ export function buildAppRouter(
 
   function Shell() {
     const router = useRouter();
-    const rank = useAuth().currentUser()?.role_rank ?? null;
-    const nav = visibleNav(manifests, (role) => allows(roleRanks, rank, role));
+    const user = useAuth().currentUser();
+    const rank = user?.role_rank ?? null;
+    const nav = visibleNav(manifests, {
+      canSeeRole: (role) => allows(roleRanks, rank, role),
+      permissions: user?.permissions ?? [],
+    });
     // The shell decides which nav item is current and needs the path to do it. Selected, so the
     // subscription re-renders only when the pathname itself changes — the same mechanism
     // ModuleNav already uses.
@@ -422,12 +426,21 @@ export function buildAppRouter(
   function guardedRoute(
     path: string,
     View: ComponentType,
-    role: string | undefined,
+    declaration: { role?: string; permission?: string },
     viewName: string,
   ): AnyRoute {
     function RouteComponent() {
-      const rank = useAuth().currentUser()?.role_rank ?? null;
-      const allowed = allows(roleRanks, rank, role);
+      const user = useAuth().currentUser();
+      const rank = user?.role_rank ?? null;
+      // The same resolution the sidebar uses, and using it here is what stops `permission` from
+      // becoming a cosmetic gate: hiding a link while leaving its route reachable by URL is not
+      // a weaker version of authorization, it is the appearance of it. `role` has never had that
+      // asymmetry — it is declared on both NavItem and ModuleRoute — so `permission` does not
+      // get to introduce one.
+      const allowed = isDeclarationVisible(declaration, {
+        canSeeRole: (role) => allows(roleRanks, rank, role),
+        permissions: user?.permissions ?? [],
+      });
       // The runtime half of the "every routed view is a page archetype" control: Page
       // (composed by OverviewPage / DetailPage / HubPage) marks the render; a routed view
       // that mounted without any archetype in its tree is refused, fail closed. The check
@@ -479,14 +492,14 @@ export function buildAppRouter(
 
   const childRoutes: AnyRoute[] = manifests.flatMap((manifest) =>
     manifest.routes.map((route) =>
-      guardedRoute(route.path, options.views[route.view]!, route.role, route.view),
+      guardedRoute(route.path, options.views[route.view]!, route, route.view),
     ),
   );
   const profileClaimed = manifests.some((manifest) =>
     manifest.routes.some((route) => route.path === PROFILE_PATH),
   );
   if (!profileClaimed) {
-    childRoutes.push(guardedRoute(PROFILE_PATH, ProfileView, undefined, "profile"));
+    childRoutes.push(guardedRoute(PROFILE_PATH, ProfileView, {}, "profile"));
   }
 
   const routeTree = rootRoute.addChildren(childRoutes);
