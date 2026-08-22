@@ -226,6 +226,45 @@ how the breadcrumb trail once rendered every ancestor as the current page. The b
 drew for attribute reuse is ownership, not availability, and here the component is not the
 owner.
 
+**Amended in 4e, by building it.** The decision is right that one predicate must own "active",
+and right that `ModuleNav` must not style itself from an attribute its own `Link` co-authors.
+Three things it says do not survive the implementation.
+
+*The interesting problem is arity, not comparison.* This section specifies what "active" means
+for one item and never asks how many items may claim it. "At most one is current" is a property
+of the **set**, and `useLinkProps` computes `isActive` per link from that link's target and the
+location, with no knowledge of siblings. So a nav listing `/settings` and `/settings/users` had
+two links the router considered active at `/settings/users` — two `aria-current="page"`
+attributes, two painted tabs, and a screen reader announcing two current pages. That shipped in
+every app: the packaged `/admin` item sits beside the example app's `/admin/grants`. The rule is
+therefore **longest segment-aligned match wins**, resolved once over all items by whoever renders
+the set. Per-item `exact` is not the fix and was the first answer: turn it on to stop the double
+and `/settings/appearance`, a real route with no nav entry, lights nothing at all.
+
+*"A filter in the URL must not unhighlight the tab" is right, and its stated cause was not.*
+`includeSearch` does default to `true`, but the comparison is
+`deepEqual(current, next, { partial: !exact })` and the partial branch iterates the **link's**
+search, which is empty for a bare `to` — so a query string never unhighlighted a non-exact
+link. The case was reachable only on an exact one, which in the sidebar meant the `/` item alone.
+
+*The sidebar keys on the router's `aria-current`, and that stays.* This section reads as though
+the sidebar had the same ownership problem as `ModuleNav`; the sheet's comment beside that rule
+already said the opposite, and calls the reuse sanctioned. What was missing was not an attribute
+the shell owns — it renders the `<li>` and could have stamped it — but an **author**. The shell
+now resolves the set and passes `active` on the link context, and the adapter pins every nav
+`Link` to `activeOptions: { exact: true }`. That combination is what makes the router agree
+rather than argue: "the router thinks this link is active" then implies its path equals the URL,
+which is the longest possible match, which is always the item the shell picked. It can agree or
+stay silent; it cannot name a second one. No new attribute, no new rule, and no existing baseline
+moved.
+
+Two workarounds retired with it. The adapter's hand-written `exact: item.to === "/"` is gone —
+`/` prefixes every path only as a *string*, and a segment-aligned predicate makes the special
+case unnecessary. And an earlier draft of the predicate special-cased the root a second time and
+justified it with `/profile`; the mutation for that guard came back **green**, because the
+segment test already rejected `/profile`. Normalising both operands the way the router does —
+collapse repeated slashes, then drop one trailing slash — removed the case instead of keeping it.
+
 ### 7. Motion tokens get readers; four stay unread, by name
 
 The seven motion tokens shipped in 2a and nothing read them: the sheet wrote `150ms ease`

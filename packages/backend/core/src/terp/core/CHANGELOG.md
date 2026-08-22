@@ -144,6 +144,56 @@ decision, 0001 onwards.
   also documented as an exported `MAIN_CONTENT_ID` and never re-exported from the entry point, so
   the one argument for sharing it had no consumer either.
 
+- **The shell decides which nav item is current, and the router is told rather than asked
+  (ADR 0097 §6, amended in 4e).** `AppShell` takes `activePath`, resolves the set once, and
+  passes `active` on the link context it already had. `buildAppRouter` supplies the router's
+  pathname and pins every nav `Link` to `activeOptions: { exact: true }` with the shell's verdict
+  as `aria-current`.
+
+  That pinning is the whole mechanism, and it is one line doing the work of a new attribute and a
+  new rule. `aria-current` is not among the props `useLinkProps` destructures, so a value passed
+  in survives into the anchor; the router's own active props are spread **last**, but only when
+  it considers the link active. Under exact matching, "the router considers this active" implies
+  the link's path equals the URL — the longest possible match, hence always the item the shell
+  picked. **The router can agree or stay silent; it cannot name a second current item.** Prefix
+  matching is what broke that, and it was the default: at `/settings/users` both `/settings` and
+  `/settings/users` carried `aria-current="page"` and both painted.
+
+  **No new attribute, no new rule, and no baseline moved** — all 244 byte-identical. An earlier
+  draft stamped `data-active` on the `<li>` the shell owns and added a rule for it; that was
+  wrong three ways, and worth recording because each one was invisible until it was written down.
+  The retained `a[aria-current="page"]` rule still painted the *loser*, since the router marked
+  every prefix-active link. The new selector weighed (0,1,2) against that rule's (0,2,1), so it
+  would have **lost** on the winner too. And a child combinator contradicts the sheet's own
+  documented decision beside the nav rule — *"the link element belongs to the caller's router …
+  there is no element here to stamp"* — and breaks outright with react-core's own `Link`, which
+  wraps its anchor in a span.
+
+  `ModuleNav` adopts the same predicate and the same pinning, which closes the divergence its
+  own rule's comment described and deferred to "the navigation model". Its tabs gain `exact` too,
+  and the default is now the **prefix**, so a detail route under a tab keeps that tab lit instead
+  of blanking the strip.
+
+  One fix travels with it, for a regression the same commit introduces: reading the pathname
+  makes `Shell` re-render on every navigation, where before it re-rendered only when the session
+  changed. `Outlet` is memoised with no props so a plain re-render stops at that boundary, but a
+  **context value** punches straight through a memo bailout — and this one is used *as a
+  component*, so an unstable identity remounts every in-app link in the tree on each navigation.
+  The published renderer is memoised, and a test asserts reference equality across a navigation
+  rather than asserting that a render happened.
+
+  Five mutations, five reds: the router left prefix-matching, the verdict not passed to the link,
+  the shell inventing a path when not told one, first-match instead of the set verdict, and the
+  memoisation removed.
+
+  **A routed shell specimen is deliberately not added.** It would photograph the sheet's
+  `aria-current` rule, which nine existing baselines already photograph, and the thing it alone
+  could prove — that the shell picks the right item — is a DOM property four memory-router tests
+  now assert directly and far more precisely than a picture can. It would also have cost a new
+  `ready` field on the specimen record, because both lanes wait on an element that is visible on
+  first paint while the router's first render is asynchronous, so the a11y lane's single
+  `analyze()` could have returned a clean run over an empty box.
+
 - **One predicate decides which nav item is current, and it is a property of the SET
   (ADR 0097 §6, amended in 4e).** `isNavItemActive` and `activeNavPath` ship as pure functions
   with no consumer yet — the shell and `ModuleNav` adopt them next — because the shape of the

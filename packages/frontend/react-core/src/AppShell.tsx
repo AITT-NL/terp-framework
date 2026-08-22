@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { NARROW_VIEWPORT } from "./breakpoints";
+import { activeNavPath } from "./navActive";
 import { Icon, NavIcon, TerpMark } from "./icons";
 import { LanguageSwitcher } from "./locale";
 import { injectTerpStyles } from "./styles";
@@ -26,7 +27,23 @@ export interface AppShellSlotContext {
  * `[data-terp="appshell-nav"] a` and on `aria-current="page"` for the active route, so a
  * renderer needs to return nothing but its stack's link (ADR 0094).
  */
-export type AppShellLinkContext = AppShellSlotContext;
+export interface AppShellLinkContext extends AppShellSlotContext {
+  /**
+   * Whether this is the current item — the shell's verdict over the **whole set**, not this
+   * link's opinion of itself.
+   *
+   * That distinction is the reason the field exists. "At most one item is current" cannot be
+   * decided one link at a time, and a router decides exactly that way: give it `/settings` and
+   * `/settings/users` and at `/settings/users` it marks both active, because each is a prefix
+   * of the URL and neither knows the other exists. So the shell resolves the set once (longest
+   * segment-aligned match wins, {@link activeNavPath}) and tells the renderer, which is free to
+   * put the answer wherever its stack wants it — `aria-current` on a router link, in practice.
+   *
+   * `false` for every item when `activePath` is not given, so a shell that is not told where it
+   * is claims nothing.
+   */
+  active: boolean;
+}
 
 export type RenderBrandLink = (props: { to: string; children: ReactNode }) => ReactNode;
 
@@ -109,6 +126,19 @@ interface AppShellBaseProps {
   navFooter?: ReactNode | ((context: AppShellSlotContext) => ReactNode);
   /** Footer line under the content; default: a muted line with the app title. */
   footer?: ReactNode;
+  /**
+   * The current URL path, so the shell can decide which nav item is current.
+   *
+   * Absent stamps nothing and claims nothing — the `density` idiom — so a shell that is not told
+   * where it is renders exactly what it renders today, and `renderLink` receives
+   * `active: false` for every item. `buildAppRouter` passes the router's pathname; a bare shell
+   * in a test or a specimen can pass a literal.
+   *
+   * A plain string rather than a router hook, because the shell is router-agnostic and must stay
+   * so: it imports nothing from any stack. A query string or hash is tolerated and ignored —
+   * a nav tab's identity is its path.
+   */
+  activePath?: string;
   /**
    * Start with the mobile drawer open.
    *
@@ -269,6 +299,7 @@ export function AppShell({
   headerActions,
   contentWidth = "full",
   density,
+  activePath,
   navPlacement = "sidebar",
   navFooter,
   footer,
@@ -353,6 +384,10 @@ export function AppShell({
   // icon-only links in a header with room for labels.
   const railCollapsed = !isMobile && !headerNav && collapsed;
   const context: AppShellSlotContext = { collapsed: railCollapsed };
+  // Resolved once over the whole set rather than per link — see AppShellLinkContext.active for
+  // why that is the whole point. Undefined when nothing matches, and when nobody told the shell
+  // where it is.
+  const currentTo = activePath === undefined ? undefined : activeNavPath(activePath, nav);
   // Hoisted, the density-attribute idiom: the marker scanner reads a whole expression
   // container, so a conditional written at the attribute reports every literal in it as a
   // marker name.
@@ -425,7 +460,7 @@ export function AppShell({
                 <NavIcon name={item.icon} label={item.label} />
                 <span data-terp="appshell-nav-label">{item.label}</span>
               </>,
-              { collapsed: railCollapsed },
+              { collapsed: railCollapsed, active: item.to === currentTo },
             )}
           </li>
         ))}

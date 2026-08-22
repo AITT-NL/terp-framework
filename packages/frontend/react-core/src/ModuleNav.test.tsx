@@ -61,16 +61,16 @@ describe("ModuleNav", () => {
     );
     expect(screen.getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current");
 
-    // The styling key is data-active, and the point is that it is NOT the aria-current
-    // beside it. A router Link merges its own active props last, so aria-current on this
-    // element has a second author — keying the accent edge on it would be the breadcrumb
-    // defect again the moment the two disagreed about "active", which they can, in BOTH
-    // directions: the router also demands an exact query-string match (so it is narrower
-    // on a filtered URL), and it compares paths through removeTrailingSlash while this
-    // component compares them raw (so it is broader on a trailing slash, and then the
-    // accent edge goes missing on a tab the router calls current). The second is a real
-    // defect, older than the marker — the inline styling read the same isActive — and it
-    // is the navigation model's to fix. Neither case is reachable from this specimen.
+    // The styling key is data-active, and the point is that it is NOT the aria-current beside
+    // it: a router Link merges its own active props last, so that attribute has a second author.
+    //
+    // The divergence this comment used to describe is fixed (ADR 0097 §6, amended in 4e). Both
+    // authors now compute the same thing by construction rather than by coincidence. The
+    // component asks `activeNavPath` over the whole strip; the Link is pinned to
+    // `exact: true, includeSearch: false`, so the router volunteers `aria-current` only when the
+    // path equals the URL — the longest possible match, hence always the tab the predicate
+    // picked. It can agree or stay silent; it cannot name a different tab. Which is why the
+    // assertion below can now demand exactly one `aria-current` in the strip.
     const active = screen.getByRole("link", { name: "Projects" });
     const inactive = screen.getByRole("link", { name: "Overview" });
     expect(active).toHaveAttribute("data-terp", "module-nav-link");
@@ -79,6 +79,13 @@ describe("ModuleNav", () => {
     expect(inactive).not.toHaveAttribute("data-active");
     expect(active.getAttribute("style")).toBeNull();
     expect(inactive.getAttribute("style")).toBeNull();
+
+    // Exactly one, over the whole strip. Before 4e the Link was left prefix-matching, so at
+    // /tickets/projects the router added its own aria-current to the /tickets tab as well and a
+    // screen reader announced two current pages.
+    expect(
+      document.querySelectorAll('[data-terp="module-nav"] [aria-current="page"]'),
+    ).toHaveLength(1);
   });
 
   it("returns nothing for an empty tab list", () => {

@@ -14,6 +14,7 @@ import {
 } from "./router";
 import { Page } from "./Page";
 import { TerpProvider, useAuth } from "./TerpProvider";
+import { useNavLink } from "./navLink";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -764,5 +765,182 @@ describe("buildAppRouter", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: "Custom profile" })).toBeInTheDocument(),
     );
+  });
+});
+
+describe("buildAppRouter — which nav item is current (ADR 0097 §6, amended in 4e)", () => {
+  // A nav where one destination is an ancestor of another. This is not a contrived shape: the
+  // packaged admin module ships `/admin` and the example app adds `/admin/grants` and
+  // `/admin/webhooks` beside it, so every generated app has it.
+  const nested: ModuleManifest[] = [
+    { name: "home", routes: [{ path: "/", view: "Home" }], nav: [{ label: "Home", to: "/" }] },
+    {
+      name: "settings",
+      routes: [
+        { path: "/settings", view: "Settings" },
+        { path: "/settings/users", view: "SettingsUsers" },
+        { path: "/settings/appearance", view: "SettingsAppearance" },
+      ],
+      nav: [
+        { label: "Settings", to: "/settings" },
+        { label: "Members", to: "/settings/users" },
+      ],
+    },
+  ];
+  const nestedViews = {
+    Home: () => <Page title="Home view">home</Page>,
+    Settings: () => <Page title="Settings view">settings</Page>,
+    SettingsUsers: () => <Page title="Members view">members</Page>,
+    SettingsAppearance: () => <Page title="Appearance view">appearance</Page>,
+  };
+
+  async function renderAt(path: string) {
+    vi.stubGlobal("fetch", sessionFetch());
+    const router = buildAppRouter(nested, {
+      views: nestedViews,
+      title: "Terp",
+      history: createMemoryHistory({ initialEntries: [path] }),
+    });
+    const result = render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+    await waitFor(() =>
+      expect(document.querySelector('[data-terp="appshell-nav"] a')).not.toBeNull(),
+    );
+    return result;
+  }
+
+  /** Every nav link the shell rendered that claims to be the current page. */
+  function currentLinks(): string[] {
+    return [...document.querySelectorAll('[data-terp="appshell-nav"] a[aria-current="page"]')].map(
+      (a) => a.getAttribute("href") ?? "",
+    );
+  }
+
+  it("names exactly one current item where a per-link predicate names two", async () => {
+    // The defect. The router decides `isActive` per link with no knowledge of siblings, and
+    // before 4e the adapter left every item prefix-matching — so at /settings/users BOTH
+    // /settings and /settings/users carried aria-current="page", both painted, and a screen
+    // reader announced two current pages.
+    await renderAt("/settings/users");
+    await waitFor(() => expect(currentLinks()).toEqual(["/settings/users"]));
+  });
+
+  it("keeps the ancestor current on a page that is not itself a nav item", async () => {
+    // The other half, and why per-item `exact` is not the fix: /settings/appearance is a real
+    // route with no nav entry, so making /settings exact would leave the sidebar with nothing
+    // current at all.
+    await renderAt("/settings/appearance");
+    await waitFor(() => expect(currentLinks()).toEqual(["/settings"]));
+  });
+
+  it("does not let the root item claim a page it does not own", async () => {
+    // `/` prefixes every path as a string. The adapter used to work around that with a
+    // hand-written `exact: item.to === "/"`; the predicate matches on segments instead, so the
+    // workaround is gone and the behaviour is unchanged.
+    await renderAt("/settings");
+    await waitFor(() => expect(currentLinks()).toEqual(["/settings"]));
+  });
+
+  it("keeps the router from volunteering a second current item", async () => {
+    // The mechanism, asserted directly rather than through its effect. `data-status` is the one
+    // attribute only the router writes, so it shows what the router thought independently of
+    // what the shell told it. With activeOptions.exact it can only agree.
+    await renderAt("/settings/users");
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('[data-terp="appshell-nav"] a[data-status="active"]'),
+      ).toHaveLength(1),
+    );
+  });
+});
+
+describe("AppShell without activePath", () => {
+  it("claims nothing when nobody tells it where it is", async () => {
+    // The absent-prop half of the density idiom. A bare shell must not invent a current item —
+    // and the nine workbench specimens depend on this, because they supply aria-current from
+    // their own renderLink and would otherwise fight the shell.
+    const { AppShell } = await import("./AppShell");
+    render(
+      <AppShell
+        title="Terp"
+        nav={[{ label: "Notes", to: "/notes" }]}
+        renderLink={(item, children, { active }) => (
+          <a href={item.to} aria-current={active ? "page" : undefined}>
+            {children}
+          </a>
+        )}
+      >
+        <p>body</p>
+      </AppShell>,
+    );
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+  });
+});
+
+describe("buildAppRouter — the shell's navigation subscription", () => {
+  it("keeps the published link renderer stable across a navigation", async () => {
+    // A gate for a fix, not for a feature. Reading the pathname makes `Shell` re-render on every
+    // navigation, where before it re-rendered only when the session changed. `Outlet` is
+    // memoised with no props, so a plain re-render stops at that boundary — but a CONTEXT VALUE
+    // punches through a memo bailout, and this value is used AS A COMPONENT (Breadcrumbs and
+    // HubCard render it through useNavLink). An unstable identity therefore remounts every
+    // in-app link in the tree on each navigation, which is worse than the re-render it looks
+    // like. The assertion is reference equality, because that is the actual contract.
+    vi.stubGlobal("fetch", sessionFetch());
+    const seen: unknown[] = [];
+    function Probe() {
+      seen.push(useNavLink());
+      return null;
+    }
+    const probeManifests: ModuleManifest[] = [
+      {
+        name: "home",
+        routes: [
+          { path: "/", view: "Home" },
+          { path: "/notes", view: "NotesList" },
+        ],
+        nav: [
+          { label: "Home", to: "/" },
+          { label: "Notes", to: "/notes" },
+        ],
+      },
+    ];
+    const router = buildAppRouter(probeManifests, {
+      views: {
+        Home: () => (
+          <Page title="Home view">
+            <Probe />
+          </Page>
+        ),
+        NotesList: () => (
+          <Page title="Notes view">
+            <Probe />
+          </Page>
+        ),
+      },
+      title: "Terp",
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    });
+
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+    await waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    const before = seen.at(-1);
+
+    await router.navigate({ to: "/notes" });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Notes view" })).toBeInTheDocument(),
+    );
+
+    expect(seen.at(-1)).toBe(before);
+    expect(new Set(seen).size).toBe(1);
   });
 });

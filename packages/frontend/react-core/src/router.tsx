@@ -7,12 +7,13 @@ import {
   useNavigate,
   useParams,
   useRouter,
+  useRouterState,
   useSearch,
   type AnyRoute,
   type RouterHistory,
 } from "@tanstack/react-router";
 import type { ComponentType, ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ModuleManifest } from "@terpjs/contract";
 
 import { AppShell } from "./AppShell";
@@ -27,6 +28,7 @@ import type {
 import { LAYOUT_CONTRACTS, LayoutContractContext } from "./layoutContract";
 import { visibleNav } from "./nav";
 import { NavLinkContext } from "./navLink";
+import type { NavLinkRenderer } from "./navLink";
 import { PageMarkerContext } from "./pageMarker";
 import {
   RouteSearchContext,
@@ -338,17 +340,30 @@ export function buildAppRouter(
     const router = useRouter();
     const rank = useAuth().currentUser()?.role_rank ?? null;
     const nav = visibleNav(manifests, (role) => allows(roleRanks, rank, role));
+    // The shell decides which nav item is current and needs the path to do it. Selected, so the
+    // subscription re-renders only when the pathname itself changes — the same mechanism
+    // ModuleNav already uses.
+    const pathname = useRouterState({ select: (state) => state.location.pathname });
+    // Memoised, and this is a fix for a regression the line above introduces rather than
+    // tidying. `Shell` used to re-render only when `useAuth()` changed; it now re-renders on
+    // every navigation. `Outlet` is memoised with no props, so a re-render alone bails out at
+    // that boundary and the routed subtree is untouched — but a CONTEXT VALUE punches straight
+    // through a memo bailout, and this value is used as a component (Breadcrumbs and HubCard
+    // render it through useNavLink), so an unstable identity is worse than a re-render: it
+    // remounts every in-app link in the tree on each navigation.
+    const renderNavLink = useCallback<NavLinkRenderer>(
+      ({ to, children, attributes }) => (
+        <Link to={to} {...attributes}>
+          {children}
+        </Link>
+      ),
+      [],
+    );
     return (
       // Publish the router's Link so every layout component that renders an in-app link
       // (Breadcrumbs, HubCard) navigates client-side by default. Forgetting `renderLink`
       // used to degrade the app silently: a raw anchor, a full page reload, no error.
-      <NavLinkContext.Provider
-        value={({ to, children, attributes }) => (
-          <Link to={to} {...attributes}>
-            {children}
-          </Link>
-        )}
-      >
+      <NavLinkContext.Provider value={renderNavLink}>
       <AppShell
         title={options.title}
         logo={options.logo}
@@ -357,16 +372,35 @@ export function buildAppRouter(
         contentWidth={options.contentWidth}
         density={options.density}
         navPlacement={options.navPlacement}
+        activePath={pathname}
         nav={nav}
         renderBrandLink={({ to, children }) => (
           <Link to={to} data-terp="appshell-brand">
             {children}
           </Link>
         )}
-        // No style objects and no activeProps: the shell's stylesheet owns the link
-        // geometry and keys the active route on aria-current="page", which Link sets.
-        renderLink={(item, children) => (
-          <Link to={item.to} activeOptions={{ exact: item.to === "/" }}>
+        // No style objects and no activeProps: the shell's stylesheet owns the link geometry
+        // and keys the active route on aria-current="page".
+        //
+        // The shell supplies that attribute now, and `exact: true` is what makes the router
+        // agree instead of arguing. Two facts combine. `aria-current` is not among the props
+        // useLinkProps destructures, so a value passed here survives into the rendered anchor;
+        // and the router's own active props are spread LAST, but only when it considers the link
+        // active. With exact matching, "the router considers it active" implies the link's path
+        // equals the URL — which is the longest possible match, so it is always the same item
+        // the shell picked. The router can therefore only ever agree, never add a second
+        // current item.
+        //
+        // Prefix matching is what broke that: it marked every ancestor active, so `/settings`
+        // and `/settings/users` were both current at `/settings/users`. The old
+        // `exact: item.to === "/"` was a workaround for the same thing at the root, and it is
+        // gone because the shell's predicate matches on segments and `/` claims nothing else.
+        renderLink={(item, children, { active }) => (
+          <Link
+            to={item.to}
+            activeOptions={{ exact: true }}
+            aria-current={active ? "page" : undefined}
+          >
             {children}
           </Link>
         )}
