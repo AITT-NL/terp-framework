@@ -2,7 +2,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import type { ComponentType, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import type { ModuleManifest } from "@terpjs/contract";
+import type { ModuleManifest, NavGroup } from "@terpjs/contract";
 
 import { LoginView } from "./LoginView";
 import type { DevCredentials } from "./LoginView";
@@ -129,6 +129,15 @@ export interface RenderTerpAppOptions {
    * the drawer.
    */
   navPlacement?: "sidebar" | "header";
+  /**
+   * The app's navigation groups ({@link AppShell.navGroups}), referenced by manifest items
+   * through `NavItem.group`. Omit for the flat, unlabelled sidebar every app renders today.
+   *
+   * This is the app's half of the model and there is no module-side equivalent: a group spans
+   * modules, so its label and its position cannot belong to any one of them. A duplicate id is
+   * refused when the router is built.
+   */
+  navGroups?: readonly NavGroup[];
   /**
    * Ship the packaged admin area (default `true`): the admin-gated sidebar entry, the
    * `/admin` hub, and the users / groups / audit screens over the base-profile
@@ -268,6 +277,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
     contentWidth: options.contentWidth,
     density: options.density,
     navPlacement: options.navPlacement,
+    navGroups: options.navGroups,
     layoutContract: options.layoutContract,
   });
   const root = options.rootElement ?? document.getElementById("root");

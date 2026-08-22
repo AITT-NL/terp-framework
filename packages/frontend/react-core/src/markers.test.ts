@@ -58,6 +58,8 @@ const MARKERS = [
   "appshell-main",
   "appshell-mark",
   "appshell-nav",
+  "appshell-nav-group",
+  "appshell-nav-group-label",
   "appshell-nav-label",
   "appshell-nav-list",
   "appshell-sidebar",

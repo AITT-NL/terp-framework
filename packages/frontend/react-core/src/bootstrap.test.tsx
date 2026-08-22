@@ -64,4 +64,35 @@ describe("renderTerpApp", () => {
     );
     root.remove();
   });
+
+  it("forwards navGroups to buildAppRouter", () => {
+    // `renderTerpApp` hands its options to `buildAppRouter` through a hand-written enumeration of
+    // names, and nothing covered it — `navPlacement`, `contentWidth` and `density` all travel that
+    // same list with no assertion that any of them arrives. A missing line there leaves every
+    // other gate on groups green while the feature does nothing for every app using the one-call
+    // entry point, which is the entry point apps actually use.
+    //
+    // Gated through the duplicate-id refusal rather than through a rendered label, and that is
+    // the point of doing it this way: this test mounts the SIGNED-OUT app, so the shell never
+    // renders and there is no nav to read. The throw only happens if the option was forwarded, so
+    // it observes the one line under test and nothing else. Mutation: delete
+    // `navGroups: options.navGroups` from the buildAppRouter call, and this stops throwing.
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    try {
+      expect(() =>
+        renderTerpApp({
+          title: "Test",
+          modules: { "./modules/notes/module.tsx": notesModule },
+          navGroups: [
+            { id: "work", label: "Werkruimte" },
+            { id: "work", label: "Weer werkruimte" },
+          ],
+          rootElement: root,
+        }),
+      ).toThrow(/duplicate id\(s\): work/);
+    } finally {
+      root.remove();
+    }
+  });
 });

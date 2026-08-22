@@ -415,3 +415,52 @@ test("the header-placed nav is not a scroll container", async ({ page }) => {
   await page.locator('[data-terp="appshell-sidebar"]').waitFor({ state: "visible" });
   expect(await overflowOf('[data-terp="appshell-nav"]')).toEqual({ x: "auto", y: "auto" });
 });
+
+test("the nav group's stacking margin is scoped to the sidebar, and the header row is flat", async ({
+  page,
+}) => {
+  // The defect this exists for was found by review, not by a lane, and no lane could have found
+  // it. The separation between navigation groups is `margin-block-start` on an adjacent sibling.
+  // In the sidebar that is a block-axis margin between two stacked blocks, which is the whole
+  // intent. In header placement the nav is a flex ROW, and there the same declaration is a
+  // CROSS-axis margin on a flex item — never collapsed, always applied — so every group after
+  // the first is pushed down and drags the sticky header's height with it.
+  //
+  // A screenshot cannot gate that. The header-groups baseline is NEW, and Playwright writes a
+  // missing baseline before failing, so its first recording would simply have captured the
+  // defect and called it the truth. The value has to be read.
+  //
+  // The pair is the assertion, on the same reasoning as the overflow test above: the same
+  // marker, the same component, two placements. Assert only the header half and a rule that
+  // deleted the margin outright would pass here while silently un-grouping the sidebar.
+  const marginOf = (selector: string) =>
+    page.evaluate((css) => {
+      const element = document.querySelectorAll(css)[1];
+      if (element === undefined) {
+        return null;
+      }
+      return getComputedStyle(element).marginBlockStart;
+    }, selector);
+
+  // Header: the second group carries no stacking margin...
+  await page.goto("/?theme=light&only=app-shell-header-nav-groups");
+  await page.locator('[data-terp="appshell-nav"]').waitFor({ state: "visible" });
+  expect(await page.locator('[data-terp="appshell-nav-group"]').count()).toBe(3);
+  expect(await marginOf('[data-terp="appshell-nav-group"]')).toBe("0px");
+
+  // ...and the consequence, which is the thing anyone actually cares about: the first link of
+  // each group sits on one line. Read as geometry rather than as a declaration, so it stays true
+  // however the row is expressed.
+  const linkTops = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-terp="appshell-nav-group"]')].map((group) => {
+      const anchor = group.querySelector("a");
+      return anchor === null ? null : Math.round(anchor.getBoundingClientRect().top);
+    }),
+  );
+  expect(new Set(linkTops.filter((top) => top !== null)).size).toBe(1);
+
+  // Sidebar: the same second group DOES carry it. 1rem at the root font size.
+  await page.goto("/?theme=light&only=app-shell-nav-groups");
+  await page.locator('[data-terp="appshell-sidebar"]').waitFor({ state: "visible" });
+  expect(await marginOf('[data-terp="appshell-nav-group"]')).toBe("16px");
+});

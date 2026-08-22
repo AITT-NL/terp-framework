@@ -1172,6 +1172,47 @@ textarea[data-terp="input"] {
   display: grid;
   gap: var(--space-1);
 }
+/* Navigation groups. The wrapper itself declares nothing in the sidebar: it is a plain block
+   containing the same list, which is what makes adding it to the ungrouped case free.
+
+   The separation is on the ADJACENT SIBLING, and these two rules are the first + combinators in
+   this sheet. That is deliberate rather than careless: what is wanted is a separation BETWEEN
+   siblings, which is exactly what + expresses, and the alternatives are worse here. A gap on the
+   nav would make the nav a grid or flex container, and a stretched single row would then resize
+   the one group every app has today. A margin on every group would need a :first-child to undo
+   it, which is a positional selector where a sibling one says the thing directly. With one group
+   neither rule matches at all, so the flat sidebar is untouched to the pixel.
+
+   SCOPED TO THE SIDEBAR, and that scope is load-bearing. In header placement the nav is a flex
+   ROW (below), where margin-block-start is a CROSS-axis margin — never collapsed, applied to a
+   flex item — so an unscoped rule would push every group after the first down by 1rem and grow
+   the sticky header with it. The mobile drawer is the same aside carrying the same marker, so it
+   keeps this rule, which is correct: the drawer stacks. */
+[data-terp="appshell-sidebar"] [data-terp="appshell-nav-group"] + [data-terp="appshell-nav-group"] {
+  margin-block-start: var(--space-4);
+}
+/* The group label. Not a heading element — see the AppShell render for why the outline is the
+   binding constraint and why axe cannot see it.
+
+   The horizontal padding matches the nav link's own (var(--space-3)), so the label sits on the
+   same left edge as the icons under it rather than floating in the rail's gutter.
+
+   letter-spacing comes from the published scale rather than a bare literal, and this is the rule
+   the scale was waiting for: tokens.guard.test.ts records --font-letter-spacing-wide as unread
+   with the comment "for the uppercase-label treatment nothing in the package uses". This is that
+   treatment, so the token gets its first reader and leaves the unread list. font-weight is our
+   own choice and not inherited from the login separator, which declares none — a group label
+   competing with the links under it needs the weight to read as a header rather than as a
+   disabled item. */
+[data-terp="appshell-nav-group-label"] {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--font-letter-spacing-wide);
+  text-transform: uppercase;
+  color: var(--color-sidebar-muted);
+}
 /* Sidebar navigation links, and this is the rule the whole shell migration was for. The
    geometry used to be NAV_LINK_STYLE, a CSSProperties object exported from AppShell for
    every router's link renderer to spread — so an app could not restyle a nav link at all
@@ -1226,7 +1267,8 @@ textarea[data-terp="input"] {
 [data-terp="drawer-focus-start"],
 [data-terp="drawer-focus-end"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-brand-title"],
-[data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-label"] {
+[data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-label"],
+[data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-group-label"] {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1355,6 +1397,35 @@ textarea[data-terp="input"] {
    both edges by a scroller that can never scroll. */
 [data-terp="appshell"][data-nav-placement="header"] [data-terp="appshell-nav"] {
   overflow: visible;
+  /* The groups are a ROW here, not a column. Without this each group wrapper is a block and a
+     two-group header renders one stacked list per group — a nav placed in the header to avoid
+     permanent chrome, growing the header instead.
+
+     The row lives on the NAV rather than on the wrappers because the wrappers are what has to
+     line up, and it is why the stacking margin above is scoped away from this placement: a
+     block-start margin on a flex item is a cross-axis margin and is never collapsed.
+
+     With one group this changes nothing measurable. The single wrapper becomes a flex item
+     sized to its content instead of a full-width block, and its list is laid out from the same
+     left edge either way; the existing app-shell-header-nav baseline is what says so. */
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+/* A group in the header: its label sits beside its links rather than above them, since a header
+   row has no second line to put it on. The gap is the label-to-list separation and nothing
+   else — the list keeps its own var(--space-1) between links. */
+[data-terp="appshell"][data-nav-placement="header"] [data-terp="appshell-nav-group"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* The label's block padding is the sidebar's, where it separates the label from the links BELOW
+   it. In a row that padding is on the wrong axis: it adds to the group gap and pushes the label
+   off the links' centre line. Zeroed to the inline axis only, so the label keeps the horizontal
+   rhythm and loses the vertical. */
+[data-terp="appshell"][data-nav-placement="header"] [data-terp="appshell-nav-group-label"] {
+  padding-block: 0;
 }
 
 /* The page frame ----------------------------------------------------------- */
@@ -3498,6 +3569,18 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav"] {
   overflow-x: hidden;
   scrollbar-width: none;
+}
+/* The rail's group separation. The label is visually hidden here (it joins the block above), so
+   without this the groups are a single undifferentiated column of icons and the structure the
+   expanded sidebar shows simply disappears at 4rem. A rule the LINE has to carry, because the
+   label cannot: the divider is what is left of the label once the text is gone.
+
+   It replaces rather than adds to the expanded margin — same specificity family, one attribute
+   more — so the rail does not pay 1rem per group in a column that is already scrolling. */
+[data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-group"] + [data-terp="appshell-nav-group"] {
+  margin-block-start: var(--space-2);
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--color-sidebar-border);
 }
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav"]::-webkit-scrollbar {
   width: 0;

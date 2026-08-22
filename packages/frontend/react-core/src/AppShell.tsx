@@ -1,8 +1,9 @@
-import type { NavItem } from "@terpjs/contract";
+import type { NavGroup, NavItem } from "@terpjs/contract";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { NARROW_VIEWPORT } from "./breakpoints";
+import { groupNav } from "./nav";
 import { activeNavPath } from "./navActive";
 import { Icon, NavIcon, TerpMark } from "./icons";
 import { LanguageSwitcher } from "./locale";
@@ -139,6 +140,19 @@ interface AppShellBaseProps {
    * a nav tab's identity is its path.
    */
   activePath?: string;
+  /**
+   * The app's declared navigation groups, which {@link nav} items reference by
+   * `NavItem.group`.
+   *
+   * Absent renders exactly what the shell renders today: one unlabelled list holding every item
+   * in the order it was given. That is `groupNav`'s identity case rather than a branch here — see
+   * its docstring for the four rules, all of which are about a missing declaration.
+   *
+   * A group spans modules, so the **app** owns the label and the position and a module owns only
+   * the reference. That is why this is a shell prop and `group` is a manifest field, rather than
+   * both living on the manifest.
+   */
+  navGroups?: readonly NavGroup[];
   /**
    * Start with the mobile drawer open.
    *
@@ -300,6 +314,7 @@ export function AppShell({
   contentWidth = "full",
   density,
   activePath,
+  navGroups,
   navPlacement = "sidebar",
   navFooter,
   footer,
@@ -314,6 +329,12 @@ export function AppShell({
   const [drawerOpen, setDrawerOpen] = useState(defaultDrawerOpen);
   // Per shell instance, so two shells on one page get two distinct skip targets.
   const mainId = useId();
+  // The same per-instance guarantee, for the group labels. The workbench catalogue renders three
+  // shells on one page, and a module-constant id would make the second shell's `aria-labelledby`
+  // resolve into the first — a wrong accessible name rather than a missing one, which nothing
+  // reports: `duplicate-id` is deprecated in axe and does not run, and a resolvable IDREF is not
+  // a violation whatever it resolves to.
+  const navGroupId = useId();
   const drawerRef = useRef<HTMLElement>(null);
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -451,20 +472,54 @@ export function AppShell({
       aria-label={strings.primaryNavigationLabel}
       onClick={isMobile ? closeDrawer : undefined}
     >
-      <ul data-terp="appshell-nav-list">
-        {nav.map((item) => (
-          <li key={item.to} title={railCollapsed ? item.label : undefined}>
-            {renderLink(
-              item,
-              <>
-                <NavIcon name={item.icon} label={item.label} />
-                <span data-terp="appshell-nav-label">{item.label}</span>
-              </>,
-              { collapsed: railCollapsed, active: item.to === currentTo },
+      {groupNav(nav, navGroups).map((section, index) => {
+        // Only a labelled section needs an id, and only a DECLARED section can be labelled — the
+        // default one has no declaration to carry a label. Keyed on the index rather than on
+        // `section.id`: a group id is an app-supplied string, and whitespace in one would
+        // silently break the IDREF rather than fail anywhere.
+        const labelId = section.label === null ? undefined : `${navGroupId}-${index}`;
+        return (
+          // No heading element, and this is the decision rather than an oversight. `Heading`
+          // refuses level 1 to reserve it for the routed view's title (see typography.tsx), and
+          // the sidebar renders BEFORE `<main>` — so a heading per group would put chrome above
+          // every page's h1 in the document outline, on every page in the product. axe cannot
+          // see it either: `heading-order` is a best-practice rule, outside the tags the a11y
+          // lane runs, and h2 -> h1 is a decrease that the rule passes anyway. A labelled list
+          // says the same thing to a screen reader and says nothing to the outline.
+          //
+          // The wrapper is rendered even for the single default section, which costs one <div>
+          // and no pixels: every rule in the sheet that reaches this subtree is an attribute or
+          // descendant selector, so none of them cares that the <ul> gained a parent. One code
+          // path is worth more than a branch that exists to save an element.
+          //
+          // A nav with NO visible items renders no wrapper and no list at all, where it used to
+          // render an empty <ul>. That is the same "a section with no items is not emitted" rule
+          // reaching its degenerate case rather than a second decision, it moves nothing (an
+          // empty grid list has no height), and it takes an empty `list` role back out of the
+          // accessibility tree. Reachable whenever every item is gated away by role or grant.
+          <div key={index} data-terp="appshell-nav-group">
+            {labelId !== undefined && (
+              <span id={labelId} data-terp="appshell-nav-group-label">
+                {section.label}
+              </span>
             )}
-          </li>
-        ))}
-      </ul>
+            <ul data-terp="appshell-nav-list" aria-labelledby={labelId}>
+              {section.items.map((item) => (
+                <li key={item.to} title={railCollapsed ? item.label : undefined}>
+                  {renderLink(
+                    item,
+                    <>
+                      <NavIcon name={item.icon} label={item.label} />
+                      <span data-terp="appshell-nav-label">{item.label}</span>
+                    </>,
+                    { collapsed: railCollapsed, active: item.to === currentTo },
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
     </nav>
   );
 

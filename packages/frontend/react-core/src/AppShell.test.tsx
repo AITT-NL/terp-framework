@@ -335,3 +335,153 @@ describe("AppShell", () => {
     });
   });
 });
+
+// Navigation groups, as the shell renders them.
+//
+// Every assertion here is on the SHELL'S OUTPUT, never on a fixture literal. That distinction is
+// the one this phase keeps paying for: nine AppShell specimens hand-write `aria-current` in their
+// own renderLink, so no baseline gates the shell's active paint at all. A group label read back
+// from the string that was passed in would be the same mistake.
+//
+// The name queries are `getByRole("list", { name })` rather than `toHaveAttribute`, and that is a
+// gate decision rather than a style one. A dropped or dangling `aria-labelledby` is not a
+// violation any lane in this repo can see — axe files a bad IDREF as `incomplete`, and the a11y
+// lane reads `results.violations` only — so the accessible NAME has to be the thing asserted, and
+// only a name query computes it.
+describe("AppShell navigation groups", () => {
+  const grouped: NavItem[] = [
+    { label: "Notes", to: "/notes", group: "work" },
+    { label: "Reports", to: "/reports", group: "work" },
+    { label: "Loose", to: "/loose" },
+  ];
+
+  it("labels each group's list with its own visible label", () => {
+    render(
+      <AppShell
+        title="Terp"
+        nav={grouped}
+        navGroups={[{ id: "work", label: "Werkruimte" }]}
+        renderLink={(item, children) => <a href={item.to}>{children}</a>}
+      >
+        <p>page content</p>
+      </AppShell>,
+    );
+
+    // The accessible name is computed from the rendered span, so this is red on a dropped
+    // attribute AND on an id that resolves nowhere.
+    const labelled = screen.getByRole("list", { name: "Werkruimte" });
+    expect(labelled).toBeInTheDocument();
+    expect(
+      [...labelled.querySelectorAll("a")].map((anchor) => anchor.getAttribute("href")),
+    ).toEqual(["/notes", "/reports"]);
+    // The ungrouped bucket is a second list, and it has no name of its own.
+    expect(screen.getAllByRole("list")).toHaveLength(2);
+  });
+
+  it("gives two shells on one page distinct label ids", () => {
+    // The workbench catalogue renders three shells on one page. With a module-constant id the
+    // second shell's `aria-labelledby` resolves into the FIRST shell's span — a wrong accessible
+    // name rather than a missing one, which nothing reports: `duplicate-id` is deprecated in axe
+    // and does not run, and a resolvable IDREF is not a violation whatever it points at.
+    // Mutation: replace `useId()` with a module constant, and the two ids below become equal.
+    const shell = (label: string) => (
+      <AppShell
+        title="Terp"
+        nav={[{ label: "Notes", to: "/notes", group: "g" }]}
+        navGroups={[{ id: "g", label }]}
+        renderLink={(item, children) => <a href={item.to}>{children}</a>}
+      >
+        <p>page content</p>
+      </AppShell>
+    );
+    render(
+      <>
+        {shell("Eerste")}
+        {shell("Tweede")}
+      </>,
+    );
+
+    const ids = screen
+      .getAllByRole("list")
+      .map((list) => list.getAttribute("aria-labelledby"));
+    expect(ids.filter(Boolean)).toHaveLength(2);
+    expect(new Set(ids)).toHaveProperty("size", 2);
+    // And each one still resolves to its OWN label, which is what the distinct ids are for.
+    expect(screen.getByRole("list", { name: "Eerste" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Tweede" })).toBeInTheDocument();
+  });
+
+  it("renders no label element and no aria-labelledby for the default group", () => {
+    // The additive case: a shell given no groups at all must render exactly what it renders
+    // today, plus the wrapper. Mutation: render a span for a null label.
+    const { container } = renderShell();
+
+    expect(container.querySelectorAll('[data-terp="appshell-nav-group"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-terp="appshell-nav-group-label"]')).toHaveLength(0);
+    expect(
+      container.querySelector('[data-terp="appshell-nav-list"]')?.hasAttribute("aria-labelledby"),
+    ).toBe(false);
+  });
+
+  it("renders nothing at all for a group no visible item references", () => {
+    // Reachable on a first render: `visibleNav` removes the role-gated `/admin` entry for
+    // everyone else, so a group holding only it arrives here empty.
+    // Mutation: emit the empty section, and the label appears over no links.
+    const { container } = render(
+      <AppShell
+        title="Terp"
+        nav={[{ label: "Loose", to: "/loose" }]}
+        navGroups={[{ id: "beheer", label: "Beheer" }]}
+        renderLink={(item, children) => <a href={item.to}>{children}</a>}
+      >
+        <p>page content</p>
+      </AppShell>,
+    );
+
+    expect(screen.queryByText("Beheer")).not.toBeInTheDocument();
+    expect(container.querySelectorAll('[data-terp="appshell-nav-group"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-terp="appshell-nav-group-label"]')).toHaveLength(0);
+  });
+
+  it("renders no wrapper and no list when every item is gated away", () => {
+    // The degenerate case of "a section with no items is not emitted", and a real change: the
+    // shell used to render an empty <ul> here. It moves nothing — an empty grid list has no
+    // height — and it takes an empty `list` role back out of the accessibility tree, which is
+    // why it is pinned rather than worked around. Reachable whenever `visibleNav` removes every
+    // item, e.g. a viewer in an app whose whole nav is role-gated.
+    // Mutation: emit the ungrouped section unconditionally, and an empty list reappears.
+    const { container } = render(
+      <AppShell title="Terp" nav={[]} renderLink={(item, children) => <a href={item.to}>{children}</a>}>
+        <p>page content</p>
+      </AppShell>,
+    );
+
+    expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-terp="appshell-nav-group"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-terp="appshell-nav-list"]')).toHaveLength(0);
+    expect(screen.queryAllByRole("list")).toHaveLength(0);
+  });
+
+  it("renders no heading element anywhere in the navigation", () => {
+    // The decision the prose argues and nothing enforced. `Heading` refuses level 1 to reserve
+    // the outline for the routed view's title, and the sidebar renders BEFORE `<main>` — so a
+    // heading per group would sit above every page's h1 on every page in the product. axe cannot
+    // catch it: `heading-order` is best-practice, outside the lane's tags, and h2 -> h1 is a
+    // decrease that passes anyway. Mutation: render the label as an <h2>.
+    render(
+      <AppShell
+        title="Terp"
+        nav={grouped}
+        navGroups={[{ id: "work", label: "Werkruimte" }]}
+        renderLink={(item, children) => <a href={item.to}>{children}</a>}
+      >
+        <p>page content</p>
+      </AppShell>,
+    );
+
+    const navigation = screen.getByRole("navigation", { name: "Primary" });
+    expect(navigation.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
+    // The label is still there and still announced — this is not "no label", it is "no heading".
+    expect(screen.getByText("Werkruimte")).toBeInTheDocument();
+  });
+});

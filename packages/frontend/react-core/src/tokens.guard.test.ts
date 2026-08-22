@@ -63,9 +63,13 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   // pass with its own baselines, not a token wiring done in passing. New components have
   // nothing depending on their metrics, so they take the scale as published.
   "--font-line-height-": [],
-  // `wide` is 0.08em, for the uppercase-label treatment nothing in the package uses; the
-  // sheet's two non-zero letter-spacings are 0.04em and 0.06em, so it maps onto neither.
-  "--font-letter-spacing-": ["--font-letter-spacing-wide"],
+  // EMPTY, and `wide` is what emptied it. It sat here reading "for the uppercase-label
+  // treatment nothing in the package uses" — a token waiting for a component. The navigation
+  // group label is that treatment, and it takes 0.08em from the scale rather than adding a
+  // third bare literal beside the sheet's 0.04em and 0.06em. Which is the whole point of
+  // keeping this list: it named the reader before the reader existed, so the new rule had one
+  // obvious right answer instead of a plausible wrong one.
+  "--font-letter-spacing-": [],
   // The shell's published geometry, tracked from the day it shipped rather than after
   // something rots. All four have readers — two sidebar widths, the header's floor and the
   // content measure — so the list is empty, and empty is the assertion: a fifth shell token

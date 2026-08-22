@@ -69,7 +69,7 @@ import {
   UserMenu,
 } from "@terpjs/react-core";
 import type { BadgeTone, DataViewColumn, DataViewRepository, Resource } from "@terpjs/react-core";
-import type { NavItem } from "@terpjs/contract";
+import type { NavGroup, NavItem } from "@terpjs/contract";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -229,6 +229,27 @@ const SHELL_NAV: readonly NavItem[] = [
   { label: "Records", to: "/records", icon: "list" },
   { label: "Reports", to: "/reports", icon: "layers" },
   { label: "Admin", to: "/admin", icon: "shield" },
+];
+
+// The same destinations, grouped. Deliberately the same four items as SHELL_NAV so the grouped
+// baselines differ from the flat ones in exactly the thing being added, and deliberately leaving
+// "Admin" ungrouped — that is the packaged admin entry's real shape (no app authors it, so no app
+// can give it a `group`) and it is what puts the ungrouped bucket in the picture at all.
+const SHELL_NAV_GROUPED: readonly NavItem[] = [
+  { label: "Overview", to: "/", icon: "home", group: "work" },
+  { label: "Records", to: "/records", icon: "list", group: "work" },
+  { label: "Reports", to: "/reports", icon: "layers", group: "insight" },
+  { label: "Admin", to: "/admin", icon: "shield" },
+];
+
+// Three groups declared and only two rendered: nothing references "archive", so it is emitted
+// nowhere. That is the empty-group rule in a picture, and it is the reachable form of it — a
+// specimen cannot empty a group by ROLE, because specimens hand `nav` straight to the shell and
+// `visibleNav` only ever runs inside `buildAppRouter`.
+const SHELL_NAV_GROUPS: readonly NavGroup[] = [
+  { id: "work", label: "Werkruimte" },
+  { id: "insight", label: "Inzicht" },
+  { id: "archive", label: "Archief" },
 ];
 
 // The auth-gated specimens (`UserMenu`, `ProfileView`, `ResourceList`'s write gate,
@@ -2807,6 +2828,155 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                 </Text>
                 <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} />
               </Stack>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // Navigation groups in the sidebar. Same four destinations as `app-shell` above, so the
+        // two baselines differ in exactly one thing: the grouping.
+        //
+        // Three rules land here and no earlier baseline holds any of them — the label's own
+        // block (size, weight, the uppercase treatment and 0.08em from the published scale), the
+        // adjacent-sibling margin that separates one group from the next, and the label's
+        // horizontal padding lining it up with the icons under it. Delete the label rule and the
+        // section headers become body-sized sentence-case text, which is unmissable here.
+        //
+        // "Archief" is declared and never referenced, so it renders nowhere. That negative is
+        // half the point of the picture: a label over a void is the failure the empty-group rule
+        // exists to prevent, and it would be plainly visible if the rule were removed.
+        id: "app-shell-nav-groups",
+        title: "AppShell — the navigation in declared groups",
+        node: (
+          <div style={{ height: "60rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV_GROUPED}
+              navGroups={SHELL_NAV_GROUPS}
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <p style={{ margin: 0 }}>Page content renders in the main region.</p>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // The same grouped nav collapsed to the icon rail, which is where the group labels stop
+        // being readable and the structure has to survive without them. Two rules apply here and
+        // nowhere else: the label joins the visually-hidden block, and a divider takes over the
+        // job the label was doing. Delete the divider rule and the rail becomes one
+        // undifferentiated column of icons — the grouping simply vanishes at 4rem, which is the
+        // failure worth having a picture of.
+        //
+        // Same box and same nav as `app-shell-nav-groups` above, so the pair differs in the rail
+        // state alone.
+        id: "app-shell-nav-groups-collapsed",
+        title: "AppShell — grouped navigation collapsed to the icon rail",
+        node: (
+          <div style={{ height: "60rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV_GROUPED}
+              navGroups={SHELL_NAV_GROUPS}
+              defaultCollapsed
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <p style={{ margin: 0 }}>Page content renders in the main region.</p>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // Groups in the header placement, which is the case that decided the CSS. Without the
+        // row rules each group wrapper is a block, so a two-group header renders one stacked
+        // list per group and grows the header — a navigation put in the header precisely to
+        // avoid permanent chrome, taking three lines of it. Delete the nav's `display: flex` and
+        // that is what this baseline shows.
+        //
+        // It is also the picture of a rule that exists only to be undone: the label's block
+        // padding is right in a column and wrong in a row, where it adds to the group gap and
+        // pushes the label off the links' centre line. The single-group case is already held by
+        // `app-shell-header-nav`, and that baseline must NOT move — the row rules are written so
+        // that one wrapper behaves exactly as the bare list did.
+        //
+        // navFooter is a plain button rather than the real UserMenu, for the reason
+        // `app-shell-header-nav` records: UserMenu needs TerpProvider, and an async boot is
+        // exactly the nondeterminism a screenshot stabilises on silently.
+        id: "app-shell-header-nav-groups",
+        title: "AppShell — grouped navigation in the header, as a row",
+        node: (
+          <div style={{ height: "44rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV_GROUPED}
+              navGroups={SHELL_NAV_GROUPS}
+              navPlacement="header"
+              navFooter={
+                <Button variant="secondary" size="sm">
+                  Account
+                </Button>
+              }
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <Stack gap={4}>
+                <Text tone="muted">
+                  Groups run along the row; the sidebar&rsquo;s stacking margin is scoped away
+                  from this placement, where it would be a cross-axis margin.
+                </Text>
+                <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} />
+              </Stack>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // The grouped mobile drawer, and it exists for an INTERACTION rather than for a rule of
+        // its own. `headerNav` is `!isMobile && navPlacement === "header"`, so below the
+        // breakpoint the shell stamps no `data-nav-placement` at all and a header-placement app
+        // gets the grouped drawer under the SIDEBAR rules — the only navigation it has on a
+        // phone. Nothing else in the suite renders that combination, and the scoping decision
+        // that keeps the stacking margin off the header row is exactly what has to keep it ON
+        // here. `navPlacement="header"` is passed deliberately: it is the case that would break.
+        //
+        // A new specimen rather than groups added to `app-shell-drawer-open`, and that is a
+        // constraint rather than a preference: that specimen has a win32 baseline recorded on a
+        // developer machine, and Windows Chrome is blocked by group policy here, so changing it
+        // would leave a baseline that is knowingly wrong and unrecordable. New specimens are
+        // linux-only either way.
+        //
+        // `overlay: true` for the reason `app-shell-drawer-open` records: the drawer is
+        // `position: fixed` and its backdrop is `inset: 0`, so both paint outside the element box.
+        id: "app-shell-nav-groups-drawer",
+        title: "AppShell — grouped navigation in the mobile drawer",
+        viewport: { width: 420, height: 900 },
+        overlay: true,
+        node: (
+          <div style={{ height: "50rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV_GROUPED}
+              navGroups={SHELL_NAV_GROUPS}
+              navPlacement="header"
+              defaultDrawerOpen
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <p style={{ margin: 0 }}>The page behind the drawer, inert while it is open.</p>
             </AppShell>
           </div>
         ),

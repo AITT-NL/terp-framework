@@ -1011,3 +1011,94 @@ describe("buildAppRouter — a declared permission gates the ROUTE, not just the
     expect(screen.queryByRole("link", { name: "Export" })).not.toBeInTheDocument();
   });
 });
+
+describe("buildAppRouter navGroups", () => {
+  it("passes the app's declared groups through to the shell", async () => {
+    // The pass-through is a hand-written enumeration of option names, and nothing covered it:
+    // `navPlacement`, `contentWidth` and `density` all reach the shell through the same list and
+    // no test asserts any of them arrives. So every other gate on groups can be green while the
+    // one line that carries them to the shell is missing, and every app using the sanctioned
+    // entry point gets nothing. Mutation: delete `navGroups={options.navGroups}` from the
+    // AppShell element, and the labelled list loses its name.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = (input as Request).url;
+        if (url.endsWith("/api/v1/auth/login")) {
+          return jsonResponse({ access_token: "t", token_type: "bearer" });
+        }
+        return jsonResponse({
+          id: "1",
+          email: "editor@example.com",
+          role_rank: 20,
+          role_name: "editor",
+        });
+      }),
+    );
+
+    const router = buildAppRouter(
+      [
+        {
+          name: "notes",
+          routes: [{ path: "/notes", view: "NotesList" }],
+          nav: [{ label: "Notes", to: "/notes", group: "work" }],
+        },
+      ],
+      {
+        views: { NotesList: views.NotesList },
+        title: "Terp",
+        navGroups: [{ id: "work", label: "Werkruimte" }],
+        history: createMemoryHistory({ initialEntries: ["/notes"] }),
+      },
+    );
+
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Notes view" })).toBeInTheDocument(),
+    );
+    // Asserted by accessible NAME, which is the only form that survives both a dropped
+    // attribute and a dangling IDREF — see AppShell.test.tsx for why no lane catches either.
+    expect(screen.getByRole("list", { name: "Werkruimte" })).toBeInTheDocument();
+  });
+
+  it("refuses a duplicate group id when the router is composed", () => {
+    // An authoring error with no legitimate transient form, so it is refused once here rather
+    // than absorbed on every render. Deliberately NOT symmetrical with an item naming an
+    // undeclared group, which is the normal state of an app mid-adoption and falls open.
+    expect(() =>
+      buildAppRouter([], {
+        views: {},
+        title: "Terp",
+        navGroups: [
+          { id: "work", label: "Werkruimte" },
+          { id: "work", label: "Weer werkruimte" },
+        ],
+      }),
+    ).toThrow(/duplicate id\(s\): work/);
+  });
+
+  it("does not refuse an item naming a group nobody declared", () => {
+    // The counterpart to the row above, and the reason the throw is narrow: a module ships on
+    // its own schedule, so an undeclared id is ordinary rather than wrong. The link must still
+    // be reachable. Mutation: widen the composition check to unreferenced/undeclared ids and
+    // this throws.
+    expect(() =>
+      buildAppRouter(
+        [
+          {
+            name: "notes",
+            routes: [{ path: "/notes", view: "NotesList" }],
+            nav: [{ label: "Notes", to: "/notes", group: "not-declared-yet" }],
+          },
+        ],
+        { views: { NotesList: views.NotesList }, title: "Terp", navGroups: [] },
+      ),
+    ).not.toThrow();
+  });
+});

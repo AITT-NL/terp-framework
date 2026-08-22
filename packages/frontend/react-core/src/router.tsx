@@ -14,7 +14,7 @@ import {
 } from "@tanstack/react-router";
 import type { ComponentType, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ModuleManifest } from "@terpjs/contract";
+import type { ModuleManifest, NavGroup } from "@terpjs/contract";
 
 import { AppShell } from "./AppShell";
 import { ProfileView } from "./ProfileView";
@@ -257,6 +257,16 @@ export interface BuildAppRouterOptions {
    * the drawer.
    */
   navPlacement?: "sidebar" | "header";
+  /**
+   * The app's navigation groups ({@link AppShell.navGroups}), which manifest items reference by
+   * `NavItem.group`. Omit for the flat, unlabelled sidebar every app renders today.
+   *
+   * A duplicate id is refused here rather than tolerated: it is an authoring error with no
+   * legitimate transient form, and composition time is where it can be reported once instead of
+   * on every render. An item naming an *undeclared* group is the opposite case and is not an
+   * error at all — modules ship independently of the app, so `groupNav` lets it fall open.
+   */
+  navGroups?: readonly NavGroup[];
   /** Role-name -> minimum rank; an unknown role is denied (fail closed). */
   roleRanks?: Record<string, number>;
   /** Rendered when the current user may not access a route (default: a simple message). */
@@ -314,6 +324,22 @@ export function buildAppRouter(
       `Unknown layout contract "${layoutContract}"; known contracts: ` +
         Object.keys(LAYOUT_CONTRACTS).join(", ") +
         ".",
+    );
+  }
+  // An authoring error with no legitimate transient form, so it is refused here rather than
+  // absorbed. `groupNav` itself stays total — first declaration wins — because it runs on every
+  // render and a render must not be able to throw; this runs once, when the app is composed.
+  // Deliberately NOT symmetrical with an item naming an undeclared group, which is not an error
+  // at all: a module ships on its own schedule, so that is the normal state of an app mid-adoption
+  // and it falls open.
+  const duplicateGroups = (options.navGroups ?? [])
+    .map((group) => group.id)
+    .filter((id, index, ids) => ids.indexOf(id) !== index);
+  if (duplicateGroups.length > 0) {
+    throw new Error(
+      "Terp navGroups declare duplicate id(s): " +
+        [...new Set(duplicateGroups)].join(", ") +
+        ". Each group id is referenced by NavItem.group and must be declared once.",
     );
   }
   const missingViews = manifests.flatMap((manifest) =>
@@ -378,6 +404,7 @@ export function buildAppRouter(
         navPlacement={options.navPlacement}
         activePath={pathname}
         nav={nav}
+        navGroups={options.navGroups}
         renderBrandLink={({ to, children }) => (
           <Link to={to} data-terp="appshell-brand">
             {children}

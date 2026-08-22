@@ -228,6 +228,70 @@ the same shape as the `Theme` union's hand-written copy, for the same stated rea
 opposite direction. An app naming an icon outside the set gets a typecheck error instead of a
 silent letter tile. Runtime behaviour is unchanged: the fallback stays.
 
+**The group half, amended in 4e by building it.** The shape above survives — groups are declared
+once by the app, referenced by items, and the model is additive — but four of the things this
+section says a group *is* did not, and the ordering rule it implies is wrong in the one case every
+app has.
+
+*A group is `{ id, label, order }` and nothing else.* This section names `label`, `order`, `icon`,
+`accent` and a landing `description`. `description` has nowhere to render: the sidebar shows a
+label over a list and there is no group landing page to put prose on. `icon` puts a
+non-interactive glyph in a column of interactive ones, which in the collapsed rail — where the
+label is visually hidden and a glyph is the *only* thing a row is — makes a group indistinguishable
+from a destination. `accent` is refused on design grounds and the earlier argument for refusing it
+was wrong: it was rejected as an inline-style cost, but `BadgeTone` is a closed union rendered as
+`data-tone` with no inline style at all, so a token-shaped `accent?: BadgeTone` would have been
+free under ADR 0094. It is refused because a coloured navigation group is a theming decision an app
+makes in its own `theme.css`, against tokens this framework already publishes. Recorded as a closer
+call than the first refusal claimed.
+
+*Nesting is not deferred, it is declined.* The flat list already renders a real hierarchy flat —
+the packaged `/admin` ships beside the example app's `/admin/grants` — and that is precisely why
+§6's predicate had to become longest segment-aligned match. Nesting would not fix that; it would
+add a second place to compute it, and the two would disagree the first time a route sat under a
+parent that was not its nav ancestor.
+
+*The label is not a heading, and no lane could have told us.* `typography.tsx` refuses
+`Heading level={1}` to reserve the outline for the routed view's title, and the sidebar renders
+before `<main>` — so a heading per group puts chrome above every page's `h1`, on every page in the
+product. axe cannot see it: `heading-order` is a best-practice rule, outside the tags the
+accessibility lane runs, and `h2` followed by `h1` is a *decrease*, which that rule passes anyway.
+A `<span>` with `aria-labelledby` on the `<ul>` says the same thing to a screen reader and nothing
+to the outline. The id comes from `useId`, because the workbench renders three shells on one page
+and a shared id makes the second shell's label resolve into the first — a wrong accessible name
+rather than a missing one, which nothing reports, since `duplicate-id` is deprecated in axe and a
+resolvable IDREF is not a violation whatever it points at.
+
+*Every remaining decision is about an absence, and one of them inverts this section's own
+argument.* An item naming an undeclared group falls **open** into the ungrouped bucket, because a
+module ships on its own schedule and an unknown id is the normal state of an app mid-adoption. A
+group left empty by `role` or `permission` filtering renders nothing at all. And the ungrouped
+bucket is emitted **last** — not first, which is what "this is additive" first suggested. The
+worked example for emitting it first was "declaring a group for only the admin item", and that is
+the one case that cannot be constructed: the packaged admin area is appended after the app's own
+manifests and no app authors its nav entry, so no app can give it a `group`. Emitting the bucket
+first hoists that entry from the bottom of the sidebar to the top the moment an app declares its
+first group, with no way to put it back. Emitting it last leaves it where it already is. The cost
+is that an app grouping a *minority* of its items sees the ungrouped majority sink below them —
+app-authored, visible on the first render, and fixed in one line by declaring a `label: null`
+group, which renders no heading and is therefore pure positioning.
+
+*Absent `order` is 0, not infinity*, and the sort is stable — CSS `order` semantics, so a manifest
+that numbers nothing renders exactly as before. Groups are declared by the app on the shell
+(`navGroups` on `AppShell`, `buildAppRouter` and `renderTerpApp`), not on any module manifest,
+which is the structural half of "no module can own the group's label or order". A duplicate group
+id is refused when the router is composed; `groupNav` itself stays total so a render can never
+throw.
+
+The header placement made one thing explicit that the sidebar-only reading hid: the separation
+between groups is `margin-block-start` on an adjacent sibling, which is a block-axis margin
+between stacked blocks in the sidebar and a **cross-axis** margin on a flex item in the header row.
+Unscoped it grows the sticky header. The rule is therefore scoped to the sidebar marker — which
+the mobile drawer also carries, correctly, since below the breakpoint a header-placement app has
+only the drawer. No baseline could have caught that: the header-groups specimen was new, and a
+missing baseline is *written* before it fails, so its first recording would have captured the
+defect and called it the truth. It is gated by a computed-value assertion instead.
+
 ### 6. "Active" is one predicate, and the component owns it
 
 `ModuleNav` computes `isActive` as `pathname === item.to`, a raw string compare, while the

@@ -1143,6 +1143,14 @@ describe("cascade structure", () => {
       "code-block",
       "link",
       "detail-list-row",
+      // `appshell-nav-group-label` is here; `appshell-nav-group` deliberately is NOT, and the
+      // omission joins `appshell-mark` and `appshell-skip-link` above rather than starting a
+      // new kind of exception. The wrapper declares nothing on its own — in the sidebar it is a
+      // plain block whose whole job is to be a sibling, so its two rules are a `+` pair and a
+      // placement override, and it has no standalone selector to match. `declaresRuleFor` wants
+      // exact selector equality, which is what makes it worth having: adding the family pattern
+      // here to make the list look complete would fail, correctly.
+      "appshell-nav-group-label",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

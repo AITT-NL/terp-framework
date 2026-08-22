@@ -790,6 +790,68 @@ decision, 0001 onwards.
   No DOM and no CSS in this commit, so no baseline can move and the visual lanes are not
   implicated.
 
+- **The shell renders navigation groups, and the label is not a heading (ADR 0097 §5, amended in
+  4e).** `AppShell` takes `navGroups`, threaded through `buildAppRouter` and `renderTerpApp`. Each
+  section is a `<div data-terp="appshell-nav-group">` holding an optional label and the list it
+  names; an app that declares no groups gets one wrapper around the list it already had, and
+  every one of the 121 existing baselines was byte-identical afterwards on both placements — which
+  is the claim "this adds no pixels" reduced to evidence.
+
+  **No heading element, and no lane in this repo could have argued the other way.**
+  `typography.tsx` refuses `Heading level={1}` to keep the document outline for the routed view's
+  title, and the sidebar renders before `<main>` — so a heading per group would sit above every
+  page's `h1`, on every page in the product. axe cannot see it: `heading-order` is a best-practice
+  rule, outside the tags the accessibility lane runs, and `h2` then `h1` is a *decrease*, which
+  the rule passes anyway. A `<span>` with `aria-labelledby` on the `<ul>` says the same thing to a
+  screen reader and nothing to the outline. The id comes from `useId`, because the workbench
+  renders three shells on one page and a shared id would make the second shell's label resolve
+  into the first — a wrong accessible name rather than a missing one, which nothing reports.
+
+  **The group separator is the sheet's first `+` combinator, and scoping it is load-bearing.**
+  The separation between groups is `margin-block-start` on an adjacent sibling: a block-axis
+  margin between stacked blocks in the sidebar, and a **cross-axis** margin on a flex item in the
+  header row, where it would push every group after the first down and grow the sticky header with
+  it. It is therefore scoped to the sidebar marker — which the mobile drawer also carries,
+  correctly, since below the breakpoint a header-placement app has only the drawer. The collapsed
+  rail replaces it with a divider, because the label is visually hidden there and a divider is
+  what is left of a label once the text is gone.
+
+  That defect was found by review rather than by a lane, and **no screenshot could have caught
+  it**: the header-groups specimen is new, and Playwright *writes* a missing baseline before
+  failing, so its first recording would have captured the bug and called it the truth. It is
+  gated by a computed-value assertion — the second group's resolved `margin-block-start` is `0px`
+  in the header and `16px` in the sidebar, and each group's first link shares a `top` — which is
+  red before the scoping and green after.
+
+  **The group label is `--font-letter-spacing-wide`'s first reader.** The token ledger had it
+  listed as unread with the comment "for the uppercase-label treatment nothing in the package
+  uses"; this is that treatment, so it takes 0.08em from the published scale instead of adding a
+  third bare literal to a sheet whose literals are pinned as an exact multiset. The unread list is
+  now empty. That is the ledger working as designed: it named the reader before the reader
+  existed, so the new rule had one obvious right answer.
+
+  **Baselines are linux-only for the four new specimens, and that is now data rather than
+  folklore.** Chrome and chrome-headless-shell are blocked by group policy on the machine these
+  were authored on, leaving the container CI compares in as the only recorder. Left unrecorded,
+  that is not a gap but a trap: a missing baseline is written and then fails, `__screenshots__`
+  is in no ignore file, and the README says `git add -A` — so a Windows developer produces a full
+  set of unverified baselines that look exactly like real ones in review. The set is named in
+  `LINUX_ONLY`, skipped off linux, and held to the actual directory contents by a test, so a name
+  removed without recording its `win32` halves turns the suite red instead of silently writing
+  them. The pre-existing 242-against-238 gap is named for the first time by the same test.
+
+  One real change beyond the additive path: a nav with **no visible items** now renders no
+  wrapper and no list, where it used to render an empty `<ul>`. That is the same
+  section-with-no-items rule reaching its degenerate case rather than a second decision. It moves
+  nothing — an empty grid list has no height — and it takes an empty `list` role back out of the
+  accessibility tree. Reachable whenever `visibleNav` gates every item away.
+
+  Thirteen mutations, thirteen reds. One of them was invalid on the first attempt and looked like
+  a pass — swapping the label's `<span>` for an `<h2>` without its closing tag fails to compile,
+  so the run went red with *zero* failing tests and proved nothing about the gate. Rewritten and
+  re-run, it kills exactly the assertion it should. Four lanes: 253 screenshots, 626 axe runs,
+  7 keyboard, 10 computed.
+
 ### Changed
 
 - **Every transition in the framework stylesheet is timed off the published motion scale,

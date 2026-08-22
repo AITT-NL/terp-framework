@@ -402,7 +402,17 @@ rasterisation and antialiasing differ between Windows and Linux by far more than
 tolerance that would still catch a real change, so a single shared set leaves whichever
 platform did not record it permanently red. Each platform records and compares its own.
 
-Both sets are recorded, so all four lanes run in CI (`.github/workflows/frontend.yml`).
+The `linux` set is complete, which is what lets all four lanes run in CI
+(`.github/workflows/frontend.yml`). The `win32` set is **not**, and the specimens it is missing
+are named in `LINUX_ONLY` in `visual/specimens.spec.ts`, skipped off linux, and held to the
+directory contents by a test there — because the default for a missing baseline is to *write* it
+and then fail, and this directory is in no ignore file while the recipe below says `git add -A`.
+Together that turns "nobody could record this" into a committed baseline nobody verified, which
+looks exactly like a real recording in review. Those specimens were authored on a machine where
+Chrome and chrome-headless-shell are blocked by group policy, leaving the container as the only
+recorder; recording their `win32` halves needs a working Windows browser and removing them from
+the set in the same commit.
+
 The `win32` set comes from a developer machine; the `linux` set was recorded in
 `mcr.microsoft.com/playwright:v1.62.0-noble`, and CI runs the screenshot lane **inside that
 same image** rather than on the bare runner. That last part is the load-bearing half: a
