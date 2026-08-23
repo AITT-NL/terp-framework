@@ -2134,6 +2134,39 @@ textarea[data-terp="input"] {
   cursor: pointer;
   color: var(--color-fg-subtle);
 }
+/* The password field's reveal toggle, built on the search box above rather than beside
+   it: same positioning context, same absolutely-placed control, same specificity
+   argument. Only type="password" wraps, so every other input is still a bare element
+   and the two child selectors in this sheet that reach for data-terp="input" — the
+   toolbar search and the resource-list create field — can never meet a wrapper. */
+[data-terp="input-password"] {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+/* Room for the toggle. It must out-rank input[data-terp="input"] { padding: 0
+   var(--space-3) } and does so on SPECIFICITY — two attributes (0,2,0) against an
+   attribute plus a type (0,1,1) — the same trap and the same escape the search field
+   documents above. Asymmetric on purpose: the glyph sits at the end, and reserving room
+   at both ends would indent the value for nothing. */
+[data-terp="input-password"] > [data-terp="input"] {
+  padding-inline-end: var(--space-6);
+  width: 100%;
+}
+/* The toggle itself, the seventeenth element wearing the iconbutton marker. It takes
+   that marker rather than one of its own because it is one: the shared rule already
+   carries its transition, its hover wash and its disabled treatment, and duplicating
+   those under a new name to avoid editing one enumeration would be the wrong trade. */
+[data-terp="input-password"] > [data-terp="iconbutton"] {
+  position: absolute;
+  inset-inline-end: var(--space-1);
+  display: inline-flex;
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-fg-subtle);
+}
 /* "Refreshing…", and this is the one place the prefer-an-existing-DOM-attribute
    rule is REFUSED with its own reasoning. [data-terp="dataview-toolbar"]
    > [role="status"] looks textbook — the component does own this span's role — but
@@ -3321,7 +3354,7 @@ button[data-terp="input"][data-placeholder="true"] {
   margin-block-start: var(--space-2);
 }
 
-/* Icon-only buttons. Sixteen elements wear this marker and not one declares a
+/* Icon-only buttons. Seventeen elements wear this marker and not one declares a
    transition inline, so this belongs in terp.base — it sat in terp.state only
    because that is where the hover rules needing it live. Same correction 817f572
    made for Tabs and Breadcrumbs. */
@@ -3479,9 +3512,10 @@ button[data-terp="input"][data-placeholder="true"] {
 
 /* Icon-only buttons: the shell's two header toggles, four pagination arrows, the
    toast dismisser, the combobox's clear button, the calendar's two month arrows,
-   the DataView's expand toggle, the view-options panel's two reorder arrows, and
-   the DataView toolbar's clear-search button and two layout toggles.
-   SIXTEEN SITES sharing a transition and nothing else — no shared SURFACE, because
+   the DataView's expand toggle, the view-options panel's two reorder arrows, the
+   DataView toolbar's clear-search button and two layout toggles, and the password
+   field's reveal toggle.
+   SEVENTEEN SITES sharing a transition and nothing else — no shared SURFACE, because
    each is styled by where it sits. Sites rather than elements: the reorder arrows
    render twice per column row, so the element count is a function of how many
    columns a view has, while the list of places to check is fixed.
@@ -3837,7 +3871,7 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 /* The pager's disabled ink, scoped rather than added to the shared iconbutton
-   rule above: of the sixteen sites wearing that marker only six can be disabled at
+   rule above: of the seventeen sites wearing that marker only six can be disabled at
    all — these four and the view-options panel's two reorder arrows, which carry
    their own scoped ink below for the same reason — and giving the shared rule a
    colour would change how a disabled calendar arrow looks the day one becomes

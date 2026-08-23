@@ -111,6 +111,9 @@ export function UserCreate() {
           <Field label={strings.password} error={fieldErrors.password}>
             <Input
               type="password"
+              // The admin is setting someone else's password, so this is never the browser's saved
+              // credential: `new-password` stops a manager offering the admin's own.
+              autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required

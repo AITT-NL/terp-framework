@@ -37,6 +37,8 @@ export const LOCALE_NL: LocaleCatalog = {
     signingIn: "Bezig met inloggen…",
     email: "E-mailadres",
     password: "Wachtwoord",
+    showPassword: "Wachtwoord tonen",
+    hidePassword: "Wachtwoord verbergen",
     signInFailed: "Inloggen mislukt. Controleer je gegevens.",
     fillDevCredentials: "Vul dev-inloggegevens in",
     continueWith: "Doorgaan met",

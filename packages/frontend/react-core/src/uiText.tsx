@@ -40,6 +40,10 @@ export interface TerpStrings {
   email: string;
   /** Login password placeholder. */
   password: string;
+  /** Password reveal toggle, while the value is hidden. */
+  showPassword: string;
+  /** Password reveal toggle, while the value is visible. */
+  hidePassword: string;
   /** Login failure message. */
   signInFailed: string;
   /** Label of the dev-only button that fills the seeded development credentials. */
@@ -217,6 +221,8 @@ export const DEFAULT_STRINGS: TerpStrings = {
   signingIn: "Signing in…",
   email: "Email",
   password: "Password",
+  showPassword: "Show password",
+  hidePassword: "Hide password",
   signInFailed: "Sign-in failed. Check your credentials.",
   fillDevCredentials: "Fill dev credentials",
   continueWith: "Continue with",

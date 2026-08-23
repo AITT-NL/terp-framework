@@ -83,6 +83,8 @@ export const ICON_NAMES = [
   "music",
   "wrench",
   "zap",
+  "eye",
+  "eye-off",
 ] as const;
 
 /**

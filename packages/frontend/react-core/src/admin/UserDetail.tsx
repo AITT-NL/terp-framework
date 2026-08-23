@@ -213,6 +213,7 @@ export function UserDetail() {
           <Field label={strings.newPassword}>
             <Input
               type="password"
+              autoComplete="new-password"
               value={resetPassword}
               onChange={(event) => setResetPassword(event.target.value)}
               required

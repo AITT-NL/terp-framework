@@ -454,6 +454,23 @@ const GLYPHS = {
       <path d="M13 3 4 14h6l-1 7 9-11h-6l1-7Z" />
     </svg>
   ),
+  // The password reveal, and the only pair here where one glyph is the other struck through.
+  // The slash is part of `eye-off` rather than an overlay, so the two swap as whole glyphs and
+  // neither depends on the other rendering underneath it.
+  eye: (
+    <svg {...svgProps}>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  "eye-off": (
+    <svg {...svgProps}>
+      <path d="M10.6 6.2A9.9 9.9 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.1" />
+      <path d="M6.6 6.8A17.7 17.7 0 0 0 2 12s3.6 7 10 7a9.8 9.8 0 0 0 4.5-1.1" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+      <path d="m3 3 18 18" />
+    </svg>
+  ),
 } satisfies Record<IconName, ReactNode>;
 
 /**

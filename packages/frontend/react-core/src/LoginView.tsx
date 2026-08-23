@@ -94,6 +94,9 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
         <form data-terp="login-form" onSubmit={onSubmit}>
           <Input
             type="email"
+            // Neither field declared an autocomplete token, so no password manager offered to
+            // fill or save this form — the one place in the framework where that matters most.
+            autoComplete="username"
             placeholder={strings.email}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -101,6 +104,7 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
           />
           <Input
             type="password"
+            autoComplete="current-password"
             placeholder={strings.password}
             value={password}
             onChange={(event) => setPassword(event.target.value)}

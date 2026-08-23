@@ -14,6 +14,40 @@ decision, 0001 onwards.
 
 ### Added
 
+- **`Input type="password"` grows a reveal toggle.** Four password fields ship in this package and
+  the example app, none of them could be revealed, and no app could add the affordance itself: the
+  toggle needs a positioned wrapper and `BOUNDARY_SPEC` refuses both `style` and `className` in
+  module files. That is the `Button.fullWidth` case exactly — a shape the framework can produce and
+  its consumers cannot ask for.
+
+  The TYPE decides, so there is no new export and no new prop. The sheet already states the rule
+  this follows, about `input` and `textarea`: "only their geometry differs, so the element type
+  carries that — no second attribute for a distinction the tag name already makes." A
+  `PasswordInput` would be the `LoadingButton` mistake, a second name for one `<input>`.
+
+  The toggle wears the existing `iconbutton` marker rather than a new one — it already gets the
+  shared transition, hover wash and disabled treatment from that rule — so the sheet's enumeration
+  of its wearers goes from sixteen to seventeen in the three places that count them. One new
+  marker, `input-password`, for the wrapper; two new glyphs, `eye` and `eye-off`; two new strings.
+
+  **The risk was never the toggle.** `Input` stops returning a bare `<input>` for one value of
+  `type`, and `Field` clones its control to inject `aria-describedby` and `aria-invalid` while the
+  sheet's invalid border is `input[data-terp="input"][aria-invalid="true"]` — a single-element
+  selector. Spread the props onto the wrapper and the attribute lands on one element while the
+  marker sits on another, the selector matches neither, and every password field with a hint or an
+  error silently loses its red border. There is one such field in the example app today. The spread
+  goes to the inner input, and a test pins it there.
+
+  Riding along, because it is the same four fields: none of them declared an autocomplete token, so
+  no password manager offered to fill or save the sign-in form. `username` and `current-password`
+  on the login screen; `new-password` where an admin sets someone else's, which is never the
+  browser's own saved credential.
+
+  Five mutations, five reds: the props spread onto the wrapper, the toggle's accessible name
+  removed (ten axe failures, which is how that lane earns its place here), the toggle left as a
+  submit button — one click from posting the form it sits in — every input wrapped rather than only
+  password, and the padding reservation deleted so the glyph sits on top of the value.
+
 - **Density reaches the shell, and the comfortable island exists (ADR 0094 §4, ADR 0098 §5).** `AppShell`
   takes `density`, threaded through `buildAppRouter` and `renderTerpApp`: one attribute on the
   shell root, from which every control height and cell padding follows by token inheritance,

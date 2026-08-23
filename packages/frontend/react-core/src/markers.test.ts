@@ -169,6 +169,7 @@ const MARKERS = [
   "icon",
   "iconbutton",
   "input",
+  "input-password",
   "language-switcher",
   "language-switcher-label",
   "link",
