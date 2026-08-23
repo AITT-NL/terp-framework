@@ -236,6 +236,16 @@ export interface BuildAppRouterOptions {
   title: string;
   /** Brand mark in the sidebar (any rendered node); default: the placeholder TerpMark. */
   logo?: ReactNode;
+  /**
+   * The dark-theme brand mark ({@link AppShell.logoDark}); the stylesheet picks per appearance.
+   *
+   * Forwarded because it was not, which made it the third slot to exist on the shell and be
+   * unreachable from the entry points every app uses — after `headerActions`, which this ADR's
+   * own Context complains about. This one was worse than unreachable: the project template
+   * instructs every new app to pass `logoDark` to `renderTerpApp`, so the documented example
+   * did not typecheck.
+   */
+  logoDark?: ReactNode;
   /** Extra header content, rendered before the theme / language controls. */
   headerActions?: ReactNode;
   /** Footer line under the content; default: a muted line with the app title. */
@@ -397,6 +407,7 @@ export function buildAppRouter(
       <AppShell
         title={options.title}
         logo={options.logo}
+        logoDark={options.logoDark}
         headerActions={options.headerActions}
         footer={options.footer}
         contentWidth={options.contentWidth}

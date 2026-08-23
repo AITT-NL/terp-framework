@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { Component } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -67,6 +67,30 @@ function underContract(children: ReactNode, contract: string | null = "standard"
       </LayoutContractContext.Provider>
     </CatchBoundary>,
   );
+}
+
+/**
+ * Assert that a composition was ACCEPTED — after actually letting the check run.
+ *
+ * The obvious spelling is a false green, and it was the shape every acceptance test in this file
+ * used:
+ *
+ *     await waitFor(() => expect(screen.queryByTestId("refused")).toBeNull());
+ *
+ * `waitFor` retries until its callback stops throwing, so a callback asserting that something is
+ * ABSENT passes on the very first attempt — before `Page`'s `setTimeout(0)` slot check has run at
+ * all. It waits for nothing and can never fail. Nine tests claimed to gate the acceptance half of
+ * ADR 0079 and gated nothing; verified by putting a `Grid` — which the OverviewPage slot table
+ * does not admit — into a governed overview body and watching the suite stay green.
+ *
+ * Flushing one macrotask inside `act` is what makes the assertion mean something: the check has
+ * then either thrown into the boundary or decided the body was legal.
+ */
+async function expectAccepted() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(screen.queryByTestId("refused")).toBeNull();
 }
 
 describe("layout contract parity (docs/data can't drift)", () => {
@@ -412,7 +436,7 @@ describe("layout contract survives the roots the styling migration renames", () 
 });
 
 describe("what 4b's widening does and does not admit", () => {
-  it("accepts a Grid in a detail body, which is the two-column form case", () => {
+  it("accepts a Grid in a detail body, which is the two-column form case", async () => {
     // The diagnosis's headline evidence was a fifteen-field form shipped as one vertical run.
     // Shipping `Grid` without this widening would have shipped a component no governed page
     // could use — and only a copier-generated project has the contract switched on, so the
@@ -425,9 +449,7 @@ describe("what 4b's widening does and does not admit", () => {
         </Grid>
       </DetailPage>,
     );
-    return waitFor(() => {
-      expect(screen.queryByTestId("refused")).toBeNull();
-    });
+    await expectAccepted();
   });
 
   it("still refuses a Grid in an overview body, because a grid there is a hub", () => {
@@ -531,7 +553,7 @@ describe("what 4b's widening does and does not admit", () => {
     });
   });
 
-  it("accepts a Divider and a lead paragraph in both governed bodies", () => {
+  it("accepts a Divider and a lead paragraph in both governed bodies", async () => {
     // A rule between sections and a paragraph above them — the two things a body wanted that
     // needed no container. `Heading` is deliberately NOT admitted: a heading in a governed body
     // must own its section, and `Card` (plain or boxed) is how a section is owned. A bare
@@ -550,9 +572,14 @@ describe("what 4b's widening does and does not admit", () => {
     ]) {
       cleanup();
       underContract(page);
+      // Per iteration, not once after the loop. Two separate faults met here and only the
+      // second one mattered. `Page` schedules its check as a setTimeout(0) and clears it on
+      // unmount while RTL's `cleanup` unmounts synchronously, so a single trailing assertion
+      // cancelled the OverviewPage timer and only ever reached the DetailPage. But moving the
+      // assertion inside the loop changed nothing on its own, because the assertion itself
+      // could not fail — see `expectAccepted`. Verified together: an illegal Grid in the
+      // OverviewPage body above is green under either old form and red under this one.
+      await expectAccepted();
     }
-    return waitFor(() => {
-      expect(screen.queryByTestId("refused")).toBeNull();
-    });
   });
 });

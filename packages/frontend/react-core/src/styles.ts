@@ -3484,7 +3484,13 @@ button[data-terp="input"][data-placeholder="true"] {
    only the text controls had migrated left a disabled Combobox painted exactly
    like an enabled one and deleted the aria-invalid border outright. All six
    now take their base from this sheet, so layer order is enough. */
-[data-terp="input"]:hover:not(:disabled):not(:focus) {
+/* The invalid exclusion is not tidying. This selector weighs (0,4,0) and the danger border below
+   weighs (0,2,0), both unlayered against each other inside terp.state — so without the third
+   :not() a pointer resting on a field that has just failed validation repaints its border from
+   the danger token to a neutral grey, and the error state disappears for exactly as long as the
+   user is pointing at the thing they need to fix. Narrowing the aggressor rather than adding a
+   competing [aria-invalid="true"]:hover rule is this sheet's convention. */
+[data-terp="input"]:hover:not(:disabled):not(:focus):not([aria-invalid="true"]) {
   border-color: var(--color-neutral-400);
 }
 [data-terp="input"]:focus,

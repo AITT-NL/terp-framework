@@ -98,6 +98,16 @@ export interface RenderTerpAppOptions {
   /** Brand mark in the sidebar (any rendered node); default: the placeholder TerpMark. */
   logo?: ReactNode;
   /**
+   * The dark-theme brand mark ({@link AppShell.logoDark}); the stylesheet picks per appearance,
+   * with no code of the app's involved.
+   *
+   * Forwarded because it was not, and the template already told every new app to pass it — so
+   * the documented example did not typecheck. Third instance of the shape this ADR's Context
+   * names for `headerActions`: a slot that exists on the shell and cannot be reached from the
+   * one-call bootstrap.
+   */
+  logoDark?: ReactNode;
+  /**
    * Extra header content, rendered before the theme / language controls.
    *
    * `AppShell` has had this slot all along and `renderTerpApp` did not pass it, so the only way
@@ -272,6 +282,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
     views,
     title: options.title,
     logo: options.logo,
+    logoDark: options.logoDark,
     headerActions: options.headerActions,
     footer: options.footer,
     contentWidth: options.contentWidth,

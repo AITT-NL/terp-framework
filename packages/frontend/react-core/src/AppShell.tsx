@@ -627,6 +627,20 @@ export function AppShell({
       )}
       <div
         data-terp="appshell-column"
+        // `inert` is why this package requires React 19, and the requirement is real rather
+        // than nominal. Measured against both renderers with renderToStaticMarkup:
+        //
+        //   spelling        React 18.3.1              React 19.2.8
+        //   inert={true}    DROPPED (warns)           inert=""
+        //   inert=""        inert=""                  DROPPED (warns: treated as false)
+        //   inert="true"    inert=""                  inert="" (warns)
+        //
+        // So on 18.3 this pair degraded to the worst possible half — a subtree announced as
+        // hidden to assistive technology while every control in it stayed focusable and
+        // clickable, because `aria-hidden` is an aria-* attribute React has always passed
+        // through. There is no spelling that is both correct and quiet on the two majors, which
+        // is why the fix is the peer range (now ^19) rather than a cast here: the defect was
+        // claiming to support a version on which the containment silently did not exist.
         inert={isMobile && drawerOpen ? true : undefined}
         aria-hidden={isMobile && drawerOpen ? true : undefined}
       >

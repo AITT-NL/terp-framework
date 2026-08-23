@@ -1005,6 +1005,56 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **A review of phases 1-4 found five defects, and the most interesting one was in the review.**
+  A seven-lens audit over the design-system overhaul, every finding re-verified against source
+  before it was acted on. Five survived and are fixed here; the rest are recorded or refused.
+
+  **A `checked` control with no `onChange` froze silently.** `Checkbox`, `Switch` and `Radio`
+  each passed an `onChange` handler unconditionally, which suppresses React's own "you provided
+  a `checked` prop to a form field without an `onChange` handler" guard — so a caller who pinned
+  the value and forgot the handler got a control that looked operable, never changed, and said
+  nothing about it. `Select` already documents that exact hazard at its own call site and avoids
+  it; the other three now do the same.
+
+  **Hovering an invalid field removed its error border.** The input hover rule weighed (0,4,0)
+  against the `aria-invalid` danger border's (0,2,0), both unlayered against each other inside
+  `terp.state`, so resting a pointer on a field that had just failed validation repainted it
+  neutral — for exactly as long as the user was pointing at the thing they needed to fix. The
+  aggressor is narrowed with `:not([aria-invalid="true"])`, which is this sheet's convention.
+
+  **`logoDark` was unreachable from both entry points, and the template told every new app to
+  pass it.** The third slot to exist on the shell and not be forwarded, after `headerActions` —
+  which ADR 0097's own Context complains about. This one was worse than unreachable: the project
+  template documents `logoDark` inside a `renderTerpApp` call, so the example a new app copies
+  did not typecheck. Forwarded from both `buildAppRouter` and `renderTerpApp`.
+
+  **An acceptance gate on the layout contract could not fail.** Two tests asserted that a legal
+  composition is *not* refused with `await waitFor(() => expect(queryByTestId("refused"))
+  .toBeNull())`. `waitFor` retries until its callback stops throwing, so a callback asserting
+  something is ABSENT passes on its first attempt — before `Page`'s `setTimeout(0)` slot check
+  has run at all. It waited for nothing. One of the two also iterated two archetypes and asserted
+  once at the end, and `cleanup()` cancelled the first archetype's pending check, so the
+  OverviewPage half was never reached either way. Both now flush a macrotask inside `act` before
+  asserting; verified by putting a `Grid` — which the OverviewPage slot table does not admit —
+  into a governed overview body and watching it go from green to red.
+
+  **The React peer range promised a version on which the mobile drawer's containment did not
+  exist.** The drawer marks the page column `inert` and `aria-hidden`. Measured with
+  `renderToStaticMarkup` against both renderers: on React 18.3.1 `inert={true}` is **dropped**
+  with a warning while `aria-hidden` renders fine, which is the worst half of the pair — a
+  subtree announced as hidden to assistive technology with every control in it still focusable
+  and clickable. The declared peer range was `^18.3.0 || ^19.0.0`, so that was a supported
+  configuration.
+
+  The review proposed `inert=""` as the fix. **Measuring it is the only reason it did not ship:**
+  on React 19.2.8 an empty string is dropped in turn, warning that it "will treat the attribute
+  as if it were false" — so the proposed fix would have removed the containment on the major
+  every app here actually runs, in order to restore it on one none of them use. No spelling is
+  correct and quiet on both. The defect was therefore the promise rather than the attribute, and
+  the peer range narrows to `^19.0.0` — **a breaking change for any consumer on React 18.3**, and
+  the honest one: the alternative is claiming support for a configuration where a modal drawer
+  does not contain focus.
+
 - **Two workbench specimens were nondeterministic, and had recorded the wrong state.** The split
   specimens put a `ResourceList` in the list pane with `renderActions`, which `ResourceList`
   wraps in `<Authorized action="write">` — so the rows rendered only once the auth boot's two
