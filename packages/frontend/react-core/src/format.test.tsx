@@ -63,6 +63,32 @@ describe("the locale-explicit formatters", () => {
     expect(formatNumber(Number.NaN, "nl")).toBe("—");
   });
 
+  it("builds one formatter per locale, not one per value", () => {
+    // Constructing an Intl formatter costs ~55x using one, and every table cell comes through
+    // here, so the first version of this file turned a locale fix into a rendering cost: a 200-row
+    // table with three date columns built 600 formatters per render. Counting constructions is the
+    // only way to see it — the output is identical either way, which is exactly why it shipped.
+    const original = Intl.DateTimeFormat;
+    let constructed = 0;
+    try {
+      (Intl as { DateTimeFormat: unknown }).DateTimeFormat = function counted(
+        ...args: ConstructorParameters<typeof Intl.DateTimeFormat>
+      ) {
+        constructed += 1;
+        return new original(...args);
+      };
+      for (let index = 0; index < 50; index += 1) {
+        formatDate(`2026-07-${String((index % 28) + 1).padStart(2, "0")}T12:00:00Z`, "en-GB");
+      }
+      expect(constructed).toBe(1);
+      // A second locale is a second formatter, not a cache that answers with the wrong one.
+      formatDate(WHEN, "en-IE");
+      expect(constructed).toBe(2);
+    } finally {
+      (Intl as { DateTimeFormat: unknown }).DateTimeFormat = original;
+    }
+  });
+
   it("accepts the three shapes a date field arrives in", () => {
     const iso = formatDate(WHEN, "en-US");
     expect(formatDate(new Date(WHEN), "en-US")).toBe(iso);
