@@ -513,10 +513,28 @@ describe("cascade structure", () => {
     }
     // Every transition this sheet declares is either on a marked element or on one of the
     // descendant selectors above. A new descendant rule with a transition has to join them.
-    const base = layerBody("terp.base");
-    for (const match of base.matchAll(/([^{}]+)\{([^{}]*transition:[^{}]*)\}/g)) {
+    // BOTH layers. This read only terp.base, so a transition declared in terp.state — where
+    // every hover, focus and selected treatment lives — was audited by nothing at all. The one
+    // that exists there today passed only because its selector happens to be in the explicit
+    // list above, which is luck rather than coverage.
+    //
+    // And the "marked" heuristic needs the trailing pseudo stripped before it is applied.
+    // `\s[a-z]+$` asks whether the selector ends in a bare element name preceded by whitespace,
+    // but `[data-terp="card"] span:hover` ends in `:hover` — the character before the final run
+    // is a colon, not a space — so the test scored it as marked and waved it through. Reduced
+    // motion cannot reach that rule: terp.motion is the last layer and beats any earlier one on
+    // the elements its selectors MATCH, and its list matches marked elements and four named
+    // descendants. A transition on any other descendant simply escapes.
+    const transitionRules = [layerBody("terp.base"), layerBody("terp.state")].flatMap((body) => [
+      ...body.matchAll(/([^{}]+)\{([^{}]*transition:[^{}]*)\}/g),
+    ]);
+    expect(transitionRules.length, "no transition rules were scanned at all").toBeGreaterThan(0);
+    for (const match of transitionRules) {
       const selector = match[1].trim().replace(/\s+/g, " ");
-      const marked = selector.includes("[data-terp") && !/\s[a-z]+$/.test(selector);
+      // Strip trailing pseudo-classes / pseudo-elements, so the bare-element test sees the
+      // element the selector actually ends on.
+      const withoutPseudo = selector.replace(/(::?[a-z-]+(\([^)]*\))?)+$/, "");
+      const marked = withoutPseudo.includes("[data-terp") && !/\s[a-z]+$/.test(withoutPseudo);
       expect(
         marked || motion.includes(selector),
         `${selector} declares a transition but reduced motion cannot reach it`,

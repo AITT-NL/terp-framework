@@ -89,6 +89,16 @@ test.describe("component accessibility", () => {
           await page.goto(`/?theme=${theme}&only=${specimen.id}`);
           const selector = `[data-specimen="${specimen.id}"]`;
           await page.locator(selector).waitFor({ state: "visible" });
+          // The wrapper above proves nothing about the component inside it: it always contains
+          // the title paragraph and is visible on first paint. This lane analyses ONCE with no
+          // stability retry, so for a specimen whose content arrives asynchronously it was
+          // auditing the loading frame and reporting the result as coverage — measured,
+          // `resource-list` held 97 characters here and 118 a beat later, and its three row
+          // actions had never been read by axe at all. The screenshot lane survives the same
+          // race by accident, because `toHaveScreenshot` reshoots until two frames match.
+          if (specimen.ready !== undefined) {
+            await page.locator(specimen.ready).first().waitFor({ state: "visible" });
+          }
           // Settle the fonts before axe reads anything, exactly as the screenshot lane does.
           // axe's colour-contrast rule resolves computed foreground and background from the
           // painted page, so it is measuring a moving target until layout and text rendering

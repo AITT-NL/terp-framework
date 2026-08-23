@@ -71,6 +71,13 @@ test.describe("component specimens", () => {
           // Wait for the element rather than a timeout: react-core compiles from source
           // through Vite, so a cold dev server takes a moment on the first navigation.
           await target.waitFor({ state: "visible" });
+          // Honoured here too, though this lane needs it less: `toHaveScreenshot` reshoots until
+          // two consecutive frames match, so it already settles on the loaded state. Waiting
+          // explicitly makes that determinism a property of the specimen rather than of the
+          // retry loop — and this suite has recorded the wrong state twice before.
+          if (specimen.ready !== undefined) {
+            await page.locator(specimen.ready).first().waitFor({ state: "visible" });
+          }
           // Fonts settle after first paint; an unsettled webfont swap is the classic source
           // of a one-line-height diff.
           await page.evaluate(() => document.fonts.ready);
@@ -120,6 +127,44 @@ const LINUX_ONLY = new Set([
   "app-shell-header-nav-groups",
   "app-shell-nav-groups-drawer",
 ]);
+
+test("every specimen with asynchronous content declares what to wait for", () => {
+  // The durable half of the `ready` fix. Both lanes wait for `[data-specimen="<id>"]`, which
+  // always contains the title paragraph and is visible on first paint — so for a specimen whose
+  // content arrives over the wire, waiting for it proves nothing. The axe lane analyses ONCE
+  // with no stability retry, so it was auditing loading frames and reporting them as clean:
+  // measured, `resource-list` held 97 characters at analyze time and 118 a beat later, and its
+  // three row actions had never been read by axe at all.
+  //
+  // Declaring `ready` fixes the twelve that exist. This stops the thirteenth being added
+  // without one, which is the part that rots otherwise. `SignedIn` mounts TerpProvider against
+  // the mock auth boot and `adminScreenSpecimen` mounts a packaged screen — both asynchronous
+  // by construction, and both greppable, which is why the check is a source scan rather than a
+  // runtime one: a runtime check would have to already know what "loaded" looks like.
+  //
+  // No browser, like the two checks below: reading one file is the whole check.
+  const source = fs.readFileSync(
+    fileURLToPath(new URL("../src/specimens.tsx", import.meta.url)),
+    "utf8",
+  );
+  const marks = [...source.matchAll(/\n {8}id: "([a-z0-9-]+)",/g)];
+  const missing: string[] = [];
+  for (const [index, mark] of marks.entries()) {
+    const start = mark.index ?? 0;
+    const end = index + 1 < marks.length ? (marks[index + 1]!.index ?? source.length) : source.length;
+    const block = source.slice(start, end);
+    const asynchronous = block.includes("SignedIn") || block.includes("adminScreenSpecimen");
+    if (asynchronous && !block.includes("ready:")) {
+      missing.push(mark[1]!);
+    }
+  }
+  expect(
+    missing,
+    "these specimens load asynchronously and would be audited mid-flight; give each a `ready` selector",
+  ).toEqual([]);
+  // And the scan must actually be finding specimens, or the assertion above is vacuous.
+  expect(marks.length).toBeGreaterThan(100);
+});
 
 test("the linux-only baseline set is exactly the set that is missing on win32", () => {
   // The ratchet. This reads the two directories rather than trusting the list, so a name that

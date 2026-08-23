@@ -1005,6 +1005,39 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **Two lanes were auditing something other than what they claimed, and neither could say so.**
+  Both came out of the phases 1-4 review — one from a reviewer, one from measuring a lane against
+  itself — and both are the same shape: a check that runs, passes, and reads the wrong thing.
+
+  **The accessibility lane audited loading frames.** Both browser lanes wait for
+  `[data-specimen="<id>"]` before reading a specimen, and that wrapper always contains the title
+  paragraph and is visible on first paint — so for a specimen whose content arrives over the wire,
+  waiting for it proves nothing about the component underneath. The screenshot lane survives that
+  by accident, because `toHaveScreenshot` reshoots until two consecutive frames match. The axe
+  lane calls `.analyze()` once, with no stability retry, so it audited whatever frame it found.
+  Measured: `resource-list` holds 97 characters at analyze time and 118 a beat later, and its
+  three row actions had never been read by axe at all — a clean run over a loading frame,
+  reported as coverage, across **twelve** specimens.
+
+  A specimen now declares `ready`, a selector both lanes wait for, and the twelve asynchronous
+  ones have one. A thirteenth cannot be added without one: a source-scanning test refuses any
+  specimen that mounts `SignedIn` or a packaged admin screen and declares no `ready`. This is the
+  field 4e's design specified for the routed specimen, applied where it turned out to matter more.
+
+  Worth stating plainly, because it is the honest result: with the wait in place all 626 axe runs
+  still pass. The fix closed a blind spot rather than catching a bug — those twelve components
+  are clean, and now that is something the suite has actually established.
+
+  **The reduced-motion audit read one layer of two.** It walked `terp.base` for transition
+  declarations and never touched `terp.state`, where every hover, focus and selected treatment
+  lives. The single transition that exists there passed only because its selector happens to
+  appear in the explicit allow-list, which is luck rather than coverage. Its "is this selector
+  marked" heuristic was wrong in a way that widened the hole: the test asks whether the selector
+  ends in a bare element name preceded by whitespace, and `[data-terp="card"] span:hover` ends in
+  `:hover` — the character before the final run is a colon — so it scored as marked and was waved
+  through. It walks both layers now and strips trailing pseudo-classes before applying the test.
+  Verified with exactly that rule: green twice over before, red now, naming the selector.
+
 - **Six more from the phases 1-4 review, and one of them was in a gate written the day before.**
   The second pass down the same audit. Each was re-verified from source, and each ships with the
   mutation that turns its gate red.

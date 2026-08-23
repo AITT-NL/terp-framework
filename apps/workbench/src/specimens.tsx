@@ -140,6 +140,26 @@ export interface Specimen {
    * is worse than a link.
    */
   viewport?: { width: number; height: number };
+  /**
+   * A selector that must be visible before a lane reads this specimen.
+   *
+   * For a specimen whose content arrives asynchronously — anything mounting `TerpProvider`, so
+   * anything behind the workbench's mock auth boot, and anything loading through a repository.
+   * Both lanes wait for `[data-specimen="<id>"]`, and that wrapper always contains the title
+   * paragraph and is visible on first paint, so waiting for it proves nothing about the
+   * component underneath.
+   *
+   * The screenshot lane mostly survives that by accident: `toHaveScreenshot` keeps shooting
+   * until two consecutive frames match, so it settles on the loaded state on its own. **The axe
+   * lane does not.** It calls `.analyze()` once, with no stability retry, so it audits whatever
+   * frame it finds — and measured, `resource-list` holds 97 characters at that moment and 118 a
+   * beat later. Its three row actions had never been read by axe at all: a clean run over a
+   * loading frame, reported as coverage.
+   *
+   * So this is not a flake guard. It is the difference between auditing the component and
+   * auditing the space where it will be.
+   */
+  ready?: string;
 }
 
 export interface SpecimenGroup {
@@ -1524,6 +1544,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       },
       {
         id: "resource-list",
+        ready: '[data-terp="resource-list-row"]',
         title: "ResourceList — loaded, with create and row actions",
         node: (
           <SignedIn>
@@ -1539,6 +1560,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       },
       {
         id: "resource-list-empty",
+        ready: '[data-terp="resource-list-empty"]',
         title: "ResourceList — empty",
         node: (
           <SignedIn>
@@ -1552,6 +1574,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // five themes. Everything else is `resource-list` unchanged, so the two baselines
         // differ in exactly one thing.
         id: "resource-list-error",
+        ready: '[data-terp="resource-list-error"]',
         title: "ResourceList — the create failed",
         node: (
           <SignedIn>
@@ -2272,6 +2295,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // not something reached from the thing it writes into, so this is the narrow frame
         // WITHOUT a breadcrumb above it — the other half of the pair.
         id: "settings-page",
+        ready: '[data-terp="card"]',
         title: "SettingsPage — capped frame, Card sections, no trail",
         node: (
           <SettingsPage title="Preferences">
@@ -2321,6 +2345,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // answers with a fixed rank-30 user. The `resource-list` specimen already relies on
         // exactly that.
         id: "split-page",
+        ready: '[data-terp="splitpane"]',
         title: "SplitPage — list beside the record it selects",
         node: (
           <SplitPage
@@ -2474,6 +2499,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       },
       {
         id: "user-menu",
+        ready: '[data-terp="user-menu-avatar"]',
         title: "UserMenu — closed trigger",
         node: (
           <SignedIn>
@@ -2483,6 +2509,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       },
       {
         id: "user-menu-collapsed",
+        ready: '[data-terp="user-menu-avatar"]',
         title: "UserMenu — collapsed (icon rail)",
         node: (
           <SignedIn>
@@ -2497,6 +2524,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // anything reachable from the trigger. Closed, none of it is painted; this is the only
         // baseline that sees it.
         id: "user-menu-open",
+        ready: '[data-terp="user-menu-avatar"]',
         title: "UserMenu — open panel with the identity block",
         overlay: true,
         node: (
@@ -2507,6 +2535,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       },
       {
         id: "login-view",
+        ready: '[data-terp="login-form"]',
         title: "LoginView — credentials and SSO",
         node: (
           // Height-clipped: the view is a 100vh page; the clip keeps the centered form in
@@ -2520,6 +2549,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       },
       {
         id: "profile-view",
+        ready: '[data-terp="profile-card"]',
         title: "ProfileView — identity and preferences",
         node: (
           <SignedIn>
@@ -2994,6 +3024,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // min-content width rather than a short paragraph, because a row under no pressure
         // never asks a flex item whether it may shrink.
         id: "app-shell-narrow",
+        ready: '[data-terp="dataview-table"]',
         title: "AppShell — just above the mobile breakpoint, under content pressure",
         viewport: { width: 820, height: 900 },
         node: (
@@ -3055,6 +3086,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // is the only thing between the fields and the right edge. At a narrower viewport the
         // declaration would be a no-op and the baseline would gate nothing.
         id: "admin-user-create",
+        ready: '[data-terp="admin-form"]',
         title: "UserCreate — the packaged provisioning form",
         node: adminScreenSpecimen(<UserCreate />, "/admin/users/new"),
       },
