@@ -895,6 +895,75 @@ decision, 0001 onwards.
   added to the `LINUX_ONLY` set. A baseline whose content is a known defect is worse than no
   baseline: it certifies the bug. Every other baseline was byte-identical.
 
+- **A 422 reaches the field it is about (`ApiError.fields`).** `Field` has shipped an `error` prop
+  since the form primitives landed — with a `field-error` marker, an `aria-describedby`, an
+  `aria-invalid` and a style rule for all of it — and nothing in this package could produce the
+  value. Across the framework, the example app and the workbench, every `error=` on a `Field` was
+  a test or a specimen. The rendering half of field-level validation was complete and the half
+  that supplies it did not exist.
+
+  The reason was one function. `unwrap`'s `structuredDetail` walked the envelope's reason list,
+  computed each reason's field path from `loc`, and then discarded the pair with
+  `messages.join("; ")`. The information arrived at the client and was thrown away two lines
+  later, so the only thing a form could do with a rejection was float
+  `email: Email address is already registered` above an untouched email input.
+
+  `ApiError` now carries `fields`, a frozen record keyed by dotted path, and
+  `Object.keys(error.fields).length > 0` is the test for "this belongs on the form". `message` is
+  byte-unchanged in every case: the existing string is what every other caller shows, so this is
+  additive beside it rather than a replacement for it.
+
+  **Both spellings of a reason are read, because the backend documented one branch for both.**
+  `terp.core.ErrorDetail` says its shape "deliberately mirrors FastAPI's own 422 detail entries
+  ... so a frontend handles both with one branch", and no such branch existed — `unwrap` named
+  `details` in a doc comment and never read the key. FastAPI emits `loc` as an array and
+  `ErrorDetail` emits it already dotted, so `fieldPath` takes both. Handling only the array would
+  have kept half of that promise while claiming all of it, which is the same defect this entry is
+  about, one layer down.
+
+  **A reason with no field still reaches the user.** `ErrorDetail` documents an empty `loc` as a
+  supported case for something about the request as a whole, and a record keyed by field has
+  nowhere to put it, so it stays in `message` exactly as before. A field that fails twice keeps
+  the server's first reason and leaves the rest in the message; overwriting would show the last,
+  which is no more correct and reads as arbitrary.
+
+  **The error is announced, not only described.** `field-error` was a plain span reachable only
+  through `aria-describedby`, which is read when focus reaches the control — so a rejection
+  arriving on submit, after focus has left the field, was silent. It now carries `role="alert"`.
+  The two are not redundant: they fire at different moments, and a submit-time rejection only has
+  the second. No marker changed and no rule moved, because `markers.test.ts` scans `data-terp`
+  and the sheet holds no `[role=]` selector that could match a span.
+
+  Three of the package's four forms are converted (`UserCreate`, `GroupCreate`, and both forms on
+  `GroupDetail`). `UserDetail` is not: it has no form — its only `Field` is a `ConfirmDialog`
+  description — and the delete and revoke handlers keep their toasts, which is where an
+  unattributed failure belongs. On `GroupDetail` the key is named rather than inferred from
+  whichever reason came first, because neither form submits only what the user typed: adding a
+  member posts a `user_id` resolved from the typed email, and granting posts the group's own
+  `subject_id` beside the permission. A reason about either of those is not something the one
+  visible input can be edited to fix.
+
+  One message that is not a 422 moved with them: the member form's "no account matches that
+  email", which the client decides after the directory lookup returns nothing. It is still a
+  statement about the email just typed, on a form whose only input is that email, so leaving it
+  a toast would have had one form answer server reasons on the field and client reasons above
+  it. The routing follows what a message is about, not where it came from.
+
+  The failure path had no test at all, which is how the seam stayed open for two releases. It has
+  one now, and it asserts on two different strings on purpose: `Field` shows the server's bare
+  `msg` while the toast shows the joined `path: msg` sentence, so asserting only the first would
+  stay green if both appeared — three channels for one problem being exactly what this change set
+  out to stop. It uses a uniqueness violation rather than a malformed address, because
+  `type="email"` rejects a malformed one before any request leaves (jsdom enforces that too, which
+  is how the first draft of the test failed). What survives the HTML constraint attributes is
+  precisely what only the server knows, and that is the class of reason this channel carries.
+
+  Nine mutations, nine reds: the dotted-string arm of `fieldPath` deleted, `details` left unread
+  beside a string `detail`, `details` capturing the message slot that `detail` already fills,
+  last-reason-wins instead of first, a keyless reason filed under the empty-string key, the record
+  left unfrozen, `role="alert"` removed, `fields` forced empty so the form falls back to a toast,
+  and the unresolvable-email message put back above the input it is about.
+
 ### Changed
 
 - **The navigation model closes without a badge, and that is a decision (ADR 0097 §5, amended in

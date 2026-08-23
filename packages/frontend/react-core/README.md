@@ -179,7 +179,7 @@ marker, counted by the escape-hatch budget.
 | `useRecord` | The singleton counterpart of `useResource` — the one record a detail screen shows: `item` (or `null`) + loading/error + reload + mutate. Deletes the one-element-list wart (`list: async () => [unwrap(…)]` then `items[0]`). |
 | `useRealtimeChannel` | The sanctioned typed SSE/WebSocket seam for the optional realtime capability: mints a short-lived one-use ticket via the authenticated generated client, validates every inbound JSON payload with the channel's runtime type guard, and exposes connection state / last message / WebSocket send. App modules never touch raw transports. |
 | `ResourceList` | The standard simple CRUD list screen: titled section, write-gated create form, loading/error/empty states. Composable — screens needing more render their own React. |
-| `unwrap`, `unwrapOptional`, `ApiError` | Turn a generated-client result into data-or-throw; `ApiError` carries the envelope's `code` / `status` / `requestId`. `unwrapOptional` returns `null` on a 404 instead — for resources whose absence is a normal state (a `/latest` snapshot not yet published), the client-side analog of `BaseService.find` beside `get`. |
+| `unwrap`, `unwrapOptional`, `ApiError` | Turn a generated-client result into data-or-throw; `ApiError` carries the envelope's `code` / `status` / `requestId`, plus `fields` — the per-field reasons of a 422, keyed by dotted path, ready to hand to `Field`'s `error` prop (`{}` when the failure names no field). `unwrapOptional` returns `null` on a 404 instead — for resources whose absence is a normal state (a `/latest` snapshot not yet published), the client-side analog of `BaseService.find` beside `get`. |
 | `FileUpload`, `useFileDownload` | The files-capability surface (ADR 0056/0057): a token-styled attachment picker that uploads through the typed client, and an authenticated download helper (a raw `<a href>` would carry no bearer token). |
 | `useEndpointDownload`, `saveBlob` | Download an artifact the backend **generates** — an evidence bundle, a CSV export — which has no stored file id (ADR 0096). Goes through the session client, so it carries the base URL and bearer token and rejects a non-2xx instead of saving the error body under the intended filename. |
 
@@ -212,7 +212,7 @@ marker, counted by the escape-hatch budget.
 | `Popover`, `Menu`, `MenuItem` | Shared anchored overlay and dropdown-menu primitives: body-portaled, viewport-aware panels that escape scroll/table clipping, with outside-click/Escape close, focus return, selected-item semantics, and roving keyboard navigation. |
 | `Alert` | Inline banner for persistent feedback (`tone`: neutral / info / success / warning / danger); warnings and danger announce as `alert`, others as `status`. |
 | `Markdown` | Safe, dependency-free markdown renderer for headings, paragraphs, bold, italic, inline code, code blocks, lists, and safe links; raw HTML is rendered as text and never passed through. |
-| `Field` | Label + control + hint/error wrapper for one form field. |
+| `Field` | Label + control + hint/error wrapper for one form field. The error is announced (`role="alert"`) as well as described, because `aria-describedby` alone is silent for a rejection that arrives after focus has left the control. |
 
 ## Layout
 

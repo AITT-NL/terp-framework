@@ -31,6 +31,14 @@ export interface FieldProps {
  * declares either keeps its own value; the field adds to `aria-describedby` rather than replacing
  * it. `Input`, `Select`, `Textarea` and `Combobox` all spread their props onto the DOM element, so
  * the attributes land where assistive tech reads them.
+ *
+ * The error also carries `role="alert"`, and `aria-describedby` is why it has to. A description is
+ * read when focus reaches the control, which covers an error that was already there and covers
+ * nothing about one that appears on submit — by then focus has left the field, or the button, and
+ * the only thing that changed is a span nobody is pointed at. The two are not redundant: they
+ * announce at different moments, and a submit-time rejection only has the second one. Because the
+ * span is conditional, it enters the accessibility tree exactly when the error appears, which is
+ * the event `alert` exists to report.
  */
 export function Field({ label, children, error, hint }: FieldProps) {
   const resolve = useUiText();
@@ -66,7 +74,7 @@ export function Field({ label, children, error, hint }: FieldProps) {
         </span>
       )}
       {hasError && (
-        <span id={errorId} data-terp="field-error">
+        <span id={errorId} role="alert" data-terp="field-error">
           {error}
         </span>
       )}

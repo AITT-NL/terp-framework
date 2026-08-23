@@ -18,7 +18,7 @@ import { useToast } from "../toast";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useStrings } from "../uiText";
-import { unwrap } from "../unwrap";
+import { ApiError, unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
 
@@ -50,9 +50,11 @@ export function GroupDetail() {
   const [membersVersion, setMembersVersion] = useState(0);
   const [grantsVersion, setGrantsVersion] = useState(0);
   const [memberQuery, setMemberQuery] = useState("");
+  const [memberError, setMemberError] = useState<string | undefined>(undefined);
   const [suggestions, setSuggestions] = useState<UserRead[]>([]);
   const [adding, setAdding] = useState(false);
   const [permission, setPermission] = useState("");
+  const [permissionError, setPermissionError] = useState<string | undefined>(undefined);
   const [granting, setGranting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -190,11 +192,36 @@ export function GroupDetail() {
     toast.warning(error instanceof Error ? error.message : strings.requestFailed);
   }
 
+  /**
+   * Route a failure to the input it is about, or to the toast when it is about anything else.
+   *
+   * The key is named rather than inferred from whichever reason came first, because neither of
+   * these two forms submits only what the user typed: adding a member posts a `user_id` resolved
+   * from the typed email, and granting posts the group's own `subject_id` beside the permission.
+   * A reason about either of those is not something the one visible input can be edited to fix,
+   * so it belongs where every other unattributed failure on this screen already goes.
+   */
+  function failedField(
+    error: unknown,
+    key: string,
+    set: (message: string | undefined) => void,
+  ): void {
+    if (error instanceof ApiError) {
+      const message = error.fields[key];
+      if (message !== undefined) {
+        set(message);
+        return;
+      }
+    }
+    failed(error);
+  }
+
   async function onAddMember(event: FormEvent) {
     event.preventDefault();
     const needle = memberQuery.trim();
     if (needle === "") return;
     setAdding(true);
+    setMemberError(undefined);
     try {
       // Resolve the typed email to an account: exact match among the current
       // suggestions first, else one direct directory query.
@@ -208,7 +235,11 @@ export function GroupDetail() {
         match = page.items.find((user) => user.email === needle);
       }
       if (match === undefined) {
-        toast.warning(strings.userNotFound);
+        // On the field for the same reason a 422 now is: "no account matches that email" is
+        // about the email the user just typed, and it is the only input on this form. Leaving it
+        // a toast would have this one form answer server reasons on the field and client reasons
+        // above it, which is a distinction the user has no way to perceive.
+        setMemberError(strings.userNotFound);
         return;
       }
       unwrap(
@@ -223,7 +254,7 @@ export function GroupDetail() {
       setMembersVersion((v) => v + 1);
       void group.reload();
     } catch (error) {
-      failed(error);
+      failedField(error, "user_id", setMemberError);
     } finally {
       setAdding(false);
     }
@@ -252,6 +283,7 @@ export function GroupDetail() {
   async function onGrant(event: FormEvent) {
     event.preventDefault();
     setGranting(true);
+    setPermissionError(undefined);
     try {
       unwrap(
         await client.POST("/api/v1/access/grants", {
@@ -262,7 +294,7 @@ export function GroupDetail() {
       setPermission("");
       setGrantsVersion((v) => v + 1);
     } catch (error) {
-      failed(error);
+      failedField(error, "permission", setPermissionError);
     } finally {
       setGranting(false);
     }
@@ -343,7 +375,7 @@ export function GroupDetail() {
             {strings.members}
           </h2>
           <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onAddMember}>
-            <Field label={strings.userField}>
+            <Field label={strings.userField} error={memberError}>
               <Input
                 type="email"
                 value={memberQuery}
@@ -380,7 +412,7 @@ export function GroupDetail() {
             {strings.permissions}
           </h2>
           <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onGrant}>
-            <Field label={strings.permission}>
+            <Field label={strings.permission} error={permissionError}>
               <Input
                 value={permission}
                 onChange={(event) => setPermission(event.target.value)}

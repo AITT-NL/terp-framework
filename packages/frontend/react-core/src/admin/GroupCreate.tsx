@@ -12,7 +12,7 @@ import { useToast } from "../toast";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useStrings } from "../uiText";
-import { unwrap } from "../unwrap";
+import { ApiError, unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
 
@@ -27,10 +27,14 @@ export function GroupCreate() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({});
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setCreating(true);
+    // Cleared on every attempt: the server re-validates the whole body, so its answer is the
+    // complete set of what is wrong, and a stale key would sit under a field already fixed.
+    setFieldErrors({});
     try {
       const group = unwrap(
         await client.POST("/api/v1/groups/", { body: { name, description } }),
@@ -41,6 +45,11 @@ export function GroupCreate() {
         params: { groupId: group.id },
       });
     } catch (error) {
+      // A reason that names a field belongs on that field; anything unattributed stays a toast.
+      if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
+        setFieldErrors(error.fields);
+        return;
+      }
       toast.warning(error instanceof Error ? error.message : strings.requestFailed);
     } finally {
       setCreating(false);
@@ -77,10 +86,10 @@ export function GroupCreate() {
     >
       <div data-terp="admin-form">
         <Stack id={FORM_ID} as="form" gap={4} onSubmit={onSubmit}>
-          <Field label={strings.groupName}>
+          <Field label={strings.groupName} error={fieldErrors.name}>
             <Input value={name} onChange={(event) => setName(event.target.value)} required />
           </Field>
-          <Field label={strings.description}>
+          <Field label={strings.description} error={fieldErrors.description}>
             <Input value={description} onChange={(event) => setDescription(event.target.value)} />
           </Field>
         </Stack>

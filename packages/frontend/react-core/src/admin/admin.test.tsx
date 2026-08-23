@@ -13,9 +13,9 @@ import { Page } from "../Page";
 import { TerpProvider, useAuth } from "../TerpProvider";
 import { ToastProvider } from "../toast";
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { "content-type": "application/json" },
   });
 }
@@ -460,6 +460,48 @@ describe("the packaged admin area", () => {
     })).toBe(true);
   });
 
+  it("puts a 422's reason under the field it names instead of floating it in a toast", async () => {
+    // The failure path had no test at all, which is how the framework shipped `Field.error` with
+    // no production consumer for two releases: the rendering half was gated, the producing half
+    // did not exist, and nothing exercised the seam between them.
+    //
+    // The two assertions are deliberately different strings. `Field` shows the server's bare
+    // `msg`; the toast shows the joined `path: msg` sentence that `unwrap` has always produced.
+    // Asserting only the first would stay green if BOTH appeared, which is the failure mode worth
+    // guarding — three channels for one problem is what this commit set out to stop.
+    const { fetchMock } = renderAdminApp("/admin/users/new");
+    await screen.findByRole("heading", { level: 1, name: "Provision user" });
+    // A uniqueness violation, not a malformed address, and the choice is not incidental: the
+    // browser rejects a malformed one before any request leaves, so `type="email"` would have
+    // caught it and the POST would never happen (jsdom enforces that too, which is how the first
+    // draft of this test failed). What is left over after the four HTML constraint attributes
+    // have done their work is exactly what the server alone knows, and that is the class of
+    // reason this whole channel exists to carry.
+    const passthrough = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input as Request;
+      if (request.method === "POST" && request.url.endsWith("/api/v1/users/")) {
+        return jsonResponse(
+          { detail: [{ loc: ["body", "email"], msg: "Email address is already registered" }] },
+          422,
+        );
+      }
+      return passthrough(input, init);
+    });
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "taken@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "strong-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+
+    const shown = await screen.findByText("Email address is already registered");
+    expect(shown.getAttribute("data-terp")).toBe("field-error");
+    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText("email: Email address is already registered")).toBeNull();
+    // Still on the create page: a rejected submit must not navigate away from the input it is
+    // asking the user to fix.
+    expect(screen.getByRole("heading", { level: 1, name: "Provision user" })).toBeInTheDocument();
+  });
+
   it("confirms lifecycle mutations from the user detail action slot", async () => {
     const { fetchMock } = renderAdminApp("/admin/users/u1");
     await screen.findByRole("heading", { level: 1, name: "jane.doe@example.com" });
@@ -537,6 +579,21 @@ describe("the packaged admin area", () => {
         }),
       ).toBe(true),
     );
+  });
+
+  it("puts an unresolvable email under the member input rather than in a toast", async () => {
+    // Not a 422 — the directory simply has no match — but it is a statement about the email the
+    // user just typed, on a form whose only input is that email. Answering the server's reasons
+    // on the field and this one above it would be a distinction the user cannot perceive, so the
+    // routing follows what the message is about rather than where it came from.
+    renderAdminApp("/admin/groups/g1");
+    await screen.findByRole("heading", { level: 1, name: "Finance" });
+    fireEvent.change(screen.getByPlaceholderText("Email"), {
+      target: { value: "nobody@example.com" },
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "Add member" }).closest("form")!);
+    const shown = await screen.findByText("No account matches that email.");
+    expect(shown.getAttribute("data-terp")).toBe("field-error");
   });
 
   it("marks the detail sections it no longer styles inline", async () => {

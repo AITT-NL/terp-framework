@@ -22,6 +22,36 @@ describe("Field", () => {
     expect(screen.getByText("required")).toBeInTheDocument();
   });
 
+  it("exposes the error as an alert, and nothing else in the field", () => {
+    // `aria-describedby` is read when focus reaches the control. That covers an error which was
+    // already there and covers nothing about one that arrives on submit, when focus has left the
+    // field and the only thing that changed is a span nobody is pointed at. The two channels fire
+    // at different moments, and a submit-time rejection only has the second one.
+    //
+    // The length assertion is the half with teeth: `role="alert"` on the hint as well would
+    // satisfy a bare `getByRole` while training the user to ignore the channel the error needs.
+    // Mutation: drop `role="alert"` from the span and the lookup finds nothing.
+    render(
+      <Field label="Email" hint="we never share it" error="required">
+        <Input defaultValue="" />
+      </Field>,
+    );
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("required");
+  });
+
+  it("raises no alert when there is nothing wrong", () => {
+    // An alert that is present on every render is an alert that means nothing. The span is
+    // conditional, so it enters the accessibility tree exactly when the error appears, which is
+    // the event the role exists to report.
+    render(
+      <Field label="Email" hint="we never share it">
+        <Input defaultValue="" />
+      </Field>,
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("renders no error node when error is null", () => {
     render(
       <Field label="Name" error={null}>

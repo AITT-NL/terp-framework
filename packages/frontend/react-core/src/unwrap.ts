@@ -30,13 +30,36 @@ export class ApiError extends Error {
   readonly status: number;
   /** Correlation id from the envelope, for support and log lookup. */
   readonly requestId?: string;
+  /**
+   * Per-field reasons, keyed by dotted field path (`loc` with FastAPI's `body` / `query` /
+   * `path` prefix removed). Empty for every failure that names no field, so
+   * `Object.keys(error.fields).length > 0` is the test for "this belongs on the form".
+   *
+   * What a caller does with it is hand it to `Field`'s `error` prop, which is the whole
+   * reason it exists: the framework shipped the rendering half of field-level validation —
+   * the marker, the `aria-describedby`, the `aria-invalid`, the styling — and nothing that
+   * produces the value. The path was already being computed one function below and joined
+   * into a sentence, so the information reached the client and was discarded on arrival.
+   */
+  readonly fields: Readonly<Record<string, string>>;
 
-  constructor(message: string, options: { code?: string; status: number; requestId?: string }) {
+  constructor(
+    message: string,
+    options: {
+      code?: string;
+      status: number;
+      requestId?: string;
+      fields?: Readonly<Record<string, string>>;
+    },
+  ) {
     super(message);
     this.name = "ApiError";
     this.code = options.code;
     this.status = options.status;
     this.requestId = options.requestId;
+    // Defaulted and frozen: every caller reads `.fields` without a presence check, and an
+    // error's reasons cannot be edited into something the server never said.
+    this.fields = Object.freeze({ ...options.fields });
   }
 }
 
@@ -63,55 +86,104 @@ export function unwrap<T>(result: FetchResult<T>): T {
       result.error !== null && typeof result.error === "object"
         ? (result.error as { code?: unknown; request_id?: unknown })
         : {};
-    throw new ApiError(errorMessage(result.error, result.response), {
+    const failure = describeFailure(result.error, result.response);
+    throw new ApiError(failure.message, {
       code: typeof envelope.code === "string" ? envelope.code : undefined,
       status: result.response.status,
       requestId: typeof envelope.request_id === "string" ? envelope.request_id : undefined,
+      fields: failure.fields,
     });
   }
   return result.data as T;
 }
 
-/** Human-readable message for a failed request: envelope `detail`, else `code`, else the status. */
-function errorMessage(error: unknown, response: Response): string {
-  if (error !== null && typeof error === "object") {
-    const envelope = error as { detail?: unknown; code?: unknown };
-    if (typeof envelope.detail === "string" && envelope.detail.length > 0) {
-      return envelope.detail;
-    }
-    const structured = structuredDetail(envelope.detail);
-    if (structured !== null) {
-      return structured;
-    }
-    if (typeof envelope.code === "string" && envelope.code.length > 0) {
-      return envelope.code;
-    }
-  }
-  return `Request failed (HTTP ${response.status})`;
+/** A failure's message and its per-field reasons — one value, because one walk produces both. */
+interface Failure {
+  message: string;
+  fields: Record<string, string>;
 }
 
-/** Flatten common FastAPI/Pydantic validation details into an agent/user-actionable message. */
-function structuredDetail(detail: unknown): string | null {
+/**
+ * Human-readable message for a failed request — envelope `detail`, else `code`, else the
+ * status — paired with whatever per-field reasons came with it.
+ *
+ * The envelope keeps its reasons in two different places depending on who raised the error,
+ * and both are read here. A Terp `AppError` puts a sentence in `detail` and its structured
+ * reasons in `details` beside it, so the sentence still wins the message. FastAPI's own 422
+ * handler makes `detail` *itself* the list — the app registers no `RequestValidationError`
+ * override, so that is the shape a schema rejection actually arrives in.
+ */
+function describeFailure(error: unknown, response: Response): Failure {
+  if (error !== null && typeof error === "object") {
+    const envelope = error as { detail?: unknown; details?: unknown; code?: unknown };
+    // `details` sits beside `detail` rather than replacing it, so its reasons attach to
+    // whichever message wins below instead of competing for the slot.
+    const reasons = structuredDetail(envelope.details);
+    const fields = reasons?.fields ?? {};
+    if (typeof envelope.detail === "string" && envelope.detail.length > 0) {
+      return { message: envelope.detail, fields };
+    }
+    const validation = structuredDetail(envelope.detail);
+    if (validation !== null) {
+      return validation;
+    }
+    if (typeof envelope.code === "string" && envelope.code.length > 0) {
+      return { message: envelope.code, fields };
+    }
+  }
+  return { message: `Request failed (HTTP ${response.status})`, fields: {} };
+}
+
+/**
+ * The dotted field path a reason addresses, or `""` when it is about the request as a whole.
+ *
+ * Two spellings arrive and reading only one is how the client stayed half-deaf to its own
+ * contract: FastAPI emits `loc` as an array (`["body", "owner", "email"]`), while
+ * `terp.core.ErrorDetail` emits it already dotted — a shape whose docstring says it
+ * "deliberately mirrors FastAPI's own 422 detail entries ... so a frontend handles both with
+ * one branch". Nothing had written that branch. This is it.
+ */
+function fieldPath(loc: unknown): string {
+  if (Array.isArray(loc)) {
+    return loc
+      .filter((part) => typeof part === "string" || typeof part === "number")
+      .filter((part) => part !== "body" && part !== "query" && part !== "path")
+      .join(".");
+  }
+  return typeof loc === "string" ? loc : "";
+}
+
+/**
+ * Flatten common FastAPI/Pydantic validation details into an agent/user-actionable message,
+ * keeping each reason's field alongside it.
+ *
+ * The message is assembled exactly as before, deliberately: it is what every existing caller
+ * shows, and `fields` is additive beside it rather than a replacement for it. A reason with
+ * no `loc` therefore still reaches the user through the message, which is the only place it
+ * can go — a record keyed by field has no slot for a reason about the request as a whole.
+ */
+function structuredDetail(detail: unknown): Failure | null {
   if (!Array.isArray(detail)) {
     return null;
   }
-  const messages = detail
-    .map((item) => {
-      if (item === null || typeof item !== "object") {
-        return null;
-      }
-      const field = item as { loc?: unknown; msg?: unknown };
-      if (typeof field.msg !== "string" || field.msg.length === 0) {
-        return null;
-      }
-      const loc = Array.isArray(field.loc)
-        ? field.loc.filter((part) => typeof part === "string" || typeof part === "number")
-        : [];
-      const path = loc
-        .filter((part) => part !== "body" && part !== "query" && part !== "path")
-        .join(".");
-      return path.length > 0 ? `${path}: ${field.msg}` : field.msg;
-    })
-    .filter((message): message is string => message !== null);
-  return messages.length > 0 ? messages.join("; ") : null;
+  const messages: string[] = [];
+  const fields: Record<string, string> = {};
+  for (const item of detail) {
+    if (item === null || typeof item !== "object") {
+      continue;
+    }
+    const reason = item as { loc?: unknown; msg?: unknown };
+    if (typeof reason.msg !== "string" || reason.msg.length === 0) {
+      continue;
+    }
+    const path = fieldPath(reason.loc);
+    messages.push(path.length > 0 ? `${path}: ${reason.msg}` : reason.msg);
+    // First reason wins per path. A field that fails two checks shows the one the server
+    // reported first and keeps the rest in the message; overwriting would show the last,
+    // which is no more correct and reads as arbitrary.
+    if (path.length > 0 && fields[path] === undefined) {
+      fields[path] = reason.msg;
+    }
+  }
+  return messages.length > 0 ? { message: messages.join("; "), fields } : null;
 }

@@ -13,7 +13,7 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { useStrings } from "../uiText";
-import { unwrap } from "../unwrap";
+import { ApiError, unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
 import { adminRoleOptions } from "./roles";
@@ -30,11 +30,16 @@ export function UserCreate() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("10");
   const [creating, setCreating] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({});
   const roles = adminRoleOptions(strings);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setCreating(true);
+    // Cleared on every attempt, not merged: the server re-validates the whole body, so its
+    // answer is the complete set of what is wrong. Keeping a stale key would leave an error
+    // under a field the user just fixed.
+    setFieldErrors({});
     try {
       const user = unwrap(
         await client.POST("/api/v1/users/", {
@@ -47,6 +52,14 @@ export function UserCreate() {
         params: { userId: user.id },
       });
     } catch (error) {
+      // A reason that names a field belongs on that field, not floating above the form in a
+      // toast the user has to hold in their head while looking for the input it means.
+      // Anything the server did not attribute stays a toast, which is where the six delete
+      // and revoke handlers in this package correctly leave it.
+      if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
+        setFieldErrors(error.fields);
+        return;
+      }
       toast.warning(error instanceof Error ? error.message : strings.requestFailed);
     } finally {
       setCreating(false);
@@ -83,7 +96,7 @@ export function UserCreate() {
     >
       <div data-terp="admin-form">
         <Stack id={FORM_ID} as="form" gap={4} onSubmit={onSubmit}>
-          <Field label={strings.email}>
+          <Field label={strings.email} error={fieldErrors.email}>
             <Input
               type="email"
               value={email}
@@ -91,7 +104,7 @@ export function UserCreate() {
               required
             />
           </Field>
-          <Field label={strings.password}>
+          <Field label={strings.password} error={fieldErrors.password}>
             <Input
               type="password"
               value={password}
@@ -99,7 +112,7 @@ export function UserCreate() {
               required
             />
           </Field>
-          <Field label={strings.role}>
+          <Field label={strings.role} error={fieldErrors.role}>
             {/* `options` + `onValueChange` rather than an `<option>` per rank and a raw
                 change event: the same three rows, as data. No cast is removed here — this file
                 never had one, because `role` was already a plain string — and `T` degrades to
