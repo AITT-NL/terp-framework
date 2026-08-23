@@ -379,10 +379,10 @@ const SPLIT_ROWS = ["Customer master", "Sales orders", "Warehouse stock", "Ledge
  * A redacted audit payload, formatted the way `AuditLogAdmin` formats one
  * (`JSON.stringify(payload, null, 2)`), with two lines deliberately past the box's width.
  *
- * The long lines are the whole point: `admin-payload` declares `overflow-x: auto`, and a
+ * The long lines are the whole point: `code-block` declares `overflow-x: auto`, and a
  * `<pre>` whose longest line fits paints identically without it. 204 and 203 characters
  * including their indent, which is well past the 34rem container the specimen constrains them
- * to — see `admin-payload` for what happens when nothing constrains it. Written as a literal
+ * to — see the audit-payload specimen for what happens when nothing constrains it. Written as a literal
  * rather than stringified from an object so the exact rendered characters — and therefore the
  * baseline — are fixed by this file and not by the runtime's key ordering.
  */
@@ -3116,10 +3116,16 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
     ],
   },
   {
-    // The packaged admin screens. Three markers — `admin-form`, `admin-section-title`,
-    // `admin-payload` — shipped with NO baseline on either platform and were never rendered by
-    // the axe lane, which is how five base styles survived the entire 0094 migration inside
-    // views both ratchets read as clean. The sheet's own comment on that block says so.
+    // The packaged admin screens. Three markers — `admin-form`, `admin-section-title` and a
+    // third, `admin-payload`, since retired — shipped with NO baseline on either platform and
+    // were never rendered by the axe lane, which is how five base styles survived the entire
+    // 0094 migration inside views both ratchets read as clean. The sheet's own comment on that
+    // block says so.
+    //
+    // `admin-payload` is gone because the picture it gained is what showed it was a `Code block`
+    // written out a second time: a <pre> with a background, a radius and overflow-x, differing
+    // from the real one by a neutral, a border and a line-height. The specimen keeps its id — it
+    // names the surface it pictures, the audit panel's payload, not a marker.
     //
     // The three specimens below are deliberately not the same KIND of specimen, and the
     // difference is the honest part rather than an inconsistency. `admin-user-create` mounts
@@ -3227,7 +3233,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                 { label: "Request", value: "req_01HQ8ZK4" },
               ]}
             />
-            <pre data-terp="admin-payload" tabIndex={0}>{AUDIT_PAYLOAD}</pre>
+            <Code block>{AUDIT_PAYLOAD}</Code>
           </div>
         ),
       },

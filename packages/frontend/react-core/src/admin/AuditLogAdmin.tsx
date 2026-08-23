@@ -6,6 +6,7 @@ import { useTerpClient } from "../TerpProvider";
 import { DataView, HttpDataViewRepository, useServerDataView } from "../dataview";
 import type { DataViewColumn } from "../dataview";
 import { DetailList } from "../layout";
+import { Code } from "../typography";
 import { useFormatDateTime } from "../format";
 import { useStrings } from "../uiText";
 import type { TerpStrings } from "../uiText";
@@ -105,14 +106,12 @@ export function AuditLogAdmin() {
               ]}
             />
             {event.payload !== null && (
-              // tabIndex, for the reason `Code` block carries one: `admin-payload` declares
-              // `overflow-x: auto`, so a wide payload is a scroll container, and a scroll
-              // container no keyboard can reach is the SC 2.1.1 failure axe reports as
-              // `scrollable-region-focusable`. Found by the workbench specimen the moment one
-              // existed — the marker had no baseline and axe had never rendered it.
-              <pre data-terp="admin-payload" tabIndex={0}>
-                {JSON.stringify(event.payload, null, 2)}
-              </pre>
+              // `Code block`, not a hand-rolled <pre>. The comment that used to sit here cited
+              // Code's own rationale for the tabIndex it was copying — a scroll container no
+              // keyboard can reach is the SC 2.1.1 failure axe reports as
+              // `scrollable-region-focusable` — which is a long way of saying this WAS a Code
+              // block, written out again under a second marker. It carries the tabIndex itself.
+              <Code block>{JSON.stringify(event.payload, null, 2)}</Code>
             )}
           </div>
         )}

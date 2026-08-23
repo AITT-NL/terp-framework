@@ -1263,7 +1263,6 @@ describe("cascade structure", () => {
       "login-error",
       "admin-form",
       "admin-section-title",
-      "admin-payload",
       "grid",
       "divider",
       "heading",

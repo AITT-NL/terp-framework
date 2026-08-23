@@ -1048,6 +1048,22 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **The audit payload was a `Code block` written out a second time, and is one now.** `admin-payload`
+  was a `<pre>` with a background, a radius and `overflow-x: auto` — the same component as `Code`'s
+  block form, differing by a neutral, a border and a line-height. Its own call site gave the game
+  away: the comment above it cited `Code`'s rationale for the `tabIndex` it was copying. The screen
+  renders `<Code block>` now, the marker is retired and the inventory goes 201 to 200.
+
+  Retiring a marker is not a one-file change, and the coupling is circular by design. `markers.test.ts`
+  pins the rendered set equal to the inventory, so dropping the render forces the entry out; a second
+  assertion refuses a sheet rule for a marker nothing renders, so that forces the rule out; and the
+  workbench specimen wrote its own literal `<pre>` under the same marker, which no scan of the package
+  can see — left alone it would have rendered unstyled and failed the computed lane on `overflow-x`.
+  Seven files across two packages. Both directions are mutation-checked.
+
+  Two baselines re-recorded on both platforms. The delta is exactly the three declarations that
+  differed, and the specimen keeps its id: it names the surface it pictures, not a marker.
+
 - **One initials tile, replacing two (`Avatar`), and the marker inventory went DOWN.** The tile was
   two sheet rules of eleven declarations each — `profile-avatar` and `user-menu-avatar` — identical
   but for a width, a height and a font size. That is not two components; it is one component the

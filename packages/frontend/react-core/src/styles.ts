@@ -1768,21 +1768,6 @@ textarea[data-terp="input"] {
   margin: 0;
   font-size: var(--font-size-base);
 }
-/* The audit event's JSON payload. No font-family: it is a <pre>, so the UA
-   stylesheet's monospace already applies and the inline object set none either.
-
-   font-size-sm loses the inline fallback the object carried (0.875rem) and no other
-   rule in this sheet has one. The fallback could never fire — tokens.guard.test.ts
-   refuses any var() in react-core naming a property the contract does not publish,
-   so the token is always there. It recorded an author's doubt, not an option. */
-[data-terp="admin-payload"] {
-  margin: 0;
-  padding: var(--space-3);
-  background: var(--color-neutral-100);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  overflow-x: auto;
-}
 
 /* Hub cards --------------------------------------------------------------- */
 /* This whole family was in terp.state, resting declarations and all, for the same

@@ -315,7 +315,7 @@ function stubAdminFetch() {
     }
     if (path.endsWith("/api/v1/audit/")) {
       // One row, and it earns its place rather than padding the fixture: the audit screen's
-      // expanded panel is the only place `admin-payload` renders, so with an empty page that
+      // expanded panel is the only place the payload renders, so with an empty page that
       // <pre> — and the `tabIndex` that keeps its scroll container reachable — could not be
       // asserted anywhere. The comment below this fixture used to say exactly that.
       return jsonResponse({
@@ -716,12 +716,15 @@ describe("the packaged admin area", () => {
 
   it("keeps the audit payload's scroll container reachable by keyboard", async () => {
     // The gate for the SC 2.1.1 fix, and it has to be here rather than in the workbench.
-    // `admin-payload` declares `overflow-x: auto`, so a wide payload is a scroll container, and
-    // a scroll container no keyboard can reach is what axe reports as
-    // `scrollable-region-focusable`. The workbench specimen renders its own `<pre>` with its own
-    // literal `tabIndex`, so every lane there would stay green with the attribute deleted from
-    // this component — the specimen would be asserting its own markup back to itself. This
-    // reads the packaged screen.
+    // `code-block` declares `overflow-x: auto`, so a wide payload is a scroll container, and a
+    // scroll container no keyboard can reach is what axe reports as
+    // `scrollable-region-focusable`. The workbench specimen renders its own markup, so every lane
+    // there would stay green with the attribute gone from what this screen renders — the specimen
+    // would be asserting its own fixture back to itself. This reads the packaged screen.
+    //
+    // It also pins the substitution: the audit panel renders `Code block` now rather than a
+    // hand-rolled <pre> under a marker of its own, and if that reverted this would find the wrong
+    // marker rather than nothing at all.
     renderAdminApp("/admin/audit");
     // Expanding the row is what renders the panel; the trigger is the row's own expand control.
     const expand = await waitFor(() => {
@@ -731,7 +734,7 @@ describe("the packaged admin area", () => {
     });
     fireEvent.click(expand);
     const payload = await waitFor(() => {
-      const found = document.querySelector('[data-terp="admin-payload"]');
+      const found = document.querySelector('[data-terp="code-block"]');
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });

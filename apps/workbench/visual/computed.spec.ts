@@ -183,7 +183,7 @@ test("reduced motion reaches the three shapes the sheet names", async ({ page })
 });
 
 test("the audit payload is a scroll container, not a box that grew", async ({ page }) => {
-  // `admin-payload` declares `overflow-x: auto`, and whether that does anything is a fact
+  // `code-block` declares `overflow-x: auto`, and whether that does anything is a fact
   // about resolved layout rather than about the sheet — so a structural test cannot tell the
   // two apart and the baseline can only see the consequence.
   //
@@ -199,9 +199,9 @@ test("the audit payload is a scroll container, not a box that grew", async ({ pa
   // repaints both payload baselines by ~91,500 pixels AND fails this, which is the pair worth
   // having — one says the picture changed, the other says why.
   await page.goto("/?theme=light&only=admin-payload");
-  await page.locator('[data-terp="admin-payload"]').waitFor({ state: "visible" });
+  await page.locator('[data-terp="code-block"]').waitFor({ state: "visible" });
   const box = await page.evaluate(() => {
-    const pre = document.querySelector('[data-terp="admin-payload"]')!;
+    const pre = document.querySelector('[data-terp="code-block"]')!;
     return {
       client: pre.clientWidth,
       scroll: pre.scrollWidth,

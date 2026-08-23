@@ -40,7 +40,6 @@ const STYLESHEET = "./styles.ts";
  */
 const MARKERS = [
   "admin-form",
-  "admin-payload",
   "admin-section-title",
   "alert",
   "alert-body",
