@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ReactNode } from "react";
 
@@ -20,8 +20,11 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-// Midday UTC on purpose: an instant near either edge of the day lands on a different calendar date
-// depending on the runner's zone, which would make a date assertion fail somewhere and nowhere else.
+// Midday UTC keeps the calendar date stable across most zones, but only most: UTC+13 and UTC+14
+// exist (Pacific/Apia, Pacific/Kiritimati), so at 12:00Z the local date there is already the 8th.
+// No assertion below depends on WHICH day it is — the locale assertions compare two locales against
+// each other, and the shape assertions ask whether the day or the month comes first. An earlier
+// version asserted the literal digit 7 and would have failed in Kiritimati and nowhere else.
 const WHEN = "2026-07-07T12:00:00Z";
 
 const NL = { label: "Nederlands", strings: {} };
@@ -35,10 +38,10 @@ describe("the locale-explicit formatters", () => {
     const dutch = formatDate(WHEN, "nl");
     const american = formatDate(WHEN, "en-US");
     expect(dutch).not.toBe(american);
-    // Day-first versus month-first is the visible difference, and it survives an ICU update in a
-    // way that an exact string does not.
-    expect(dutch.startsWith("7")).toBe(true);
-    expect(american.startsWith("Jul")).toBe(true);
+    // Day-first versus month-first is the visible difference, and it survives both an ICU update
+    // and a runner in a zone where the local calendar date is already the next day.
+    expect(dutch).toMatch(/^\d/);
+    expect(american).toMatch(/^[A-Za-z]/);
   });
 
   it("adds a time of day only in the date-time form", () => {
@@ -153,26 +156,58 @@ interface Dated {
   when: Date;
 }
 
+const DATED_COLUMNS: DataViewColumn<Dated>[] = [
+  { id: "when", header: "When", accessor: (row) => row.when, meta: { mobileSlot: "title" } },
+];
+
+function datedView(locale: string, when: Date) {
+  const repository = new InMemoryDataViewRepository([{ id: "1", when }], {
+    getRowId: (row) => row.id,
+    getValue: (row, column) => row[column as keyof Dated],
+  });
+  return (
+    <LocaleProvider locales={{ nl: NL, "en-US": EN }} defaultLocale={locale}>
+      <DataView<Dated> repository={repository} columns={DATED_COLUMNS} />
+    </LocaleProvider>
+  );
+}
+
 describe("a Date in a cell", () => {
-  it("is formatted for the locale instead of stringified", async () => {
+  // Rendered under BOTH locales, for the reason stated at the top of the hook block: the runner is
+  // nl-NL, so a single Dutch render would go green with `useCellFormatter` ignoring its locale
+  // entirely. That is what the first version of this test did — twenty lines under a comment
+  // explaining why not to. Two locales cannot both be right unless the locale is being read.
+  const when = new Date(WHEN);
+
+  it("guards its own premise: the two spellings differ", () => {
+    expect(formatDate(when, "nl")).not.toBe(formatDate(when, "en-US"));
+  });
+
+  it("is formatted for the app's locale instead of stringified — table view", async () => {
     // `accessor` returns `unknown`, so a Date is type-legal, and `String(value)` renders
     // "Tue Jul 07 2026 14:00:00 GMT+0200 (Central European Summer Time)" into a table cell.
-    // Nothing in this tree returns a Date today, which is why this is the only thing standing
-    // between an app that does and that string.
-    const when = new Date(WHEN);
-    const columns: DataViewColumn<Dated>[] = [
-      { id: "when", header: "When", accessor: (row) => row.when, meta: { mobileSlot: "title" } },
-    ];
-    const repository = new InMemoryDataViewRepository([{ id: "1", when }], {
-      getRowId: (row) => row.id,
-      getValue: (row, column) => row[column as keyof Dated],
-    });
-    render(
-      <LocaleProvider locales={{ nl: NL }} defaultLocale="nl">
-        <DataView<Dated> repository={repository} columns={columns} />
-      </LocaleProvider>,
-    );
+    render(datedView("en-US", when));
+    expect(await screen.findByText(formatDate(when, "en-US"))).toBeInTheDocument();
+    expect(screen.queryByText(formatDate(when, "nl"))).toBeNull();
+    expect(screen.queryByText(String(when))).toBeNull();
+    cleanup();
+
+    render(datedView("nl", when));
     expect(await screen.findByText(formatDate(when, "nl"))).toBeInTheDocument();
+    expect(screen.queryByText(formatDate(when, "en-US"))).toBeNull();
+  });
+
+  it("is formatted for the app's locale instead of stringified — card view", async () => {
+    // The stated reason for extracting `useCellFormatter` was that the two renderers had drifted
+    // apart unnoticed, so pinning only the desktop one would reproduce the defect the extraction
+    // was for. `DataView` reads `matchMedia` to pick a layout and jsdom always says no, so the
+    // card list is only reachable through the explicit toggle.
+    render(datedView("en-US", when));
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Card view" }));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByText(formatDate(when, "en-US"))).toBeInTheDocument();
+    expect(screen.queryByText(formatDate(when, "nl"))).toBeNull();
     expect(screen.queryByText(String(when))).toBeNull();
   });
 });
