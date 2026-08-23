@@ -1566,6 +1566,18 @@ textarea[data-terp="input"] {
   [data-terp="page"] > *:not([data-terp="page-header"]) {
   width: min(100%, var(--shell-content-max-width));
 }
+/* The reach-through, for the one body child that generates no box of its own. Markdown is
+   display: contents (see its rule, which used to claim no child-star selector existed in this
+   sheet — the one above is exactly that selector, and the claim is corrected there). The rule
+   above therefore MATCHES the markdown wrapper and then has nothing to apply a width to, since
+   a non-inherited property on a boxless element is dropped. The result was prose running the
+   full width of a measured shell, which is the one thing that mechanism exists to prevent, on
+   the one component whose whole purpose is long-form text. Capping its blocks instead reaches
+   the boxes the wrapper stands in for. */
+[data-terp="appshell"][data-content-width="measured"]
+  [data-terp="page"] > [data-terp="markdown"] > * {
+  width: min(100%, var(--shell-content-max-width));
+}
 
 /* The split archetype ------------------------------------------------------ */
 /* A list beside the record it selects. Mobile-first: one column, list first, so the tab
@@ -3057,7 +3069,12 @@ button[data-terp="input"][data-placeholder="true"] {
   width: 100%;
   padding: var(--space-2);
   text-align: left;
-  color: var(--color-neutral-900);
+  /* The sidebar family, not the neutral one. This row renders inside the sidebar (and inside the
+     header group under navPlacement="header", which takes the sidebar surface), so its ink and
+     that background are a pairing in play — and the contrast gate can only measure a pairing it
+     can name. Provably zero-diff: --color-neutral-900 and --color-sidebar-fg are byte-equal in
+     all five themes. */
+  color: var(--color-sidebar-fg);
   border-color: transparent;
   min-height: 0;
 }
@@ -3090,8 +3107,16 @@ button[data-terp="input"][data-placeholder="true"] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Two surfaces, one marker. UserMenu renders this span in the trigger AND in the portalled
+   panel, and only the first sits on the sidebar — the panel is in document.body, where the
+   sidebar palette does not apply. So the sidebar copy is scoped (the portal puts the panel
+   outside this selector by construction) and the panel keeps the neutral. The sheet already
+   argues this exact split for the drawer close button. */
 [data-terp="user-menu-role"] {
   color: var(--color-neutral-600);
+}
+[data-terp="user-menu"] [data-terp="user-menu-role"] {
+  color: var(--color-sidebar-muted);
 }
 /* The panel's identity block, and the panel's own geometry — both keyed on the
    owner, because the portal put them outside every selector that could otherwise
@@ -3134,8 +3159,14 @@ button[data-terp="input"][data-placeholder="true"] {
    rules ([data-terp="markdown"] p, ... ul), and a declaration added here would
    simply do nothing with nothing to say so. And display: contents does not change
    selector matching, only box generation: a parent's > * child selector now matches
-   this wrapper rather than the blocks. Nothing in this sheet uses one, which is why
-   the wrapper is free today.
+   this wrapper rather than the blocks.
+
+   That last sentence used to end "Nothing in this sheet uses one, which is why the
+   wrapper is free today", and it stopped being true when the measured content width
+   shipped: that rule is a child-star selector on the page's body children. It matched it,
+   found no box to give a width to, and let prose run full-bleed in a measured shell.
+   The reach-through beside that rule is the fix; this wrapper is free of everything
+   else.
 
    Under SSR the sheet is not injected at all (the injector is document-guarded), so
    a server-rendered page has this element as a block box until hydration. That is

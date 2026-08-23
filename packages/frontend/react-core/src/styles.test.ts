@@ -987,10 +987,16 @@ describe("cascade structure", () => {
     // check below only asks that the block is non-empty, which a block of dead declarations
     // satisfies. Prose rhythm belongs in descendant rules.
     const base = layerBody("terp.base");
-    const at = base.indexOf('[data-terp="markdown"]');
-    expect(at).toBeGreaterThan(-1);
-    const block = base.slice(base.indexOf("{", at) + 1, base.indexOf("}", at));
-    expect(block.trim()).toBe("display: contents;");
+    // Anchored to the STANDALONE rule, not to the first mention of the marker. A plain indexOf
+    // finds whichever selector merely contains it — and one now does: the measured-width
+    // reach-through that caps this wrapper's blocks is declared earlier in the layer, so the
+    // loose locator sliced that rule's body instead and reported a width where it expected
+    // display: contents. The assertion was right and its aim was not.
+    const rule = [...base.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
+      (match) => match[1]!.trim() === '[data-terp="markdown"]',
+    );
+    expect(rule, 'no standalone [data-terp="markdown"] rule in terp.base').toBeDefined();
+    expect(rule![2]!.trim()).toBe("display: contents;");
   });
 
   it("gives every migrated component a base rule in terp.base", () => {

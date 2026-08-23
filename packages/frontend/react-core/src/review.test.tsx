@@ -174,7 +174,7 @@ describe("defects the phases 1-4 review found", () => {
     // `Popover` carried the same portal with an Escape-only handler.
     // Mutation: delete the Tab branch from the panel's onKeyDown.
     render(
-      <Popover trigger={<button type="button">Open</button>} triggerLabel="Open">
+      <Popover trigger={<button type="button">Open</button>}>
         {() => (
           <button type="button">Inside</button>
         )}
@@ -217,5 +217,38 @@ describe("defects the phases 1-4 review found", () => {
     expect(TERP_STYLES_CSS).toMatch(
       /^\[data-terp="dataview-pager"\] > \[data-terp="iconbutton"\]\[aria-disabled="true"\]/m,
     );
+  });
+
+  it("caps Markdown's blocks in a measured shell, past its own boxless wrapper", () => {
+    // Markdown is display: contents, so it generates no box — and a non-inherited property on a
+    // boxless element is dropped. The measured-width rule is a child-star selector on the page's
+    // body children, so it MATCHED the markdown wrapper and then had nothing to apply a width
+    // to: prose ran the full width of a measured shell, on the one component whose entire
+    // purpose is long-form text. The sheet's own comment beside the wrapper asserted that no
+    // child-star selector existed in the sheet, which the measured-width rule had already
+    // falsified. Mutation: delete the reach-through rule.
+    expect(TERP_STYLES_CSS).toContain('[data-terp="page"] > [data-terp="markdown"] > *');
+  });
+
+  it("paints the account menu from the sidebar family it actually sits on", () => {
+    // The trigger renders inside the sidebar (and inside the header group under
+    // navPlacement="header", which takes the sidebar surface), so its ink against that
+    // background is a pairing in play — but it read the NEUTRAL family, which the contrast gate
+    // has no sidebar-scoped pairing for. Reading the sidebar family instead puts it under
+    // `sidebar-text` and `sidebar-muted-text`, both already declared, so the gate covers it with
+    // no new entries. Provably zero-diff: the two families are byte-equal in all five themes.
+    //
+    // The role marker renders TWICE — trigger and portalled panel — so it is scoped rather than
+    // swapped; the panel is in document.body and the sidebar palette does not apply there.
+    // Mutation: put --color-neutral-900 back on the trigger.
+    const menuRule = TERP_STYLES_CSS.slice(
+      TERP_STYLES_CSS.indexOf('[data-terp="user-menu"] [data-terp="menu-trigger"] {'),
+    ).slice(0, 900);
+    expect(menuRule).toContain("color: var(--color-sidebar-fg)");
+    expect(menuRule).not.toContain("color: var(--color-neutral-900)");
+    const roleRule = TERP_STYLES_CSS.slice(
+      TERP_STYLES_CSS.indexOf('[data-terp="user-menu"] [data-terp="user-menu-role"] {'),
+    ).slice(0, 120);
+    expect(roleRule).toContain("color: var(--color-sidebar-muted)");
   });
 });

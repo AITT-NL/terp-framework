@@ -1005,6 +1005,40 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **Two more from the review, both about a rule reaching the wrong thing.**
+
+  **Long-form prose ran full-bleed in a measured shell.** The content measure is a child-star
+  rule on the page's body children, and `Markdown` is `display: contents` — so the rule matched
+  the markdown wrapper and then had nothing to apply a width to, because a non-inherited property
+  on a boxless element is dropped. The one component whose entire purpose is long-form text was
+  the one component the measure could not reach. A reach-through caps its blocks instead.
+
+  The wrapper's own comment made this easy to miss: it argued the wrapper was free because
+  "nothing in this sheet uses" a child-star selector — which the measured-width rule, shipped
+  later in the same phase, had already falsified. The comment now records what changed rather
+  than the claim that stopped being true.
+
+  **The account menu painted from a family the contrast gate cannot measure it in.** The trigger
+  renders inside the sidebar — and inside the header group under `navPlacement="header"`, which
+  takes the sidebar surface — but read `--color-neutral-900`, so its ink against
+  `--color-sidebar-bg` was a pairing in play that `token-pairs.json` had no way to name. Reading
+  `--color-sidebar-fg` instead puts it under `sidebar-text`, already declared, so the gate now
+  covers it with **no new entries**: the fix was to read the family the component sits on, not to
+  declare more pairings. Provably zero-diff — the two tokens are byte-equal in all five themes,
+  and all 256 baselines were byte-identical afterwards.
+
+  The role marker needed more care and got it. `UserMenu` renders that span twice — once in the
+  trigger and once in the portalled panel, which lives in `document.body` where the sidebar
+  palette does not apply — so it is scoped rather than swapped: the sidebar copy takes
+  `--color-sidebar-muted` and the panel keeps its neutral. The sheet already argues that exact
+  split for the drawer's close button.
+
+  One existing assertion had to be re-aimed rather than changed: the test pinning the markdown
+  wrapper to `display: contents` located its rule with a plain `indexOf` on the marker, which now
+  finds the reach-through selector first. It matches the standalone rule exactly now. The
+  assertion was right and its aim was not — which is the same failure mode as a gate that cannot
+  fail, one step earlier.
+
 - **Three interaction defects from the phases 1-4 review, all of them in what happens after the
   pointer or the keyboard arrives.** None was reachable by any of the four lanes: the screenshot
   lane shoots a resting page, axe reads a static tree, and the keyboard lane visits neither
