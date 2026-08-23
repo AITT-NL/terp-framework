@@ -44,6 +44,22 @@ describe("structural parity: BOUNDARY_SPEC realises exactly the declared surface
     );
   });
 
+  it("every guidance sentence belongs to an element that is actually restricted", () => {
+    // ADR 0099 §4 makes the WORDING a control: a restricted element whose named replacement is
+    // right for some cases and wrong advice for others gets a sentence naming the recipe. A
+    // sentence keyed to an element nobody restricts is never emitted, so it reads as shipped
+    // guidance while being unreachable — and nothing else here would notice, because the two
+    // objects are only ever read one key at a time at lint time.
+    const guided = Object.keys(BOUNDARY_SPEC.restrictedElementGuidance).sort();
+    const restricted = Object.keys(BOUNDARY_SPEC.restrictedElements);
+    expect(guided.filter((element) => !restricted.includes(element))).toEqual([]);
+    // And the sentences are non-empty: an empty string is falsy, so it would silently fall back
+    // to the bare refusal at the call site.
+    for (const element of guided) {
+      expect(BOUNDARY_SPEC.restrictedElementGuidance[element].length).toBeGreaterThan(0);
+    }
+  });
+
   it("restricted attributes match", () => {
     expect([...BOUNDARY_SPEC.restrictedAttributes].sort()).toEqual(
       [...SURFACE.restrictedAttributes].sort(),

@@ -37,7 +37,15 @@ const columns: DataViewColumn<Device>[] = [
   { id: "name", header: "Name", accessor: (d) => d.name, meta: { mobileSlot: "title" } },
   { id: "owner", header: "Owner", accessor: (d) => d.owner, meta: { mobileSlot: "subtitle" } },
   { id: "status", header: "Status", accessor: (d) => d.status, meta: { mobileSlot: "status", width: "xs" } },
-  { id: "purchased", header: "Purchased", accessor: (d) => d.purchased, meta: { mobileSlot: "date", width: "sm" } },
+  {
+    id: "purchased",
+    header: "Purchased",
+    // A Date, not the ISO string it is stored as: the shared cell default renders one through
+    // the app locale, so this column needs no `cell` of its own and picks up the same shape
+    // every other date in the app has.
+    accessor: (d) => new Date(d.purchased),
+    meta: { mobileSlot: "date", width: "sm" },
+  },
 ];
 
 const viewState = new LocalStorageViewStateRepository();

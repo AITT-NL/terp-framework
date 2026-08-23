@@ -42,12 +42,19 @@ export const BOUNDARY_SPEC = {
    * Extra guidance for an element whose named replacement does not fit every case, so the
    * refusal states what to do instead of implying something is missing.
    *
-   * `dialog` is the one that needed it. The replacement is `ConfirmDialog`, which is right
-   * for a confirmation and wrong advice for anything else — and an author who reads "use
-   * ConfirmDialog" for an edit form concludes the framework ships no dialog and that the
-   * rule cannot be obeyed. The guidance below is what a reporting app arrived at on its
-   * own, and recorded as the better outcome: the editor moved into an expanded row, so the
-   * finding that sent the author there stayed on screen while they fixed it.
+   * The criterion: a restricted element earns a sentence here when its named replacement is
+   * right for some cases and actively misleading for others, so that an author who reads the
+   * bare rule concludes the framework ships nothing for their case. Two elements meet it.
+   *
+   * `dialog` was the first. The replacement is `ConfirmDialog`, which is right for a
+   * confirmation and wrong advice for anything else — an author who reads "use ConfirmDialog"
+   * for an edit form concludes the framework ships no dialog and the rule cannot be obeyed.
+   * The guidance below is what a reporting app arrived at on its own, and recorded as the
+   * better outcome: the editor moved into an expanded row, so the finding that sent the author
+   * there stayed on screen while they fixed it.
+   *
+   * `table` is the second (ADR 0099 §4). "Use DataView" reads as disproportionate for five
+   * static rows unless the sentence names the two-line recipe, so it does.
    */
   restrictedElementGuidance: {
     dialog:
@@ -60,7 +67,8 @@ export const BOUNDARY_SPEC = {
     table:
       "Use DataView, and if it looks like too much for five static rows, the recipe is " +
       "two lines: variant=\"embedded\" drops the view toggle, the page-size selector and " +
-      "the footer, and InMemoryDataViewRepository needs only getRowId. That is worth " +
+      "the footer, and InMemoryDataViewRepository needs two functions: getRowId and " +
+      "getValue. That is worth " +
       "saying because \"use DataView\" on its own reads as wrong advice here, and an " +
       "author who believes it reaches for a raw <table> — which silently gives up " +
       "sorting, column resizing and settings, the mobile card reflow and the row-level " +

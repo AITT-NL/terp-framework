@@ -85,8 +85,9 @@ export. The list item described the wrapper, not the part.
 pageable collection in the framework is the one whose footer this already is.
 
 **A table outside DataView.** `DataView variant="embedded"` *is* the plain table, and
-`InMemoryDataViewRepository` needs only `getRowId`. A second table would be a second `<table>`
-surface that quietly drops sorting, resizing, column settings, the mobile card reflow and row
+`InMemoryDataViewRepository` needs two functions, `getRowId` and `getValue`. A second table would
+be a second `<table>` surface that quietly drops sorting, resizing, column settings, the mobile
+card reflow and row
 activation — and it would contradict `restrictedElements.table`. What was missing was not a
 component but the recipe, so the lint guidance now carries it (§4).
 
@@ -135,7 +136,8 @@ runtime dependencies") is false — it has two. The two that survive:
 `restrictedElementGuidance` gains a `table` entry, its second after `dialog`. The precedent is ADR
 0096 §4: "use ConfirmDialog" was wrong advice for an edit form, and the fix was the sentence rather
 than the rule. "Use DataView" is wrong advice for a static five-row table *unless it names the
-recipe* — `variant="embedded"` plus `new InMemoryDataViewRepository(rows, { getRowId })`. An author
+recipe* — `variant="embedded"` plus
+`new InMemoryDataViewRepository(rows, { getRowId, getValue })`. An author
 who reads advice that does not fit reaches for the raw element, so the lint message is where this
 decision has to live.
 

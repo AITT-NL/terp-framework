@@ -98,7 +98,13 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
       const onPointerUp = () => {
         cleanup();
         setLiveSizing(null);
-        props.onCommitColumnSizing(current); // one persistence write per drag
+        // ONLY the dragged column is committed, though `current` holds a width for every one of
+        // them. The snapshot exists to stop the other columns jumping when the layout flips to
+        // fixed for the duration of the drag; persisting it would tell the view state the user had
+        // sized the whole table, and `stepOf` would then suppress every declared track — one drag
+        // anywhere would switch the floors off table-wide, and durably so for an app with a view
+        // state repository. `commitColumnSizing` merges, so earlier resizes survive this.
+        props.onCommitColumnSizing({ [columnId]: current[columnId] ?? startWidth }); // one write per drag
       };
       window.addEventListener("pointermove", onPointerMove);
       window.addEventListener("pointerup", onPointerUp);

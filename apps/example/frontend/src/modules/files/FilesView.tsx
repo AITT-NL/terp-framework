@@ -10,22 +10,31 @@ import {
   useTerpClient,
   useToast,
   useFormatDate,
+  useFormatNumber,
 } from "@terpjs/react-core";
 import type { DataViewColumn } from "@terpjs/react-core";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import type { components, paths } from "../../api/schema";
 
 type FileRead = components["schemas"]["FileRead"];
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+/**
+ * A byte count, in the app's locale.
+ *
+ * `toFixed` always emits a full stop, so this read "1.5 KB" to a Dutch reader who writes "1,5" —
+ * the same defect as the dates, in the one place in this app that formats a number. The unit is
+ * still chosen here, because that is a presentation decision rather than a locale one.
+ */
+function formatSize(bytes: number, formatNumber: (value: number) => string): string {
+  if (bytes < 1024) return `${formatNumber(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${formatNumber(bytes / 1024)} KB`;
+  return `${formatNumber(bytes / (1024 * 1024))} MB`;
 }
 
 function buildColumns(
   formatDate: (value: string) => string,
+  formatSizeIn: (bytes: number) => string,
 ): DataViewColumn<FileRead>[] {
   return [
     { id: "filename", header: "Filename", accessor: (f) => f.filename, meta: { mobileSlot: "title" } },
@@ -39,7 +48,7 @@ function buildColumns(
       id: "size",
       header: "Size",
       accessor: (f) => f.size,
-      cell: (f) => formatSize(f.size),
+      cell: (f) => formatSizeIn(f.size),
       meta: { width: "xs" },
     },
     {
@@ -59,7 +68,12 @@ function buildColumns(
  */
 export function FilesView() {
   const formatDate = useFormatDate();
-  const columns = useMemo(() => buildColumns(formatDate), [formatDate]);
+  const formatNumber = useFormatNumber();
+  const formatSizeIn = useCallback(
+    (bytes: number) => formatSize(bytes, (value) => formatNumber(value, { maximumFractionDigits: 1 })),
+    [formatNumber],
+  );
+  const columns = useMemo(() => buildColumns(formatDate, formatSizeIn), [formatDate, formatSizeIn]);
   const client = useTerpClient<paths>();
   const toast = useToast();
   const download = useFileDownload();

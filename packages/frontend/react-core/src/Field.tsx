@@ -47,17 +47,35 @@ export function Field({ label, children, error, hint }: FieldProps) {
   const hintId = hint !== undefined ? `${baseId}-hint` : undefined;
   const errorId = hasError ? `${baseId}-error` : undefined;
   const described = [hintId, errorId].filter((id) => id !== undefined).join(" ");
+  const labelId = `${baseId}-label`;
 
-  // Only a single element child can be described — which is the documented contract ("the
-  // control"). Anything else is passed through untouched rather than guessed at.
-  const control = described.length > 0 && isValidElement<{
+  // Only a single element child can be named and described — which is the documented contract
+  // ("the control"). Anything else is passed through untouched rather than guessed at.
+  const control = isValidElement<{
     "aria-describedby"?: string;
     "aria-invalid"?: boolean | "true" | "false";
+    "aria-label"?: string;
+    "aria-labelledby"?: string;
   }>(children)
     ? cloneElement(children, {
-        "aria-describedby": [children.props["aria-describedby"], described]
-          .filter((id) => id !== undefined && id !== "")
-          .join(" "),
+        // The control is named by the label TEXT, not by the label element's subtree, and that
+        // distinction is the whole reason this exists. A wrapping label takes its name from
+        // everything inside it, so a control that renders an adornment of its own — the password
+        // reveal is the first — hands its own button's name to the field: Chromium computes
+        // "Password Show password" for that input, which is a WCAG 2.5.3 failure and a sentence
+        // no voice-control user can see to say. Pointing at the span makes the name exact.
+        //
+        // A caller that named the control itself keeps their name; this never overrides one.
+        "aria-labelledby":
+          children.props["aria-label"] === undefined
+            ? (children.props["aria-labelledby"] ?? labelId)
+            : undefined,
+        "aria-describedby":
+          described.length > 0
+            ? [children.props["aria-describedby"], described]
+                .filter((id) => id !== undefined && id !== "")
+                .join(" ")
+            : children.props["aria-describedby"],
         "aria-invalid": children.props["aria-invalid"] ?? (hasError ? true : undefined),
       })
     : children;
@@ -65,7 +83,9 @@ export function Field({ label, children, error, hint }: FieldProps) {
   return (
     <div data-terp="field">
       <label data-terp="field-label">
-        <span data-terp="field-label-text">{resolve(label)}</span>
+        <span id={labelId} data-terp="field-label-text">
+          {resolve(label)}
+        </span>
         {control}
       </label>
       {hint !== undefined && (

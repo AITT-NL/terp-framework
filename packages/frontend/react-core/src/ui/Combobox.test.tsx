@@ -57,11 +57,24 @@ describe("Combobox", () => {
       );
       const input = screen.getByRole("combobox", { name: /Country/ });
       fireEvent.focus(input);
-      // A capital I in the NEEDLE as well as the label, so both folds are under test. With a
-      // lowercase needle only the label fold matters, and a mutation restoring the host fold on
-      // the query alone came back green.
-      fireEvent.change(input, { target: { value: "Ital" } });
-      expect(screen.getByRole("option", { name: "Italy" })).toBeInTheDocument();
+      // BOTH cases, because each catches a different half and neither catches the other.
+      //
+      // Lowercase is the real defect: the user types the dotted `i` their keyboard produces,
+      // Turkish folds the label to the dotless `ıtaly`, and the option vanishes. The ORIGINAL
+      // code folded both sides with the host locale, which is self-consistent — "ıtal" does
+      // occur in "ıtaly" — so a capital-I needle passes under the very bug this test exists
+      // for. The first version of this test asserted only the capital, and was green against
+      // it.
+      //
+      // Capital is still needed: it is the only case that fails when the NEEDLE alone reverts
+      // to the host fold, which lowercase cannot see because folding "ital" changes nothing.
+      for (const needle of ["ital", "Ital"]) {
+        fireEvent.change(input, { target: { value: needle } });
+        expect(
+          screen.getByRole("option", { name: "Italy" }),
+          `typing ${needle} must still match Italy on a Turkish host`,
+        ).toBeInTheDocument();
+      }
     } finally {
       String.prototype.toLocaleLowerCase = original;
     }

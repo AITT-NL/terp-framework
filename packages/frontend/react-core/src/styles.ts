@@ -2142,6 +2142,13 @@ textarea[data-terp="input"] {
    that marker rather than one of its own because it is one: the shared rule already
    carries its transition, its hover wash and its disabled treatment, and duplicating
    those under a new name to avoid editing one enumeration would be the wrong trade. */
+/* Edge ships its own reveal control inside every password field, so without this the user gets
+   two: the native eye sitting on top of ours, in a box sized for one glyph. Same class of fix as
+   the number stepper this sheet already suppresses -- an unthemeable browser affordance the
+   framework replaces rather than competes with. */
+input[data-terp="input"][type="password"]::-ms-reveal {
+  display: none;
+}
 [data-terp="input-password"] > [data-terp="iconbutton"] {
   position: absolute;
   inset-inline-end: var(--space-1);
@@ -3544,7 +3551,7 @@ button[data-terp="input"][data-placeholder="true"] {
 
    The :disabled cursor no longer shouts, and re-deriving that is more useful than
    trusting it. The question is never "has anything migrated" but "can any element
-   this selector matches still beat it" — so: which of the eleven can carry the
+   this selector matches still beat it" — so: which of the seventeen can carry the
    disabled attribute at all? The shell's toggles cannot (no disabled prop). The
    toast dismisser cannot. The combobox's clear button renders only while the
    field is enabled and takes no disabled of its own. The calendar's arrows page

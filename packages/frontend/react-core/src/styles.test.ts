@@ -1113,6 +1113,7 @@ describe("cascade structure", () => {
     const base = layerBody("terp.base");
     for (const marker of [
       "button",
+      "avatar",
       "badge",
       "alert",
       "tooltip",
@@ -1279,9 +1280,11 @@ describe("cascade structure", () => {
       // exact selector equality, which is what makes it worth having: adding the family pattern
       // here to make the list look complete would fail, correctly.
       "appshell-nav-group-label",
-      // The 32 below close a gap the roll-call carried quietly: it listed 162 of the 201
-      // pinned markers, so a third of the sheet's base blocks could be DELETED and only the
-      // screenshot lane would notice — and only for a marker some specimen happens to paint.
+      // The 32 below close a gap the roll-call carried quietly: it listed barely more than
+      // three quarters of the pinned markers, so a quarter of the sheet's base blocks could be
+      // DELETED and only the screenshot lane would notice — and only for a marker some specimen
+      // happens to paint. (No figures here on purpose: both sides of that ratio have moved twice
+      // since it was written, and a citation keeps where a tally rots.)
       // markers.test.ts cannot see a deleted rule either: removing a block only shrinks the
       // styled set, which still satisfies both of its directions.
       //

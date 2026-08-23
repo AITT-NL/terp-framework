@@ -415,11 +415,14 @@ const FAILING_REPOSITORY: DataViewRepository<SyncRow> = {
   capabilities: { serverSide: false, search: true, searchScope: false },
 };
 
-// A table too wide for its box, and the width comes from the HEADERS rather than from the
-// `meta.width` hint that looks like the obvious lever. Measured at every step, because the obvious
-// lever does nothing: the table rule is `width: 100%` with `table-layout: auto`, so a specified
-// column width is a *preference* the auto algorithm shrinks to fit — three columns hinted at 700px
-// each recorded a baseline that fits the box exactly. What auto layout cannot shrink is a MINIMUM,
+// A table too wide for its box, and the width comes from the HEADERS. None of these nine columns
+// declares a track, deliberately: this specimen exists to picture what `th { white-space: nowrap }`
+// alone does, and a declared step would add a floor of its own and muddle the two. Measured at
+// every step, because the lever that looks obvious does nothing: the table rule is `width: 100%`
+// with `table-layout: auto`, so a specified column WIDTH is a *preference* the auto algorithm
+// shrinks to fit — three columns hinted at 700px each recorded a baseline that fits the box
+// exactly. That measurement is why `meta.width` is a `min-inline-size` step now rather than a
+// width (see the dataview-column-steps specimen). What auto layout cannot shrink is a MINIMUM,
 // and `th { white-space: nowrap }` is one, while the body cells wrap and clip and so contribute
 // almost nothing. The specimen card leaves 1196px; nine un-wrappable uppercase headers put the
 // table's min-content at 1447px, measured by squeezing the wrapper to 1px and reading its

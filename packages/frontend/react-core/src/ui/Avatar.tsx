@@ -11,7 +11,10 @@ injectTerpStyles();
  */
 export function userInitials(email: string): string {
   const local = email.split("@")[0] ?? "";
-  const words = local.split(/[._+-]+/).filter((word) => word.length > 0);
+  // Whitespace is in the split for the same reason the dots are: the prop this feeds documents
+  // itself as taking "an email or a name", and a name separates its words with a space. Without
+  // it "Jane Doe" yielded "J" — a documented input producing an undocumented answer.
+  const words = local.split(/[\s._+-]+/).filter((word) => word.length > 0);
   const initials = words.slice(0, 2).map((word) => word[0]!.toUpperCase());
   return initials.join("") || "?";
 }
@@ -43,6 +46,11 @@ export interface AvatarProps {
  * the fix there is to render the name, not to spell out the letters.
  */
 export function Avatar({ from, initials, size = "md" }: AvatarProps) {
+  // An empty string counts as absent on both props, not as an override that renders nothing:
+  // `??` alone would let `initials=""` paint a blank tile, and a blank tile reads as loading.
+  const explicit = initials !== undefined && initials !== "" ? initials : undefined;
+  const derived = from !== undefined && from !== "" ? userInitials(from) : "?";
+
   return (
     <span
       aria-hidden="true"
@@ -51,7 +59,7 @@ export function Avatar({ from, initials, size = "md" }: AvatarProps) {
       // rule, and stamping it would leave two places describing the standard tile.
       data-size={size === "md" ? undefined : size}
     >
-      {initials ?? (from === undefined ? "?" : userInitials(from))}
+      {explicit ?? derived}
     </span>
   );
 }

@@ -56,6 +56,7 @@ _SUFFIXES = {".ts", ".tsx", ".jinja"}
 _NO_LOCALE = re.compile(
     r"\.toLocale(?:Date|Time)?String\(\s*\)"
     r"|\.toLocale(?:Lower|Upper)Case\(\s*\)"
+    r"|\.localeCompare\(\s*\)|\.localeCompare\([^,]*,\s*undefined"
     r"|(?:new\s+)?Intl\.(?:DateTimeFormat|NumberFormat|RelativeTimeFormat|ListFormat"
     r"|PluralRules|Collator|DisplayNames|Segmenter)\(\s*\)"
 )
@@ -70,6 +71,8 @@ _MUST_MATCH = (
     "d.toLocaleTimeString()",
     "q.toLocaleLowerCase()",
     "label.toLocaleUpperCase()",
+    "a.localeCompare(b, undefined, { numeric: true })",
+    "a.localeCompare()",
     "new Intl.DateTimeFormat().format(d)",
     "Intl.DateTimeFormat().format(d)",
     "Intl.NumberFormat().format(n)",
@@ -83,6 +86,10 @@ _MUST_NOT_MATCH = (
     "new Intl.NumberFormat(locale, options)",
     "value.toLowerCase()",
     "value.toUpperCase()",
+    'a.localeCompare(b, locale)',
+    'a.localeCompare(b, "nl")',
+    # A bare two-argument compare is not matched: it has no locale slot to omit.
+    "a.localeCompare(b)",
     # Prose about the rule must not trip the rule: no receiver, so no match.
     "formatted with toLocaleDateString() and no locale argument",
 )
@@ -91,6 +98,17 @@ _MUST_NOT_MATCH = (
 # formats a date". A stale entry fails too (see below), so this cannot rot into a
 # blanket exemption.
 _ALLOWED: dict[str, str] = {
+    "packages/frontend/react-core/src/dataview/repositories/InMemoryDataViewRepository.ts": (
+        "sorts with an explicit `undefined` locale, so an in-memory DataView orders rows "
+        "by the VISITOR's collation rather than the app's. Pre-dates this rule and is not "
+        "a one-line fix: a repository is constructed by the app, usually at module scope, "
+        "and has no route to `LocaleProvider`. Closing it means a `locale` option on "
+        "`InMemoryDataViewRepositoryOptions` (or building the repository inside a hook), "
+        "which is an API decision rather than a correction. `sensitivity: \"base\"` already "
+        "removes the accent and case variation; what is left is alphabet order, which "
+        "differs in a handful of locales. Listed so the gap is recorded and so no SECOND "
+        "one can be added quietly"
+    ),
     "packages/frontend/react-core/src/admin/admin.test.tsx": (
         "asserts the old spelling is ABSENT from the rendered audit row — the "
         "negative half of the gate that proves the column was converted"

@@ -23,18 +23,21 @@ describe("Input", () => {
     expect(container.firstElementChild?.getAttribute("data-terp")).toBe("input-password");
   });
 
-  it("reveals and re-hides the value, and says which it will do", () => {
+  it("reveals and re-hides the value, and its NAME is what says which it will do", () => {
+    // One encoding of the state, not two. The name swaps, and there is deliberately no
+    // `aria-pressed`: a toggle announced as "Hide password, pressed" claims the value is hidden
+    // and shown at once. It also keeps this button outside the sheet's shared hover guard, which
+    // excludes `[aria-pressed="true"]` and would leave the revealed toggle with no hover at all.
     render(<Input type="password" aria-label="Password" defaultValue="hunter2" />);
     const input = screen.getByLabelText("Password");
     expect(input).toHaveAttribute("type", "password");
     const toggle = screen.getByRole("button", { name: "Show password" });
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).not.toHaveAttribute("aria-pressed");
     fireEvent.click(toggle);
     expect(input).toHaveAttribute("type", "text");
-    // The name follows the state: pressed, and now offering the opposite action.
-    const pressed = screen.getByRole("button", { name: "Hide password" });
-    expect(pressed).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(pressed);
+    const now = screen.getByRole("button", { name: "Hide password" });
+    expect(now).not.toHaveAttribute("aria-pressed");
+    fireEvent.click(now);
     expect(input).toHaveAttribute("type", "password");
   });
 
@@ -70,10 +73,17 @@ describe("Input", () => {
     expect(wrapper).not.toHaveAttribute("aria-describedby");
   });
 
-  it("does not lend its toggle's name to the field it sits in", () => {
-    // `Field` wraps the control in a `<label>`, so the toggle is a label descendant. If the
-    // button contributed to the label's text, the input would be called "Password Show password"
-    // and a voice-control user would have to say a sentence that is nowhere on screen.
+  it("is named by the label TEXT, so the toggle's own name cannot join it", () => {
+    // `Field` wraps the control in a `<label>`, so the toggle is a label descendant, and a label
+    // takes its name from everything inside it. Chromium duly computed "Password Show password"
+    // for this input until `Field` started pointing `aria-labelledby` at the label's text span.
+    //
+    // WHAT THIS TEST CAN AND CANNOT SEE, because the first version of it was worthless: jsdom's
+    // accessible-name implementation does NOT walk into a descendant's `aria-label`, so
+    // `toHaveAccessibleName("Password")` passed here while the real browser disagreed. It asserted
+    // the deviation, not the fix. So the wiring is what is pinned here — the attribute exists and
+    // resolves to the label text — and the computed NAME is asserted in a real engine, in
+    // apps/workbench/visual/computed.spec.ts against the admin-user-create specimen.
     render(
       <Field label="Password">
         <Input type="password" defaultValue="" />
@@ -81,10 +91,33 @@ describe("Input", () => {
     );
     const input = screen.getByLabelText("Password");
     expect(input.tagName).toBe("INPUT");
-    // Exactly "Password", not "Password Show password". The toggle keeps its own name — asserting
-    // the toggle is unlabelled would be the wrong fix and this test would then pass for the wrong
-    // reason, so what is pinned is the INPUT's name being unaffected by a sibling that has one.
-    expect(input).toHaveAccessibleName("Password");
+    const labelledBy = input.getAttribute("aria-labelledby");
+    expect(labelledBy).not.toBeNull();
+    expect(document.getElementById(labelledBy!)?.textContent).toBe("Password");
+    // The toggle keeps its own name; asserting it were unlabelled would be the wrong fix.
     expect(screen.getByRole("button", { name: "Show password" })).toBeInTheDocument();
+  });
+
+  it("disables its toggle when the field itself is disabled or read-only", () => {
+    // A field the caller switched off is switched off as a whole. Otherwise the value stays
+    // unreachable while the control beside it still reveals it.
+    const { rerender } = render(<Input type="password" aria-label="Password" disabled />);
+    expect(screen.getByRole("button", { name: "Show password" })).toBeDisabled();
+    rerender(<Input type="password" aria-label="Password" readOnly />);
+    expect(screen.getByRole("button", { name: "Show password" })).toBeDisabled();
+    rerender(<Input type="password" aria-label="Password" />);
+    expect(screen.getByRole("button", { name: "Show password" })).toBeEnabled();
+  });
+
+  it("keeps a revealed password out of spellcheck, autocorrect and autocapitalisation", () => {
+    // Revealing swaps the type to `text`, which in some engines makes the value a candidate for
+    // all three — two of which would rewrite what the user typed.
+    render(<Input type="password" aria-label="Password" defaultValue="" />);
+    const input = screen.getByLabelText("Password");
+    fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(input).toHaveAttribute("type", "text");
+    expect(input).toHaveAttribute("spellcheck", "false");
+    expect(input).toHaveAttribute("autocorrect", "off");
+    expect(input).toHaveAttribute("autocapitalize", "none");
   });
 });

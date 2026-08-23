@@ -13,6 +13,27 @@ describe("Avatar", () => {
     expect(userInitials("@example.test")).toBe("?");
   });
 
+  it("splits a NAME on whitespace, which is the other half of what `from` documents", () => {
+    // The prop and the README both say "an email or a name". The split had no whitespace class, so
+    // a name produced one letter — a documented input with an undocumented answer.
+    expect(userInitials("Jane Doe")).toBe("JD");
+    expect(userInitials("ada lovelace king")).toBe("AL");
+    // And an email still behaves exactly as before.
+    expect(userInitials("jane.doe@example.com")).toBe("JD");
+  });
+
+  it("treats an empty string as absent on both props", () => {
+    // `??` only catches null and undefined, so an empty override painted a blank tile — which
+    // reads as a loading state rather than as "no initials".
+    const { container, rerender } = render(<Avatar from="jane.doe@example.com" initials="" />);
+    const tile = () => container.querySelector('[data-terp="avatar"]');
+    expect(tile()).toHaveTextContent("JD");
+    rerender(<Avatar from="" />);
+    expect(tile()).toHaveTextContent("?");
+    rerender(<Avatar />);
+    expect(tile()).toHaveTextContent("?");
+  });
+
   it("takes explicit initials over anything it would have derived", () => {
     render(<Avatar from="jane.doe@example.com" initials="ZZ" />);
     expect(screen.getByText("ZZ")).toBeInTheDocument();

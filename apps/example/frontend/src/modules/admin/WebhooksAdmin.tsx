@@ -169,6 +169,12 @@ export function WebhooksAdmin() {
         <Field label="Signing secret" hint="At least 16 characters">
           <Input
             type="password"
+            // The hint said "at least 16 characters" and nothing enforced it — ADR 0099 cites
+            // exactly this field as the framework's whole client-validation gap: four unwritten
+            // HTML attributes, not a missing library. Here is one of them written.
+            minLength={16}
+            // A signing secret is generated, never a credential the browser has saved.
+            autoComplete="new-password"
             value={secret}
             onChange={(changeEvent) => setSecret(changeEvent.target.value)}
             required

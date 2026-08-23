@@ -45,7 +45,8 @@ decision, 0001 onwards.
 - **`restrictedElementGuidance` gains its second entry, for `table`.** ADR 0096 §4's precedent:
   "use ConfirmDialog" was wrong advice for an edit form and the fix was the sentence, not the rule.
   "Use DataView" is wrong advice for a static five-row table unless it names the recipe —
-  `variant="embedded"` plus `new InMemoryDataViewRepository(rows, { getRowId })`. An author who
+  `variant="embedded"` plus `new InMemoryDataViewRepository(rows, { getRowId, getValue })`. An
+  author who
   reads advice that does not fit reaches for the raw element, so the lint message is where that
   decision has to live.
 
@@ -1273,6 +1274,60 @@ decision, 0001 onwards.
   chosen epsilon, and the shell's existing behaviour at exactly 768px is untouched.
 
 ### Fixed
+
+- **A final adversarial review of the whole phase, and the two defects it found in what had already
+  shipped.** Sixty agents over eight dimensions; 20 findings refuted on inspection, 31 upheld, four
+  more from a completeness sweep. The two that mattered were both in code that was green on every
+  lane.
+
+  **A single column drag switched the new declared tracks off for the whole table.** A resize
+  snapshots every rendered width so the other columns do not jump when the layout flips to fixed —
+  and then committed that snapshot. So `columnSizing` gained a pixel width for every column, the
+  "a resized column drops its declared step" rule fired for all of them at once, and every
+  `min-inline-size` stopped applying. Permanently, for any app with a view-state repository. One
+  click on any handle, no movement required, and the feature shipped the day before was off. Only
+  the dragged column is committed now. The test that was supposed to cover this asserted the
+  dragged column and nothing else, so it passed throughout; it asserts the neighbours now.
+
+  **A password field was named after the button inside it.** `Field` wraps its control in a
+  `<label>`, a label takes its name from everything in it, and the reveal toggle is a descendant
+  with an `aria-label` — so Chromium computed the accessible name of that input as
+  "Password Show password". A WCAG 2.5.3 failure, and a sentence no voice-control user can see to
+  say. `Field` points `aria-labelledby` at the label's own text span now, so the name is exactly
+  the label.
+
+  The test that should have caught it is the more useful half. `toHaveAccessibleName("Password")`
+  passed in jsdom, because `dom-accessibility-api` does not walk into a descendant's `aria-label` —
+  the environment was wrong in the same direction as the code, so the assertion certified the bug.
+  The unit test pins the wiring and says why it cannot pin the name; the name is asserted in a real
+  engine in the computed lane.
+
+  Smaller, and all verified by mutation: the reveal toggle encoded its state twice (`aria-pressed`
+  *and* a swapping name, which announce "hidden" and "shown" together) and as a side effect fell
+  outside the shared hover guard, which excludes `[aria-pressed="true"]` — the attribute is gone,
+  which also makes the sheet's "aria-pressed appears at exactly two sites" enumeration true again.
+  The toggle stayed enabled inside a disabled field. A revealed password became a spellchecked,
+  autocorrected, autocapitalised text input. Edge draws its own reveal control inside every
+  password field, on top of ours. `Avatar` documented `from` as "an email or a name" while
+  splitting on email separators only, so "Jane Doe" gave "J". `DatePicker` kept three unmemoised
+  formatters, one of them running once per day cell — 42 per render — in the file the performance
+  fix had lifted its fourth out of.
+
+  And the Turkish case-folding test was green under the exact defect it was written for. It typed a
+  capital `I`; the original code folded needle and label the same way, which is self-consistent, so
+  the option still matched. The real failure needs a lowercase `i` — dotted, as a keyboard produces
+  it — against a label folded to dotless. It asserts both now, because each catches a half the
+  other cannot see.
+
+  Six claims corrected. The lint guidance ADR 0099 §4 introduced told authors
+  `InMemoryDataViewRepository` "needs only `getRowId`"; `getValue` is required, so the recipe as
+  written does not compile — corrected in the lint message, twice in the ADR and in the entry
+  above. `Menu.tsx` still said sixteen iconbutton wearers and that the marker has no base rule.
+  The base-rule roll-call had lost `avatar` entirely when the two it replaced were removed, so the
+  merged tile's rule was checked by nothing. The scan's own claim that nothing asks the host a
+  question the app has answered was falsified by `localeCompare`, which sorts every in-memory
+  DataView by the visitor's collation — now covered, with the one live site listed and argued
+  rather than quietly excluded.
 
 - **`@terpjs/conformance`'s sign-out helper could not find the account menu, and CI had no way to
   say so.** `logout()` located the trigger by the accessible name "Account menu". That stopped

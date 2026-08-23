@@ -515,7 +515,34 @@ test("a user resize replaces the declared track instead of losing to it", async 
   const resized = page.locator('[data-terp="dataview-table"] th[data-column-id="md"]');
   // The attribute is gone, so the floor no longer applies...
   await expect(resized).not.toHaveAttribute("data-width", /.*/);
+  // ...and it is gone from THAT COLUMN ONLY. A drag snapshots every rendered width so the
+  // other columns do not jump while the layout is fixed, and committing that snapshot would
+  // have told the view state the user had sized the whole table — every declared track
+  // suppressed by one drag, permanently for an app that persists view state. This is the
+  // assertion that says otherwise, and the first version of this test did not make it.
+  await expect(page.locator('th[data-column-id="xs"]')).toHaveAttribute("data-width", "xs");
+  await expect(page.locator('th[data-column-id="sm"]')).toHaveAttribute("data-width", "sm");
   // ...and the column really is narrower than the step it declared.
   const after = (await resized.boundingBox())!;
   expect(after.width, "the drag must win over the declared floor").toBeLessThan(152);
+});
+
+test("a password field is named by its label alone, not by the toggle inside it", async ({
+  page,
+}) => {
+  // A real accname, because jsdom cannot compute this one. `Field` wraps its control in a
+  // `<label>`, a label takes its name from everything inside it, and the reveal toggle is a
+  // descendant with an `aria-label` of its own — so Chromium computed "Password Show password"
+  // for this input. `Field` points `aria-labelledby` at the label's text span now.
+  //
+  // The unit test next to the component asserts the WIRING and says why it cannot assert this:
+  // jsdom's implementation does not walk into a descendant's aria-label, so it reported the name
+  // as already correct while the browser disagreed. A test that passes because the environment is
+  // wrong in the same direction as the code is worse than no test.
+  await page.goto("/?theme=light&only=admin-user-create");
+  await page.locator('[data-terp="admin-form"]').waitFor({ state: "visible" });
+  const field = page.locator('[data-terp="input-password"] input');
+  await expect(field).toHaveAccessibleName("Password");
+  // The toggle keeps a name of its own; the point is that the two do not merge.
+  await expect(page.getByRole("button", { name: "Show password" })).toBeVisible();
 });

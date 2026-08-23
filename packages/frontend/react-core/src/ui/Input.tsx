@@ -34,6 +34,11 @@ export function Input({ type, ...rest }: InputProps) {
     return <input data-terp="input" type={type} {...rest} />;
   }
 
+  // A field the caller has switched off is switched off as a whole. Without this the value stays
+  // hidden and unreachable while the control beside it still reveals it — a disabled field with a
+  // working button in it.
+  const inert = rest.disabled === true || rest.readOnly === true;
+
   return (
     <span data-terp="input-password">
       {/*
@@ -44,13 +49,27 @@ export function Input({ type, ...rest }: InputProps) {
         a different element, so the red border silently disappears for every password field with a
         hint or an error. There is one live today.
       */}
-      <input data-terp="input" type={revealed ? "text" : "password"} {...rest} />
+      <input
+        data-terp="input"
+        type={revealed ? "text" : "password"}
+        // Revealing swaps the type to `text`, and a text input is a candidate for spellcheck,
+        // autocorrect and autocapitalisation in engines that apply them — none of which a password
+        // wants, and two of which would silently rewrite what the user typed on a phone. Declared
+        // before the spread so a caller can still override them.
+        spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="none"
+        {...rest}
+      />
       <button
         type="button"
         data-terp="iconbutton"
-        // `aria-pressed` rather than two buttons: it is one control whose state changes, and a
-        // screen reader announces the state without the name having to encode it.
-        aria-pressed={revealed}
+        disabled={inert}
+        // No `aria-pressed`. The name already carries the state — it swaps between "Show password"
+        // and "Hide password" — and encoding it twice makes the two disagree: a toggle announced
+        // as "Hide password, pressed" claims the value is hidden and shown at once. It also keeps
+        // this button out of the shared hover guard, which excludes `[aria-pressed="true"]` and
+        // would otherwise leave the revealed toggle with no hover feedback at all.
         aria-label={revealed ? strings.hidePassword : strings.showPassword}
         onClick={() => setRevealed((on) => !on)}
       >

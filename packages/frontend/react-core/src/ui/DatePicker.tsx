@@ -416,13 +416,33 @@ function useDateLocale() {
 }
 
 // `formatDate` used to live here, three functions deep in a file about calendars, and it was the
-// only locale-correct date rendering in the package. It is `../format` now and imported back; the
-// three below stay, because a spoken day, a grid caption and a column header are calendar parts
-// rather than general formatting.
+// only general-purpose locale-correct date rendering in the package. It is `../format` now and
+// imported back; the three below stay, because a spoken day, a grid caption and a column header
+// are calendar parts rather than general formatting.
+//
+// They are cached for the reason `../format` caches its own: constructing an Intl formatter costs
+// far more than using one — measured at roughly 55x on this repository's Node — and the spoken-day
+// formatter runs once per DAY CELL, so an open calendar built 42 of them per render and a further
+// seven for the column headers.
+const CALENDAR_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+
+function calendarFormatter(
+  locale: string | undefined,
+  kind: "full" | "month" | "weekday",
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = `${kind}|${locale ?? ""}`;
+  let formatter = CALENDAR_FORMATTERS.get(key);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    CALENDAR_FORMATTERS.set(key, formatter);
+  }
+  return formatter;
+}
 
 /** The whole date, spoken: what a day cell announces, since its text is only a number. */
 function formatFullDate(date: Date, locale: string | undefined) {
-  return new Intl.DateTimeFormat(locale, {
+  return calendarFormatter(locale, "full", {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -431,12 +451,13 @@ function formatFullDate(date: Date, locale: string | undefined) {
 }
 
 function formatMonth(date: Date, locale: string | undefined) {
-  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "long" }).format(date);
+  return calendarFormatter(locale, "month", { year: "numeric", month: "long" }).format(date);
 }
 
 function weekdayNames(locale: string | undefined) {
   const base = new Date(2024, 0, 7);
-  return Array.from({ length: 7 }, (_, index) => new Intl.DateTimeFormat(locale, { weekday: "short" }).format(addDays(base, index)));
+  const formatter = calendarFormatter(locale, "weekday", { weekday: "short" });
+  return Array.from({ length: 7 }, (_, index) => formatter.format(addDays(base, index)));
 }
 
 function normalizeRange(value: DateRangeValue): DateRangeValue {
