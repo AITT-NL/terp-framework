@@ -910,8 +910,13 @@ decision, 0001 onwards.
 
   `ApiError` now carries `fields`, a frozen record keyed by dotted path, and
   `Object.keys(error.fields).length > 0` is the test for "this belongs on the form". `message` is
-  byte-unchanged in every case: the existing string is what every other caller shows, so this is
-  additive beside it rather than a replacement for it.
+  additive-beside rather than replaced: the existing string is what every other caller shows.
+
+  *Correction, from the review of this entry:* "byte-unchanged in every case" was too strong on two
+  counts. A `detail` array whose entries spell `loc` as an already-dotted string now prefixes the
+  message where it previously did not, and a later commit deliberately changed the message again by
+  stripping only a LEADING `body` / `query` / `path` — the old output for `["body", "path"]` was
+  wrong. Unchanged for every shape FastAPI actually emits; not unchanged in every case.
 
   **Both spellings of a reason are read, because the backend documented one branch for both.**
   `terp.core.ErrorDetail` says its shape "deliberately mirrors FastAPI's own 422 detail entries
@@ -979,8 +984,9 @@ decision, 0001 onwards.
   a RangeError, so one malformed row from an API would otherwise take down a whole table.
 
   **The shape is adopted, not invented, and that is why it costs no baseline.** `DatePicker`'s
-  private `formatDate` was the only locale-correct date rendering in the package, so it defines the
-  house shape; it moved to `format.ts` unchanged and `DatePicker` imports it back. All four lanes
+  private `formatDate` was the only *general-purpose* locale-correct date rendering in the package —
+  `formatFullDate`, `formatMonth` and `weekdayNames` beside it are locale-correct too, and stay,
+  being calendar parts — so it defines the house shape; it moved to `format.ts` unchanged and `DatePicker` imports it back. All four lanes
   are byte-identical. The three helpers that stayed behind — a spoken day, a grid caption, a column
   header — are calendar parts rather than general formatting.
 
@@ -1115,6 +1121,52 @@ decision, 0001 onwards.
   chosen epsilon, and the shell's existing behaviour at exactly 768px is untouched.
 
 ### Fixed
+
+- **An adversarial review of the three entries above, and what it found.** Forty-two candidate
+  findings, twenty-nine refuted on inspection, thirteen upheld. The four defects worth naming here
+  because each is a way the new code could be wrong in front of a user:
+
+  **A 422 could light up the wrong input, or none.** The field path dropped `body` / `query` /
+  `path` at every position rather than only the leading one, so `["body", "path"]` — a webhook's
+  own `path` field — produced an empty key and highlighted nothing, and `["body", "config", "body"]`
+  highlighted `config`. While the path only shaped a sentence this was cosmetic; the moment it
+  chose a control it stopped being. A field named after something on `Object.prototype` was also
+  dropped outright, because the first-wins guard asked `=== undefined` of a plain object.
+
+  **And a form could swallow a failure whole.** "If `fields` is non-empty, set them and return"
+  suppressed the toast on the way out, so a reason naming a field the form does not render set
+  state nobody reads and reported nothing at all: the user presses Save and the screen does not
+  move. Three verifiers refuted this as unreachable, and for the three packaged endpoints they were
+  right — but `GroupDetail` already handled it correctly by naming its key, so the same package
+  contained both the right shape and the wrong one, and the wrong one is what an app copies.
+
+  **Search folded case by asking the host what case means.** `Combobox` used the locale-aware fold
+  on both the needle and the labels. Folded against a Turkish host `Italy` becomes `ıtaly` and does
+  not contain the `i` the user typed, so every option with a capital I vanished for a Turkish
+  visitor and nobody else. Folding both sides identically does not save it: the needle comes from a
+  keyboard and the haystack from a server. The locale scan's exemption for that method family is
+  gone, and its rule generalised to *nothing asks the host a question the app has already
+  answered*.
+
+  **And the locale fix was about seventy times slower per call than the code it replaced.** An
+  explicit `new Intl.DateTimeFormat(…)` gets none of the caching V8 gives `toLocaleDateString()`:
+  9072 ms against 131 ms over 200 000 calls. Every table cell goes through it, so a 200-row table
+  with three date columns paid 600 constructions a render for a change whose visible effect is the
+  month being spelled `jul`. The formatters are cached by locale now. Nothing observable changed in
+  either direction, which is why only a reviewer asking what the new code costs would ever find it.
+
+  Three gates were asleep and are awake: the Date-in-a-cell test rendered one locale on an nl-NL
+  host — the exact worthlessness the same file's header warns about, twenty lines above it; the
+  card renderer, whose divergence from the table was the entire reason the cell formatter was
+  extracted, had no test at all; and the shared instant was not zone-safe past UTC+12, so one
+  assertion would have failed in Kiritimati and nowhere else. The scan's regex could not see
+  `Intl.NumberFormat()` without `new`, and now tests itself against seventeen literal spellings
+  rather than only against repository contents.
+
+  Corrections to the entries above, rather than quiet edits: `message` is not "byte-unchanged in
+  every case" (see the note there), `DatePicker`'s helper was the only *general-purpose*
+  locale-correct date rendering rather than the only one, and `ErrorDetail` has no *production*
+  producer — the architecture suite constructs two.
 
 - **The example app formatted its dates in the visitor's locale too, and now nothing can.** Five
   more columns across the admin, explorer and files screens called `toLocaleDateString()` or

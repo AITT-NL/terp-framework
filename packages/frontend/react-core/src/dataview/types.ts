@@ -125,7 +125,12 @@ export interface DataViewColumn<T> {
   header: UiText;
   /** The raw value of this column for a row (used by default cell rendering). */
   accessor?: (row: T) => unknown;
-  /** Custom cell renderer; defaults to `String(accessor(row))`. */
+  /**
+   * Custom cell renderer. Without one the accessor's value is rendered by the shared default:
+   * `null` / `undefined` render nothing, a `Date` renders through the app's locale (the same
+   * `useFormatDate` the framework's own screens use), and anything else is `String(value)`.
+   * Table and card layouts share that default, so a column reads the same on both.
+   */
   cell?: (row: T) => ReactNode;
   /** Whether the header offers the 3-state sort toggle (default true). */
   enableSorting?: boolean;

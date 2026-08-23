@@ -113,6 +113,12 @@ versioned envelope; corrupt data falls back to defaults) and
 
 ## Behaviour notes
 
+- **Default cell rendering** is shared by the table and the card layouts, so a column reads
+  the same on a desktop and a phone: `null` / `undefined` render nothing, a `Date` renders
+  through the app's locale, and anything else is `String(value)`. Pass `cell` to override.
+- **Dates and numbers** in a `cell` renderer should go through `useFormatDate` /
+  `useFormatDateTime` / `useFormatNumber`; `toLocaleDateString()` with no argument asks the
+  visitor's browser rather than the app, and a repo-wide check refuses it.
 - **System columns** are auto-injected in a fixed order — expand toggle, selection
   checkbox, user columns, row-actions (sr-only header) — pinned to narrow widths and
   never hideable/reorderable/resizable.

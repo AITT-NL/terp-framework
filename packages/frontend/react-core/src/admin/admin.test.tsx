@@ -658,14 +658,19 @@ describe("the packaged admin area", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders its dates in the framework's shape rather than the browser's default", async () => {
-    // No admin screen has a specimen, so nothing pictures these cells and nothing asserted their
-    // text either — which is how seven of them sat on `toLocaleDateString()` / `toLocaleString()`
-    // with no locale argument through two releases.
+  it("renders its dates through the framework helper, not the built-in", async () => {
+    // What this gates is the CONVERSION, not the locale channel, and the distinction is worth
+    // naming: `renderAdminApp` mounts no `LocaleProvider`, so `useFormatDateTime` resolves an
+    // undefined locale and both sides of the assertion below say `undefined`. That the hook reads
+    // a provider at all is gated in format.test.tsx, by rendering two locales against each other.
     //
-    // The negative half is the half with teeth: both spellings render the same instant, so an
-    // assertion on the new one alone would stay green if the cell had never been converted and
-    // the runner's default happened to agree. They differ in shape, not in value.
+    // Here the teeth are in the negative half. Both spellings render the same instant and differ
+    // only in shape, so asserting the new one alone would stay green on a host whose default
+    // happened to agree with it. Asserting the old one is absent cannot be satisfied that way.
+    //
+    // Only one admin screen has a specimen (`admin-user-create`) and it renders no date, so
+    // nothing pictures these cells and nothing asserted their text before this — which is how
+    // seven of them sat on a locale-less built-in through two releases.
     const when = "2026-08-21T09:30:00Z";
     renderAdminApp("/admin/audit");
     expect(await screen.findByText(formatDateTime(when, undefined))).toBeInTheDocument();
