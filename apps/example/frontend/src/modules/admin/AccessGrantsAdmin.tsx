@@ -12,6 +12,7 @@ import {
   useServerDataView,
   useTerpClient,
   useToast,
+  useFormatDate,
 } from "@terpjs/react-core";
 import type { DataViewColumn } from "@terpjs/react-core";
 import { useMemo, useState } from "react";
@@ -22,21 +23,25 @@ import { ADMIN_PARENTS, renderAdminCrumb } from "./crumbs";
 
 type GrantRead = components["schemas"]["GrantRead"];
 
-const columns: DataViewColumn<GrantRead>[] = [
-  {
-    id: "permission",
-    header: "Permission",
-    accessor: (g) => g.permission,
-    meta: { mobileSlot: "title" },
-  },
-  {
-    id: "created_at",
-    header: "Granted",
-    accessor: (g) => g.created_at,
-    cell: (g) => new Date(g.created_at).toLocaleDateString(),
-    meta: { mobileSlot: "date", width: 120 },
-  },
-];
+function buildColumns(
+  formatDate: (value: string) => string,
+): DataViewColumn<GrantRead>[] {
+  return [
+    {
+      id: "permission",
+      header: "Permission",
+      accessor: (g) => g.permission,
+      meta: { mobileSlot: "title" },
+    },
+    {
+      id: "created_at",
+      header: "Granted",
+      accessor: (g) => g.created_at,
+      cell: (g) => formatDate(g.created_at),
+      meta: { mobileSlot: "date", width: 120 },
+    },
+  ];
+}
 
 /**
  * Access-grant administration over the shipped access capability. Grants are stored and
@@ -44,6 +49,8 @@ const columns: DataViewColumn<GrantRead>[] = [
  * one (a permission string), and revoke one with confirmation.
  */
 export function AccessGrantsAdmin() {
+  const formatDate = useFormatDate();
+  const columns = useMemo(() => buildColumns(formatDate), [formatDate]);
   const client = useTerpClient<paths>();
   const toast = useToast();
   const serverQuery = useServerDataView({ initialPageSize: 10 });

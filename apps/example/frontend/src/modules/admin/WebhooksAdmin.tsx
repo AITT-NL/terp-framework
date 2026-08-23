@@ -12,6 +12,7 @@ import {
   useServerDataView,
   useTerpClient,
   useToast,
+  useFormatDate,
 } from "@terpjs/react-core";
 import type { DataViewColumn } from "@terpjs/react-core";
 import { useMemo, useState } from "react";
@@ -27,28 +28,32 @@ export const WEBHOOKS_TABS = [
   { label: "Deliveries", to: "/admin/webhooks/deliveries" },
 ] as const;
 
-const columns: DataViewColumn<SubscriptionRead>[] = [
-  {
-    id: "target_url",
-    header: "Target URL",
-    accessor: (s) => s.target_url,
-    meta: { mobileSlot: "title" },
-  },
-  { id: "event", header: "Event", accessor: (s) => s.event, meta: { mobileSlot: "subtitle" } },
-  {
-    id: "active",
-    header: "Status",
-    accessor: (s) => (s.active ? "active" : "paused"),
-    meta: { mobileSlot: "status", width: 100 },
-  },
-  {
-    id: "created_at",
-    header: "Created",
-    accessor: (s) => s.created_at,
-    cell: (s) => new Date(s.created_at).toLocaleDateString(),
-    meta: { mobileSlot: "date", width: 120 },
-  },
-];
+function buildColumns(
+  formatDate: (value: string) => string,
+): DataViewColumn<SubscriptionRead>[] {
+  return [
+    {
+      id: "target_url",
+      header: "Target URL",
+      accessor: (s) => s.target_url,
+      meta: { mobileSlot: "title" },
+    },
+    { id: "event", header: "Event", accessor: (s) => s.event, meta: { mobileSlot: "subtitle" } },
+    {
+      id: "active",
+      header: "Status",
+      accessor: (s) => (s.active ? "active" : "paused"),
+      meta: { mobileSlot: "status", width: 100 },
+    },
+    {
+      id: "created_at",
+      header: "Created",
+      accessor: (s) => s.created_at,
+      cell: (s) => formatDate(s.created_at),
+      meta: { mobileSlot: "date", width: 120 },
+    },
+  ];
+}
 
 /**
  * Webhook subscription administration over the shipped webhooks capability: subscribe a
@@ -56,6 +61,8 @@ const columns: DataViewColumn<SubscriptionRead>[] = [
  * delivery log one tab away.
  */
 export function WebhooksAdmin() {
+  const formatDate = useFormatDate();
+  const columns = useMemo(() => buildColumns(formatDate), [formatDate]);
   const client = useTerpClient<paths>();
   const toast = useToast();
   const serverQuery = useServerDataView({ initialPageSize: 10 });

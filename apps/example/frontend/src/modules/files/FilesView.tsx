@@ -9,6 +9,7 @@ import {
   useServerDataView,
   useTerpClient,
   useToast,
+  useFormatDate,
 } from "@terpjs/react-core";
 import type { DataViewColumn } from "@terpjs/react-core";
 import { useMemo, useState } from "react";
@@ -23,29 +24,33 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-const columns: DataViewColumn<FileRead>[] = [
-  { id: "filename", header: "Filename", accessor: (f) => f.filename, meta: { mobileSlot: "title" } },
-  {
-    id: "content_type",
-    header: "Type",
-    accessor: (f) => f.content_type,
-    meta: { mobileSlot: "subtitle" },
-  },
-  {
-    id: "size",
-    header: "Size",
-    accessor: (f) => f.size,
-    cell: (f) => formatSize(f.size),
-    meta: { width: 100 },
-  },
-  {
-    id: "created_at",
-    header: "Uploaded",
-    accessor: (f) => f.created_at,
-    cell: (f) => new Date(f.created_at).toLocaleDateString(),
-    meta: { mobileSlot: "date", width: 120 },
-  },
-];
+function buildColumns(
+  formatDate: (value: string) => string,
+): DataViewColumn<FileRead>[] {
+  return [
+    { id: "filename", header: "Filename", accessor: (f) => f.filename, meta: { mobileSlot: "title" } },
+    {
+      id: "content_type",
+      header: "Type",
+      accessor: (f) => f.content_type,
+      meta: { mobileSlot: "subtitle" },
+    },
+    {
+      id: "size",
+      header: "Size",
+      accessor: (f) => f.size,
+      cell: (f) => formatSize(f.size),
+      meta: { width: 100 },
+    },
+    {
+      id: "created_at",
+      header: "Uploaded",
+      accessor: (f) => f.created_at,
+      cell: (f) => formatDate(f.created_at),
+      meta: { mobileSlot: "date", width: 120 },
+    },
+  ];
+}
 
 /**
  * The files overview: uploads through the react-core `FileUpload` picker, lists the
@@ -53,6 +58,8 @@ const columns: DataViewColumn<FileRead>[] = [
  * download plus a confirmed delete per row — the whole shipped files surface in one view.
  */
 export function FilesView() {
+  const formatDate = useFormatDate();
+  const columns = useMemo(() => buildColumns(formatDate), [formatDate]);
   const client = useTerpClient<paths>();
   const toast = useToast();
   const download = useFileDownload();

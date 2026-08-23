@@ -6,6 +6,7 @@ import {
   unwrap,
   useServerDataView,
   useTerpClient,
+  useFormatDateTime,
 } from "@terpjs/react-core";
 import type { DataViewColumn } from "@terpjs/react-core";
 import { useMemo } from "react";
@@ -16,36 +17,42 @@ import { WEBHOOKS_TABS } from "./WebhooksAdmin";
 
 type DeliveryRead = components["schemas"]["WebhookDeliveryRead"];
 
-const columns: DataViewColumn<DeliveryRead>[] = [
-  { id: "event", header: "Event", accessor: (d) => d.event, meta: { mobileSlot: "title" } },
-  { id: "outcome", header: "Outcome", accessor: (d) => d.outcome, meta: { mobileSlot: "status", width: 110 } },
-  {
-    id: "response_code",
-    header: "Response",
-    accessor: (d) => d.response_code ?? "",
-    meta: { width: 100 },
-  },
-  { id: "attempt", header: "Attempt", accessor: (d) => d.attempt, meta: { width: 90 } },
-  {
-    id: "last_error",
-    header: "Last error",
-    accessor: (d) => d.last_error ?? "",
-    meta: { mobileSlot: "subtitle" },
-  },
-  {
-    id: "created_at",
-    header: "When",
-    accessor: (d) => d.created_at,
-    cell: (d) => new Date(d.created_at).toLocaleString(),
-    meta: { mobileSlot: "date", width: 160 },
-  },
-];
+function buildColumns(
+  formatDateTime: (value: string) => string,
+): DataViewColumn<DeliveryRead>[] {
+  return [
+    { id: "event", header: "Event", accessor: (d) => d.event, meta: { mobileSlot: "title" } },
+    { id: "outcome", header: "Outcome", accessor: (d) => d.outcome, meta: { mobileSlot: "status", width: 110 } },
+    {
+      id: "response_code",
+      header: "Response",
+      accessor: (d) => d.response_code ?? "",
+      meta: { width: 100 },
+    },
+    { id: "attempt", header: "Attempt", accessor: (d) => d.attempt, meta: { width: 90 } },
+    {
+      id: "last_error",
+      header: "Last error",
+      accessor: (d) => d.last_error ?? "",
+      meta: { mobileSlot: "subtitle" },
+    },
+    {
+      id: "created_at",
+      header: "When",
+      accessor: (d) => d.created_at,
+      cell: (d) => formatDateTime(d.created_at),
+      meta: { mobileSlot: "date", width: 160 },
+    },
+  ];
+}
 
 /**
  * The webhook delivery log: a read-only, server-paged DataView over the deliveries the
  * dispatcher recorded (outcome, response code, attempt and last error per row).
  */
 export function WebhookDeliveriesAdmin() {
+  const formatDateTime = useFormatDateTime();
+  const columns = useMemo(() => buildColumns(formatDateTime), [formatDateTime]);
   const client = useTerpClient<paths>();
   const serverQuery = useServerDataView({ initialPageSize: 10 });
 

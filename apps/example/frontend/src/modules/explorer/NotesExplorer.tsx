@@ -5,6 +5,7 @@ import {
   unwrap,
   useServerDataView,
   useTerpClient,
+  useFormatDate,
 } from "@terpjs/react-core";
 import type { DataViewColumn } from "@terpjs/react-core";
 import { useMemo } from "react";
@@ -13,17 +14,21 @@ import type { components, paths } from "../../api/schema";
 
 type NoteRead = components["schemas"]["NoteRead"];
 
-const columns: DataViewColumn<NoteRead>[] = [
-  { id: "title", header: "Title", accessor: (n) => n.title, meta: { mobileSlot: "title" } },
-  { id: "body", header: "Body", accessor: (n) => n.body, meta: { mobileSlot: "subtitle" } },
-  {
-    id: "created_at",
-    header: "Created",
-    accessor: (n) => n.created_at,
-    cell: (n) => new Date(n.created_at).toLocaleDateString(),
-    meta: { mobileSlot: "date", width: 120 },
-  },
-];
+function buildColumns(
+  formatDate: (value: string) => string,
+): DataViewColumn<NoteRead>[] {
+  return [
+    { id: "title", header: "Title", accessor: (n) => n.title, meta: { mobileSlot: "title" } },
+    { id: "body", header: "Body", accessor: (n) => n.body, meta: { mobileSlot: "subtitle" } },
+    {
+      id: "created_at",
+      header: "Created",
+      accessor: (n) => n.created_at,
+      cell: (n) => formatDate(n.created_at),
+      meta: { mobileSlot: "date", width: 120 },
+    },
+  ];
+}
 
 /**
  * The server-side DataView example: an {@link HttpDataViewRepository} whose injected
@@ -32,6 +37,8 @@ const columns: DataViewColumn<NoteRead>[] = [
  * {@link useServerDataView}, so the page deep-links and survives reloads.
  */
 export function NotesExplorer() {
+  const formatDate = useFormatDate();
+  const columns = useMemo(() => buildColumns(formatDate), [formatDate]);
   const client = useTerpClient<paths>();
   const serverQuery = useServerDataView({ initialPageSize: 10 });
 

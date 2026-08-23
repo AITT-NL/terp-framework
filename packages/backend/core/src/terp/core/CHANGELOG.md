@@ -1116,6 +1116,24 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **The example app formatted its dates in the visitor's locale too, and now nothing can.** Five
+  more columns across the admin, explorer and files screens called `toLocaleDateString()` or
+  `toLocaleString()` with no argument. They go through the framework's helpers, which also makes
+  the dogfood app the proof that the new exports are reachable from outside the package.
+
+  The guard is the point of the commit. A repo-wide scan refuses a locale-sensitive formatter
+  invoked with no argument anywhere under `packages/frontend`, `apps` or `template`, because no
+  runtime control in this repository can see that defect: no admin screen has a specimen, nothing
+  asserted a rendered date, and on a Dutch host the wrong answer and the right answer are the same
+  string. Passing an explicit `undefined` through a helper stays legal -- that is the documented
+  fallback for a caller with no provider; what is refused is the argument never being offered.
+
+  Four mutations, four reds, and two of them are about the scan rather than the code: a converted
+  column reverted, the allowlist emptied, the tree list pointed somewhere that does not exist, and
+  the pattern blinded. The last two matter because a scan over nothing passes everything. The
+  blinded pattern is caught by the stale-allowlist test rather than the main one, which is a
+  property worth keeping: an allowlist entry that stops matching is a canary for the regex.
+
 - **The last of the phases 1-4 review: three ledgers that were smaller than they read, and a
   guard that could not see half the tokens it was pointed at.** No behaviour changes — all of
   this is the gate surface catching up with the sheet it describes.
