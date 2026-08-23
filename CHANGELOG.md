@@ -1122,6 +1122,24 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **`@terpjs/conformance`'s sign-out helper could not find the account menu, and CI had no way to
+  say so.** `logout()` located the trigger by the accessible name "Account menu". That stopped
+  being the button's name when the expanded trigger started taking its name from the user's email
+  and role instead — deliberately, because an `aria-label` replaces subtree text in the accessible
+  name and hid what the user could see (WCAG 2.5.3, Label in Name). Only the collapsed icon rail
+  still carries a label. Every app composing the base profile inherited the broken helper.
+
+  It reaches for `data-terp` now, which is the stable axis: the marker inventory is pinned by
+  exact equality and a rename is a release note, while the name legitimately varies with the shell
+  state and with who is signed in. A new architecture check holds the other half of that bargain —
+  every marker the suite names must be one the package actually renders — and refuses to pass
+  vacuously if the suite ever stops using markers at all.
+
+  The gap that let it through is worth more than the fix. The break landed in a commit that then
+  sat unpushed behind thirty-five others, and the only lane that can see this coupling boots
+  Postgres, the API and the web app in Docker — so it runs in CI and nowhere else. Thirty-six
+  commits of green local gates said nothing, because none of them could.
+
 - **An adversarial review of the three entries above, and what it found.** Forty-two candidate
   findings, twenty-nine refuted on inspection, thirteen upheld. The four defects worth naming here
   because each is a way the new code could be wrong in front of a user:

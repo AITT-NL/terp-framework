@@ -141,6 +141,25 @@ describe("UserMenu", () => {
     expect(screen.getByRole("menu").parentElement).toHaveAttribute("data-owner", "user-menu");
   });
 
+  it("keeps the trigger inside its own root when expanded, which is how the sign-out helper finds it", async () => {
+    // `@terpjs/conformance`'s `logout()` signs a user out of any Terp app through this button, and
+    // located it by the accessible name "Account menu" until that name stopped existing here —
+    // expanded, the button is named after the user's email and role on purpose (WCAG 2.5.3). The
+    // helper reaches it by marker path now, so the DESCENDANT relationship is a cross-package
+    // contract; the collapsed case above already pins the marker itself, and this pins the shape
+    // of the path in the state the sidebar is actually in by default.
+    stubAuthFetch();
+    const { container } = render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <UserMenu />
+      </TerpProvider>,
+    );
+    await screen.findByText("jane.doe@example.com");
+    const trigger = container.querySelector('[data-terp="user-menu"] [data-terp="menu-trigger"]');
+    expect(trigger?.tagName).toBe("BUTTON");
+  });
+
   it("signs out via the menu (revokes the token server-side)", async () => {
     const fetchMock = stubAuthFetch();
     render(

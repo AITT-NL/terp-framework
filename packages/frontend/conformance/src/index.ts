@@ -52,9 +52,19 @@ export async function login(
  * user menu (avatar at the bottom of every Terp app's sidebar) opens Settings and Sign out;
  * sign-out revokes the token server-side (ADR 0031), so this is reusable across apps. Success
  * is the app shell being replaced by the sign-in screen.
+ *
+ * The trigger is located by its marker rather than by an accessible name, and that is a fix
+ * rather than a shortcut. The name is deliberately not fixed: expanded, the button renders the
+ * user's own email and role as visible text and takes its name from them, because an
+ * `aria-label` REPLACES subtree text in the accessible name and would leave a voice-control
+ * user with nothing to say that matches what they see (WCAG 2.5.3, Label in Name). Only the
+ * collapsed icon rail carries a label, where the avatar is aria-hidden and the button would
+ * otherwise have no name at all. So the name varies with the shell state AND with the signed-in
+ * user, which makes it the wrong axis for an app-agnostic helper; `data-terp` is the stable one,
+ * being a pinned inventory whose renames are release notes.
  */
 export async function logout(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.locator('[data-terp="user-menu"] [data-terp="menu-trigger"]').click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 }
