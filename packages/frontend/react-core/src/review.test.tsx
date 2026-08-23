@@ -15,13 +15,21 @@ import { TERP_STYLES_CSS } from "./styles";
 // merely restates the fix would be worth nothing. Each row names the mutation that turns it red
 // and was checked against it.
 //
-// Two of the four read SOURCE TEXT rather than behaviour, which is unusual here and deliberate.
-// `inert` and the `logoDark` pass-through are both facts about what gets serialized or forwarded
-// under a React major and an entry point this suite does not run — React 19 renders either
-// spelling of `inert` identically, and no test mounts `renderTerpApp`'s full option surface — so
-// a behavioural assertion would pass under the bug. The source form is the only thing that
-// distinguishes them here; the honest alternative is a CI matrix on React 18.3, which is a
-// harness change rather than a test.
+// Several read SOURCE TEXT or the stylesheet rather than behaviour, which is unusual here and
+// deliberate rather than lazy. Each of those is a fact about something this suite cannot execute:
+// what a DIFFERENT React major serializes, what an entry point no test mounts forwards, or which
+// rule wins a cascade jsdom does not compute. A behavioural assertion would pass under the bug in
+// every one of those cases. Where behaviour CAN see it — the frozen controls, the tabpanel's
+// name, the popover's focus return — the test renders and asserts on the result instead.
+//
+// No count here on purpose: an earlier version of this comment said "two of the four" and was
+// wrong by the time the file had ten. A citation keeps; a tally rots.
+//
+// One trap has now appeared twice in gates written for this very review, so it is worth stating
+// where the next reader will meet it: a `toContain` on a CSS selector is satisfied by any LONGER
+// selector containing it. `:root[data-density="x"]` contains `[data-density="x"]`, and the pager's
+// own disabled rule contains the shared one. Both mutations came back GREEN until the assertions
+// were anchored to the start of a line with a regex.
 
 const sources = import.meta.glob("./**/*.tsx", {
   query: "?raw",
