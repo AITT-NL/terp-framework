@@ -157,14 +157,25 @@ export const TERP_STYLES_CSS = `
    specificity: the nearest ancestor carrying either attribute sets the live tokens for its
    subtree, so an island simply re-sets them. The two selectors never match the same element,
    so they never compete. Unlayered for the compact rule's reason — inside a layer it would
-   lose to the contract's own unlayered :root values whenever the attribute lands on <html>.
+   tie with the contract's own unlayered :root values whenever the attribute lands on <html>,
+   which is what the :root-qualified copies below settle.
    The values are the :root values by construction, so stamping comfortable where nothing is
    compact computes exactly what it computed before: provably zero-diff. */
+/* Each selector is written twice, and the :root-qualified copy is the load-bearing one. The
+   contract declares these same custom properties on :root, unlayered, at (0,1,0) — and a
+   bare [data-density="..."] on <html> is ALSO (0,1,0), so the two tied and only the order
+   the two sheets happened to load decided the winner. A production build extracts tokens.css
+   to a <link> that precedes the injected sheet, so react-core won by construction and the
+   exposure was the dev server and any host loading the tokens late. :root[data-density] is
+   (0,2,0) and wins outright; the unqualified copy stays for a density island on a subtree,
+   where there is no :root to qualify and nothing to compete with. */
+:root[data-density="comfortable"],
 [data-density="comfortable"] {
   --density-control-min-height: var(--density-comfortable-control-min-height);
   --density-cell-pad-y: var(--density-comfortable-cell-pad-y);
   --density-cell-pad-x: var(--density-comfortable-cell-pad-x);
 }
+:root[data-density="compact"],
 [data-density="compact"] {
   --density-control-min-height: var(--density-compact-control-min-height);
   --density-cell-pad-y: var(--density-compact-cell-pad-y);
@@ -3832,8 +3843,13 @@ button[data-terp="input"][data-placeholder="true"] {
    is enough, and the card's tone rules lose to it on layer rather than on
    specificity. Keeping the escalation past this point is the quiet failure: nothing
    would render differently, the declaration would simply become unthemeable. */
+/* Both halves carry the data-clickable guard, and the card half did not. A card list stamps
+   data-clickable only when onRowClick is set, but renders the selection checkbox on
+   selectionEnabled alone — so in a selectable-but-not-clickable list, focusing a checkbox
+   washed the whole card in brand-soft and buried its data-tone. Focus is not selection, and
+   a card that does nothing when clicked has no "activate me" state to advertise. */
 [data-terp="dataview-row"][data-clickable="true"]:focus-within td,
-[data-terp="dataview-card"]:focus-within {
+[data-terp="dataview-card"][data-clickable="true"]:focus-within {
   background: var(--color-brand-primary-soft);
 }
 

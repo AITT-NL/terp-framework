@@ -9,7 +9,17 @@ import type { PopoverAlign, PopoverPlacement, PopoverRootMarker, PopoverRootVari
 
 export interface MenuProps {
   trigger: ReactNode;
-  triggerLabel: UiText;
+  /**
+   * The trigger's accessible name, as `aria-label`.
+   *
+   * Optional, and omitting it is a claim rather than a shortcut: `aria-label` REPLACES the
+   * subtree text in the accessible name, so a trigger that renders its own visible label
+   * must not carry one — naming it something else hides what the user can see and leaves a
+   * voice-control user with no spoken label that matches it (WCAG 2.5.3, Label in Name).
+   * Pass it whenever the trigger's content is an icon, initials or anything `aria-hidden`,
+   * which is every packaged caller but `UserMenu`'s expanded form.
+   */
+  triggerLabel?: UiText;
   children: (api: { close: (restoreFocus?: boolean) => void }) => ReactNode;
   open?: boolean;
   defaultOpen?: boolean;
@@ -86,7 +96,7 @@ export function Menu({
         <button
           type="button"
           data-terp="menu-trigger"
-          aria-label={resolve(triggerLabel)}
+          aria-label={triggerLabel === undefined ? undefined : resolve(triggerLabel)}
           aria-haspopup="menu"
         >
           {trigger}

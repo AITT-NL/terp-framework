@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Checkbox } from "./ui/Checkbox";
 import { Radio } from "./ui/Radio";
 import { Switch } from "./ui/Switch";
+import { Tabs } from "./ui/Tabs";
 import { TERP_STYLES_CSS } from "./styles";
 
 // Defects the phases 1-4 review found, gated.
@@ -107,6 +108,45 @@ describe("defects the phases 1-4 review found", () => {
     const shell = sources["./AppShell.tsx"] ?? "";
     expect(shell, "AppShell.tsx is not in the scanned sources").not.toBe("");
     expect(shell).toContain("inert={isMobile && drawerOpen ? true : undefined}");
+  });
+
+  it("gives a tabpanel an accessible name even when the tab value contains whitespace", () => {
+    // `Tabs` built element ids by interpolating the caller's `value`. A value is caller data and
+    // an id is an IDREF, so a value with a space turned `aria-labelledby` into a list of two
+    // tokens, neither of which resolves — and the tabpanel silently lost its name. Nothing
+    // reported it: axe sees a well-formed reference to nothing, and the visible tab still reads
+    // correctly. Ids key on the tab's index now.
+    // Mutation: interpolate `tab.value` / `selectedTab.value` back into the two ids.
+    render(
+      <Tabs
+        label="Sections"
+        tabs={[
+          { value: "my tab", label: "My tab", content: <p>first</p> },
+          { value: "other one", label: "Other one", content: <p>second</p> },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("tabpanel", { name: "My tab" })).toBeInTheDocument();
+  });
+
+  it("wins the density tie against the contract's own :root declarations", () => {
+    // The shell's density attribute sets the same custom properties the contract declares on
+    // :root, both unlayered. A bare [data-density="..."] on <html> weighs (0,1,0) — exactly what
+    // :root weighs — so the two tied and only the order the sheets happened to load decided it.
+    // A production build extracts tokens.css to a <link> that precedes the injected sheet, so
+    // react-core won by construction and the exposure was the dev server and any host loading
+    // the tokens late. The :root-qualified copy is (0,2,0) and wins outright.
+    // Mutation: drop either :root-qualified selector.
+    for (const density of ["comfortable", "compact"] as const) {
+      expect(TERP_STYLES_CSS).toContain(`:root[data-density="${density}"]`);
+      // The unqualified copy stays, for a density island on a subtree where there is no :root.
+      // Anchored to the start of a line, because `:root[data-density="x"]` CONTAINS
+      // `[data-density="x"]` — a bare toContain here would be satisfied by the qualified copy
+      // alone and could never notice the unqualified one being deleted.
+      expect(TERP_STYLES_CSS).toMatch(
+        new RegExp(`^\\[data-density="${density}"\\]`, "m"),
+      );
+    }
   });
 
   it("forwards logoDark from both sanctioned entry points", () => {

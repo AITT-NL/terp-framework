@@ -128,20 +128,21 @@ test("the linux-only baseline set is exactly the set that is missing on win32", 
   // shape `_UNINDEXED_MODULES` and the marker worklists are all written to avoid.
   //
   // No browser, like the image-tag check below: reading two directories is the whole check.
+  // FILES, not specimen names. Stripping the `light-`/`dark-` prefix first collapses a
+  // specimen's two baselines into one Set member, so a directory that lost exactly one of the
+  // pair still reported the same member and compared equal — the review found this while the
+  // counts happened to be healthy, which is precisely when a latent hole is worth closing.
+  // Comparing filenames makes a half-recorded specimen a diff of one entry.
   const root = fileURLToPath(new URL("./__screenshots__", import.meta.url));
-  const namesIn = (platform: string) =>
-    new Set(
-      fs
-        .readdirSync(`${root}/${platform}`)
-        .map((file) => file.replace(/^(light|dark)-/, "").replace(/\.png$/, "")),
-    );
-  const linux = namesIn("linux");
-  const win32 = namesIn("win32");
-  const missingOnWin32 = [...linux].filter((name) => !win32.has(name)).sort();
-  expect(missingOnWin32).toEqual([...LINUX_ONLY].sort());
+  const filesIn = (platform: string) => new Set(fs.readdirSync(`${root}/${platform}`));
+  const linux = filesIn("linux");
+  const win32 = filesIn("win32");
+  const themeFiles = (id: string) => [...SCREENSHOT_THEMES].map((theme) => `${theme}-${id}.png`);
+  const expectedMissing = [...LINUX_ONLY].flatMap(themeFiles).sort();
+  expect([...linux].filter((file) => !win32.has(file)).sort()).toEqual(expectedMissing);
   // And nothing may exist on win32 alone: that would mean a baseline recorded on a developer
   // machine that CI has never compared against.
-  expect([...win32].filter((name) => !linux.has(name)).sort()).toEqual([]);
+  expect([...win32].filter((file) => !linux.has(file)).sort()).toEqual([]);
 });
 
 test("every specimen is present and uniquely identified", async ({ page }) => {

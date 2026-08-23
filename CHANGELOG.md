@@ -1005,6 +1005,61 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **Six more from the phases 1-4 review, and one of them was in a gate written the day before.**
+  The second pass down the same audit. Each was re-verified from source, and each ships with the
+  mutation that turns its gate red.
+
+  **The account menu hid the name it was displaying.** `UserMenu`'s expanded trigger renders the
+  user's email and role as visible text *and* carried `aria-label="Account menu"` — and an
+  `aria-label` replaces subtree text in the accessible name, so the two things a user could see
+  were exactly the two things the name did not contain (WCAG 2.5.3, Label in Name). The label now
+  applies only to the collapsed icon rail, where the avatar initials are `aria-hidden` and the
+  button would otherwise have no name at all. `Menu.triggerLabel` becomes optional to allow it,
+  and its docblock states the obligation: a trigger that renders its own visible label must not
+  carry one.
+
+  **The baseline ratchet could not see a half-recorded specimen.** The `LINUX_ONLY` check compared
+  sets of specimen *names*, built by stripping the `light-`/`dark-` prefix — which collapses a
+  specimen's two PNGs into one member, so a directory that lost exactly one of the pair still
+  compared equal. It compares filenames now. Found one commit after that gate was written, which
+  is the argument for auditing a gate the same way as the code it guards.
+
+  **A focused checkbox washed out its own card.** The `:focus-within` brand tint is guarded on
+  `data-clickable` for table rows and was not for cards — but a card list stamps `data-clickable`
+  only when `onRowClick` is set, while the selection checkbox renders on `selectionEnabled` alone.
+  In a selectable-but-not-clickable list, focusing a checkbox painted the whole card brand-soft
+  and buried its `data-tone`. Focus is not selection, and a card that does nothing when clicked
+  has no "activate me" state to advertise.
+
+  **The shell's density tied with the contract instead of beating it.** `[data-density="compact"]`
+  on `<html>` weighs (0,1,0) — exactly what the contract's own unlayered `:root` weighs — so only
+  the order the two sheets happened to load decided the winner. A production build extracts
+  `tokens.css` to a `<link>` that precedes the injected sheet, so react-core won by construction
+  and the exposure was the dev server and any host loading the tokens late. Each selector now
+  ships a `:root`-qualified copy at (0,2,0) alongside the bare one, which stays for a density
+  island on a subtree.
+
+  **A tab value with a space cost the tabpanel its name.** `Tabs` interpolated the caller's raw
+  `value` into element ids. A value is caller data and an id is an IDREF, so `"my tab"` turned
+  `aria-labelledby` into a list of two tokens, neither of which resolved. Nothing reported it —
+  axe sees a well-formed reference to nothing, and the visible tab still reads correctly. Ids key
+  on the tab's index now, which is the same refusal to interpolate caller strings that the shell's
+  nav-group labels already write out.
+
+  **`RadioGroup` accepted `children` and wired none of them.** The `options` branch injects
+  `name`, `checked`, `disabled` and `onChange`; `{children}` was rendered raw, so two child
+  `Radio`s shared no group name and were independently checkable — a radio group that is not one.
+  The prop was undocumented, untested, unspecimened and had no caller in the repo, so it is
+  removed rather than wired.
+
+  **Deferred, with the reason.** `Icon`'s `size` sizes the wrapper box but never the glyph, so
+  `size="2rem"` renders a ~20px glyph in a 32px box. The fix is one property, but it repaints the
+  theme toggle, the language switcher, every toast and the drawer close button across specimens
+  that hold `win32` baselines — and Windows Chrome is blocked by group policy here, so those
+  baselines cannot be re-recorded. Trading one cosmetic defect for a set of knowingly-wrong
+  baselines on a platform this machine cannot record is the worse deal; it wants a commit from a
+  machine that can record both.
+
 - **A review of phases 1-4 found five defects, and the most interesting one was in the review.**
   A seven-lens audit over the design-system overhaul, every finding re-verified against source
   before it was acted on. Five survived and are fixed here; the rest are recorded or refused.

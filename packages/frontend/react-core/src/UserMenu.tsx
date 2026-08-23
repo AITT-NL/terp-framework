@@ -52,7 +52,13 @@ export function UserMenu({ collapsed = false, onSettings, defaultOpen }: UserMen
   return (
     <Menu
       trigger={trigger}
-      triggerLabel={strings.accountMenu}
+      // Only in the icon rail, and the asymmetry is the point. `aria-label` REPLACES the
+      // subtree text in the accessible name, so in the expanded trigger — which renders the
+      // user's email and role as visible text — naming it "Account menu" hid both from anyone
+      // relying on the name, and left a voice-control user with no spoken label that matches
+      // what they can see (WCAG 2.5.3, Label in Name). Collapsed there is nothing to hide: the
+      // avatar initials are aria-hidden, so without this the button would have no name at all.
+      triggerLabel={collapsed ? strings.accountMenu : undefined}
       placement="top"
       align="start"
       defaultOpen={defaultOpen}

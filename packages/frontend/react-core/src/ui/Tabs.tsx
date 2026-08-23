@@ -31,6 +31,12 @@ export function Tabs({ tabs, value, defaultValue, onChange, label }: TabsProps) 
   const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? firstValue);
   const selectedValue = value ?? uncontrolledValue;
   const selectedTab = tabs.find((tab) => tab.value === selectedValue) ?? enabledTabs[0] ?? tabs[0];
+  // Element ids are built from the tab's INDEX, never from its `value`. A value is caller data
+  // and an id is an IDREF: a value containing whitespace turns `aria-labelledby` into a list of
+  // two tokens, neither of which resolves, and the tabpanel silently loses its accessible name.
+  // Nothing reports that — axe sees a well-formed reference to nothing. The same refusal to
+  // interpolate caller strings into ids is written out at AppShell's nav-group labels.
+  const selectedIndex = tabs.findIndex((tab) => tab.value === selectedTab?.value);
 
   function select(next: string) {
     if (value === undefined) {
@@ -62,24 +68,28 @@ export function Tabs({ tabs, value, defaultValue, onChange, label }: TabsProps) 
     const next = enabledTabs[nextIndex];
     if (next) {
       select(next.value);
-      document.getElementById(`${baseId}-tab-${next.value}`)?.focus();
+      // Looked up by the tab's position in `tabs`, matching the id it was rendered with.
+      // `enabledTabs` is a filtered view, so its index is not the rendered one.
+      document
+        .getElementById(`${baseId}-tab-${tabs.findIndex((tab) => tab.value === next.value)}`)
+        ?.focus();
     }
   }
 
   return (
     <div data-terp="tabs">
       <div role="tablist" data-terp="tab-list" aria-label={label === undefined ? undefined : resolve(label)} onKeyDown={onKeyDown}>
-        {tabs.map((tab) => {
+        {tabs.map((tab, index) => {
           const selected = tab.value === selectedTab?.value;
           return (
             <button
               key={tab.value}
-              id={`${baseId}-tab-${tab.value}`}
+              id={`${baseId}-tab-${index}`}
               type="button"
               role="tab"
               data-terp="tab"
               aria-selected={selected}
-              aria-controls={`${baseId}-panel-${tab.value}`}
+              aria-controls={`${baseId}-panel-${index}`}
               tabIndex={selected ? 0 : -1}
               disabled={tab.disabled}
               onClick={() => select(tab.value)}
@@ -91,9 +101,9 @@ export function Tabs({ tabs, value, defaultValue, onChange, label }: TabsProps) 
       </div>
       {selectedTab && (
         <div
-          id={`${baseId}-panel-${selectedTab.value}`}
+          id={`${baseId}-panel-${selectedIndex}`}
           role="tabpanel"
-          aria-labelledby={`${baseId}-tab-${selectedTab.value}`}
+          aria-labelledby={`${baseId}-tab-${selectedIndex}`}
           data-terp="tab-panel"
         >
           {selectedTab.content}

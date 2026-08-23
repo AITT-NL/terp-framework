@@ -66,7 +66,7 @@ describe("UserMenu", () => {
         <UserMenu />
       </TerpProvider>,
     );
-    expect(screen.queryByRole("button", { name: "Account menu" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /jane\.doe@example\.com/ })).not.toBeInTheDocument();
   });
 
   it("shows the avatar initials, email and role, and opens the panel", async () => {
@@ -81,7 +81,7 @@ describe("UserMenu", () => {
         </LocaleProvider>
       </ThemeProvider>,
     );
-    const trigger = await screen.findByRole("button", { name: "Account menu" });
+    const trigger = await screen.findByRole("button", { name: /jane\.doe@example\.com/ });
     expect(screen.getByText("JD")).toBeInTheDocument();
     expect(screen.getByText("jane.doe@example.com")).toBeInTheDocument();
     expect(screen.getByText("editor")).toBeInTheDocument();
@@ -104,7 +104,7 @@ describe("UserMenu", () => {
         <UserMenu onSettings={onSettings} />
       </TerpProvider>,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Account menu" }));
+    fireEvent.click(await screen.findByRole("button", { name: /jane\.doe@example\.com/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
     expect(onSettings).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("menuitem", { name: "Sign out" })).not.toBeInTheDocument();
@@ -118,6 +118,10 @@ describe("UserMenu", () => {
         <UserMenu collapsed />
       </TerpProvider>,
     );
+    // Collapsed is the one variant that still carries `triggerLabel`, because its only
+    // content is the aria-hidden avatar — without the label the button would have no
+    // accessible name at all. Expanded takes its name from the email and role it renders,
+    // which is what the other cases in this file now assert.
     const trigger = await screen.findByRole("button", { name: "Account menu" });
     expect(screen.getByText("JD")).toBeInTheDocument();
     expect(screen.queryByText("jane.doe@example.com")).not.toBeInTheDocument();
@@ -145,7 +149,7 @@ describe("UserMenu", () => {
         <UserMenu />
       </TerpProvider>,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Account menu" }));
+    fireEvent.click(await screen.findByRole("button", { name: /jane\.doe@example\.com/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
     await waitFor(() =>
       expect(
@@ -164,7 +168,7 @@ describe("UserMenu", () => {
         <UserMenu />
       </TerpProvider>,
     );
-    const trigger = await screen.findByRole("button", { name: "Account menu" });
+    const trigger = await screen.findByRole("button", { name: /jane\.doe@example\.com/ });
     fireEvent.click(trigger);
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });

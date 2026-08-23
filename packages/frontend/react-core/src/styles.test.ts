@@ -760,7 +760,7 @@ describe("cascade structure", () => {
       // DataViewCardList's inline background on the element it matches. The escalation
       // came off when the card migrated, which is the LAST of the two rather than the
       // first — and the card's tone rules now lose to it on layer instead.
-      '[data-terp="dataview-card"]:focus-within',
+      '[data-terp="dataview-card"][data-clickable="true"]:focus-within',
       // Re-derived rather than assumed, because the condition is not "has something
       // migrated" but "can any element this selector matches still beat it". Of the SIXTEEN
       // sites wearing the iconbutton marker, only six can carry the disabled attribute at all:

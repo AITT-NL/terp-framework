@@ -603,7 +603,7 @@ describe("buildAppRouter", () => {
 
     // The sidebar's user menu shows the signed-in user's email; sign-out lives inside it.
     await waitFor(() => expect(screen.getByText("editor@example.com")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
+    fireEvent.click(screen.getByRole("button", { name: /editor@example\.com/ }));
     // Clicking sign-out revokes the token server-side (ADR 0031).
     fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
     await waitFor(() =>
@@ -726,7 +726,7 @@ describe("buildAppRouter", () => {
     );
 
     await waitFor(() => expect(screen.getByText("editor@example.com")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
+    fireEvent.click(screen.getByRole("button", { name: /editor@example\.com/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
 
     await waitFor(() =>

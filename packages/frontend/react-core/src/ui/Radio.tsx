@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import type { ChangeEvent, InputHTMLAttributes, ReactNode } from "react";
+import type { ChangeEvent, InputHTMLAttributes } from "react";
 
 import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
@@ -53,7 +53,6 @@ export interface RadioGroupProps {
   label: UiText;
   name?: string;
   options?: readonly RadioOption[];
-  children?: ReactNode;
   value?: string;
   defaultValue?: string;
   onChange?: (value: string) => void;
@@ -65,7 +64,6 @@ export function RadioGroup({
   label,
   name,
   options,
-  children,
   value,
   defaultValue,
   onChange,
@@ -103,7 +101,6 @@ export function RadioGroup({
             }}
           />
         ))}
-        {children}
       </div>
     </fieldset>
   );
