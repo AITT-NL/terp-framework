@@ -12,11 +12,15 @@ import { useToast } from "../toast";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useStrings } from "../uiText";
-import { ApiError, unwrap } from "../unwrap";
+import { unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
+import { routeFieldErrors } from "./fieldErrors";
 
 const FORM_ID = "terp-admin-group-create";
+
+/** The inputs this form renders, and so the only reasons it can put anywhere the user will see. */
+const RENDERED_FIELDS = ["name", "description"] as const;
 
 /** Dedicated group-creation page (`/admin/groups/new`). */
 export function GroupCreate() {
@@ -45,12 +49,13 @@ export function GroupCreate() {
         params: { groupId: group.id },
       });
     } catch (error) {
-      // A reason that names a field belongs on that field; anything unattributed stays a toast.
-      if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
-        setFieldErrors(error.fields);
-        return;
+      // A reason that names a field belongs on that field; anything unattributed, or attributed
+      // to a field this form does not render, stays a toast.
+      const { shown, leftover } = routeFieldErrors(error, RENDERED_FIELDS);
+      setFieldErrors(shown);
+      if (Object.keys(shown).length === 0 || leftover) {
+        toast.warning(error instanceof Error ? error.message : strings.requestFailed);
       }
-      toast.warning(error instanceof Error ? error.message : strings.requestFailed);
     } finally {
       setCreating(false);
     }

@@ -582,6 +582,82 @@ describe("the packaged admin area", () => {
     );
   });
 
+  it("still says something when the 422 names a field the form does not render", async () => {
+    // The hole in the obvious version of this pattern: a non-empty `fields` suppressed the toast
+    // on the way out, and if no key matched an input, the state it set was read by nothing. The
+    // user pressed Save and NOTHING happened — no field lit up, no message, no navigation. A
+    // failed write that reports nothing is worse than the floating toast it replaced.
+    //
+    // This also proves the sibling test's `queryByText(...).toBeNull()` is not vacuous: the toast
+    // really does render the joined `path: msg` sentence as findable text, so an assertion that
+    // it is absent is an assertion about something that could otherwise have been there.
+    const { fetchMock } = renderAdminApp("/admin/users/new");
+    await screen.findByRole("heading", { level: 1, name: "Provision user" });
+    const passthrough = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input as Request;
+      if (request.method === "POST" && request.url.endsWith("/api/v1/users/")) {
+        return jsonResponse(
+          { detail: [{ loc: ["body", "organization_id"], msg: "Not allowed for this tenant" }] },
+          422,
+        );
+      }
+      return passthrough(input, init);
+    });
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "new.account@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "strong-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+
+    expect(
+      await screen.findByText("organization_id: Not allowed for this tenant"),
+    ).toBeInTheDocument();
+    // And nothing was marked invalid, because none of these inputs is the one the server meant.
+    expect(screen.getByLabelText("Email")).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByLabelText("Password")).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("shows the field it can and still toasts the reason it cannot, when a 422 names both", async () => {
+    // The mixed envelope is the case the `leftover` flag exists for, and the only one that
+    // distinguishes it: with no renderable reason at all the toast fires anyway because `shown` is
+    // empty, so a mutation neutering `leftover` stayed green until this test existed. Here `email`
+    // finds its input and `organization_id` does not, and BOTH have to reach the user.
+    const { fetchMock } = renderAdminApp("/admin/users/new");
+    await screen.findByRole("heading", { level: 1, name: "Provision user" });
+    const passthrough = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input as Request;
+      if (request.method === "POST" && request.url.endsWith("/api/v1/users/")) {
+        return jsonResponse(
+          {
+            detail: [
+              { loc: ["body", "email"], msg: "Email address is already registered" },
+              { loc: ["body", "organization_id"], msg: "Not allowed for this tenant" },
+            ],
+          },
+          422,
+        );
+      }
+      return passthrough(input, init);
+    });
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "taken@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "strong-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+
+    const shown = await screen.findByText("Email address is already registered");
+    expect(shown.getAttribute("data-terp")).toBe("field-error");
+    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    // The reason with nowhere to go is still said out loud, in the joined sentence.
+    expect(
+      screen.getByText(
+        "email: Email address is already registered; organization_id: Not allowed for this tenant",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("renders its dates in the framework's shape rather than the browser's default", async () => {
     // No admin screen has a specimen, so nothing pictures these cells and nothing asserted their
     // text either — which is how seven of them sat on `toLocaleDateString()` / `toLocaleString()`

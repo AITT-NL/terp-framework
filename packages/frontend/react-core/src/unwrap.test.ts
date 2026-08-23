@@ -191,6 +191,36 @@ describe("ApiError.fields", () => {
     expect(failure.message).toBe("password: Too short.; password: Needs a digit.");
   });
 
+  it("drops only a LEADING body/query/path, because elsewhere the same word is a field name", () => {
+    // FastAPI puts exactly one of these at the front to say where in the request the value came
+    // from. Anywhere else it is a name the caller chose, and a webhook with a `path` field is not
+    // a hypothetical. Stripping every occurrence attached the reason to the wrong control, or —
+    // for a top-level field called `path` — to no control at all, since the key came out empty.
+    expect(failureOf({ detail: [{ loc: ["body", "path"], msg: "Must start with a slash." }] }).fields)
+      .toEqual({ path: "Must start with a slash." });
+    expect(
+      failureOf({ detail: [{ loc: ["body", "config", "body"], msg: "Required." }] }).fields,
+    ).toEqual({ "config.body": "Required." });
+    // A loc that is ONLY the prefix is still about the request as a whole, so it keeps no key.
+    const whole = failureOf({ detail: [{ loc: ["body"], msg: "Malformed JSON." }] });
+    expect(whole.fields).toEqual({});
+    expect(whole.message).toBe("Malformed JSON.");
+  });
+
+  it("keeps a reason whose field is named after something on Object.prototype", () => {
+    // The keys are server-supplied. `fields["constructor"]` on a plain object is truthy before
+    // anything is written to it, so a first-wins guard spelled `=== undefined` decides the slot is
+    // taken and drops the reason with no trace.
+    expect(
+      failureOf({
+        detail: [
+          { loc: ["body", "constructor"], msg: "Unknown builder." },
+          { loc: ["body", "toString"], msg: "Not a template." },
+        ],
+      }).fields,
+    ).toEqual({ constructor: "Unknown builder.", toString: "Not a template." });
+  });
+
   it("is frozen, so one failure's reasons cannot be edited into something the server never said", () => {
     const fields = failureOf({ detail: [{ loc: ["body", "name"], msg: "Too short." }] }).fields;
     expect(() => {

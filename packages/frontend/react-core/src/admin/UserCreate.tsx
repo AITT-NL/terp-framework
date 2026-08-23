@@ -13,12 +13,16 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { useStrings } from "../uiText";
-import { ApiError, unwrap } from "../unwrap";
+import { unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
+import { routeFieldErrors } from "./fieldErrors";
 import { adminRoleOptions } from "./roles";
 
 const FORM_ID = "terp-admin-user-create";
+
+/** The inputs this form renders, and so the only reasons it can put anywhere the user will see. */
+const RENDERED_FIELDS = ["email", "password", "role"] as const;
 
 /** Dedicated account-provisioning page (`/admin/users/new`). */
 export function UserCreate() {
@@ -53,14 +57,14 @@ export function UserCreate() {
       });
     } catch (error) {
       // A reason that names a field belongs on that field, not floating above the form in a
-      // toast the user has to hold in their head while looking for the input it means.
-      // Anything the server did not attribute stays a toast, which is where the six delete
-      // and revoke handlers in this package correctly leave it.
-      if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
-        setFieldErrors(error.fields);
-        return;
+      // toast the user has to hold in their head while looking for the input it means. Anything
+      // the server did not attribute — or attributed to something this form has no input for —
+      // stays a toast, which is where the delete and revoke handlers correctly leave it.
+      const { shown, leftover } = routeFieldErrors(error, RENDERED_FIELDS);
+      setFieldErrors(shown);
+      if (Object.keys(shown).length === 0 || leftover) {
+        toast.warning(error instanceof Error ? error.message : strings.requestFailed);
       }
-      toast.warning(error instanceof Error ? error.message : strings.requestFailed);
     } finally {
       setCreating(false);
     }

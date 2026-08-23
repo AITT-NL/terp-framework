@@ -142,13 +142,23 @@ function describeFailure(error: unknown, response: Response): Failure {
  * `terp.core.ErrorDetail` emits it already dotted — a shape whose docstring says it
  * "deliberately mirrors FastAPI's own 422 detail entries ... so a frontend handles both with
  * one branch". Nothing had written that branch. This is it.
+ *
+ * Only a LEADING `body` / `query` / `path` is dropped. FastAPI puts exactly one of them at the
+ * front to say where in the request the value came from; anywhere else the same word is a field
+ * the caller named, and `["body", "path"]` is a webhook's `path` field, not a bare request. While
+ * this only shaped a sentence the difference was cosmetic. It now chooses which input lights up,
+ * so stripping every occurrence would attach a reason to the wrong control — or, for a top-level
+ * field called `path`, to no control at all.
  */
+const LOC_PREFIXES = new Set(["body", "query", "path"]);
+
 function fieldPath(loc: unknown): string {
   if (Array.isArray(loc)) {
-    return loc
-      .filter((part) => typeof part === "string" || typeof part === "number")
-      .filter((part) => part !== "body" && part !== "query" && part !== "path")
-      .join(".");
+    const parts = loc.filter(
+      (part): part is string | number => typeof part === "string" || typeof part === "number",
+    );
+    const start = typeof parts[0] === "string" && LOC_PREFIXES.has(parts[0]) ? 1 : 0;
+    return parts.slice(start).join(".");
   }
   return typeof loc === "string" ? loc : "";
 }
@@ -181,7 +191,11 @@ function structuredDetail(detail: unknown): Failure | null {
     // First reason wins per path. A field that fails two checks shows the one the server
     // reported first and keeps the rest in the message; overwriting would show the last,
     // which is no more correct and reads as arbitrary.
-    if (path.length > 0 && fields[path] === undefined) {
+    //
+    // `Object.hasOwn`, not `=== undefined`: the keys are server-supplied, and a field called
+    // `constructor` or `toString` inherits a truthy value from `Object.prototype`, so the
+    // cheaper test would decide the slot was already taken and drop the reason silently.
+    if (path.length > 0 && !Object.hasOwn(fields, path)) {
       fields[path] = reason.msg;
     }
   }
