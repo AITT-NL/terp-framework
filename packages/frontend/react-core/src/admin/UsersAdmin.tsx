@@ -30,20 +30,20 @@ function buildColumns(
       header: strings.role,
       accessor: (u) => u.role,
       cell: (u) => adminRoleLabel(strings, u.role),
-      meta: { mobileSlot: "subtitle", width: 100 },
+      meta: { mobileSlot: "subtitle", width: "xs" },
     },
     {
       id: "is_active",
       header: strings.statusColumn,
       accessor: (u) => (u.is_active ? strings.statusActive : strings.statusDeactivated),
-      meta: { mobileSlot: "status", width: 110 },
+      meta: { mobileSlot: "status", width: "sm" },
     },
     {
       id: "created_at",
       header: strings.createdColumn,
       accessor: (u) => u.created_at,
       cell: (u) => formatDate(u.created_at),
-      meta: { mobileSlot: "date", width: 120 },
+      meta: { mobileSlot: "date", width: "sm" },
     },
   ];
 }

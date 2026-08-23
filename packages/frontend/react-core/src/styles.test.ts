@@ -7,6 +7,17 @@ import { TERP_STYLES_ID, TERP_STYLES_CSS, injectTerpStyles } from "./styles";
 const css = TERP_STYLES_CSS.replace(/\/\*[\s\S]*?\*\//g, "");
 
 /**
+ * One source file, read as text, so a union declared in TypeScript can be compared against the
+ * rules the sheet declares for it. Narrow on purpose: this file needs exactly one module, and a
+ * `./**` glob would pull the 180 KB stylesheet in a second time.
+ */
+const sources = import.meta.glob("./dataview/types.ts", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+/**
  * The body of one `@layer <name> { … }` block, brace-matched.
  *
  * Throws rather than returning "" for a name that is not in the sheet: several assertions
@@ -700,6 +711,41 @@ describe("cascade structure", () => {
       base.slice(at, base.indexOf("}", at)),
       "a size that hardcodes its height stops following density",
     ).toContain("var(--density-control-min-height)");
+  });
+
+  it("declares a min-inline-size for every step ColumnWidth names, and nothing it does not", () => {
+    // The Button gate above notes that its union and its sheet are two lists kept by hand. This
+    // one reads the union out of the source instead, because a declared track that silently does
+    // nothing is exactly the defect this attribute exists to end: `meta.width` was a px hint that
+    // `table-layout: auto` shrank away, so widening ColumnWidth without a rule would restore the
+    // old behaviour under a new spelling.
+    const source = sources["./dataview/types.ts"];
+    const union = /export type ColumnWidth =([^;]+);/.exec(source);
+    expect(union, "ColumnWidth is not declared where this test looks for it").not.toBeNull();
+    const steps = [...(union?.[1] ?? "").matchAll(/"([a-z]+)"/g)].map((match) => match[1]);
+    expect(steps.length, "parsed no steps out of ColumnWidth").toBeGreaterThan(0);
+
+    const base = layerBody("terp.base");
+    for (const step of steps) {
+      const selector = `[data-terp="dataview-table"] > thead > tr > th[data-width="${step}"]`;
+      expect(declaresRuleFor(base, selector), `no rule for step ${step}`).toBe(true);
+      const at = base.indexOf(selector);
+      expect(
+        base.slice(at, base.indexOf("}", at)),
+        `step ${step} must bind as a minimum; a width is a preference auto layout shrinks away`,
+      ).toContain("min-inline-size");
+    }
+    // And nothing beyond the union. `lg` and `content` were both drafted and declined for having
+    // no consumer, so a rule for either means the sheet grew a step the type cannot express.
+    for (const absent of ["lg", "xl", "content", "auto"]) {
+      expect(
+        declaresRuleFor(
+          base,
+          `[data-terp="dataview-table"] > thead > tr > th[data-width="${absent}"]`,
+        ),
+        `the sheet declares a step ColumnWidth does not name: ${absent}`,
+      ).toBe(false);
+    }
   });
 
   it("keeps the loading cursor where it can beat the disabled cursor", () => {

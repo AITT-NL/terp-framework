@@ -332,6 +332,43 @@ const syncRepositoryOptions = {
 const SYNC_REPOSITORY = new InMemoryDataViewRepository(SYNC_ROWS, syncRepositoryOptions);
 
 /**
+ * Four columns whose CONTENT is one character each, so nothing about the data can explain their
+ * widths. Three declare a step and the fourth declares nothing, which is what makes the picture
+ * readable: the declared tracks hold a floor a single digit could never justify, and the last
+ * column takes whatever is left.
+ *
+ * The headers are two letters for the same reason. `th` is `white-space: nowrap`, and that is the
+ * minimum the workbench already measured as the thing which actually sizes this table — nine long
+ * headers put `dataview-wide` at 1447px. A long header here would size the column instead of the
+ * step, and the specimen would gate the wrong mechanism.
+ */
+interface StepRow {
+  id: string;
+  xs: string;
+  sm: string;
+  md: string;
+  auto: string;
+}
+
+const STEP_ROWS: StepRow[] = [
+  { id: "1", xs: "1", sm: "2", md: "3", auto: "4" },
+  { id: "2", xs: "5", sm: "6", md: "7", auto: "8" },
+];
+
+const STEP_REPOSITORY = new InMemoryDataViewRepository(STEP_ROWS, {
+  getRowId: (row: StepRow) => row.id,
+  getValue: (row: StepRow, column: string) => row[column as keyof StepRow],
+});
+
+const STEP_COLUMNS: DataViewColumn<StepRow>[] = [
+  { id: "xs", header: "Xs", accessor: (row) => row.xs, meta: { width: "xs" } },
+  { id: "sm", header: "Sm", accessor: (row) => row.sm, meta: { width: "sm" } },
+  { id: "md", header: "Md", accessor: (row) => row.md, meta: { width: "md" } },
+  { id: "auto", header: "No", accessor: (row) => row.auto },
+];
+
+
+/**
  * The split's list rows. Plain strings rendered as buttons: focusable, so the keyboard lane has
  * a tab sequence to assert, and long enough that the pane's track and its `min-width: 0` are
  * both under real content pressure. Nothing here waits on a session.
@@ -1541,6 +1578,11 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         id: "dataview-wide",
         title: "DataView — a table wider than the box",
         node: <DataView repository={SYNC_REPOSITORY} columns={WIDE_SYNC_COLUMNS} />,
+      },
+      {
+        id: "dataview-column-steps",
+        title: "DataView — declared column tracks (xs / sm / md, and one undeclared)",
+        node: <DataView repository={STEP_REPOSITORY} columns={STEP_COLUMNS} variant="embedded" />,
       },
       {
         id: "resource-list",

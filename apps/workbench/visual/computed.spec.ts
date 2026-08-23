@@ -464,3 +464,58 @@ test("the nav group's stacking margin is scoped to the sidebar, and the header r
   await page.locator('[data-terp="appshell-sidebar"]').waitFor({ state: "visible" });
   expect(await marginOf('[data-terp="appshell-nav-group"]')).toBe("16px");
 });
+
+test("a declared column track binds as a floor a single character could not justify", async ({
+  page,
+}) => {
+  // `meta.width` used to be a pixel hint and did NOTHING: under `table-layout: auto` a specified
+  // width is a preference the algorithm shrinks to fit, which the workbench measured directly —
+  // three columns hinted at 700px each recorded a baseline that fit the box exactly. So the hint
+  // was decorative for two releases and no lane could tell, because a column that ignores its
+  // declared width looks exactly like a column that has one.
+  //
+  // It is a `min-inline-size` now, and this is the assertion that says so. The specimen renders one
+  // character per cell and a two-letter header, so nothing about the content can account for these
+  // numbers: 5rem / 6.5rem / 9.5rem at the root font size is 80 / 104 / 152. Deleting any of the
+  // three rules leaves the baseline visibly narrower AND fails here, which is the pair worth having.
+  await page.goto("/?theme=light&only=dataview-column-steps");
+  await page.locator('[data-terp="dataview-table"] th[data-width="md"]').waitFor({
+    state: "visible",
+  });
+  const widths = await page.evaluate(() =>
+    Object.fromEntries(
+      [...document.querySelectorAll('[data-terp="dataview-table"] > thead > tr > th')].map(
+        (th) => [th.getAttribute("data-width") ?? "none", th.getBoundingClientRect().width],
+      ),
+    ),
+  );
+  expect(widths.xs, "xs must hold 5rem").toBeGreaterThanOrEqual(80);
+  expect(widths.sm, "sm must hold 6.5rem").toBeGreaterThanOrEqual(104);
+  expect(widths.md, "md must hold 9.5rem").toBeGreaterThanOrEqual(152);
+  // Strictly increasing, so three rules that all resolved to the same length would fail rather
+  // than pass three separate floor checks.
+  expect(widths.xs).toBeLessThan(widths.sm);
+  expect(widths.sm).toBeLessThan(widths.md);
+});
+
+test("a user resize replaces the declared track instead of losing to it", async ({ page }) => {
+  // `min-inline-size` beats an inline `width`, so a column dragged below its declared step would
+  // spring back and the resizer would read as broken. The component prevents that by not emitting
+  // the attribute at all once a column has been resized — the two are exclusive by construction,
+  // and this reads back the consequence rather than the mechanism.
+  await page.goto("/?theme=light&only=dataview-column-steps");
+  const md = page.locator('[data-terp="dataview-table"] th[data-width="md"]');
+  await md.waitFor({ state: "visible" });
+  const before = (await md.boundingBox())!;
+  const handle = md.locator('[data-terp="dataview-column-resizer"]');
+  await handle.hover();
+  await page.mouse.down();
+  await page.mouse.move(before.x + 70, before.y + before.height / 2, { steps: 8 });
+  await page.mouse.up();
+  const resized = page.locator('[data-terp="dataview-table"] th[data-column-id="md"]');
+  // The attribute is gone, so the floor no longer applies...
+  await expect(resized).not.toHaveAttribute("data-width", /.*/);
+  // ...and the column really is narrower than the step it declared.
+  const after = (await resized.boundingBox())!;
+  expect(after.width, "the drag must win over the declared floor").toBeLessThan(152);
+});

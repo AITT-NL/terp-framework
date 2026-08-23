@@ -36,8 +36,8 @@ function makeDevices(): Device[] {
 const columns: DataViewColumn<Device>[] = [
   { id: "name", header: "Name", accessor: (d) => d.name, meta: { mobileSlot: "title" } },
   { id: "owner", header: "Owner", accessor: (d) => d.owner, meta: { mobileSlot: "subtitle" } },
-  { id: "status", header: "Status", accessor: (d) => d.status, meta: { mobileSlot: "status", width: 100 } },
-  { id: "purchased", header: "Purchased", accessor: (d) => d.purchased, meta: { mobileSlot: "date", width: 120 } },
+  { id: "status", header: "Status", accessor: (d) => d.status, meta: { mobileSlot: "status", width: "xs" } },
+  { id: "purchased", header: "Purchased", accessor: (d) => d.purchased, meta: { mobileSlot: "date", width: "sm" } },
 ];
 
 const viewState = new LocalStorageViewStateRepository();

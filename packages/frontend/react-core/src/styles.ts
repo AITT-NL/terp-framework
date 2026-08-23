@@ -2189,6 +2189,28 @@ textarea[data-terp="input"] {
   white-space: nowrap;
   background: var(--color-neutral-0);
 }
+/* A column's declared track. A MINIMUM rather than a width, because a specified width is only a
+   preference under table-layout: auto and the algorithm shrinks it to fit — which is why the pixel
+   hint this replaces did nothing at all, measured in the workbench at three columns asking for
+   700px each and fitting the box exactly. What auto layout cannot take away is a minimum.
+
+   Three steps, and no more: these are the three bands the framework's own tables declare, and a
+   step is additive to add and breaking to remove. In rem, so a declared track follows the root
+   font size; the system columns below keep their pixels on purpose, being chrome rather than
+   content, and converting them is a density pass with its own baselines.
+
+   Nothing here ever meets an inline width. A resized column stops emitting the attribute, so the
+   user's own drag replaces the declared track instead of losing to it — the minimum would win the
+   cascade, and a column springing back from a drag reads as a broken resizer. */
+[data-terp="dataview-table"] > thead > tr > th[data-width="xs"] {
+  min-inline-size: 5rem;
+}
+[data-terp="dataview-table"] > thead > tr > th[data-width="sm"] {
+  min-inline-size: 6.5rem;
+}
+[data-terp="dataview-table"] > thead > tr > th[data-width="md"] {
+  min-inline-size: 9.5rem;
+}
 [data-terp="dataview-row"] > td {
   padding: var(--density-cell-pad-y) var(--density-cell-pad-x);
   border-bottom: 1px solid var(--color-neutral-100);

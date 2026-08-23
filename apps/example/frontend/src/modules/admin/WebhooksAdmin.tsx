@@ -43,14 +43,14 @@ function buildColumns(
       id: "active",
       header: "Status",
       accessor: (s) => (s.active ? "active" : "paused"),
-      meta: { mobileSlot: "status", width: 100 },
+      meta: { mobileSlot: "status", width: "xs" },
     },
     {
       id: "created_at",
       header: "Created",
       accessor: (s) => s.created_at,
       cell: (s) => formatDate(s.created_at),
-      meta: { mobileSlot: "date", width: 120 },
+      meta: { mobileSlot: "date", width: "sm" },
     },
   ];
 }

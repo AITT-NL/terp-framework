@@ -25,13 +25,13 @@ function buildColumns(
       header: strings.whenColumn,
       accessor: (e) => e.created_at,
       cell: (e) => formatDateTime(e.created_at),
-      meta: { mobileSlot: "date", width: 170 },
+      meta: { mobileSlot: "date", width: "md" },
     },
     {
       id: "action",
       header: strings.actionColumn,
       accessor: (e) => e.action,
-      meta: { mobileSlot: "status", width: 100 },
+      meta: { mobileSlot: "status", width: "xs" },
     },
     {
       id: "target",
@@ -45,7 +45,7 @@ function buildColumns(
       header: strings.actorColumn,
       accessor: (e) => e.actor_id ?? "",
       cell: (e) => (e.actor_id === null ? "—" : e.actor_id.slice(0, 8)),
-      meta: { mobileSlot: "subtitle", width: 110 },
+      meta: { mobileSlot: "subtitle", width: "sm" },
     },
   ];
 }

@@ -22,6 +22,7 @@ export type {
   DataViewRepository,
   DataViewState,
   ViewStateRepository,
+  ColumnWidth,
   DataViewColumn,
   DataViewColumnMeta,
   DataViewDensity,

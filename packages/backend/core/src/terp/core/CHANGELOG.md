@@ -1014,6 +1014,44 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **A declared column width is a step now, and it finally does something (breaking:
+  `DataViewColumnMeta.width`).** `meta.width` was `number | string` and twenty-two columns across
+  this package and the example app declared one. None of them had any effect. Under
+  `table-layout: auto` a specified width is a *preference* the algorithm shrinks to fit, which the
+  workbench had already measured and written down: three columns hinted at 700px each recorded a
+  baseline that fit the box exactly. The hint was decorative for two releases, and no lane could
+  see it, because a column that ignores its declared width looks exactly like a column that has
+  one.
+
+  `width` is now `ColumnWidth` — `"xs" | "sm" | "md"` — emitted as `data-width` on the `th` and
+  bound in the sheet as `min-inline-size` at 5rem / 6.5rem / 9.5rem. A minimum, because that is the
+  one thing auto layout cannot take away. In rem, so a declared track follows the root font size
+  rather than one display's pixels; the 40px/56px system columns keep theirs, being chrome rather
+  than content, and converting them is a density pass with its own baselines.
+
+  **Three steps, and the absent ones are the argument.** `lg` and a content-hugging step were both
+  drafted and dropped: nothing declares either, and by the same bar this phase has been applying to
+  components, a step with no consumer is a published union member that exists to be guessed at. A
+  step is additive to add and breaking to remove. The twenty-two sites map onto three bands —
+  90/100 to `xs`, 110/120 to `sm`, 160/170 to `md` — and every floor is at or below the width its
+  author had already asked for, so nothing gained a minimum larger than the number it replaced.
+
+  **A user's resize replaces the step rather than fighting it.** `min-inline-size` beats an inline
+  `width`, so a column dragged below its declared step would have sprung back and the resizer would
+  have read as broken — a defect the change would have introduced on its way to fixing another. The
+  attribute is simply not emitted once a column has been resized: the declared track and the user's
+  own width are exclusive by construction, so the two never meet in the cascade.
+
+  It ships with the evidence it was missing. A new specimen renders one character per cell and a
+  two-letter header, so nothing about the content can account for the widths, and both baselines
+  are recorded on win32 and linux. Two computed-lane measurements read the numbers back: the three
+  floors hold and are strictly increasing, and a real pointer drag takes `md` below its own step.
+  Deleting one rule fails the sheet gate, the measurement AND repaints the baseline by ~570 pixels.
+
+  Four mutations, four reds, and the second is the one that matters: turning the floor back into a
+  `width` leaves every rule present and the picture wrong, which is precisely the state the last two
+  releases shipped in.
+
 - **The navigation model closes without a badge, and that is a decision (ADR 0097 §5, amended in
   4e).** ADR 0097 listed `badge` among the fields `NavItem` would gain. It will not gain one, and
   the shell does not get a `badges` prop either. No code changes; this is here because an app

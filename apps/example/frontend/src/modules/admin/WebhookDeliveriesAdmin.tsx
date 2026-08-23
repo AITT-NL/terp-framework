@@ -22,14 +22,14 @@ function buildColumns(
 ): DataViewColumn<DeliveryRead>[] {
   return [
     { id: "event", header: "Event", accessor: (d) => d.event, meta: { mobileSlot: "title" } },
-    { id: "outcome", header: "Outcome", accessor: (d) => d.outcome, meta: { mobileSlot: "status", width: 110 } },
+    { id: "outcome", header: "Outcome", accessor: (d) => d.outcome, meta: { mobileSlot: "status", width: "sm" } },
     {
       id: "response_code",
       header: "Response",
       accessor: (d) => d.response_code ?? "",
-      meta: { width: 100 },
+      meta: { width: "xs" },
     },
-    { id: "attempt", header: "Attempt", accessor: (d) => d.attempt, meta: { width: 90 } },
+    { id: "attempt", header: "Attempt", accessor: (d) => d.attempt, meta: { width: "xs" } },
     {
       id: "last_error",
       header: "Last error",
@@ -41,7 +41,7 @@ function buildColumns(
       header: "When",
       accessor: (d) => d.created_at,
       cell: (d) => formatDateTime(d.created_at),
-      meta: { mobileSlot: "date", width: 160 },
+      meta: { mobileSlot: "date", width: "md" },
     },
   ];
 }

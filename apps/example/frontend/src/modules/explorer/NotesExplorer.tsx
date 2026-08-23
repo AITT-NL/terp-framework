@@ -25,7 +25,7 @@ function buildColumns(
       header: "Created",
       accessor: (n) => n.created_at,
       cell: (n) => formatDate(n.created_at),
-      meta: { mobileSlot: "date", width: 120 },
+      meta: { mobileSlot: "date", width: "sm" },
     },
   ];
 }

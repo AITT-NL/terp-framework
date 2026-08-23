@@ -11,7 +11,11 @@ import { SortAscGlyph, SortDescGlyph, SortNoneGlyph } from "./glyphs";
 import { useCellFormatter, useDataViewText } from "./internal";
 
 injectTerpStyles();
-import type { DataViewColumn, DataViewRowAction } from "./types";
+import type {
+  ColumnWidth,
+  DataViewColumn,
+  DataViewRowAction,
+} from "./types";
 
 const MIN_COLUMN_WIDTH = 60;
 
@@ -103,17 +107,21 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
     [props.onCommitColumnSizing],
   );
 
-  const widthOf = (column: DataViewColumn<T>): number | string | undefined => {
-    const live = liveSizing?.[column.id];
-    if (live !== undefined) {
-      return live;
-    }
-    const resized = props.columnSizing[column.id];
-    if (resized !== undefined) {
-      return resized;
-    }
-    return column.meta?.width;
-  };
+  /**
+   * The user's own width for a column, in px, or `undefined` if they have not resized it.
+   *
+   * This and {@link stepOf} are deliberately exclusive: a resized column emits an inline `width`
+   * and NO `data-width`, so the declared step stops applying the moment the user disagrees with
+   * it. Emitting both would put a `min-inline-size` from the sheet against an inline `width`, and
+   * the minimum wins — dragging a column below its declared step would spring back and the
+   * resizer would look broken.
+   */
+  const resizedWidthOf = (column: DataViewColumn<T>): number | undefined =>
+    liveSizing?.[column.id] ?? props.columnSizing[column.id];
+
+  /** The declared track, which applies only while the column is at its default width. */
+  const stepOf = (column: DataViewColumn<T>): ColumnWidth | undefined =>
+    resizedWidthOf(column) === undefined ? column.meta?.width : undefined;
 
   const hasExpand = props.renderExpanded !== undefined;
   const hasActions = props.rowActions !== undefined;
@@ -150,11 +158,13 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
           {props.columns.map((column) => {
             const sort = props.sorting.find((entry) => entry.id === column.id);
             const sortable = column.enableSorting !== false;
-            const width = widthOf(column);
+            const width = resizedWidthOf(column);
+            const step = stepOf(column);
             return (
               <th
                 key={column.id}
                 data-column-id={column.id}
+                data-width={step}
                 aria-sort={
                   sort === undefined ? undefined : sort.desc ? "descending" : "ascending"
                 }

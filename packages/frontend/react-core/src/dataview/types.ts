@@ -107,14 +107,32 @@ export type DataViewMobileSlot = "title" | "subtitle" | "status" | "date";
  */
 export type DataViewDensity = "comfortable" | "compact";
 
+/**
+ * A column's declared track: a step, not a length.
+ *
+ * The three steps are the three bands the framework's own tables actually declare, and there are
+ * deliberately no others. `lg` and a content-hugging step were both drafted and dropped for the
+ * same reason a component with no consumer is dropped — nothing asks for them, and a step is
+ * additive to add and breaking to remove. The scale is rem, so a declared track follows the root
+ * font size instead of pinning a column to one display's pixels.
+ */
+export type ColumnWidth = "xs" | "sm" | "md";
+
 /** Typed column meta the DataView-specific features read. */
 export interface DataViewColumnMeta {
   /** Human-readable name used in the column-settings menu (falls back to the header). */
   label?: UiText;
   /** Slot in the auto-composed card layout. */
   mobileSlot?: DataViewMobileSlot;
-  /** Fixed width hint (number = px, or any CSS length). */
-  width?: number | string;
+  /**
+   * The column's declared minimum track. Omit for content-based auto sizing.
+   *
+   * A **minimum**, because that is the only thing `table-layout: auto` cannot take away: a
+   * specified `width` is a preference the algorithm shrinks to fit, which is why the px hint this
+   * replaced did nothing at all. A user's own resize replaces the declared track entirely rather
+   * than fighting it.
+   */
+  width?: ColumnWidth;
 }
 
 /** Generic, typed column definition for {@link DataView}. */

@@ -31,7 +31,7 @@ interface Ticket { id: string; title: string; status: string; created: string }
 const columns: DataViewColumn<Ticket>[] = [
   { id: "title", header: "Title", accessor: (t) => t.title, meta: { mobileSlot: "title" } },
   { id: "status", header: "Status", accessor: (t) => t.status, meta: { mobileSlot: "status" } },
-  { id: "created", header: "Created", accessor: (t) => t.created, meta: { mobileSlot: "date", width: 120 } },
+  { id: "created", header: "Created", accessor: (t) => t.created, meta: { mobileSlot: "date", width: "sm" } },
 ];
 
 const repository = new InMemoryDataViewRepository(tickets, {
@@ -124,7 +124,12 @@ versioned envelope; corrupt data falls back to defaults) and
   never hideable/reorderable/resizable.
 - **Column resizing**: drag the header handle; widths update live with no persistence
   writes per pointermove and are persisted once, on pointer-up. Width precedence:
-  pinned system columns → user-resized → static `meta.width` hint → auto.
+  pinned system columns → user-resized → declared `meta.width` step → auto.
+- **Declared column tracks**: `meta.width` is a step (`"xs"` / `"sm"` / `"md"`), not a
+  length, and it binds as a **minimum** — under `table-layout: auto` a specified width is
+  only a preference the algorithm shrinks to fit, so the px hint this replaced did nothing
+  at all. A user resize replaces the step outright rather than competing with it: a resized
+  column stops carrying the attribute, so the floor can never spring a drag back.
 - **Row tone**: `getRowTone={(row) => tone | null}` marks the *row* as being in a
   state (a refused link, a failed run) — the right altitude when the verdict belongs
   to the record, not to one of its cells. The row/card is tinted with the tone's soft

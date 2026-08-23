@@ -40,14 +40,14 @@ function buildColumns(
       header: "Size",
       accessor: (f) => f.size,
       cell: (f) => formatSize(f.size),
-      meta: { width: 100 },
+      meta: { width: "xs" },
     },
     {
       id: "created_at",
       header: "Uploaded",
       accessor: (f) => f.created_at,
       cell: (f) => formatDate(f.created_at),
-      meta: { mobileSlot: "date", width: 120 },
+      meta: { mobileSlot: "date", width: "sm" },
     },
   ];
 }

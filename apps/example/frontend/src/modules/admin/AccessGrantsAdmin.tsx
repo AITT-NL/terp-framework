@@ -38,7 +38,7 @@ function buildColumns(
       header: "Granted",
       accessor: (g) => g.created_at,
       cell: (g) => formatDate(g.created_at),
-      meta: { mobileSlot: "date", width: 120 },
+      meta: { mobileSlot: "date", width: "sm" },
     },
   ];
 }

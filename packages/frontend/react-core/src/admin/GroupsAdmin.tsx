@@ -34,14 +34,14 @@ function buildColumns(
       id: "member_count",
       header: strings.members,
       accessor: (g) => g.member_count,
-      meta: { mobileSlot: "status", width: 110 },
+      meta: { mobileSlot: "status", width: "sm" },
     },
     {
       id: "created_at",
       header: strings.createdColumn,
       accessor: (g) => g.created_at,
       cell: (g) => formatDate(g.created_at),
-      meta: { mobileSlot: "date", width: 120 },
+      meta: { mobileSlot: "date", width: "sm" },
     },
   ];
 }
