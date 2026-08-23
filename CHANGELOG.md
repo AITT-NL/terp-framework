@@ -1005,6 +1005,46 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **Three interaction defects from the phases 1-4 review, all of them in what happens after the
+  pointer or the keyboard arrives.** None was reachable by any of the four lanes: the screenshot
+  lane shoots a resting page, axe reads a static tree, and the keyboard lane visits neither
+  component.
+
+  **The tooltip could not be dismissed and could not be hovered** — two of the three clauses of
+  WCAG 1.4.13 (Content on Hover or Focus, level AA). There was no key handler of any kind, so a
+  bubble covering the content beneath it could only be escaped by moving away from the control
+  the user was reading about; Escape closes it now, bound on the document because the
+  pointer-opened case has no focus anywhere near the component. And the bubble declared
+  `pointer-events: none`, which makes the Hoverable clause impossible by construction — a tooltip
+  long enough to need reading could not be read by anyone tracking with a pointer or working
+  under magnification. That is gone, and the close is delayed briefly so the visual gap between
+  trigger and bubble can be crossed; re-entering cancels it.
+
+  `Tooltip` also gains `defaultOpen`, the affordance `AppShell.defaultCollapsed` and
+  `defaultDrawerOpen` already are, and a specimen that uses it. The bubble's entire style
+  block — surface, ink, radius, shadow and measure — was reachable only by hovering or focusing,
+  so **every declaration in it was painted by nothing**: it could have been changed or deleted
+  with no gate saying anything. It has a baseline now (linux only).
+
+  **Tab out of a popover panel landed past every piece of page content.** The panel is portalled
+  to the end of `document.body`, and `Popover` had an Escape-only key handler — so the
+  sequential-navigation starting point stayed inside a node at the wrong end of the document:
+  Tab left the panel and continued from there, and Shift+Tab landed on the last focusable element
+  on the page rather than back on the control that opened it. `Menu` has implemented the APG
+  contract for exactly this all along, and documents the failure at its own call site; `Popover`
+  carried the same portal without it. Tab now closes the panel and restores focus to the trigger
+  first, then lets the browser's default action run from there. Deliberately not a focus trap —
+  a popover is a non-modal disclosure, and trapping would be a stronger promise than it makes.
+
+  **The pager dropped keyboard focus at the moment it arrived.** Each of the four page buttons
+  has a bound condition recomputed from what its own click just changed, so pressing "next" until
+  the last page disabled the very control being operated — and a disabled element cannot hold
+  focus, so the browser dropped it to `<body>`. A keyboard user paging to the end lost their
+  place in the document exactly when they got there. The buttons stay focusable and announce
+  `aria-disabled` instead, with the handler inert on the bound, and the sheet paints
+  `[aria-disabled="true"]` identically to `:disabled` — verified: every existing baseline was
+  byte-identical afterwards.
+
 - **Two lanes were auditing something other than what they claimed, and neither could say so.**
   Both came out of the phases 1-4 review — one from a reviewer, one from measuring a lane against
   itself — and both are the same shape: a check that runs, passes, and reads the wrong thing.

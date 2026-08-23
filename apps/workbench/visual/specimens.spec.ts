@@ -122,6 +122,7 @@ const LINUX_ONLY = new Set([
   // rather than left behind. A baseline whose content is a known defect is worse than none: it
   // certifies the bug.
   "icons",
+  "tooltip-open",
   "app-shell-nav-groups",
   "app-shell-nav-groups-collapsed",
   "app-shell-header-nav-groups",

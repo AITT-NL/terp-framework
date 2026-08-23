@@ -1657,6 +1657,34 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The bubble itself, which nothing painted. Its whole style block — surface, ink,
+        // shadow, radius, measure and the `min(18rem, ...)` clamp — was reachable only by
+        // hovering or focusing, and neither lane does either: the screenshot lane shoots a
+        // resting page and the axe lane reads a static tree. So every declaration in it could
+        // have been changed, or deleted, with no gate saying anything. `defaultOpen` is the
+        // door, the same one `defaultCollapsed` and `defaultDrawerOpen` opened for the shell.
+        //
+        // `overlay` because the bubble is position: absolute above its anchor and would be
+        // clipped out of an element-scoped shot — the plainest case of the four the flag
+        // exists for, and the one most likely to be missed.
+        id: "tooltip-open",
+        title: "Tooltip — the bubble, shown",
+        overlay: true,
+        node: (
+          // Padded down so the bubble, which sits ABOVE its anchor, clears the specimen's own
+          // title rather than covering it. Worth knowing while reading the picture: the panel is
+          // position: absolute with only inset-inline-start set, so it shrink-to-fits against
+          // the anchor's box — which is why a long string wraps narrow instead of running to the
+          // declared max-inline-size. That clamp may well be unreachable in this geometry; it is
+          // noted rather than asserted, because nothing here has measured it.
+          <div style={{ paddingBlockStart: "7rem" }}>
+            <Tooltip content="Explains the control" defaultOpen>
+              <Button variant="ghost">Hover me</Button>
+            </Tooltip>
+          </div>
+        ),
+      },
+      {
         id: "stack-directions",
         title: "Stack — row and column at gap 4",
         node: (

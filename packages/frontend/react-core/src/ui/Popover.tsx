@@ -237,6 +237,19 @@ export function Popover({
           // lives in the sheet with everything else instead of travelling as an object.
           data-owner={owner ?? rootMarker ?? "popover"}
           tabIndex={-1}
+          // Tab closes the panel and restores focus to the trigger FIRST, then lets the default
+          // action run from there — the contract `Menu` already implements, and for the reason
+          // written out at that call site. The panel is portalled to the end of document.body,
+          // so with no Tab branch the sequential-navigation starting point stayed inside a node
+          // at the wrong end of the document: Tab out of the panel landed past every piece of
+          // page content, and Shift+Tab landed on the last focusable element on the page rather
+          // than back on the control that opened it. Deliberately not a focus TRAP — a popover
+          // is a non-modal disclosure, and trapping would be a stronger promise than it makes.
+          onKeyDown={(event) => {
+            if (event.key === "Tab") {
+              close(true);
+            }
+          }}
           // Only the measured part is inline: the left/top the layout effect computes from
           // the trigger's rect and clamps against the viewport, and the visibility that
           // hides the panel for the frame before that measurement exists. Everything the

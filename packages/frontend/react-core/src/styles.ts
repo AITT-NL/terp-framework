@@ -2946,7 +2946,10 @@ button[data-terp="input"][data-placeholder="true"] {
   font-weight: var(--font-weight-medium);
   line-height: 1.4;
   box-shadow: var(--shadow-md);
-  pointer-events: none;
+  /* No pointer-events: none. It was here, and it makes WCAG 1.4.13's Hoverable clause
+     impossible by construction: a bubble the pointer cannot reach is a bubble nobody
+     tracking with a pointer, or reading under magnification, can finish reading. The
+     component keeps it open across the gap with a short close delay instead. */
   white-space: normal;
 }
 
@@ -3481,7 +3484,8 @@ button[data-terp="input"][data-placeholder="true"] {
   background: var(--color-neutral-100);
   color: var(--color-neutral-900);
 }
-[data-terp="iconbutton"]:disabled {
+[data-terp="iconbutton"]:disabled,
+[data-terp="iconbutton"][aria-disabled="true"] {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -3786,7 +3790,8 @@ button[data-terp="input"][data-placeholder="true"] {
    colour would change how a disabled calendar arrow looks the day one becomes
    disableable. The shared rule supplies the opacity and the cursor; this supplies
    the ink the pager had inline. */
-[data-terp="dataview-pager"] > [data-terp="iconbutton"]:disabled {
+[data-terp="dataview-pager"] > [data-terp="iconbutton"]:disabled,
+[data-terp="dataview-pager"] > [data-terp="iconbutton"][aria-disabled="true"] {
   color: var(--color-neutral-300);
 }
 

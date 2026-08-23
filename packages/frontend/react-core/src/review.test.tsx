@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Checkbox } from "./ui/Checkbox";
 import { Radio } from "./ui/Radio";
 import { Switch } from "./ui/Switch";
+import { Popover } from "./ui/Popover";
 import { Tabs } from "./ui/Tabs";
 import { TERP_STYLES_CSS } from "./styles";
 
@@ -162,5 +163,59 @@ describe("defects the phases 1-4 review found", () => {
     expect(router).toContain("logoDark={options.logoDark}");
     expect(bootstrap).toContain("logoDark: options.logoDark,");
     expect(bootstrap).toMatch(/logoDark\?: ReactNode;/);
+  });
+
+  it("returns focus to the trigger when Tab leaves a popover panel", () => {
+    // The panel is portalled to the END of document.body, so with no Tab branch the
+    // sequential-navigation starting point stayed inside a node at the wrong end of the
+    // document: Tab out landed past every piece of page content, and Shift+Tab landed on the
+    // last focusable element on the page rather than back on the control that opened it. `Menu`
+    // has implemented the APG contract for this all along and documents the exact failure;
+    // `Popover` carried the same portal with an Escape-only handler.
+    // Mutation: delete the Tab branch from the panel's onKeyDown.
+    render(
+      <Popover trigger={<button type="button">Open</button>} triggerLabel="Open">
+        {() => (
+          <button type="button">Inside</button>
+        )}
+      </Popover>,
+    );
+    const trigger = screen.getByRole("button", { name: "Open" });
+    fireEvent.click(trigger);
+    const inside = screen.getByRole("button", { name: "Inside" });
+    inside.focus();
+    expect(document.activeElement).toBe(inside);
+    fireEvent.keyDown(inside, { key: "Tab" });
+    // Closed, and focus is back on the trigger — from which the browser's own Tab default
+    // moves on to whatever genuinely follows it in the document.
+    expect(screen.queryByRole("button", { name: "Inside" })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("keeps a pager button focusable when its own click disables it", () => {
+    // Each of the pager's four buttons has a bound condition recomputed from what its own click
+    // just changed, so pressing "next" until the last page disabled the control the user was
+    // operating — and a disabled element cannot hold focus, so the browser dropped it to
+    // <body>. A keyboard user paging to the end lost their place at the moment they arrived.
+    // Mutation: change aria-disabled back to disabled on the next/last pair.
+    const pagination = sources["./dataview/DataViewPagination.tsx"] ?? "";
+    expect(pagination, "DataViewPagination.tsx is not in the scanned sources").not.toBe("");
+    expect(pagination, "the native disabled attribute drops focus to <body>").not.toContain(
+      "disabled={atFirst}",
+    );
+    expect(pagination).not.toContain("disabled={atLast}");
+    expect(pagination).toContain("aria-disabled={atLast || undefined}");
+    expect(pagination).toContain("aria-disabled={atFirst || undefined}");
+    // And the sheet must paint the announced state exactly as it painted the native one, or the
+    // fix trades a focus bug for a visual one.
+    // Both anchored to the start of a line. The pager rule CONTAINS the shared selector as a
+    // substring, so a bare toContain on the shared one is satisfied by the pager rule alone
+    // and cannot notice it being deleted — which is exactly what the mutation showed.
+    expect(TERP_STYLES_CSS).toMatch(
+      /^\[data-terp="iconbutton"\]\[aria-disabled="true"\]/m,
+    );
+    expect(TERP_STYLES_CSS).toMatch(
+      /^\[data-terp="dataview-pager"\] > \[data-terp="iconbutton"\]\[aria-disabled="true"\]/m,
+    );
   });
 });

@@ -37,14 +37,21 @@ export function DataViewPagination({
   return (
     <div data-terp="dataview-pagination">
       <span>{format(strings.resultsRange, { from, to, total: totalCount })}</span>
+      {/* aria-disabled, not disabled, and the difference is where focus goes. Each of these
+          four buttons has a bound condition recomputed from what its own click just changed, so
+          pressing "next" until the last page disabled the very control the user was operating —
+          and a disabled element cannot hold focus, so the browser dropped it to <body>. A
+          keyboard user paging to the end lost their place in the document at the exact moment
+          they arrived. Kept focusable and announced as disabled instead, with the handler inert
+          on the bound; the sheet paints [aria-disabled="true"] identically to :disabled. */}
       {pageCount > 1 && (
         <span data-terp="dataview-pager">
           <span>{format(strings.pageOf, { page: pageIndex + 1, pages: pageCount })}</span>
           <button
             type="button"
             aria-label={format(strings.firstPage, {})}
-            disabled={atFirst}
-            onClick={() => goTo(0)}
+            aria-disabled={atFirst || undefined}
+            onClick={() => (atFirst ? undefined : goTo(0))}
             data-terp="iconbutton"
           >
             <PageFirstGlyph />
@@ -52,8 +59,8 @@ export function DataViewPagination({
           <button
             type="button"
             aria-label={format(strings.previousPage, {})}
-            disabled={atFirst}
-            onClick={() => goTo(pageIndex - 1)}
+            aria-disabled={atFirst || undefined}
+            onClick={() => (atFirst ? undefined : goTo(pageIndex - 1))}
             data-terp="iconbutton"
           >
             <PagePrevGlyph />
@@ -61,8 +68,8 @@ export function DataViewPagination({
           <button
             type="button"
             aria-label={format(strings.nextPage, {})}
-            disabled={atLast}
-            onClick={() => goTo(pageIndex + 1)}
+            aria-disabled={atLast || undefined}
+            onClick={() => (atLast ? undefined : goTo(pageIndex + 1))}
             data-terp="iconbutton"
           >
             <PageNextGlyph />
@@ -70,8 +77,8 @@ export function DataViewPagination({
           <button
             type="button"
             aria-label={format(strings.lastPage, {})}
-            disabled={atLast}
-            onClick={() => goTo(pageCount - 1)}
+            aria-disabled={atLast || undefined}
+            onClick={() => (atLast ? undefined : goTo(pageCount - 1))}
             data-terp="iconbutton"
           >
             <PageLastGlyph />
