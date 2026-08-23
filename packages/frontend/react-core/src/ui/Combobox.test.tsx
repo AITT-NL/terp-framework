@@ -31,6 +31,42 @@ describe("Combobox", () => {
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
+  it("matches a needle that the host's own case fold would have hidden", () => {
+    // The filter used to fold with `toLocaleLowerCase`, which asks the host what lowercase means.
+    // Turkish has two i's, and folded there `Italy` becomes `ıtaly` — dotless — which does not
+    // contain the `i` the user typed. Every option with a capital I disappeared for a Turkish
+    // visitor and for nobody else, and folding BOTH sides the same way does not help: the needle
+    // comes from a keyboard and the haystack from a server.
+    //
+    // The host is simulated rather than assumed, because the suite runs on nl-NL and a test that
+    // merely typed `i` would pass under the bug here and fail only in Istanbul. The prototype
+    // patch is scoped to this test and restored in `finally`.
+    const original = String.prototype.toLocaleLowerCase;
+    // Confirm the hazard is real on this ICU build before relying on it as the mechanism.
+    expect(original.call("Italy", "tr")).not.toContain("i");
+    String.prototype.toLocaleLowerCase = function turkish(this: string) {
+      return original.call(this, "tr");
+    };
+    try {
+      render(
+        <Combobox
+          aria-label="Country"
+          options={[...options, { value: "it", label: "Italy" }]}
+          onChange={vi.fn()}
+        />,
+      );
+      const input = screen.getByRole("combobox", { name: /Country/ });
+      fireEvent.focus(input);
+      // A capital I in the NEEDLE as well as the label, so both folds are under test. With a
+      // lowercase needle only the label fold matters, and a mutation restoring the host fold on
+      // the query alone came back green.
+      fireEvent.change(input, { target: { value: "Ital" } });
+      expect(screen.getByRole("option", { name: "Italy" })).toBeInTheDocument();
+    } finally {
+      String.prototype.toLocaleLowerCase = original;
+    }
+  });
+
   it("supports controlled value, Field labels, ARIA active option and keyboard navigation", () => {
     const onChange = vi.fn();
     render(

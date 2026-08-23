@@ -72,11 +72,17 @@ export function Combobox({
   const isOpen = open && disabled !== true;
 
   const renderedOptions = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase();
+    // `toLowerCase`, not the locale-aware fold: this decides whether a substring MATCHES, and a
+    // match is not a presentation question for the host to answer. Folded against a Turkish host,
+    // `Item` becomes `ıtem` — dotless — which does not contain the `i` the user typed, so every
+    // option with a capital I disappears for a Turkish visitor and for nobody else.
+    // Folding both sides with the same host locale does not rescue it: the needle comes from a
+    // keyboard and the haystack from a server, and the two agree only when the fold is invariant.
+    const normalized = query.trim().toLowerCase();
     if (normalized.length === 0 || selectedOption !== null && query === resolve(selectedOption.label)) {
       return options;
     }
-    return options.filter((option) => resolve(option.label).toLocaleLowerCase().includes(normalized));
+    return options.filter((option) => resolve(option.label).toLowerCase().includes(normalized));
   }, [options, query, resolve, selectedOption]);
   const enabledOptions = renderedOptions.filter((option) => !option.disabled);
   const activeOption = renderedOptions.find((option) => option.value === activeValue) ?? enabledOptions[0] ?? null;
