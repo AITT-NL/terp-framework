@@ -999,6 +999,41 @@ describe("cascade structure", () => {
     expect(rule![2]!.trim()).toBe("display: contents;");
   });
 
+  it("pins the values of five declarations no lane can reach", () => {
+    // Presence is not enough for these five, and that is the distinction the roll-calls above
+    // already draw for Button sizes and gap steps: a rule can be present and WRONG, and nothing
+    // here would notice. Each of these is reachable through a published prop, and none of them
+    // is painted by any specimen — so today their values could be changed to anything and the
+    // whole suite stays green.
+    //
+    // Two disabled paints, both reachable (Combobox and DatePicker each take `disabled`), and
+    // neither rendered in that state by any specimen. Mutation: change either colour token.
+    const state = layerBody("terp.state");
+    const ruleFor = (selector: string) => {
+      const match = [...state.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
+        (rule) => rule[1]!.trim().replace(/\s+/g, " ") === selector,
+      );
+      expect(match, `${selector} has no rule of its own`).toBeDefined();
+      return match![2]!;
+    };
+    expect(ruleFor('[data-terp="combobox-option"]:disabled')).toContain(
+      "color: var(--color-neutral-400)",
+    );
+    expect(ruleFor('[data-terp="calendar-day"]:disabled')).toContain(
+      "color: var(--color-neutral-300)",
+    );
+
+    // The split archetype's two outer list widths. `md` is painted by the split-page specimen;
+    // `sm` and `lg` are painted by nothing, and they live inside a wide-viewport media block the
+    // pinned 1280 does reach — so the rules apply and simply have no picture. A renamed
+    // attribute value would silently stop matching. Mutation: rename "sm" to "small", or change
+    // either track measure.
+    const wide = css.slice(css.indexOf('[data-terp="splitpage-panes"][data-list-width="sm"]'));
+    expect(wide.slice(0, 120)).toContain("minmax(0, 18rem) minmax(0, 1fr)");
+    const lg = css.slice(css.indexOf('[data-terp="splitpage-panes"][data-list-width="lg"]'));
+    expect(lg.slice(0, 120)).toContain("minmax(0, 32rem) minmax(0, 1fr)");
+  });
+
   it("gives every migrated component a base rule in terp.base", () => {
     // markers.test.ts pins the marker join in both directions but cannot see a *deleted*
     // rule: removing a whole block only shrinks the styled set, which still passes. These
@@ -1175,6 +1210,52 @@ describe("cascade structure", () => {
       // exact selector equality, which is what makes it worth having: adding the family pattern
       // here to make the list look complete would fail, correctly.
       "appshell-nav-group-label",
+      // The 32 below close a gap the roll-call carried quietly: it listed 162 of the 201
+      // pinned markers, so a third of the sheet's base blocks could be DELETED and only the
+      // screenshot lane would notice — and only for a marker some specimen happens to paint.
+      // markers.test.ts cannot see a deleted rule either: removing a block only shrinks the
+      // styled set, which still satisfies both of its directions.
+      //
+      // Seven pinned markers are deliberately NOT here, because they have no standalone base
+      // rule to assert. appshell-nav-group declares nothing on its own (it is a
+      // sibling-combinator pair plus a placement override); dataview-row, dataview-select-cell,
+      // dataview-expand-cell and dataview-actions-cell are styled through their descendants
+      // and attribute variants; and drawer-focus-start / drawer-focus-end appear only in the
+      // shared visually-hidden selector list. Adding any of them here fails, correctly —
+      // declaresRuleFor wants exact selector equality, which is what makes this list mean
+      // something.
+      "alert-body",
+      "alert-icon",
+      "alert-title",
+      "appshell-mark",
+      "breadcrumbs-separator",
+      "button-icon",
+      "calendar-header",
+      "calendar-title",
+      "calendar-weekday",
+      "card-actions",
+      "card-description",
+      "card-heading",
+      "combobox-empty",
+      "combobox-field",
+      "detail-list-term",
+      "detail-list-value",
+      "empty-state-description",
+      "empty-state-icon",
+      "empty-state-title",
+      "error-state-description",
+      "error-state-icon",
+      "error-state-title",
+      "field-error",
+      "field-hint",
+      "field-label",
+      "field-label-text",
+      "iconbutton",
+      "loading-state-spinner",
+      "radio-group",
+      "radio-group-legend",
+      "radio-group-options",
+      "tooltip-anchor",
     ]) {
       expect(
         declaresRuleFor(base, `[data-terp="${marker}"]`),

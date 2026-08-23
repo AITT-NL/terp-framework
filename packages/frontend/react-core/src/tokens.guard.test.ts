@@ -83,6 +83,41 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   // missing, so the fix was to wire them. Tracked from now on.)
   "--shell-": [],
   "--color-sidebar-": [],
+  // The whole semantic colour layer, which the comment above admitted was untracked and then
+  // left untracked. Seventeen of the forty-eight published `--color-` tokens have no `var()`
+  // reader anywhere in the sheet, and until now nothing said so — the exact `--color-fg-on-brand`
+  // shape that comment describes, seventeen times over.
+  //
+  // Booked as one family rather than four narrower ones on purpose. `--color-bg-`,
+  // `--color-border-`, `--color-interactive-` and `--color-chart-` are each read by NOTHING, and
+  // the assertion below requires a tracked family to publish more than it books — a deliberate
+  // "is the prefix right?" check that a wholly-unread family would trip. The broader prefix
+  // subsumes them and still catches the eighteenth. `--color-sidebar-` stays above because it
+  // makes a narrower claim worth keeping: that family is read in full.
+  //
+  // None of these seventeen is a defect on its own. They are a published vocabulary that shipped
+  // ahead of its consumers — four surface tokens, three borders, three interactive states, a
+  // five-step chart ramp and two neutrals — and the point of booking them is that the list can
+  // only shrink from here, so wiring one is visible and adding an eighteenth has to argue.
+  "--color-": [
+    "--color-bg-canvas",
+    "--color-bg-inset",
+    "--color-bg-raised",
+    "--color-bg-surface",
+    "--color-border-default",
+    "--color-border-strong",
+    "--color-border-subtle",
+    "--color-chart-1",
+    "--color-chart-2",
+    "--color-chart-3",
+    "--color-chart-4",
+    "--color-chart-5",
+    "--color-interactive-active",
+    "--color-interactive-hover",
+    "--color-interactive-selected",
+    "--color-neutral-500",
+    "--color-neutral-800",
+  ],
 };
 
 /**
@@ -167,7 +202,13 @@ describe("design tokens", () => {
     for (const [family, unread] of Object.entries(UNREAD_TOKENS)) {
       const published = [
         ...new Set(
-          [...tokensCss.matchAll(new RegExp(`(${family}[a-z-]+)\\s*:`, "g"))].map(
+          // `[a-z0-9-]`, not `[a-z-]`. The narrower class could not match a token name with a
+          // DIGIT in it, which is every step of every scale the contract publishes — all nine
+          // neutrals, the five chart colours, every `--space-N` and `--font-size-N`. So a family
+          // containing them reported only its wordy members as published, and an unread numbered
+          // token was invisible to a test whose entire job is to name unread tokens. Found when
+          // the semantic colour layer was booked and the guard could see ten of its seventeen.
+          [...tokensCss.matchAll(new RegExp(`(${family}[a-z0-9-]+)\\s*:`, "g"))].map(
             (match) => match[1]!,
           ),
         ),

@@ -1005,6 +1005,45 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **The last of the phases 1-4 review: three ledgers that were smaller than they read, and a
+  guard that could not see half the tokens it was pointed at.** No behaviour changes — all of
+  this is the gate surface catching up with the sheet it describes.
+
+  **The token guard was blind to any token name containing a digit.** Its published-token regex
+  was `[a-z-]+`, which stops at the first numeral — so every step of every published scale (all
+  nine neutrals, the five chart colours, and every `--space-N` and `--font-size-N` had a family
+  been tracked) was invisible to a test whose entire job is naming tokens nothing reads. Found
+  by pointing it at the semantic colour layer and watching it report ten of seventeen. Widened
+  to `[a-z0-9-]+`; the mutation that proves it is a new unread `--color-chart-6`, which the old
+  regex could not have seen at any count.
+
+  **Seventeen published `--color-` tokens have no reader anywhere in the sheet** — four surface
+  tokens, three borders, three interactive states, the five-step chart ramp and two neutrals.
+  The guard's own comment had already admitted `--color-` was untracked and then left it that
+  way. They are booked now, as one family rather than four: `--color-bg-`, `--color-border-`,
+  `--color-interactive-` and `--color-chart-` are each read by *nothing*, and the assertion
+  requires a tracked family to publish more than it books — a deliberate "is the prefix right?"
+  check that a wholly-unread family would trip. None of the seventeen is a defect on its own;
+  they are a vocabulary that shipped ahead of its consumers, and the point of booking them is
+  that the list can only shrink from here.
+
+  **The base-rule roll-call covered 162 of 201 markers**, so a third of the sheet's base blocks
+  could be deleted with only the screenshot lane noticing — and only for a marker some specimen
+  happens to paint. `markers.test.ts` cannot see a deleted rule either: removing a block only
+  shrinks the styled set, which still satisfies both of its directions. The 32 unlisted markers
+  that have a standalone base rule are listed now. Seven that do not are named with the reason,
+  in the shape the file already uses: `appshell-nav-group` declares nothing on its own, four
+  DataView cell markers are styled through descendants and attribute variants, and the two
+  drawer focus sentinels appear only in the shared visually-hidden selector list. (The review
+  put that number at five; it is seven — the sentinels were missed.)
+
+  **Five reachable declarations had their presence pinned but not their values.** Two disabled
+  paints reachable through published props (`Combobox` and `DatePicker` both take `disabled`)
+  and painted by no specimen, and the split archetype's `sm` and `lg` list widths, which apply
+  at the pinned viewport and have no picture — `md` is the only one a specimen renders. Their
+  values could have been changed to anything. Pinned in the shape the Button-size and gap-step
+  roll-calls already use: assert the declared value, not just that the rule exists.
+
 - **Two more from the review, both about a rule reaching the wrong thing.**
 
   **Long-form prose ran full-bleed in a measured shell.** The content measure is a child-star
