@@ -57,6 +57,14 @@ export const BOUNDARY_SPEC = {
       "screen. If you have a case neither covers, say so rather than reaching for a raw " +
       "<dialog>: the modal contract (focus trap, focus restore, Escape, top layer) is " +
       "what ConfirmDialog exists to provide and a hand-rolled one silently drops.",
+    table:
+      "Use DataView, and if it looks like too much for five static rows, the recipe is " +
+      "two lines: variant=\"embedded\" drops the view toggle, the page-size selector and " +
+      "the footer, and InMemoryDataViewRepository needs only getRowId. That is worth " +
+      "saying because \"use DataView\" on its own reads as wrong advice here, and an " +
+      "author who believes it reaches for a raw <table> — which silently gives up " +
+      "sorting, column resizing and settings, the mobile card reflow and the row-level " +
+      "activation the rest of the app has.",
   },
   restrictedAttributes: ["style", "className"],
   /**

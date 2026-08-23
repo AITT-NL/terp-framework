@@ -14,6 +14,41 @@ decision, 0001 onwards.
 
 ### Added
 
+- **ADR 0099 — the component gap, and the thirteen things that are not in it.** Eighteen candidate
+  components were raised against `@terpjs/react-core`. Six shipped; thirteen are refused, and the
+  refusals are the product rather than a by-product. A decision that lives only in someone's head
+  gets re-proposed every few months and costs the same survey each time, so each one is written
+  down with the evidence that decided it and with what would change its mind.
+
+  The test is the one the framework has applied since ADR 0096 §4: a component that cannot name a
+  consumer **in this framework** is declined, and "an app might want it" is not a consumer. It
+  cuts both ways — `Avatar` and the `Code block` substitution were built precisely because their
+  consumers already existed, written twice.
+
+  Declined: `Skeleton`, `Progress`, `Accordion`, `Collapsible`, `ButtonGroup`, a standalone
+  breadcrumb, a standalone pagination, a second table, a code viewer, a JSON viewer, a diff viewer,
+  a download primitive, and `FieldArray`. Several were already shipped under another name; several
+  had no surface in the framework to apply to at all.
+
+  The form seam is refused with them, and the measurement is the argument: `minLength`, `maxLength`
+  and `pattern` appear **zero times** across the package, the example app and the template. The one
+  client-side constraint in the codebase is prose — a hint reading "At least 16 characters" on an
+  input that could carry `minLength={16}`. The validation gap was four unwritten HTML attributes,
+  not a missing library, and what was genuinely missing was the server's per-field message.
+
+  A `zod` / `react-hook-form` dependency is refused on two grounds that survive scrutiny — the
+  usual one, that react-core has no runtime dependencies, is simply false; it has two. react-core
+  publishes SOURCE, so a form library's types enter its public surface and an app on a different
+  major gets two instances where `instanceof` fails silently; and the library's value is
+  uncontrolled-input performance on large forms, while the largest packaged form is three fields.
+
+- **`restrictedElementGuidance` gains its second entry, for `table`.** ADR 0096 §4's precedent:
+  "use ConfirmDialog" was wrong advice for an edit form and the fix was the sentence, not the rule.
+  "Use DataView" is wrong advice for a static five-row table unless it names the recipe —
+  `variant="embedded"` plus `new InMemoryDataViewRepository(rows, { getRowId })`. An author who
+  reads advice that does not fit reaches for the raw element, so the lint message is where that
+  decision has to live.
+
 - **`Input type="password"` grows a reveal toggle.** Four password fields ship in this package and
   the example app, none of them could be revealed, and no app could add the affordance itself: the
   toggle needs a positioned wrapper and `BOUNDARY_SPEC` refuses both `style` and `className` in
