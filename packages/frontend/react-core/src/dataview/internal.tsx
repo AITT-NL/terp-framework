@@ -1,6 +1,7 @@
-import { createContext, useContext } from "react";
+import { createContext, useCallback, useContext } from "react";
 import type { ReactNode } from "react";
 
+import { useFormatDate } from "../format";
 import { injectTerpStyles } from "../styles";
 import { Menu, MenuItem } from "../ui/Menu";
 import { useUiText } from "../uiText";
@@ -27,6 +28,35 @@ const DataViewTextContext = createContext<DataViewTextApi>({
 
 export function useDataViewText(): DataViewTextApi {
   return useContext(DataViewTextContext);
+}
+
+/**
+ * Stringify a cell for a column that declares no `cell` renderer.
+ *
+ * One hook rather than a helper per renderer, because there WERE two: the table had a private
+ * `formatCell` and the mobile card list inlined the same three lines. They agreed, so nothing
+ * caught that they were two, and the first change to either would have made a row render one way
+ * on a desktop and another on a phone.
+ *
+ * The `Date` branch is why that mattered. `accessor` returns `unknown`, so a `Date` is type-legal
+ * and `String(value)` renders `Wed Aug 21 2026 00:00:00 GMT+0200 (Central European Summer Time)`
+ * in a table cell. Nothing in this tree returns one today, which is exactly why it was worth
+ * closing now rather than after an app discovered it.
+ */
+export function useCellFormatter(): (value: unknown) => ReactNode {
+  const formatDate = useFormatDate();
+  return useCallback(
+    (value: unknown) => {
+      if (value === null || value === undefined) {
+        return null;
+      }
+      if (value instanceof Date) {
+        return formatDate(value);
+      }
+      return String(value);
+    },
+    [formatDate],
+  );
 }
 
 export function DataViewTextProvider({

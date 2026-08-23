@@ -964,6 +964,48 @@ decision, 0001 onwards.
   left unfrozen, `role="alert"` removed, `fields` forced empty so the form falls back to a toast,
   and the unresolvable-email message put back above the input it is about.
 
+- **Dates and numbers render in the app's locale (`format.ts`).** Seven places in this package
+  formatted a date with `toLocaleDateString()` or `toLocaleString()` and no locale argument, which
+  asks the *browser* what language to use. An app that ships one language through `LocaleProvider`
+  therefore rendered its own admin tables in whatever the visitor's OS was set to — one row above a
+  `DatePicker` that got it right, because the correct helper already existed, private, three
+  functions deep in a file about calendars.
+
+  `useFormatDate`, `useFormatDateTime` and `useFormatNumber` read the app's locale from context and
+  are `useCallback`-stable, so a column list built in a `useMemo` can depend on one without
+  rebuilding every render. `formatDate`, `formatDateTime` and `formatNumber` take the locale
+  explicitly, for a caller that already has one or is not a component. An absent or unparseable
+  value renders as an em dash: `new Date("whenever")` yields an Invalid Date whose `format` throws
+  a RangeError, so one malformed row from an API would otherwise take down a whole table.
+
+  **The shape is adopted, not invented, and that is why it costs no baseline.** `DatePicker`'s
+  private `formatDate` was the only locale-correct date rendering in the package, so it defines the
+  house shape; it moved to `format.ts` unchanged and `DatePicker` imports it back. All four lanes
+  are byte-identical. The three helpers that stayed behind — a spoken day, a grid caption, a column
+  header — are calendar parts rather than general formatting.
+
+  **The two cell renderers were quietly two.** `DataViewTable` had a private `formatCell` and
+  `DataViewCardList` inlined the same three lines; they agreed, so nothing caught that a change to
+  either would render a row one way on a desktop and another on a phone. They are one
+  `useCellFormatter` now, and it has a `Date` branch — `accessor` returns `unknown`, so a `Date` is
+  type-legal and `String(value)` puts
+  `Tue Jul 07 2026 14:00:00 GMT+0200 (Central European Summer Time)` in a table cell. Nothing in
+  this tree returns one today, which is precisely why it was worth closing before an app found it.
+
+  **One gate had to be rewritten because a mutation proved it worthless.** The first version
+  rendered a Dutch `LocaleProvider` and asserted the Dutch spelling — and passed with the hook
+  ignoring its locale entirely, because the machine running the suite resolves to `nl-NL`, so
+  `formatDate(value, undefined)` and `formatDate(value, "nl")` are the same string. It would have
+  failed on an English host and passed on a Dutch one, which is worse than no test. The hook tests
+  now render two app locales and compare them against **each other**, which no host can satisfy
+  while the locale is being dropped. `DatePicker`'s own suite has carried a comment about this
+  hazard since it was written; the trap is real enough to catch someone who had read it.
+
+  Seven mutations, seven reds: `useFormatDate` and `useFormatNumber` each ignoring the app locale,
+  `toDate` no longer rejecting an Invalid Date, the em dash replaced by an empty string,
+  `formatDateTime` dropping its time of day, `useCellFormatter` losing its `Date` branch, and the
+  audit column put back on `toLocaleString()`.
+
 ### Changed
 
 - **The navigation model closes without a badge, and that is a decision (ADR 0097 §5, amended in

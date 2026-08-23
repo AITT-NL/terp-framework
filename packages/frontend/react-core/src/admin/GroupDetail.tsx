@@ -17,6 +17,7 @@ import { useRecord } from "../useRecord";
 import { useToast } from "../toast";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
+import { useFormatDate, useFormatDateTime } from "../format";
 import { useStrings } from "../uiText";
 import { ApiError, unwrap } from "../unwrap";
 
@@ -47,6 +48,8 @@ export function GroupDetail() {
   const strings = useStrings();
   const suggestionsId = useId();
 
+  const formatDate = useFormatDate();
+  const formatDateTime = useFormatDateTime();
   const [membersVersion, setMembersVersion] = useState(0);
   const [grantsVersion, setGrantsVersion] = useState(0);
   const [memberQuery, setMemberQuery] = useState("");
@@ -126,11 +129,11 @@ export function GroupDetail() {
         id: "created_at",
         header: strings.createdColumn,
         accessor: (m) => m.created_at,
-        cell: (m) => new Date(m.created_at).toLocaleDateString(),
+        cell: (m) => formatDate(m.created_at),
         meta: { mobileSlot: "date", width: 120 },
       },
     ],
-    [strings],
+    [strings, formatDate],
   );
 
   const grantColumns: DataViewColumn<GrantRead>[] = useMemo(
@@ -145,11 +148,11 @@ export function GroupDetail() {
         id: "created_at",
         header: strings.createdColumn,
         accessor: (g) => g.created_at,
-        cell: (g) => new Date(g.created_at).toLocaleDateString(),
+        cell: (g) => formatDate(g.created_at),
         meta: { mobileSlot: "date", width: 120 },
       },
     ],
-    [strings],
+    [strings, formatDate],
   );
 
   const membersRepository = useMemo(
@@ -366,7 +369,7 @@ export function GroupDetail() {
             items={[
               { label: strings.description, value: record.description || "-" },
               { label: strings.members, value: record.member_count },
-              { label: strings.createdColumn, value: new Date(record.created_at).toLocaleString() },
+              { label: strings.createdColumn, value: formatDateTime(record.created_at) },
             ]}
           />
         )}

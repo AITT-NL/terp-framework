@@ -5,7 +5,7 @@ import type { UiText } from "../uiText";
 
 import { DataViewExpandToggle } from "./DataViewExpandableRow";
 import { DataViewRowActions } from "./DataViewRowActions";
-import { useDataViewText } from "./internal";
+import { useCellFormatter, useDataViewText } from "./internal";
 import type { DataViewColumn, DataViewRowAction } from "./types";
 
 export interface DataViewCardListProps<T> {
@@ -33,6 +33,7 @@ function slotValue<T>(
   columns: DataViewColumn<T>[],
   row: T,
   slot: "title" | "subtitle" | "status" | "date",
+  formatCell: (value: unknown) => ReactNode,
 ): ReactNode {
   const column = columns.find((candidate) => candidate.meta?.mobileSlot === slot);
   if (column === undefined) {
@@ -41,8 +42,7 @@ function slotValue<T>(
   if (column.cell !== undefined) {
     return column.cell(row);
   }
-  const value = column.accessor?.(row);
-  return value === null || value === undefined ? null : String(value);
+  return formatCell(column.accessor?.(row));
 }
 
 /**
@@ -129,10 +129,11 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
 }
 
 function DefaultCardBody<T>({ row, columns }: { row: T; columns: DataViewColumn<T>[] }) {
-  const title = slotValue(columns, row, "title");
-  const subtitle = slotValue(columns, row, "subtitle");
-  const status = slotValue(columns, row, "status");
-  const date = slotValue(columns, row, "date");
+  const formatCell = useCellFormatter();
+  const title = slotValue(columns, row, "title", formatCell);
+  const subtitle = slotValue(columns, row, "subtitle", formatCell);
+  const status = slotValue(columns, row, "status", formatCell);
+  const date = slotValue(columns, row, "date", formatCell);
   return (
     <div data-terp="dataview-card-fields">
       <div data-terp="dataview-card-heading">

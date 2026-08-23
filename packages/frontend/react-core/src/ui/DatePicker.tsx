@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
+import { formatDate } from "../format";
 import { useLocale } from "../locale";
 import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
@@ -414,9 +415,10 @@ function useDateLocale() {
   return useLocale()?.locale;
 }
 
-function formatDate(date: Date, locale: string | undefined) {
-  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(date);
-}
+// `formatDate` used to live here, three functions deep in a file about calendars, and it was the
+// only locale-correct date rendering in the package. It is `../format` now and imported back; the
+// three below stay, because a spoken day, a grid caption and a column header are calendar parts
+// rather than general formatting.
 
 /** The whole date, spoken: what a day cell announces, since its text is only a number. */
 function formatFullDate(date: Date, locale: string | undefined) {

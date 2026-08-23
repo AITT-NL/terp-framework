@@ -6,6 +6,7 @@ import { useTerpClient } from "../TerpProvider";
 import { DataView, HttpDataViewRepository, useServerDataView } from "../dataview";
 import type { DataViewColumn } from "../dataview";
 import { DetailList } from "../layout";
+import { useFormatDateTime } from "../format";
 import { useStrings } from "../uiText";
 import type { TerpStrings } from "../uiText";
 import { unwrap } from "../unwrap";
@@ -14,13 +15,16 @@ import { adminCrumb, renderAdminCrumb } from "./crumbs";
 
 type AuditEventRead = components["schemas"]["AuditEventRead"];
 
-function buildColumns(strings: TerpStrings): DataViewColumn<AuditEventRead>[] {
+function buildColumns(
+  strings: TerpStrings,
+  formatDateTime: (value: string) => string,
+): DataViewColumn<AuditEventRead>[] {
   return [
     {
       id: "created_at",
       header: strings.whenColumn,
       accessor: (e) => e.created_at,
-      cell: (e) => new Date(e.created_at).toLocaleString(),
+      cell: (e) => formatDateTime(e.created_at),
       meta: { mobileSlot: "date", width: 170 },
     },
     {
@@ -56,7 +60,11 @@ export function AuditLogAdmin() {
   const strings = useStrings();
   const serverQuery = useServerDataView({ initialPageSize: 25 });
 
-  const columns = useMemo(() => buildColumns(strings), [strings]);
+  const formatDateTime = useFormatDateTime();
+  const columns = useMemo(
+    () => buildColumns(strings, formatDateTime),
+    [strings, formatDateTime],
+  );
   const repository = useMemo(
     () =>
       new HttpDataViewRepository<AuditEventRead>({

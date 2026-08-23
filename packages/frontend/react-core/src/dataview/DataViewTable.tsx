@@ -8,7 +8,7 @@ import { DataViewExpandToggle, DataViewExpandableRow } from "./DataViewExpandabl
 import { DataViewRowActions } from "./DataViewRowActions";
 import type { DataViewRowActionsLayout } from "./DataViewRowActions";
 import { SortAscGlyph, SortDescGlyph, SortNoneGlyph } from "./glyphs";
-import { useDataViewText } from "./internal";
+import { useCellFormatter, useDataViewText } from "./internal";
 
 injectTerpStyles();
 import type { DataViewColumn, DataViewRowAction } from "./types";
@@ -54,6 +54,7 @@ export interface DataViewTableProps<T> {
  */
 export function DataViewTable<T>(props: DataViewTableProps<T>) {
   const { strings, resolve, format } = useDataViewText();
+  const formatCell = useCellFormatter();
   const tableRef = useRef<HTMLTableElement>(null);
 
   // Live widths during a resize drag only — persisted once, on pointer-up.
@@ -279,9 +280,3 @@ function RowGroup({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-function formatCell(value: unknown): ReactNode {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  return String(value);
-}

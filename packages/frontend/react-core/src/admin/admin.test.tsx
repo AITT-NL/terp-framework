@@ -8,6 +8,7 @@ import type { ComponentType } from "react";
 
 import { withAdminArea } from "../bootstrap";
 import type { AdminAreaSections } from "../bootstrap";
+import { formatDateTime } from "../format";
 import { buildAppRouter } from "../router";
 import { Page } from "../Page";
 import { TerpProvider, useAuth } from "../TerpProvider";
@@ -579,6 +580,20 @@ describe("the packaged admin area", () => {
         }),
       ).toBe(true),
     );
+  });
+
+  it("renders its dates in the framework's shape rather than the browser's default", async () => {
+    // No admin screen has a specimen, so nothing pictures these cells and nothing asserted their
+    // text either — which is how seven of them sat on `toLocaleDateString()` / `toLocaleString()`
+    // with no locale argument through two releases.
+    //
+    // The negative half is the half with teeth: both spellings render the same instant, so an
+    // assertion on the new one alone would stay green if the cell had never been converted and
+    // the runner's default happened to agree. They differ in shape, not in value.
+    const when = "2026-08-21T09:30:00Z";
+    renderAdminApp("/admin/audit");
+    expect(await screen.findByText(formatDateTime(when, undefined))).toBeInTheDocument();
+    expect(screen.queryByText(new Date(when).toLocaleString())).toBeNull();
   });
 
   it("puts an unresolvable email under the member input rather than in a toast", async () => {

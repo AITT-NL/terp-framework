@@ -13,6 +13,7 @@ import { useRecord } from "../useRecord";
 import { useToast } from "../toast";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
+import { useFormatDateTime } from "../format";
 import { useStrings } from "../uiText";
 import { unwrap } from "../unwrap";
 
@@ -30,6 +31,7 @@ export function UserDetail() {
   const userId = useDeclaredParam("userId");
   const client = useTerpClient();
   const strings = useStrings();
+  const formatDateTime = useFormatDateTime();
   const toast = useToast();
   const [pendingLifecycle, setPendingLifecycle] = useState<PendingLifecycle | null>(null);
   const [mutating, setMutating] = useState(false);
@@ -173,7 +175,7 @@ export function UserDetail() {
               label: strings.statusColumn,
               value: record.is_active ? strings.statusActive : strings.statusDeactivated,
             },
-            { label: strings.createdColumn, value: new Date(record.created_at).toLocaleString() },
+            { label: strings.createdColumn, value: formatDateTime(record.created_at) },
           ]}
         />
       )}

@@ -9,6 +9,7 @@ import { useTerpClient } from "../TerpProvider";
 import { DataView, HttpDataViewRepository, useServerDataView } from "../dataview";
 import type { DataViewColumn } from "../dataview";
 import { Button } from "../ui/Button";
+import { useFormatDate } from "../format";
 import { useStrings } from "../uiText";
 import type { TerpStrings } from "../uiText";
 import { unwrap } from "../unwrap";
@@ -18,7 +19,10 @@ import { adminRoleLabel } from "./roles";
 
 type UserRead = components["schemas"]["UserRead"];
 
-function buildColumns(strings: TerpStrings): DataViewColumn<UserRead>[] {
+function buildColumns(
+  strings: TerpStrings,
+  formatDate: (value: string) => string,
+): DataViewColumn<UserRead>[] {
   return [
     { id: "email", header: strings.email, accessor: (u) => u.email, meta: { mobileSlot: "title" } },
     {
@@ -38,7 +42,7 @@ function buildColumns(strings: TerpStrings): DataViewColumn<UserRead>[] {
       id: "created_at",
       header: strings.createdColumn,
       accessor: (u) => u.created_at,
-      cell: (u) => new Date(u.created_at).toLocaleDateString(),
+      cell: (u) => formatDate(u.created_at),
       meta: { mobileSlot: "date", width: 120 },
     },
   ];
@@ -55,7 +59,11 @@ export function UsersAdmin() {
   const navigate = useNavigate();
   const serverQuery = useServerDataView({ initialPageSize: 10 });
 
-  const columns = useMemo(() => buildColumns(strings), [strings]);
+  const formatDate = useFormatDate();
+  const columns = useMemo(
+    () => buildColumns(strings, formatDate),
+    [strings, formatDate],
+  );
   const repository = useMemo(
     () =>
       new HttpDataViewRepository<UserRead>({
