@@ -3,7 +3,7 @@ import { useAuth } from "./TerpProvider";
 import { LanguageSwitcher } from "./locale";
 import { Stack, DetailList } from "./layout";
 import { ThemeToggle } from "./theme";
-import { userInitials } from "./UserMenu";
+import { Avatar } from "./ui/Avatar";
 import { Button } from "./ui/Button";
 import { useStrings } from "./uiText";
 
@@ -29,9 +29,7 @@ export function ProfileView() {
       <Stack gap={4}>
         <div data-terp="profile-card">
           <Stack direction="row" gap={3} align="center">
-            <span aria-hidden="true" data-terp="profile-avatar">
-              {userInitials(user.email)}
-            </span>
+            <Avatar from={user.email} />
             <Stack gap={0}>
               <strong data-terp="profile-email">{user.email}</strong>
               <p data-terp="profile-role">{user.role_name}</p>

@@ -1,18 +1,18 @@
 import { Icon } from "./icons";
 import { injectTerpStyles } from "./styles";
 import { useAuth } from "./TerpProvider";
+import { Avatar } from "./ui/Avatar";
 import { Menu, MenuItem } from "./ui/Menu";
 import { useStrings } from "./uiText";
 
 injectTerpStyles();
 
-/** Initials for the avatar: the first letters of the email's local-part words. */
-export function userInitials(email: string): string {
-  const local = email.split("@")[0] ?? "";
-  const words = local.split(/[._+-]+/).filter((word) => word.length > 0);
-  const initials = words.slice(0, 2).map((word) => word[0]!.toUpperCase());
-  return initials.join("") || "?";
-}
+/**
+ * Re-exported from where the tile now lives. It was public under this name before `Avatar`
+ * existed, and moving a published export to another module is a breaking change for no
+ * reason — the tile is what needed one home, not the name.
+ */
+export { userInitials } from "./ui/Avatar";
 
 export interface UserMenuProps {
   /** Icon-rail mode: show only the avatar on the trigger (the shell's collapsed state). */
@@ -39,7 +39,7 @@ export function UserMenu({ collapsed = false, onSettings, defaultOpen }: UserMen
 
   const trigger = (
     <>
-      <span aria-hidden="true" data-terp="user-menu-avatar">{userInitials(user.email)}</span>
+      <Avatar from={user.email} size="sm" />
       {!collapsed && (
         <span data-terp="user-menu-identity">
           <span data-terp="user-menu-email">{user.email}</span>

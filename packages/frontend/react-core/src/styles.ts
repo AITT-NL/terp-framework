@@ -1706,12 +1706,20 @@ textarea[data-terp="input"] {
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
 }
-/* The initials tile. It is aria-hidden, so axe skips it by design and the declared
-   pairing is the only thing measuring its ink: brand-primary-contrast on
-   brand-primary is primary-button-label, which the contrast gate holds at AA in all
-   five themes. Exactly the shape of NavIcon's fallback tile, which failed at 1.60
-   for as long as nothing declared it. */
-[data-terp="profile-avatar"] {
+/* The initials tile, once. This was two rules — profile-avatar and user-menu-avatar —
+   of eleven declarations each, identical but for a width, a height and a font size,
+   which is a component the framework happened to ship twice under two names.
+
+   It is aria-hidden, so axe skips it by design and the declared pairing is the only
+   thing measuring its ink: brand-primary-contrast on brand-primary is
+   primary-button-label, which the contrast gate holds at AA in all five themes.
+   Exactly the shape of NavIcon's fallback tile, which failed at 1.60 for as long as
+   nothing declared it.
+
+   md carries no attribute of its own, the way every other sized component here works:
+   the base rule IS the default, and a data-size="md" rule would leave two places
+   describing the same tile. */
+[data-terp="avatar"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1723,6 +1731,11 @@ textarea[data-terp="input"] {
   color: var(--color-brand-primary-contrast);
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-medium);
+}
+[data-terp="avatar"][data-size="sm"] {
+  width: 2rem;
+  height: 2rem;
+  font-size: var(--font-size-sm);
 }
 [data-terp="profile-email"] {
   overflow-wrap: anywhere;
@@ -3105,19 +3118,6 @@ button[data-terp="input"][data-placeholder="true"] {
   justify-content: center;
   gap: 0;
   padding: 0;
-}
-[data-terp="user-menu-avatar"] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  flex-shrink: 0;
-  border-radius: var(--radius-full);
-  background: var(--color-brand-primary);
-  color: var(--color-brand-primary-contrast);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
 }
 [data-terp="user-menu-identity"] {
   display: grid;

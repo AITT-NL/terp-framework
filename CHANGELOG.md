@@ -1014,6 +1014,35 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **One initials tile, replacing two (`Avatar`), and the marker inventory went DOWN.** The tile was
+  two sheet rules of eleven declarations each — `profile-avatar` and `user-menu-avatar` — identical
+  but for a width, a height and a font size. That is not two components; it is one component the
+  framework happened to ship twice under two names, so the move is to collapse rather than to add.
+  Markers went 201 to 200.
+
+  This is the mirror image of the `Section` / `Surface` refusals, and the reason is worth keeping
+  straight: those were declined for having no consumer, and this is built because it had two of
+  them, already written, already diverging in nothing but three numbers.
+
+  `from` takes an email or a name and derives the initials; `initials` overrides it; `size` is a
+  closed `sm` / `md`. **No `src`** — `/me` returns email, role name and role rank and carries no
+  avatar URL, so an image slot would be a prop with nothing behind it, additive the day the payload
+  grows one. The tile stays `aria-hidden`: the name it abbreviates is rendered beside it in both
+  places, and announcing "JD" before "jane.doe@example.com" is a puzzle rather than information.
+  `userInitials` moved with it and is re-exported under its old name, because the tile needed one
+  home and the published name did not need to move.
+
+  Zero pixels, which was the whole constraint: the merged rule keeps 3.5rem/lg as its base and the
+  small variant restates exactly the three declarations that differ. All 242 screenshots byte-
+  identical.
+
+  The trap here was not in the component. `user-menu-avatar` was the `ready` selector for three
+  workbench specimens, so retiring the marker without touching them would not have failed a test —
+  it would have HUNG three Playwright specimens at `waitFor` with no useful message. The survey
+  that scoped this work listed five files to update and did not include the workbench at all.
+  Three mutations, three reds, and the third is that one: the retired marker put back in a `ready`
+  selector, verified as a real failure rather than a theory.
+
 - **A declared column width is a step now, and it finally does something (breaking:
   `DataViewColumnMeta.width`).** `meta.width` was `number | string` and twenty-two columns across
   this package and the example app declared one. None of them had any effect. Under

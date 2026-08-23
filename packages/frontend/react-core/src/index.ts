@@ -122,6 +122,8 @@ export { Switch } from "./ui/Switch";
 export type { SwitchProps } from "./ui/Switch";
 export { Tabs } from "./ui/Tabs";
 export type { TabItem, TabsProps } from "./ui/Tabs";
+export { Avatar } from "./ui/Avatar";
+export type { AvatarProps } from "./ui/Avatar";
 export { Badge } from "./ui/Badge";
 export type { BadgeProps, BadgeTone } from "./ui/Badge";
 export { Card } from "./ui/Card";

@@ -208,6 +208,7 @@ marker, counted by the escape-hatch budget.
 | `Radio`, `RadioGroup` | Labelled radio and accessible grouped radio options with controlled or uncontrolled value. |
 | `Switch` | Labelled boolean toggle (`role="switch"`) with `checked` / `defaultChecked` and boolean `onChange`. |
 | `Tabs` | In-page (non-routed) tab set with `tablist` / `tab` / `tabpanel` roles, arrow-key navigation, and controlled or uncontrolled value. |
+| `Avatar` | The initials tile: `from` (an email or a name) or explicit `initials`, and a closed `size` of `sm` (2rem, an account menu) or `md` (3.5rem, a profile header). `aria-hidden`, because the name it abbreviates is always rendered beside it. No `src`: `/me` carries no avatar URL, so an image slot would be a prop with nothing behind it. |
 | `Badge` | Small status pill: `<Badge tone="success">Synced</Badge>` (or `label="Synced"`); `tone`: neutral / info / success / warning / danger. |
 | `Tooltip` | Accessible focus/hover tooltip that describes its trigger with `aria-describedby`. |
 | `Popover`, `Menu`, `MenuItem` | Shared anchored overlay and dropdown-menu primitives: body-portaled, viewport-aware panels that escape scroll/table clipping, with outside-click/Escape close, focus return, selected-item semantics, and roving keyboard navigation. |

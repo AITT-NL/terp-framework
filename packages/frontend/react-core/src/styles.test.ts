@@ -713,6 +713,30 @@ describe("cascade structure", () => {
     ).toContain("var(--density-control-min-height)");
   });
 
+  it("declares one avatar rule plus a small variant, and nothing for the default size", () => {
+    // The tile used to be two rules of eleven declarations each — profile-avatar and
+    // user-menu-avatar — identical but for a width, a height and a font size. Merging them is only
+    // zero-pixel if the variant keeps BOTH geometries, so this pins the shape of the pair: a base
+    // rule carrying md, and an sm rule carrying exactly the three declarations that differ.
+    const base = layerBody("terp.base");
+    expect(declaresRuleFor(base, '[data-terp="avatar"]')).toBe(true);
+    expect(declaresRuleFor(base, '[data-terp="avatar"][data-size="sm"]')).toBe(true);
+    // md is the base rule, as with Button. A rule of its own means the default is described twice.
+    expect(
+      declaresRuleFor(base, '[data-terp="avatar"][data-size="md"]'),
+      "md is the base rule; a rule of its own means the default is described twice",
+    ).toBe(false);
+    const at = base.indexOf('[data-terp="avatar"][data-size="sm"]');
+    const body = base.slice(at, base.indexOf("}", at));
+    for (const declaration of ["width: 2rem", "height: 2rem", "var(--font-size-sm)"]) {
+      expect(body, `the small variant must restate ${declaration}`).toContain(declaration);
+    }
+    // And nothing else: a declaration here that the base already sets is a second description of
+    // the same tile, which is the duplication the merge removed.
+    expect(body).not.toContain("border-radius");
+    expect(body).not.toContain("background");
+  });
+
   it("declares a min-inline-size for every step ColumnWidth names, and nothing it does not", () => {
     // The Button gate above notes that its union and its sheet are two lists kept by hand. This
     // one reads the union out of the source instead, because a declared track that silently does
@@ -1148,7 +1172,6 @@ describe("cascade structure", () => {
       "dialog-description",
       "dialog-actions",
       "user-menu",
-      "user-menu-avatar",
       "user-menu-email",
       "user-menu-header",
       "user-menu-identity",
@@ -1225,7 +1248,6 @@ describe("cascade structure", () => {
       "module-nav-list",
       "module-nav-link",
       "profile-card",
-      "profile-avatar",
       "profile-email",
       "profile-role",
       "login-view",

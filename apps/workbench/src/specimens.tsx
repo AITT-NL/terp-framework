@@ -2569,7 +2569,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       },
       {
         id: "user-menu",
-        ready: '[data-terp="user-menu-avatar"]',
+        ready: '[data-terp="avatar"]',
         title: "UserMenu — closed trigger",
         node: (
           <SignedIn>
@@ -2579,7 +2579,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       },
       {
         id: "user-menu-collapsed",
-        ready: '[data-terp="user-menu-avatar"]',
+        ready: '[data-terp="avatar"]',
         title: "UserMenu — collapsed (icon rail)",
         node: (
           <SignedIn>
@@ -2594,7 +2594,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // anything reachable from the trigger. Closed, none of it is painted; this is the only
         // baseline that sees it.
         id: "user-menu-open",
-        ready: '[data-terp="user-menu-avatar"]',
+        ready: '[data-terp="avatar"]',
         title: "UserMenu — open panel with the identity block",
         overlay: true,
         node: (

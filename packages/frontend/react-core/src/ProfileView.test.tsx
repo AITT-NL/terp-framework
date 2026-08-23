@@ -76,7 +76,7 @@ describe("ProfileView", () => {
     // jsdom computes no cascade. The address marker matters most of the three — its
     // overflow-wrap has no specimen, since the mock session's address is short, so this is
     // the only gate that the element a long address would need is still the marked one.
-    const avatar = document.querySelector('[data-terp="profile-avatar"]');
+    const avatar = document.querySelector('[data-terp="avatar"]');
     expect(avatar).not.toBeNull();
     expect(avatar?.textContent).toBe("JD");
     expect(avatar?.getAttribute("style")).toBeNull();
