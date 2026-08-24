@@ -380,3 +380,42 @@ values it calls legal (two groups may not share an id). All corrected, and where
 be made true by a gate instead of by an edit, it was.
 
 Ten mutations over the fixes, all red.
+
+
+## Amendment (2026-08-24): the mark, as a path
+
+Third and last of the things an app could only say in its own source, and the one with a tool
+already waiting for it: an operator uploads a logo, and there was nowhere to put the answer
+except that app's TypeScript.
+
+`shell.brand` is two optional paths, `logo` and `logoDark`. **Paths rather than elements**, and
+that is the whole reason it can be declared at all — a file is something a tool can put
+somewhere, and a `ReactNode` is not. The bootstrap options stay `ReactNode` and stay legal, per
+ADR 0009: an app that wants an inline SVG or a component keeps writing one.
+
+**The dark counterpart is declared, not derived.** A mark with fixed colours cannot survive a
+dark background and nothing in this package can tell whether a given file can — a logo is an
+opaque asset. So an app with a second file says so, and an app with one mark says nothing and
+keeps it everywhere, which is the right answer when the mark does survive. Neither key is
+required: requiring the counterpart would guarantee every app looks right on every palette and
+would also force every app to claim a second asset it may not have.
+
+**The refusal lives in the router, not the resolver**, and it is the first key where that is
+true. Every other doubly-declared key is refused by `resolveLayoutDeclaration`, whose message
+names both values so a reader can see which is which. Here the two sides are a path and a
+rendered element, which are not comparable — there is nothing to print for the code side but
+the fact that something was passed. So the check sits beside the duplicate-nav-group refusal,
+where both halves are visible, and names the slots instead of pretending to compare them.
+
+`alt=""` on the rendered mark, deliberately. The shell renders the app's title beside it, so a
+name on the image has a screen reader announce the app twice — which is also what the template's
+own commented example always did, and what an app hand-writing the option should do.
+
+The template's comment is the part worth reading. It showed `logo: <img src="/logo.svg" alt="" />`
+as a commented-out example, which is exactly the shape a tool cannot write: to set an app's logo
+from outside, something would have had to edit JSX. It now shows the two lines of JSON instead.
+
+Nine mutations, all red: `brand` dropped from the shell's key table, an empty path accepted, an
+unknown slot ignored, the resolved brand discarded, the shell handed the option instead of the
+declared path, the mark given an accessible name, the duplicate refusal disabled, and the
+manifest dropping a slot and a floor.

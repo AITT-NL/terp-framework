@@ -140,6 +140,26 @@ decision, 0001 onwards.
   now real, with ten mutations over the fixes, all red. ADR 0100 carries the full account,
   including the sentences in its own earlier amendments that were untrue.
 
+  **`shell.brand` is the last of the things an app could only say in its own source**, and the
+  one with a tool already waiting for it: an operator uploads a logo, and there was nowhere to
+  put the answer except that app's TypeScript. Two optional paths, `logo` and `logoDark` —
+  PATHS rather than elements, which is the whole reason it can be declared at all, since a file
+  is something a tool can put somewhere and a rendered element is not. The bootstrap options
+  stay legal for an app that wants an inline SVG or a component.
+
+  The dark counterpart is declared rather than derived, because a mark with fixed colours
+  cannot survive a dark background and nothing here can tell whether a given file can. Neither
+  key is required: requiring the counterpart would force every app to claim a second asset it
+  may not have.
+
+  The duplicate refusal lives in `buildAppRouter` rather than the resolver, and it is the first
+  key where that is true — the two sides are a path and a rendered element, which are not
+  comparable, so the message names the slots instead of pretending to compare them.
+
+  The template's commented example is the part worth reading: it showed
+  `logo: <img src="/logo.svg" alt="" />`, which is exactly the shape a tool cannot write. It
+  now shows the two lines of JSON. Nine mutations, all red.
+
   Two mutations, both red, on the two lines that carry the file to where it matters: pointing the
   shell back at the raw option (the resolver runs and its answer is discarded), and deleting the
   forwarding line from the one-call entry point. The first also closes a gap two comments in this

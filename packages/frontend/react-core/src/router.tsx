@@ -26,7 +26,11 @@ import type {
   TerpRouteSearch,
 } from "./routeTypes";
 import { LAYOUT_CONTRACTS, LayoutContractContext } from "./layoutContract";
-import { resolveLayoutDeclaration, type LayoutDeclaration } from "./layoutDeclaration";
+import {
+  BRAND_FIELDS,
+  resolveLayoutDeclaration,
+  type LayoutDeclaration,
+} from "./layoutDeclaration";
 import { isDeclarationVisible, visibleNav } from "./nav";
 import { NavLinkContext } from "./navLink";
 import type { NavLinkRenderer } from "./navLink";
@@ -349,6 +353,17 @@ function DefaultUnauthorized() {
  * built-in {@link ProfileView} mounts at {@link PROFILE_PATH} unless a manifest claims that
  * path. Wrap the returned router in `<TerpProvider><RouterProvider router={router}/></TerpProvider>`.
  */
+/**
+ * A declared path as the element the shell's slot takes.
+ *
+ * `alt=""` because the mark is decorative here: the shell renders the app's title beside it,
+ * so a name on the image would have a screen reader announce the app twice. That is also what
+ * the template's own commented example does, and what an app hand-writing the option should do.
+ */
+function brandMark(path: string | undefined) {
+  return path === undefined ? undefined : <img src={path} alt="" />;
+}
+
 export function buildAppRouter(
   manifests: readonly ModuleManifest[],
   options: BuildAppRouterOptions,
@@ -380,6 +395,22 @@ export function buildAppRouter(
   // and it falls open.
   // Over the RESOLVED list, so one refusal covers a group declared in the file and a group
   // passed as an option alike — which is also why `resolveLayoutDeclaration` does not restate it.
+  // The brand's two slots, each declarable as a checked-in PATH or passed as a rendered
+  // element. Refused together for the reason every other doubly-declared key is, and refused
+  // HERE rather than in the resolver because a path and an element are not comparable values:
+  // the resolver's message names both, and there is nothing to name on the code side but the
+  // fact that something was passed.
+  const brandConflicts = BRAND_FIELDS.filter(
+    (slot) => layout.brand?.[slot] !== undefined && options[slot] !== undefined,
+  );
+  if (brandConflicts.length > 0) {
+    throw new Error(
+      `frontend/layout-contract.json declares shell.brand.${brandConflicts.join(" and shell.brand.")}` +
+        ` and the bootstrap options pass ${brandConflicts.join(" and ")}. Declare each mark in ` +
+        "one place: the file is what a tool can read and rewrite, so prefer it and drop the option.",
+    );
+  }
+
   const duplicateGroups = (layout.navGroups ?? [])
     .map((group) => group.id)
     .filter((id, index, ids) => ids.indexOf(id) !== index);
@@ -444,8 +475,8 @@ export function buildAppRouter(
       <NavLinkContext.Provider value={renderNavLink}>
       <AppShell
         title={options.title}
-        logo={options.logo}
-        logoDark={options.logoDark}
+        logo={brandMark(layout.brand?.logo) ?? options.logo}
+        logoDark={brandMark(layout.brand?.logoDark) ?? options.logoDark}
         headerActions={options.headerActions}
         footer={options.footer}
         contentWidth={layout.contentWidth}

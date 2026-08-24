@@ -68,7 +68,7 @@ describe("resolveLayoutDeclaration", () => {
     expect(() =>
       resolveLayoutDeclaration({ shell: { sidebarWidth: "20rem" } as never }, {}),
     ).toThrow(
-      /unknown shell key "sidebarWidth"; this release reads "density", "navPlacement", "contentWidth", "navGroups"/,
+      /unknown shell key "sidebarWidth"; this release reads "density", "navPlacement", "contentWidth", "brand", "navGroups"/,
     );
     // "theme", not "defaultTheme": a near-miss of a real key is the shape a hand-edit
     // produces, and it is what the unknown-key refusal is for.
@@ -333,6 +333,47 @@ describe("resolveLayoutDeclaration", () => {
         {},
       ).navGroups,
     ).toHaveLength(2);
+  });
+
+  // ---- the mark the app is recognised by ------------------------------------ #
+
+  it("supplies both marks from the file, as paths", () => {
+    // Paths rather than elements, because a file is what a tool can put somewhere and a
+    // rendered element is not — which is the whole reason the mark joined the document.
+    expect(
+      resolveLayoutDeclaration(
+        { shell: { brand: { logo: "/logo.png", logoDark: "/logo-dark.png" } } },
+        {},
+      ),
+    ).toEqual({ brand: { logo: "/logo.png", logoDark: "/logo-dark.png" } });
+  });
+
+  it("takes one mark as a complete declaration", () => {
+    // An app whose mark survives a dark background has one file and says so. Requiring the
+    // counterpart would make every app claim a second asset it may not have.
+    expect(resolveLayoutDeclaration({ shell: { brand: { logo: "/logo.svg" } } }, {})).toEqual({
+      brand: { logo: "/logo.svg" },
+    });
+  });
+
+  it("refuses a mark the shell would render as a broken image", () => {
+    // Each of these reaches an `<img>` that cannot load it, which renders WORSE than declaring
+    // nothing: an app with no mark gets the framework's placeholder, and this gets a broken one.
+    expect(() =>
+      resolveLayoutDeclaration({ shell: { brand: { logo: 7 } } } as never, {}),
+    ).toThrow(/shell\.brand\.logo must be a path, got a number/);
+    expect(() =>
+      resolveLayoutDeclaration({ shell: { brand: { logoDark: "   " } } }, {}),
+    ).toThrow(/shell\.brand\.logoDark is empty; omit it to keep one mark/);
+    expect(() =>
+      resolveLayoutDeclaration({ shell: { brand: [] } } as never, {}),
+    ).toThrow(/shell\.brand must be a JSON object, got an array/);
+  });
+
+  it("refuses a mark slot this release does not read", () => {
+    expect(() =>
+      resolveLayoutDeclaration({ shell: { brand: { icon: "/icon.png" } } } as never, {}),
+    ).toThrow(/shell\.brand has unknown mark "icon"; a brand is "logo" and "logoDark"/);
   });
 
   // ---- the file can hold anything JSON can ---------------------------------

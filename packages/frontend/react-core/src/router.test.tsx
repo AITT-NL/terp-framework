@@ -1210,6 +1210,79 @@ describe("buildAppRouter navGroups", () => {
     expect(first.getAttribute("aria-labelledby")).toBeNull();
   });
 
+  it("renders a DECLARED mark, and refuses it declared twice", async () => {
+    // End to end for the third key that could only be said in code: file -> resolver -> the
+    // AppShell slot -> an <img> in the rendered header. `alt=""` on purpose — the shell renders
+    // the app's title beside the mark, so a name here announces the app twice.
+    //
+    // Mutations, both red: hand `options.logo` to AppShell instead of the resolved path, or
+    // drop `brand` from the resolver's output.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = (input as Request).url;
+        if (url.endsWith("/api/v1/auth/login")) {
+          return jsonResponse({ access_token: "t", token_type: "bearer" });
+        }
+        return jsonResponse({
+          id: "1",
+          email: "editor@example.com",
+          role_rank: 20,
+          role_name: "editor",
+        });
+      }),
+    );
+
+    const router = buildAppRouter(
+      [{ name: "notes", routes: [{ path: "/notes", view: "NotesList" }] }],
+      {
+        views: { NotesList: views.NotesList },
+        title: "Terp",
+        layout: { shell: { brand: { logo: "/logo.png" } } },
+        history: createMemoryHistory({ initialEntries: ["/notes"] }),
+      },
+    );
+
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Notes view" })).toBeInTheDocument(),
+    );
+    const mark = document.querySelector('[data-terp="appshell-mark"] img');
+    expect(mark).toHaveAttribute("src", "/logo.png");
+    expect(mark).toHaveAttribute("alt", "");
+  });
+
+  it("refuses a mark declared in the file and passed as an option", () => {
+    // Refused in the router rather than the resolver, because a path and a rendered element are
+    // not comparable values — so the message names the slots rather than pretending to compare.
+    expect(() =>
+      buildAppRouter([], {
+        views: {},
+        title: "Terp",
+        layout: { shell: { brand: { logo: "/logo.png", logoDark: "/logo-dark.png" } } },
+        logo: "x",
+        logoDark: "y",
+      }),
+    ).toThrow(
+      /declares shell\.brand\.logo and shell\.brand\.logoDark and the bootstrap options pass logo and logoDark/,
+    );
+    // And only the slot that is actually declared twice.
+    expect(() =>
+      buildAppRouter([], {
+        views: {},
+        title: "Terp",
+        layout: { shell: { brand: { logo: "/logo.png" } } },
+        logoDark: "y",
+      }),
+    ).not.toThrow();
+  });
+
   it("refuses the app's declaration and its options declaring one fact twice", () => {
     // Compose time, beside the duplicate-group refusal below and for the same reason: an
     // authoring error with no legitimate transient form. The message names both sources

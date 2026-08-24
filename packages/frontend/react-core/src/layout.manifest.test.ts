@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { LAYOUT_CONTRACTS } from "./layoutContract";
 import {
+  BRAND_FIELDS,
   NAV_GROUP_FIELDS,
   NAV_GROUP_REQUIRED,
   SHELL_STRUCTURED_KEYS,
@@ -118,6 +119,20 @@ describe("the published layout vocabulary", () => {
     expect(shell.navGroups?.items?.required?.slice().sort()).toEqual(
       [...NAV_GROUP_REQUIRED].sort(),
     );
+  });
+
+  it("offers exactly the slots a brand declares", () => {
+    const brand = shell.brand?.properties ?? {};
+    expect(Object.keys(brand).sort()).toEqual([...BRAND_FIELDS].sort());
+    expect(shell.brand?.type).toBe("object");
+    expect(shell.brand?.additionalProperties).toBe(false);
+    // Both floored and neither required: an empty path is a mark that fails to load, while an
+    // absent one is the app saying it has no second file.
+    for (const slot of BRAND_FIELDS) {
+      expect(brand[slot]?.type, slot).toBe("string");
+      expect(brand[slot]?.minLength, slot).toBe(1);
+    }
+    expect(shell.brand?.required).toBeUndefined();
   });
 
   it("refuses an unknown key at every level it has one", () => {

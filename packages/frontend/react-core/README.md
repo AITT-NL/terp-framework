@@ -147,8 +147,9 @@ declared once in a checked-in `layout-contract.json` next to the frontend source
 rule finds the file on disk, and `main.tsx` imports it —
 `renderTerpApp({ layout })`. The same file carries the palette the app opens on
 (`defaultTheme`) and the shell's own shape under `shell` (`density`, `navPlacement`,
-`contentWidth`, and the `navGroups` a module's `NavItem.group` names by id), which is what
-lets a tool read and rewrite those choices instead of them living only in TypeScript. Declaring a key in the file AND
+`contentWidth`, the `navGroups` a module's `NavItem.group` names by id, and the `brand` marks
+as paths), which is what lets a tool read and rewrite those choices instead of them living
+only in TypeScript. Declaring a key in the file AND
 passing the matching bootstrap option is refused when the router is composed, with both
 sources named; `layoutContract: "standard"` on its own still works for an app that would
 rather write code than check in a file. Each governed archetype's body slot then accepts **only** the contract's

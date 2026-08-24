@@ -9,7 +9,8 @@ import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terpjs/react-core";
 // The app's layout declaration, checked in beside this file. ONE file, two readers: the
 // `terp/layout-contract` lint rule finds it on disk, and the shell reads it here — so the
 // contract is declared once instead of once per half. It also carries the shell's own shape
-// (`shell.density`, `shell.navPlacement`, `shell.contentWidth`), the navigation groups the
+// (`shell.density`, `shell.navPlacement`, `shell.contentWidth`), the brand mark
+// (`shell.brand`), the navigation groups the
 // sidebar arranges items into (`shell.navGroups`: `{ "id", "label", "order" }` per group, with
 // an empty label for a group that shows no heading), and the palette the app opens on before
 // anyone picks one (`defaultTheme`: any of the five, or "system" to follow the viewer's own
@@ -35,21 +36,28 @@ renderTerpApp({
     en: LOCALE_EN,
     nl: LOCALE_NL,
   },
-  // The brand mark lives in two places and neither implies the other: `logo` is the mark
-  // inside the app, `public/favicon.svg` is the mark in the browser tab. Until both are
-  // replaced the app shows terp's placeholder in both.
+  // The brand mark lives in two places and neither implies the other: the mark inside the app
+  // is declared in layout-contract.json, and `public/favicon.svg` is the mark in the browser
+  // tab. Until both are replaced the app shows terp's placeholder in both.
   //
-  //   logo: <img src="/logo.svg" alt="" />,
+  // Drop the file in `public/` and name it in the declaration, not here:
+  //
+  //   "shell": { "brand": { "logo": "/logo.svg" } }
+  //
+  // A path rather than an element, because a file is what a tool can put somewhere — which is
+  // why the Studio can set this for you and could never have written the JSX this comment used
+  // to show. Passing `logo` as an option below still works for an app that wants an inline SVG
+  // or a component; declaring the same mark both ways is refused.
   //
   // Sizing is the shell's, not yours: it renders the mark in a box of --shell-brand-size, so
   // a logo larger than the collapsed icon rail is scaled down rather than clipped. Move that
   // token from theme.css to change it.
   //
   // If the mark has fixed colours and cannot survive a dark theme — most company logos
-  // cannot, and this app ships three dark themes — supply the second asset too and the
-  // stylesheet picks per theme, with no code of yours involved:
+  // cannot, and this app ships three dark themes — declare the second asset too and the
+  // stylesheet picks by the palette in force, with no code of yours involved:
   //
-  //   logoDark: <img src="/logo-dark.svg" alt="" />,
+  //   "shell": { "brand": { "logo": "/logo.svg", "logoDark": "/logo-dark.svg" } }
 {%- if use_sso %}
   // The SSO button on the sign-in screen. The backend mounts the OIDC module once the
   // OIDC_* variables are set (see .env.example + app/auth.py); until then, clicking it

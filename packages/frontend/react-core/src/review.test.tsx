@@ -164,11 +164,21 @@ describe("defects the phases 1-4 review found", () => {
     // worse: the project template instructs every new app to pass `logoDark` to `renderTerpApp`
     // (template/project/frontend/src/main.tsx.jinja), so the documented example did not
     // typecheck. Mutation: delete either forwarding line.
+    //
+    // Matched as "the option appears in what the prop is given" rather than as one exact
+    // expression, because the exact expression changed the day `shell.brand` landed and the
+    // invariant did not: the slot now prefers a declared PATH and falls back to the option, and
+    // the old `toContain("logoDark={options.logoDark}")` failed on a router that still forwards
+    // it perfectly. An assertion on a spelling fails for the wrong reason, which is only one
+    // step better than passing for the wrong reason.
     const router = sources["./router.tsx"] ?? "";
     const bootstrap = sources["./bootstrap.tsx"] ?? "";
     expect(router, "router.tsx is not in the scanned sources").not.toBe("");
     expect(bootstrap, "bootstrap.tsx is not in the scanned sources").not.toBe("");
-    expect(router).toContain("logoDark={options.logoDark}");
+    expect(router).toMatch(/logoDark=\{[^}]*options\.logoDark/);
+    // `logo=` alone would also match inside `logoDark=`; the negated class stops at the
+    // first `}`, so this reads the whole expression the slot is given.
+    expect(router).toMatch(/[^a-zA-Z]logo=\{[^}]*options\.logo}/);
     expect(bootstrap).toContain("logoDark: options.logoDark,");
     expect(bootstrap).toMatch(/logoDark\?: ReactNode;/);
   });

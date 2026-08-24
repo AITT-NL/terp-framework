@@ -9,14 +9,23 @@
       "type": "string",
       "minLength": 1,
       "title": "Page contract",
-      "enum": ["standard"],
+      "enum": [
+        "standard"
+      ],
       "description": "Constrain every page archetype's body to the contract's own components, checked at lint time and again on the rendered page. Leaving it unset keeps archetype-only enforcement. Adopting one on an app that has none can turn a green build red, because it starts governing screens that were legal a moment earlier."
     },
     "defaultTheme": {
       "type": "string",
       "minLength": 1,
       "title": "Starting palette",
-      "enum": ["light", "dark", "midnight", "twilight", "contrast", "system"],
+      "enum": [
+        "light",
+        "dark",
+        "midnight",
+        "twilight",
+        "contrast",
+        "system"
+      ],
       "description": "The palette the app opens on, until a person picks another from the theme menu and for as long as they have not. \"system\" opens on whatever light or dark preference the viewer's own device reports."
     },
     "shell": {
@@ -28,20 +37,49 @@
         "density": {
           "type": "string",
           "title": "Density",
-          "enum": ["comfortable", "compact"],
+          "enum": [
+            "comfortable",
+            "compact"
+          ],
           "description": "Control height and table cell padding for the whole app, from one attribute on the shell. Compact fits more rows on a screen; comfortable is easier to hit on a touch device."
         },
         "navPlacement": {
           "type": "string",
           "title": "Navigation placement",
-          "enum": ["sidebar", "header"],
+          "enum": [
+            "sidebar",
+            "header"
+          ],
           "description": "Where the primary navigation sits on a wide screen: a full-height rail beside the content, or a row inside the header with no rail at all. On a narrow screen both become the same drawer."
         },
         "contentWidth": {
           "type": "string",
           "title": "Content width",
-          "enum": ["full", "measured"],
+          "enum": [
+            "full",
+            "measured"
+          ],
           "description": "Whether a page's content runs the full width of the track or is capped at the shell's reading measure. Measured keeps long prose readable; full suits wide tables."
+        },
+        "brand": {
+          "type": "object",
+          "additionalProperties": false,
+          "title": "Brand mark",
+          "description": "The image your app is recognised by, shown beside its name in the header. Put the file in the app's frontend/public folder and name it here the way a browser would ask for it, starting with a slash.",
+          "properties": {
+            "logo": {
+              "type": "string",
+              "minLength": 1,
+              "title": "Mark",
+              "description": "The mark shown inside the app. It is sized to the header's own box, so a large file is scaled down rather than cut off."
+            },
+            "logoDark": {
+              "type": "string",
+              "minLength": 1,
+              "title": "Mark for dark palettes",
+              "description": "A second file for the dark palettes. Only worth setting when the first one has fixed colours that disappear on a dark background — most company marks do. Leave it empty and the same mark is used everywhere."
+            }
+          }
         },
         "navGroups": {
           "type": "array",
@@ -50,7 +88,10 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "label"],
+            "required": [
+              "id",
+              "label"
+            ],
             "properties": {
               "id": {
                 "type": "string",

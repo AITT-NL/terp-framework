@@ -65,6 +65,31 @@ export interface LayoutShellDeclaration {
    * only the second.
    */
   readonly navGroups?: readonly LayoutNavGroupDeclaration[];
+  /**
+   * The app's own mark, as paths its static-asset directory serves.
+   *
+   * Paths rather than elements, because a file is what a tool can put somewhere and a
+   * `ReactNode` is not. The bootstrap option stays a `ReactNode` and stays legal — an app
+   * that wants an inline SVG or a component keeps writing one — and declaring the same slot
+   * both ways is refused where both halves are visible, in `buildAppRouter`.
+   */
+  readonly brand?: LayoutBrandDeclaration;
+}
+
+/**
+ * The mark, and its dark counterpart.
+ *
+ * The counterpart is declared rather than derived: a mark with fixed colours cannot survive a
+ * dark background, and nothing here can tell whether this one can. An app with one mark
+ * declares one and keeps it everywhere, which is the right answer for a mark that does survive.
+ */
+export interface LayoutBrandDeclaration {
+  /** The mark inside the app's own frame; the shell sizes it, so an oversized file is scaled. */
+  readonly logo?: string;
+  /** The mark for a dark palette. The stylesheet picks, by the appearance of the palette in
+   *  force rather than by the viewer's platform — an app may pin a dark palette on a light
+   *  platform, and a mark chosen by the platform would then be the wrong one. */
+  readonly logoDark?: string;
 }
 
 /**
@@ -121,6 +146,9 @@ export interface ResolvedLayout {
   readonly navPlacement?: "sidebar" | "header";
   readonly contentWidth?: "full" | "measured";
   readonly navGroups?: readonly NavGroup[];
+  /** The declared brand PATHS. Not merged with the `logo` option, which is a rendered
+   *  element rather than a path; `buildAppRouter` refuses the two together. */
+  readonly brand?: LayoutBrandDeclaration;
 }
 
 /**
@@ -150,7 +178,7 @@ const SHELL_ENUM_KEYS = Object.keys(SHELL_VALUES) as readonly ShellEnumKey[];
  * architecture suite parses both literals to hold the whole shell vocabulary against the
  * standard's schema, so a key added to neither is a key the standard would not know about.
  */
-export const SHELL_STRUCTURED_KEYS = ["navGroups"] as const;
+export const SHELL_STRUCTURED_KEYS = ["brand", "navGroups"] as const;
 
 /** Every key `shell` admits, in the order a refusal offers them. */
 const SHELL_KEYS: readonly string[] = [...SHELL_ENUM_KEYS, ...SHELL_STRUCTURED_KEYS];
@@ -166,6 +194,9 @@ export const NAV_GROUP_FIELDS = ["id", "label", "order"] as const;
  * compared against a copy of itself in a test proves nothing.
  */
 export const NAV_GROUP_REQUIRED = ["id", "label"] as const;
+
+/** Every slot the brand declares. */
+export const BRAND_FIELDS = ["logo", "logoDark"] as const;
 
 /** Where a refusal points the reader. The file, not the option, because the file is the source. */
 const FILE = "frontend/layout-contract.json";
@@ -198,6 +229,47 @@ function describe(value: unknown): string {
   if (Array.isArray(value)) return "an array";
   if (typeof value === "object") return "an object";
   return `a ${typeof value}`;
+}
+
+/**
+ * The declared brand, checked.
+ *
+ * Every refusal is the same kind as the enum refusal on a shell value: a path the shell would
+ * hand to an `<img>` that cannot load it, which renders as a broken mark rather than as the
+ * placeholder an app with no mark gets — worse than declaring nothing, and silent until someone
+ * looks at the header.
+ */
+function resolveBrand(declared: unknown): LayoutBrandDeclaration {
+  if (!isPlainObject(declared)) {
+    throw new Error(`${FILE}: shell.brand must be a JSON object, got ${describe(declared)}.`);
+  }
+  const unknown = Object.keys(declared).filter(
+    (key) => !(BRAND_FIELDS as readonly string[]).includes(key),
+  );
+  if (unknown.length > 0) {
+    throw new Error(
+      `${FILE}: shell.brand has unknown ${unknown.length === 1 ? "mark" : "marks"} ` +
+        `${unknown.map((key) => `"${key}"`).join(", ")}; a brand is ` +
+        `${BRAND_FIELDS.map((key) => `"${key}"`).join(" and ")}.`,
+    );
+  }
+  const brand: { logo?: string; logoDark?: string } = {};
+  for (const slot of BRAND_FIELDS) {
+    const value = declared[slot];
+    if (value === undefined) continue;
+    if (typeof value !== "string") {
+      throw new Error(
+        `${FILE}: shell.brand.${slot} must be a path, got ${describe(value)}.`,
+      );
+    }
+    if (value.trim() === "") {
+      throw new Error(
+        `${FILE}: shell.brand.${slot} is empty; omit it to keep one mark for every palette.`,
+      );
+    }
+    brand[slot] = value;
+  }
+  return brand;
 }
 
 /** A group list as a refusal names it: the ids, in order, or the fact that there are none.
@@ -404,6 +476,11 @@ export function resolveLayoutDeclaration(
       );
     }
     resolved.defaultTheme = declaration.defaultTheme;
+  }
+
+  const declaredBrand = shell.brand;
+  if (declaredBrand !== undefined) {
+    resolved.brand = resolveBrand(declaredBrand);
   }
 
   const declaredGroups = shell.navGroups;
