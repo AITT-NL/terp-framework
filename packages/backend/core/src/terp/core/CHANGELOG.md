@@ -17,8 +17,8 @@ decision, 0001 onwards.
 - **ADR 0101 — a development-only channel into a running app.** A tool that embeds an app in an
   iframe cannot see into it, by design, so an operator watching their own app has to DESCRIBE the
   button they want changed. The information was already there and already closed: every
-  sanctioned component stamps `data-terp`, and the inventory is 200 pinned names with a ratchet
-  failing in both directions. What was missing was a way to ask.
+  sanctioned component stamps `data-terp`, and the inventory is a pinned list with a ratchet
+  failing in both directions on a name added or removed. What was missing was a way to ask.
 
   `@terpjs/react-core` now installs a `postMessage` listener that answers questions about the
   page's own structure — and the first decision is the one everything else rests on: **it exists
@@ -27,25 +27,37 @@ decision, 0001 onwards.
   all. Not a disabled one, not a configurable one. The same mechanism the template already uses
   for its dev sign-in credentials, and the same reasoning.
 
-  The tool speaks first and only it is answered: the app records the origin of the first
-  well-formed handshake and replies to that origin alone. That is not only prudence — a preview
-  URL is built by overwriting the path and clearing the query, so there is no channel to
-  configure an origin through, and the two are deliberately different origins in the first place.
+  The tool speaks first and the FIRST one wins: the app records the origin and the window of the
+  first well-formed handshake and answers that one alone. First-come rather than validated,
+  because there is nothing here to validate against — a preview URL is built by overwriting the
+  path and clearing the query, so there is no channel to configure an origin through, and the two
+  are deliberately different origins in the first place. The opaque `"null"` is refused outright,
+  being what a sandboxed iframe, a `file://` page and a `data:` URL all report. The window is kept
+  as well as the origin because `window.parent` is the embedder only when there IS one: open the
+  app in a tab and a reply addressed there reaches nobody while looking like it worked.
 
-  And a reply carries STRUCTURE, never content: markers, tag names and a rectangle, with no text,
-  no values and no attributes. An app under development is an app with real data in it, so a
-  channel that could read the page would be a way out for that data. Asserted rather than
-  described — the test serialises a whole reply and fails if the words on the page appear in it.
+  A reply carries three things and they are named exhaustively: markers, tag names, and the route
+  path. No text, no values, no attributes. The route path is on that list rather than glossed over
+  — `/records/42` carries an identifier, and an earlier draft of this entry said "structure, never
+  content" while sending it. A rectangle used to leave too; nothing consumed it, so it does not.
+  Markers and tags are checked against the shape every name in the inventory has and a step that
+  fails is dropped, because this code cannot tell a component's marker from a string an app put in
+  the same attribute. Asserted rather than described, in two directions — the test serialises a
+  whole reply and fails if the words on the page appear in it, and it pins the reply's KEYS,
+  because serialising cannot see a field somebody adds later.
 
   ADR 0006's quadruple is deliberately incomplete and §5 names which halves and why: there is
   nothing for a build-time rule to check, because this is not something an app writes, and
   nothing for an escape hatch to be an exception to.
 
-  Nine mutations, all red, two of them only after a second attempt — an unreachable null guard
-  that no test could reach (the state model now carries the origin in the select-mode variable
-  itself, so the branch is gone rather than untested), and the reply TARGET, which nothing
-  asserted: a selection addressed to `"*"` is readable by whatever frame is the parent and is
-  indistinguishable from a correct reply by looking at the message.
+  Every refusal has a mutation behind it and all of them are red; `previewBridge.test.ts` is the
+  list. Four took a second attempt, each a gate that passed with the bug in place: an unreachable
+  null guard no test could reach (the state model now carries the asker in the select-mode
+  variable itself, so the branch is gone rather than untested); the reply TARGET, which nothing
+  asserted was the asker rather than `"*"`; the reply DESTINATION, asserted through a spy that
+  jsdom makes equal to `window`, so a reply that would reach nobody in a real tab looked correct;
+  and the single-installer scan, which globbed `.tsx` only while most of the package is `.ts` —
+  proved blind by adding a call to a `.ts` module and watching it stay green.
 
 - **ADR 0100 — the layout declaration is one document, and the standard says so.** The template
   shipped a defect written as advice. `frontend/layout-contract.json` has governed the
