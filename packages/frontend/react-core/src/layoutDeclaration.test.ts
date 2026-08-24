@@ -67,7 +67,9 @@ describe("resolveLayoutDeclaration", () => {
     // file looking effective.
     expect(() =>
       resolveLayoutDeclaration({ shell: { sidebarWidth: "20rem" } as never }, {}),
-    ).toThrow(/unknown shell key "sidebarWidth"; this release reads/);
+    ).toThrow(
+      /unknown shell key "sidebarWidth"; this release reads "density", "navPlacement", "contentWidth", "navGroups"/,
+    );
     // "theme", not "defaultTheme": a near-miss of a real key is the shape a hand-edit
     // produces, and it is what the unknown-key refusal is for.
     expect(() => resolveLayoutDeclaration({ theme: "dark" } as never, {})).toThrow(
@@ -177,6 +179,132 @@ describe("resolveLayoutDeclaration", () => {
     expect(() =>
       resolveLayoutDeclaration({ defaultTheme: "dark" }, { defaultTheme: "dark" }),
     ).toThrow(/both declare/);
+  });
+
+  // ---- the navigation groups ------------------------------------------------ #
+
+  it("supplies the groups from the file, with the empty label meaning no label", () => {
+    // A group spans modules, so no module can own one — which left the app's own code as the
+    // only place one could be declared. `""` is how a file says what `NavGroup` says with
+    // `null`: render no label element at all.
+    expect(
+      resolveLayoutDeclaration(
+        {
+          shell: {
+            navGroups: [
+              { id: "work", label: "Workspace", order: 1 },
+              { id: "pinned", label: "" },
+            ],
+          },
+        },
+        {},
+      ),
+    ).toEqual({
+      navGroups: [
+        { id: "work", label: "Workspace", order: 1 },
+        { id: "pinned", label: null },
+      ],
+    });
+  });
+
+  it("omits the sort key when the file omits it, rather than writing a zero", () => {
+    // `groupNav` reads `order ?? 0` over a stable sort, so absent and 0 sort identically — but
+    // they are not the same statement, and a resolver that materialised one into the other
+    // would make "I said nothing about order" indistinguishable from "I said first".
+    const [group] = resolveLayoutDeclaration(
+      { shell: { navGroups: [{ id: "work", label: "Workspace" }] } },
+      {},
+    ).navGroups!;
+    expect(group).toEqual({ id: "work", label: null === null ? "Workspace" : "" });
+    expect(Object.hasOwn(group!, "order")).toBe(false);
+  });
+
+  it("treats an empty group list as a declaration of no groups", () => {
+    // Not the same as omitting the key: an empty list still conflicts with a passed option,
+    // because the app has said something about groups and the option says something else.
+    expect(resolveLayoutDeclaration({ shell: { navGroups: [] } }, {})).toEqual({
+      navGroups: [],
+    });
+    expect(() =>
+      resolveLayoutDeclaration(
+        { shell: { navGroups: [] } },
+        { navGroups: [{ id: "work", label: "Workspace" }] },
+      ),
+    ).toThrow(/"shell\.navGroups" \(file: no groups, code: "work"\)/);
+  });
+
+  it("refuses a group the shell would render as nothing", () => {
+    // Each of these reaches the shell as a group no `NavItem.group` string can name, so its
+    // items fall into the trailing unlabelled bucket and the group never appears: a declaration
+    // that silently does nothing, which is what the document exists to remove.
+    expect(() =>
+      resolveLayoutDeclaration({ shell: { navGroups: [{ id: 7, label: "x" }] } } as never, {}),
+    ).toThrow(/shell\.navGroups\[0\]\.id must be a string, got a number/);
+    expect(() =>
+      resolveLayoutDeclaration({ shell: { navGroups: [{ id: "", label: "x" }] } }, {}),
+    ).toThrow(/shell\.navGroups\[0\]\.id is the empty string/);
+    expect(() =>
+      resolveLayoutDeclaration({ shell: { navGroups: [{ id: "work" }] } } as never, {}),
+    ).toThrow(
+      /shell\.navGroups\[0\] is missing "label"; every group declares "id" and "label", and "" is a group that renders no label at all/,
+    );
+    expect(() =>
+      resolveLayoutDeclaration({ shell: { navGroups: [{ label: "x" }] } } as never, {}),
+    ).toThrow(/shell\.navGroups\[0\] is missing "id"; every group declares "id" and "label"\./);
+    expect(() =>
+      resolveLayoutDeclaration(
+        { shell: { navGroups: [{ id: "work", label: null }] } } as never,
+        {},
+      ),
+    ).toThrow(/shell\.navGroups\[0\]\.label must be a string, got null; use "" for a group/);
+  });
+
+  it("refuses a sort key that is not a whole number, naming what it got", () => {
+    expect(() =>
+      resolveLayoutDeclaration(
+        { shell: { navGroups: [{ id: "work", label: "x", order: 1.5 }] } },
+        {},
+      ),
+    ).toThrow(/shell\.navGroups\[0\]\.order must be a whole number, got 1\.5/);
+    expect(() =>
+      resolveLayoutDeclaration(
+        { shell: { navGroups: [{ id: "work", label: "x", order: "1" }] } } as never,
+        {},
+      ),
+    ).toThrow(/shell\.navGroups\[0\]\.order must be a whole number, got a string/);
+  });
+
+  it("refuses a field on a group this release does not read", () => {
+    // Same reasoning one level down from the unknown-key refusal: an "icon" nobody renders sits
+    // in the file looking effective.
+    expect(() =>
+      resolveLayoutDeclaration(
+        { shell: { navGroups: [{ id: "work", label: "x", icon: "folder" }] } } as never,
+        {},
+      ),
+    ).toThrow(/shell\.navGroups\[0\] has unknown field "icon"; a group is "id", "label", "order"/);
+  });
+
+  it("refuses a group list that is not a list, and an entry that is not an object", () => {
+    expect(() =>
+      resolveLayoutDeclaration({ shell: { navGroups: {} } } as never, {}),
+    ).toThrow(/shell\.navGroups must be an array, got an object/);
+    expect(() =>
+      resolveLayoutDeclaration({ shell: { navGroups: ["work"] } } as never, {}),
+    ).toThrow(/shell\.navGroups\[0\] must be a JSON object, got a string/);
+  });
+
+  it("does not refuse duplicate ids — the router does, over the resolved list", () => {
+    // Deliberate, and the reason is that one refusal must cover both sources. `buildAppRouter`
+    // already refuses duplicates and now reads the RESOLVED list, so a duplicate declared in the
+    // file is refused by the same check and the same message as one passed as an option.
+    // Restating it here would be a second message for one error.
+    expect(
+      resolveLayoutDeclaration(
+        { shell: { navGroups: [{ id: "work", label: "A" }, { id: "work", label: "B" }] } },
+        {},
+      ).navGroups,
+    ).toHaveLength(2);
   });
 
   // ---- the file can hold anything JSON can ---------------------------------

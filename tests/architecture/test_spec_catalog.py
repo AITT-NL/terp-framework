@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+from typing import NamedTuple
 
 import pytest
 
@@ -180,25 +181,57 @@ _DECLARATION_SCHEMA = _SPEC / "layout-declaration.schema.json"
 _REACT_CORE_SRC = _REPO_ROOT / "packages" / "frontend" / "react-core" / "src"
 
 
-def _resolver_vocabulary() -> tuple[set[str], dict[str, set[str]]]:
-    """The top-level keys and per-key enums the reference resolver reads, from its source.
+class _ResolverVocabulary(NamedTuple):
+    """Every name the reference resolver reads, as four sets it can be compared by."""
+
+    #: The keys the document itself admits.
+    top: set[str]
+    #: The keys ``shell`` admits — the enum-valued ones plus the structured ones.
+    shell: set[str]
+    #: The legal values, per shell key that has a fixed set of them.
+    enums: dict[str, set[str]]
+    #: The fields one navigation group entry admits.
+    group_fields: set[str]
+
+
+def _resolver_vocabulary() -> _ResolverVocabulary:
+    """Every name the reference resolver reads, parsed out of its source.
 
     Parsed as text for the reason the BOUNDARY_SPEC parity above is: this suite is
     Python and the resolver is TypeScript, and importing a bundler-resolved module
-    to read two literals would buy nothing the regex does not.
+    to read four literals would buy nothing the regex does not.
+
+    Each match is asserted non-empty as well as found. A regex that stopped matching
+    — a reformatted literal, a renamed constant — would otherwise hand the caller an
+    empty set, which compares equal to another empty set and reports green: the one
+    failure mode a parity test cannot afford.
     """
     source = (_REACT_CORE_SRC / "layoutDeclaration.ts").read_text(encoding="utf-8")
-    top = re.search(r'new Set<string>\(\[([^\]]*)\]\)', source)
-    assert top, "could not locate the top-level key set in layoutDeclaration.ts"
-    keys = set(re.findall(r'"([a-zA-Z]+)"', top.group(1)))
+
+    def literal(pattern: str, what: str, *, flags: int = 0) -> set[str]:
+        match = re.search(pattern, source, flags)
+        assert match, f"could not locate {what} in layoutDeclaration.ts"
+        names = set(re.findall(r'"([a-zA-Z]+)"', match.group(1)))
+        assert names, f"{what} parsed to an empty set — the regex stopped matching"
+        return names
+
+    keys = literal(r'new Set<string>\(\[([^\]]*)\]\)', "the top-level key set")
+    structured = literal(
+        r"const SHELL_STRUCTURED_KEYS = \[([^\]]*)\] as const;", "SHELL_STRUCTURED_KEYS"
+    )
+    group_fields = literal(
+        r"const NAV_GROUP_FIELDS = \[([^\]]*)\] as const;", "NAV_GROUP_FIELDS"
+    )
 
     block = re.search(r"const SHELL_VALUES = \{\n(.*?)\n\} as const;", source, re.DOTALL)
     assert block, "could not locate SHELL_VALUES in layoutDeclaration.ts"
-    values = {
+    enums = {
         key: set(re.findall(r'"([a-z]+)"', listed))
         for key, listed in re.findall(r"(\w+): \[([^\]]*)\]", block.group(1))
     }
-    return keys, values
+    assert enums and all(enums.values()), "SHELL_VALUES parsed to nothing"
+
+    return _ResolverVocabulary(keys, set(enums) | structured, enums, group_fields)
 
 
 def test_the_layout_declaration_vocabulary_matches_the_spec_schema() -> None:
@@ -229,21 +262,39 @@ def test_the_layout_declaration_vocabulary_matches_the_spec_schema() -> None:
             f"({_DECLARATION_SCHEMA.parent}); it lands in the next spec release"
         )
     schema = json.loads(_DECLARATION_SCHEMA.read_text(encoding="utf-8"))
-    keys, values = _resolver_vocabulary()
+    resolver = _resolver_vocabulary()
 
-    assert keys == set(schema["properties"]), (
+    assert resolver.top == set(schema["properties"]), (
         "top-level layout declaration keys differ: "
-        f"schema {sorted(set(schema['properties']))}, resolver {sorted(keys)}"
+        f"schema {sorted(set(schema['properties']))}, resolver {sorted(resolver.top)}"
     )
     shell = schema["properties"]["shell"]["properties"]
-    assert set(values) == set(shell), (
-        f"shell keys differ: schema {sorted(shell)}, resolver {sorted(values)}"
+    assert resolver.shell == set(shell), (
+        f"shell keys differ: schema {sorted(shell)}, resolver {sorted(resolver.shell)}"
     )
-    for key in sorted(shell):
-        assert values[key] == set(shell[key]["enum"]), (
+
+    # Which shell keys are a CHOICE is itself a fact both sides have to agree on. A key the
+    # schema pins to an enum and the resolver treats as a shape would be validated by neither
+    # against the value set the standard published.
+    enum_keys = {key for key in shell if "enum" in shell[key]}
+    assert set(resolver.enums) == enum_keys, (
+        "which shell keys have a fixed value set differs: "
+        f"schema {sorted(enum_keys)}, resolver {sorted(resolver.enums)}"
+    )
+    for key in sorted(enum_keys):
+        assert resolver.enums[key] == set(shell[key]["enum"]), (
             f"shell.{key} values differ: schema {sorted(shell[key]['enum'])}, "
-            f"resolver {sorted(values[key])}"
+            f"resolver {sorted(resolver.enums[key])}"
         )
+
+    # And the nested shape, for the same reason one level down: a field on a navigation group
+    # that only one side reads is either a promise the stack ignores or vocabulary the stack
+    # invented, which are the two drifts this test exists to name.
+    assert resolver.group_fields == set(shell["navGroups"]["items"]["properties"]), (
+        "navigation group fields differ: "
+        f"schema {sorted(shell['navGroups']['items']['properties'])}, "
+        f"resolver {sorted(resolver.group_fields)}"
+    )
 
 
 def test_runtime_enforcement_refs_resolve_to_real_symbols() -> None:

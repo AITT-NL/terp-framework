@@ -272,6 +272,10 @@ export interface BuildAppRouterOptions {
    * The app's navigation groups ({@link AppShell.navGroups}), which manifest items reference by
    * `NavItem.group`. Omit for the flat, unlabelled sidebar every app renders today.
    *
+   * Prefer {@link BuildAppRouterOptions.layout}: `shell.navGroups` in the app's own
+   * `frontend/layout-contract.json` says the same thing in the one document a tool can read and
+   * rewrite. Declaring the groups in both places is refused rather than silently resolved.
+   *
    * A duplicate id is refused here rather than tolerated: it is an authoring error with no
    * legitimate transient form, and composition time is where it can be reported once instead of
    * on every render. An item naming an *undeclared* group is the opposite case and is not an
@@ -348,6 +352,7 @@ export function buildAppRouter(
     density: options.density,
     navPlacement: options.navPlacement,
     contentWidth: options.contentWidth,
+    navGroups: options.navGroups,
   });
   const layoutContract = layout.contract ?? null;
   if (layoutContract !== null && LAYOUT_CONTRACTS[layoutContract] === undefined) {
@@ -363,7 +368,9 @@ export function buildAppRouter(
   // Deliberately NOT symmetrical with an item naming an undeclared group, which is not an error
   // at all: a module ships on its own schedule, so that is the normal state of an app mid-adoption
   // and it falls open.
-  const duplicateGroups = (options.navGroups ?? [])
+  // Over the RESOLVED list, so one refusal covers a group declared in the file and a group
+  // passed as an option alike — which is also why `resolveLayoutDeclaration` does not restate it.
+  const duplicateGroups = (layout.navGroups ?? [])
     .map((group) => group.id)
     .filter((id, index, ids) => ids.indexOf(id) !== index);
   if (duplicateGroups.length > 0) {
@@ -436,7 +443,7 @@ export function buildAppRouter(
         navPlacement={layout.navPlacement}
         activePath={pathname}
         nav={nav}
-        navGroups={options.navGroups}
+        navGroups={layout.navGroups}
         renderBrandLink={({ to, children }) => (
           <Link to={to} data-terp="appshell-brand">
             {children}

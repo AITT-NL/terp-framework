@@ -1,3 +1,5 @@
+import type { NavGroup } from "@terpjs/contract";
+
 import { THEMES } from "./themes";
 import type { Theme } from "./themes";
 
@@ -46,6 +48,43 @@ export interface LayoutShellDeclaration {
   readonly navPlacement?: string;
   /** Content measure (`AppShell.contentWidth`): `"full"` or `"measured"`. */
   readonly contentWidth?: string;
+  /**
+   * The app's navigation groups, which a module's `NavItem.group` names by id.
+   *
+   * Declarable here and nowhere else in a file, for the reason groups exist at all: a group
+   * spans modules, so no module can own one — which left the app's own code as the only place
+   * one could be declared, and therefore left the order of an app's navigation out of reach of
+   * anything that edits files.
+   *
+   * Unlike the three keys above, `id` and `label` are typed as REQUIRED here, and that is not
+   * a lapse in the measured `string` rule beside it. That rule is about a value's TYPE — a JSON
+   * string never narrows to its literal, so a union would stop an app's own file typechecking.
+   * Presence is a different question, and one `resolveJsonModule` answers accurately: an
+   * imported file missing a label is a compile error naming the field, which is strictly better
+   * than the runtime refusal below. Both exist, because a declaration handed in at runtime gets
+   * only the second.
+   */
+  readonly navGroups?: readonly LayoutNavGroupDeclaration[];
+}
+
+/**
+ * One navigation group as the file spells it.
+ *
+ * `label` is a plain `string`, not `string | null`, and the empty string is how the document
+ * says "render no label element at all". Two reasons, and the second is the real one. The
+ * standard's schema is validated by a deliberately minimal validator with no way to express
+ * "string or null". And required-with-an-empty-value keeps the property the runtime
+ * {@link NavGroup} chose `string | null` for in the first place: having no label is a decision
+ * the declaration STATES, rather than a key someone forgot. Optional-with-absent-meaning-none
+ * would have handed it straight back to omission.
+ */
+export interface LayoutNavGroupDeclaration {
+  /** Referenced by `NavItem.group`. Non-empty — a group with no id is one nothing can name. */
+  readonly id: string;
+  /** Rendered above the group's list; `""` declares a positioning-only group with no label. */
+  readonly label: string;
+  /** Ascending sort key against sibling groups; absent is 0 and the sort is stable. */
+  readonly order?: number;
 }
 
 /**
@@ -81,6 +120,7 @@ export interface ResolvedLayout {
   readonly density?: "comfortable" | "compact";
   readonly navPlacement?: "sidebar" | "header";
   readonly contentWidth?: "full" | "measured";
+  readonly navGroups?: readonly NavGroup[];
 }
 
 /**
@@ -97,9 +137,26 @@ const SHELL_VALUES = {
   contentWidth: ["full", "measured"],
 } as const;
 
-type ShellKey = keyof typeof SHELL_VALUES;
+type ShellEnumKey = keyof typeof SHELL_VALUES;
 
-const SHELL_KEYS = Object.keys(SHELL_VALUES) as readonly ShellKey[];
+const SHELL_ENUM_KEYS = Object.keys(SHELL_VALUES) as readonly ShellEnumKey[];
+
+/**
+ * Shell keys that are a shape rather than a choice between fixed values.
+ *
+ * Written out beside {@link SHELL_VALUES} rather than folded into it, because the two are read
+ * differently and by different readers: the enum table is what narrows a `string` from the file
+ * to the union {@link ResolvedLayout} promises, and this one only says the key exists. The
+ * architecture suite parses both literals to hold the whole shell vocabulary against the
+ * standard's schema, so a key added to neither is a key the standard would not know about.
+ */
+const SHELL_STRUCTURED_KEYS = ["navGroups"] as const;
+
+/** Every key `shell` admits, in the order a refusal offers them. */
+const SHELL_KEYS: readonly string[] = [...SHELL_ENUM_KEYS, ...SHELL_STRUCTURED_KEYS];
+
+/** Every field a declared navigation group may carry. */
+const NAV_GROUP_FIELDS = ["id", "label", "order"] as const;
 
 /** Where a refusal points the reader. The file, not the option, because the file is the source. */
 const FILE = "frontend/layout-contract.json";
@@ -109,11 +166,102 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** What the reader actually wrote, for a message that saves them opening the file. */
+/** What the reader actually wrote, for a message that saves them opening the file.
+ *
+ * The two article cases are here rather than left to `a ${typeof value}` because both became
+ * reachable the moment a group entry could be any JSON: `"navGroups": {}` reported "got a
+ * object", which reads as a typo in the message rather than a fact about the file. */
 function describe(value: unknown): string {
   if (value === null) return "null";
+  if (value === undefined) return "nothing";
   if (Array.isArray(value)) return "an array";
+  if (typeof value === "object") return "an object";
   return `a ${typeof value}`;
+}
+
+/** A group list as a refusal names it: the ids, in order, or the fact that there are none. */
+function describeGroups(groups: readonly NavGroup[]): string {
+  return groups.length === 0 ? "no groups" : `"${groups.map((group) => group.id).join(", ")}"`;
+}
+
+/**
+ * The file's navigation groups as the runtime {@link NavGroup}s the shell is handed.
+ *
+ * Every refusal here is the same kind as the enum refusal on a shell value: a group the shell
+ * would accept and then render as nothing, or not render at all. A group with a numeric id is
+ * one no `NavItem.group` string can ever match, so its items fall into the trailing unlabelled
+ * bucket and the group never appears — a declaration that silently does nothing, which is the
+ * failure this whole document exists to remove.
+ *
+ * Duplicate ids are deliberately NOT refused here. `buildAppRouter` already refuses them, with
+ * a message this one could only restate, and routing the resolved list through that check means
+ * one refusal covers a group declared in the file and a group passed as an option alike.
+ */
+function resolveNavGroups(declared: unknown): readonly NavGroup[] {
+  if (!Array.isArray(declared)) {
+    throw new Error(
+      `${FILE}: shell.navGroups must be an array, got ${describe(declared)}.`,
+    );
+  }
+  return declared.map((entry: unknown, index: number): NavGroup => {
+    const at = `shell.navGroups[${index}]`;
+    if (!isPlainObject(entry)) {
+      throw new Error(`${FILE}: ${at} must be a JSON object, got ${describe(entry)}.`);
+    }
+    const unknown = Object.keys(entry).filter(
+      (key) => !(NAV_GROUP_FIELDS as readonly string[]).includes(key),
+    );
+    if (unknown.length > 0) {
+      throw new Error(
+        `${FILE}: ${at} has unknown ${unknown.length === 1 ? "field" : "fields"} ` +
+          `${unknown.map((key) => `"${key}"`).join(", ")}; a group is ` +
+          `${NAV_GROUP_FIELDS.map((key) => `"${key}"`).join(", ")}.`,
+      );
+    }
+    // A missing required field is reported as missing, not as a type. "must be a string, got
+    // nothing" sends the reader looking for a value they never wrote; the schema requires both
+    // fields, so the message should say which one is absent.
+    for (const field of ["id", "label"] as const) {
+      if (entry[field] === undefined) {
+        throw new Error(
+          `${FILE}: ${at} is missing "${field}"; every group declares "id" and "label"` +
+            (field === "label" ? ', and "" is a group that renders no label at all.' : "."),
+        );
+      }
+    }
+    if (typeof entry.id !== "string") {
+      throw new Error(`${FILE}: ${at}.id must be a string, got ${describe(entry.id)}.`);
+    }
+    if (entry.id === "") {
+      throw new Error(
+        `${FILE}: ${at}.id is the empty string; a group with no id is one no navigation ` +
+          "item can name.",
+      );
+    }
+    if (typeof entry.label !== "string") {
+      throw new Error(
+        `${FILE}: ${at}.label must be a string, got ${describe(entry.label)}; use "" for a ` +
+          "group that renders no label at all.",
+      );
+    }
+    // The one line where the document's spelling and the runtime's meet: `""` is how a file
+    // says "render no label element", and `null` is how NavGroup says the same thing.
+    const group: NavGroup = { id: entry.id, label: entry.label === "" ? null : entry.label };
+    if (entry.order === undefined) {
+      return group;
+    }
+    // Split from the guard above rather than folded into one condition, because a compound
+    // negation over `unknown` does not narrow: `order` stayed `{} | null` and the assignment
+    // below did not compile. Two guards narrow it to `number` with no cast.
+    if (typeof entry.order !== "number" || !Number.isInteger(entry.order)) {
+      throw new Error(
+        `${FILE}: ${at}.order must be a whole number, got ` +
+          `${typeof entry.order === "number" ? entry.order : describe(entry.order)}; it is a ` +
+          "sort key against sibling groups, and absent means 0.",
+      );
+    }
+    return { ...group, order: entry.order };
+  });
 }
 
 /**
@@ -124,9 +272,11 @@ function describe(value: unknown): string {
  *
  * Three things are refused, each fail-closed at compose time rather than absorbed:
  *
- * 1. **A value outside its enum.** A JSON file is not typechecked, so `"density": "compakt"`
- *    would otherwise reach the shell as an attribute value nothing styles — a declaration that
- *    silently does nothing, which is the failure this whole declaration exists to remove.
+ * 1. **A value outside its enum, or a malformed navigation group.** A JSON file is not
+ *    typechecked, so `"density": "compakt"` would otherwise reach the shell as an attribute
+ *    value nothing styles, and a group with a numeric id would reach it as a group no item can
+ *    name — declarations that silently do nothing, which is the failure this whole declaration
+ *    exists to remove.
  * 2. **A key the framework does not know.** Same reasoning one level up: a hand-written or
  *    newer-framework key would sit in the file looking effective. Refusing names it instead.
  *    This is the cost of the choice and it is the right way round — an app pinned to a release
@@ -185,9 +335,7 @@ export function resolveLayoutDeclaration(
     );
   }
   const shell = declaration.shell ?? {};
-  const unknownShell = Object.keys(shell).filter(
-    (key) => !(SHELL_KEYS as readonly string[]).includes(key),
-  );
+  const unknownShell = Object.keys(shell).filter((key) => !SHELL_KEYS.includes(key));
   if (unknownShell.length > 0) {
     throw new Error(
       `${FILE}: unknown shell ${unknownShell.length === 1 ? "key" : "keys"} ` +
@@ -230,7 +378,21 @@ export function resolveLayoutDeclaration(
     resolved.defaultTheme = declaration.defaultTheme;
   }
 
-  for (const key of SHELL_KEYS) {
+  const declaredGroups = shell.navGroups;
+  if (declaredGroups !== undefined) {
+    const groups = resolveNavGroups(declaredGroups);
+    if (explicit.navGroups !== undefined) {
+      // Not the value, which is a list of objects nobody wants stringified into an error, but
+      // the ids — the one part of a group a reader can match up against either source by eye.
+      conflicts.push(
+        `"shell.navGroups" (file: ${describeGroups(groups)}, ` +
+          `code: ${describeGroups(explicit.navGroups)})`,
+      );
+    }
+    resolved.navGroups = groups;
+  }
+
+  for (const key of SHELL_ENUM_KEYS) {
     const declared = shell[key];
     if (declared === undefined) continue;
     // A file can put a number or an object here. Refused with the type named rather than

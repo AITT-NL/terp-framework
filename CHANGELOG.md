@@ -77,6 +77,33 @@ decision, 0001 onwards.
   `ThemeProvider`, and the key's presence in the explicit set the resolver compares against),
   which are gated on the rendered attribute instead. 583 frontend tests pass.
 
+  **`shell.navGroups` joins the document too, and it is its first nested shape.** A navigation
+  group spans modules, so no module can own one — which left the app's own code as the only
+  place one could be declared, and the order of an app's navigation out of reach of anything
+  that edits files. It goes UNDER `shell` while the palette above does not, and one test
+  decides both: `shell` holds the keys whose vocabulary the standard fixes normatively. Palette
+  names are a stack's own to publish; what a navigation group's fields are called and mean is
+  the same anywhere, and only the values are the app's.
+
+  An entry is `id`, `label` and an optional integer `order`. `label` is a plain `string` where
+  the runtime `NavGroup` has `string | null`, and `""` is how a file spells `null` — the
+  standard's minimal validator cannot express "string or null", and
+  optional-with-absent-meaning-none would have given back the very property the runtime type was
+  chosen for: that having no label is a decision the declaration STATES rather than a key
+  someone forgot. An empty `id` is refused here and accepted by `groupNav`, which is the same
+  split this release already draws between a render-time fallback that must stay total and a
+  compose-time refusal that must not. Duplicate ids are refused where they always were, in
+  `buildAppRouter` — which now reads the RESOLVED list, so one message covers a duplicate from
+  the file and one from the option alike.
+
+  Twelve mutations, all red, and two of them only after the assertion meant to catch them was
+  rewritten — both were tests that passed with the bug. One compared `aria-label` /
+  `aria-labelledby` ATTRIBUTES against `""`, which an unmapped empty label never produces: it
+  produces a label element containing nothing and a list pointing at it, so the list claims a
+  name and has none, which no attribute check and no role-name query can see. The other declared
+  the groups in the order they were meant to render in, so with the sort key dropped they tied
+  at zero and the stable sort returned the assertion's own expectation. 596 frontend tests pass.
+
   Two mutations, both red, on the two lines that carry the file to where it matters: pointing the
   shell back at the raw option (the resolver runs and its answer is discarded), and deleting the
   forwarding line from the one-call entry point. The first also closes a gap two comments in this

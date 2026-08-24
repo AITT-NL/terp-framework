@@ -150,6 +150,56 @@ describe("renderTerpApp", () => {
     }
   });
 
+  it("refuses the navigation groups named in the file and passed as an option", () => {
+    // The array key travelling the same seam as the scalars, end to end: the resolver sees the
+    // file, `buildAppRouter` hands the resolved list to the shell, and declaring the groups in
+    // both places is one fact declared twice. Named by id, because a list of objects stringified
+    // into an error message tells the reader nothing they can match up.
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    try {
+      expect(() =>
+        renderTerpApp({
+          title: "Test",
+          modules: { "./modules/notes/module.tsx": notesModule },
+          layout: { shell: { navGroups: [{ id: "work", label: "Workspace" }] } },
+          navGroups: [{ id: "admin", label: "Admin" }],
+          rootElement: root,
+        }),
+      ).toThrow(/both declare "shell\.navGroups" \(file: "work", code: "admin"\)/);
+    } finally {
+      root.remove();
+    }
+  });
+
+  it("refuses duplicate ids declared in the file, through the router's own check", () => {
+    // The check lives in `buildAppRouter` and now reads the RESOLVED list, so this is the proof
+    // that a duplicate reaches it from the file and not only from the option. Mutation: point
+    // the check back at `options.navGroups` and this stops throwing while the option-side test
+    // above stays green.
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    try {
+      expect(() =>
+        renderTerpApp({
+          title: "Test",
+          modules: { "./modules/notes/module.tsx": notesModule },
+          layout: {
+            shell: {
+              navGroups: [
+                { id: "work", label: "Workspace" },
+                { id: "work", label: "Again" },
+              ],
+            },
+          },
+          rootElement: root,
+        }),
+      ).toThrow(/duplicate id\(s\): work/);
+    } finally {
+      root.remove();
+    }
+  });
+
   it("forwards navGroups to buildAppRouter", () => {
     // `renderTerpApp` hands its options to `buildAppRouter` through a hand-written enumeration of
     // names, and nothing covered it — `navPlacement`, `contentWidth` and `density` all travel that

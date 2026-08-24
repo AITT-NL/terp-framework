@@ -1119,6 +1119,94 @@ describe("buildAppRouter navGroups", () => {
     );
   });
 
+  it("carries DECLARED groups all the way to the rendered navigation", async () => {
+    // The array key end to end: file -> resolver -> AppShell prop -> the list's accessible name.
+    // The sibling test above proves the option path and this proves the file path, because they
+    // are two different lines and either can go missing on its own.
+    //
+    // The empty label is the interesting half. The document spells "render no label at all" as
+    // `""` and NavGroup spells it `null`, so the resolver maps between them — and a resolver
+    // that passed `""` straight through would give the shell a labelled list whose name is the
+    // empty string, which is a list with no accessible name at all and no error anywhere.
+    //
+    // Mutations, all red: `navGroups={options.navGroups}` in the AppShell element, dropping
+    // `navGroups: options.navGroups` from the resolver call, or removing the `"" -> null` map.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = (input as Request).url;
+        if (url.endsWith("/api/v1/auth/login")) {
+          return jsonResponse({ access_token: "t", token_type: "bearer" });
+        }
+        return jsonResponse({
+          id: "1",
+          email: "editor@example.com",
+          role_rank: 20,
+          role_name: "editor",
+        });
+      }),
+    );
+
+    const router = buildAppRouter(
+      [
+        {
+          name: "notes",
+          routes: [
+            { path: "/notes", view: "NotesList" },
+            { path: "/pinned", view: "NotesList" },
+          ],
+          nav: [
+            { label: "Notes", to: "/notes", group: "work" },
+            { label: "Pinned", to: "/pinned", group: "quiet" },
+          ],
+        },
+      ],
+      {
+        views: { NotesList: views.NotesList },
+        title: "Terp",
+        layout: {
+          shell: {
+            // Declared in the OPPOSITE order to the one they must render in. Written the
+            // obvious way round first, and the ordering assertion below was then vacuous:
+            // with the sort key dropped every group ties at 0 and the stable sort keeps
+            // declaration order, which was already the answer being asserted. Only a
+            // declaration order the sort has to undo can observe the sort.
+            navGroups: [
+              { id: "work", label: "Werkruimte", order: 2 },
+              { id: "quiet", label: "", order: 1 },
+            ],
+          },
+        },
+        history: createMemoryHistory({ initialEntries: ["/notes"] }),
+      },
+    );
+
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Notes view" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("list", { name: "Werkruimte" })).toBeInTheDocument();
+    // Exactly ONE group label element, which is what proves the `"" -> null` map ran. This
+    // assertion was written the wrong way first — comparing the lists' `aria-label` and
+    // `aria-labelledby` ATTRIBUTES against `""` — and the mutation walked straight past it,
+    // because an unmapped `""` does not produce an empty attribute. It produces a label element
+    // containing nothing and an `aria-labelledby` pointing at it, so the list claims a name and
+    // has none: a defect no attribute check and no role-name query can see, since a list with
+    // an empty name and a list with no name are indistinguishable to both. Counting the label
+    // elements is the form that sees it.
+    expect(document.querySelectorAll('[data-terp="appshell-nav-group-label"]')).toHaveLength(1);
+    // And the declared sort key put the unlabelled group first: `order: 1` against `order: 2`,
+    // rather than whichever order they happened to render in. `getAllByRole` is document order.
+    const first = screen.getAllByRole("list")[0]!;
+    expect(first.getAttribute("aria-labelledby")).toBeNull();
+  });
+
   it("refuses the app's declaration and its options declaring one fact twice", () => {
     // Compose time, beside the duplicate-group refusal below and for the same reason: an
     // authoring error with no legitimate transient form. The message names both sources

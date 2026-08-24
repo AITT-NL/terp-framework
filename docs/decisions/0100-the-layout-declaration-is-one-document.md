@@ -208,3 +208,67 @@ signed-out mount renders no shell, but it does mount the provider, so this is th
 declaration key whose effect is directly observable in the DOM. The spec parity test was run
 against the real 0.26.0 schema (green) and against a drifted resolver (red, with the two key
 sets named), rather than left to the skip it sits behind until the pin moves.
+
+
+## Amendment (2026-08-24): the navigation groups, and why they went the other way
+
+A navigation group spans modules — that is the reason groups exist and the reason no module can
+own one. Which left the app's own code as the only place one could be declared, and therefore
+left the **order of an app's navigation**, one of the few things about an app a person can see
+without opening a screen, out of reach of anything that edits files. Same sentence as §2's three
+shell choices, and same answer: `shell.navGroups`.
+
+**It goes UNDER `shell`, and the palette above it does not.** Two additions on the same day
+landing on opposite sides is worth explaining, because the answer comes from one test applied
+twice rather than from taste. `shell` is where the keys whose VOCABULARY the standard fixes
+normatively live. Palette names fail that test — which palettes exist is a stack's own to
+publish, so `defaultTheme` follows `contract`'s half of the split. A navigation group passes it:
+what an entry is called and what its fields mean is the same on any stack, and only the *values*
+are the app's. It also lands next to `navPlacement`, which decides where that same navigation
+sits, which is what a group of related keys should read like.
+
+**`label` is a `string`, and `""` is how the file says `null`.** The runtime `NavGroup` types it
+`string | null` and required, deliberately, so that having no label is a decision the declaration
+states rather than a key someone forgot. The document has to preserve that property with a
+narrower vocabulary: the standard's own minimal validator has no way to express "string or null",
+which rules out the direct translation. Optional-with-absent-meaning-none would have handed the
+property straight back to omission. Required-with-`""` keeps it, and the resolver maps the two
+spellings in one line.
+
+**`id` is refused when empty here, and accepted when empty there.** `groupNav` says in a comment
+that the empty string is a perfectly usable map key, and it is right: that function runs on every
+render, where being total matters more than being strict. Declaring one is a different act with a
+different audience — an authoring error with no legitimate transient form, a group nothing can
+name on purpose. The same split §3 already draws between a render-time fallback and a
+compose-time refusal.
+
+**`id`, `label` and the required-ness are typed on the declaration interface**, unlike the shell's
+three values. Not a lapse in §4's measured rule: that rule is about a value's TYPE, because a JSON
+string never narrows to its literal and a union would stop an app's own file typechecking.
+Presence is a different question and one `resolveJsonModule` answers accurately — an imported file
+missing a label is a compile error naming the field, which is strictly better than the runtime
+refusal. Both exist, because a declaration handed in at runtime gets only the second.
+
+**Duplicate ids are not refused in the resolver**, and that is deliberate. `buildAppRouter`
+already refuses them with a message this would only restate, so the router's check now reads the
+RESOLVED list: one refusal covers a duplicate declared in the file and one passed as an option,
+with one message. The resolver stays about the document's own well-formedness.
+
+**Gates.** Twelve mutations, all red. Ten over the seam itself — the key missing from the shell
+table, an empty id accepted, a missing required field reported as a type instead of as missing, an
+unknown group field ignored, a fractional sort key accepted, the `"" → null` map dropped, the
+conflict push removed, the router's duplicate check pointed back at the options, the shell handed
+the options instead of the resolved list, and the groups missing from the explicit set the
+resolver compares against. And the parity test was run against the real 0.26.0 schema: green
+unmodified, red on each of three drifts, each naming the two sets.
+
+Two of those mutations were caught only after the assertions that were supposed to catch them
+were rewritten, and both are worth recording because both were tests that passed with the bug.
+The first compared the rendered lists' `aria-label` and `aria-labelledby` **attributes** against
+`""`, which an unmapped `""` never produces: it produces a label element containing nothing and an
+`aria-labelledby` pointing at it, so the list claims a name and has none — invisible to an
+attribute check and to a role-name query alike, since a list with an empty name and a list with no
+name are indistinguishable to both. Counting the label elements is the form that sees it. The
+second declared the groups in the order they were meant to render in, so with the sort key dropped
+every group tied at zero, the stable sort kept declaration order, and the assertion was already
+the answer. Only a declaration order the sort has to undo can observe the sort.
