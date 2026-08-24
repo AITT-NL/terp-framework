@@ -87,6 +87,18 @@ const SHELL_KEYS = Object.keys(SHELL_VALUES) as readonly ShellKey[];
 /** Where a refusal points the reader. The file, not the option, because the file is the source. */
 const FILE = "frontend/layout-contract.json";
 
+/** A JSON object — not null, not an array, not a scalar. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** What the reader actually wrote, for a message that saves them opening the file. */
+function describe(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "an array";
+  return `a ${typeof value}`;
+}
+
 /**
  * Resolve the declaration against the options an app passed in TypeScript.
  *
@@ -115,6 +127,15 @@ export function resolveLayoutDeclaration(
   if (declaration === undefined) {
     return explicit;
   }
+  // The shape first, because this comes from a FILE and a file can hold anything JSON can.
+  // Every branch below was reached by probing rather than imagined: `null` threw a bare
+  // "Cannot convert undefined or null to object" with no mention of which file; a string or an
+  // array had its character/element indices reported as unknown KEYS; and an array was
+  // accepted outright — `Object.keys([])` is empty, so `[]` declared nothing and returned
+  // silently, which is the exact failure this module exists to prevent, in this module.
+  if (!isPlainObject(declaration)) {
+    throw new Error(`${FILE}: expected a JSON object, got ${describe(declaration)}.`);
+  }
   const known = new Set<string>(["contract", "shell"]);
   const unknownTop = Object.keys(declaration).filter((key) => !known.has(key));
   if (unknownTop.length > 0) {
@@ -125,6 +146,20 @@ export function resolveLayoutDeclaration(
     );
   }
 
+  if (declaration.contract !== undefined && typeof declaration.contract !== "string") {
+    throw new Error(
+      `${FILE}: "contract" must be a string, got ${describe(declaration.contract)}.`,
+    );
+  }
+  // Checked BEFORE defaulting, not after: `?? {}` swallows `null`, so `"shell": null` would
+  // have been read as "declared nothing" while `"shell": []` was refused — and the standard's
+  // own schema types this as an object, so it rejects null. Two consumers disagreeing about one
+  // document is the thing the declaration exists to stop.
+  if (declaration.shell !== undefined && !isPlainObject(declaration.shell)) {
+    throw new Error(
+      `${FILE}: "shell" must be a JSON object, got ${describe(declaration.shell)}.`,
+    );
+  }
   const shell = declaration.shell ?? {};
   const unknownShell = Object.keys(shell).filter(
     (key) => !(SHELL_KEYS as readonly string[]).includes(key),
@@ -150,8 +185,12 @@ export function resolveLayoutDeclaration(
   for (const key of SHELL_KEYS) {
     const declared = shell[key];
     if (declared === undefined) continue;
-    // `declared` is `string` here by construction (see LayoutShellDeclaration); the enum check
-    // below is what narrows it, so the cast after it is earned rather than asserted.
+    // A file can put a number or an object here. Refused with the type named rather than
+    // stringified into the enum message, where `shell.density is "7"` would read as a typo in
+    // a string the author never wrote.
+    if (typeof declared !== "string") {
+      throw new Error(`${FILE}: shell.${key} must be a string, got ${describe(declared)}.`);
+    }
     const legal = SHELL_VALUES[key] as readonly string[];
     if (!legal.includes(declared)) {
       throw new Error(

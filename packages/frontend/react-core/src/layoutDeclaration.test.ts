@@ -115,6 +115,45 @@ describe("resolveLayoutDeclaration", () => {
     ).toThrow(/both declare/);
   });
 
+  // ---- the file can hold anything JSON can ---------------------------------
+
+  it("refuses a declaration that is not a JSON object, naming what it got", () => {
+    // Every case here was found by PROBING the function rather than by imagining inputs, and
+    // each was broken differently. `null` threw a bare "Cannot convert undefined or null to
+    // object" with no mention of the file. A string and an array had their character and
+    // element indices reported as unknown KEYS. And an array was accepted outright — it has no
+    // keys, so it declared nothing and returned silently, which is the exact failure this
+    // module exists to prevent, occurring inside it.
+    expect(() => resolveLayoutDeclaration(null as never, {})).toThrow(
+      /expected a JSON object, got null/,
+    );
+    expect(() => resolveLayoutDeclaration([] as never, {})).toThrow(
+      /expected a JSON object, got an array/,
+    );
+    expect(() => resolveLayoutDeclaration("standard" as never, {})).toThrow(
+      /expected a JSON object, got a string/,
+    );
+  });
+
+  it("refuses a shell that is not a JSON object", () => {
+    for (const shell of [null, "compact", 7, []]) {
+      expect(() => resolveLayoutDeclaration({ shell } as never, {})).toThrow(
+        /"shell" must be a JSON object, got /,
+      );
+    }
+  });
+
+  it("refuses a value that is not a string, by type rather than by enum", () => {
+    // `shell.density is "7"` would read as a typo in a string the author never wrote, so the
+    // type is named instead of the value being stringified into the enum message.
+    expect(() => resolveLayoutDeclaration({ shell: { density: 7 } } as never, {})).toThrow(
+      /shell\.density must be a string, got a number/,
+    );
+    expect(() => resolveLayoutDeclaration({ contract: 7 } as never, {})).toThrow(
+      /"contract" must be a string, got a number/,
+    );
+  });
+
   it("names the file rather than the option in every message", () => {
     // The file is the source a person or a tool should edit, so it is the thing a refusal points
     // at. A message naming only the TypeScript option would send the reader to the half this
