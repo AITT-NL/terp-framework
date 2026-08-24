@@ -63,11 +63,9 @@ export { Page } from "./Page";
 export type { PageProps } from "./Page";
 export { LAYOUT_CONTRACTS } from "./layoutContract";
 export type { LayoutContractSpec, LayoutSlotSpec } from "./layoutContract";
-export type {
-  LayoutDeclaration,
-  LayoutShellDeclaration,
-  ResolvedLayout,
-} from "./layoutDeclaration";
+// `ResolvedLayout` is deliberately NOT exported: nothing hands one to app code, so it
+// would be public surface a consumer can never hold.
+export type { LayoutDeclaration, LayoutShellDeclaration } from "./layoutDeclaration";
 export { PageActions } from "./PageActions";
 export type { OverflowAction, PageActionsProps } from "./PageActions";
 export { ModuleNav } from "./ModuleNav";
