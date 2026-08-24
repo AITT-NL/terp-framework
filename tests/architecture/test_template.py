@@ -19,6 +19,26 @@ _CODEGEN = (
     pathlib.Path(__file__).resolve().parents[2]
     / "packages/frontend/contract/src/routes-codegen.js"
 )
+_REACT_CORE = (
+    pathlib.Path(__file__).resolve().parents[2] / "packages/frontend/react-core/src"
+)
+
+
+def _shipped_palettes() -> list[str]:
+    """Every theme react-core ships, minus ``system``.
+
+    Read from the source of truth rather than restated here, because a list
+    written twice is the defect these gates exist to catch. ``system`` is not a
+    palette — it is "follow the platform" — so it is dropped: the docs may
+    mention it, and must not be required to name it as one of the painted sets.
+    """
+    source = (_REACT_CORE / "themes.ts").read_text(encoding="utf-8")
+    block = re.search(r"THEMES:\s*readonly Theme\[\]\s*=\s*\[(.*?)\]", source, re.DOTALL)
+    assert block, "could not locate THEMES in react-core/src/themes.ts"
+    names = re.findall(r'"([a-z]+)"', block.group(1))
+    assert len(names) > 2, f"THEMES parsed to {names} — the regex stopped matching"
+    return [name for name in names if name != "system"]
+
 
 
 def test_copier_config_declares_inputs_and_subdirectory() -> None:
@@ -477,3 +497,106 @@ def test_template_route_table_matches_what_the_generator_emits() -> None:
         "  }",
         "}",
     ], f"unexpected route-table body: {table[len(header):]!r}"
+
+
+# --------------------------------------------------------------------------- #
+# The generated app's own documentation describes the app it actually is.
+#
+# This is the class of defect nothing else here can see. A scaffolded app carries
+# prose about itself, and that prose is what an agent — or a developer who never
+# installs any tool beyond this framework — reads to answer "how do I change the
+# way this looks?". It rotted exactly that way: the framework grew from two
+# palettes to five and three files kept saying two, while a fourth file in the
+# same template said "this app ships three dark themes" four lines further down.
+# --------------------------------------------------------------------------- #
+
+
+def test_the_scaffolded_app_names_every_palette_it_actually_ships() -> None:
+    """Both places a person looks: the entry point they open, and their AGENTS.md.
+
+    Asserted against react-core's own THEMES rather than a list written here, so
+    a sixth palette fails this instead of quietly making the docs wrong again.
+    """
+    palettes = _shipped_palettes()
+    for name, path in (
+        ("main.tsx.jinja", _PROJECT / "frontend" / "src" / "main.tsx.jinja"),
+        ("AGENTS.md.jinja", _PROJECT / "AGENTS.md.jinja"),
+    ):
+        text = path.read_text(encoding="utf-8")
+        missing = [palette for palette in palettes if palette not in text]
+        assert not missing, (
+            f"{name} does not name {missing}; a scaffolded app whose own docs list "
+            f"fewer palettes than it ships sends its reader looking for a theme "
+            f"switcher that is already there"
+        )
+
+
+def test_the_scaffolded_app_does_not_describe_itself_as_two_themed() -> None:
+    """The specific sentences that were wrong, refused by shape.
+
+    A positive check that every palette is NAMED does not catch a sentence that
+    names them all and then says "both palettes" two lines later — the file would
+    contain each name and still tell the reader there are two. So the phrasings
+    that carried the claim are refused outright.
+    """
+    banned = (
+        "both palettes",
+        "both the light and dark",
+        "light and dark palettes",
+        "Dark/light theme",
+        "(light / dark / system)",
+        "(light/dark/system)",
+    )
+    for path in sorted(_PROJECT.rglob("*")):
+        if not path.is_file() or path.suffix not in {".jinja", ".css", ".md", ".tsx", ".ts"}:
+            continue
+        content = path.read_text(encoding="utf-8", errors="ignore")
+        for phrase in banned:
+            assert phrase not in content, (
+                f"{path.relative_to(_PROJECT)} says {phrase!r}; this framework ships "
+                f"{len(_shipped_palettes())} palettes"
+            )
+
+
+def test_the_scaffolded_app_puts_the_theme_toggle_where_it_actually_is() -> None:
+    """The docs said the user menu; the component tree says the shell header.
+
+    Pinned to the component tree, not to itself. An agent asked to "move the theme
+    switch" reads AGENTS.md, goes to UserMenu, finds nothing, and starts guessing —
+    and the same sentence credited that menu with the language switch, which is
+    also elsewhere. If the toggle is ever genuinely moved into the user menu, this
+    fails and the prose gets revisited with it.
+    """
+    shell = (_REACT_CORE / "AppShell.tsx").read_text(encoding="utf-8")
+    menu = (_REACT_CORE / "UserMenu.tsx").read_text(encoding="utf-8")
+    assert "<ThemeToggle" in shell, "the shell no longer renders the theme toggle"
+    assert "<ThemeToggle" not in menu, (
+        "the theme toggle moved into the user menu — the template's AGENTS.md says "
+        "it is in the shell header, and now needs revisiting"
+    )
+    assert "<LanguageSwitcher" in shell and "<LanguageSwitcher" not in menu
+
+    agents = (_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8")
+    assert "shell header" in agents, (
+        "the generated AGENTS.md no longer tells its reader where the theme toggle is"
+    )
+
+
+def test_the_scaffolded_theme_overlay_belongs_to_the_app() -> None:
+    """`theme.css` is the app's styling seam, and must read as one.
+
+    It shipped titled "Studio-managed theme overlay" and explained itself entirely
+    in terms of a product the developer may never install — so the one file that
+    answers "where do I change the colours?" answered "somewhere else". A tool
+    that generates it is a fact worth stating, and it is stated; it is not the
+    file's identity.
+    """
+    overlay = (_PROJECT / "frontend" / "src" / "theme.css").read_text(encoding="utf-8")
+    first_line = overlay.splitlines()[0]
+    assert "Studio" not in first_line, (
+        f"theme.css introduces itself as {first_line!r} — a developer with no such "
+        f"tool must still read this as their own file"
+    )
+    assert "terp guide theming" in overlay, (
+        "theme.css should point at the recipe that is always available"
+    )

@@ -29,6 +29,8 @@ import pathlib
 import re
 import sys
 
+import pytest
+
 # terp-cli is not pip-installed in the dev venv; inject its src (as the other CLI tests do).
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
@@ -42,6 +44,8 @@ from terp.core import __all__ as _CORE_ALL  # noqa: E402
 # bootstrap pointer is template/AGENTS.md; the live recipes are `terp guide`).
 _AGENTS_MD = _REPO_ROOT / "AGENTS.md"
 _TEMPLATE_AGENTS_MD = _REPO_ROOT / "template" / "AGENTS.md"
+#: The AGENTS.md a generated app actually carries (copier renders from `template/project`).
+_DELIVERED_AGENTS_MD = _REPO_ROOT / "template" / "project" / "AGENTS.md.jinja"
 _TESTS_ROOT = _REPO_ROOT / "tests"
 
 
@@ -56,9 +60,18 @@ def _full_guide_text() -> str:
 
 
 def _doc_surfaces() -> dict[str, str]:
+    """Every surface an agent reads, INCLUDING the one that ships into an app.
+
+    `template/AGENTS.md` is the bootstrap pointer for someone browsing this repository.
+    `template/project/AGENTS.md.jinja` is the file copier actually delivers — copier's
+    `_subdirectory` is `project`, so the former never reaches a generated app at all.
+    Only the pointer was held to these claims, which is how the delivered file came to
+    describe an app with two palettes while the pointer beside it named five.
+    """
     return {
         "AGENTS.md": _AGENTS_MD.read_text(encoding="utf-8"),
         "template/AGENTS.md": _TEMPLATE_AGENTS_MD.read_text(encoding="utf-8"),
+        "template/project/AGENTS.md.jinja": _DELIVERED_AGENTS_MD.read_text(encoding="utf-8"),
         "terp guide": _full_guide_text(),
     }
 
@@ -273,3 +286,96 @@ def test_trait_seam_coverage_fails_closed_on_an_undocumented_primitive() -> None
         [*_CORE_ALL, "SyntheticGhostMixin"], _full_guide_text(), _NON_AUTHORED_TRAITS
     )
     assert undocumented == {"SyntheticGhostMixin"}
+
+
+# --------------------------------------------------------------------------- #
+# (5) the base profile — stated in three documents, installed by one manifest
+# --------------------------------------------------------------------------- #
+_TEMPLATE_PYPROJECT = _REPO_ROOT / "template" / "project" / "pyproject.toml.jinja"
+_CAPABILITY_PACKAGES = _REPO_ROOT / "packages" / "backend" / "capabilities"
+
+
+def _base_profile() -> set[str]:
+    """The capabilities EVERY scaffolded app installs, read from the template manifest.
+
+    Ground truth, not a fourth restatement: a ``terp-cap-*`` requirement outside every
+    ``{% if use_* %}`` block is unconditional, and unconditional is what "base" means.
+    """
+    names: set[str] = set()
+    depth = 0
+    for line in _TEMPLATE_PYPROJECT.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("{%") and " if " in stripped:
+            depth += 1
+            continue
+        if stripped.startswith("{%") and "endif" in stripped:
+            depth -= 1
+            continue
+        if depth == 0:
+            match = re.search(r'"terp-cap-([a-z-]+)==', stripped)
+            if match:
+                names.add(match.group(1).replace("-", "_"))
+    assert len(names) >= 4, f"parsed {names} as the base profile — the reader is broken"
+    return names
+
+
+def _shipped_capabilities() -> set[str]:
+    """Every capability package that exists in this repository."""
+    names = {
+        path.name
+        for path in _CAPABILITY_PACKAGES.iterdir()
+        if path.is_dir() and (path / "pyproject.toml").exists()
+    }
+    assert len(names) > 10, f"found only {names} — the capability scan is broken"
+    return names
+
+
+#: Where the base profile is described in prose, and the sentence that describes it.
+#:
+#: Three documents, three different lists, and one of them named ``projects`` — a
+#: capability that has never existed. An agent reading ``terp guide capability`` would
+#: have gone looking for it, and an agent reading any of the three would have believed
+#: its app had no group membership. The lists are checked against the manifest that
+#: installs them, so the next edit to one of the three cannot silently disagree.
+_BASE_PROFILE_CLAIMS = (
+    ("terp guide capability", lambda: guide("capability")),
+    (
+        "packages/backend/capabilities/README.md",
+        lambda: (_CAPABILITY_PACKAGES / "README.md").read_text(encoding="utf-8"),
+    ),
+    (
+        "template/project/AGENTS.md.jinja",
+        lambda: _DELIVERED_AGENTS_MD.read_text(encoding="utf-8"),
+    ),
+)
+
+
+@pytest.mark.parametrize("label,read", _BASE_PROFILE_CLAIMS, ids=lambda value: getattr(value, "__name__", str(value)))
+def test_every_base_profile_claim_names_the_capabilities_that_are_installed(
+    label: str, read
+) -> None:
+    """Each document must name every capability a scaffolded app actually gets."""
+    text = read()
+    missing = sorted(name for name in _base_profile() if name not in text)
+    assert not missing, (
+        f"{label} describes the base profile without naming {missing}; "
+        f"template/project/pyproject.toml.jinja installs it unconditionally"
+    )
+
+
+def test_no_agent_surface_invents_a_capability() -> None:
+    """A capability named in the docs must be a package that exists.
+
+    ``terp guide capability`` promised "auth + access + identity + users (+ projects)".
+    There is no ``terp-cap-projects``. A capability an author cannot find is one they
+    re-implement by hand, which is the exact failure the capability guide exists to
+    prevent — so the guide inventing one is worse than the guide being silent.
+    """
+    shipped = _shipped_capabilities()
+    for label, text in _doc_surfaces().items():
+        named = {
+            match.group(1).replace("-", "_")
+            for match in re.finditer(r"terp-cap-([a-z][a-z-]*)", text)
+        }
+        ghosts = sorted(named - shipped)
+        assert not ghosts, f"{label} names capabilities that do not exist: {ghosts}"

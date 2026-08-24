@@ -83,7 +83,25 @@ Add a module (the "10-minute module")
 5) module.py   the manifest
      module = ModuleSpec(name="invoices", router=router, policy=Policy.default())
 
-Then run `terp check`. Policy.default() = authenticated; read VIEWER, write EDITOR.
+6) MOUNT IT. A module nobody mounts serves no routes, and nothing fails: the gate is
+   happy, the tests are happy, and the endpoints are simply not there. Import it in the
+   composition root and add it to the list `create_app` is given:
+
+     # app/main.py
+     from app.modules.invoices.module import module as invoices
+     create_app([..., invoices], ...)
+
+Then the codegen chain, in this order — each step reads what the one before it wrote:
+
+     terp migrate make invoices    # the table's migration
+     terp openapi                  # the backend contract
+     npm --prefix frontend run generate    # the typed client, from that contract
+     terp routes                   # the checked route table (ADR 0092)
+     terp check                    # the architecture gate
+
+`terp verify` runs the drift halves of that chain and names the command to re-run when
+something is stale, so it is the one to reach for if you are unsure what is out of date.
+Policy.default() = authenticated; read VIEWER, write EDITOR.
 """,
     "dependencies": """\
 One module needs another (declared edges)
@@ -795,8 +813,10 @@ File objects (files capability, ADR 0056/0057)
     "capability": """\
 Using capabilities
 
-- Capabilities are opt-in packages (terp-cap-*); the base profile is auth + access +
-  identity + users (+ projects). Install the ones you need.
+- Capabilities are opt-in packages (terp-cap-*). Every scaffolded app already has the
+  BASE PROFILE — auth, identity, users, groups, access, audit — so authentication,
+  accounts, group membership, permission checks and the audit trail are wired before you
+  write anything. Install the others you need.
 - SEE WHAT EXISTS BEFORE YOU BUILD IT:
       terp inspect capabilities
   lists every maintained capability, whether this app already has it, the exact
@@ -1019,6 +1039,57 @@ Forms (react-core primitives)
 - Mirror the backend's input caps client-side (maxLength on Input matching the schema's
   Field(max_length=...)) so users see the limit before the 422 does.
 """,
+    "theming": """\
+Theming and branding (design tokens, palettes, the brand mark)
+
+- EVERY style is a design token. The react-core primitives paint from CSS custom
+  properties shipped by @terpjs/contract (tokens.css), which is why the boundary lint
+  refuses `style={}`, `className` and module stylesheets: a module that painted itself
+  would not follow the palette. Modules never need theme-specific code.
+- THE SHIPPED PALETTES, plus "system":
+      light  dark  midnight  twilight  contrast
+  `contrast` is a high-contrast light set. The active one is `data-theme` on <html>;
+  the shell header's theme toggle offers all five plus "system" (follow the viewer's
+  own platform preference) and persists the choice. `system` resolves to the dark set
+  when the platform asks for dark.
+- TO CHANGE HOW YOUR APP LOOKS, redefine tokens in `frontend/src/theme.css`. It is
+  imported immediately after tokens.css and therefore wins the cascade. Declare only
+  what you are changing; everything else falls back to the framework's value.
+
+      :root { --color-brand-primary: #2563eb; }
+      [data-theme="dark"] { --color-brand-primary: #60a5fa; }
+
+  Per palette, use that palette's selector. A token with no palette selector is
+  declared in `:root` and governs every palette at once — which is what you want for
+  spacing, corners and typography, and usually not what you want for a colour.
+- TO SHIP ON A PALETTE OTHER THAN light, name it in the layout declaration — never by
+  restyling one palette to imitate another:
+
+      frontend/layout-contract.json -> { "defaultTheme": "midnight" }
+
+  Legal values are the five above plus "system". Passing `defaultTheme` as a bootstrap
+  option as well is refused (terp guide layouts).
+- THE BRAND MARK is a path, not JSX. Put the file in `frontend/public/` (Vite serves
+  that directory at the site root) and declare it:
+
+      "shell": { "brand": { "logo": "/logo.svg", "logoDark": "/logo-dark.svg" } }
+
+  `logoDark` is picked automatically under a dark palette — most company logos have
+  fixed colours and cannot survive one, and several of the shipped palettes are dark.
+  The shell sizes the mark itself, in a box of `--shell-brand-size`; move that token in
+  theme.css rather than scaling the image. An app that wants an inline SVG or a
+  component can still pass the `logo` bootstrap option instead — declaring both is
+  refused. The browser TAB mark is separate and cannot be declared: a browser reads it
+  from `index.html` before any app code runs, so edit the <link rel="icon"> there.
+- WHICH TOKENS EXIST is published, not guessed: @terpjs/contract ships
+  tokens.manifest.json (every token, its category, its per-palette values, and whether
+  a palette may vary it). Spacing, corners, typography, motion and z-index are
+  theme-INVARIANT by design — declare them once in `:root`. An app whose spacing
+  changed when someone switched palette is not what anyone means by a theme.
+- CONTRAST is measurable, so measure it: @terpjs/contract carries a WCAG contrast suite
+  over the shipped palettes. If you override a foreground or a background, check the
+  pairing rather than trusting the eye.
+""",
     "layouts": """\
 Layout contracts (slot-typed layouts, ADR 0079)
 
@@ -1027,11 +1098,38 @@ Layout contracts (slot-typed layouts, ADR 0079)
   It is enforced two-layer and fail-closed, and every failure message tells you the
   contract, the slot, what was found, what is allowed, and the concrete fix — let it
   guide you.
-- Opt in (both halves; keep them in sync — the template generates both):
-      frontend/layout-contract.json          -> { "contract": "standard" }   (lint half)
-      renderTerpApp({ layoutContract: "standard", ... })                     (runtime half)
+- Opt in ONCE, in the file. `frontend/layout-contract.json` is the app's layout
+  DECLARATION: the `terp/layout-contract` lint rule finds it on disk and `main.tsx`
+  imports it, so one line governs both halves.
+
+      frontend/layout-contract.json          -> { "contract": "standard" }
+
+  Declaring the same fact in code as well — `renderTerpApp({ layoutContract: "..." })`
+  — is REFUSED when the router composes, by name:
+
+      frontend/layout-contract.json and the bootstrap options both declare "contract"
+      (file: "standard", code: "standard"). Declare each in one place: the file is what
+      a tool can read and rewrite, so prefer it and drop the option.
+
+  (This recipe used to say "keep them in sync". It was the last copy of an instruction
+  to maintain a duplicate, and the duplicate is now a startup error.)
   No config = no checks (fully backwards compatible; an existing app can switch later
   and fix screens by following the enforcement messages).
+- The same file carries the rest of the app's declared shape, each key optional and each
+  refused as a duplicate if it is also passed as a bootstrap option:
+      defaultTheme            the palette the app opens on (terp guide theming)
+      shell.density           "comfortable" | "compact"
+      shell.navPlacement      "sidebar" | "header"
+      shell.contentWidth      "full" | "measured"
+      shell.brand             { "logo": "/logo.svg", "logoDark": "/logo-dark.svg" }
+                              -- paths under frontend/public/, served from the site root
+      shell.navGroups         [ { "id": "work", "label": "Workspace", "order": 1 } ]
+                              -- label "" renders the group with no heading; a module's
+                                 manifest names the group it belongs to
+  A value off its enum, an unknown key, and a fact declared twice are three separate
+  refusals, each naming the file, the key and the legal alternatives. The vocabulary is
+  published as JSON at @terpjs/react-core/layout.manifest.json, so a tool (or an agent)
+  can read what is legal instead of guessing.
 - The "standard" contract governs the body slot of each archetype:
       HubPage      -> HubCard only (a card grid landing)
       OverviewPage -> DataView / ResourceList / ModuleNav / Stack / Card / Divider /
@@ -1222,6 +1320,7 @@ More:  terp guide <topic>   (topics: {_TOPIC_NAMES})
     terp guide <rule>            (the exact rule's remediation and related pattern)
        terp guide rules             (every architecture rule the gate enforces, generated)
        terp --version               (which platform you are on; warns on mixed pins)
+       terp guide theming           (palettes, design tokens, the brand mark)
        terp guide changelog         (what changed — read this before and after a bump)
        terp upgrade --check         (is there a newer release for the whole set?)
        terp inspect capabilities    (what the platform offers: installed vs adoptable)
@@ -1846,12 +1945,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    inspect_parser = subcommands.add_parser("inspect")
+    inspect_parser = subcommands.add_parser(
+        "inspect",
+        help="Read this app back: its control plane, jobs, access graph, schema and "
+        "capabilities (add --format json for a machine-readable answer)",
+    )
     inspect_subcommands = inspect_parser.add_subparsers(
         dest="inspect_command",
         required=True,
     )
-    control_plane_parser = inspect_subcommands.add_parser("control-plane")
+    control_plane_parser = inspect_subcommands.add_parser(
+        "control-plane",
+        help="Roles, permissions and which module each one has authority over",
+    )
     control_plane_parser.add_argument(
         "--object",
         default="control_plane:control_plane",
@@ -1869,7 +1975,10 @@ def _build_parser() -> argparse.ArgumentParser:
         default="text",
         help="Output format (default: text)",
     )
-    jobs_inspect_parser = inspect_subcommands.add_parser("jobs")
+    jobs_inspect_parser = inspect_subcommands.add_parser(
+        "jobs",
+        help="Every declared background job, its schedule and its owning module",
+    )
     jobs_inspect_parser.add_argument(
         "--object",
         default="control_plane:control_plane",
@@ -1905,7 +2014,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=("text", "json"),
         default="text",
-        help="Output format: text (human) or json (structured, for Studio; default: text)",
+        help="Output format: text (human) or json (structured, for any tool or agent "
+        "reading this; default: text)",
     )
     capabilities_parser = inspect_subcommands.add_parser(
         "capabilities",
@@ -1916,7 +2026,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=("text", "json"),
         default="text",
-        help="Output format: text (human) or json (structured, for Studio; default: text)",
+        help="Output format: text (human) or json (structured, for any tool or agent "
+        "reading this; default: text)",
     )
     schema_parser = inspect_subcommands.add_parser(
         "schema",
@@ -1938,7 +2049,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=("text", "json"),
         default="text",
-        help="Output format: text (human) or json (structured, for Studio; default: text)",
+        help="Output format: text (human) or json (structured, for any tool or agent "
+        "reading this; default: text)",
     )
 
     guide_parser = subcommands.add_parser(
@@ -1950,6 +2062,19 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional topic or exact architecture rule for a focused recipe "
         "(validated on dispatch, so the rule registry stays off the common CLI path)",
+    )
+    guide_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List the topics instead of printing a recipe — one per line, or JSON "
+        "with --format json. The index, for anything that would rather not parse prose",
+    )
+    guide_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format for --list: text (one topic per line) or json "
+        "(default: text)",
     )
 
     upgrade_parser = subcommands.add_parser(
@@ -2439,6 +2564,23 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(render_capabilities(fmt=args.format))
         return
     if args.command == "guide":
+        if args.list:
+            # The rule names are deliberately a SEPARATE key rather than folded in with
+            # the topics: `terp guide <rule>` accepts both, but a rule is a remediation
+            # for one gate finding and a topic is a subject you can learn. A consumer
+            # offering "what can I read about?" wants the topics; a consumer resolving a
+            # violation already has the rule name and wants only to know it is answerable.
+            if args.format == "json":
+                print(
+                    json.dumps(
+                        {"topics": list(guide_topics()), "rules": sorted(set(guide_choices()) - set(guide_topics()))},
+                        indent=2,
+                    )
+                )
+            else:
+                for topic in guide_topics():
+                    print(topic)
+            return
         if args.topic is not None and args.topic not in guide_choices():
             raise SystemExit(
                 f"terp guide: unknown topic or rule {args.topic!r}; run `terp guide` "

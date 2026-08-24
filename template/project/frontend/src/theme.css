@@ -1,14 +1,26 @@
-/* Studio-managed theme overlay.
+/* This app's design-token overlay — where you change how it looks.
  *
- * This file starts empty: the project renders with @terpjs/contract's
- * default design tokens (imported in main.tsx right before this file) until
- * a theme is applied from the Studio's Themes settings screen. Applying a
- * theme overwrites this file with a `:root { --token: value; ... }` block
- * that redefines only the tokens it customises — the normal CSS cascade
- * falls back to the framework default for everything a theme doesn't set.
+ * It starts empty, and the app renders with @terpjs/contract's default tokens
+ * (imported in main.tsx immediately before this file). Anything declared here
+ * wins, because it loads last: redefine only the tokens you want to change and
+ * the normal cascade falls back to the framework's value for the rest.
  *
- * Hand edits are safe (Studio only applies a theme when the workspace has
- * no uncommitted changes, and the change lands as a normal, reviewable
- * edit — never auto-committed) but will be overwritten the next time a
- * theme is applied to this project.
+ *   :root {
+ *     --color-brand-primary: #2563eb;
+ *     --shell-brand-size: 2rem;
+ *   }
+ *
+ * Per palette, use the theme's own selector. The shipped palettes are light,
+ * dark, midnight, twilight and contrast, and the active one is applied as
+ * `data-theme` on <html>:
+ *
+ *   [data-theme="dark"] { --color-brand-primary: #60a5fa; }
+ *
+ * `uv run terp guide theming` has the whole recipe, including which token names
+ * exist and how to ship on a palette other than light.
+ *
+ * A TOOL MAY GENERATE THIS FILE. Terp Studio's theme editor writes it wholesale
+ * when a theme is applied, and will overwrite hand edits the next time that
+ * happens — it is a normal, reviewable working-copy change, never auto-committed.
+ * If you do not use such a tool, this file is simply yours: edit it freely.
  */

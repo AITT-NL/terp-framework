@@ -4,7 +4,7 @@ The database schema has one sanctioned source of truth: the shared SQLModel
 metadata, populated by importing every declared **migration tree**'s models
 module (exactly how ``terp migrate`` discovers models). This module projects
 that metadata into one structured report — JSON-first so
-external tooling (Terp Studio) can visualize the data model without importing
+external tooling can visualize the data model without importing
 ``terp.*`` — and reconciles it fail-visibly, mirroring the access graph:
 
 * **``tables``** — every mapped table, attributed to its owning migration tree

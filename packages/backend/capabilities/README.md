@@ -39,7 +39,9 @@ Built capabilities (design §3.1, §6):
 | **scheduler_apscheduler** (APScheduler backend) | `terp-cap-scheduler-apscheduler` | `terp.capabilities.scheduler_apscheduler` |
 | **scheduler_celery_beat** (Celery beat backend) | `terp-cap-scheduler-celery-beat` | `terp.capabilities.scheduler_celery_beat` |
 
-The **base profile** (design §13, Phase 2) is core + auth + access + identity +
-users. Capabilities are discovered via **entry points** (installable)
+The **base profile** (design §13, Phase 2) is core + auth + identity + users +
+groups + access + audit — the set `template/project/pyproject.toml.jinja` requires
+unconditionally, which is what a scaffolded app actually installs.
+Capabilities are discovered via **entry points** (installable)
 so adding one mounts its router and exposes its models to migrations without
 editing any composition root.

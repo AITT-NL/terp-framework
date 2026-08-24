@@ -84,7 +84,7 @@ for in-page tab sets and `Markdown` for safe rich text).
    `eval()` / `new Function()` are refused; `javascript:` URLs in `href`/`src` are
    refused; a static `target="_blank"` link needs `rel="noopener"`.
 9. Theming and language are platform concerns, already wired: the token stylesheet
-   carries five palettes — `light`, `dark`, `midnight`, `twilight` and `contrast` (the
+   carries the palettes `light`, `dark`, `midnight`, `twilight` and `contrast` (the
    built-in sidebar `UserMenu` offers all of them plus `system`), and
    `renderTerpApp({ locales })` declares the language catalogs (the menu shows a picker
    once a second locale exists). Keep user-facing text as `UiText` props so it follows

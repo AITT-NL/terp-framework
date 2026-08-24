@@ -8,6 +8,7 @@ then ``terp guide <topic>`` for a copy-pasteable recipe.
 from __future__ import annotations
 
 import pathlib
+import re
 import sys
 
 import pytest
@@ -21,6 +22,14 @@ from terp.cli import guide, guide_choices, guide_topics, main  # noqa: E402  (im
 # Derived from the live CLI registry — not hand-duplicated — so a new topic is covered
 # automatically (and the rules topic is generated; see test_docs_parity.py).
 _TOPICS = guide_topics()
+
+#: The topics whose text is WRITTEN here, as opposed to generated from another artifact.
+#:
+#: `changelog` prints the shipped release notes and `rules` prints the live rule registry.
+#: A release note legitimately counts things — it records one moment, and "ships five themes"
+#: was true of the release it describes and stays true of it forever. The rule against a
+#: rotting count is about standing prose, so it is applied to standing prose.
+_AUTHORED_TOPICS = tuple(topic for topic in _TOPICS if topic not in {"changelog", "rules"})
 
 
 def test_overview_lists_the_shape_and_golden_rules() -> None:
@@ -242,3 +251,108 @@ def test_cli_migrate_delegates_to_the_runner(
     # each installed capability's history (no --app-root -> app modules are skipped).
     main(["migrate", "status", "--database-url", f"sqlite:///{tmp_path / 'cli.db'}"])
     assert "audit" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- #
+# Appearance: the one thing the guide said nothing about, and the counts that rot.
+# --------------------------------------------------------------------------- #
+
+_REACT_CORE = pathlib.Path(__file__).resolve().parents[2] / "packages" / "frontend" / "react-core"
+
+#: A spelled-out or numeric count immediately in front of a set that grows.
+#:
+#: "five palettes" was true when it was written and false one release later, in five
+#: files at once. The list of names is the useful content and it is checked positively
+#: below; the number in front of it is only a second copy of `len(THEMES)` with no way
+#: to notice when it stops matching.
+_COUNTED_SET = re.compile(
+    # "one" is left out: in English "restyling one palette to imitate another" is an
+    # indefinite article, not a tally, and a set of one is not the thing that grows.
+    r"\b(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\s+"
+    r"(?:\w+\s+)?(?:palettes?|themes)\b",
+    re.IGNORECASE,
+)
+
+
+def _shipped_palettes() -> list[str]:
+    """Every palette react-core ships, read from its own source, minus ``system``."""
+    source = (_REACT_CORE / "src" / "themes.ts").read_text(encoding="utf-8")
+    block = re.search(r"THEMES:\s*readonly Theme\[\]\s*=\s*\[(.*?)\]", source, re.DOTALL)
+    assert block, "could not locate THEMES in react-core/src/themes.ts"
+    names = re.findall(r'"([a-z]+)"', block.group(1))
+    assert len(names) > 2, f"THEMES parsed to {names} — the regex stopped matching"
+    return [name for name in names if name != "system"]
+
+
+def test_a_theming_topic_exists_at_all() -> None:
+    """The CLI is a Terp app's always-available documentation, and it was silent here.
+
+    The framework ships a token contract, several palettes, a theme provider, a
+    declared `defaultTheme` and a declared brand mark — and `terp guide` mentioned
+    none of it. "How do I change how my app looks?" is among the first questions
+    anyone asks, and the only place that answered it was a separate product.
+    """
+    assert "theming" in guide_topics()
+    text = guide("theming")
+    assert "theme.css" in text, "the topic must name the file to edit"
+    assert "defaultTheme" in text, "the topic must name how an app ships on a palette"
+    assert "shell.brand" in text or '"brand"' in text, "the topic must cover the brand mark"
+
+
+def test_the_theming_topic_names_every_palette_that_ships() -> None:
+    """Asserted against THEMES, so a new palette is a failing test rather than a
+    recipe that quietly stops listing it."""
+    text = guide("theming")
+    missing = [name for name in _shipped_palettes() if name not in text]
+    assert not missing, f"terp guide theming does not name {missing}"
+
+
+def test_the_guide_never_counts_a_set_that_grows() -> None:
+    """No "five palettes" anywhere in the guide's own text.
+
+    Every topic, because the phrasing spreads by copy: the same sentence was in the
+    template, the app's AGENTS.md, react-core's README and this guide. The names are
+    the content; the count is a duplicate of `len(THEMES)` that nothing keeps honest.
+    """
+    for topic in (None, *_AUTHORED_TOPICS):
+        text = guide(topic)
+        found = _COUNTED_SET.search(text)
+        assert not found, (
+            f"terp guide {topic or '(overview)'} says {found.group(0)!r} — name them "
+            f"instead, or cite where the list lives"
+        )
+
+
+def test_the_module_recipe_says_to_mount_the_module() -> None:
+    """A module nobody mounts serves no routes, and NOTHING fails.
+
+    The recipe walked the five slots and ended "Then run `terp check`" — and the gate is
+    happy with an unmounted module, because an unmounted module breaks no architecture
+    rule. So an agent could follow the canonical "how do I add an endpoint" recipe to the
+    letter, see green, and have built nothing reachable. The generated app's AGENTS.md
+    said it in bold; the CLI, which is the copy an agent has when it has nothing else,
+    did not.
+    """
+    text = guide("module")
+    assert "app/main.py" in text, "the recipe must name the composition root"
+    assert "create_app" in text, "the recipe must show the module being registered"
+    assert "serves no routes" in text, "the recipe must say what happens if you skip it"
+
+
+def test_the_module_recipe_carries_the_codegen_chain_in_order() -> None:
+    """Each generator reads what the one before it wrote, so the order is the recipe.
+
+    `terp openapi` writes the contract the client is generated from; `terp routes` reads
+    the manifests. A recipe that named them out of order, or omitted one, leaves an agent
+    with a typed client that does not know about the endpoint it just added.
+    """
+    text = guide("module")
+    chain = ["terp migrate make", "terp openapi", "run generate", "terp routes", "terp check"]
+    positions = [text.find(step) for step in chain]
+    assert all(position >= 0 for position in positions), (
+        f"terp guide module is missing {[s for s, p in zip(chain, positions) if p < 0]}"
+    )
+    assert positions == sorted(positions), (
+        f"the codegen steps are out of order in terp guide module: "
+        f"{sorted(zip(positions, chain))}"
+    )

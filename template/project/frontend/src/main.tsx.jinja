@@ -1,9 +1,11 @@
-// The design-token CSS variables the react-core primitives style against — both the
-// light and dark palettes; the shell header's theme toggle (light/dark/system)
-// switches them via <html data-theme> with no per-module changes.
+// The design-token CSS variables the react-core primitives style against. Every shipped
+// palette is in here — light, dark, midnight, twilight and contrast — and the shell
+// header's theme toggle switches between them (plus "system", which follows the viewer's
+// own platform preference) via <html data-theme>, with no per-module changes.
 import "@terpjs/contract/tokens.css";
-// A Studio-managed styling overlay — empty by default, filled in when a theme
-// is applied from the Studio's Themes settings screen (see theme.css).
+// This app's own token overlay, and the file to edit to change how it looks. Empty by
+// default; it loads last, so anything it declares wins. `uv run terp guide theming` has
+// the recipe. A tool may generate it — see the note at the top of theme.css.
 import "./theme.css";
 import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terpjs/react-core";
 // The app's layout declaration, checked in beside this file. ONE file, two readers: the
@@ -54,7 +56,7 @@ renderTerpApp({
   // token from theme.css to change it.
   //
   // If the mark has fixed colours and cannot survive a dark theme — most company logos
-  // cannot, and this app ships three dark themes — declare the second asset too and the
+  // cannot, and several of this app's palettes are dark — declare the second asset too and the
   // stylesheet picks by the palette in force, with no code of yours involved:
   //
   //   "shell": { "brand": { "logo": "/logo.svg", "logoDark": "/logo-dark.svg" } }

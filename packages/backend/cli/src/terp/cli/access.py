@@ -14,7 +14,7 @@ enforced source of truth:
    predicates (ADR 0017 / 0029).
 
 This module *projects* those sources into one structured report — JSON-first so
-external tooling (Terp Studio) can visualize the full access graph without
+external tooling can visualize the full access graph without
 importing ``terp.*`` — plus a human-readable text rendering. It is a **view,
 never a second source of truth** (ADR 0011): nothing here configures anything.
 
@@ -215,7 +215,7 @@ def build_access_graph(
 ) -> dict[str, object]:
     """The Access Graph as plain data: roles -> modules -> endpoints -> data traits.
 
-    The stable contract ``terp inspect access --format json`` emits for Studio
+    The stable contract ``terp inspect access --format json`` emits for any consumer
     and other external tooling. App-wide registered predicates are reported by
     (qualified) name so a custom row-visibility or object-authz policy is
     *visible* in the graph even though its logic lives in code.

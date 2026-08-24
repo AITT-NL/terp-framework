@@ -39,10 +39,15 @@ row scoping for you, with precise, fixable messages.
 - **Domain events** (`terp-cap-eventbus`): `dispatch_in_process` is wired in `app/main.py`;
   declare `EventDefinition`s in the control plane's catalog — `uv run terp guide events`.
 {%- endif %}
-{%- if not use_files and not use_sso and not use_events %}
-- No optional capabilities selected — the base profile (auth, identity, users, access,
-  audit) only. Add capabilities later by adding the dependency + its composition-root
-  wiring (`uv run terp guide capability`).
+{%- if use_realtime %}
+- **Realtime** (`terp-cap-realtime`): typed, policy-gated SSE and WebSocket channels,
+  auto-discovered — declare a channel with `register_channel` and subscribe through the
+  generated client (`uv run terp guide realtime`).
+{%- endif %}
+{%- if not use_files and not use_sso and not use_events and not use_realtime %}
+- No optional capabilities selected — the base profile (auth, identity, users, groups,
+  access, audit) only. Add capabilities later by adding the dependency + its
+  composition-root wiring (`uv run terp guide capability`).
 {%- endif %}
 
 ## Start here
@@ -55,7 +60,7 @@ or `python` will not resolve.
   Topics: access, capability, changelog, dataview, dependencies, environment, events,
     files, forms, frontend, idempotency, jobs, layouts, leases, migrations, module,
     outbox, ownership, package-boundaries, passwords, permissions, policy, realtime,
-    rules, service, soft-delete, tenancy, testing.
+    rules, service, soft-delete, tenancy, testing, theming.
 - **`uv run terp --version`** — which platform this app is on, and a named warning
   when the lockstep pins disagree.
 - **`uv run terp upgrade --check`** — whether a newer release covers the *whole*
@@ -216,16 +221,23 @@ No lint modes — every violation is an error. The governed opt-out is a justifi
 
 ## Theming, language & the user menu (already wired)
 
-- **Dark/light theme** — the token stylesheet ships both palettes; the sidebar user
-  menu's theme toggle (light / dark / system) switches `<html data-theme>`. Because all
-  styling is token-driven, modules never need theme-specific code. Re-theme the app by
-  overriding the token values, never with inline colours.
+- **Themes** — the token stylesheet carries the palettes `light`, `dark`, `midnight`,
+  `twilight` and `contrast`; the **shell header's** theme toggle offers those plus `system`
+  (follow the viewer's platform preference) and switches `<html data-theme>`. Because all
+  styling is token-driven, modules never need theme-specific code.
+  - **To change how this app looks**, redefine tokens in `frontend/src/theme.css` — it
+    loads after the framework's own tokens, so it wins. Per palette, use that palette's
+    selector (`[data-theme="dark"] { ... }`). Never inline colours.
+  - **To open on a palette other than `light`**, name it as `defaultTheme` in
+    `frontend/layout-contract.json`. Do not restyle one palette to imitate another.
+  - `uv run terp guide theming` is the full recipe.
 - **Languages** — `frontend/src/main.tsx` declares the `locales` catalogs. Add a
   language by adding one entry (`{ label, strings }` overriding the framework strings);
   the user menu then shows a persisted language picker. Keep user-facing text in module
   code as `UiText` props so it follows the switch.
-- **User menu** — every app gets the avatar menu (email, role, theme, language,
-  sign-out) pinned to the sidebar bottom automatically; there is nothing to wire.
+- **User menu** — every app gets the avatar menu (email, role, sign-out) pinned to the
+  sidebar bottom automatically; there is nothing to wire. The theme toggle and the
+  language switch are separate controls in the shell header, not entries in this menu.
 
 Add a module: `uv run terp new module <name>` → fill the slots → **mount it in
 `app/main.py`** (import its `module`, add it to the `modules` list — unmounted
