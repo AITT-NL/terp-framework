@@ -562,8 +562,15 @@ describe("data-terp markers", () => {
     // property, and nothing asserted it — a `sideEffects: false` added for bundle size, plus
     // tree-shaking, would remove it silently and the first symptom would be Markdown's blocks
     // collapsing into one grid item. So the property itself is what this pins.
-    expect(Object.keys(manifest.exports)).toEqual(["."]);
-    expect(manifest.exports["."]).toBe("./src/index.ts");
+    // One CODE entry point, which is the property. Data subpaths are allowed and do not
+    // weaken it: `./layout.manifest.json` is JSON a tool reads out of node_modules, no module
+    // imports it, and importing JSON loads no JavaScript at all — so there is still exactly one
+    // way into this package's modules. Asserted by extension rather than by key count, so that
+    // publishing a second entry point is what fails and publishing another data file is not.
+    const codeEntries = Object.entries(manifest.exports).filter(([, target]) =>
+      /\.(ts|tsx|js|mjs|cjs)$/.test(target),
+    );
+    expect(codeEntries).toEqual([[".", "./src/index.ts"]]);
     expect(
       "sideEffects" in manifest,
       "declaring sideEffects would let a bundler drop the modules that inject the stylesheet",

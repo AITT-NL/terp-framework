@@ -215,7 +215,7 @@ def _resolver_vocabulary() -> _ResolverVocabulary:
         assert names, f"{what} parsed to an empty set — the regex stopped matching"
         return names
 
-    keys = literal(r'new Set<string>\(\[([^\]]*)\]\)', "the top-level key set")
+    keys = literal(r"const TOP_LEVEL_KEYS = \[([^\]]*)\] as const;", "TOP_LEVEL_KEYS")
     structured = literal(
         r"const SHELL_STRUCTURED_KEYS = \[([^\]]*)\] as const;", "SHELL_STRUCTURED_KEYS"
     )

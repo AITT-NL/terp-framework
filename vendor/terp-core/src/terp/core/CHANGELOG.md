@@ -104,6 +104,21 @@ decision, 0001 onwards.
   the groups in the order they were meant to render in, so with the sort key dropped they tied
   at zero and the stable sort returned the assertion's own expectation. 596 frontend tests pass.
 
+  **And the vocabulary is now published, so a tool can read it from the app it is editing.**
+  `@terpjs/react-core` exports `./layout.manifest.json`: this document's schema with the
+  per-stack value sets filled in, which puts it in every app's `node_modules` beside the
+  resolver that enforces it. The inversion is the point — an unknown key is REFUSED at compose
+  time, so a tool working from its own idea of the vocabulary writes a key in good faith and the
+  app stops starting. Reading it out of the app removes the guess. Same artifact ADR 0093 §4
+  published for tokens, same stated audience.
+
+  Hand-written and gated rather than generated, for the reason the theme union is: generating it
+  would need a TypeScript loader in a build step this package does not have, and the titles and
+  descriptions an operator reads in a form are not derivable from source at all.
+  `layout.manifest.test.ts` holds every machine fact in it to the literal it mirrors — and the
+  export subpath too, because a rename would leave every other assertion green while the
+  published path 404s in the only place the file is ever read. Seven mutations, all red.
+
   Two mutations, both red, on the two lines that carry the file to where it matters: pointing the
   shell back at the raw option (the resolver runs and its answer is discarded), and deleting the
   forwarding line from the one-call entry point. The first also closes a gap two comments in this

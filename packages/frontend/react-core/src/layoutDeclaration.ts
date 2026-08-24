@@ -131,7 +131,7 @@ export interface ResolvedLayout {
  * the interface above cannot carry them (see LayoutShellDeclaration) — and it is also what
  * narrows a `string` from the file to the union {@link ResolvedLayout} promises.
  */
-const SHELL_VALUES = {
+export const SHELL_VALUES = {
   density: ["comfortable", "compact"],
   navPlacement: ["sidebar", "header"],
   contentWidth: ["full", "measured"],
@@ -150,16 +150,26 @@ const SHELL_ENUM_KEYS = Object.keys(SHELL_VALUES) as readonly ShellEnumKey[];
  * architecture suite parses both literals to hold the whole shell vocabulary against the
  * standard's schema, so a key added to neither is a key the standard would not know about.
  */
-const SHELL_STRUCTURED_KEYS = ["navGroups"] as const;
+export const SHELL_STRUCTURED_KEYS = ["navGroups"] as const;
 
 /** Every key `shell` admits, in the order a refusal offers them. */
 const SHELL_KEYS: readonly string[] = [...SHELL_ENUM_KEYS, ...SHELL_STRUCTURED_KEYS];
 
 /** Every field a declared navigation group may carry. */
-const NAV_GROUP_FIELDS = ["id", "label", "order"] as const;
+export const NAV_GROUP_FIELDS = ["id", "label", "order"] as const;
 
 /** Where a refusal points the reader. The file, not the option, because the file is the source. */
 const FILE = "frontend/layout-contract.json";
+
+/**
+ * Every key the document itself admits.
+ *
+ * Hoisted out of the refusal that reads it so that all four vocabulary literals in this module
+ * are named constants: the published `layout.manifest.json` mirrors them for tools, and both
+ * parity tests — this stack's against the standard, and the manifest's against this module —
+ * find them by name.
+ */
+export const TOP_LEVEL_KEYS = ["contract", "defaultTheme", "shell"] as const;
 
 /** A JSON object — not null, not an array, not a scalar. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -303,7 +313,7 @@ export function resolveLayoutDeclaration(
   if (!isPlainObject(declaration)) {
     throw new Error(`${FILE}: expected a JSON object, got ${describe(declaration)}.`);
   }
-  const known = new Set<string>(["contract", "defaultTheme", "shell"]);
+  const known = new Set<string>(TOP_LEVEL_KEYS);
   const unknownTop = Object.keys(declaration).filter((key) => !known.has(key));
   if (unknownTop.length > 0) {
     throw new Error(

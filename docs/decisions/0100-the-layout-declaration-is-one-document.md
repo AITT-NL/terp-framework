@@ -272,3 +272,45 @@ name are indistinguishable to both. Counting the label elements is the form that
 second declared the groups in the order they were meant to render in, so with the sort key dropped
 every group tied at zero, the stable sort kept declaration order, and the assertion was already
 the answer. Only a declaration order the sort has to undo can observe the sort.
+
+
+## Amendment (2026-08-24): the vocabulary is published, so a tool can read it from the app
+
+The three amendments above make the document carry everything an operator's tool would want to
+rewrite. They leave the tool with a problem the token layer already solved once: it has to know
+what the keys and values ARE.
+
+A tool that works from its own idea of the vocabulary gets it wrong in the one direction that
+matters. §3.2 refuses a key this release does not read — deliberately, and at compose time. So a
+tool pinned to a newer framework than the app it is editing writes a key in good faith and the
+app stops starting, naming a key the tool was told to use. The inversion is the point: what a
+tool may write is decided by the app's OWN pinned framework, not by the tool's.
+
+So `@terpjs/react-core` publishes `layout.manifest.json` — this document's schema with the
+per-stack value sets filled in — and exports it at `./layout.manifest.json`, which puts it in
+every app's `node_modules` beside the resolver that enforces it. A tool reads the vocabulary out
+of the app it is editing and cannot offer a key that app will refuse. This is the same artifact
+ADR 0093 §4 published for tokens, for the same stated audience: "a Studio editor, an agent with
+file access, and a human".
+
+**It is hand-written and gated, not generated**, and the reason is the same one
+`theme.themes.test.ts` gives for the theme union. Generating it would need a TypeScript loader in
+a build step this package does not have — the token manifest is generated because its inputs are
+JSON, and these inputs are `as const` literals. And half its content is not derivable from the
+source at all: the titles and one-sentence descriptions an operator reads in a form are the part
+a generator could never produce, and are the reason a form built from it is usable rather than a
+list of camelCase keys. So the copy stays a copy, and `layout.manifest.test.ts` checks it — every
+top-level key, every shell key, every enum, the contract ids, the group's fields and its required
+set, the unknown-key refusal at all three levels, and a title, description and type on every
+property. Plus the export subpath itself, because a rename would leave every other assertion green
+while the published path 404s in the only place the file is ever read.
+
+Getting the enums out of the resolver meant naming them: the top-level key set was an inline
+`new Set([...])` inside the refusal that reads it, and is now `TOP_LEVEL_KEYS` beside the other
+three. All four are exported, which costs nothing in public surface — the package's `exports` map
+publishes only `./src/index.ts`, and none of them is re-exported there.
+
+Seven mutations, all red: the manifest offering two palettes instead of five, a shell enum value
+the resolver would refuse, a contract id `buildAppRouter` cannot find, a shell key renamed away
+from the resolver's, a property left with no title for a form to render, the document saying it
+accepts unknown keys, and a group field the resolver reads that the manifest does not offer.
