@@ -1241,6 +1241,7 @@
       "themeable": false
     }
   ],
+  "nonTextMinimumContrast": 3,
   "textPairs": [
     {
       "id": "body-on-card",

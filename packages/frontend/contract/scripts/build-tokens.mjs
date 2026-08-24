@@ -38,6 +38,16 @@ const read = (name) => JSON.parse(readFileSync(join(packageRoot, name), "utf8"))
  */
 const AA_NORMAL_TEXT = 4.5;
 
+/**
+ * WCAG 2.1 SC 1.4.11, non-text contrast: the bar for a control's visual boundary and for a
+ * state or focus indicator. Published once at the top level rather than per theme, and that is
+ * the claim: it is FLAT across every theme, including the one that raises its text floor to
+ * AAA, because WCAG defines no AAA tier for non-text contrast. A consumer holding the
+ * `nonTextPairs` section to a theme's raised text floor would be enforcing a standard nobody
+ * wrote; one holding it to nothing would read the section as decorative.
+ */
+const UI_COMPONENT = 3;
+
 const registry = read("themes.json");
 const themes = registry.themes;
 const base = themes.find((theme) => theme.name === registry.base);
@@ -251,6 +261,9 @@ const manifest = {
     ),
     themeable: overlays.some((theme) => sources.get(theme.name).has(name)),
   })),
+  // The floor for the `nonTextPairs` section below — flat across themes, unlike the per-theme
+  // text floor above. Named at the top level so the two sections cannot be read as sharing a bar.
+  nonTextMinimumContrast: UI_COMPONENT,
   textPairs: pairs.textPairs,
   // Both sections, because a consumer that can only see the text pairings would read the
   // absence of a boundary pairing as "no requirement" rather than "held elsewhere".

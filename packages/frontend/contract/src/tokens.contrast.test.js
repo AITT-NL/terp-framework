@@ -36,8 +36,12 @@ const AAA_NORMAL_TEXT = 7;
  * floor to AAA, because WCAG defines no AAA tier for non-text contrast — `minimumContrast` in
  * themes.json is a promise about reading, and inventing a stricter non-text bar from it would
  * be this file asserting a standard nobody wrote.
+ *
+ * Read from the manifest for the same reason `floorFor` is: both bars are published so a theme
+ * editor can hold an app's palette to them, and a bar that is published in one place and
+ * enforced from another is two numbers wearing one name.
  */
-const UI_COMPONENT = 3;
+const UI_COMPONENT = manifest.nonTextMinimumContrast;
 
 /**
  * Pairings the framework renders as text, read from the shared data file.

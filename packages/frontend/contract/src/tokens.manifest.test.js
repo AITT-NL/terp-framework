@@ -101,6 +101,17 @@ describe("token manifest", () => {
     expect(
       manifest.themes.filter((theme) => theme.minimumContrast > 4.5).map((t) => t.name),
     ).not.toEqual([]);
+    // The non-text floor is one number for the whole file, not one per theme, because WCAG
+    // defines no AAA tier for non-text contrast. Published at the top level so the two pairing
+    // sections cannot be read as sharing a bar — and asserted as BELOW every text floor, which
+    // is the relationship a consumer would otherwise have to infer.
+    expect(manifest.nonTextMinimumContrast).toBe(3);
+    for (const theme of manifest.themes) {
+      expect(
+        manifest.nonTextMinimumContrast,
+        `${theme.name}: the non-text bar must not exceed the text bar`,
+      ).toBeLessThan(theme.minimumContrast);
+    }
   });
 
   it("records the value each token resolves to, in every theme", () => {
