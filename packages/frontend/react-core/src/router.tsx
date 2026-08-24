@@ -26,6 +26,7 @@ import type {
   TerpRouteSearch,
 } from "./routeTypes";
 import { LAYOUT_CONTRACTS, LayoutContractContext } from "./layoutContract";
+import { resolveLayoutDeclaration, type LayoutDeclaration } from "./layoutDeclaration";
 import { isDeclarationVisible, visibleNav } from "./nav";
 import { NavLinkContext } from "./navLink";
 import type { NavLinkRenderer } from "./navLink";
@@ -289,6 +290,18 @@ export interface BuildAppRouterOptions {
    * `layout-contract.json` (the lint half). Omit for today's archetype-only behavior.
    */
   layoutContract?: string;
+  /**
+   * The app's checked-in layout declaration (`frontend/layout-contract.json`, imported).
+   *
+   * The file the `terp/layout-contract` lint rule already reads, now read by the runtime half
+   * too, so `contract` is declared once instead of once per half. It also carries the shell's
+   * `density`, `navPlacement` and `contentWidth`, which shipped as options here and were
+   * therefore invisible to anything that edits files rather than code.
+   *
+   * Declaring a key here AND passing the matching option is refused — see
+   * {@link resolveLayoutDeclaration}.
+   */
+  layout?: LayoutDeclaration;
   /** Router history (e.g. `createMemoryHistory`); omit for the browser history. */
   history?: RouterHistory;
 }
@@ -328,7 +341,15 @@ export function buildAppRouter(
 ) {
   const roleRanks = options.roleRanks ?? DEFAULT_ROLE_RANKS;
   const Unauthorized = options.unauthorized ?? DefaultUnauthorized;
-  const layoutContract = options.layoutContract ?? null;
+  // The declaration and the options collapse into one set before anything reads them, so
+  // every consumer below sees a single answer per key and cannot pick a different precedence.
+  const layout = resolveLayoutDeclaration(options.layout, {
+    contract: options.layoutContract,
+    density: options.density,
+    navPlacement: options.navPlacement,
+    contentWidth: options.contentWidth,
+  });
+  const layoutContract = layout.contract ?? null;
   if (layoutContract !== null && LAYOUT_CONTRACTS[layoutContract] === undefined) {
     throw new Error(
       `Unknown layout contract "${layoutContract}"; known contracts: ` +
@@ -410,9 +431,9 @@ export function buildAppRouter(
         logoDark={options.logoDark}
         headerActions={options.headerActions}
         footer={options.footer}
-        contentWidth={options.contentWidth}
-        density={options.density}
-        navPlacement={options.navPlacement}
+        contentWidth={layout.contentWidth}
+        density={layout.density}
+        navPlacement={layout.navPlacement}
         activePath={pathname}
         nav={nav}
         navGroups={options.navGroups}

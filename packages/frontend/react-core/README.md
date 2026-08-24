@@ -141,11 +141,16 @@ a generated file every helper falls back to `string`, so adopting is opt-in: add
 
 ### Slot-typed layout contracts (opt-in, ADR 0079)
 
-An app can ratchet the archetype control further with a named **layout contract**:
-`renderTerpApp({ layoutContract: "standard" })` (runtime half) plus a checked-in
-`layout-contract.json` next to the frontend sources (`{ "contract": "standard" }`, the
-`terp/layout-contract` lint half — keep the two in sync; the project template generates
-both). Each governed archetype's body slot then accepts **only** the contract's
+An app can ratchet the archetype control further with a named **layout contract**,
+declared once in a checked-in `layout-contract.json` next to the frontend sources
+(`{ "contract": "standard" }`) and read by both halves: the `terp/layout-contract` lint
+rule finds the file on disk, and `main.tsx` imports it —
+`renderTerpApp({ layout })`. The same file carries the shell's own shape under `shell`
+(`density`, `navPlacement`, `contentWidth`), which is what lets a tool read and rewrite
+those choices instead of them living only in TypeScript. Declaring a key in the file AND
+passing the matching bootstrap option is refused when the router is composed, with both
+sources named; `layoutContract: "standard"` on its own still works for an app that would
+rather write code than check in a file. Each governed archetype's body slot then accepts **only** the contract's
 components — `standard`: hub bodies hold `HubCard` only; overview bodies hold
 `DataView` / `ResourceList` / `ModuleNav` / `Stack` / `Card` / `Divider` / `Text` plus
 the framework states (`EmptyState` / `ErrorState` / `LoadingState` / `Alert`) and

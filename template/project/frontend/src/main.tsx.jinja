@@ -6,6 +6,12 @@ import "@terpjs/contract/tokens.css";
 // is applied from the Studio's Themes settings screen (see theme.css).
 import "./theme.css";
 import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terpjs/react-core";
+// The app's layout declaration, checked in beside this file. ONE file, two readers: the
+// `terp/layout-contract` lint rule finds it on disk, and the shell reads it here — so the
+// contract is declared once instead of once per half. It also carries the shell's own shape
+// (`shell.density`, `shell.navPlacement`, `shell.contentWidth`); declaring any of those here
+// as a bootstrap option as well is refused rather than silently resolved.
+import layout from "../layout-contract.json";
 
 // The whole app: discover the modules and mount. baseUrl defaults to same-origin so the
 // Vite dev proxy forwards /api to the backend (uvicorn on :8000). Drop a module.tsx under
@@ -13,11 +19,11 @@ import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terpjs/react-core";
 renderTerpApp({
   title: "{{ project_name }}",
   modules: import.meta.glob("./modules/*/module.tsx", { eager: true }),
-  // The slot-typed layout contract (runtime half; the lint half is layout-contract.json —
-  // keep the two in sync). Every archetype's body slot then accepts only the contract's
-  // components; a failing check tells you exactly how to build the screen
-  // (`terp guide layouts`). Remove both to fall back to archetype-only enforcement.
-  layoutContract: "standard",
+  // Every archetype's body slot then accepts only the components the declared contract
+  // allows; a failing check tells you exactly how to build the screen
+  // (`terp guide layouts`). Drop `contract` from layout-contract.json to fall back to
+  // archetype-only enforcement — one edit, in one place, and both halves follow.
+  layout,
   // The app's languages — English and Dutch out of the box (both catalogs ship complete).
   // Every react-core string (and every UiText prop) follows the header's picker; adding
   // another language is one more entry overriding the framework strings for that locale.

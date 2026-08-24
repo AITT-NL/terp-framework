@@ -65,6 +65,30 @@ describe("renderTerpApp", () => {
     root.remove();
   });
 
+  it("forwards the layout declaration to buildAppRouter", () => {
+    // Same shape as the navGroups test below, for the same reason: the forwarding is one line in
+    // a hand-written enumeration, and a missing line leaves every gate on the declaration green
+    // while the one-call entry point — the one apps actually use — ignores the file entirely.
+    //
+    // Gated through the enum refusal rather than a rendered attribute, because this mounts the
+    // SIGNED-OUT app and the shell never renders. The throw is only reachable if
+    // `layout: options.layout` was forwarded. Mutation: delete that line and this stops throwing.
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    try {
+      expect(() =>
+        renderTerpApp({
+          title: "Test",
+          modules: { "./modules/notes/module.tsx": notesModule },
+          layout: { shell: { density: "compakt" as "compact" } },
+          rootElement: root,
+        }),
+      ).toThrow(/frontend\/layout-contract\.json: shell\.density is "compakt"/);
+    } finally {
+      root.remove();
+    }
+  });
+
   it("forwards navGroups to buildAppRouter", () => {
     // `renderTerpApp` hands its options to `buildAppRouter` through a hand-written enumeration of
     // names, and nothing covered it — `navPlacement`, `contentWidth` and `density` all travel that

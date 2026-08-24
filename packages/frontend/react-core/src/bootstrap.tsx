@@ -10,6 +10,7 @@ import { RequireAuth } from "./RequireAuth";
 import { TerpProvider } from "./TerpProvider";
 import { AdminHub } from "./admin/AdminHub";
 import { adminModule } from "./admin/module";
+import type { LayoutDeclaration } from "./layoutDeclaration";
 import { LocaleProvider } from "./locale";
 import type { LocaleCatalog } from "./locale";
 import { buildAppRouter } from "./router";
@@ -185,10 +186,23 @@ export interface RenderTerpAppOptions {
   /**
    * Opt into a slot-typed layout contract (ADR 0079), e.g. `"standard"`: every routed
    * archetype's body slot then accepts only the components the contract allows there,
-   * verified at runtime (fail closed). Keep it in sync with the app's checked-in
-   * `layout-contract.json` (the `terp/layout-contract` lint half).
+   * verified at runtime (fail closed).
+   *
+   * Prefer {@link RenderTerpAppOptions.layout} — importing the app's own
+   * `frontend/layout-contract.json` declares this once for both halves. This option used to
+   * carry the instruction "keep it in sync with the checked-in file", which is a defect
+   * written as advice: the lint rule reads the file, this read the option, and nothing
+   * compared them.
    */
   layoutContract?: string;
+  /**
+   * The app's checked-in layout declaration: `import layout from "../layout-contract.json"`.
+   *
+   * One file declaring the layout contract for both the lint rule and the runtime check, plus
+   * the shell's density, navigation placement and content measure. Declaring a key here and
+   * passing the matching option is refused rather than silently resolved.
+   */
+  layout?: LayoutDeclaration;
   /** Mount point; default `document.getElementById("root")`. */
   rootElement?: HTMLElement | null;
 }
@@ -290,6 +304,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
     navPlacement: options.navPlacement,
     navGroups: options.navGroups,
     layoutContract: options.layoutContract,
+    layout: options.layout,
   });
   const root = options.rootElement ?? document.getElementById("root");
   if (!root) {

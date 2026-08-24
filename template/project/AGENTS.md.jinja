@@ -192,9 +192,9 @@ design-token styling with no `style={}` / `className` / module stylesheets (layo
 `Stack` / the page archetypes), in-app links via the router (no raw `<a href="/...">`),
 and no deep `@terpjs/*` imports. Every routed view renders a page archetype (`Page` /
 `OverviewPage` / `DetailPage` / `HubPage`) — the router refuses an unframed view.
-This app also opts into the **`standard` layout contract** (ADR 0079,
-`frontend/layout-contract.json` + `layoutContract` in `main.tsx` — keep the two in
-sync): each archetype's body slot accepts only the contract's components (hub bodies:
+This app also opts into the **`standard` layout contract** (ADR 0079), declared once in
+`frontend/layout-contract.json` — the lint rule finds the file and `main.tsx` imports it,
+so there is nothing to keep in sync: each archetype's body slot accepts only the contract's components (hub bodies:
 `HubCard`; overview bodies: `DataView` / `ResourceList` / `Stack` / `Card` / `Divider` /
 `Text` + framework states; detail bodies: those plus `Grid`, `DetailList` and `Tabs` —
 `Grid` is a detail-body component and not an overview one, because an overview body is a

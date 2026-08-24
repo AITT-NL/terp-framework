@@ -1067,6 +1067,79 @@ describe("buildAppRouter navGroups", () => {
     expect(screen.getByRole("list", { name: "Werkruimte" })).toBeInTheDocument();
   });
 
+  it("carries a DECLARED density all the way to the shell root", async () => {
+    // The gap the two comments above name, closed for the key that arrives by a different
+    // route. `density` reaches the shell through the same hand-written enumeration, and now it
+    // can also come from the app's checked-in layout-contract.json — so there are two ways for
+    // it to go missing and this covers the new one end to end: file -> resolver -> AppShell
+    // prop -> rendered attribute.
+    //
+    // Mutations, both red: change `density={layout.density}` back to `options.density` in the
+    // AppShell element (the resolver runs and its answer is thrown away), or drop
+    // `density: options.density` from the resolver call (the option path dies instead).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = (input as Request).url;
+        if (url.endsWith("/api/v1/auth/login")) {
+          return jsonResponse({ access_token: "t", token_type: "bearer" });
+        }
+        return jsonResponse({
+          id: "1",
+          email: "editor@example.com",
+          role_rank: 20,
+          role_name: "editor",
+        });
+      }),
+    );
+
+    const router = buildAppRouter(
+      [{ name: "notes", routes: [{ path: "/notes", view: "NotesList" }] }],
+      {
+        views: { NotesList: views.NotesList },
+        title: "Terp",
+        layout: { shell: { density: "compact" } },
+        history: createMemoryHistory({ initialEntries: ["/notes"] }),
+      },
+    );
+
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Notes view" })).toBeInTheDocument(),
+    );
+    expect(document.querySelector('[data-terp="appshell"]')).toHaveAttribute(
+      "data-density",
+      "compact",
+    );
+  });
+
+  it("refuses the app's declaration and its options declaring one fact twice", () => {
+    // Compose time, beside the duplicate-group refusal below and for the same reason: an
+    // authoring error with no legitimate transient form. The message names both sources
+    // because the reader otherwise cannot tell which value they are looking at.
+    expect(() =>
+      buildAppRouter([], {
+        views: {},
+        title: "Terp",
+        layoutContract: "standard",
+        layout: { contract: "standard" },
+      }),
+    ).toThrow(/both declare "contract" \(file: "standard", code: "standard"\)/);
+    expect(() =>
+      buildAppRouter([], {
+        views: {},
+        title: "Terp",
+        layout: { shell: { density: "compakt" as "compact" } },
+      }),
+    ).toThrow(/shell\.density is "compakt"/);
+  });
+
   it("refuses a duplicate group id when the router is composed", () => {
     // An authoring error with no legitimate transient form, so it is refused once here rather
     // than absorbed on every render. Deliberately NOT symmetrical with an item naming an

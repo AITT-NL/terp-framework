@@ -63,6 +63,11 @@ export { Page } from "./Page";
 export type { PageProps } from "./Page";
 export { LAYOUT_CONTRACTS } from "./layoutContract";
 export type { LayoutContractSpec, LayoutSlotSpec } from "./layoutContract";
+export type {
+  LayoutDeclaration,
+  LayoutShellDeclaration,
+  ResolvedLayout,
+} from "./layoutDeclaration";
 export { PageActions } from "./PageActions";
 export type { OverflowAction, PageActionsProps } from "./PageActions";
 export { ModuleNav } from "./ModuleNav";

@@ -70,10 +70,11 @@ for in-page tab sets and `Markdown` for safe rich text).
 5. Every routed view renders a page archetype (`Page` / `OverviewPage` / `DetailPage` /
    `HubPage`) — the router refuses an unframed view at runtime. In-app links go through
    the router's `Link`, never a raw `<a href="/...">`. Generated apps also opt into the
-   `standard` slot-typed layout contract (`frontend/layout-contract.json` +
-   `layoutContract` in `main.tsx`): each archetype's body slot accepts only the
-   contract's components, enforced at lint time and runtime with a message that states
-   the fix — recipe: `uv run terp guide layouts`.
+   `standard` slot-typed layout contract, declared once in
+   `frontend/layout-contract.json` and read by both halves — the lint rule finds the file,
+   `main.tsx` imports it: each archetype's body slot accepts only the contract's
+   components, enforced at lint time and runtime with a message that states the fix —
+   recipe: `uv run terp guide layouts`.
 6. Import from `@terpjs/*` package roots only — no deep `src/` / `dist/` imports.
 7. A module's UI is wired by its `module.tsx` manifest (routes + nav + views) — no
    central registry to edit.
