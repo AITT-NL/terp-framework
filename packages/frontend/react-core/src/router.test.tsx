@@ -1129,8 +1129,11 @@ describe("buildAppRouter navGroups", () => {
     // that passed `""` straight through would give the shell a labelled list whose name is the
     // empty string, which is a list with no accessible name at all and no error anywhere.
     //
-    // Mutations, all red: `navGroups={options.navGroups}` in the AppShell element, dropping
-    // `navGroups: options.navGroups` from the resolver call, or removing the `"" -> null` map.
+    // Mutations, both red: `navGroups={options.navGroups}` in the AppShell element, or removing
+    // the `"" -> null` map. NOT the third one this comment used to name — dropping
+    // `navGroups: options.navGroups` from the resolver call — because this test passes no
+    // groups OPTION, so that key is already undefined here and removing it changes nothing
+    // observable. That line is gated in bootstrap.test.tsx, by the conflict it exists to raise.
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>(async (input) => {

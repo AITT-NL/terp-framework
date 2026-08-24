@@ -70,9 +70,15 @@ describe("renderTerpApp", () => {
     // a hand-written enumeration, and a missing line leaves every gate on the declaration green
     // while the one-call entry point — the one apps actually use — ignores the file entirely.
     //
-    // Gated through the enum refusal rather than a rendered attribute, because this mounts the
-    // SIGNED-OUT app and the shell never renders. The throw is only reachable if
-    // `layout: options.layout` was forwarded. Mutation: delete that line and this stops throwing.
+    // Gated through a refusal only `buildAppRouter` can raise, and that took a second attempt.
+    // The first version asserted the resolver's enum refusal — which `renderTerpApp` now raises
+    // ITSELF, from its own resolve call, before `buildAppRouter` is reached. So it threw with
+    // the forwarding line deleted and reported green: a test that passes with the bug. An
+    // UNKNOWN CONTRACT is refused only inside `buildAppRouter`, against its own table, so the
+    // throw here observes the one line under test and nothing else.
+    //
+    // Mutation: delete `layout: options.layout` from the buildAppRouter call, and this stops
+    // throwing.
     const root = document.createElement("div");
     document.body.appendChild(root);
     try {
@@ -80,10 +86,10 @@ describe("renderTerpApp", () => {
         renderTerpApp({
           title: "Test",
           modules: { "./modules/notes/module.tsx": notesModule },
-          layout: { shell: { density: "compakt" as "compact" } },
+          layout: { contract: "bespoke" },
           rootElement: root,
         }),
-      ).toThrow(/frontend\/layout-contract\.json: shell\.density is "compakt"/);
+      ).toThrow(/Unknown layout contract "bespoke"/);
     } finally {
       root.remove();
     }
@@ -96,9 +102,12 @@ describe("renderTerpApp", () => {
     // on <html> is the actual observable effect an app ships. A throw here would only prove the
     // file was validated, not that the value reached anything.
     //
-    // Mutations, both red: pass `options.defaultTheme` to `ThemeProvider` instead of
-    // `layout.defaultTheme` and the first assertion reads "system"; drop `defaultTheme` from the
-    // explicit set handed to the resolver and the second reads null.
+    // Mutations, both red, and both by reading NULL rather than "midnight": `"system"` is the
+    // provider's default and it REMOVES the attribute, so neither mutation can produce the
+    // string. (An earlier version of this comment said the first one reads "system", which is
+    // not a value `data-theme` ever holds.) Pass `options.defaultTheme` to `ThemeProvider`
+    // instead of `layout.defaultTheme`, or drop `defaultTheme` from the explicit set handed to
+    // the resolver, and the corresponding assertion reads null.
     for (const [label, options] of [
       ["from the file", { layout: { defaultTheme: "midnight" } }],
       ["from the option", { defaultTheme: "midnight" as const }],
@@ -148,6 +157,39 @@ describe("renderTerpApp", () => {
     } finally {
       root.remove();
     }
+  });
+
+  it("names every doubly-declared key at once, groups included", async () => {
+    // The property the resolver's `conflicts.join("; ")` exists for, asserted through the entry
+    // point apps use — and it was broken here. `renderTerpApp` resolves the declaration itself
+    // (the palette mounts outside the router) and its explicit set omitted `navGroups`, so a
+    // groups conflict was invisible from this side: the author fixed the density conflict,
+    // re-ran, and hit a second, different refusal. Mutation: drop `navGroups: options.navGroups`
+    // from the resolve call at the top of `renderTerpApp` and this names only the density.
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    let message = "";
+    try {
+      renderTerpApp({
+        title: "Test",
+        modules: { "./modules/notes/module.tsx": notesModule },
+        layout: {
+          shell: {
+            density: "comfortable",
+            navGroups: [{ id: "work", label: "Workspace" }],
+          },
+        },
+        density: "compact",
+        navGroups: [{ id: "admin", label: "Admin" }],
+        rootElement: root,
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    } finally {
+      root.remove();
+    }
+    expect(message).toContain('"shell.density"');
+    expect(message).toContain('"shell.navGroups"');
   });
 
   it("refuses the navigation groups named in the file and passed as an option", () => {

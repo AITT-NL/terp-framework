@@ -35,12 +35,26 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function readStoredTheme(): Theme {
+/**
+ * The theme this viewer chose, or `null` if they have not chosen one.
+ *
+ * `null` rather than `"system"` for the absent case, and the distinction is load-bearing.
+ * `"system"` is a choice a person can make from the menu — it means "follow my platform" —
+ * and it is stored like any other. Collapsing it into the absent case made a declared
+ * `defaultTheme` beat it on every reload: the person picked System, the session honoured it,
+ * and the next load silently put them back on the app's palette while the menu reported that
+ * palette as active. The key documents itself as applying "until a person chooses another",
+ * and this was the one choice it could not survive.
+ *
+ * A stored value this build does not ship also reads as no choice — a theme removed by an
+ * upgrade must not leave a viewer pinned to a `data-theme` nothing styles.
+ */
+function readStoredTheme(): Theme | null {
   try {
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return THEMES.includes(stored as Theme) ? (stored as Theme) : "system";
+    return THEMES.includes(stored as Theme) ? (stored as Theme) : null;
   } catch {
-    return "system";
+    return null;
   }
 }
 
@@ -57,13 +71,12 @@ export interface ThemeProviderProps {
  * {@link UserMenu} already includes it).
  *
  * `defaultTheme` is how an app ships on a named theme — `defaultTheme="midnight"` and
- * nothing else — since it applies until the user chooses otherwise.
+ * nothing else — since it applies until the user chooses otherwise, INCLUDING when what they
+ * choose is "system". Prefer declaring it in the app's own `frontend/layout-contract.json`,
+ * which is the form a tool can read and rewrite.
  */
 export function ThemeProvider({ defaultTheme = "system", children }: ThemeProviderProps) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = readStoredTheme();
-    return stored === "system" ? defaultTheme : stored;
-  });
+  const [theme, setThemeState] = useState<Theme>(() => readStoredTheme() ?? defaultTheme);
 
   useEffect(() => {
     const root = document.documentElement;

@@ -290,17 +290,27 @@ export interface BuildAppRouterOptions {
    * Opt into a slot-typed layout contract (ADR 0079), e.g. `"standard"`: every routed
    * archetype's body slot then accepts only the components the contract allows there,
    * verified at runtime (fail closed) with the same directive message the
-   * `terp/layout-contract` lint rule phrases. Keep it in sync with the app's checked-in
-   * `layout-contract.json` (the lint half). Omit for today's archetype-only behavior.
+   * `terp/layout-contract` lint rule phrases.
+   *
+   * Prefer {@link BuildAppRouterOptions.layout}. This option used to carry the instruction
+   * "keep it in sync with the app's checked-in `layout-contract.json`", which is a defect
+   * written as advice and, since this function began reading that file, worse than stale:
+   * doing what the sentence said is now refused as one fact declared twice, even when the two
+   * agree. Omit both for today's archetype-only behavior.
    */
   layoutContract?: string;
   /**
    * The app's checked-in layout declaration (`frontend/layout-contract.json`, imported).
    *
    * The file the `terp/layout-contract` lint rule already reads, now read by the runtime half
-   * too, so `contract` is declared once instead of once per half. It also carries the shell's
-   * `density`, `navPlacement` and `contentWidth`, which shipped as options here and were
-   * therefore invisible to anything that edits files rather than code.
+   * too, so `contract` is declared once instead of once per half. It also carries the palette
+   * the app opens on and the shell's own shape — `density`, `navPlacement`, `contentWidth` and
+   * the `navGroups` a module's `NavItem.group` names by id — all of which shipped as options
+   * here and were therefore out of reach of anything that edits files rather than code.
+   *
+   * The authoritative list is `TOP_LEVEL_KEYS` and `SHELL_KEYS` in
+   * {@link ./layoutDeclaration}, and the published `layout.manifest.json` beside them. This
+   * sentence is a restatement and has already drifted once.
    *
    * Declaring a key here AND passing the matching option is refused — see
    * {@link resolveLayoutDeclaration}.

@@ -83,6 +83,35 @@ describe("ThemeProvider + ThemeToggle", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 
+  it("restores a persisted SYSTEM choice over the app default", () => {
+    // The one stored choice a declared default used to beat. `"system"` is a menu entry a
+    // person can pick, and it is stored like any other — so reading it as "nothing stored"
+    // put them back on the app's palette on the next load, while the menu reported that
+    // palette as active. An app declaring a palette must not be able to overrule a person
+    // who asked to follow their own platform.
+    window.localStorage.setItem(THEME_STORAGE_KEY, "system");
+    render(
+      <ThemeProvider defaultTheme="midnight">
+        <ThemeToggle />
+      </ThemeProvider>,
+    );
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Theme" }));
+    expect(screen.getByRole("menuitemradio", { name: "System" })).toBeChecked();
+  });
+
+  it("treats a stored theme this build does not ship as no choice at all", () => {
+    // A theme removed by an upgrade must not leave a viewer pinned to a `data-theme` value
+    // nothing styles — which is what the app's default is for.
+    window.localStorage.setItem(THEME_STORAGE_KEY, "sepia");
+    render(
+      <ThemeProvider defaultTheme="contrast">
+        <ThemeToggle />
+      </ThemeProvider>,
+    );
+    expect(document.documentElement.getAttribute("data-theme")).toBe("contrast");
+  });
+
   it("switching back to system removes the attribute (OS preference wins)", () => {
     render(
       <ThemeProvider defaultTheme="dark">

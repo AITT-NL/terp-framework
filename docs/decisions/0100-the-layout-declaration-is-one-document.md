@@ -183,18 +183,35 @@ file was ignored*. The standard's schema says so in its own words, so a consumer
 stack inherits the obligation rather than the temptation.
 
 **One reserved name.** `"system"` is portable — the app opens on whatever light or dark
-preference the viewer's platform reports — and it is a declaration, not an absence: an absent
-key leaves whatever was already in force alone, including a bootstrap option, while
-`"system"` overrides one. Both are asserted.
+preference the viewer's platform reports — and it is a declaration rather than an absence: an
+absent key leaves whatever was already in force alone, including a bootstrap option, while
+`"system"` is a value that goes through the same enum check, the same duplicate refusal and the
+same output as any named palette. Nothing about it is exempt, and that is the point.
+
+This paragraph said something else first, and the something else was wrong: that a file's
+`"system"` *overrides* a passed option. It does not — §3.3 refuses a key declared twice
+whatever its value, so declaring `"system"` in the file of an app that still passes the option
+is a hard refusal at compose time, not a win. The test the sentence pointed at passed
+`{ defaultTheme: undefined }`, which is no option at all, so it asserted the empty case with an
+extra key spelled in. Recorded rather than quietly corrected, because a reader who had followed
+the old sentence would have been sent to a refusal they were promised would not happen.
 
 Where the resolution happens is the one implementation note worth recording. The palette is
 mounted *outside* the router (`ThemeProvider` wraps `RequireAuth`, and therefore the router),
 so `renderTerpApp` resolves the declaration itself in addition to the resolve inside
-`buildAppRouter`. Two calls, one answer by construction: the resolver is pure and total over
-its inputs, and both calls receive the same declaration and the same options. What would
-break that is resolving once and handing the router a *different* input set, so `layout` and
-every option still travel down untouched — which also means a key added to the declaration
-later reaches the router without being threaded through `renderTerpApp` first.
+`buildAppRouter`. Two calls, one answer — but only while both are handed the same option set,
+and that is a standing obligation the code does not enforce.
+
+It was broken within a day. The navigation-groups amendment below added `navGroups` to the
+router's explicit set and not to this one, so a groups conflict declared through `renderTerpApp`
+was invisible from the call that runs first: the author fixed the density conflict it *did*
+name, re-ran, and hit a second, different refusal — defeating the whole reason §3.3 names every
+conflicting key at once. Fixed, and now gated by a test that declares two keys twice through
+`renderTerpApp` and requires both in one message. Anything added to `BuildAppRouterOptions` and
+forwarded at the bottom of that function belongs in the resolve at the top of it too.
+
+`layout` and every option still travel down untouched, so a key added to the declaration later
+reaches the router without being threaded through `renderTerpApp` first.
 
 §6 is unchanged: still no build-time half, for the same `@terpjs/spec`-is-a-dev-dependency
 reason, and this key does not move that balance.
@@ -306,11 +323,60 @@ property. Plus the export subpath itself, because a rename would leave every oth
 while the published path 404s in the only place the file is ever read.
 
 Getting the enums out of the resolver meant naming them: the top-level key set was an inline
-`new Set([...])` inside the refusal that reads it, and is now `TOP_LEVEL_KEYS` beside the other
-three. All four are exported, which costs nothing in public surface — the package's `exports` map
-publishes only `./src/index.ts`, and none of them is re-exported there.
+`new Set([...])` inside the refusal that reads it, and is now `TOP_LEVEL_KEYS` beside the others.
+Exporting them costs nothing in public surface — the only CODE entry point the `exports` map
+publishes is `./src/index.ts`, which re-exports none of them, and the manifest subpath beside it
+is JSON. (The first version of this sentence said the map publishes only `./src/index.ts`, which
+the same commit had just made false by adding that subpath — the same edit that had to widen
+`markers.test.ts`'s one-entry assertion. Two places, one claim, and the test was corrected while
+the prose was not.)
 
 Seven mutations, all red: the manifest offering two palettes instead of five, a shell enum value
 the resolver would refuse, a contract id `buildAppRouter` cannot find, a shell key renamed away
 from the resolver's, a property left with no title for a form to render, the document saying it
 accepts unknown keys, and a group field the resolver reads that the manifest does not offer.
+
+
+## Amendment (2026-08-24): what an adversarial review of the three above found
+
+Six lenses over the diff, each finding independently verified against the files before being
+acted on. Twenty-two held up. They fall into three kinds, and the third is the one worth
+keeping.
+
+**One behavioural defect.** `renderTerpApp`'s explicit option set omitted `navGroups` while
+`buildAppRouter`'s carried it, so the two resolve calls did not receive the same options and a
+groups conflict declared through the entry point apps use was invisible. Fixed above, in §
+"Where the resolution happens", with the gate that would have caught it.
+
+**One defect the amendments made load-bearing without touching it.** `ThemeProvider` read a
+stored `"system"` as "nothing stored", so a declared `defaultTheme` overrode it on every reload:
+a person picked System, the session honoured it, and the next load put them back on the app's
+palette while the menu reported that palette as active. That was survivable while `defaultTheme`
+was a bootstrap option a handful of apps passed; making `"system"` one of six values any app can
+declare in a file made it the documented behaviour of a documented key — the key whose own
+docstring says it applies "until a person chooses another". `readStoredTheme` now returns `null`
+for the absent case, so a stored choice wins whatever it is.
+
+**Four tests that passed with the bug, and they are the reason to run a review like this at
+all.** The forwarding gate on `layout: options.layout` asserted the resolver's enum refusal —
+which `renderTerpApp` now raises *itself*, before `buildAppRouter` is reached — so it stayed
+green with the line deleted; it now asserts an unknown *contract*, which only the router can
+refuse. `layout.manifest.test.ts` asserted that every property declares *a* type, never *which*,
+and never compared the emptiness floors at all: retyping `navGroups` to an object and `order` to
+a string left all eleven assertions green while the resolver refuses both by name — the precise
+failure the manifest exists to prevent, inside the file that exists to prevent it. Its
+`required` pair was compared against a copy of itself written in the test rather than against
+the resolver (the one vocabulary literal never hoisted into a named constant; it is
+`NAV_GROUP_REQUIRED` now). And a `router.test.tsx` comment named a mutation that test cannot
+observe, because it passes no groups option for the resolver's explicit set to carry.
+
+The rest were claims: an ADR sentence promising a precedence the resolver refuses, an
+`exports`-map count made false by the same commit that wrote it, a mutation note naming a value
+`data-theme` never holds, a `describe()` docstring attributing an older branch to a newer
+change, a "five keys" tally already stale, two option docstrings enumerating a file's contents
+without `navGroups`, one still carrying the "keep the two in sync" instruction this whole ADR
+exists to retire, and a manifest description omitting the one refusal reachable by writing
+values it calls legal (two groups may not share an id). All corrected, and where a claim could
+be made true by a gate instead of by an edit, it was.
+
+Ten mutations over the fixes, all red.

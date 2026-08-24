@@ -148,6 +148,10 @@ export interface RenderTerpAppOptions {
    * This is the app's half of the model and there is no module-side equivalent: a group spans
    * modules, so its label and its position cannot belong to any one of them. A duplicate id is
    * refused when the router is built.
+   *
+   * Prefer {@link RenderTerpAppOptions.layout}: `shell.navGroups` in the app's own
+   * `frontend/layout-contract.json` says the same thing in the one document a tool can read and
+   * rewrite. Declaring the groups in both places is refused rather than silently resolved.
    */
   navGroups?: readonly NavGroup[];
   /**
@@ -207,9 +211,13 @@ export interface RenderTerpAppOptions {
    * The app's checked-in layout declaration: `import layout from "../layout-contract.json"`.
    *
    * One file declaring the layout contract for both the lint rule and the runtime check, plus
-   * the palette the app opens on and the shell's density, navigation placement and content
-   * measure. Declaring a key here and passing the matching option is refused rather than
-   * silently resolved.
+   * the palette the app opens on and the shell's own shape — density, navigation placement,
+   * content measure, and the navigation groups a module's items name by id. Declaring a key
+   * here and passing the matching option is refused rather than silently resolved.
+   *
+   * The authoritative list is `TOP_LEVEL_KEYS` and `SHELL_KEYS` in
+   * {@link ./layoutDeclaration}, and the published `layout.manifest.json` beside them. This
+   * sentence is a restatement and has already drifted once.
    */
   layout?: LayoutDeclaration;
   /** Mount point; default `document.getElementById("root")`. */
@@ -296,17 +304,24 @@ export function withAdminArea(
  */
 export function renderTerpApp(options: RenderTerpAppOptions): void {
   // Resolved here as well as inside `buildAppRouter`, because the one key mounted OUTSIDE the
-  // router is the palette: `ThemeProvider` wraps everything, the router included. Two calls, one
-  // answer by construction — the resolver is pure and total over its inputs and both calls get
-  // the same declaration and the same options. What would break that is resolving here and
-  // handing the router a DIFFERENT input set, so `layout` and every option still go down
-  // untouched; a key added to the declaration later reaches the router without being threaded
-  // through this function first.
+  // router is the palette: `ThemeProvider` wraps everything, the router included.
+  //
+  // Two calls, one answer — but only while both are handed the SAME option set, and that is a
+  // standing obligation rather than something the code enforces. It was broken once already,
+  // within a day: `navGroups` was added to the router's set and not to this one, so a groups
+  // conflict declared through `renderTerpApp` was invisible here and the resolver's
+  // report-every-conflict-at-once property quietly became report-some. Anything added to
+  // `BuildAppRouterOptions` and passed at the bottom of this function belongs in this call too;
+  // `bootstrap.test.tsx` names both conflicts in one message to hold that.
+  //
+  // `layout` and every option still go down untouched, so a key added to the declaration later
+  // reaches the router without being threaded through this function first.
   const layout = resolveLayoutDeclaration(options.layout, {
     contract: options.layoutContract,
     density: options.density,
     navPlacement: options.navPlacement,
     contentWidth: options.contentWidth,
+    navGroups: options.navGroups,
     defaultTheme: options.defaultTheme,
   });
   const collected = collectModules(options.modules);

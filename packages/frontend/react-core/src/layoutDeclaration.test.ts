@@ -95,7 +95,9 @@ describe("resolveLayoutDeclaration", () => {
 
   it("reports every conflicting key at once rather than the first", () => {
     // A one-at-a-time refusal turns adopting the file into a guessing loop: fix, re-run, learn
-    // about the next one. The whole vocabulary is five keys; name every one that conflicts.
+    // about the next one. Every conflicting key is named at once — how many keys there are is
+    // TOP_LEVEL_KEYS plus SHELL_KEYS, not a number written down here, which was already stale
+    // one commit after it was written.
     let message = "";
     try {
       resolveLayoutDeclaration(
@@ -153,13 +155,23 @@ describe("resolveLayoutDeclaration", () => {
     }
   });
 
-  it("accepts the OS-preference sentinel, which is a declaration and not an absence", () => {
-    // `"system"` is a real thing to declare — "open on whatever the viewer's platform prefers" —
-    // and it is NOT what an absent key means. An absent key leaves whatever was already in force
-    // alone, including a bootstrap option; this one overrides it.
-    expect(resolveLayoutDeclaration({ defaultTheme: "system" }, { defaultTheme: undefined })).toEqual(
-      { defaultTheme: "system" },
-    );
+  it("accepts the OS-preference sentinel like any other palette", () => {
+    // `"system"` is a real thing to declare — "open on whatever the viewer's platform prefers"
+    // — and it goes through the same enum check, the same conflict check and the same output as
+    // a named palette. Nothing about it is exempt, which is the point: an earlier version of
+    // this test and of ADR 0100 said the file's `"system"` OVERRIDES a passed option, and it
+    // does not. Declaring it in both places is refused like every other key, and the second
+    // assertion here is what says so.
+    expect(resolveLayoutDeclaration({ defaultTheme: "system" }, {})).toEqual({
+      defaultTheme: "system",
+    });
+    expect(() =>
+      resolveLayoutDeclaration({ defaultTheme: "system" }, { defaultTheme: "dark" }),
+    ).toThrow(/both declare "defaultTheme" \(file: "system", code: "dark"\)/);
+    // And an absent key does leave the option in force, which is the half that was true.
+    expect(resolveLayoutDeclaration({}, { defaultTheme: "dark" })).toEqual({
+      defaultTheme: "dark",
+    });
   });
 
   it("refuses a palette this release does not ship, naming the ones it does", () => {
@@ -215,7 +227,9 @@ describe("resolveLayoutDeclaration", () => {
       { shell: { navGroups: [{ id: "work", label: "Workspace" }] } },
       {},
     ).navGroups!;
-    expect(group).toEqual({ id: "work", label: null === null ? "Workspace" : "" });
+    // `null === null ? "Workspace" : ""` stood here, which is a constant expression dressed
+    // up as a choice between the two spellings of a label. It selected nothing.
+    expect(group).toEqual({ id: "work", label: "Workspace" });
     expect(Object.hasOwn(group!, "order")).toBe(false);
   });
 
@@ -231,6 +245,20 @@ describe("resolveLayoutDeclaration", () => {
         { navGroups: [{ id: "work", label: "Workspace" }] },
       ),
     ).toThrow(/"shell\.navGroups" \(file: no groups, code: "work"\)/);
+    // Two ids on one side, which no test rendered before: the message used to wrap the whole
+    // joined list in one pair of quotes, so this read as a single group named `work, admin` —
+    // the opposite of what putting the ids in the message is for.
+    expect(() =>
+      resolveLayoutDeclaration(
+        { shell: { navGroups: [] } },
+        {
+          navGroups: [
+            { id: "work", label: "Workspace" },
+            { id: "admin", label: "Admin" },
+          ],
+        },
+      ),
+    ).toThrow(/code: "work", "admin"\)/);
   });
 
   it("refuses a group the shell would render as nothing", () => {

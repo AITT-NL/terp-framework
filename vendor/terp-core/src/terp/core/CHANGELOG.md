@@ -75,7 +75,7 @@ decision, 0001 onwards.
   Six mutations, all red, over the six lines that carry the key from the file to the `<html>`
   attribute — including the two a resolver unit test cannot see (the value handed to
   `ThemeProvider`, and the key's presence in the explicit set the resolver compares against),
-  which are gated on the rendered attribute instead. 583 frontend tests pass.
+  which are gated on the rendered attribute instead.
 
   **`shell.navGroups` joins the document too, and it is its first nested shape.** A navigation
   group spans modules, so no module can own one — which left the app's own code as the only
@@ -102,7 +102,7 @@ decision, 0001 onwards.
   produces a label element containing nothing and a list pointing at it, so the list claims a
   name and has none, which no attribute check and no role-name query can see. The other declared
   the groups in the order they were meant to render in, so with the sort key dropped they tied
-  at zero and the stable sort returned the assertion's own expectation. 596 frontend tests pass.
+  at zero and the stable sort returned the assertion's own expectation.
 
   **And the vocabulary is now published, so a tool can read it from the app it is editing.**
   `@terpjs/react-core` exports `./layout.manifest.json`: this document's schema with the
@@ -118,6 +118,27 @@ decision, 0001 onwards.
   `layout.manifest.test.ts` holds every machine fact in it to the literal it mirrors — and the
   export subpath too, because a rename would leave every other assertion green while the
   published path 404s in the only place the file is ever read. Seven mutations, all red.
+
+  **An adversarial review of the three additions above found twenty-two things, and two of
+  them were defects rather than claims.** `renderTerpApp`'s explicit option set omitted
+  `navGroups` while `buildAppRouter`'s carried it, so the two resolve calls did not receive the
+  same options and a groups conflict declared through the entry point apps use was invisible —
+  the author fixed the conflict it did name, re-ran, and hit a second one, which is exactly what
+  naming every conflict at once exists to prevent. And `ThemeProvider` read a stored `"system"`
+  as "nothing stored", so a declared palette overrode a person's own choice to follow their
+  platform on every reload, while the menu reported the app's palette as active; that was
+  survivable while `defaultTheme` was an option a handful of apps passed and became the
+  documented behaviour of a documented key the moment any app could declare it in a file.
+
+  Four of the rest were tests that passed with the bug. The forwarding gate asserted a refusal
+  `renderTerpApp` now raises itself, before the router is reached, so it stayed green with the
+  line it guards deleted. The manifest gate asserted that every property declares *a* type,
+  never *which*, and never compared the emptiness floors: retyping the group list to an object
+  and the sort key to a string left all eleven assertions green while the resolver refuses both
+  by name. Its required pair was compared against a copy of itself rather than against the
+  resolver. And a router test's comment named a mutation that test cannot observe. All four are
+  now real, with ten mutations over the fixes, all red. ADR 0100 carries the full account,
+  including the sentences in its own earlier amendments that were untrue.
 
   Two mutations, both red, on the two lines that carry the file to where it matters: pointing the
   shell back at the raw option (the resolver runs and its answer is discarded), and deleting the

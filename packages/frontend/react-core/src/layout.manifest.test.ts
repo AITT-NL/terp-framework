@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { LAYOUT_CONTRACTS } from "./layoutContract";
 import {
   NAV_GROUP_FIELDS,
+  NAV_GROUP_REQUIRED,
   SHELL_STRUCTURED_KEYS,
   SHELL_VALUES,
   TOP_LEVEL_KEYS,
@@ -31,6 +32,12 @@ import { THEMES } from "./themes";
 // about the theme union: generating it would need a TypeScript loader in a build step this package
 // does not have, and half its content — the titles and descriptions an operator reads — is not
 // derivable from the source at all. So the copy stays a copy, and the copy is checked.
+//
+// What "checked" covers, precisely, because an earlier version of this comment claimed more than
+// the assertions delivered: every key at all three levels, every enum, every declared type, every
+// emptiness floor, the required pair, the unknown-key refusals, and the export subpath. What it
+// does NOT cover is prose — a title or description is asserted present, never compared to
+// anything, because there is nothing to compare it to.
 
 interface ManifestProperty {
   type?: string;
@@ -106,7 +113,11 @@ describe("the published layout vocabulary", () => {
 
   it("offers exactly the fields a navigation group carries", () => {
     expect(Object.keys(group).sort()).toEqual([...NAV_GROUP_FIELDS].sort());
-    expect(shell.navGroups?.items?.required?.slice().sort()).toEqual(["id", "label"]);
+    // Against the resolver's own list, not against a copy of it written here. Comparing a
+    // mirror to a second copy of the thing it mirrors proves nothing about either.
+    expect(shell.navGroups?.items?.required?.slice().sort()).toEqual(
+      [...NAV_GROUP_REQUIRED].sort(),
+    );
   });
 
   it("refuses an unknown key at every level it has one", () => {
@@ -131,6 +142,34 @@ describe("the published layout vocabulary", () => {
     for (const [path, property] of everyProperty()) {
       expect(property.type, `${path}: type`).toBeTruthy();
     }
+  });
+
+  it("declares the type the resolver actually refuses anything else for", () => {
+    // Truthiness was the whole of this check, and truthiness is not a type: with `navGroups`
+    // retyped to "object" and `order` to "string" every assertion in this file stayed green,
+    // while `resolveNavGroups` refuses a non-array and a non-integer by name. That is exactly
+    // the failure the header calls worse — a tool writes `"navGroups": {}` in good faith,
+    // reading a type the manifest offered, and the app will not compose.
+    expect(shell.navGroups?.type).toBe("array");
+    expect(shell.navGroups?.items?.type).toBe("object");
+    expect(group.order?.type).toBe("integer");
+    expect(group.id?.type).toBe("string");
+    expect(group.label?.type).toBe("string");
+    for (const key of Object.keys(SHELL_VALUES)) {
+      expect(shell[key]?.type, `shell.${key}`).toBe("string");
+    }
+  });
+
+  it("declares the emptiness floors the resolver refuses, and no others", () => {
+    // Each of these is a value the resolver rejects, so a manifest offering it without the
+    // floor tells a tool the empty string is legal. And `label` must NOT carry one: the empty
+    // label is how the document declares a group that renders no heading, and a floor there
+    // would tell a tool to refuse the one way of stating that.
+    expect(properties.contract?.minLength).toBe(1);
+    expect(properties.defaultTheme?.minLength).toBe(1);
+    expect(group.id?.minLength).toBe(1);
+    expect(group.label?.minLength).toBeUndefined();
+    expect(group.order?.minLength).toBeUndefined();
   });
 
   it("is reachable by the subpath a consumer imports it from", () => {

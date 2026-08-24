@@ -158,6 +158,15 @@ const SHELL_KEYS: readonly string[] = [...SHELL_ENUM_KEYS, ...SHELL_STRUCTURED_K
 /** Every field a declared navigation group may carry. */
 export const NAV_GROUP_FIELDS = ["id", "label", "order"] as const;
 
+/**
+ * The fields a group must carry.
+ *
+ * Named rather than written inline in the loop that reads it, for the reason the other four
+ * vocabulary literals are named: the published manifest mirrors this one too, and a mirror
+ * compared against a copy of itself in a test proves nothing.
+ */
+export const NAV_GROUP_REQUIRED = ["id", "label"] as const;
+
 /** Where a refusal points the reader. The file, not the option, because the file is the source. */
 const FILE = "frontend/layout-contract.json";
 
@@ -178,9 +187,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /** What the reader actually wrote, for a message that saves them opening the file.
  *
- * The two article cases are here rather than left to `a ${typeof value}` because both became
- * reachable the moment a group entry could be any JSON: `"navGroups": {}` reported "got a
- * object", which reads as a typo in the message rather than a fact about the file. */
+ * `an object` is spelled out rather than left to `a ${typeof value}`, which reported
+ * `"navGroups": {}` as "got a object" — a typo in the message rather than a fact about the
+ * file. The array case predates this and is reached by `resolveLayoutDeclaration([])` and by
+ * `"shell": []`, neither of which involves a group; it is listed here because both are article
+ * exceptions, not because either is new. */
 function describe(value: unknown): string {
   if (value === null) return "null";
   if (value === undefined) return "nothing";
@@ -189,9 +200,15 @@ function describe(value: unknown): string {
   return `a ${typeof value}`;
 }
 
-/** A group list as a refusal names it: the ids, in order, or the fact that there are none. */
+/** A group list as a refusal names it: the ids, in order, or the fact that there are none.
+ *
+ * Each id quoted separately, like every other list this module emits. Wrapping the joined
+ * string in one pair of quotes rendered two groups as `"work, admin"`, which reads as a single
+ * group whose id contains a comma — the opposite of the reason the ids are in the message at
+ * all, which is that they are the part a reader can match up against either source by eye. */
 function describeGroups(groups: readonly NavGroup[]): string {
-  return groups.length === 0 ? "no groups" : `"${groups.map((group) => group.id).join(", ")}"`;
+  if (groups.length === 0) return "no groups";
+  return groups.map((group) => `"${group.id}"`).join(", ");
 }
 
 /**
@@ -231,10 +248,11 @@ function resolveNavGroups(declared: unknown): readonly NavGroup[] {
     // A missing required field is reported as missing, not as a type. "must be a string, got
     // nothing" sends the reader looking for a value they never wrote; the schema requires both
     // fields, so the message should say which one is absent.
-    for (const field of ["id", "label"] as const) {
+    for (const field of NAV_GROUP_REQUIRED) {
       if (entry[field] === undefined) {
         throw new Error(
-          `${FILE}: ${at} is missing "${field}"; every group declares "id" and "label"` +
+          `${FILE}: ${at} is missing "${field}"; every group declares ` +
+            `${NAV_GROUP_REQUIRED.map((name) => `"${name}"`).join(" and ")}` +
             (field === "label" ? ', and "" is a group that renders no label at all.' : "."),
         );
       }

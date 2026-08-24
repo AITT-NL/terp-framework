@@ -1,5 +1,5 @@
 {
-  "$comment": "The vocabulary of frontend/layout-contract.json as THIS release reads it — the standard's layout-declaration.schema.json with the per-stack value sets filled in. Published so a tool that edits an app's files can offer exactly the keys and values the app's own pinned framework will honour, rather than the ones the tool happens to know about; that inversion is the whole point, because an unknown key is refused at compose time rather than ignored. Hand-written rather than generated: the machine facts are mirrors of literals in layoutDeclaration.ts, themes.ts and layoutContract.ts and layout.manifest.test.ts holds every one of them to its source, while the titles and descriptions are the part no generator could produce. The copy stays a copy, and the copy is checked.",
+  "$comment": "The vocabulary of frontend/layout-contract.json as THIS release reads it — the standard's layout-declaration.schema.json with the per-stack value sets filled in. Published so a tool that edits an app's files can offer exactly the keys and values the app's own pinned framework will honour, rather than the ones the tool happens to know about; that inversion is the whole point, because an unknown key is refused at compose time rather than ignored. Hand-written rather than generated: every machine fact here — the keys at all three levels, the enums, the declared types, the emptiness floors, the required pair and the unknown-key refusals — mirrors a literal in layoutDeclaration.ts, themes.ts or layoutContract.ts, and layout.manifest.test.ts holds each of them to its source. The titles and descriptions are the part no generator could produce, and are held only to being present. The copy stays a copy, and the copy is checked.",
   "title": "The app's layout declaration",
   "description": "What this app declares once, in a file both its build-time checker and its running shell read. Every key is optional and an absent key is not a default: it is the app declining to declare, leaving whatever was already in force alone. Declaring a key here and passing the matching bootstrap option in code is refused when the router is composed.",
   "type": "object",
@@ -46,7 +46,7 @@
         "navGroups": {
           "type": "array",
           "title": "Navigation groups",
-          "description": "The named sections the navigation is arranged into. A module's own navigation item points at one by id; an item naming a group that is not declared here is not an error, it simply lands in a trailing section with no heading. Declared here rather than on a module, because a group spans modules and no module can own one.",
+          "description": "The named sections the navigation is arranged into. A module's own navigation item points at one by id; an item naming a group that is not declared here is not an error, it simply lands in a trailing section with no heading. Declared here rather than on a module, because a group spans modules and no module can own one. Two groups may not share an id: every field of the second one is legal on its own, and the app still refuses to start.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -56,7 +56,7 @@
                 "type": "string",
                 "minLength": 1,
                 "title": "Id",
-                "description": "What a module's navigation item names to join this group. Never shown to anyone."
+                "description": "What a module's navigation item names to join this group. Never shown to anyone, and no two groups may share one."
               },
               "label": {
                 "type": "string",
