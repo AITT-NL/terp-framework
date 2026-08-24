@@ -9,8 +9,10 @@ import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terpjs/react-core";
 // The app's layout declaration, checked in beside this file. ONE file, two readers: the
 // `terp/layout-contract` lint rule finds it on disk, and the shell reads it here — so the
 // contract is declared once instead of once per half. It also carries the shell's own shape
-// (`shell.density`, `shell.navPlacement`, `shell.contentWidth`); declaring any of those here
-// as a bootstrap option as well is refused rather than silently resolved.
+// (`shell.density`, `shell.navPlacement`, `shell.contentWidth`) and the palette the app opens
+// on before anyone picks one (`defaultTheme`: any of the five, or "system" to follow the
+// viewer's own platform). Declaring any of those here as a bootstrap option as well is refused
+// rather than silently resolved.
 import layout from "../layout-contract.json";
 
 // The whole app: discover the modules and mount. baseUrl defaults to same-origin so the

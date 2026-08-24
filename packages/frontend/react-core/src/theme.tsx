@@ -3,35 +3,18 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 
 import { Icon } from "./icons";
+import { THEMES } from "./themes";
+import type { Theme } from "./themes";
 import { Menu, MenuItem } from "./ui/Menu";
 import { useStrings } from "./uiText";
 
 /**
- * The visual theme: an explicit choice, or "system" to follow the OS preference.
- *
- * The token stylesheet (`@terpjs/contract/tokens.css`) carries every palette: it applies
- * each named theme's colours under `<html data-theme="<name>">` and — with no attribute —
- * applies the dark palette under `@media (prefers-color-scheme: dark)`, so "system" simply
- * removes the attribute.
- *
- * The names are the stylesheet's, so this union is a restatement of a published contract
- * and could drift from it silently — a theme the sheet ships that no app can select, or one
- * this offers that resolves to nothing. `theme.themes.test.ts` holds it against the token
- * manifest. The union is written out rather than derived from the manifest at runtime because
- * react-core publishes unbuilt source and imports nothing but React: resolving a JSON module
- * from a sibling package would add a requirement to every consumer's bundler and tsconfig,
- * which is the consumption-model change the framework spends real effort avoiding.
+ * The theme names and the runtime list of them live in `themes.ts`, a leaf module with no
+ * React and no DOM, because the layout-declaration resolver needs the same list to refuse a
+ * palette an app's checked-in file names — and it must not import this file to get it.
+ * Re-exported here so `ThemeProvider`'s own type stays where its props are documented.
  */
-export type Theme = "light" | "dark" | "midnight" | "twilight" | "contrast" | "system";
-
-const THEMES: readonly Theme[] = [
-  "light",
-  "dark",
-  "midnight",
-  "twilight",
-  "contrast",
-  "system",
-];
+export type { Theme } from "./themes";
 
 const THEME_ICONS: Record<Theme, IconName> = {
   light: "sun",

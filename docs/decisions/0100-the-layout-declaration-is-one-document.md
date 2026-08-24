@@ -144,3 +144,67 @@ an oversight someone rediscovers.
 - A tool can now read and rewrite how an app's shell is shaped without writing that app's
   TypeScript. That is what the Studio's layout editing needs, and it is the reason to widen this
   file rather than invent another.
+---
+
+## Amendment (2026-08-24): the palette the app opens on
+
+The decisions above moved three shell choices into the document because they were reachable
+by editing code and by nothing else. `defaultTheme` was left out on the grounds that it is
+appearance rather than layout — a real distinction, and the wrong one to act on. Which
+palette an app *opens* on is among the most visible choices its operator makes, and leaving
+it a bootstrap option kept it exactly as unreachable as `density` was the day before this
+ADR. So it joins the document.
+
+**It is a top-level key, not a `shell` key**, and that is the one shaping decision here.
+The taxonomy argument is real but weak: a palette paints the frame and the page alike, while
+`shell` is where the frame's geometry is declared. The deciding argument is the
+portable/per-stack split §5 draws. `shell`'s defining property is that its vocabulary is
+fixed *normatively* — a density means the same thing on any stack. Palette names do not:
+which palettes exist is a stack's own to publish, exactly like which contracts exist. Putting
+a per-stack string inside the group whose whole point is a fixed normative vocabulary would
+make that group mean two things. So it follows `contract`'s half of the split instead — a
+plain string in the schema, with the values recorded in the catalog entry's non-normative
+`reference` field.
+
+**The enum is the framework's own theme registry, imported rather than restated.** The list
+already exists as `THEMES`: the array the theme control offers, the array `ThemeProvider`
+validates a stored choice against, held to `@terpjs/contract`'s compiled stylesheet by
+`theme.themes.test.ts`. Writing the palette names a second time in the resolver would have
+added a third place a shipped palette could go missing from. Getting the import required
+moving the names into `themes.ts`, a leaf module with no React and no DOM — importing
+`theme.tsx` from the resolver would have pulled the icon set and the component stylesheet's
+module-scope injection into a module whose entire job is to validate a JSON file, and into
+the node-environment test that covers it.
+
+Refusing an unknown palette rather than falling back is the same reasoning as §3.1 and worth
+restating because the fallback is so available here: `data-theme="midnite"` matches no block
+in the stylesheet, so the app renders the base palette and *nothing anywhere reports that the
+file was ignored*. The standard's schema says so in its own words, so a consumer on another
+stack inherits the obligation rather than the temptation.
+
+**One reserved name.** `"system"` is portable — the app opens on whatever light or dark
+preference the viewer's platform reports — and it is a declaration, not an absence: an absent
+key leaves whatever was already in force alone, including a bootstrap option, while
+`"system"` overrides one. Both are asserted.
+
+Where the resolution happens is the one implementation note worth recording. The palette is
+mounted *outside* the router (`ThemeProvider` wraps `RequireAuth`, and therefore the router),
+so `renderTerpApp` resolves the declaration itself in addition to the resolve inside
+`buildAppRouter`. Two calls, one answer by construction: the resolver is pure and total over
+its inputs, and both calls receive the same declaration and the same options. What would
+break that is resolving once and handing the router a *different* input set, so `layout` and
+every option still travel down untouched — which also means a key added to the declaration
+later reaches the router without being threaded through `renderTerpApp` first.
+
+§6 is unchanged: still no build-time half, for the same `@terpjs/spec`-is-a-dev-dependency
+reason, and this key does not move that balance.
+
+**Gates.** Six mutations, all red, on the six lines that carry the key from the file to the
+`<html>` attribute: the enum check, the duplicate check, the known-key set, the type check,
+the value handed to `ThemeProvider`, and the palette's presence in the explicit set the
+resolver compares against. The last two are the ones a unit test on the resolver cannot see,
+and they are gated on the rendered `data-theme` attribute rather than on a throw — the
+signed-out mount renders no shell, but it does mount the provider, so this is the one
+declaration key whose effect is directly observable in the DOM. The spec parity test was run
+against the real 0.26.0 schema (green) and against a drifted resolver (red, with the two key
+sets named), rather than left to the skip it sits behind until the pin moves.

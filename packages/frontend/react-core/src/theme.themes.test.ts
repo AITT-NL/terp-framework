@@ -6,9 +6,9 @@ import { DEFAULT_STRINGS } from "./uiText";
 
 // react-core's theme list against the contract's published one.
 //
-// `Theme` in `theme.tsx` is a hand-written union of the stylesheet's theme names, and
-// `THEME_ICONS` and the label map are records over it. That is a restatement of a published
-// contract, so it can drift from it — and both directions fail quietly:
+// `Theme` in `themes.ts` is a hand-written union of the stylesheet's theme names, and
+// `THEME_ICONS` and the label map in `theme.tsx` are records over it. That is a restatement of a
+// published contract, so it can drift from it — and both directions fail quietly:
 //
 //   * A theme the sheet ships that this union omits is a palette no app can ever select. It
 //     is compiled, gated for contrast and completeness, published in the manifest, and
@@ -33,19 +33,25 @@ const manifest: {
 
 // Read as source rather than imported, because the union is a type: it does not survive to
 // runtime, and `THEMES` alone would not prove the type and the array agree.
+//
+// Two files, because the names and the records over them are two files: the names are a leaf
+// module the layout-declaration resolver also reads (it must refuse a palette a checked-in
+// declaration asks for), and the icon and label records belong with the control that renders
+// them. Each regex below names the file it is asserting about.
+const namesSource = readFileSync(new URL("./themes.ts", import.meta.url), "utf-8");
 const themeSource = readFileSync(new URL("./theme.tsx", import.meta.url), "utf-8");
 
 /** The names in `export type Theme = "a" | "b" | …`. */
 function unionMembers(): string[] {
-  const match = /export type Theme =([^;]+);/.exec(themeSource);
-  if (!match) throw new Error("theme.tsx: could not find `export type Theme`");
+  const match = /export type Theme =([^;]+);/.exec(namesSource);
+  if (!match) throw new Error("themes.ts: could not find `export type Theme`");
   return [...match[1]!.matchAll(/"([a-z-]+)"/g)].map((entry) => entry[1]!);
 }
 
 /** The names in the `THEMES` array literal. */
 function themesArray(): string[] {
-  const match = /const THEMES: readonly Theme\[\] = \[([^\]]+)\]/.exec(themeSource);
-  if (!match) throw new Error("theme.tsx: could not find the `THEMES` array");
+  const match = /const THEMES: readonly Theme\[\] = \[([^\]]+)\]/.exec(namesSource);
+  if (!match) throw new Error("themes.ts: could not find the `THEMES` array");
   return [...match[1]!.matchAll(/"([a-z-]+)"/g)].map((entry) => entry[1]!);
 }
 

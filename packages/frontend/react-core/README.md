@@ -53,7 +53,7 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
 | `LoginView` | The standard sign-in screen: username/password, plus optional SSO provider buttons via `ssoProviders` and a dev-only credential-fill button via `devCredentials` (gate it on `import.meta.env.DEV`). |
 | `useSso`, `parseSsoCallback`, `fetchSsoAuthorizationUrl`, `completeSsoCallback` | The SSO login seam (ADR 0058): `useSso().begin(provider)` opens an OIDC flow; `TerpProvider` completes the `/auth/callback/{provider}` redirect landing into a normal session on boot. `renderTerpApp({ ssoProviders })` wires the buttons in one line. |
 | `RequireAuth` | Renders children only with a session; pairs with the router so the app mounts only when signed in. |
-| `ThemeProvider`, `ThemeToggle`, `useTheme` | Theming over the five shipped palettes — `light`, `dark`, `midnight`, `twilight`, `contrast` — plus `system` to follow the OS preference. Applies `data-theme` on `<html>` (the token stylesheet carries every palette) and persists the choice. `defaultTheme` is how an app ships on a named theme. `renderTerpApp` mounts it for every app; the shell header uses an icon-only, token-themed `variant="inline"` menu. |
+| `ThemeProvider`, `ThemeToggle`, `useTheme` | Theming over the five shipped palettes — `light`, `dark`, `midnight`, `twilight`, `contrast` — plus `system` to follow the OS preference. Applies `data-theme` on `<html>` (the token stylesheet carries every palette) and persists the choice. `defaultTheme` is how an app ships on a named theme — declare it in `layout-contract.json` so a tool can read and rewrite it, or pass the bootstrap option; both is refused. `renderTerpApp` mounts it for every app; the shell header uses an icon-only, token-themed `variant="inline"` menu. |
 | `LocaleProvider`, `LanguageSwitcher`, `useLocale`, `LOCALE_EN`, `LOCALE_NL` | The language seam over `UiTextProvider`: per-locale string catalogs, a persisted active locale, and an icon-only, token-themed menu in the shell header once an app declares a second locale. English and Dutch catalogs ship complete; `renderTerpApp({ locales })` wires them. |
 | `UserMenu`, `userInitials` | The signed-in user's menu, pinned by `buildAppRouter` to the bottom of the sidebar: an initials avatar trigger opening the identity block, **Settings** (the built-in profile page) and sign-out. Collapses to the avatar in the icon rail. |
 | `ProfileView` | The built-in profile / settings page (`/profile`): the server-validated identity, theme + language preferences, and sign-out. |
@@ -145,9 +145,10 @@ An app can ratchet the archetype control further with a named **layout contract*
 declared once in a checked-in `layout-contract.json` next to the frontend sources
 (`{ "contract": "standard" }`) and read by both halves: the `terp/layout-contract` lint
 rule finds the file on disk, and `main.tsx` imports it —
-`renderTerpApp({ layout })`. The same file carries the shell's own shape under `shell`
-(`density`, `navPlacement`, `contentWidth`), which is what lets a tool read and rewrite
-those choices instead of them living only in TypeScript. Declaring a key in the file AND
+`renderTerpApp({ layout })`. The same file carries the palette the app opens on
+(`defaultTheme`) and the shell's own shape under `shell` (`density`, `navPlacement`,
+`contentWidth`), which is what lets a tool read and rewrite those choices instead of them
+living only in TypeScript. Declaring a key in the file AND
 passing the matching bootstrap option is refused when the router is composed, with both
 sources named; `layoutContract: "standard"` on its own still works for an app that would
 rather write code than check in a file. Each governed archetype's body slot then accepts **only** the contract's

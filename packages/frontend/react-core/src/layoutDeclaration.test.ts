@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveLayoutDeclaration } from "./layoutDeclaration";
+import { THEMES } from "./themes";
 
 describe("resolveLayoutDeclaration", () => {
   it("returns the options untouched when there is no declaration", () => {
@@ -67,8 +68,10 @@ describe("resolveLayoutDeclaration", () => {
     expect(() =>
       resolveLayoutDeclaration({ shell: { sidebarWidth: "20rem" } as never }, {}),
     ).toThrow(/unknown shell key "sidebarWidth"; this release reads/);
+    // "theme", not "defaultTheme": a near-miss of a real key is the shape a hand-edit
+    // produces, and it is what the unknown-key refusal is for.
     expect(() => resolveLayoutDeclaration({ theme: "dark" } as never, {})).toThrow(
-      /unknown key "theme"; this release reads "contract" and "shell"/,
+      /unknown key "theme"; this release reads "contract", "defaultTheme", "shell"/,
     );
   });
 
@@ -90,17 +93,27 @@ describe("resolveLayoutDeclaration", () => {
 
   it("reports every conflicting key at once rather than the first", () => {
     // A one-at-a-time refusal turns adopting the file into a guessing loop: fix, re-run, learn
-    // about the next one. There are only four keys; name them all.
+    // about the next one. The whole vocabulary is five keys; name every one that conflicts.
     let message = "";
     try {
       resolveLayoutDeclaration(
-        { contract: "standard", shell: { density: "compact", navPlacement: "header" } },
-        { contract: "standard", density: "compact", navPlacement: "header" },
+        {
+          contract: "standard",
+          defaultTheme: "midnight",
+          shell: { density: "compact", navPlacement: "header" },
+        },
+        {
+          contract: "standard",
+          defaultTheme: "dark",
+          density: "compact",
+          navPlacement: "header",
+        },
       );
     } catch (error) {
       message = (error as Error).message;
     }
     expect(message).toContain('"contract"');
+    expect(message).toContain('"defaultTheme"');
     expect(message).toContain('"shell.density"');
     expect(message).toContain('"shell.navPlacement"');
   });
@@ -112,6 +125,57 @@ describe("resolveLayoutDeclaration", () => {
     // `{"contract": "standard"}` — with "keep the two in sync" written above it.
     expect(() =>
       resolveLayoutDeclaration({ contract: "standard" }, { contract: "standard" }),
+    ).toThrow(/both declare/);
+  });
+
+  // ---- the palette the app opens on ---------------------------------------- #
+
+  it("supplies the palette from the file, narrowed to the published list", () => {
+    // The point of the key: which palette an app opens on used to be reachable only by editing
+    // that app's own code, which put it out of reach of anything that edits files.
+    expect(resolveLayoutDeclaration({ defaultTheme: "midnight" }, {})).toEqual({
+      defaultTheme: "midnight",
+    });
+  });
+
+  it("accepts every palette the framework publishes, and nothing else", () => {
+    // Asserted over the published array rather than over a hand-picked few, because the failure
+    // this prevents is a SHIPPED palette an app cannot name — which a spot-check of three would
+    // not catch. `THEMES` is the same list the theme control offers, held to the compiled
+    // stylesheet by theme.themes.test.ts, so this closes the loop from stylesheet to file.
+    expect(THEMES.length).toBeGreaterThan(3);
+    for (const theme of THEMES) {
+      expect(resolveLayoutDeclaration({ defaultTheme: theme }, {})).toEqual({
+        defaultTheme: theme,
+      });
+    }
+  });
+
+  it("accepts the OS-preference sentinel, which is a declaration and not an absence", () => {
+    // `"system"` is a real thing to declare — "open on whatever the viewer's platform prefers" —
+    // and it is NOT what an absent key means. An absent key leaves whatever was already in force
+    // alone, including a bootstrap option; this one overrides it.
+    expect(resolveLayoutDeclaration({ defaultTheme: "system" }, { defaultTheme: undefined })).toEqual(
+      { defaultTheme: "system" },
+    );
+  });
+
+  it("refuses a palette this release does not ship, naming the ones it does", () => {
+    // The alternative is falling back to a palette that does exist, and that is how a
+    // declaration ends up doing nothing while looking like it works: `data-theme="midnite"`
+    // matches no block in the stylesheet, so the app renders the base palette and nothing
+    // anywhere reports that the file was ignored.
+    expect(() => resolveLayoutDeclaration({ defaultTheme: "midnite" }, {})).toThrow(
+      /"defaultTheme" is "midnite"; expected one of "light", "dark", "midnight", "twilight", "contrast", "system"/,
+    );
+  });
+
+  it("refuses the palette declared twice, like every other key", () => {
+    expect(() =>
+      resolveLayoutDeclaration({ defaultTheme: "midnight" }, { defaultTheme: "dark" }),
+    ).toThrow(/"defaultTheme" \(file: "midnight", code: "dark"\)/);
+    expect(() =>
+      resolveLayoutDeclaration({ defaultTheme: "dark" }, { defaultTheme: "dark" }),
     ).toThrow(/both declare/);
   });
 
@@ -151,6 +215,9 @@ describe("resolveLayoutDeclaration", () => {
     );
     expect(() => resolveLayoutDeclaration({ contract: 7 } as never, {})).toThrow(
       /"contract" must be a string, got a number/,
+    );
+    expect(() => resolveLayoutDeclaration({ defaultTheme: [] } as never, {})).toThrow(
+      /"defaultTheme" must be a string, got an array/,
     );
   });
 

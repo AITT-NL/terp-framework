@@ -1,3 +1,6 @@
+import { THEMES } from "./themes";
+import type { Theme } from "./themes";
+
 /**
  * The app's checked-in layout declaration — `frontend/layout-contract.json` — as the ONE
  * source for what it declares.
@@ -54,6 +57,19 @@ export interface LayoutShellDeclaration {
 export interface LayoutDeclaration {
   /** The slot-typed layout contract the app opts into, e.g. `"standard"`. */
   readonly contract?: string;
+  /**
+   * The palette the app opens on, until a person chooses another (`ThemeProvider.defaultTheme`):
+   * one of the shipped theme names, or `"system"` to follow the viewer's own platform preference.
+   *
+   * Top level rather than under `shell`, because a palette paints the frame and the page alike
+   * while `shell` is where the frame's geometry is declared — and because the standard splits
+   * the two the other way round: shell vocabulary is fixed normatively, palette names are a
+   * stack's own to publish, so this follows `contract`'s half of that split.
+   *
+   * `string` for the same measured reason every shell value is (see
+   * {@link LayoutShellDeclaration}), so the runtime check below is the only one it gets.
+   */
+  readonly defaultTheme?: string;
   /** The shell's shape. Grouped, because `contract` governs page bodies and this governs chrome. */
   readonly shell?: LayoutShellDeclaration;
 }
@@ -61,6 +77,7 @@ export interface LayoutDeclaration {
 /** What the resolver hands the router: one value per key, from whichever source declared it. */
 export interface ResolvedLayout {
   readonly contract?: string;
+  readonly defaultTheme?: Theme;
   readonly density?: "comfortable" | "compact";
   readonly navPlacement?: "sidebar" | "header";
   readonly contentWidth?: "full" | "measured";
@@ -136,19 +153,26 @@ export function resolveLayoutDeclaration(
   if (!isPlainObject(declaration)) {
     throw new Error(`${FILE}: expected a JSON object, got ${describe(declaration)}.`);
   }
-  const known = new Set<string>(["contract", "shell"]);
+  const known = new Set<string>(["contract", "defaultTheme", "shell"]);
   const unknownTop = Object.keys(declaration).filter((key) => !known.has(key));
   if (unknownTop.length > 0) {
     throw new Error(
       `${FILE}: unknown ${unknownTop.length === 1 ? "key" : "keys"} ` +
         `${unknownTop.map((key) => `"${key}"`).join(", ")}; this release reads ` +
-        `${[...known].map((key) => `"${key}"`).join(" and ")}.`,
+        // Comma-joined like the shell message beside it. It read "a and b" while there were
+        // exactly two keys, which does not survive a third: "a and b and c".
+        `${[...known].map((key) => `"${key}"`).join(", ")}.`,
     );
   }
 
   if (declaration.contract !== undefined && typeof declaration.contract !== "string") {
     throw new Error(
       `${FILE}: "contract" must be a string, got ${describe(declaration.contract)}.`,
+    );
+  }
+  if (declaration.defaultTheme !== undefined && typeof declaration.defaultTheme !== "string") {
+    throw new Error(
+      `${FILE}: "defaultTheme" must be a string, got ${describe(declaration.defaultTheme)}.`,
     );
   }
   // Checked BEFORE defaulting, not after: `?? {}` swallows `null`, so `"shell": null` would
@@ -180,6 +204,30 @@ export function resolveLayoutDeclaration(
       conflicts.push(`"contract" (file: "${declaration.contract}", code: "${explicit.contract}")`);
     }
     resolved.contract = declaration.contract;
+  }
+
+  if (declaration.defaultTheme !== undefined) {
+    // The enum this key gets, and the list is imported rather than restated: `THEMES` is the
+    // same array the theme control offers and the provider validates a stored choice against,
+    // held to the compiled stylesheet by `theme.themes.test.ts`. A copy here would be a third
+    // place a shipped palette could go missing from.
+    //
+    // Refused rather than fallen back to a palette that does exist, which the standard states
+    // outright: a fallback is how a declaration ends up doing nothing while looking like it
+    // works — `data-theme="midnite"` matches no block, so the app renders the base palette and
+    // nothing anywhere says the file was ignored.
+    if (!(THEMES as readonly string[]).includes(declaration.defaultTheme)) {
+      throw new Error(
+        `${FILE}: "defaultTheme" is "${declaration.defaultTheme}"; expected one of ` +
+          `${THEMES.map((theme) => `"${theme}"`).join(", ")}.`,
+      );
+    }
+    if (explicit.defaultTheme !== undefined) {
+      conflicts.push(
+        `"defaultTheme" (file: "${declaration.defaultTheme}", code: "${explicit.defaultTheme}")`,
+      );
+    }
+    resolved.defaultTheme = declaration.defaultTheme;
   }
 
   for (const key of SHELL_KEYS) {

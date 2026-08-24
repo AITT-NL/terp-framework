@@ -88,8 +88,9 @@ for in-page tab sets and `Markdown` for safe rich text).
    built-in sidebar `UserMenu` offers all of them plus `system`), and
    `renderTerpApp({ locales })` declares the language catalogs (the menu shows a picker
    once a second locale exists). Keep user-facing text as `UiText` props so it follows
-   the language switch. To ship on a palette other than the default, pass
-   `defaultTheme` — do not restyle to imitate one.
+   the language switch. To ship on a palette other than the default, name it as
+   `defaultTheme` in `frontend/layout-contract.json` — do not restyle to imitate one, and
+   do not also pass the bootstrap option, which is refused as one fact declared twice.
 
 There are no lint modes: every violation is an error. The one governed opt-out is a
 justified `// terp-allow-<rule>: <reason>` marker on (or above) the violating line, whose

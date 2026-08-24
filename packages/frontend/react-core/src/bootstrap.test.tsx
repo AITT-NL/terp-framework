@@ -89,6 +89,67 @@ describe("renderTerpApp", () => {
     }
   });
 
+  it("opens on the palette the declaration names, and on the option when it does not", async () => {
+    // The forwarding tests above gate their line through a THROW, because a signed-out mount
+    // renders no shell to read. The palette is the exception and gets the stronger assertion:
+    // `ThemeProvider` wraps `RequireAuth`, so it mounts signed out, and the attribute it writes
+    // on <html> is the actual observable effect an app ships. A throw here would only prove the
+    // file was validated, not that the value reached anything.
+    //
+    // Mutations, both red: pass `options.defaultTheme` to `ThemeProvider` instead of
+    // `layout.defaultTheme` and the first assertion reads "system"; drop `defaultTheme` from the
+    // explicit set handed to the resolver and the second reads null.
+    for (const [label, options] of [
+      ["from the file", { layout: { defaultTheme: "midnight" } }],
+      ["from the option", { defaultTheme: "midnight" as const }],
+    ] as const) {
+      // A stored choice outranks the default — that is the whole point of a *default* — so the
+      // assertion would be about localStorage rather than about the declaration without this.
+      window.localStorage.clear();
+      document.documentElement.removeAttribute("data-theme");
+      const root = document.createElement("div");
+      document.body.appendChild(root);
+      try {
+        renderTerpApp({
+          title: "Test",
+          modules: { "./modules/notes/module.tsx": notesModule },
+          rootElement: root,
+          ...options,
+        });
+        await waitFor(() =>
+          expect(
+            document.documentElement.getAttribute("data-theme"),
+            `${label}: the declared palette must reach <html>`,
+          ).toBe("midnight"),
+        );
+      } finally {
+        root.remove();
+        document.documentElement.removeAttribute("data-theme");
+      }
+    }
+  });
+
+  it("refuses the palette named in the file and passed as an option", () => {
+    // Non-exclusive per ADR 0009 — either source alone is complete, as the test above shows —
+    // but not both, and not even when they agree. Reachable only through `renderTerpApp`,
+    // because `buildAppRouter` has no palette option to conflict with.
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    try {
+      expect(() =>
+        renderTerpApp({
+          title: "Test",
+          modules: { "./modules/notes/module.tsx": notesModule },
+          layout: { defaultTheme: "midnight" },
+          defaultTheme: "midnight",
+          rootElement: root,
+        }),
+      ).toThrow(/both declare "defaultTheme" \(file: "midnight", code: "midnight"\)/);
+    } finally {
+      root.remove();
+    }
+  });
+
   it("forwards navGroups to buildAppRouter", () => {
     // `renderTerpApp` hands its options to `buildAppRouter` through a hand-written enumeration of
     // names, and nothing covered it — `navPlacement`, `contentWidth` and `density` all travel that

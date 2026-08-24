@@ -57,6 +57,26 @@ decision, 0001 onwards.
   stack's resolver is parity-tested against those enums in both directions, skipped until the
   spec pin moves, and verified to enforce by drifting one enum.
 
+  **The palette an app opens on joins the same document** (amendment, same release). It was
+  left out on the grounds that it is appearance rather than layout — a real distinction and
+  the wrong one to act on, because `defaultTheme` was exactly as unreachable to a
+  file-editing tool as `density` was. It is a TOP-LEVEL key rather than a `shell` key, and
+  the reason is the portable/per-stack split rather than the taxonomy: `shell`'s defining
+  property is a normatively fixed vocabulary, and palette names are a stack's own to publish.
+  So it follows `contract`'s half of that split — a plain string, values in the catalog
+  entry's non-normative reference field, one reserved portable name (`system`, the viewer's
+  own platform preference). The enum is the framework's existing `THEMES` registry, imported
+  rather than restated, which is what moved the theme names into `themes.ts` — a leaf module
+  with no React and no DOM, so a resolver whose job is validating a JSON file does not pull
+  the icon set and the component stylesheet in behind it. An unknown palette is refused, not
+  fallen back on: `data-theme="midnite"` matches no block, so the app would render the base
+  palette with nothing anywhere reporting that the file was ignored.
+
+  Six mutations, all red, over the six lines that carry the key from the file to the `<html>`
+  attribute — including the two a resolver unit test cannot see (the value handed to
+  `ThemeProvider`, and the key's presence in the explicit set the resolver compares against),
+  which are gated on the rendered attribute instead. 583 frontend tests pass.
+
   Two mutations, both red, on the two lines that carry the file to where it matters: pointing the
   shell back at the raw option (the resolver runs and its answer is discarded), and deleting the
   forwarding line from the one-call entry point. The first also closes a gap two comments in this

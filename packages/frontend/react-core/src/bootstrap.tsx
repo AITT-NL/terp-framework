@@ -10,6 +10,7 @@ import { RequireAuth } from "./RequireAuth";
 import { TerpProvider } from "./TerpProvider";
 import { AdminHub } from "./admin/AdminHub";
 import { adminModule } from "./admin/module";
+import { resolveLayoutDeclaration } from "./layoutDeclaration";
 import type { LayoutDeclaration } from "./layoutDeclaration";
 import { LocaleProvider } from "./locale";
 import type { LocaleCatalog } from "./locale";
@@ -181,7 +182,14 @@ export interface RenderTerpAppOptions {
   locales?: Record<string, LocaleCatalog>;
   /** Starting locale when the user has not chosen one; default: the first `locales` key. */
   defaultLocale?: string;
-  /** Starting theme when the user has not chosen one; default "system" (OS preference). */
+  /**
+   * Starting theme when the user has not chosen one; default `"system"` (OS preference).
+   *
+   * Prefer {@link RenderTerpAppOptions.layout}: `"defaultTheme"` in the app's own
+   * `frontend/layout-contract.json` says the same thing in the one document a tool can read and
+   * rewrite, which is the whole reason the declaration exists. Declaring it in both places is
+   * refused rather than silently resolved.
+   */
   defaultTheme?: Theme;
   /**
    * Opt into a slot-typed layout contract (ADR 0079), e.g. `"standard"`: every routed
@@ -199,8 +207,9 @@ export interface RenderTerpAppOptions {
    * The app's checked-in layout declaration: `import layout from "../layout-contract.json"`.
    *
    * One file declaring the layout contract for both the lint rule and the runtime check, plus
-   * the shell's density, navigation placement and content measure. Declaring a key here and
-   * passing the matching option is refused rather than silently resolved.
+   * the palette the app opens on and the shell's density, navigation placement and content
+   * measure. Declaring a key here and passing the matching option is refused rather than
+   * silently resolved.
    */
   layout?: LayoutDeclaration;
   /** Mount point; default `document.getElementById("root")`. */
@@ -286,6 +295,20 @@ export function withAdminArea(
  * stylesheet import. Drop to `TerpProvider` + `buildAppRouter` for full control.
  */
 export function renderTerpApp(options: RenderTerpAppOptions): void {
+  // Resolved here as well as inside `buildAppRouter`, because the one key mounted OUTSIDE the
+  // router is the palette: `ThemeProvider` wraps everything, the router included. Two calls, one
+  // answer by construction — the resolver is pure and total over its inputs and both calls get
+  // the same declaration and the same options. What would break that is resolving here and
+  // handing the router a DIFFERENT input set, so `layout` and every option still go down
+  // untouched; a key added to the declaration later reaches the router without being threaded
+  // through this function first.
+  const layout = resolveLayoutDeclaration(options.layout, {
+    contract: options.layoutContract,
+    density: options.density,
+    navPlacement: options.navPlacement,
+    contentWidth: options.contentWidth,
+    defaultTheme: options.defaultTheme,
+  });
   const collected = collectModules(options.modules);
   const { manifests, views } = withAdminArea(
     collected.manifests,
@@ -312,7 +335,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
   }
   createRoot(root).render(
     <StrictMode>
-      <ThemeProvider defaultTheme={options.defaultTheme}>
+      <ThemeProvider defaultTheme={layout.defaultTheme}>
         <LocaleProvider
           locales={options.locales ?? { en: {} }}
           defaultLocale={options.defaultLocale}

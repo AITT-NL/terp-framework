@@ -194,7 +194,10 @@ and no deep `@terpjs/*` imports. Every routed view renders a page archetype (`Pa
 `OverviewPage` / `DetailPage` / `HubPage`) — the router refuses an unframed view.
 This app also opts into the **`standard` layout contract** (ADR 0079), declared once in
 `frontend/layout-contract.json` — the lint rule finds the file and `main.tsx` imports it,
-so there is nothing to keep in sync: each archetype's body slot accepts only the contract's components (hub bodies:
+so there is nothing to keep in sync. The same file is where the app's shell shape
+(`shell.density` / `shell.navPlacement` / `shell.contentWidth`) and the palette it opens on
+(`defaultTheme`) are declared; passing any of them as a bootstrap option as well is refused
+when the router is composed. The contract itself: each archetype's body slot accepts only the contract's components (hub bodies:
 `HubCard`; overview bodies: `DataView` / `ResourceList` / `Stack` / `Card` / `Divider` /
 `Text` + framework states; detail bodies: those plus `Grid`, `DetailList` and `Tabs` —
 `Grid` is a detail-body component and not an overview one, because an overview body is a
