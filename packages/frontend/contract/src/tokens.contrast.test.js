@@ -22,6 +22,7 @@ const here = (name) => fileURLToPath(new URL(name, import.meta.url));
 
 const tokensCss = fs.readFileSync(here("./tokens.css"), "utf8");
 const registry = JSON.parse(fs.readFileSync(here("../themes.json"), "utf8"));
+const manifest = JSON.parse(fs.readFileSync(here("./tokens.manifest.json"), "utf8"));
 
 /** WCAG 2.1 AA, normal-size text. Large text and UI boundaries would be 3.0. */
 const AA_NORMAL_TEXT = 4.5;
@@ -186,12 +187,18 @@ function contrastRatio(a, b) {
 }
 
 /**
- * The ratio a theme's pairings must reach. AA for normal text by default; a theme may declare
- * a higher floor in `themes.json`, which is how the high-contrast theme's promise is a gate
- * rather than a sentence in its description.
+ * The ratio a theme's pairings must reach — read from the MANIFEST, not from `themes.json`.
+ *
+ * AA for normal text by default; a theme may declare a higher floor in the registry, which is
+ * how the high-contrast theme's promise is a gate rather than a sentence in its description.
+ * The indirection is the point: the manifest publishes an effective floor per theme so the
+ * Studio's theme editor and an agent can hold an app's own palette to the same bar this gate
+ * holds the framework's. Reading it back here means the published floor and the enforced floor
+ * are one number. Re-deriving it from the registry on this side would let the manifest publish
+ * 4.5 for a theme this file measures at 7 and neither would notice.
  */
 const floorFor = (name) =>
-  registry.themes.find((theme) => theme.name === name)?.minimumContrast ?? AA_NORMAL_TEXT;
+  manifest.themes.find((theme) => theme.name === name)?.minimumContrast ?? AA_NORMAL_TEXT;
 
 /**
  * Every pairing in *list*, in every registered theme, tagged with its ratchet key and the

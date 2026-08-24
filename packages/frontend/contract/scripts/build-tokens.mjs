@@ -31,6 +31,13 @@ const buildDir = mkdtempSync(join(tmpdir(), "terp-tokens-"));
 
 const read = (name) => JSON.parse(readFileSync(join(packageRoot, name), "utf8"));
 
+/**
+ * WCAG 2.1 AA for normal-size text — the floor every theme is held to unless `themes.json`
+ * raises it. Declared here because the manifest publishes an effective floor per theme and
+ * the contrast gate reads it back; the constant has one home, on the writing side.
+ */
+const AA_NORMAL_TEXT = 4.5;
+
 const registry = read("themes.json");
 const themes = registry.themes;
 const base = themes.find((theme) => theme.name === registry.base);
@@ -216,11 +223,18 @@ const manifest = {
   // alone rather than hard-coding the list it happens to know about.
   base: registry.base,
   systemDark: registry.systemDark,
-  themes: themes.map(({ name, label, appearance, description }) => ({
+  themes: themes.map(({ name, label, appearance, description, minimumContrast }) => ({
     name,
     label,
     appearance,
     description,
+    // The ratio this theme's declared text pairings must reach, published as a NUMBER on every
+    // theme rather than only on the one that raises it. A consumer that saw the field only on
+    // `contrast` would have to know WCAG's AA constant to interpret its absence, and would then
+    // be free to interpret it differently from the gate — which is the one thing this file
+    // exists to prevent. `tokens.contrast.test.js` reads this value instead of re-deriving it,
+    // so the published floor IS the enforced floor.
+    minimumContrast: minimumContrast ?? AA_NORMAL_TEXT,
   })),
   tokens: [...baseTokens.entries()].map(([name, token]) => ({
     name,

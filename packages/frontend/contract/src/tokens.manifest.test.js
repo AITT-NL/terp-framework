@@ -70,16 +70,37 @@ describe("token manifest", () => {
     expect(manifest.base).toBe(registry.base);
     expect(manifest.systemDark).toBe(registry.systemDark);
     expect(manifest.themes).toEqual(
-      registry.themes.map(({ name, label, appearance, description }) => ({
+      registry.themes.map(({ name, label, appearance, description, minimumContrast }) => ({
         name,
         label,
         appearance,
         description,
+        minimumContrast: minimumContrast ?? 4.5,
       })),
     );
     for (const theme of manifest.themes) {
       expect(blocks.has(theme.name), `${theme.name} has no block in the sheet`).toBe(true);
     }
+  });
+
+  it("publishes an effective contrast floor on every theme, never below AA", () => {
+    // The floor is published as a number on EVERY theme, including the four that take the
+    // default, because the consumer this file exists for is a theme editor holding an app's own
+    // palette to the same bar. A field present only on `contrast` would make the other four
+    // "unknown", and a consumer that guesses is a consumer that can disagree with the gate.
+    //
+    // `tokens.contrast.test.js` reads these numbers rather than the registry, so a wrong value
+    // here does not merely mislead a reader — it moves the bar the framework's own palettes are
+    // measured against, and the theme-list assertion above is what stops it from moving.
+    for (const theme of manifest.themes) {
+      expect(typeof theme.minimumContrast, `${theme.name} floor type`).toBe("number");
+      expect(theme.minimumContrast, `${theme.name} floor`).toBeGreaterThanOrEqual(4.5);
+    }
+    // And the mechanism must still be exercised by at least one theme, or "publishes a floor"
+    // decays into publishing the same constant five times.
+    expect(
+      manifest.themes.filter((theme) => theme.minimumContrast > 4.5).map((t) => t.name),
+    ).not.toEqual([]);
   });
 
   it("records the value each token resolves to, in every theme", () => {
