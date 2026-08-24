@@ -14,6 +14,59 @@ decision, 0001 onwards.
 
 ### Added
 
+- **ADR 0100 — the layout declaration is one document, and the standard says so.** The template
+  shipped a defect written as advice. `frontend/layout-contract.json` has governed the
+  `terp/layout-contract` lint rule since ADR 0079; the runtime half read nothing from it and took
+  a `layoutContract` string in TypeScript instead. So a scaffolded app declared one fact twice,
+  and `main.tsx` said so three lines above the duplicate: *"keep the two in sync"*. That is an
+  unenforced invariant with a human assigned to it — delete either side and the app keeps a
+  build-time rule with no runtime check, or a runtime check no lint agrees with, and nothing
+  reports the mismatch. The same sentence was in `template/AGENTS.md`, the generated app's own
+  `AGENTS.md`, the react-core README and the option's doc comment: four copies of an instruction
+  to maintain a duplicate.
+
+  The app now imports the file and passes it in (`renderTerpApp({ layout })`), so both halves
+  read the same bytes, and it carries the shell's shape under `shell` —
+  `density`, `navPlacement`, `contentWidth`. Those three shipped in this release as bootstrap
+  options only, which made the shape of an app's shell reachable by editing code and by nothing
+  else; declaring them in a file is what lets a tool read and rewrite them.
+
+  **Three refusals, fail closed when the router is composed**, beside the duplicate-nav-group
+  refusal already there. A value outside its enum, because a JSON file is not typechecked and
+  `"density": "compakt"` would otherwise reach the shell as an attribute value nothing styles. A
+  key this release does not read, at either level — the cost is real and the right way round: an
+  app is told the release cannot honour a key rather than told nothing while the key sits in the
+  file looking effective. And one fact declared twice, INCLUDING when both sources agree, which is
+  the tempting exemption and is declined: two sources holding the same value is exactly the state
+  that rots, and once the file is what tools edit, the tool becomes the one making a change that
+  does nothing. Every conflict is named at once, with both values.
+
+  Opt-in and non-exclusive per ADR 0009: an app passing no declaration is on exactly its previous
+  path, and `layoutContract: "standard"` alone stays legal.
+
+  **The typing was measured, and the obvious version was wrong.** `resolveJsonModule` types an
+  imported JSON string as `string`, never as its literal, so declaring the unions on the
+  declaration interface would have shipped a template that stops typechecking the moment an app
+  filled the shell section in — the one thing the section is for. Checked with a real `tsc` run
+  before choosing, then re-checked that a filled-in file compiles. Which means the runtime enum
+  check is not defence in depth: it is the only check that key ever gets.
+
+  The vocabulary is normative in the standard as `layout-declaration.schema.json` (spec 0.26.0),
+  splitting portable from per-stack the way `restricted-surface.json` does — `contract` is a plain
+  string because contract names are per-stack, while a density means the same thing anywhere. This
+  stack's resolver is parity-tested against those enums in both directions, skipped until the
+  spec pin moves, and verified to enforce by drifting one enum.
+
+  Two mutations, both red, on the two lines that carry the file to where it matters: pointing the
+  shell back at the raw option (the resolver runs and its answer is discarded), and deleting the
+  forwarding line from the one-call entry point. The first also closes a gap two comments in this
+  repo name and neither closed — nothing asserted that ANY shell option reaches the shell.
+
+  ADR 0100 §6 records what is deliberately NOT built: a build-time validator. `@terpjs/spec` is a
+  dev dependency of the lint package, so a lint rule cannot read the standard's schema in a
+  consumer's app; validating there needs either a new runtime dependency for every app or a third
+  copy of one enum table. Declined on balance, with the condition that would change it.
+
 - **ADR 0099 — the component gap, and the thirteen things that are not in it.** Eighteen candidate
   components were raised against `@terpjs/react-core`. Six shipped; thirteen are refused, and the
   refusals are the product rather than a by-product. A decision that lives only in someone's head
