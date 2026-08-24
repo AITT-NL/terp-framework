@@ -9,6 +9,7 @@ exercised by test_cli_scaffold.py against every architecture rule.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
@@ -228,6 +229,16 @@ def test_frontend_skeleton_present() -> None:
     main = (frontend / "src" / "main.tsx.jinja").read_text()
     assert "renderTerpApp(" in main
     assert 'import.meta.glob("./modules/*/module.tsx"' in main
+    # `vite/client`, because react-core's own source reads `import.meta.env.DEV` — the build
+    # flag that decides whether the preview bridge exists at all (ADR 0101 §1). react-core
+    # compiles with `types: []` and declares that shape for itself, and its ambient file is not
+    # part of a consumer's program, so an app whose tsconfig omits this fails to typecheck on a
+    # line in a dependency it never wrote. Found exactly that way: apps/workbench had diverged
+    # from this file and from the example, and was the only frontend in the repo that broke.
+    tsconfig = json.loads((frontend / "tsconfig.json").read_text(encoding="utf-8"))
+    assert "vite/client" in tsconfig["compilerOptions"]["types"], (
+        "a scaffolded app compiles react-core's source, which reads import.meta.env"
+    )
 
 
 def test_frontend_ships_a_favicon_that_index_html_actually_links() -> None:
