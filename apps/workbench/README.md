@@ -26,19 +26,35 @@ contention condition described under "No retries" below. CI never runs it — th
 runs the four lanes as four separate steps. Reach for the per-lane scripts when a result
 has to mean something.
 
-107 specimens in 8 groups. The accessibility lane runs them in **every** shipped theme (535
-axe runs across five palettes); the screenshots cover the **two default** themes (214
-comparisons) — see "Which themes get which lane" below. Plus one check that every specimen is
-present exactly once, one that the contrast allowance list has not grown a new theme, one that
-the CI image tag still names the Playwright version in `package-lock.json`, a three-test
-keyboard lane for where a keystroke sends focus, and a four-test computed lane for the
-resolved values none of the other three can see. **759 checks.**
+`SPECIMEN_GROUPS` in `src/specimens.tsx` is the whole inventory — one group per section of the
+catalog page — and `ALL_SPECIMENS` flattens it. **No total is written down here, and that is
+deliberate.** One was, and it rotted: this paragraph claimed 107 specimens and 759 checks
+while the suite held 127 and 914. `review.test.tsx`'s header carried a tally of its own tests
+that was wrong four commits later, and the sheet's count of the sites wearing `iconbutton`
+said sixteen when a seventeenth had shipped. Three times, in one
+release, for one reason: a running count in prose disagrees with the thing it counts and
+nothing goes red when it does. What is stable is the SHAPE of each lane, so that is what this
+says. `N` below is `ALL_SPECIMENS.length`.
 
-Nothing derives those numbers, so they are only as good as the last person to add a specimen:
-`5N` axe runs, `2N` screenshots, three standalone checks (presence, theme allowance, image
-tag), three keyboard tests and four computed ones — at N=107, 535 + 214 + 3 + 3 + 4.
+- **accessibility** (`visual/a11y.spec.ts`) — every specimen in **every** shipped theme, plus
+  one standalone check that the contrast allowance list has not grown a theme added after the
+  lane existed. `1 + 5N`.
+- **screenshots** (`visual/specimens.spec.ts`) — every specimen in the **two default** themes
+  (see "Which themes get which lane" below), plus four standalone checks: every specimen
+  present exactly once, every specimen with asynchronous content declaring what to wait for,
+  the `LINUX_ONLY` set matching exactly what the win32 baselines are missing, and the CI image
+  tag still naming the Playwright version in `package-lock.json`. `4 + 2N`, and off linux the
+  `LINUX_ONLY` names are skipped rather than compared.
+- **keyboard** (`visual/keyboard.spec.ts`) — where a keystroke sends focus, which neither a
+  resting screenshot nor a static tree can say. One test per property, not per specimen.
+- **computed** (`visual/computed.spec.ts`) — the resolved values the other three cannot see,
+  including every duration, easing and cursor that the screenshot lane's
+  `animations: "disabled"` hides. One test per property.
 
-One of those 107 earns a note, because it is the only specimen whose subject is a token
+Each `npm run visual:*` prints its own lane's total, and CI runs the four as four steps, so
+the numbers are always one command away and never a claim in a file.
+
+One specimen earns a note, because it is the only one whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's
 `:root` value, so every other DataView specimen renders identical geometry whether the
 density tokens are read or hardcoded — which is exactly how four of them came to be

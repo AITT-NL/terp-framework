@@ -10,11 +10,17 @@
 > **Keeping it current:** tick a box when an increment lands green; when an
 > increment is a *decision* (not just a checkbox), also add an ADR decision.
 
-**Snapshot — 2026-07-05:** **1097 tests passing** (+ the env-gated PostgreSQL
-conformance lane, ADR 0069), **100% framework line coverage**
-(`.\.venv\Scripts\python.exe -m coverage run -m pytest` + `... -m coverage report`).
-A shipped `terp-core`
-kernel + the `terp-arch` harness; Phase 2 (capabilities) is in progress, and the
+**Snapshot.** The gate is
+`.\.venv\Scripts\python.exe -m coverage run -m pytest` + `... -m coverage report`
+(plus the env-gated PostgreSQL conformance lane, ADR 0069), configured `fail_under = 100`,
+so a green gate *is* the 100%-line-coverage claim rather than a number restated beside it. The test count is deliberately not written here: the number that used
+to sit in this sentence was 1097 and stayed there while the suite more than doubled, and the
+same sentence went on claiming "Phase 2 (capabilities) is in progress" while the phase tracker
+forty lines below marked it ✅. Run the gate for the count; read the tracker for the phase.
+Everything up to §13 Phase 8 is shipped, Phase 9 (Stack B) is the only open row, and the
+**frontend design-system track** has its own section at the end of this file.
+
+Beyond the shipped `terp-core` kernel and the `terp-arch` harness, the
 control-plane refinement has landed Phases A/B-keystone + **Phase C (security
 middleware + structured logging, ADR 0005)**, hardened (ADR 0006), **Phase D
 (audit auto-emit, ADR 0007)**, and the **Phase D event bus (typed `EventCatalog`
@@ -1145,3 +1151,35 @@ points at H3 — so each becomes a tracked roadmap item.
   tightened it: `IdentityService` is now auth-only (no mutation side-door), and
   `BaseService._save` maps a commit-time `IntegrityError` to a typed
   `ConflictError` (uniform 409, not a leaked 500) framework-wide.
+
+---
+
+## Frontend design system — the eight-phase build order
+
+A track of its own, numbered separately from §13's phases, and recorded here because this file
+is where "what's built / what's left" is supposed to be legible. The authoritative narrative is
+[`CHANGELOG.md`](../../CHANGELOG.md) release by release; the authoritative rationale is
+ADRs [0093](decisions/0093-semantic-token-layer-and-named-themes.md),
+[0094](decisions/0094-attribute-keyed-styling.md),
+[0097](decisions/0097-shell-parameters-and-ordered-navigation.md),
+[0098](decisions/0098-archetypes-measures-and-the-density-island.md) and
+[0099](decisions/0099-the-component-gap-and-what-is-not-in-it.md).
+
+The one ordering constraint worth keeping: **the safety net came before the styling engine.**
+Phase 3 rewrote every component's base styles, and without phases 1–2 that would have moved
+every pixel in every consuming app with nothing watching.
+
+| # | Phase | Status | Where it landed |
+|---|---|---|---|
+| 0 | Make scaffolding drift visible | ✅ | `terp upgrade --check` reports the template ref beside the platform version (`cli/version.py`, `render_upgrade_check`). Not a gate — scaffolding legitimately lags a release. One item open: run the upgrade on a lagging consumer and confirm the now-unnecessary layout workarounds come out. |
+| 1 | Build the safety net | ✅ | `apps/workbench` + four browser lanes; contrast, theme-completeness and marker-inventory gates. 0.7.0. |
+| 2 | The semantic token layer | ✅ | Semantic namespaces, the published `tokens.manifest.json`, five registered themes, and both contrast ratchets emptied. ADR 0093, 0.7.0. |
+| 3 | Attribute-keyed styling and variants | ✅ | Every base style moved into `TERP_STYLES_CSS` behind `data-terp` / `data-variant`, ordered `@layer terp.reset, terp.base, terp.state, terp.motion`. `!important` went 35 → **0**, pinned as exact equality in `styles.test.ts`, which is what makes an app's unlayered `theme.css` able to beat any rule in the sheet. ADR 0094, 0.8.0 + 0.9.0. |
+| 4 | Layout, archetypes and the shell | ✅ | The layout vocabulary (`Grid`, responsive `Stack`, `Divider`, prose primitives), three page archetypes, published shell geometry and the content measure, the density island, skip-to-content, the brand seam, and the ordered navigation model. ADR 0097 + 0098, open in 0.10.0. |
+| 5 | The component gap | ✅ | Field-level 422s, app-locale formatting, declared column widths as steps, `Avatar`, the password reveal — and thirteen candidate components refused with the evidence that decided each. ADR 0099, open in 0.10.0. |
+| 6 | The Studio's styling editor, built from the token manifest | 🚧 | Lands in **terp-studio**, not here. What this repo owes it is already published: the manifest carries every token's category, per-theme values and themeable flag, plus the pairings the contrast gate enforces (ADR 0093 §4). |
+| 7 | Layout editable in the Studio | ⬜ | Unblocked by phase 3 (attribute-keyed styling) and phase 4 (archetypes, density and nav placement as props rather than frozen constants). |
+
+**Releases:** phases 0–2 shipped as **0.7.0**, phase 3 across **0.8.0** and **0.9.0**. Phases 4
+and 5 are complete and sit in the open **0.10.0** section — deliberately unreleased until the
+whole build order is finished, so the consumers cross the whole styling change once.
