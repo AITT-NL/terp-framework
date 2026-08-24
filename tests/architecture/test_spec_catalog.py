@@ -24,6 +24,8 @@ import json
 import pathlib
 import re
 
+import pytest
+
 from terp_spec import spec_dir
 
 from terp.arch.rules import GUIDE_TOPIC_BY_RULE, _ALL_RULES
@@ -174,6 +176,76 @@ def test_frontend_family_entries_reference_real_spec_fields() -> None:
 # --------------------------------------------------------------------------- #
 # runtime + black-box enforcement refs resolve (the two-layer story is checkable)
 # --------------------------------------------------------------------------- #
+_DECLARATION_SCHEMA = _SPEC / "layout-declaration.schema.json"
+_REACT_CORE_SRC = _REPO_ROOT / "packages" / "frontend" / "react-core" / "src"
+
+
+def _resolver_vocabulary() -> tuple[set[str], dict[str, set[str]]]:
+    """The top-level keys and per-key enums the reference resolver reads, from its source.
+
+    Parsed as text for the reason the BOUNDARY_SPEC parity above is: this suite is
+    Python and the resolver is TypeScript, and importing a bundler-resolved module
+    to read two literals would buy nothing the regex does not.
+    """
+    source = (_REACT_CORE_SRC / "layoutDeclaration.ts").read_text(encoding="utf-8")
+    top = re.search(r'new Set<string>\(\[([^\]]*)\]\)', source)
+    assert top, "could not locate the top-level key set in layoutDeclaration.ts"
+    keys = set(re.findall(r'"([a-zA-Z]+)"', top.group(1)))
+
+    block = re.search(r"const SHELL_VALUES = \{\n(.*?)\n\} as const;", source, re.DOTALL)
+    assert block, "could not locate SHELL_VALUES in layoutDeclaration.ts"
+    values = {
+        key: set(re.findall(r'"([a-z]+)"', listed))
+        for key, listed in re.findall(r"(\w+): \[([^\]]*)\]", block.group(1))
+    }
+    return keys, values
+
+
+def test_the_layout_declaration_vocabulary_matches_the_spec_schema() -> None:
+    """Both directions, on every level, because each drift is a different defect.
+
+    A key in the schema the resolver does not read is a declaration the standard
+    promises and this stack silently ignores. A key the resolver reads that the
+    schema does not name is this stack inventing normative vocabulary — the shape
+    the standard's own linkage tests exist to refuse. And a value in one enum and
+    not the other is worse than either: the app writes something the standard
+    calls legal and the running app refuses, or the reverse, and the message
+    blames the wrong side.
+
+    Compared as SETS rather than sequences on purpose. The schema sorts its enums
+    (its own well-formedness gate requires it, so a reader can scan them); the
+    resolver lists them in the order a person would offer them — sidebar before
+    header, because one is the default. Both orders are right for their audience
+    and neither is normative.
+    """
+    if not _DECLARATION_SCHEMA.is_file():
+        # The spec is pinned to one exact release (ADR 0086) and this schema lands in the
+        # next one, so a pinned checkout legitimately predates it. Skipped with the reason
+        # rather than asserted, because the alternative is pinning an unreleased spec to
+        # satisfy a test — which is how a pin stops meaning "a release we shipped". The
+        # moment the pin moves, this starts enforcing with no edit here.
+        pytest.skip(
+            f"the pinned terp-spec ships no layout-declaration.schema.json "
+            f"({_DECLARATION_SCHEMA.parent}); it lands in the next spec release"
+        )
+    schema = json.loads(_DECLARATION_SCHEMA.read_text(encoding="utf-8"))
+    keys, values = _resolver_vocabulary()
+
+    assert keys == set(schema["properties"]), (
+        "top-level layout declaration keys differ: "
+        f"schema {sorted(set(schema['properties']))}, resolver {sorted(keys)}"
+    )
+    shell = schema["properties"]["shell"]["properties"]
+    assert set(values) == set(shell), (
+        f"shell keys differ: schema {sorted(shell)}, resolver {sorted(values)}"
+    )
+    for key in sorted(shell):
+        assert values[key] == set(shell[key]["enum"]), (
+            f"shell.{key} values differ: schema {sorted(shell[key]['enum'])}, "
+            f"resolver {sorted(values[key])}"
+        )
+
+
 def test_runtime_enforcement_refs_resolve_to_real_symbols() -> None:
     """Every declared runtime ref names a real symbol in the cited package.
 
