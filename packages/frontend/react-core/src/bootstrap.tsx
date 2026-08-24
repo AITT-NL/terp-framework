@@ -13,6 +13,7 @@ import { adminModule } from "./admin/module";
 import { resolveLayoutDeclaration } from "./layoutDeclaration";
 import type { LayoutDeclaration } from "./layoutDeclaration";
 import { LocaleProvider } from "./locale";
+import { installPreviewBridge } from "./previewBridge";
 import type { LocaleCatalog } from "./locale";
 import { buildAppRouter } from "./router";
 import type { SsoProvider } from "./sso";
@@ -347,6 +348,13 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
   const root = options.rootElement ?? document.getElementById("root");
   if (!root) {
     throw new Error('renderTerpApp: no root element (add <div id="root"> or pass rootElement).');
+  }
+  // The channel a tool showing this app in an iframe can ask it questions through, and it exists
+  // ONLY in a development build: `import.meta.env.DEV` folds to false in production and the
+  // module goes with it, so a deployed app carries no listener at all. Same mechanism, and the
+  // same reason, as the template's dev sign-in credentials. See ./previewBridge.
+  if (import.meta.env.DEV) {
+    installPreviewBridge();
   }
   createRoot(root).render(
     <StrictMode>

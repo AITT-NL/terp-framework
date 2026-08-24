@@ -64,13 +64,22 @@ def test_the_framework_never_reaches_into_spec_by_path() -> None:
 
 
 def test_the_framework_never_references_studio() -> None:
+    """No framework source may name the `studio/` PATH — an import, a relative reach, a URL.
+
+    Lowercase on purpose, and the message says which form it means. Widening it to catch the
+    product name in prose was tried and reverted: 28 sources mention "Studio" in a comment or a
+    template today, so the rule this suite actually enforces is about coupling — a path or an
+    import that would break when the two repositories separate — and not about a word. A
+    capitalised mention in a docstring is not coupling and never was.
+    """
     offenders = [
         path.relative_to(_REPO_ROOT)
         for path in _framework_sources()
         if "studio" in path.read_text(encoding="utf-8", errors="ignore")
     ]
     assert offenders == [], (
-        f"studio/ is a fully decoupled unit — the framework must not reference it: {offenders}"
+        "no framework source may name the studio/ path — it is a separately deployed unit "
+        f"and a path into it breaks the moment the two repositories split: {offenders}"
     )
 
 
