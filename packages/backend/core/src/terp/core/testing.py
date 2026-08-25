@@ -66,15 +66,28 @@ import pytest
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from terp.core.audit import AuditPolicy, AuditSink
     from terp.core.events import EventCatalog, EventDispatcher
+    from terp.core.leases import LeaseStore
 
 __all__ = [
     "InstallAudit",
     "InstallEvents",
+    "InstallLeases",
     "terp_audit",
     "terp_default_runtime",
     "terp_events",
+    "terp_leases",
     "terp_runtime_isolation",
 ]
+
+
+class InstallLeases(Protocol):
+    """What :func:`terp_leases` hands a test: ``configure_leases``' own signature.
+
+    Exported for the same reason as :class:`InstallEvents` — so an app's ``conftest.py``
+    can annotate a wrapper without importing the non-public ``configure_leases``.
+    """
+
+    def __call__(self, store: LeaseStore | None = None) -> None: ...
 
 
 class InstallEvents(Protocol):
@@ -253,6 +266,43 @@ def terp_events() -> InstallEvents:
     from terp.core.events import configure_events
 
     return configure_events
+
+
+@pytest.fixture
+def terp_leases() -> InstallLeases:
+    """Install a lease *store* for the duration of one test.
+
+    The lease twin of :func:`terp_events`, and it exists because the seam fails closed by
+    design: there is deliberately no in-process default store (a per-process lease would
+    let two workers hold one resource), so the FIRST lease call in a test process raises
+    :class:`~terp.core.leases.LeaseError`. The moment an app adopts leases, every
+    service-level test that touches a claim breaks — and the app's own fix is to reach for
+    ``configure_leases``, which is not on the public surface, or to compose the whole
+    runtime for a test that wanted one store::
+
+        from terp.core.leases import InMemoryLeaseStore
+        terp_leases(InMemoryLeaseStore())
+
+    **Pass a clock to test a reaper**, which is the case that cannot be tested any other
+    way: a lease expires by the passage of time, so a test that cannot move time can only
+    assert that nothing has lapsed yet. Both stores take one — the in-memory store here in
+    core, and ``terp-cap-leases``' ``DatabaseLeaseStore`` — so the whole recovery path is
+    reachable without sleeping::
+
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        clock = lambda: now
+        terp_leases(InMemoryLeaseStore(clock=clock))
+        ...                      # claim under the frozen clock
+        now += timedelta(hours=1)  # the holder is now silent, and the claim has lapsed
+
+    The in-memory store is deliberately **unmarked**, so an app asserting
+    ``create_app(require_durable_leases=True)`` still refuses it — this fixture makes a
+    lease testable, not durable. :func:`terp_runtime_isolation` undoes the install, so one
+    test's store never reaches the next.
+    """
+    from terp.core.leases import configure_leases
+
+    return configure_leases
 
 
 @pytest.fixture
