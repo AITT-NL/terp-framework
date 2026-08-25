@@ -38,6 +38,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
 
 #: How much of a failing check's combined output the envelope keeps (fail-closed
@@ -70,7 +71,7 @@ class VerifyCheck:
     #: In-process checks (the architecture gate) run as a callable instead of a
     #: subprocess — same verdict surface, no interpreter round-trip.
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
-    # | "platform-install" | "env-seams" | "api-client"
+    # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
     runner: str = "subprocess"
 
 
@@ -109,6 +110,21 @@ _ARCHITECTURE = VerifyCheck(
     command="terp check --format check-report --budget escape-hatch-budget.json",
     scope=("app/**", "control_plane/**", "escape-hatch-budget.json"),
     runner="architecture",
+)
+
+# The app's OWN declared package graph, and it is here because the alternative was a
+# documented contradiction. `terp guide package-boundaries` prescribes import-linter
+# contracts plus `uv run lint-imports` in CI, while this profile is documented as exactly
+# what CI enforces — both cannot be true for an app that followed the guide. Left outside,
+# every such app writes the same pytest wrapper to shell out to the console script, or
+# quietly forgets the command and ships a boundary nothing checks. Conditional on the app
+# DECLARING contracts, so an app that never adopted them is unaffected.
+_PACKAGE_BOUNDARIES = VerifyCheck(
+    id="package-boundaries",
+    category="architecture",
+    command="lint-imports",
+    scope=("pyproject.toml", "**/*.py"),
+    runner="package-boundaries",
 )
 
 _FRONTEND_BOUNDARIES = VerifyCheck(
@@ -221,6 +237,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _ARCHITECTURE,
+        _PACKAGE_BOUNDARIES,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
         _API_CLIENT,
@@ -230,6 +247,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _ARCHITECTURE,
+        _PACKAGE_BOUNDARIES,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
         _FRONTEND_BOUNDARIES,
@@ -242,6 +260,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _ARCHITECTURE,
+        _PACKAGE_BOUNDARIES,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
         _DEPENDENCY_AUDIT_PYTHON,
@@ -694,7 +713,11 @@ def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
 
     docs = root / "docs"
     if not docs.is_dir():
-        return 0, "docs/ not committed - drift check skipped (commit docs/ to enable)"
+        return (
+            0,
+            f"{NOTE_PREFIX}docs/ not committed - drift check skipped "
+            "(commit docs/ to enable)",
+        )
     previous = pathlib.Path.cwd()
     try:
         # api_docs writes relative to cwd through the live kernel import.
@@ -720,6 +743,47 @@ def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
             "\napi docs drifted from the committed copy - commit the regenerated docs/"
         )
     return completed.returncode, output
+
+
+def _run_package_boundaries(root: pathlib.Path) -> tuple[int, str]:
+    """Run the app's own declared import contracts, if it declares any.
+
+    ``terp guide package-boundaries`` tells an app to express a package boundary as
+    import-linter contracts and run ``lint-imports`` in CI. This profile is documented as
+    exactly what CI enforces, so leaving that command outside it made the two statements
+    contradict each other — and the app is the half that pays: it writes a pytest wrapper
+    shelling out to the console script, or forgets and ships a declared boundary that
+    nothing verifies.
+
+    Conditional on ``[tool.importlinter]``, read as TOML rather than matched as text: an
+    app that declares only ``[[tool.importlinter.contracts]]`` still creates the table, and
+    a substring test would also fire on the word inside a comment. An app with no contracts
+    skips with a note, which is the same fail-open shape every other unadopted seam here
+    has — upgrading the framework must never fail a gate for a feature the app never wired.
+
+    Declared-but-unrunnable is a RED, not a skip. If contracts exist and ``lint-imports``
+    is not installed, ``_run_subprocess`` answers 127 and names it: an app whose declared
+    boundary cannot be checked has a broken gate, and reporting that as a pass is the
+    failure this check exists to remove.
+    """
+    manifest = root / "pyproject.toml"
+    if not manifest.is_file():
+        return 0, "no pyproject.toml - package graph check not applicable"
+    try:
+        declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        return 1, (
+            f"pyproject.toml is unreadable ({exc}), so whether this app declares "
+            "package boundaries cannot be established"
+        )
+    if not (declared.get("tool") or {}).get("importlinter"):
+        return (
+            0,
+            f"{NOTE_PREFIX}no [tool.importlinter] in pyproject.toml - package graph "
+            "check skipped (declare contracts to enable; see `terp guide "
+            "package-boundaries`)",
+        )
+    return _run_subprocess(_PACKAGE_BOUNDARIES, root)
 
 
 def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
@@ -892,6 +956,8 @@ def run_verify_command(
             exit_code, output = _run_api_docs_drift(project_root)
         elif check.runner == "api-client":
             exit_code, output = _run_api_client(project_root)
+        elif check.runner == "package-boundaries":
+            exit_code, output = _run_package_boundaries(project_root)
         elif check.runner == "routes-drift":
             exit_code, output = _run_routes_drift(project_root)
         elif check.runner == "env-seams":
