@@ -91,6 +91,8 @@ const MARKERS = [
   "combobox-field",
   "combobox-list",
   "combobox-option",
+  "combobox-token",
+  "combobox-token-remove",
   "control-label",
   "dataview",
   "dataview-actions-cell",

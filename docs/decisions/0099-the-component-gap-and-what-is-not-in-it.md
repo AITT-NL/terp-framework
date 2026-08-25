@@ -169,3 +169,76 @@ Three new published names (`Avatar`, `ColumnWidth`, the `format` helpers), one b
 
 The refusals above are not permanent. Each names what would change its mind, and the standing
 instruction is the one this ADR opens with: bring a consumer, not a use case.
+
+
+## Amendment (2026-08-25): a set-valued field, and the bar it was measured against
+
+`Combobox` takes `multiple`. That is a component decision made under this ADR's own test, so
+it is recorded here rather than announced in a changelog — including the part where the test
+had to be read carefully rather than applied mechanically.
+
+### What the evidence was
+
+Two independent observations from building on Terp, and neither is "an app might want it":
+
+* a field whose value is a set of names was implemented as a **text box the user types
+  comma-separated values into**;
+* another was a text box **whose legal values were listed in a grey hint beside it** — a
+  closed enum rendered as free text.
+
+The second is the one that decides it. A closed value set typed as prose is not an ergonomic
+complaint: the validation the set could have enforced is simply absent, the hint is
+documentation the input cannot honour, and every consumer of that field now parses a string
+where an array was meant. That is ADR 0096 §4's principle exactly — *a checked seam that does
+not cover the common case is a hole, because the compliant path is not available and code
+goes around it.*
+
+### Why this passes the bar, stated openly
+
+The test this ADR opens with is **"a component that cannot name a consumer in this framework
+is declined"**, and read literally, multi-select fails it. The framework's own set-valued
+screen is `GroupDetail`, which grants permissions **one at a time into a table**, and its
+comment notes that grants are idempotent on the backend. That is a designed pattern, not a
+workaround, and it is the right one there: each grant is a separate auditable action.
+
+So the bar is met by app evidence rather than framework evidence, and the reason that is
+enough here is the one §1 gives for the two things it did build — *the consumers were already
+there, written twice*. Written twice is what two independent observations are. The bar exists
+to refuse speculation, and a defect that has occurred twice in shipped screens, with a named
+loss (validation) each time, is not speculation. Multi-select was also never in the thirteen:
+this is an omission from the survey, not a re-proposal of a refusal.
+
+### Why a mode and not a component
+
+Everything hard is already in `Combobox`: the listbox, the filter, the active-option model,
+the outside-click close, and the whole `aria-activedescendant` wiring. What differs is that a
+selection is a set, that choosing keeps the list open, and that the selections need somewhere
+to live. A second component would have re-derived the first one and then drifted from it —
+which is what §1 avoided by widening existing components' props instead of adding new ones.
+
+`multiple` is a **discriminated union**, so it decides the shape of `value`, `defaultValue`
+and `onChange` together: handing a plain string to a multiple combobox, or an array to a
+single one, is a typecheck error. The same reasoning as checked icon names — a mistake the
+compiler can hold is not worth discovering in a browser.
+
+Three behaviours are decisions rather than details:
+
+* **the list stays open on pick, and the filter clears.** Picking one member of a set is
+  almost never the last thing the user wants; closing after each pick makes choosing three
+  options three round trips through the control.
+* **each token's remove control is a real button and a real tab stop**, with the option's
+  label in its accessible name. Backspace-on-empty is an addition, not the mechanism: a
+  shortcut is discoverable only to someone who already knows it, and N identical "Remove"
+  buttons would tell a screen-reader user nothing about which token they are on.
+* **a controlled set shows what the prop says, not what was clicked.** Same invariant single
+  mode already had, and the reason the internal commit mirrors the resolved label rather than
+  the clicked option.
+
+### What this does not add
+
+No tag *creation* — every value still comes from `options`, because the two observed cases
+were both closed sets and a free-entry token field is a different control with a different
+validation story. No drag-reordering: token order follows the selection, which is the order
+the user built and the only one they can predict. And no `Select multiple`: the native
+element's multi-select affordance is famously undiscoverable, and having two answers to one
+question is how the surface stops being honest.

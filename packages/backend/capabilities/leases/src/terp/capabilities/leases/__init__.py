@@ -19,6 +19,12 @@ What it gives an app:
   :func:`lease_reap_schedule`, or run ``terp leases reap``.
 * the explicit :data:`module` — an admin read router plus "reap now", so a stuck claim is
   something an operator can *see* rather than something they have to be told about.
+* :func:`holder_module` — the other audience, mounted separately because it is not an
+  operator's. One endpoint, ``POST /{kind}/{key}/heartbeat``, so a holder that speaks HTTP
+  rather than living in this process can prove liveness: without it a foreign worker had
+  custody and no way to report, and its lease degraded to a plain deadline. Authenticated
+  rather than ``ADMIN``, because the authorization that matters here is the app's own
+  principal-to-holder mapping plus the epoch fence, and neither is a role.
 
 It depends only on ``terp-core`` — never a sibling capability and never a broker engine.
 Recipe: ``terp guide leases``.
@@ -26,23 +32,39 @@ Recipe: ``terp guide leases``.
 
 from __future__ import annotations
 
+from terp.capabilities.leases.holder_router import (
+    HolderResolver,
+    build_holder_router,
+    holder_module,
+)
 from terp.capabilities.leases.jobs import LEASE_REAP, LeaseReapPayload
 from terp.capabilities.leases.models import ResourceLease
 from terp.capabilities.leases.reaper import ReapResult, reap_expired_leases
 from terp.capabilities.leases.router import module, router
 from terp.capabilities.leases.schedule import lease_reap_schedule
-from terp.capabilities.leases.schemas import LeaseReapReport, ResourceLeaseRead
-from terp.capabilities.leases.service import list_leases, reap_now
+from terp.capabilities.leases.schemas import (
+    LeaseHeartbeat,
+    LeaseHeartbeatAccepted,
+    LeaseReapReport,
+    ResourceLeaseRead,
+)
+from terp.capabilities.leases.service import heartbeat, list_leases, reap_now
 from terp.capabilities.leases.store import DatabaseLeaseStore
 
 __all__ = [
     "LEASE_REAP",
     "DatabaseLeaseStore",
+    "HolderResolver",
+    "LeaseHeartbeat",
+    "LeaseHeartbeatAccepted",
     "LeaseReapPayload",
     "LeaseReapReport",
     "ReapResult",
     "ResourceLease",
     "ResourceLeaseRead",
+    "build_holder_router",
+    "heartbeat",
+    "holder_module",
     "lease_reap_schedule",
     "list_leases",
     "module",

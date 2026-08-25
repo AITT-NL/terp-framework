@@ -2335,15 +2335,31 @@ input[data-terp="input"][type="password"]::-ms-reveal {
    sorted, so the unsorted glyph's dimming keys off its ABSENCE rather than off
    an attribute minted for it — this component owns aria-sort, unlike the
    breadcrumb's aria-current, which a router stamps on every ancestor link. */
+/* font: inherit is not enough, and the gap it leaves split the header row in two.
+   The font shorthand carries no text-transform and no letter-spacing, and the UA
+   stylesheet resets both on form controls — so in any table mixing sortable and
+   non-sortable columns the plain th rendered uppercase with 0.04em tracking while
+   the sortable one rendered sentence case with none, side by side in one row. Both
+   are named explicitly because inheritance is what the UA overrode.
+
+   The block padding mirrors the th's so the button fills the cell it sits in,
+   pulled back out by the negative margin. The control was a 17px-tall target inside
+   a 34px cell — half the cell unused, and the most-used control in a data app
+   clearing WCAG 2.5.8 only through the spacing exception. Filling the cell costs
+   nothing and changes no layout: the button's box grows into padding the th
+   already reserved. */
 [data-terp="dataview-column-sort"] {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
   color: inherit;
   background: transparent;
   border: none;
-  padding: 0;
+  padding: var(--space-2) 0;
+  margin-block: calc(-1 * var(--space-2));
   cursor: pointer;
 }
 [data-terp="dataview-table"] > thead > tr > th:not([aria-sort]) > [data-terp="dataview-column-sort"] > svg {
@@ -2745,6 +2761,24 @@ th[data-terp="dataview-actions-cell"] > span {
   border-radius: var(--radius-lg);
   background: var(--color-neutral-0);
 }
+/* Compact: a section's emptiness rather than the page's. Same frame and same words,
+   laid out as a row — the glyph beside the text instead of above it — so two of
+   these stacked read as two quiet sections rather than 480px of repeated poster. */
+[data-terp="empty-state"][data-size="compact"] {
+  grid-template-columns: auto 1fr;
+  justify-items: start;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+}
+[data-terp="empty-state"][data-size="compact"] > [data-terp="empty-state-title"] {
+  font-size: var(--font-size-sm);
+}
+[data-terp="empty-state"][data-size="compact"] > [data-terp="empty-state-description"],
+[data-terp="empty-state"][data-size="compact"] > :not([data-terp="empty-state-icon"]):not([data-terp="empty-state-title"]) {
+  grid-column: 2;
+}
 [data-terp="empty-state-icon"] {
   color: var(--color-neutral-400);
   display: inline-flex;
@@ -2859,6 +2893,71 @@ input[data-terp="input"][role="combobox"] {
 [data-terp="combobox-field"] {
   position: relative;
   display: grid;
+}
+/* Multiple: the tokens share the field's box with the input, wrapping onto as many rows
+   as the selection needs. A fixed-height field would either clip the third token or
+   reserve room for tokens nobody has chosen — and a set-valued field whose height never
+   changes is lying about how much is in it.
+
+   The input keeps a minimum inline size so a filter is still typeable when the tokens have
+   taken most of a row, and flex-basis 0 so it yields to them rather than pushing the last
+   token out of the box. */
+[data-terp="combobox-field"][data-multiple="true"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-0);
+}
+[data-terp="combobox-field"][data-multiple="true"] > [data-terp="input"] {
+  flex: 1 1 0;
+  min-inline-size: 6rem;
+  border: none;
+  background: transparent;
+  padding-inline: var(--space-1);
+}
+[data-terp="combobox-token"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-block: 0;
+  padding-inline: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-sm);
+  /* Matches the control height a token sits beside, so a row of tokens and the input
+     share one baseline instead of the tokens riding high. */
+  min-block-size: calc(var(--density-control-min-height) - var(--space-2));
+}
+/* The remove control is a real button and a real tab stop, which is the accessible half of
+   the Backspace shortcut rather than a duplicate of it: the shortcut is discoverable only if
+   you already know it, and a token nobody can reach by keyboard cannot be removed by one. */
+[data-terp="combobox-token-remove"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--space-4);
+  min-block-size: var(--space-4);
+  padding: 0;
+  color: var(--color-neutral-600);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  line-height: 1;
+}
+[data-terp="combobox-token-remove"]:hover:not(:disabled) {
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-200);
+}
+[data-terp="combobox-token-remove"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 /* Addressed structurally rather than by a marker of its own: it is an
    iconbutton, and the only thing distinguishing it is where it sits. */

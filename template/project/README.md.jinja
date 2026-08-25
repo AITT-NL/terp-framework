@@ -28,6 +28,18 @@ database that disappears with the process. So set `DATABASE_URL=sqlite:///./dev.
 `.env` and run `uv run terp migrate upgrade` once (the Compose workbench below does all of
 this with Postgres instead).
 
+**If a frontend edit does not appear, restart the dev server rather than trusting HMR.**
+Vite watches for file events, and some filesystems deliver them unreliably or not at all —
+Docker Desktop bind mounts and volume-backed checkouts are the known cases, but a plain
+Windows checkout on a synced or virtualised drive can drop them too. It fails *silently*:
+the server keeps serving the last build it saw, so the browser shows stale output and
+nothing reports an error. That is worth knowing before you conclude a change had no effect,
+or screenshot a screen that no longer exists in the source.
+
+Set `TERP_DEV_FORCE_POLLING=true` to make the watcher poll instead (300ms; `vite.config.ts`
+reads it, and the Compose workbench sets it already). Polling costs some CPU and is the
+right trade whenever the alternative is not noticing.
+
 ## Upgrading Terp
 
 Terp releases in lockstep: every `terp-*` pin and every `@terpjs/*` dependency moves to the
