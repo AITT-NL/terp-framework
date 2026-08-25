@@ -271,3 +271,89 @@ The order is therefore: publish terp-spec 0.25.0, then bump all three pins here 
 `packages/backend/arch/src/terp/arch/__init__.py` (held equal to the pin by
 `test_check_json.py`). Nothing else in this ADR depends on that bump; the seam, the
 capability, the reaper and the sync consumer are all self-contained.
+
+
+## Amendment (2026-08-25): custody was reachable, liveness and read-back were not
+
+Reported friction from adopting this seam in an app. Three gaps, one cause: **every
+operation here takes the granted `Lease` value**, and its `epoch` is the fence, so the whole
+seam assumed the holder is the process that acquired it and is still in memory. An app whose
+holder speaks HTTP — claims in one request, works, reports in another — satisfied none of
+that, and the seam degraded in three separate ways at once.
+
+### 9. A holder that is not in this process is a first-class holder
+
+`renew_lease(session, lease)` needs the value. A worker holding custody across requests
+never has it, so it could not heartbeat at all and its lease became a plain deadline —
+which is most of what the hand-rolled staleness timeout this seam replaced already was.
+§1 gave a foreign worker custody and not liveness, and the gap was invisible because
+nothing about the API says "in-process": it just cannot be satisfied otherwise.
+
+`POST /api/v1/custody/{kind}/{key}/heartbeat` closes it, and it is a **second
+`ModuleSpec`**, not a fourth endpoint on §6's router. That router is an operator's window:
+three endpoints, all `ADMIN`, and a documented refusal to offer a force-release. A worker
+proving it is alive is not an operator action, so folding it in would have meant making
+every worker an admin or widening a gate whose narrowness is the point. The auth capability
+already ships this shape — a public-write login module beside a `Policy.default()` `me`
+module — so one capability with two audiences and two policies is precedent, not invention.
+
+**The policy is `VIEWER`/`VIEWER`, and that is deliberately weaker than `Policy.default()`
+asks of a write.** The only thing a heartbeat can change is the expiry of a lease the caller
+already holds. Requiring `EDITOR` would make a worker that leases a resource in order to
+*read* it consistently take a write privilege it has no business holding — a gate that looks
+stricter while granting more. The authorization that matters is not a role:
+
+* the app supplies a `HolderResolver` mapping principal → holder id, because only the app
+  knows what its workers are called; a caller resolving to a different holder is refused
+  before anything is renewed. Guessing that mapping is how an endpoint ends up trusting a
+  holder id the caller merely asserted;
+* the `epoch` fence refuses a stale generation, so a late heartbeat from a process that was
+  already reaped and re-granted extends nothing;
+* `renew` still refuses an already-expired lease rather than resurrecting it (§1).
+
+The worst a stale holder can do is learn that it lost the lease. That is what makes shipping
+this safe where a force-release is not.
+
+### 10. Custody can be read back by resource
+
+`release_lease` also needs the value, so a holder that finishes in a different request than
+it claimed in could not release early. The available workaround — let the TTL lapse and make
+the recovery idempotent — works, and it leaves **every completed unit of work** sitting in
+§6's expired view for the reaper to forfeit. The operator's triage list then shows finished
+work beside genuinely stuck work, which is precisely the signal §6 exists to give.
+
+`lease_for(session, resource, *, holder=None)` is the read, on the store contract so both
+implementations answer identically. `holder` narrows it, and passing it is the safe path
+rather than a convenience: an unnarrowed read returns whoever holds the resource **now**,
+which after an expiry may be a successor — and releasing that is the theft the fence exists
+to prevent. A lease held by anyone else reads as `None`, so a caller cannot act on a claim
+that is no longer theirs.
+
+It returns an expired-but-unforfeited lease as it stands rather than hiding it: `is_expired`
+is on the value, the holder is entitled to learn its claim lapsed, and a read that omitted
+it would make a resource look free while a reaper still owed it a recovery.
+
+### 11. The fail-closed store had no test seam, so adopting leases broke every test
+
+§3's refusal to ship a default store is right and stays. Its cost was unbudgeted: the first
+lease call in a test process raises, so the moment an app adopts leases, every service-level
+test that touches a claim fails — and the app's own remedies are to reach for
+`configure_leases`, which is not on the public surface, or to compose the whole runtime for
+a test that wanted one store.
+
+`terp_leases` joins `terp_events` and `terp_audit` in `terp.core.testing`, undone by
+`terp_runtime_isolation` like the others. It also carries the clock, because a reaper cannot
+be tested any other way: a lease expires by the passage of time, so a test that cannot move
+time can only assert that nothing has lapsed yet. Both stores already took an injectable
+clock — the fixture makes that reachable rather than adding it.
+
+The in-memory store stays **unmarked**, so `create_app(require_durable_leases=True)` still
+refuses it: this fixture makes a lease testable, not durable.
+
+### What this amendment does not add
+
+No force-release, for §6's reason unchanged. No lease listing for holders — a worker knows
+what it claimed, and a read across holders is an operator's question, already answered at
+`ADMIN`. And no automatic heartbeating inside the platform: how often a holder reports is a
+property of the work it is doing, and a platform-chosen interval would be wrong for
+everything.

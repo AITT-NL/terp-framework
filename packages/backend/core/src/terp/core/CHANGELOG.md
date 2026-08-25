@@ -14,6 +14,57 @@ decision, 0001 onwards.
 
 ### Added
 
+- **A holder that is not this process is a first-class holder now: leases gain a heartbeat,
+  a read-back, and a test fixture.** Three gaps reported from adopting the lease seam, all
+  one cause — every operation took the granted `Lease` value, whose `epoch` is the fence, so
+  the seam assumed the holder is the process that acquired it and is still in memory. An app
+  whose worker speaks HTTP (claims in one request, works, reports in another) satisfied none
+  of that, and nothing in the API said so: it simply could not be satisfied otherwise.
+
+  **`POST /api/v1/custody/{kind}/{key}/heartbeat`** — so custody comes with liveness.
+  Without it a foreign holder's lease degraded to a plain deadline, which is most of what
+  the hand-rolled staleness timeout this seam replaced already was. It is a **second
+  `ModuleSpec`** (`leases.holder_module(resolve_holder=...)`), not a fourth endpoint on the
+  admin router: that router is an operator's window at `ADMIN` with a documented refusal to
+  offer a force-release, and a worker proving it is alive is not an operator. The auth
+  capability already ships this shape — public-write login beside a `Policy.default()`
+  `me` — so two audiences in one capability is precedent rather than invention.
+
+  Its policy is `VIEWER`/`VIEWER`, **deliberately weaker than the default asks of a write**:
+  the only thing a heartbeat can change is the expiry of a lease the caller already holds,
+  so demanding `EDITOR` would make a worker that leases a resource in order to READ it
+  consistently take a write privilege it has no business holding — a gate that looks
+  stricter while granting more. What authorizes it instead is the app's own
+  `HolderResolver` (principal → holder id; only the app knows what its workers are called,
+  and guessing is how an endpoint trusts a holder id the caller merely asserted) plus the
+  `epoch` fence, so a late heartbeat from a process already reaped and re-granted extends
+  nothing. The worst a stale holder can do is learn that it lost the lease.
+
+  **`lease_for(session, resource, *, holder=None)`** — custody readable by resource, on the
+  store contract so both implementations answer identically. `release_lease` also needs the
+  granted value, so a holder finishing in a different request than it claimed in could not
+  release early; the workaround, letting the TTL lapse with an idempotent recovery, leaves
+  every *completed* unit of work in the expired view for the reaper, which puts finished
+  work beside genuinely stuck work in exactly the triage list that exists to separate them.
+  `holder` narrows the read, and passing it is the safe path rather than a convenience: an
+  unnarrowed read returns whoever holds the resource **now**, which after an expiry may be a
+  successor, and releasing that is the theft the fence exists to prevent.
+
+  **`terp_leases`** joins `terp_events` and `terp_audit` in `terp.core.testing`. The seam
+  fails closed by design (no default store, because a per-process lease would let two
+  workers hold one resource) and that cost was unbudgeted: the first lease call in a test
+  process raises, so adopting leases broke every service-level test touching a claim, and
+  the app's remedies were to reach for the non-public `configure_leases` or compose a whole
+  runtime for a test that wanted one store. The fixture also carries the clock, because a
+  reaper cannot be tested any other way — a lease expires by the passage of time, so a test
+  that cannot move time can only assert nothing has lapsed yet. The in-memory store stays
+  unmarked, so `require_durable_leases=True` still refuses it: this makes a lease testable,
+  not durable.
+
+  ADR 0095 §§9–11 record all three, and what the amendment deliberately does not add: no
+  force-release, no holder-facing lease listing, and no platform-chosen heartbeat interval
+  (how often a holder reports is a property of the work it is doing).
+
 - **`terp verify` runs the app's own declared package boundaries, so the guide and the
   profile stop contradicting each other.** `terp guide package-boundaries` tells an app to
   express a package boundary as import-linter contracts and then run `uv run lint-imports`
@@ -65,6 +116,7 @@ decision, 0001 onwards.
   existing ones were not: a run whose configuration this command moved is not evidence
   about the configuration the app ships, and a reader comparing a green smoke against a red
   deployment has to be able to see which knob was turned.
+
 
 ## 0.10.0 — 2026-08-25
 

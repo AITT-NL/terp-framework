@@ -18,7 +18,14 @@ from datetime import UTC, datetime
 
 from sqlmodel import Session, col, func, select
 
-from terp.core import LeaseError, LeaseStore, PaginationParams, active_lease_store
+from terp.core import (
+    Lease,
+    LeaseError,
+    LeaseResource,
+    LeaseStore,
+    PaginationParams,
+    active_lease_store,
+)
 
 from terp.capabilities.leases.models import ResourceLease
 from terp.capabilities.leases.reaper import ReapResult, reap_expired_leases
@@ -72,6 +79,40 @@ def reap_now(
     pressing a button during an incident.
     """
     return reap_expired_leases(session, _require_store(), kind=kind, limit=limit)
+
+
+def heartbeat(
+    session: Session,
+    resource: LeaseResource,
+    *,
+    holder: str,
+    epoch: int,
+    ttl_seconds: float,
+) -> Lease | None:
+    """Extend *holder*'s claim on *resource*, or ``None`` if that claim is no longer theirs.
+
+    The half of custody a holder outside this process could not reach. ``renew_lease``
+    takes the granted :class:`~terp.core.Lease` value, which a worker that claims in one
+    request and reports in another never has — so a foreign holder had custody and no way
+    to prove liveness, and its lease degraded to a plain deadline: most of what the
+    hand-rolled staleness timeout it replaced already was.
+
+    Fenced twice over, and neither check is redundant. The read is narrowed to *holder*, so
+    a caller cannot heartbeat somebody else's claim; the renew is fenced on ``epoch``, so a
+    holder whose claim was already reaped and re-granted extends nothing — a late heartbeat
+    from a process that had been declared dead must not take the resource back from its
+    successor. ``renew`` additionally refuses an already-expired lease rather than
+    resurrecting it, which is the same rule stated on the store.
+
+    ``None`` therefore means one thing to the caller and it is the useful thing: *stop, you
+    are not the holder any more*. Distinguishing "never held it" from "lost it" would tell
+    the caller nothing it should act on differently.
+    """
+    store = _require_store()
+    held = store.lease_for(session, resource, holder=holder)
+    if held is None or held.epoch != epoch:
+        return None
+    return store.renew(session, held, ttl_seconds=ttl_seconds)
 
 
 def _require_store() -> LeaseStore:

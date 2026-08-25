@@ -178,6 +178,26 @@ class DatabaseLeaseStore(LeaseStore):
             == 1
         )
 
+    # ---------------------------------------------------------------- read-back
+    def lease_for(
+        self, session: Session, resource: LeaseResource, *, holder: str | None = None
+    ) -> Lease | None:
+        query = select(
+            ResourceLease.resource_kind,
+            ResourceLease.resource_key,
+            ResourceLease.holder,
+            ResourceLease.epoch,
+            ResourceLease.expires_at,
+        ).where(
+            col(ResourceLease.resource_kind) == resource.kind,
+            col(ResourceLease.resource_key) == resource.key,
+            col(ResourceLease.holder).is_not(None),
+        )
+        if holder is not None:
+            query = query.where(col(ResourceLease.holder) == holder)
+        row = session.exec(query).first()
+        return _as_lease(row) if row is not None else None
+
     # ----------------------------------------------------------------- expired
     def expired(
         self, session: Session, *, kind: str | None = None, limit: int = 100

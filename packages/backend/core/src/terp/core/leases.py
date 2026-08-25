@@ -239,6 +239,33 @@ class LeaseStore(ABC):
         """Give the resource back early; ``False`` when *lease* no longer holds it."""
 
     @abstractmethod
+    def lease_for(
+        self, session: Session, resource: LeaseResource, *, holder: str | None = None
+    ) -> Lease | None:
+        """The lease currently on *resource*, or ``None`` when nobody holds it.
+
+        The read that makes custody usable by a holder which does not stay in memory.
+        Every write here takes the granted :class:`Lease` value — its ``epoch`` IS the
+        fence — so a holder that claims in one request and finishes in another had no way
+        to release early: the process that finishes never held the value, and the only
+        remaining option was to let the TTL lapse and make the recovery idempotent. That
+        works, and it leaves every completed unit of work sitting in ``expired`` for the
+        reaper to forfeit, so the operator's triage view shows finished work beside
+        genuinely stuck work.
+
+        *holder* narrows the read to that holder, and passing it is the safe path: an
+        unnarrowed read returns whatever holds the resource **now**, which after an expiry
+        may be a SUCCESSOR — and releasing that would be exactly the theft the fence
+        exists to prevent. With *holder* given, a lease held by anyone else reads as
+        ``None``, so the caller cannot act on a claim that is no longer theirs.
+
+        Returns an expired-but-unforfeited lease as it stands, rather than hiding it:
+        ``Lease.is_expired`` is on the value, the caller may legitimately want to know its
+        claim lapsed, and a read that silently omitted it would make a resource look free
+        while a reaper still owed it a recovery.
+        """
+
+    @abstractmethod
     def expired(
         self, session: Session, *, kind: str | None = None, limit: int = 100
     ) -> tuple[Lease, ...]:
@@ -332,6 +359,22 @@ class InMemoryLeaseStore(LeaseStore):
             entry.expires_at = None
             entry.touched_at = self.clock()
             return True
+
+    def lease_for(
+        self, session: Session, resource: LeaseResource, *, holder: str | None = None
+    ) -> Lease | None:
+        with self._lock:
+            entry = self._entries.get(resource)
+            if entry is None or entry.holder is None:
+                return None
+            if holder is not None and entry.holder != holder:
+                return None
+            return Lease(
+                resource=resource,
+                holder=entry.holder,
+                epoch=entry.epoch,
+                expires_at=entry.expires_at,
+            )
 
     def expired(
         self, session: Session, *, kind: str | None = None, limit: int = 100
@@ -603,6 +646,18 @@ def release_lease(session: Session, lease: Lease) -> bool:
     return _require_store().release(session, lease)
 
 
+def lease_for(
+    session: Session, resource: LeaseResource, *, holder: str | None = None
+) -> Lease | None:
+    """The lease currently on *resource*, or ``None`` — see :meth:`LeaseStore.lease_for`.
+
+    Named for the question rather than the verb pattern of its neighbours: this is the one
+    lease operation that reads instead of writing, and ``held_lease`` would have read as
+    another mutation.
+    """
+    return _require_store().lease_for(session, resource, holder=holder)
+
+
 def expired_leases(
     session: Session, *, kind: str | None = None, limit: int = 100
 ) -> tuple[Lease, ...]:
@@ -713,6 +768,7 @@ __all__ = [
     "active_lease_store",
     "configure_leases",
     "expired_leases",
+    "lease_for",
     "forfeit_lease",
     "hold_lease",
     "is_durable_lease_store",
