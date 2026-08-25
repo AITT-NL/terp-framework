@@ -4,7 +4,7 @@ import type { KeyboardEvent } from "react";
 import { formatDate } from "../format";
 import { useLocale } from "../locale";
 import { injectTerpStyles } from "../styles";
-import { useUiText } from "../uiText";
+import { useStrings, useUiText } from "../uiText";
 import type { UiText } from "../uiText";
 import { Popover } from "./Popover";
 
@@ -51,7 +51,7 @@ export function DatePicker({
   min,
   max,
   disabled = false,
-  placeholder = "Select date",
+  placeholder,
   "aria-label": ariaLabel,
   "aria-invalid": ariaInvalid,
   defaultOpen = false,
@@ -66,8 +66,15 @@ export function DatePicker({
   // was clicking the disabled trigger.
   const [open, setOpen] = useState(defaultOpen && !disabled);
   const locale = useDateLocale();
+  const strings = useStrings();
   const resolve = useUiText();
-  const formatted = selected === null ? resolve(placeholder) : formatDate(selected, locale);
+  // Falls back to the string TABLE rather than to a literal default on the prop. A
+  // `placeholder = "Select date"` default is overridable and still untranslatable: a plain
+  // string resolves as-is, so an app that does not pass the prop shows English in every
+  // locale. Reaching the table means the app's own catalogue answers when the caller says
+  // nothing, which is the whole point of having one.
+  const formatted =
+    selected === null ? resolve(placeholder ?? strings.selectDate) : formatDate(selected, locale);
 
   function commit(next: Date) {
     if (value === undefined) {
@@ -121,7 +128,7 @@ export function DateRangePicker({
   min,
   max,
   disabled = false,
-  placeholder = "Select date range",
+  placeholder,
   "aria-label": ariaLabel,
   "aria-invalid": ariaInvalid,
   defaultOpen = false,
@@ -136,9 +143,10 @@ export function DateRangePicker({
   // was clicking the disabled trigger.
   const [open, setOpen] = useState(defaultOpen && !disabled);
   const locale = useDateLocale();
+  const strings = useStrings();
   const resolve = useUiText();
   const formatted = selected.start === null
-    ? resolve(placeholder)
+    ? resolve(placeholder ?? strings.selectDateRange)
     : selected.end === null
       ? `${formatDate(selected.start, locale)} –`
       : `${formatDate(selected.start, locale)} – ${formatDate(selected.end, locale)}`;
@@ -203,6 +211,7 @@ interface CalendarProps {
 }
 
 function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max, onSelect, onRangeSelect, onEscape }: CalendarProps) {
+  const strings = useStrings();
   const gridId = useId();
   const titleId = useId();
   const minDate = normalizeDate(min);
@@ -344,9 +353,9 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
     // wcag2a/aa tags the lane runs, so opening the calendar in stage 4 did not surface it.
     <div role="dialog" aria-modal="false" aria-labelledby={titleId} data-terp="calendar">
       <div data-terp="calendar-header">
-        <button type="button" data-terp="iconbutton" aria-label="Previous month" onClick={() => changeMonth(-1)}>‹</button>
+        <button type="button" data-terp="iconbutton" aria-label={strings.previousMonth} onClick={() => changeMonth(-1)}>‹</button>
         <div id={titleId} data-terp="calendar-title">{formatMonth(month, locale)}</div>
-        <button type="button" data-terp="iconbutton" aria-label="Next month" onClick={() => changeMonth(1)}>›</button>
+        <button type="button" data-terp="iconbutton" aria-label={strings.nextMonth} onClick={() => changeMonth(1)}>›</button>
       </div>
       <div data-terp="calendar-week" aria-hidden="true">
         {weekdays.map((day) => <div key={day} data-terp="calendar-weekday">{day}</div>)}

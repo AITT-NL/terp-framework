@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { InputHTMLAttributes, KeyboardEvent } from "react";
 
 import { injectTerpStyles } from "../styles";
-import { useUiText } from "../uiText";
+import { useStrings, useUiText } from "../uiText";
 import type { UiText } from "../uiText";
 
 injectTerpStyles();
@@ -82,8 +82,9 @@ export function Combobox(props: ComboboxProps) {
 }
 
 function MultiCombobox(props: ComboboxMultipleProps) {
-  const { value, defaultValue, onChange, removeLabel = "Remove", ...rest } = props;
+  const { value, defaultValue, onChange, removeLabel, ...rest } = props;
   const resolve = useUiText();
+  const strings = useStrings();
   const [uncontrolled, setUncontrolled] = useState<readonly string[]>(defaultValue ?? []);
   const selected = value ?? uncontrolled;
   const byValue = useMemo(
@@ -133,7 +134,7 @@ function MultiCombobox(props: ComboboxMultipleProps) {
             data-terp="combobox-token-remove"
             // The label carries the option, so a screen reader hears which token this
             // removes rather than one of N identical "Remove" buttons.
-            aria-label={`${resolve(removeLabel)} ${resolve(option.label)}`}
+            aria-label={`${resolve(removeLabel ?? strings.comboboxRemove)} ${resolve(option.label)}`}
             disabled={rest.disabled}
             onClick={() => commitValues(selected.filter((v) => v !== option.value))}
           >
@@ -202,8 +203,8 @@ function ComboboxShell({
   tokens,
   onRemoveLast,
   loading = false,
-  loadingText = "Loading…",
-  noOptionsText = "No options",
+  loadingText,
+  noOptionsText,
   clearable = false,
   defaultOpen = false,
   disabled,
@@ -215,6 +216,7 @@ function ComboboxShell({
   ...rest
 }: ShellProps) {
   const resolve = useUiText();
+  const strings = useStrings();
   const baseId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -417,7 +419,7 @@ function ComboboxShell({
           <button
             type="button"
             data-terp="iconbutton"
-            aria-label={multiple ? "Clear all selections" : "Clear selection"}
+            aria-label={multiple ? strings.clearAllSelections : strings.clearSelection}
             onClick={() => {
               commit(null);
               inputRef.current?.focus();
@@ -435,9 +437,13 @@ function ComboboxShell({
           data-terp="combobox-list"
         >
           {loading ? (
-            <div role="status" data-terp="combobox-empty">{resolve(loadingText)}</div>
+            <div role="status" data-terp="combobox-empty">
+              {resolve(loadingText ?? strings.comboboxLoading)}
+            </div>
           ) : renderedOptions.length === 0 ? (
-            <div data-terp="combobox-empty">{resolve(noOptionsText)}</div>
+            <div data-terp="combobox-empty">
+              {resolve(noOptionsText ?? strings.comboboxNoOptions)}
+            </div>
           ) : (
             renderedOptions.map((option) => {
               const label = resolve(option.label);

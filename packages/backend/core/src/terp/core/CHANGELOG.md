@@ -276,6 +276,31 @@ decision, 0001 onwards.
   about the configuration the app ships, and a reader comparing a green smoke against a red
   deployment has to be able to see which knob was turned.
 
+- **Eight framework strings could not be translated, and the guard that should have caught
+  them was structurally unable to.** `locale.test.tsx` asserts every framework string is
+  translated in every shipped locale, and it passed at 100% the whole time — because it walks
+  the string TABLE. A hardcoded `aria-label="Clear selection"` never becomes a `TerpStrings`
+  key, so "every framework string is translated" and "this control cannot be translated at
+  all" were both true at once. That is what "translations are not always present" looks like
+  from inside an app: most of the chrome localises, a few controls stubbornly do not, and
+  nothing goes red.
+
+  Routed through the table now, with Dutch: the Combobox's clear control and its two listbox
+  messages, the DatePicker's two month steppers, and both date pickers' placeholders.
+
+  **Two defect shapes, and the second is the one that survives review.** A hardcoded
+  attribute is obvious once you look. A `UiText` prop *defaulted to a plain string* is not:
+  the prop is translatable, the default is not, and an app that never passes it shows English
+  in every locale, because a plain string resolves as-is and no resolver can reach it. The fix
+  is not a descriptor default either — it is to leave the default `undefined` and fall back to
+  a `TerpStrings` key at the use site, so the app's own catalogue answers when the caller says
+  nothing. Four of the eight were this shape.
+
+  A new source-walking gate closes the round trip, and it earned its place immediately: it
+  found the two `DatePicker` placeholders that this entry's first pass had missed. Both halves
+  are mutation-proven. Its allowlist has three entries and is deliberately not a migration
+  baseline — the chrome is already routed, so a growing list would mean the opposite of what
+  the gate is for.
 - **A tooltip rendered below content, sometimes.** `[data-terp="tooltip"]` wrote
   `z-index: 1` with a comment arguing it was "a local lift within a stacking context rather
   than a place in the app-wide order". That is sound about its anchor and wrong about the
