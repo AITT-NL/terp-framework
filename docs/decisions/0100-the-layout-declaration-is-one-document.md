@@ -315,7 +315,16 @@ tool may write is decided by the app's OWN pinned framework, not by the tool's.
 So `@terpjs/react-core` publishes `layout.manifest.json` — this document's schema with the
 per-stack value sets filled in — and exports it at `./layout.manifest.json`, which puts it in
 every app's `node_modules` beside the resolver that enforces it. A tool reads the vocabulary out
-of the app it is editing and cannot offer a key that app will refuse. This is the same artifact
+of the app it is editing and cannot offer a key that app will refuse.
+
+**Reach it through the export, not through a guessed path.** The subpath is
+`@terpjs/react-core/layout.manifest.json`; the file itself sits at
+`src/layout.manifest.json` inside the package, so
+`require.resolve("@terpjs/react-core/layout.manifest.json")` (or an ordinary import) resolves
+it and a literal `node_modules/@terpjs/react-core/layout.manifest.json` does not. Worth
+stating because of who this artifact is for: two of the three consumers named above — an
+agent with file access and a human — reach for the path before the resolver, and a 404 there
+reads as "this release does not publish it" rather than "look one directory down". This is the same artifact
 ADR 0093 §4 published for tokens, for the same stated audience: "a Studio editor, an agent with
 file access, and a human".
 

@@ -47,7 +47,7 @@ fails closed with precise, fixable messages.
 
 Screens compose the **`@terpjs/react-core` component surface** — the full catalog is in
 `node_modules/@terpjs/react-core/README.md` (bootstrap/providers, page archetypes
-`AppShell`/`Page`/`OverviewPage`/`DetailPage`/`HubPage`, data via `DataView` +
+`AppShell`/`Page`/`OverviewPage`/`DetailPage`/`HubPage`/`FormPage`/`SettingsPage`/`SplitPage`, data via `DataView` +
 `useResource`/`ResourceList`, feedback via `ToastProvider`/`ConfirmDialog`/
 `EmptyState`/`ErrorState`/`Alert`/`Badge`/`Tooltip`, form primitives `Button`/`Input`/
 `Select`/`Textarea`/`Checkbox`/`RadioGroup`/`Switch`/`Field`/`Combobox`/
@@ -68,6 +68,7 @@ for in-page tab sets and `Markdown` for safe rich text).
    A bare `<p>` or `<code>` carries no marker for any rule to reach, so prose in a module
    goes through `Text` and `Code` or it can never be themed.
 5. Every routed view renders a page archetype (`Page` / `OverviewPage` / `DetailPage` /
+   `FormPage` / `SettingsPage` / `SplitPage` /
    `HubPage`) — the router refuses an unframed view at runtime. In-app links go through
    the router's `Link`, never a raw `<a href="/...">`. Generated apps also opt into the
    `standard` slot-typed layout contract, declared once in
