@@ -219,3 +219,50 @@ def test_each_version_appears_under_exactly_one_heading() -> None:
         subsections = re.findall(r"^### (.+)$", body, re.MULTILINE)
         repeated = sorted({name for name in subsections if subsections.count(name) > 1})
         assert not repeated, f"{version}: subsections opened more than once: {repeated}"
+
+
+#: Every in-repo consumer of a published Terp package — the apps, which are not published
+#: themselves and so are invisible to the lockstep checks above.
+_IN_REPO_CONSUMERS = sorted(
+    path for path in (_REPO_ROOT / "apps").rglob("package.json") if "node_modules" not in path.parts
+)
+
+
+def test_in_repo_consumers_are_discovered() -> None:
+    """Discovery that quietly finds nothing is a hole with no symptoms."""
+    names = {path.parent.name for path in _IN_REPO_CONSUMERS}
+    assert {"workbench", "frontend"} <= names, names
+
+
+@pytest.mark.parametrize("path", _IN_REPO_CONSUMERS, ids=lambda p: p.parent.name)
+def test_in_repo_consumers_track_the_workspace(path: pathlib.Path) -> None:
+    """An app in this repo must resolve the workspace, never a published release.
+
+    `^0.10.0` means `>=0.10.0 <0.11.0` for a 0.x version, so a range pinned to the
+    version in hand STOPS matching the workspace the moment the platform bumps — and npm
+    resolves it the only other way it can, by downloading the previous release from the
+    registry. The workbench spent the 0.11.0 bump doing exactly that: `npm ci` wrote
+    `apps/workbench/node_modules/@terpjs/react-core` at 0.10.0 from the registry, and the
+    type-check failed on the two components added since. Nothing above caught it, because
+    every check up there reads the manifests of the PUBLISHED packages and the workbench is
+    not one.
+
+    The failure mode that did not happen is the reason this is a test and not a fixed
+    range: the visual baselines are recorded FROM the workbench. A silent fall back to the
+    last release means re-recording captures the OLD component library, and the diff looks
+    like an intended change rather than a stale dependency.
+
+    `*` is the fix, and it is what the example app already does: these apps are private,
+    never published, and exist to exercise the code in this tree. A caret range on a
+    workspace sibling expresses a compatibility claim nobody consumes.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for section in ("dependencies", "devDependencies", "peerDependencies"):
+        for name, declared in data.get(section, {}).items():
+            if name in _FRONTEND_INTERNAL:
+                assert declared in {"*", f"^{_RELEASE_VERSION}"}, (
+                    f"{path.relative_to(_REPO_ROOT)}: {name} is {declared!r} — an in-repo app "
+                    f"must track the workspace ('*') or the current release "
+                    f"('^{_RELEASE_VERSION}'), or npm silently installs the previous release "
+                    f"from the registry at the next bump"
+                )
