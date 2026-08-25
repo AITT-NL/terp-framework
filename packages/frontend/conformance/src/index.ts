@@ -45,8 +45,8 @@ export async function login(
   // the way a user perceives the field is also what keeps this suite honest about
   // accessibility, since a field with no accessible name now fails here rather than being
   // reachable by a workaround.
-  await page.getByLabel("Email").fill(credentials.email);
-  await page.getByLabel("Password").fill(credentials.password);
+  await page.getByLabel("Email", { exact: true }).fill(credentials.email);
+  await page.getByLabel("Password", { exact: true }).fill(credentials.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0, {
     timeout: 15_000,
