@@ -65,6 +65,59 @@ decision, 0001 onwards.
   force-release, no holder-facing lease listing, and no platform-chosen heartbeat interval
   (how often a holder reports is a property of the work it is doing).
 
+- **`terp verify` runs the app's own declared package boundaries, so the guide and the
+  profile stop contradicting each other.** `terp guide package-boundaries` tells an app to
+  express a package boundary as import-linter contracts and then run `uv run lint-imports`
+  in CI; this profile is documented as exactly what CI enforces. Both could not be true for
+  any app that followed the guide, and the app paid the difference: it wrote a pytest
+  wrapper shelling out to the console script so `uv run pytest` would cover it, or it
+  forgot the second command and shipped a declared boundary that nothing verified.
+
+  The new `package-boundaries` check fires whenever `[tool.importlinter]` is present, in
+  all three profiles, immediately after Terp's own rules — the pairing the guide already
+  described as "two commands, not one", now one. Declaring contracts is the whole adoption
+  step; there is no second command to remember and no workflow to edit, because the
+  template's CI runs `terp verify --profile full` and delegates the list.
+
+  **Declared-but-unrunnable is a RED, not a skip**, and that is the asymmetry worth
+  stating: an app with no contracts skips with a note (an upgrade must never fail a gate
+  for a seam the app never wired), but an app that declares contracts without installing
+  the linter has a boundary nothing can check, and reporting that as a pass is the exact
+  failure this check exists to remove. The table is read as TOML rather than matched as
+  text, so `[[tool.importlinter.contracts]]` alone is enough — it creates the table — and
+  the word inside a comment is not.
+
+### Fixed
+
+- **A passing check's adoption hint reached nobody, for one of the three checks that skip.**
+  The runner prints a passing check's output only when it carries the `note:` prefix, which
+  is what makes an ok-but-skipped hint visible in the mode humans read. `routes-drift` and
+  the API-client skip carried it; `api-docs-drift` did not, so *docs/ not committed - drift
+  check skipped (commit docs/ to enable)* existed only in `--format json`'s `output_tail`.
+  A silent opt-in announced in machine mode does not get adopted, and the hint IS the
+  adoption mechanism.
+
+  Fixed for that check and then held for the class: the gate now asserts the prefix on
+  **every** adoptable skip rather than on one of them, because the failure mode is a newly
+  added skipping check, which no test of an existing check can see. The distinction it
+  keeps is *adoptable* versus *inapplicable* — `no frontend/ - route types not applicable`
+  stays plain on purpose, since a backend-only app has nothing to turn on.
+
+- **`terp smoke` could not run any app on the per-module schema layout — the command that
+  exists to answer "is it my app or my environment?" was unavailable to a whole class of
+  app.** Per-module schemas are PostgreSQL-only (ADR 0070) and this command substitutes a
+  throwaway SQLite, so the platform refused its own combination: not a degraded run, no run
+  at all, and no answer to either half of the question.
+
+  The layout is now translated the way container paths and container addresses already
+  are — and only when the substituted database cannot honour it, so `--database-url`
+  pointing at a real PostgreSQL preserves the app's own layout and translates nothing.
+  Every translation is also **announced** now (`SmokePlan.translations`), which the two
+  existing ones were not: a run whose configuration this command moved is not evidence
+  about the configuration the app ships, and a reader comparing a green smoke against a red
+  deployment has to be able to see which knob was turned.
+
+
 ## 0.10.0 — 2026-08-25
 
 ### Added
