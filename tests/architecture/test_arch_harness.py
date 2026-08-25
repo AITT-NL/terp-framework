@@ -67,6 +67,8 @@ from terp.arch import (
     check_no_raw_outbound_http,
     check_no_raw_session_construction,
     check_offset_queries_declare_ordering,
+    check_declared_read_controls_are_forwarded,
+    check_frozen_values_hold_no_mutable_collection,
     check_forwarded_filters_are_declared,
     check_path_id_params_are_uuid,
     check_policy_refs_resolve,
@@ -3444,3 +3446,150 @@ def test_table_ownership_is_not_split(tmp_path: pathlib.Path) -> None:
     )
     assert check_table_ownership_is_not_split(app) == []
 
+
+def test_declared_read_controls_are_forwarded(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # Two sorts declared and no endpoint forwarding one: the read layer says the field is
+    # orderable, the API exposes no parameter for it, and nothing fails. A client
+    # generated from this contract simply cannot sort, and a screen built on it ships
+    # with every column's sorting disabled.
+    _write(
+        app,
+        "modules/connections/service.py",
+        "class ConnectionService(BaseService):\n"
+        "    filterable = (FilterField('owner_id', Connection.owner_id),)\n"
+        "    sortable = (\n"
+        "        SortField('name', Connection.name),\n"
+        "        SortField('created_at', Connection.created_at),\n"
+        "    )\n",
+    )
+    _write(
+        app,
+        "modules/connections/router.py",
+        "def list_connections(session, owner_id=None):\n"
+        "    return service.list(session, filters={'owner_id': owner_id})\n",
+    )
+    flagged = check_declared_read_controls_are_forwarded(app)
+    assert _rule_names(flagged) == {"declared_read_controls_are_forwarded"}
+    # One finding, not one per SortField: the module and the control kind are the unit,
+    # so an author reads a single actionable message rather than one per declaration.
+    assert len(flagged) == 1
+    assert "sort=" in flagged[0].message and "connections" in flagged[0].message
+
+    # Forwarding it clears the rule, and the filter side was never in question here.
+    _write(
+        app,
+        "modules/connections/router.py",
+        "def list_connections(session, owner_id=None, sort=None):\n"
+        "    return service.list(session, filters={'owner_id': owner_id}, sort=sort)\n",
+    )
+    assert check_declared_read_controls_are_forwarded(app) == []
+
+
+def test_declared_read_controls_are_forwarded_judges_presence_not_names(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A computed mapping still forwards. This is the false positive the design avoids.
+
+    The counterpart rule reads literal mapping keys and documents why a mapping built
+    elsewhere is not knowable. In THIS direction that blind spot would flip from a missed
+    detection into a false one — reporting a filter as dead because its name is not
+    visible at the call site. The keyword survives where the value does not, which is what
+    makes presence decidable and a per-name comparison unsound.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/service.py",
+        "class NoteService(BaseService):\n"
+        "    filterable = (FilterField('author_id', Note.author_id),)\n"
+        "    sortable = (SortField('created_at', Note.created_at),)\n",
+    )
+    _write(
+        app,
+        "modules/notes/router.py",
+        "def list_notes(session, **query):\n"
+        "    return service.list(\n"
+        "        session,\n"
+        "        filters=_requested_filters(query),\n"
+        "        sort=query.get('sort'),\n"
+        "    )\n",
+    )
+    assert check_declared_read_controls_are_forwarded(app) == []
+
+    # And the module is the unit: a declaration in one module is not satisfied by a
+    # forward in another, because pairing a route to a service is not knowable from the
+    # AST and crediting it across modules would hide exactly the reported defect.
+    _write(
+        app,
+        "modules/tags/service.py",
+        "class TagService(BaseService):\n"
+        "    sortable = (SortField('label', Tag.label),)\n",
+    )
+    flagged = check_declared_read_controls_are_forwarded(app)
+    assert {violation.rule for violation in flagged} == {
+        "declared_read_controls_are_forwarded"
+    }
+    assert len(flagged) == 1 and "tags" in flagged[0].message
+
+
+def test_frozen_values_hold_no_mutable_collection(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # Frozen one level deep, which is the level nobody checks: `plan.columns.append(...)`
+    # succeeds, and callers skip defensive copies precisely because the type says they can.
+    _write(
+        app,
+        "modules/imports/values.py",
+        "@dataclass(frozen=True)\n"
+        "class ImportPlan:\n"
+        "    name: str\n"
+        "    columns: list[str]\n"
+        "    defaults: dict[str, str]\n"
+        "\n"
+        "class RouteSpec(NamedTuple):\n"
+        "    path: str\n"
+        "    handlers: dict[str, str]\n"
+        "\n"
+        "class Sealed(BaseSchema):\n"
+        "    model_config = ConfigDict(frozen=True)\n"
+        "    tags: set[str]\n",
+    )
+    flagged = check_frozen_values_hold_no_mutable_collection(app)
+    assert _rule_names(flagged) == {"frozen_values_hold_no_mutable_collection"}
+    # All four fields, across all three ways of declaring frozen.
+    assert len(flagged) == 4
+    messages = " ".join(violation.message for violation in flagged)
+    assert "dataclass(frozen=True)" in messages
+    assert "NamedTuple" in messages
+    assert "model_config" in messages
+    # The message names the counterpart rather than only refusing.
+    assert "tuple[...]" in messages and "frozenset[...]" in messages
+
+
+def test_frozen_values_hold_no_mutable_collection_leaves_honest_fields_alone(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The rule is about a claim that does not hold, never about mutability itself."""
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/imports/values.py",
+        "@dataclass(frozen=True)\n"
+        "class Frozen:\n"
+        "    columns: tuple[str, ...]\n"
+        "    defaults: Mapping[str, str]\n"
+        "    tags: frozenset[str]\n"
+        "\n"
+        "@dataclass\n"
+        "class Draft:\n"
+        "    columns: list[str]\n"
+        "\n"
+        "@dataclass(frozen=False)\n"
+        "class Explicit:\n"
+        "    columns: list[str]\n"
+        "\n"
+        "@dataclass(frozen=True)\n"
+        "class Aliased:\n"
+        "    columns: ColumnNames\n",
+    )
+    assert check_frozen_values_hold_no_mutable_collection(app) == []
