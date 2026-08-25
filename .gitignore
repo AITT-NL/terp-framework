@@ -52,3 +52,10 @@ apps/example/_frontend_tpl_check/
 # graphify: a knowledge graph an agent builds FROM this repository. Derived
 # data that is rebuilt on demand and goes stale the moment the code moves.
 graphify-out/
+
+# Playwright browsers recorded to a repo-local path. Needed rather than optional on
+# Windows: the default location under %LOCALAPPDATA% is refused execution by Group
+# Policy on a managed machine ("spawn UNKNOWN" with the binary present and complete),
+# so recording the win32 half of a baseline pair requires PLAYWRIGHT_BROWSERS_PATH
+# pointing somewhere policy allows. 700MB, and nothing in the repo should ever carry it.
+apps/workbench/.playwright-browsers/

@@ -1162,3 +1162,61 @@ def test_the_profile_dispatches_the_api_client_runner_in_process(
     (check,) = json.loads(capsys.readouterr().out)["checks"]
     assert check["id"] == "api-client"
     assert "not applicable" in check["output_tail"], "the runner ran, not its command string"
+
+
+def test_the_package_graph_check_is_reachable_through_the_runner(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Through `--only`, so the dispatch wiring is exercised and not just the function.
+
+    A runner tag that is declared on the check and missing from the dispatch falls through
+    to the generic subprocess branch, which would run `lint-imports` unconditionally —
+    the conditional skip is the whole point of having a runner at all, and a unit test on
+    the function cannot see that the wiring reaches it.
+    """
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "quick",
+                "--root",
+                str(tmp_path),
+                "--only",
+                "package-boundaries",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    [check] = envelope["checks"]
+    assert check["id"] == "package-boundaries" and check["ok"] is True
+    # The skip's note travels in the envelope, which is what makes it adoptable.
+    assert "importlinter" in check["output_tail"]
+
+
+def test_the_package_graph_check_on_a_tree_with_no_manifest_or_a_broken_one(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Two edges, and they answer differently on purpose.
+
+    No `pyproject.toml` at all is *not applicable* — there is nothing to declare
+    contracts in, and nothing for the reader to turn on, so it passes plainly rather than
+    with an adoption hint. A manifest that exists and cannot be parsed is a RED: whether
+    this app declares a package boundary is now unknowable, and answering "ok" to an
+    unknowable question is the failure this check exists to remove.
+    """
+    from terp.cli.verify import NOTE_PREFIX, _run_package_boundaries
+
+    exit_code, output = _run_package_boundaries(tmp_path)
+    assert exit_code == 0
+    assert not output.startswith(NOTE_PREFIX), (
+        "no manifest is inapplicable rather than adoptable; a hint here is noise"
+    )
+
+    (tmp_path / "pyproject.toml").write_text("[project\nname = ", encoding="utf-8")
+    exit_code, output = _run_package_boundaries(tmp_path)
+    assert exit_code == 1
+    assert "unreadable" in output

@@ -576,3 +576,34 @@ def test_cli_smoke_plan_dispatch_prints_without_running(
     main(["smoke", "--root", str(project), "--plan"])
     out = capsys.readouterr().out
     assert "[server] api" in out
+
+
+def test_a_translated_setting_is_announced_to_the_reader(
+    project: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The translation has to reach the person reading the output, not just the plan.
+
+    A run whose configuration this command moved is not evidence about the configuration
+    the app ships — so somebody holding a green smoke against a red deployment has to be
+    able to see which knob turned. Silent translation is how a green here becomes an
+    argument that the app is fine.
+    """
+    compose = (project / "docker-compose.yml").read_text(encoding="utf-8")
+    (project / "docker-compose.yml").write_text(
+        compose.replace(
+            "    ENVIRONMENT: local",
+            "    ENVIRONMENT: local\n    DB_SCHEMA_LAYOUT: per-module",
+        ),
+        encoding="utf-8",
+    )
+
+    # Fails the first step on purpose: the announcement is printed before any step runs,
+    # so aborting immediately still proves it reaches the reader — and it keeps this test
+    # out of the server-spawning path, which is another test's subject.
+    def runner(argv, environment, cwd):
+        return (1, "stopped here")
+
+    assert run_smoke_command(root=project, runner=runner) == 1
+    output = capsys.readouterr().out
+    assert "translated" in output
+    assert "DB_SCHEMA_LAYOUT per-module -> flat" in output
