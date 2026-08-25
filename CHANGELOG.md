@@ -14,7 +14,13 @@ decision, 0001 onwards.
 
 ### Added
 
-### Added
+- **`EmptyState` takes `size="compact"`.** The default is sized to be the only thing on a
+  page: generous padding, a 2rem glyph, centred. That is right for an empty list and wrong
+  the moment a screen has two of them — stacked, they were 480px of chrome repeating a
+  sentence, and the emptiness of one section is not the page's headline. Compact keeps the
+  frame and the wording and lays it out as a row, glyph beside the text rather than above it.
+  The attribute is stamped only for `compact`, because the full-page block's geometry IS the
+  base rule — the shape `Button`'s sizes and the shell's density already take.
 
 - **`Combobox` takes `multiple`: a set-valued field, as a mode rather than a component.**
   There was no sanctioned control for a set, and the absence did not stop anyone — it
@@ -103,7 +109,6 @@ decision, 0001 onwards.
   force-release, no holder-facing lease listing, and no platform-chosen heartbeat interval
   (how often a holder reports is a property of the work it is doing).
 
-
 - **`terp verify` runs the app's own declared package boundaries, so the guide and the
   profile stop contradicting each other.** `terp guide package-boundaries` tells an app to
   express a package boundary as import-linter contracts and then run `uv run lint-imports`
@@ -126,7 +131,53 @@ decision, 0001 onwards.
   text, so `[[tool.importlinter.contracts]]` alone is enough — it creates the table — and
   the word inside a comment is not.
 
+### Changed
+
+- **The dev server's silent watcher failure is documented, and its flag is findable.**
+  Vite watches for file events and some filesystems deliver them unreliably or not at all.
+  The failure is silent: the server keeps serving the last build it saw, so a frontend edit
+  appears to have had no effect and nothing reports an error — long enough to screenshot a
+  screen that no longer exists in the source, and to conclude a change did nothing.
+
+  The escape hatch already existed (`TERP_DEV_FORCE_POLLING`, read by `vite.config.ts`) and
+  was reachable only by reading the Compose file that sets it, with a comment scoping the
+  problem to "Docker Desktop mounts, volume-backed checkouts". It is not Docker-only — a
+  plain Windows checkout on a synced or virtualised drive drops events too. The generated
+  README now names the symptom before the flag, because the symptom is what someone has in
+  hand when they need it.
+
+- **`Tabs` renders a single usable tab as bare content**, with no tablist and no tabpanel. A
+  tab set over one tab spends a row of the screen to offer nothing, and to a screen reader it
+  is worse than decorative: it announces "tab 1 of 1" and the only affordance is already
+  selected. Dropping the panel with it is correct rather than convenient — a tabpanel exists
+  to be labelled by the tab that reveals it, and there is nothing left to reveal.
+
+  A single **disabled** tab keeps its chrome, deliberately: there the tab set is carrying
+  real information (this section exists and is unavailable), and rendering its content bare
+  would show what the caller marked unreachable.
+
+- `apps/workbench/.playwright-browsers/` is gitignored. It is needed rather than optional on
+  Windows — the default location under `%LOCALAPPDATA%` is refused execution by Group Policy
+  on a managed machine, so recording the win32 half of a baseline pair requires
+  `PLAYWRIGHT_BROWSERS_PATH` pointing somewhere policy allows. 700MB, and it was not ignored.
+
 ### Fixed
+
+- **The first screen of every Terp app had two unlabelled inputs.** `LoginView`'s email and
+  password fields were labelled by placeholder alone — no `<label>`, no `aria-label`, no
+  `Field`. A placeholder is not an accessible name and it vanishes the moment someone types,
+  so the field a user is halfway through filling had nothing identifying it (WCAG 3.3.2), and
+  neither input could be found by `getByLabel` — making the one screen every app ships the
+  one screen its own tests could not address by name.
+
+  The framework's answer was already in the package: `Field` wraps a control in a `<label>`,
+  which is why it needs no id wiring, and its own docstring calls it "the centralized,
+  accessible way every module authors inputs". Both fields now use it. The `autoComplete`
+  tokens stay, and the comment recording them is deliberately left in place because it dates
+  the omission: an autocomplete token was considered for these fields and a label was not.
+
+  The existing test reached for `getByPlaceholderText`, which was itself the symptom — a
+  placeholder was the only handle these inputs had. It addresses them by label now.
 
 - **The breadcrumb trail marked an ancestor as the current page.** On every detail route the
   trail emitted two `aria-current="page"` — one on the crumb for the parent listing, one on

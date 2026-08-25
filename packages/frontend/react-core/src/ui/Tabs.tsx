@@ -38,6 +38,20 @@ export function Tabs({ tabs, value, defaultValue, onChange, label }: TabsProps) 
   // interpolate caller strings into ids is written out at AppShell's nav-group labels.
   const selectedIndex = tabs.findIndex((tab) => tab.value === selectedTab?.value);
 
+  // One usable tab is not a choice, so it gets no chrome. A tablist over a single tab costs
+  // a row of the screen to offer nothing, and it is worse than decorative to a screen
+  // reader: the set announces "tab 1 of 1" and the only affordance is already selected.
+  // Rendering the content bare also drops the tabpanel, which is correct rather than
+  // convenient — a panel exists to be labelled by the tab that reveals it, and there is
+  // no revealing left to do.
+  //
+  // A single DISABLED tab keeps the chrome, deliberately: there the tab set is carrying
+  // real information (this section exists and is unavailable), and silently rendering its
+  // content would show what the caller marked unreachable.
+  if (tabs.length === 1 && !tabs[0]?.disabled) {
+    return <>{tabs[0]?.content}</>;
+  }
+
   function select(next: string) {
     if (value === undefined) {
       setUncontrolledValue(next);

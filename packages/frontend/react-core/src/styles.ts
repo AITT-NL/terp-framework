@@ -2723,6 +2723,24 @@ th[data-terp="dataview-actions-cell"] > span {
   border-radius: var(--radius-lg);
   background: var(--color-neutral-0);
 }
+/* Compact: a section's emptiness rather than the page's. Same frame and same words,
+   laid out as a row — the glyph beside the text instead of above it — so two of
+   these stacked read as two quiet sections rather than 480px of repeated poster. */
+[data-terp="empty-state"][data-size="compact"] {
+  grid-template-columns: auto 1fr;
+  justify-items: start;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+}
+[data-terp="empty-state"][data-size="compact"] > [data-terp="empty-state-title"] {
+  font-size: var(--font-size-sm);
+}
+[data-terp="empty-state"][data-size="compact"] > [data-terp="empty-state-description"],
+[data-terp="empty-state"][data-size="compact"] > :not([data-terp="empty-state-icon"]):not([data-terp="empty-state-title"]) {
+  grid-column: 2;
+}
 [data-terp="empty-state-icon"] {
   color: var(--color-neutral-400);
   display: inline-flex;

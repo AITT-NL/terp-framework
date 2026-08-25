@@ -7,9 +7,13 @@ import { defineConfig } from "vite";
 // (the Docker workbench points it at the `api` service).
 const apiProxyTarget = process.env.TERP_API_PROXY ?? "http://localhost:8000";
 
-// Bind-mounted source in the Docker workbench can sit on a filesystem that
-// delivers no file events (Docker Desktop mounts, volume-backed checkouts);
-// the compose file sets TERP_DEV_FORCE_POLLING so HMR polls instead of missing.
+// Some filesystems deliver file events unreliably or not at all, and the failure is
+// SILENT: Vite keeps serving the last build it saw, so a frontend edit appears to have
+// had no effect and nothing reports an error — long enough to screenshot a screen that
+// no longer exists in the source. Docker Desktop bind mounts and volume-backed checkouts
+// are the known cases and the compose file sets TERP_DEV_FORCE_POLLING for them, but this
+// is NOT Docker-only: a plain Windows checkout on a synced or virtualised drive drops
+// them too, which is why the flag is documented in the README rather than only set here.
 const usePolling = process.env.TERP_DEV_FORCE_POLLING === "true";
 
 export default defineConfig({
