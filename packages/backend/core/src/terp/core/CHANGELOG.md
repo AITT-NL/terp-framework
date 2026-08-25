@@ -66,6 +66,83 @@ decision, 0001 onwards.
   about the configuration the app ships, and a reader comparing a green smoke against a red
   deployment has to be able to see which knob was turned.
 
+## 0.11.0
+
+### Fixed
+
+- **A tooltip rendered below content, sometimes.** `[data-terp="tooltip"]` wrote
+  `z-index: 1` with a comment arguing it was "a local lift within a stacking context rather
+  than a place in the app-wide order". That is sound about its anchor and wrong about the
+  page: `tooltip-anchor` is only `position: relative`, which establishes **no stacking
+  context**, so the `1` competed in the root context against a sticky header at 30 and an
+  open popover at 60 — and lost. "Sometimes, not always" is exactly what a level that depends
+  on whichever ancestor happens to create a context looks like. It reads `--z-index-tooltip`
+  now.
+
+  Held by a new ratchet, because a published scale with nothing guarding it is a convention
+  rather than a contract: every `z-index` in the sheet must read the scale or be a **recorded
+  local lift** with its reason. One entry qualifies — the DataView column resizer, which
+  really is scoped to its cell. Mutation-proven: putting the tooltip back to a bare `1` fails
+  it by name.
+
+  Not fixed by this, and worth knowing: an ancestor with `overflow: hidden` still clips an
+  absolutely positioned tooltip whatever its level. The remedy is the one `popover-panel`
+  already uses — `position: fixed` with measured coordinates — and it is a change to the
+  component, not to the sheet.
+
+- **The DataView drew a double border along its last row, and across its own rounded
+  corners.** The `full` variant carries a 1px border and a radius; the last row's
+  `border-bottom` sat a pixel inside it, and with no `overflow: hidden` it ran straight
+  through the bottom corners. The `full` variant's own comment had already named this and
+  deferred it to "its own commit" — this is that commit. The last row draws no bottom border,
+  which is the fix rather than clipping the container: `overflow: hidden` there would trap the
+  horizontal scroll container and any overlay a cell renders, which is why that comment
+  refused it.
+
+- **A DataView's empty state drew a second frame inside the first.** `DataView` renders a
+  bare `EmptyState`, whose dashed border landed a pixel inside the view's solid one — two
+  rectangles, one dashed and one not, describing the same box. Nested in a DataView the block
+  now draws no frame of its own; it keeps its glyph, wording and padding, because only the
+  frame was duplicated.
+
+### Changed
+
+- **The DataView's surface belongs to the table, not to the whole view.** It used to wrap
+  everything — one card holding the toolbar, the table and the pagination, divided by a
+  border under the toolbar and another over the pagination. That reads as three bands of one
+  object, and it cost twice: the table's cells sat flush against the outer frame with nothing
+  but cell padding between the first column's text and the card edge, and the toolbar's
+  controls sat inside a surface they do not belong to.
+
+  The surface moves down one level, onto whatever occupies the table's slot, and the toolbar
+  and pagination float on the page background. The table becomes the object; the controls
+  above and below it become controls. This also dissolves the flush-to-the-edge problem
+  rather than padding around it — the table's own frame is the edge now, and
+  `--density-cell-pad-x` is already the inset from it.
+
+  The alternative was keeping the card and adding inline padding to the table inside it.
+  Rejected: it fixes the symptom by making the card thicker, leaves the toolbar inside a
+  surface it is not part of, and leaves two nested frames whenever the view is empty.
+
+  Consequences worth stating rather than discovering. The toolbar's own background and
+  divider are gone, and its previous justification is answered rather than dropped: that
+  background existed so the **embedded** variant would not show the page canvas through the
+  band, and showing what is behind it is now the intent in both variants — the page in the
+  full variant, the app's own card in the embedded one. The toolbar's inline padding is gone
+  too, because it aligned the controls with the table's first *cell*, and the alignment
+  target is now the frame, whose position does not move with density. Selection mode keeps
+  its fill, since it marks a mode, but as a surface of its own with its own padding and
+  radius. And the empty state keeps its dashed frame: with no card around it there is nothing
+  left to duplicate, and a dashed frame is the right marking for the slot where a table would
+  be.
+
+- **`AppShell` renders no footer unless the app asks for one.** It used to default to a
+  muted line with the app's own title — on every screen of every app, restating what the
+  header and the browser tab already say, and costing vertical space on exactly the viewports
+  with least of it. `footer` is the switch now: pass content to get a footer, pass nothing to
+  get none. The `contentinfo` landmark goes with it, which is the right half to lose — an
+  empty landmark is somewhere a screen-reader user can navigate to and find nothing.
+
 ## 0.10.0 — 2026-08-25
 
 ### Added
