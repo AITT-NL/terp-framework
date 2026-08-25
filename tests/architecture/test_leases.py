@@ -65,6 +65,7 @@ from terp.core import (
 )
 from terp.core._internal.session_guard import WriteGuardedSession
 from terp.core.db import get_session
+from terp.core.app import get_principal
 from terp.core.jobs import configure_jobs
 from terp.core.leases import (
     LEASE_HOLDER_MAX,
@@ -78,6 +79,7 @@ from terp.core.leases import (
 from terp.core.runtime import capture_runtimes, reset_runtimes, restore_runtimes
 
 from terp.capabilities.leases import (
+    holder_module,
     LEASE_REAP,
     DatabaseLeaseStore,
     LeaseReapPayload,
@@ -93,6 +95,9 @@ from terp.capabilities.leases.router import module as leases_module
 
 _T0 = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 _ADMIN = Principal(id=uuid.uuid4(), role=Roles.ADMIN)
+#: A worker: authenticated, unprivileged. A heartbeat is authorized by the holder
+#: mapping and the fence, never by a role, so VIEWER is the honest principal here.
+_WORKER = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
 
 
 class _Clock:
@@ -1084,3 +1089,207 @@ def test_a_lease_record_defaults_to_free_with_real_timestamps() -> None:
     row = ResourceLease(resource_kind="pipeline", resource_key="p1")
     assert row.holder is None and row.epoch == 0 and row.expires_at is None
     assert row.touched_at.tzinfo is not None and row.created_at.tzinfo is not None
+
+
+
+# --------------------------------------------------------------------------- #
+# (10) The holder's surface: reading a claim back, and proving liveness
+# --------------------------------------------------------------------------- #
+def test_a_lease_can_be_read_back_by_resource(
+    any_store: LeaseStore, engine: object, clock: _Clock
+) -> None:
+    """Custody a holder can act on without having kept the granted value in memory.
+
+    Every write takes the :class:`Lease` value, whose ``epoch`` IS the fence — so a worker
+    that claims in one request and finishes in another could not release early at all: the
+    process that finishes never held it. What was left was to let the TTL lapse and make
+    the recovery idempotent, which works and leaves every COMPLETED unit of work sitting in
+    the expired view for the reaper to forfeit — so an operator's triage list shows finished
+    work beside genuinely stuck work.
+    """
+    with Session(engine) as session:  # type: ignore[arg-type]
+        assert any_store.lease_for(session, _resource()) is None, "nothing holds it yet"
+
+        granted = any_store.acquire(session, _resource(), holder="w1", ttl_seconds=60)
+        assert granted is not None
+        read_back = any_store.lease_for(session, _resource())
+        assert read_back is not None
+        assert (read_back.holder, read_back.epoch) == ("w1", granted.epoch)
+
+        # The narrowed read is the safe path, and this is why it exists: an unnarrowed read
+        # returns whoever holds the resource NOW, which after an expiry may be a SUCCESSOR,
+        # and releasing that would be the theft the fence exists to prevent.
+        assert any_store.lease_for(session, _resource(), holder="w1") is not None
+        assert any_store.lease_for(session, _resource(), holder="w2") is None
+
+        # Closing the loop the report opened: release early from a value read back rather
+        # than one carried across requests.
+        assert any_store.release(session, read_back) is True
+        assert any_store.lease_for(session, _resource()) is None
+
+
+def test_a_read_back_lease_reports_its_own_lapse_rather_than_vanishing(
+    any_store: LeaseStore, engine: object, clock: _Clock
+) -> None:
+    """An expired-but-unforfeited claim reads back as it stands.
+
+    Hiding it would make the resource look free while a reaper still owed it a recovery,
+    and the holder is entitled to learn that its own claim lapsed. ``Lease.is_expired`` is
+    on the value, so the caller decides what that means.
+    """
+    with Session(engine) as session:  # type: ignore[arg-type]
+        granted = any_store.acquire(session, _resource(), holder="w1", ttl_seconds=60)
+        assert granted is not None
+        clock.advance(61)
+        lapsed = any_store.lease_for(session, _resource(), holder="w1")
+        assert lapsed is not None, "an unforfeited record must not read as free"
+        assert lapsed.is_expired(clock())
+
+
+def test_a_foreign_holder_can_heartbeat_and_a_stale_one_cannot(
+    engine: object, store: DatabaseLeaseStore, clock: _Clock
+) -> None:
+    """The gap 0.9.0 left: a holder that speaks HTTP had custody and no way to prove life.
+
+    ``renew_lease`` takes the granted value, which a worker holding custody across
+    *requests* never has — so its lease degraded to a plain deadline, which is most of what
+    the hand-rolled staleness timeout it replaced already was. Custody without liveness.
+
+    Three refusals stand between a request and a renewal, and each is asserted here because
+    each is load-bearing: the holder mapping (a caller may not speak for another holder),
+    the epoch fence (a re-granted claim extends nothing), and the store's refusal to
+    resurrect an already-expired lease.
+    """
+    resource = LeaseResource(kind="pipeline", key="p1")
+    with Session(engine) as session:  # type: ignore[arg-type]
+        granted = store.acquire(session, resource, holder="worker-a", ttl_seconds=60)
+        assert granted is not None
+        session.commit()
+
+    client = _holder_client(engine, acting_as="worker-a", store=store)
+    body = {"holder": "worker-a", "epoch": granted.epoch, "ttl_seconds": 90}
+
+    # The holder is who it says it is, and the fence matches: the deadline moves out.
+    clock.advance(30)
+    response = client.post("/api/v1/custody/pipeline/p1/heartbeat", json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["expires_at"] > granted.expires_at.isoformat()
+
+    # A caller that resolves to a different holder cannot speak for this one. Refused on
+    # the mapping, before the fence is even consulted.
+    other = _holder_client(engine, acting_as="worker-b", store=store)
+    assert other.post("/api/v1/custody/pipeline/p1/heartbeat", json=body).status_code == 403
+
+    # A stale epoch is refused even from the right holder — this is the late heartbeat from
+    # a process that was declared dead, and it must not take the resource back.
+    stale = {**body, "epoch": granted.epoch + 5}
+    assert client.post("/api/v1/custody/pipeline/p1/heartbeat", json=stale).status_code == 409
+
+
+def test_a_heartbeat_cannot_resurrect_a_lease_that_already_lapsed(
+    engine: object, store: DatabaseLeaseStore, clock: _Clock
+) -> None:
+    """Once it has lapsed, a successor may already be working — reviving it is split brain."""
+    resource = LeaseResource(kind="pipeline", key="p1")
+    with Session(engine) as session:  # type: ignore[arg-type]
+        granted = store.acquire(session, resource, holder="worker-a", ttl_seconds=60)
+        assert granted is not None
+        session.commit()
+
+    clock.advance(61)
+    client = _holder_client(engine, acting_as="worker-a", store=store)
+    response = client.post(
+        "/api/v1/custody/pipeline/p1/heartbeat",
+        json={"holder": "worker-a", "epoch": granted.epoch, "ttl_seconds": 90},
+    )
+    assert response.status_code == 409, response.text
+
+
+def _holder_client(
+    engine: object, *, acting_as: str, store: DatabaseLeaseStore
+) -> TestClient:
+    """A client whose principal resolves to *acting_as* — the app's own mapping, stubbed."""
+    app: FastAPI = create_app(
+        [holder_module(resolve_holder=lambda _principal: acting_as)],
+        principal_provider=lambda: _WORKER,
+        lease_store=store,
+    )
+
+    def _session_override() -> Iterator[Session]:
+        with Session(engine) as session:  # type: ignore[arg-type]
+            yield session
+
+    app.dependency_overrides[get_session] = _session_override
+    return TestClient(app)
+
+
+def test_the_terp_leases_fixture_installs_a_store_for_a_service_level_test(
+    terp_leases: object, engine: object, clock: _Clock
+) -> None:
+    """The fixture, used the way an app would use it — which is the only way to know it works.
+
+    The seam fails closed by design: no default store, so the FIRST lease call in a test
+    process raises. That is right, and its cost was that adopting leases broke every
+    service-level test touching a claim. This asserts the escape hatch the platform now
+    ships, through the MODULE surface rather than the store object, because that is what an
+    app calls: `acquire_lease` / `lease_for` / `release_lease` resolve the installed store,
+    and a fixture that installed something the module functions could not see would be
+    green here and useless in an app.
+    """
+    from terp.core import lease_for as module_lease_for
+    from terp.core.leases import acquire_lease, release_lease
+
+    terp_leases(InMemoryLeaseStore(clock=clock))  # type: ignore[operator]
+    resource = LeaseResource(kind="pipeline", key="fixture-1")
+
+    with Session(engine) as session:  # type: ignore[arg-type]
+        granted = acquire_lease(session, resource, holder="w1", ttl_seconds=60)
+        assert granted is not None
+
+        # Read back through the module, narrowed — the path an app takes when the process
+        # that finishes is not the one that claimed.
+        read_back = module_lease_for(session, resource, holder="w1")
+        assert read_back is not None and read_back.epoch == granted.epoch
+        assert module_lease_for(session, resource, holder="someone-else") is None
+
+        assert release_lease(session, read_back) is True
+        assert module_lease_for(session, resource) is None
+
+
+def test_the_heartbeat_route_refuses_an_anonymous_caller_on_its_own(
+    engine: object, store: DatabaseLeaseStore
+) -> None:
+    """Mounted WITHOUT the module guard, which is the only way to reach this branch.
+
+    In a composed app the policy rejects an anonymous caller before the handler runs, so the
+    explicit check inside it is unreachable through the app — and that is exactly why it is
+    worth asserting directly. The route stays correct if it is ever mounted without that
+    guard: a clean 401 rather than an AttributeError on `None`. `build_me_router` carries the
+    same check for the same reason.
+    """
+    from fastapi import FastAPI as BareApp
+
+    from terp.capabilities.leases.holder_router import build_holder_router
+    from terp.core.errors import AuthenticationError
+
+    app = BareApp()
+    app.include_router(build_holder_router(lambda _principal: "w1"), prefix="/custody")
+
+    @app.exception_handler(AuthenticationError)
+    def _unauthenticated(_request: object, _exc: AuthenticationError):  # noqa: ANN202
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse({"code": "unauthenticated"}, status_code=401)
+
+    def _session_override() -> Iterator[Session]:
+        with Session(engine) as session:  # type: ignore[arg-type]
+            yield session
+
+    app.dependency_overrides[get_session] = _session_override
+    app.dependency_overrides[get_principal] = lambda: None
+
+    response = TestClient(app).post(
+        "/custody/pipeline/p1/heartbeat",
+        json={"holder": "w1", "epoch": 1, "ttl_seconds": 60},
+    )
+    assert response.status_code == 401
