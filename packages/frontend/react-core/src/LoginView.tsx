@@ -5,6 +5,7 @@ import { TerpMark } from "./icons";
 import { useAuth, useSso } from "./TerpProvider";
 import { useStrings } from "./uiText";
 import { Button } from "./ui/Button";
+import { Field } from "./Field";
 import { Input } from "./ui/Input";
 import type { SsoProvider } from "./sso";
 
@@ -92,24 +93,35 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
           <h1 data-terp="login-title">{strings.signIn}</h1>
         </div>
         <form data-terp="login-form" onSubmit={onSubmit}>
-          <Input
-            type="email"
-            // Neither field declared an autocomplete token, so no password manager offered to
-            // fill or save this form — the one place in the framework where that matters most.
-            autoComplete="username"
-            placeholder={strings.email}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-          <Input
-            type="password"
-            autoComplete="current-password"
-            placeholder={strings.password}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
+          {/* Labelled through `Field`, not by placeholder. A placeholder is not an
+              accessible name and it disappears the moment someone types, so the field a
+              user is halfway through filling has nothing identifying it — WCAG 3.3.2 asks
+              for a label that survives typing. It also made these two inputs unreachable
+              by `getByLabel`, so every app's very first screen was the one place its own
+              tests could not address by name. The framework's own answer was already here:
+              `Field` wraps the control in a `<label>`, which is why it needs no id wiring.
+              The comment below is left because it dates the omission — an autocomplete
+              token was considered for these fields and a label was not. */}
+          <Field label={strings.email}>
+            <Input
+              type="email"
+              // Neither field declared an autocomplete token, so no password manager offered to
+              // fill or save this form — the one place in the framework where that matters most.
+              autoComplete="username"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+          </Field>
+          <Field label={strings.password}>
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </Field>
           <Button type="submit" fullWidth loading={busy}>
             {busy ? strings.signingIn : strings.signIn}
           </Button>

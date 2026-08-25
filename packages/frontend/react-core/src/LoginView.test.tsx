@@ -51,7 +51,39 @@ describe("LoginView dev credentials", () => {
       </TerpProvider>,
     );
     fireEvent.click(await screen.findByRole("button", { name: "Fill dev credentials" }));
-    expect(screen.getByPlaceholderText("Email")).toHaveValue("admin@example.test");
-    expect(screen.getByPlaceholderText("Password")).toHaveValue("correct horse battery staple");
+    // By label, not by placeholder. Reaching for a placeholder here was itself a symptom:
+    // it was the only handle these inputs had.
+    expect(screen.getByLabelText("Email")).toHaveValue("admin@example.test");
+    expect(screen.getByLabelText("Password")).toHaveValue("correct horse battery staple");
+  });
+});
+
+describe("LoginView accessible names", () => {
+  it("labels both credentials so they survive typing and can be addressed by name", async () => {
+    // The first screen of every Terp app, and it was labelled by placeholder alone. A
+    // placeholder is not an accessible name and it disappears the moment someone types, so
+    // the field a user is halfway through filling had nothing identifying it (WCAG 3.3.2)
+    // — and `getByLabel` could not find either input, which made the one screen every app
+    // ships the one screen its own tests could not address by name.
+    stubFetch();
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LoginView />
+      </TerpProvider>,
+    );
+    await screen.findByRole("heading", { name: "Sign in" });
+
+    const email = screen.getByLabelText("Email");
+    const password = screen.getByLabelText("Password");
+    expect(email).toHaveAttribute("type", "email");
+    expect(password).toHaveAttribute("type", "password");
+
+    // The name has to survive typing, which is the whole difference from a placeholder.
+    fireEvent.change(email, { target: { value: "someone@example.test" } });
+    expect(screen.getByLabelText("Email")).toHaveValue("someone@example.test");
+
+    // And the autocomplete tokens stay, so a password manager still offers to fill.
+    expect(email).toHaveAttribute("autocomplete", "username");
+    expect(password).toHaveAttribute("autocomplete", "current-password");
   });
 });

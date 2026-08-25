@@ -1669,6 +1669,23 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         node: <EmptyState title="Nothing to show" />,
       },
       {
+        id: "empty-state-compact",
+        // Two of them, because one compact block proves nothing: the reason this size
+        // exists is a screen with several empty sections, where the default's poster
+        // geometry repeated a sentence over 480px.
+        title: "EmptyState — compact, stacked",
+        node: (
+          <Stack gap={3}>
+            <EmptyState
+              size="compact"
+              title="No connections"
+              description="Add one to begin."
+            />
+            <EmptyState size="compact" title="No recent activity" />
+          </Stack>
+        ),
+      },
+      {
         id: "error-state",
         title: "ErrorState — a failed read",
         node: <ErrorState error="The source system refused the connection." />,
