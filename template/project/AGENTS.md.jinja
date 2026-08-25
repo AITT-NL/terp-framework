@@ -196,7 +196,8 @@ token-styled primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>
 design-token styling with no `style={}` / `className` / module stylesheets (layout via
 `Stack` / the page archetypes), in-app links via the router (no raw `<a href="/...">`),
 and no deep `@terpjs/*` imports. Every routed view renders a page archetype (`Page` /
-`OverviewPage` / `DetailPage` / `HubPage`) — the router refuses an unframed view.
+`OverviewPage` / `DetailPage` / `HubPage` / `FormPage` / `SettingsPage` / `SplitPage`) —
+the router refuses an unframed view.
 This app also opts into the **`standard` layout contract** (ADR 0079), declared once in
 `frontend/layout-contract.json` — the lint rule finds the file and `main.tsx` imports it,
 so there is nothing to keep in sync. The same file is where the app's shell shape

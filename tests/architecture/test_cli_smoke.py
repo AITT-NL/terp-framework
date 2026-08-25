@@ -170,6 +170,68 @@ def test_the_database_is_a_throwaway_sqlite_not_the_compose_postgres(
         assert step.environment["DATABASE_URL"] == plan.database_url
 
 
+def test_a_per_module_layout_is_translated_because_sqlite_cannot_honour_it(
+    project: pathlib.Path,
+) -> None:
+    """The substituted database decides the layout, and refusing to translate made this
+    whole command unavailable to the apps most likely to need it.
+
+    Per-module schemas are PostgreSQL-only (ADR 0070) and this command substitutes SQLite,
+    so an app declaring `DB_SCHEMA_LAYOUT=per-module` did not merely lose the layout — the
+    platform refused its own combination and nothing booted at all. `terp smoke` exists to
+    answer "is it my app or my environment?", and it was answering neither.
+
+    Translated the way the container path and the container address already are, and
+    *announced*: a run whose layout was moved is not exercising the app's own
+    configuration, and a reader comparing a green smoke against a red deployment has to be
+    able to see which knob this command turned.
+    """
+    compose = (project / "docker-compose.yml").read_text(encoding="utf-8")
+    (project / "docker-compose.yml").write_text(
+        compose.replace(
+            "    ENVIRONMENT: local", "    ENVIRONMENT: local\n    DB_SCHEMA_LAYOUT: per-module"
+        ),
+        encoding="utf-8",
+    )
+
+    plan = smoke_plan(project, api_port=9999)
+    for step in plan.steps:
+        assert step.environment["DB_SCHEMA_LAYOUT"] == "flat", (
+            f"{step.service} keeps per-module against {plan.database_url}, which ADR 0070 "
+            "refuses — the app cannot boot and the command reports nothing useful"
+        )
+    assert any("DB_SCHEMA_LAYOUT" in note for note in plan.translations), (
+        "the layout was changed silently; a translated run must say so, or a green smoke "
+        "reads as evidence about a configuration it never ran"
+    )
+
+
+def test_a_real_postgres_url_keeps_the_apps_own_layout(project: pathlib.Path) -> None:
+    """The translation is conditional on the substitution, not on the layout.
+
+    Point `--database-url` at a PostgreSQL that can honour per-module and there is nothing
+    to translate — overriding it anyway would take the app further from its own
+    configuration for no reason, and would make the one flag that buys a faithful run
+    buy less than it should.
+    """
+    compose = (project / "docker-compose.yml").read_text(encoding="utf-8")
+    (project / "docker-compose.yml").write_text(
+        compose.replace(
+            "    ENVIRONMENT: local", "    ENVIRONMENT: local\n    DB_SCHEMA_LAYOUT: per-module"
+        ),
+        encoding="utf-8",
+    )
+
+    plan = smoke_plan(
+        project,
+        api_port=9999,
+        database_url="postgresql+psycopg://app:app@127.0.0.1:5432/smoke",
+    )
+    for step in plan.steps:
+        assert step.environment["DB_SCHEMA_LAYOUT"] == "per-module"
+    assert not plan.translations
+
+
 def test_the_server_binds_the_probed_port_and_drops_the_reloader(
     project: pathlib.Path,
 ) -> None:
@@ -514,3 +576,34 @@ def test_cli_smoke_plan_dispatch_prints_without_running(
     main(["smoke", "--root", str(project), "--plan"])
     out = capsys.readouterr().out
     assert "[server] api" in out
+
+
+def test_a_translated_setting_is_announced_to_the_reader(
+    project: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The translation has to reach the person reading the output, not just the plan.
+
+    A run whose configuration this command moved is not evidence about the configuration
+    the app ships — so somebody holding a green smoke against a red deployment has to be
+    able to see which knob turned. Silent translation is how a green here becomes an
+    argument that the app is fine.
+    """
+    compose = (project / "docker-compose.yml").read_text(encoding="utf-8")
+    (project / "docker-compose.yml").write_text(
+        compose.replace(
+            "    ENVIRONMENT: local",
+            "    ENVIRONMENT: local\n    DB_SCHEMA_LAYOUT: per-module",
+        ),
+        encoding="utf-8",
+    )
+
+    # Fails the first step on purpose: the announcement is printed before any step runs,
+    # so aborting immediately still proves it reaches the reader — and it keeps this test
+    # out of the server-spawning path, which is another test's subject.
+    def runner(argv, environment, cwd):
+        return (1, "stopped here")
+
+    assert run_smoke_command(root=project, runner=runner) == 1
+    output = capsys.readouterr().out
+    assert "translated" in output
+    assert "DB_SCHEMA_LAYOUT per-module -> flat" in output

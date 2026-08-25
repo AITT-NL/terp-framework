@@ -1939,20 +1939,32 @@ textarea[data-terp="input"] {
 [data-terp="dataview"] {
   display: grid;
 }
-/* The full variant's surface. (0,2,0) against the bare marker's (0,1,0), so it wins
-   on specificity — no tie, no :not(), no source order. BOTH values of data-variant
-   are stamped and only this one has a rule, which is the theme-toggle idiom where
-   inline is stamped and takes the shared base while only stacked declares anything.
-   Rejected: putting the surface on the bare marker and un-declaring it under
-   [data-variant="embedded"], which needs background: transparent, border: 0 and
-   border-radius: 0 — the shape ADR 0094 exists to avoid. Also rejected: stamping
-   nothing for the default on the density precedent, which holds only because
-   comfortable IS the :root value and so has nothing to declare.
-   Byte-identical to [data-terp="card"]'s trio; written flat anyway, the Badge /
-   Alert / row-tone precedent. No overflow: hidden, and none should be added here —
-   the last row's border crossing the rounded bottom corners is pre-existing and
-   belongs to its own commit. */
-[data-terp="dataview"][data-variant="full"] {
+/* The full variant's surface belongs to the TABLE, not to the whole view.
+   It used to wrap everything: one card holding the toolbar, the table and the
+   pagination, divided internally by a border under the toolbar and over the
+   pagination. That reads as three bands of one object, and it costs twice — the
+   table's cells are then flush against the outer frame (nothing between the first
+   column's text and the card edge but cell padding), and the toolbar's controls sit
+   inside a surface they do not belong to.
+
+   So the surface moves down one level, onto whatever occupies the table's slot, and
+   the toolbar and the pagination float on the page background instead. The table
+   becomes the object; the controls above and below it become controls. That also
+   dissolves the flush-to-the-edge problem rather than padding around it: the table's
+   own frame is the edge now, and --density-cell-pad-x is already the inset from it.
+
+   The alternative considered was keeping the outer card and adding inline padding to
+   the table inside it. Rejected: it fixes the symptom by making the card thicker,
+   leaves the toolbar inside a surface, and leaves two nested frames whenever the view
+   is empty (the empty state's dashed frame inside the card's solid one).
+
+   Keyed on [data-variant="full"] rather than the bare marker for the reason the
+   previous rule gave and which still holds: [data-variant="embedded"] must declare
+   nothing, and un-declaring a surface with background: transparent / border: 0 is the
+   shape ADR 0094 exists to avoid. */
+[data-terp="dataview"][data-variant="full"] > [data-terp="dataview-scroll"],
+[data-terp="dataview"][data-variant="full"] > [data-terp="dataview-error"],
+[data-terp="dataview"][data-variant="full"] > [data-terp="dataview-skeleton"] {
   background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
@@ -2031,22 +2043,38 @@ textarea[data-terp="input"] {
    No colour declaration here on purpose. Two of this element's direct children
    are arbitrary caller slots, and inheriting a muted ink onto app-authored filter
    controls would be a silent restyle of app DOM. */
+/* Floating: no background, no divider, and no inline padding. The divider was the
+   seam between two bands of one card and there is no card now — a border under a strip
+   that sits on the page background is a line drawn across nothing. Dropping the inline
+   padding aligns the controls with the table's OUTER edge (its frame) rather than with
+   its cell text, which is the alignment a floating control row wants: the eye follows
+   the frame, and a control indented to meet the first column's text reads as belonging
+   inside the table.
+
+   The background's previous justification is worth answering rather than deleting: it
+   was there for the EMBEDDED variant, whose root declares nothing but a display, so that
+   the band would not show the page canvas through it. That is now the intent in both
+   variants. A floating strip shows whatever is behind it — the page in the full variant,
+   the app's own card in the embedded one — and in neither case is a neutral-0 rectangle
+   under the controls something the design asks for. dataview-toolbar-bare still renders
+   on a neutral-50 host, so the difference is visible in a baseline either way. */
 [data-terp="dataview-toolbar"] {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
-  padding: var(--space-2) var(--density-cell-pad-x);
-  border-block-end: 1px solid var(--color-neutral-200);
-  background: var(--color-neutral-0);
-  border-top-left-radius: var(--radius-lg);
-  border-top-right-radius: var(--radius-lg);
+  padding-block: var(--space-2);
   min-height: 3rem;
 }
 /* Selection mode. A resting surface rather than an interaction state, so
    terp.base — and (0,2,0) against the base's (0,1,0) means it wins on
    specificity alone, needing no :not() and no source-order dependency. */
 [data-terp="dataview-toolbar"][data-variant="selection"] {
+  /* Still a filled surface, because it marks a MODE and losing that would make
+     selection invisible — but now it is a surface of its own rather than a band of the
+     card, so it takes the padding and radius that make it read as one. */
+  padding-inline: var(--density-cell-pad-x);
+  border-radius: var(--radius-md);
   background: var(--color-neutral-50);
 }
 [data-terp="dataview-toolbar-count"] {
@@ -2263,6 +2291,17 @@ input[data-terp="input"][type="password"]::-ms-reveal {
    data-tone on an element no selector could reach, and the row-tones baseline
    would have lost its tints the moment the tone moved out of a style object.
    It is unconditional now, and clickability is an attribute of its own. */
+/* The last row draws no bottom border, which fixes two things the full variant's own
+   comment had already named and deferred. The container carries a 1px border and a
+   radius, so the last row's border sat a pixel inside it as a DOUBLE line, and with no
+   overflow: hidden it also ran straight across the rounded bottom corners. Dropping the
+   border is the fix rather than clipping the container: overflow: hidden here would trap
+   the horizontal scroll container and any overlay a cell renders, which is why that
+   comment refused it. tbody's last row, not the table's — a footer row would want its
+   own rule. */
+[data-terp="dataview-row"]:last-child > td {
+  border-bottom: none;
+}
 [data-terp="dataview-row"][data-clickable="true"] {
   cursor: pointer;
 }
@@ -2296,15 +2335,31 @@ input[data-terp="input"][type="password"]::-ms-reveal {
    sorted, so the unsorted glyph's dimming keys off its ABSENCE rather than off
    an attribute minted for it — this component owns aria-sort, unlike the
    breadcrumb's aria-current, which a router stamps on every ancestor link. */
+/* font: inherit is not enough, and the gap it leaves split the header row in two.
+   The font shorthand carries no text-transform and no letter-spacing, and the UA
+   stylesheet resets both on form controls — so in any table mixing sortable and
+   non-sortable columns the plain th rendered uppercase with 0.04em tracking while
+   the sortable one rendered sentence case with none, side by side in one row. Both
+   are named explicitly because inheritance is what the UA overrode.
+
+   The block padding mirrors the th's so the button fills the cell it sits in,
+   pulled back out by the negative margin. The control was a 17px-tall target inside
+   a 34px cell — half the cell unused, and the most-used control in a data app
+   clearing WCAG 2.5.8 only through the spacing exception. Filling the cell costs
+   nothing and changes no layout: the button's box grows into padding the th
+   already reserved. */
 [data-terp="dataview-column-sort"] {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
   color: inherit;
   background: transparent;
   border: none;
-  padding: 0;
+  padding: var(--space-2) 0;
+  margin-block: calc(-1 * var(--space-2));
   cursor: pointer;
 }
 [data-terp="dataview-table"] > thead > tr > th:not([aria-sort]) > [data-terp="dataview-column-sort"] > svg {
@@ -2518,8 +2573,7 @@ th[data-terp="dataview-actions-cell"] > span {
   justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
-  padding: var(--space-2) var(--density-cell-pad-x);
-  border-block-start: 1px solid var(--color-neutral-200);
+  padding-block: var(--space-2);
   font-size: var(--font-size-sm);
   color: var(--color-fg-subtle);
 }
@@ -2707,6 +2761,24 @@ th[data-terp="dataview-actions-cell"] > span {
   border-radius: var(--radius-lg);
   background: var(--color-neutral-0);
 }
+/* Compact: a section's emptiness rather than the page's. Same frame and same words,
+   laid out as a row — the glyph beside the text instead of above it — so two of
+   these stacked read as two quiet sections rather than 480px of repeated poster. */
+[data-terp="empty-state"][data-size="compact"] {
+  grid-template-columns: auto 1fr;
+  justify-items: start;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+}
+[data-terp="empty-state"][data-size="compact"] > [data-terp="empty-state-title"] {
+  font-size: var(--font-size-sm);
+}
+[data-terp="empty-state"][data-size="compact"] > [data-terp="empty-state-description"],
+[data-terp="empty-state"][data-size="compact"] > :not([data-terp="empty-state-icon"]):not([data-terp="empty-state-title"]) {
+  grid-column: 2;
+}
 [data-terp="empty-state-icon"] {
   color: var(--color-neutral-400);
   display: inline-flex;
@@ -2821,6 +2893,71 @@ input[data-terp="input"][role="combobox"] {
 [data-terp="combobox-field"] {
   position: relative;
   display: grid;
+}
+/* Multiple: the tokens share the field's box with the input, wrapping onto as many rows
+   as the selection needs. A fixed-height field would either clip the third token or
+   reserve room for tokens nobody has chosen — and a set-valued field whose height never
+   changes is lying about how much is in it.
+
+   The input keeps a minimum inline size so a filter is still typeable when the tokens have
+   taken most of a row, and flex-basis 0 so it yields to them rather than pushing the last
+   token out of the box. */
+[data-terp="combobox-field"][data-multiple="true"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-0);
+}
+[data-terp="combobox-field"][data-multiple="true"] > [data-terp="input"] {
+  flex: 1 1 0;
+  min-inline-size: 6rem;
+  border: none;
+  background: transparent;
+  padding-inline: var(--space-1);
+}
+[data-terp="combobox-token"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-block: 0;
+  padding-inline: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-sm);
+  /* Matches the control height a token sits beside, so a row of tokens and the input
+     share one baseline instead of the tokens riding high. */
+  min-block-size: calc(var(--density-control-min-height) - var(--space-2));
+}
+/* The remove control is a real button and a real tab stop, which is the accessible half of
+   the Backspace shortcut rather than a duplicate of it: the shortcut is discoverable only if
+   you already know it, and a token nobody can reach by keyboard cannot be removed by one. */
+[data-terp="combobox-token-remove"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--space-4);
+  min-block-size: var(--space-4);
+  padding: 0;
+  color: var(--color-neutral-600);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  line-height: 1;
+}
+[data-terp="combobox-token-remove"]:hover:not(:disabled) {
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-200);
+}
+[data-terp="combobox-token-remove"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 /* Addressed structurally rather than by a marker of its own: it is an
    iconbutton, and the only thing distinguishing it is where it sits. */
@@ -3006,7 +3143,7 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 [data-terp="tooltip"] {
   position: absolute;
-  z-index: 1;
+  z-index: var(--z-index-tooltip);
   inset-block-end: calc(100% + var(--space-1));
   inset-inline-start: 0;
   max-inline-size: min(18rem, calc(100vw - 2 * var(--space-4)));
@@ -3393,10 +3530,21 @@ button[data-terp="input"][data-placeholder="true"] {
    viewport reads --z-index-toast. (This paragraph said "AppShell still writes
    50/40/30 ... and comes right with its own migration" for a release after that
    migration landed, which is the shape of stale comment worth naming: it read as
-   a known gap rather than as a finished one.) Tooltip's z-index:
-   1 above is deliberately NOT a token — the tooltip is absolutely positioned
-   inside its own anchor, so 1 is a local lift within a stacking context rather
-   than a place in the app-wide order. */
+   a known gap rather than as a finished one.) Tooltip's z-index WAS 1 on the
+   reasoning that the tooltip is absolutely positioned inside its own anchor, so 1
+   is a local lift within a stacking context rather than a place in the app-wide
+   order. That is sound about the anchor and wrong about the page:
+   [data-terp="tooltip-anchor"] is only position: relative, which does NOT create a
+   stacking context, so the 1 competed in the ROOT context — against a sticky header
+   at 30 and an open popover at 60 — and lost. Reported as a tooltip that renders
+   below content "sometimes, not always", which is exactly what a level that depends
+   on whatever ancestor happens to establish a context looks like. It reads
+   --z-index-tooltip (70) now, the level published for it.
+
+   Still true, and NOT fixed by this: an ancestor with overflow: hidden clips an
+   absolutely positioned tooltip whatever its level. The fix for that is the one
+   [data-terp="popover-panel"] already uses — position: fixed with measured
+   coordinates — and it is a change to the component rather than to this sheet. */
 [data-terp="popover-panel"] {
   position: fixed;
   z-index: var(--z-index-popover);
