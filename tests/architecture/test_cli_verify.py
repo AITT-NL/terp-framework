@@ -79,6 +79,12 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         "architecture",
         "backend-tests",
         "appsec-baseline",
+        # The app's own declared import contracts. In the profile rather than in a
+        # second command, because `terp guide package-boundaries` prescribes them and
+        # this profile claims to be what CI enforces — an app that followed the guide
+        # had a boundary the claim did not cover. No workflow change propagates it:
+        # the template's CI runs `terp verify --profile full` and delegates the list.
+        "package-boundaries",
         "frontend-boundaries",
         "routes-drift",
         # The generated API client is an INPUT to the typecheck below and is
@@ -221,6 +227,102 @@ def test_an_adoption_hint_is_readable_in_text_mode(tmp_path: pathlib.Path) -> No
     assert exit_code == 0, "an unadopted generator must not fail the gate"
     assert output.startswith(NOTE_PREFIX)
     assert "terp-routes" in output
+
+
+def test_every_adoptable_skip_is_readable_in_text_mode(tmp_path: pathlib.Path) -> None:
+    """The rule above, held for EVERY check that passes by skipping — not one of them.
+
+    `routes-drift` got the `note:` treatment when it was reported and `api-docs-drift`
+    did not, so `docs/ not committed - drift check skipped (commit docs/ to enable)`
+    stayed invisible in the only mode a human reads. One check fixed is not the rule
+    kept: the hint IS the adoption mechanism, so a check that skips silently has no
+    way of ever being turned on.
+
+    Asserted per check rather than as a single case, because the failure mode is a new
+    skipping check added without the prefix — which no test of one existing check can
+    see. The distinction being held is *adoptable* versus *inapplicable*: `no frontend/
+    - route types not applicable` stays plain on purpose, because a backend-only app
+    has nothing to turn on and a hint there would be noise.
+    """
+    from terp.cli.verify import (
+        NOTE_PREFIX,
+        _run_api_client,
+        _run_api_docs_drift,
+        _run_package_boundaries,
+        _run_routes_drift,
+    )
+
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text('{"scripts": {}}', encoding="utf-8")
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
+    adoptable = {
+        "routes-drift": _run_routes_drift,
+        "api-client": _run_api_client,
+        "api-docs-drift": _run_api_docs_drift,
+        "package-boundaries": _run_package_boundaries,
+    }
+    for check_id, run in sorted(adoptable.items()):
+        exit_code, output = run(tmp_path)
+        assert exit_code == 0, f"{check_id}: an unadopted feature must not fail the gate"
+        assert output.startswith(NOTE_PREFIX), (
+            f"{check_id} passes by skipping but its hint is invisible in text mode — "
+            f"the runner only prints a passing check's output when it carries "
+            f"{NOTE_PREFIX!r}, so this adoption hint reaches nobody. Got: {output!r}"
+        )
+
+
+def test_a_declared_package_boundary_is_in_the_profile(tmp_path: pathlib.Path) -> None:
+    """An app that declares import contracts gets them checked by `terp verify`.
+
+    `terp guide package-boundaries` prescribes import-linter contracts, and this profile
+    is documented as exactly what CI enforces. While the linter lived outside the profile
+    those two statements contradicted each other, and the app paid: it wrote a pytest
+    wrapper shelling out to the console script, or forgot the command and shipped a
+    boundary nothing verified.
+
+    Three states, and the middle one is the point:
+
+    * no contracts declared → skip with a note, because an upgrade must not fail a gate
+      for a seam the app never wired;
+    * contracts declared, linter missing → RED. A declared boundary that cannot be
+      checked is not a boundary, and answering "ok" there is the exact failure this
+      check removes;
+    * contracts declared and runnable → the linter's own verdict.
+
+    The table is read as TOML, not matched as text: `[[tool.importlinter.contracts]]`
+    alone creates the table, so an app that declares only contracts is still covered —
+    and the word appearing in a comment is not.
+    """
+    from terp.cli.verify import PROFILES, _run_package_boundaries
+
+    for profile, checks in PROFILES.items():
+        ids = [check.id for check in checks]
+        assert "package-boundaries" in ids, (
+            f"{profile} does not run the app's declared package graph, so an app that "
+            "followed `terp guide package-boundaries` has a boundary this profile "
+            "claims to enforce and does not"
+        )
+        assert ids.index("package-boundaries") > ids.index("architecture"), (
+            f"{profile}: the app's own graph is checked after Terp's own rules"
+        )
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
+    exit_code, output = _run_package_boundaries(tmp_path)
+    assert exit_code == 0, "an app with no contracts must not fail the gate"
+    assert "importlinter" in output
+
+    # Declared through the contracts array alone — the table is implicit, and a text
+    # match for the section header would miss it.
+    (tmp_path / "pyproject.toml").write_text(
+        '[[tool.importlinter.contracts]]\nname = "c"\n', encoding="utf-8"
+    )
+    exit_code, output = _run_package_boundaries(tmp_path)
+    assert exit_code != 0, (
+        "contracts are declared, so the check must reach the linter and report its "
+        f"verdict rather than skipping; got exit 0 with {output!r}"
+    )
 
 
 def test_a_mixed_install_fails_the_gate(
