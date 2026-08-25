@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-audit"
-version = "0.10.0"
+version = "0.11.0"
 description = "Terp audit capability — the durable, append-only sink for the core audit seam."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.10.0",
+    "terp-core==0.11.0",
 ]
 
 # Self-registering: the kernel discovers this ModuleSpec via the entry point,
