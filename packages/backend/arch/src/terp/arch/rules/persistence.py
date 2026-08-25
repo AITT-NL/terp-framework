@@ -801,3 +801,177 @@ def check_forwarded_filters_are_declared(
                         )
                     )
     return violations
+
+
+def check_declared_read_controls_are_forwarded(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """Every module that declares a filter or a sort must forward one somewhere in itself.
+
+    The other direction of ``forwarded_filters_are_declared``, and the direction that fails
+    quietly. A declaration no endpoint forwards is inert: the read layer says the field is
+    narrowable or orderable, the API exposes no parameter for it, and nothing anywhere is
+    wrong. It presents as an implemented feature — a generated client offers no way to
+    sort, and a screen built against it ships with every column's sorting disabled.
+
+    **Presence, not names, and that is the design rather than a shortcut.** The forward rule
+    reads literal mapping keys and documents why: a filters mapping built elsewhere is not
+    statically knowable. In *this* direction that same blind spot flips from a missed
+    detection into a FALSE one — a filter forwarded through a computed mapping would be
+    reported as dead. The keyword survives where its value does not, so requiring a module
+    that declares a filter to forward *a* filters mapping is decidable where requiring a
+    particular name is not.
+
+    **The module is the unit** for the reason the forward rule collects names tree-wide:
+    which service a route calls is not decidable from the AST, so pairing one declaration to
+    one endpoint would have to guess. A module owns both halves, so a module that declares a
+    control and forwards none of that kind is the smallest sound claim.
+    """
+    root = pathlib.Path(app_root)
+    #: declaration call -> the keyword an endpoint forwards it through.
+    kinds = {"FilterField": "filters", "SortField": "sort"}
+    declared_at: dict[tuple[str, str], tuple[str, int]] = {}
+    forwards: set[tuple[str, str]] = set()
+
+    for path in iter_python_files(root):
+        module = _module_under(path, package)
+        if module is None:
+            continue
+        rel = _rel(path, root)
+        for node in ast.walk(parse(path)):
+            if not isinstance(node, ast.Call):
+                continue
+            name = base_name(node.func)
+            if name in kinds:
+                # First declaration wins as the report site: one message per module and
+                # kind, pointing at the earliest declaration the author can act on.
+                declared_at.setdefault((module, kinds[name]), (rel, node.lineno))
+            for keyword in node.keywords:
+                if keyword.arg in ("filters", "sort"):
+                    forwards.add((module, keyword.arg))
+
+    violations: list[ArchViolation] = []
+    for (module, keyword), (rel, lineno) in sorted(declared_at.items()):
+        if (module, keyword) in forwards:
+            continue
+        control = "filter" if keyword == "filters" else "sort"
+        reachable = "narrowable" if control == "filter" else "orderable"
+        violations.append(
+            ArchViolation(
+                "declared_read_controls_are_forwarded",
+                rel,
+                lineno,
+                f"module {module!r} declares a {control} and no endpoint in it forwards "
+                f"{keyword}=, so the declaration is unreachable: the read layer says this "
+                f"field is {reachable} and the API offers no parameter for it. Forward "
+                f"{keyword}= from the list endpoint, or drop the declaration",
+            )
+        )
+    return violations
+
+
+def check_frozen_values_hold_no_mutable_collection(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """A frozen value object must not hold a list, dict or set.
+
+    Freezing binds the attributes, not what they point at, so a frozen object holding a
+    mutable collection is immutable exactly one level deep — the level nobody checks.
+    Callers rely on the declaration: they share the value between requests, cache it, use it
+    as a registry key and skip defensive copies because the type says none are needed.
+    ``plan.columns.append(...)`` succeeds on a frozen dataclass, and the mutation arrives
+    somewhere else entirely as state that changed with no assignment near it.
+
+    Frozen is recognised by DECLARATION, never by convention: ``@dataclass(frozen=True)``, a
+    ``NamedTuple`` (frozen by construction), or a model whose config says immutable. An
+    annotation that is not statically a mutable collection is left alone — the shape
+    behind an alias is not knowable here, and guessing would reject correct code.
+    """
+    root = pathlib.Path(app_root)
+    replacement = {
+        "list": "tuple[...]",
+        "List": "tuple[...]",
+        "dict": "Mapping[...] (or a frozen mapping)",
+        "Dict": "Mapping[...] (or a frozen mapping)",
+        "set": "frozenset[...]",
+        "Set": "frozenset[...]",
+    }
+    violations: list[ArchViolation] = []
+
+    for path in iter_python_files(root):
+        if _module_under(path, package) is None:
+            continue
+        rel = _rel(path, root)
+        for node in ast.walk(parse(path)):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            reason = _frozen_reason(node)
+            if reason is None:
+                continue
+            for statement in node.body:
+                if not isinstance(statement, ast.AnnAssign):
+                    continue
+                annotation = statement.annotation
+                # `list[str]` is a Subscript over a Name; a bare `list` is the Name itself.
+                head = (
+                    annotation.value if isinstance(annotation, ast.Subscript) else annotation
+                )
+                mutable = (
+                    base_name(head) if isinstance(head, ast.Name | ast.Attribute) else None
+                )
+                if mutable not in replacement:
+                    continue
+                field = (
+                    statement.target.id if isinstance(statement.target, ast.Name) else "?"
+                )
+                violations.append(
+                    ArchViolation(
+                        "frozen_values_hold_no_mutable_collection",
+                        rel,
+                        statement.lineno,
+                        f"{node.name}.{field} is a {mutable} on a frozen value ({reason}), "
+                        f"so the object is immutable one level deep only: anyone holding it "
+                        f"can mutate {field} while every guarantee the type advertises still "
+                        f"appears to hold. Declare it as {replacement[mutable]}",
+                    )
+                )
+    return violations
+
+
+def _frozen_reason(node: ast.ClassDef) -> str | None:
+    """Why *node* is a frozen value object, or ``None`` when it is not one.
+
+    The reason travels into the message because the three ways of freezing read very
+    differently at the call site: a decorator argument is visible, a ``NamedTuple`` base is
+    implicit, and a model's config sits somewhere else in the class.
+    """
+    for base in node.bases:
+        if base_name(base) == "NamedTuple":
+            return "a NamedTuple is frozen by construction"
+    for decorator in node.decorator_list:
+        if not isinstance(decorator, ast.Call) or base_name(decorator.func) != "dataclass":
+            continue
+        for keyword in decorator.keywords:
+            if (
+                keyword.arg == "frozen"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is True
+            ):
+                return "dataclass(frozen=True)"
+    for statement in node.body:
+        # A pydantic model configured immutable: `model_config = ConfigDict(frozen=True)`.
+        if not isinstance(statement, ast.Assign) or not isinstance(
+            statement.value, ast.Call
+        ):
+            continue
+        targets = {t.id for t in statement.targets if isinstance(t, ast.Name)}
+        if not targets & {"model_config", "Config"}:
+            continue
+        for keyword in statement.value.keywords:
+            if (
+                keyword.arg == "frozen"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is True
+            ):
+                return "model_config frozen=True"
+    return None
