@@ -29,6 +29,14 @@ export const LOCALE_EN: LocaleCatalog = { label: "English" };
 export const LOCALE_NL: LocaleCatalog = {
   label: "Nederlands",
   strings: {
+    clearSelection: "Selectie wissen",
+    clearAllSelections: "Alle selecties wissen",
+    comboboxLoading: "Laden…",
+    comboboxNoOptions: "Geen opties",
+    previousMonth: "Vorige maand",
+    selectDate: "Kies een datum",
+    selectDateRange: "Kies een periode",
+    nextMonth: "Volgende maand",
     loading: "Laden...",
     emptyList: "Nog niets te zien.",
     add: "Toevoegen",

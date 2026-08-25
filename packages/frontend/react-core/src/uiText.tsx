@@ -210,9 +210,33 @@ export interface TerpStrings {
   saved: string;
   /** Generic failure toast when a request did not go through. */
   requestFailed: string;
+  /** Combobox: clears the single selection. */
+  clearSelection: string;
+  /** Combobox: clears every selection in multiple mode. */
+  clearAllSelections: string;
+  /** Combobox: shown in the listbox while options are being fetched. */
+  comboboxLoading: string;
+  /** Combobox: shown in the listbox when the filter matches nothing. */
+  comboboxNoOptions: string;
+  /** DatePicker: steps the calendar back one month. */
+  previousMonth: string;
+  /** DatePicker: steps the calendar forward one month. */
+  nextMonth: string;
+  /** DatePicker: trigger text before a date is chosen. */
+  selectDate: string;
+  /** DateRangePicker: trigger text before a range is chosen. */
+  selectDateRange: string;
 }
 
 export const DEFAULT_STRINGS: TerpStrings = {
+  clearSelection: "Clear selection",
+  clearAllSelections: "Clear all selections",
+  comboboxLoading: "Loading…",
+  comboboxNoOptions: "No options",
+  previousMonth: "Previous month",
+  selectDate: "Select date",
+  selectDateRange: "Select date range",
+  nextMonth: "Next month",
   loading: "Loading...",
   emptyList: "Nothing here yet.",
   add: "Add",

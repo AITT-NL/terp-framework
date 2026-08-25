@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { InputHTMLAttributes, KeyboardEvent } from "react";
 
 import { injectTerpStyles } from "../styles";
-import { useUiText } from "../uiText";
+import { useStrings, useUiText } from "../uiText";
 import type { UiText } from "../uiText";
 
 injectTerpStyles();
@@ -40,8 +40,8 @@ export function Combobox({
   defaultValue = null,
   onChange,
   loading = false,
-  loadingText = "Loading…",
-  noOptionsText = "No options",
+  loadingText,
+  noOptionsText,
   clearable = false,
   defaultOpen = false,
   disabled,
@@ -53,6 +53,7 @@ export function Combobox({
   ...rest
 }: ComboboxProps) {
   const resolve = useUiText();
+  const strings = useStrings();
   const baseId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -222,7 +223,7 @@ export function Combobox({
           <button
             type="button"
             data-terp="iconbutton"
-            aria-label="Clear selection"
+            aria-label={strings.clearSelection}
             onClick={() => {
               commit(null);
               inputRef.current?.focus();
@@ -235,9 +236,13 @@ export function Combobox({
       {isOpen && (
         <div id={`${baseId}-listbox`} role="listbox" data-terp="combobox-list">
           {loading ? (
-            <div role="status" data-terp="combobox-empty">{resolve(loadingText)}</div>
+            <div role="status" data-terp="combobox-empty">
+              {resolve(loadingText ?? strings.comboboxLoading)}
+            </div>
           ) : renderedOptions.length === 0 ? (
-            <div data-terp="combobox-empty">{resolve(noOptionsText)}</div>
+            <div data-terp="combobox-empty">
+              {resolve(noOptionsText ?? strings.comboboxNoOptions)}
+            </div>
           ) : (
             renderedOptions.map((option) => {
               const label = resolve(option.label);
