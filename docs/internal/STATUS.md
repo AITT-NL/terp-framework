@@ -1162,8 +1162,10 @@ is where "what's built / what's left" is supposed to be legible. The authoritati
 ADRs [0093](../decisions/0093-semantic-token-layer-and-named-themes.md),
 [0094](../decisions/0094-attribute-keyed-styling.md),
 [0097](../decisions/0097-shell-parameters-and-ordered-navigation.md),
-[0098](../decisions/0098-archetypes-measures-and-the-density-island.md) and
-[0099](../decisions/0099-the-component-gap-and-what-is-not-in-it.md).
+[0098](../decisions/0098-archetypes-measures-and-the-density-island.md),
+[0099](../decisions/0099-the-component-gap-and-what-is-not-in-it.md),
+[0100](../decisions/0100-the-layout-declaration-is-one-document.md) and
+[0101](../decisions/0101-a-development-only-channel-into-a-running-app.md).
 
 The one ordering constraint worth keeping: **the safety net came before the styling engine.**
 Phase 3 rewrote every component's base styles, and without phases 1–2 that would have moved
@@ -1178,7 +1180,7 @@ every pixel in every consuming app with nothing watching.
 | 4 | Layout, archetypes and the shell | ✅ | The layout vocabulary (`Grid`, responsive `Stack`, `Divider`, prose primitives), three page archetypes, published shell geometry and the content measure, the density island, skip-to-content, the brand seam, and the ordered navigation model. ADR 0097 + 0098, 0.10.0. |
 | 5 | The component gap | ✅ | Field-level 422s, app-locale formatting, declared column widths as steps, `Avatar`, the password reveal — and thirteen candidate components refused with the evidence that decided each. ADR 0099, 0.10.0. |
 | 6 | The Studio's styling editor, built from the token manifest | 🚧 | Lands in **terp-studio**, not here. What this repo owes it is already published: the manifest carries every token's category, per-theme values and themeable flag, plus the pairings the contrast gate enforces (ADR 0093 §4). |
-| 7 | Layout editable in the Studio | ⬜ | Unblocked by phase 3 (attribute-keyed styling) and phase 4 (archetypes, density and nav placement as props rather than frozen constants). |
+| 7 | Layout editable in the Studio | ⬜ | Lands in **terp-studio**. Unblocked by phase 3 (attribute-keyed styling), phase 4 (archetypes, density and nav placement as props rather than frozen constants) and, in 0.10.0, the two seams a file-editing tool actually needs: the layout declaration as the one document holding the shell's shape (ADR 0100) and the development-only channel that lets a tool ask a running app about its own structure instead of asking the operator to describe it (ADR 0101). |
 
 **Releases:** phases 0–2 shipped as **0.7.0**, phase 3 across **0.8.0** and **0.9.0**. Phases 4
 and 5 shipped together as **0.10.0**, held back until the whole build order was finished so

@@ -25,8 +25,6 @@ import pathlib
 import re
 from typing import NamedTuple
 
-import pytest
-
 from terp_spec import spec_dir
 
 from terp.arch.rules import GUIDE_TOPIC_BY_RULE, _ALL_RULES
@@ -251,16 +249,21 @@ def test_the_layout_declaration_vocabulary_matches_the_spec_schema() -> None:
     header, because one is the default. Both orders are right for their audience
     and neither is normative.
     """
-    if not _DECLARATION_SCHEMA.is_file():
-        # The spec is pinned to one exact release (ADR 0086) and this schema lands in the
-        # next one, so a pinned checkout legitimately predates it. Skipped with the reason
-        # rather than asserted, because the alternative is pinning an unreleased spec to
-        # satisfy a test — which is how a pin stops meaning "a release we shipped". The
-        # moment the pin moves, this starts enforcing with no edit here.
-        pytest.skip(
-            f"the pinned terp-spec ships no layout-declaration.schema.json "
-            f"({_DECLARATION_SCHEMA.parent}); it lands in the next spec release"
-        )
+    # ASSERTED, NOT SKIPPED, and the skip it replaces is why. While the schema was still
+    # unreleased this guard skipped with a reason, on the argument that the pin should keep
+    # meaning "a release we shipped" and that the test would start enforcing the moment the
+    # pin moved. The pin moved to 0.26.0 and the test kept skipping — because terp-spec
+    # 0.26.0 added the schema to its repository and to neither of its packaging manifests,
+    # so the installed distribution carried no such file. A skip cannot tell "not published
+    # yet" from "published wrong", and this suite's own subject is a schema that reaches a
+    # consumer, so a missing schema is now the failure it looks like. terp-spec 0.26.1
+    # carries the file, and the spec side gained a gate holding both manifests to its
+    # directory in both directions.
+    assert _DECLARATION_SCHEMA.is_file(), (
+        f"the pinned terp-spec ships no layout-declaration.schema.json "
+        f"({_DECLARATION_SCHEMA.parent}) — the pin must name a spec release whose "
+        f"PACKAGED artifact carries it, which is not the same as one whose repository does"
+    )
     schema = json.loads(_DECLARATION_SCHEMA.read_text(encoding="utf-8"))
     resolver = _resolver_vocabulary()
 

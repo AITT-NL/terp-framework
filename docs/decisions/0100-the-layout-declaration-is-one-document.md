@@ -102,15 +102,20 @@ shell is handed.
 
 ### 5. The vocabulary is normative in the standard, and parity-tested here
 
-`layout-declaration.schema.json` (spec 0.26.0) is the stack-neutral schema, following
+`layout-declaration.schema.json` (spec 0.26.1) is the stack-neutral schema, following
 `restricted-surface.json`'s precedent for the split: `contract` is a plain string because which
 contracts exist and what their slots admit is per-stack configuration, while the shell's
 vocabulary is fixed normatively — a density means the same thing on any stack.
 
 `tests/architecture/test_spec_catalog.py` holds this stack's resolver to those enums in both
-directions. It is skipped while the pinned spec predates the schema, because the framework pins
-one exact spec release (ADR 0086) and pinning an unreleased spec to satisfy a test is how a pin
-stops meaning "a release we shipped".
+directions, and a missing schema fails it rather than skipping it. The first version skipped
+while the pinned spec predated the schema, on the argument that the framework pins one exact
+spec release (ADR 0086) and that pinning an unreleased spec to satisfy a test is how a pin stops
+meaning "a release we shipped". The argument was sound and the guard was still wrong: spec
+0.26.0 added the schema to its repository and to neither of its packaging manifests, so the pin
+moved and the test went on skipping — a skip cannot tell "not published yet" from "published
+wrong", and both look like a pass. Spec 0.26.1 carries the file, the guard is an assertion, and
+the spec side now holds both of its manifests to its own directory in both directions.
 
 ### 6. No build-time validation of the document, and this is the reason
 
@@ -223,8 +228,10 @@ resolver compares against. The last two are the ones a unit test on the resolver
 and they are gated on the rendered `data-theme` attribute rather than on a throw — the
 signed-out mount renders no shell, but it does mount the provider, so this is the one
 declaration key whose effect is directly observable in the DOM. The spec parity test was run
-against the real 0.26.0 schema (green) and against a drifted resolver (red, with the two key
-sets named), rather than left to the skip it sits behind until the pin moves.
+against the real schema as it stands in the spec repository (green) and against a drifted
+resolver (red, with the two key sets named), rather than left to the skip it then sat behind.
+It enforces from the installed distribution as of the 0.26.1 pin; against 0.26.0 it could only
+be run this way, because that release packaged no schema.
 
 
 ## Amendment (2026-08-24): the navigation groups, and why they went the other way
@@ -276,8 +283,10 @@ table, an empty id accepted, a missing required field reported as a type instead
 unknown group field ignored, a fractional sort key accepted, the `"" → null` map dropped, the
 conflict push removed, the router's duplicate check pointed back at the options, the shell handed
 the options instead of the resolved list, and the groups missing from the explicit set the
-resolver compares against. And the parity test was run against the real 0.26.0 schema: green
-unmodified, red on each of three drifts, each naming the two sets.
+resolver compares against. And the parity test was run against the real schema as it stands in the
+spec repository: green unmodified, red on each of three drifts, each naming the two sets. From
+the 0.26.1 pin it runs that way against the installed distribution as well; 0.26.0 packaged no
+schema, so against that release only the source checkout could answer.
 
 Two of those mutations were caught only after the assertions that were supposed to catch them
 were rewritten, and both are worth recording because both were tests that passed with the bug.

@@ -96,11 +96,11 @@ decision, 0001 onwards.
   before choosing, then re-checked that a filled-in file compiles. Which means the runtime enum
   check is not defence in depth: it is the only check that key ever gets.
 
-  The vocabulary is normative in the standard as `layout-declaration.schema.json` (spec 0.26.0),
+  The vocabulary is normative in the standard as `layout-declaration.schema.json` (spec 0.26.1),
   splitting portable from per-stack the way `restricted-surface.json` does — `contract` is a plain
   string because contract names are per-stack, while a density means the same thing anywhere. This
-  stack's resolver is parity-tested against those enums in both directions, skipped until the
-  spec pin moves, and verified to enforce by drifting one enum.
+  stack's resolver is parity-tested against those enums in both directions, enforcing rather than
+  skipped, and verified to enforce by drifting one enum.
 
   **The palette an app opens on joins the same document** (amendment, same release). It was
   left out on the grounds that it is appearance rather than layout — a real distinction and
@@ -1283,7 +1283,7 @@ decision, 0001 onwards.
   `formatDateTime` dropping its time of day, `useCellFormatter` losing its `Date` branch, and the
   audit column put back on `toLocaleString()`.
 
-- **The Standard moves to 0.26.0, and the document it adds is the one this release
+- **The Standard moves to 0.26.1, and the document it adds is the one this release
   writes.** `layout-declaration.schema.json` is normative and stack-neutral now: the file
   an app checks in to declare its layout — the page contract it opts into, and with it
   `shell.contentWidth`, `shell.density`, `shell.navPlacement`, `shell.navGroups`,
@@ -1292,15 +1292,61 @@ decision, 0001 onwards.
   makes the document's shape the Standard's rather than ours, and therefore what lets a
   second stack write the same file.
 
+  **0.26.1 rather than 0.26.0, and the difference is the whole point of the pin.** 0.26.0
+  announced that schema and shipped it in neither artifact — the file went into the spec's
+  repository and into neither of its packaging manifests, so no wheel and no npm tarball
+  carried it. A standard consumed as a distribution (ADR 0086) that a consumer cannot read
+  is not normative for anyone. Worse, the absence was silent here: this repo's parity test
+  for that schema skipped when the pinned spec carried none, written for the window before
+  the schema existed and indistinguishable afterwards from a test that passed. That guard is
+  now an assertion — a missing schema is the failure it looks like — and the spec side gained
+  a gate holding both packaging manifests to its own directory in both directions.
+
   No new rules: 82 still, 69 backend and 13 frontend. `frontend/layout-contract` changes
   what it *says* rather than what it refuses — an opted-in app's archetype body slots still
   admit only the contract's components — but where the opt-in is declared is now normative,
   and a key declared both in the document and in the app's own code is refused rather than
   resolved by an invisible precedence.
 
-  Both pins move together, as ADR 0082 requires: `terp-spec==0.26.0` and `@terpjs/spec`
-  0.26.0, with `terp.arch.SPEC_VERSION` and the ESLint adapter's `SPEC_VERSION` beside
+  Both pins move together, as ADR 0082 requires: `terp-spec==0.26.1` and `@terpjs/spec`
+  0.26.1, with `terp.arch.SPEC_VERSION` and the ESLint adapter's `SPEC_VERSION` beside
   them — four constants a test holds to one value.
+
+- **`terp --help` was hiding five subcommands, and the listing is where people start.**
+  `terp inspect` was registered without `help=`, which makes argparse leave it — and four of
+  its five subcommands (`jobs`, `access`, `schema`, `capabilities`) — out of the top-level
+  listing: reachable, documented in `terp guide`, and invisible to whoever opens `--help`
+  first. Every subcommand in the tree now declares `help=`, and the gate walks the whole tree
+  rather than checking the one instance, so the next omission fails wherever it happens.
+
+  `terp guide` gains `--list` — topics as plain data, one per line, or `--format json`
+  splitting topics from architecture-rule names — and a `theming` topic, because the CLI had
+  nothing to say about changing an app's look while the framework ships five palettes, a
+  published token manifest and a declarable brand mark.
+
+  Three `--format json` help strings described the machine-readable output as "structured, for
+  Studio", naming a tool built on the core from inside the core — the inversion this layering
+  exists to prevent, since the core is what a tool is optional to. Reworded to name no product,
+  with a test refusing that product's name case-insensitively anywhere in `terp --help`'s tree.
+  Corrects the counts that had rotted beside the gap, too: "five palettes" and "three dark
+  themes" hardcoded into the template's `AGENTS.md`, `main.tsx` and `theme.css` and into
+  react-core's README, a base-profile capability list missing `groups` in two places and
+  inventing a `projects` capability that has never existed in a third, and the generated app's
+  `AGENTS.md` claiming the theme toggle lives in the user menu when it is in the shell header.
+
+- **Both contrast bars are published data now, not a constant inside the gate.**
+  `tokens.manifest.json` gains `minimumContrast` per theme — 4.5 for four palettes and 7 for
+  the high-contrast one — and a top-level `nonTextMinimumContrast` of 3. A tool that edits an
+  operator's palette can hold it to the bars this framework holds its own to rather than
+  hardcoding 4.5 and guessing at the non-text case, which is the position a consumer reading
+  `nonTextPairs` with no bar was left in: invent a requirement or ignore the section, both
+  wrong in a way that reads green.
+
+  The non-text bar is ONE number rather than one per theme, and the placement is the claim.
+  WCAG 2.1 defines no AAA tier for non-text contrast, so the bar does not move with a theme's
+  raised text floor — the high-contrast theme promises 7:1 for reading and still owes 3:1 for
+  a component boundary. Published per theme it would read as a per-theme choice.
+  `tokens.contrast.test.js` reads both back, so neither bar has a second home.
 
 ### Changed
 

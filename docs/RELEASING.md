@@ -27,7 +27,7 @@ Projects (one publisher each — the distribution names, not the repository name
 
 | Kernel & tooling | Capabilities |
 |---|---|
-| `terp-core` | `terp-cap-access`, `terp-cap-audit`, `terp-cap-auth`, `terp-cap-eventbus`, `terp-cap-files`, `terp-cap-groups`, `terp-cap-identity`, `terp-cap-jobs-celery`, `terp-cap-oidc`, `terp-cap-outbox`, `terp-cap-realtime`, `terp-cap-redis`, `terp-cap-scheduler-apscheduler`, `terp-cap-scheduler-celery-beat`, `terp-cap-sync`, `terp-cap-tenancy`, `terp-cap-users`, `terp-cap-webhooks` |
+| `terp-core` | `terp-cap-access`, `terp-cap-audit`, `terp-cap-auth`, `terp-cap-eventbus`, `terp-cap-files`, `terp-cap-groups`, `terp-cap-identity`, `terp-cap-jobs-celery`, `terp-cap-leases`, `terp-cap-oidc`, `terp-cap-outbox`, `terp-cap-realtime`, `terp-cap-redis`, `terp-cap-scheduler-apscheduler`, `terp-cap-scheduler-celery-beat`, `terp-cap-sync`, `terp-cap-tenancy`, `terp-cap-users`, `terp-cap-webhooks` |
 | `terp-arch` | |
 | `terp-cli` | |
 | `terp-migrations` | |
@@ -71,9 +71,17 @@ a single distribution whose upload failed mid-release
 
 `terp-spec` / `@terpjs/spec` are **not** published from this repository — AITT-NL/terp-spec
 publishes them to PyPI and npm from its own release workflow (ADR 0086), and the framework
-consumes them as ordinary pinned dependencies. Adopting a new spec release means bumping
-both pins together (`pyproject.toml` dev group + `packages/frontend/eslint-boundaries`)
-and re-locking; `test_repo_split_readiness.py` fails the build if they skew.
+consumes them as ordinary pinned dependencies. Adopting a new spec release means moving
+**four** declarations together, which is what ADR 0082 asks: the two pins
+(`pyproject.toml`'s dev group and `packages/frontend/eslint-boundaries/package.json`) and
+the two constants that report the certified version (`terp.arch.SPEC_VERSION` and the ESLint
+adapter's `SPEC_VERSION` in `packages/frontend/eslint-boundaries/src/spec.js`) — then
+re-lock both lockfiles. `test_repo_split_readiness.py` fails the build if they skew.
+
+**Check what the spec release actually ships, not what its changelog says it ships.** A
+schema declared in the spec repository but missing from its packaging manifests installs as
+an absence, and an absence is what a skip-guarded parity test reads as a pass — terp-spec
+0.26.0 shipped exactly that way and needed 0.26.1 to carry the file it announced.
 
 ### GitHub — the `release` environment
 
@@ -85,15 +93,23 @@ both cross a registry trust boundary and should have an explicit approval gate. 
 administrator bypass. Prefer an independent organization-member reviewer with
 self-review prevention; GitHub does not accept an external collaborator for that role.
 
-### npm — the `@terp` scope
+### npm — the `@terpjs` scope, via trusted publishing (OIDC, no token)
 
-1. Ensure the npm account owns the `@terp` organization/scope.
-2. Create a granular automation token with publish rights for `@terpjs/contract`,
-   `@terpjs/eslint-boundaries`, `@terpjs/react-core`, `@terpjs/conformance`.
-3. Store it as the `NPM_TOKEN` secret on the `release` environment.
+1. Ensure the npm account owns the `@terpjs` organization/scope.
+2. On <https://www.npmjs.com/> add a trusted publisher to each of `@terpjs/contract`,
+   `@terpjs/eslint-boundaries`, `@terpjs/react-core` and `@terpjs/conformance`, with the
+   same identity the PyPI publishers use: owner `AITT-NL`, repository `terp-framework`,
+   workflow `release.yml`, environment `release`.
 
-`npm publish --provenance` requires each `package.json`'s `repository.url` to match
-this repository — they point at `git+https://github.com/AITT-NL/terp-framework.git`.
+**No `NPM_TOKEN` secret.** `publish-npm` upgrades npm past 11.5.1 and exchanges the job's
+`id-token` for a short-lived registry credential, exactly as `publish-pypi` does — so there
+is no long-lived npm credential stored anywhere, and provenance is emitted automatically
+rather than asked for. An earlier version of this runbook told the operator to create an
+automation token and store it here; a secret nothing reads is worse than no secret, because
+it looks like the thing granting the access.
+
+Provenance still requires each `package.json`'s `repository.url` to match this repository —
+they point at `git+https://github.com/AITT-NL/terp-framework.git`.
 
 ### GHCR — nothing to configure
 
@@ -117,8 +133,11 @@ create packages.
    ```
 
 4. Watch the `release` workflow: `verify` (tag ↔ version + the full gate, both stacks)
-   fans out to `publish-pypi` + `publish-npm` + `publish-images`, then
-   `github-release` attaches the conformance scorecards.
+   fans out to `build-pypi` and `publish-images`, and `publish-npm` runs **after**
+   `publish-pypi` rather than beside it — the serialization is deliberate and the reason is
+   below. Then `github-release` attaches the conformance scorecards.
+   Both publish jobs enter the `release` environment, so the run parks once on the reviewer
+   gate; the approval is per run, not per job.
 5. Verify installability from a clean project: `uv add terp-core terp-cli` and
    `npm install @terpjs/react-core` resolve at the new version.
 
@@ -132,7 +151,8 @@ publishes only what is still missing.
 The two registry legs run in sequence, PyPI first, so a failure there leaves npm
 untouched. That ordering is deliberate and load-bearing: both registries are immutable,
 so a version only one of them accepted can neither be completed nor withdrawn — the
-number is burned for all sixteen distributions while still being pinnable. PyPI goes
+number is burned for all twenty-seven published artifacts while still being pinnable
+(23 PyPI distributions and 4 npm packages). PyPI goes
 first because it is the leg that publishes a built artifact and can therefore fail on
 one. (`terp-spec` 0.21.0 is the worked example of the alternative.)
 
