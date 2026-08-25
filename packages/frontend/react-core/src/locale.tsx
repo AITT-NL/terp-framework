@@ -31,6 +31,7 @@ export const LOCALE_NL: LocaleCatalog = {
   strings: {
     clearSelection: "Selectie wissen",
     clearAllSelections: "Alle selecties wissen",
+    comboboxRemove: "Verwijderen",
     comboboxLoading: "Laden…",
     comboboxNoOptions: "Geen opties",
     previousMonth: "Vorige maand",

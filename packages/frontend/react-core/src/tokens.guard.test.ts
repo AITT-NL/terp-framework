@@ -133,8 +133,13 @@ const UNREAD_TOKENS: Record<string, string[]> = {
  * prose scale.
  */
 const BARE_TYPE_LITERALS: Record<string, Record<string, number>> = {
-  "line-height": { "0": 2, "1": 4, "1.2": 4, "1.25": 7, "1.3": 2, "1.4": 3, "1.5": 4 },
-  "letter-spacing": { "0": 4, "0.04em": 1, "0.06em": 1 },
+  "line-height": { "0": 2, "1": 5, "1.2": 4, "1.25": 7, "1.3": 2, "1.4": 3, "1.5": 4 },
+  // `inherit` is recorded rather than tokenised, and it is the one value here that is not
+  // debt: the sort button in a table header must render the tracking its own `th` sets, and
+  // naming a token would pin it to whatever that header uses TODAY. The UA stylesheet resets
+  // letter-spacing on form controls, so inheritance has to be asked for explicitly — the
+  // header and its button were rendering two different treatments side by side until it was.
+  "letter-spacing": { "0": 4, "0.04em": 1, "0.06em": 1, inherit: 1 },
 };
 
 describe("design tokens", () => {
@@ -240,5 +245,47 @@ describe("design tokens", () => {
         `${property}: use the published scale, or record the new literal here`,
       ).toEqual(expected);
     }
+  });
+});
+
+/**
+ * Bare `z-index` values the sheet is allowed to write, and why each one is not the app-wide
+ * order. This is a whitelist rather than a count, because unlike the type scale there is no
+ * migration debt here: a full `--z-index-*` family is published and read by seven rules, so
+ * any NEW bare value is a component opting out of the order rather than waiting for a pass.
+ *
+ * It exists because the absence of it cost a real defect. Tooltip wrote `z-index: 1` with a
+ * comment arguing it was "a local lift within a stacking context rather than a place in the
+ * app-wide order" — sound about its anchor and wrong about the page, since
+ * `[data-terp="tooltip-anchor"]` is only `position: relative` and so establishes no stacking
+ * context. The 1 competed in the root context against a sticky header at 30 and an open
+ * popover at 60, and lost: a tooltip that rendered below content "sometimes, not always".
+ * Nothing caught it, because a published scale with no guard against skipping it is a
+ * convention, not a contract.
+ */
+const LOCAL_STACKING_LIFTS: Record<string, string> = {
+  'dataview-column-resizer': "a lift inside the cell's own stacking context, above the cell's content and nothing else",
+};
+
+describe("stacking order", () => {
+  it("every z-index reads the published scale, or is a recorded local lift", () => {
+    const bare = [...sheet.matchAll(/([^{}]+)\{([^}]*)\}/g)].flatMap(([, selector, body]) => {
+      const match = /\bz-index:\s*([^;]+);/.exec(body ?? "");
+      if (match === null || match[1]!.includes("var(")) {
+        return [];
+      }
+      const marker = /data-terp="([^"]+)"/.exec(selector ?? "");
+      return [{ marker: marker?.[1] ?? (selector ?? "").trim(), value: match[1]!.trim() }];
+    });
+
+    const unrecorded = bare.filter(({ marker }) => !(marker in LOCAL_STACKING_LIFTS));
+    expect(
+      unrecorded,
+      "a bare z-index is a component opting out of the app-wide --z-index-* order. Read the " +
+        "token published for its level, or record it in LOCAL_STACKING_LIFTS with the reason " +
+        "its stacking context is genuinely local — and be sure it IS local: an anchor that is " +
+        "only position: relative establishes no stacking context, which is how the tooltip's " +
+        "own lift ended up competing with the page and losing.",
+    ).toEqual([]);
   });
 });

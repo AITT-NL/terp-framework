@@ -461,8 +461,18 @@ export function buildAppRouter(
     // render it through useNavLink), so an unstable identity is worse than a re-render: it
     // remounts every in-app link in the tree on each navigation.
     const renderNavLink = useCallback<NavLinkRenderer>(
+      // `activeOptions={{ exact: true }}` for the same reason the shell's `renderLink`
+      // below carries it, and it matters MORE here: this renderer is what `Breadcrumbs`
+      // and `HubCard` use, so its job is rendering ANCESTORS. Under the router's default
+      // prefix matching every ancestor link matched the URL and was marked active, which
+      // on any detail route emitted a second `aria-current="page"` — one on the crumb for
+      // `/definitions` and one on the current crumb — plus a stray `.active` class and
+      // `data-status="active"` that made an ancestor look like the current page. The fix
+      // was applied to the nav and missed on the component whose whole purpose is the
+      // trail; exact matching means a crumb is only ever current when it IS the URL, and
+      // the current crumb is a span rather than a link.
       ({ to, children, attributes }) => (
-        <Link to={to} {...attributes}>
+        <Link to={to} activeOptions={{ exact: true }} {...attributes}>
           {children}
         </Link>
       ),

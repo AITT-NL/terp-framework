@@ -214,6 +214,8 @@ export interface TerpStrings {
   clearSelection: string;
   /** Combobox: clears every selection in multiple mode. */
   clearAllSelections: string;
+  /** Combobox: removes one chosen option in multiple mode, prefixed to its label. */
+  comboboxRemove: string;
   /** Combobox: shown in the listbox while options are being fetched. */
   comboboxLoading: string;
   /** Combobox: shown in the listbox when the filter matches nothing. */
@@ -231,6 +233,7 @@ export interface TerpStrings {
 export const DEFAULT_STRINGS: TerpStrings = {
   clearSelection: "Clear selection",
   clearAllSelections: "Clear all selections",
+  comboboxRemove: "Remove",
   comboboxLoading: "Loading…",
   comboboxNoOptions: "No options",
   previousMonth: "Previous month",

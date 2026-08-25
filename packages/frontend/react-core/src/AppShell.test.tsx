@@ -43,15 +43,20 @@ function stubMobileViewport() {
 }
 
 describe("AppShell", () => {
-  it("renders the landmarks, brand, footer, and the nav via renderLink", () => {
+  it("renders the landmarks, brand, and the nav via renderLink — and NO footer", () => {
     renderShell();
 
     expect(screen.getByRole("banner")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
-    expect(screen.getByRole("contentinfo")).toBeInTheDocument();
-    // The brand is the standard home affordance; the default footer echoes the title.
-    expect(screen.getAllByText("Terp").length).toBeGreaterThanOrEqual(2);
+    // No `contentinfo` unless the app asks for one. The default used to be a strip
+    // restating the app title already in the header and the browser tab — on every screen
+    // of every app, costing vertical space on exactly the viewports with least of it. An
+    // empty landmark is worse than none: it is somewhere a screen-reader user can navigate
+    // to and find nothing.
+    expect(screen.queryByRole("contentinfo")).toBeNull();
+    // The brand is the standard home affordance.
+    expect(screen.getAllByText("Terp").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("link", { name: "Terp" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("href", "/notes");
     expect(screen.getByText("page content")).toBeInTheDocument();

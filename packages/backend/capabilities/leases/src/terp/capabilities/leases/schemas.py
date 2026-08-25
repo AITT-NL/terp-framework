@@ -13,7 +13,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from terp.core import BaseSchema
+from pydantic import Field
+
+from terp.core import LEASE_HOLDER_MAX, BaseSchema
 
 from terp.capabilities.leases.models import ResourceLease
 
@@ -79,3 +81,33 @@ def _as_aware(value: datetime, reference: datetime) -> datetime:
 
 
 __all__ = ["LeaseReapReport", "ResourceLeaseRead"]
+
+
+class LeaseHeartbeat(BaseSchema):
+    """A holder reporting that it is still working, and how long it still needs.
+
+    The fence travels in the body because it is what makes this safe: ``epoch`` is the
+    lease's generation, so a heartbeat from a holder whose claim was already reaped and
+    re-granted matches nothing and extends nothing. Without it a late heartbeat from a
+    process that had been declared dead would silently take the resource back from its
+    successor — the split brain the fence exists to prevent.
+    """
+
+    #: The holder id this caller claims to be. Bounded by the platform's own column limit
+    #: rather than a number repeated here, so the two cannot drift.
+    holder: str = Field(min_length=1, max_length=LEASE_HOLDER_MAX)
+    #: The generation of the lease being renewed — the fence.
+    epoch: int = Field(ge=1)
+    #: How much longer the holder needs. A heartbeat sets a new expiry rather than adding
+    #: to the old one, so a holder that goes quiet lapses on its LAST reported need.
+    ttl_seconds: float = Field(gt=0)
+
+
+class LeaseHeartbeatAccepted(BaseSchema):
+    """When the renewed lease now lapses — the deadline the holder must beat."""
+
+    resource_kind: str
+    resource_key: str
+    holder: str
+    epoch: int
+    expires_at: datetime

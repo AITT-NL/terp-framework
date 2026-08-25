@@ -127,3 +127,93 @@ describe("Combobox", () => {
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 });
+
+describe("Combobox multiple", () => {
+  it("accumulates a set, keeps the list open, and clears the filter between picks", () => {
+    // The reason this mode exists: a set-valued field had no control, and the absence
+    // produced comma-separated text boxes with the legal values in a grey hint beside them
+    // — a closed enum typed as free text, so validation the value set could have enforced
+    // was lost. Picking one member of a set is almost never the last thing a user wants, so
+    // the list staying open is the behaviour, not a detail.
+    const onChange = vi.fn();
+    render(<Combobox multiple aria-label="Fields" options={options} onChange={onChange} />);
+    const input = screen.getByRole("combobox", { name: "Fields" });
+
+    fireEvent.focus(input);
+    fireEvent.click(screen.getByRole("option", { name: "Netherlands" }));
+    expect(onChange).toHaveBeenLastCalledWith(["nl"], [options[0]]);
+    // Still open, and the filter is empty so the next pick starts from the whole list.
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    expect(input).toHaveValue("");
+
+    fireEvent.click(screen.getByRole("option", { name: "France" }));
+    expect(onChange).toHaveBeenLastCalledWith(["nl", "fr"], [options[0], options[3]]);
+
+    // Selecting an already-chosen option removes it — one control, both directions.
+    fireEvent.click(screen.getByRole("option", { name: "Netherlands" }));
+    expect(onChange).toHaveBeenLastCalledWith(["fr"], [options[3]]);
+  });
+
+  it("says it is multi-selectable and marks every chosen option", () => {
+    render(<Combobox multiple aria-label="Fields" options={options} defaultValue={["nl", "fr"]} defaultOpen />);
+    expect(screen.getByRole("listbox")).toHaveAttribute("aria-multiselectable", "true");
+    expect(screen.getByRole("option", { name: "Netherlands" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "France" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "Belgium" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("gives every token a remove control whose name says which token it removes", () => {
+    // N identical "Remove" buttons is not a keyboard-accessible token field: the name has to
+    // carry the option, or a screen-reader user cannot tell which one they are about to
+    // remove. These are real buttons and real tab stops — the accessible half of the
+    // Backspace shortcut rather than a duplicate of it, because a shortcut is only
+    // discoverable if you already know about it.
+    const onChange = vi.fn();
+    render(
+      <Combobox multiple aria-label="Fields" options={options} defaultValue={["nl", "fr"]} onChange={onChange} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove Netherlands" }));
+    expect(onChange).toHaveBeenLastCalledWith(["fr"], [options[3]]);
+  });
+
+  it("removes the last token on Backspace only when the filter is empty", () => {
+    const onChange = vi.fn();
+    render(
+      <Combobox multiple aria-label="Fields" options={options} defaultValue={["nl", "fr"]} onChange={onChange} />,
+    );
+    const input = screen.getByRole("combobox", { name: "Fields" });
+
+    // With text in the box, Backspace belongs to the text: eating a token here would
+    // delete a selection while the user thinks they are correcting a typo.
+    fireEvent.change(input, { target: { value: "Bel" } });
+    fireEvent.keyDown(input, { key: "Backspace" });
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "Backspace" });
+    expect(onChange).toHaveBeenLastCalledWith(["nl"], [options[0]]);
+  });
+
+  it("keeps a controlled set when the parent declines the change", () => {
+    // The same invariant single mode has: the control shows what the prop says, not what
+    // was clicked. A token that appears because it was clicked and not because the parent
+    // accepted it is a field that disagrees with the state it is bound to.
+    const onChange = vi.fn();
+    render(
+      <Combobox multiple aria-label="Fields" options={options} value={["nl"]} onChange={onChange} defaultOpen />,
+    );
+    fireEvent.click(screen.getByRole("option", { name: "France" }));
+    expect(onChange).toHaveBeenLastCalledWith(["nl", "fr"], [options[0], options[3]]);
+    expect(screen.getByRole("button", { name: "Remove Netherlands" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove France" })).toBeNull();
+  });
+
+  it("clears the whole set through the clear control", () => {
+    const onChange = vi.fn();
+    render(
+      <Combobox multiple clearable aria-label="Fields" options={options} defaultValue={["nl", "fr"]} onChange={onChange} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear all selections" }));
+    expect(onChange).toHaveBeenLastCalledWith([], []);
+  });
+});

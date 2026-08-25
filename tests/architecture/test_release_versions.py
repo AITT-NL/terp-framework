@@ -193,3 +193,29 @@ def test_the_conformance_package_publishes_runnable_javascript() -> None:
 def test_changelog_records_the_release_version() -> None:
     changelog = (_REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert f"## {_RELEASE_VERSION}" in changelog
+
+
+def test_each_version_appears_under_exactly_one_heading() -> None:
+    """No version may open twice, and no subsection may open twice inside one.
+
+    Presence was the only thing asserted here, and presence is not structure: several
+    branches in flight all open the *same* unreleased heading, so merging main into one of
+    them routinely leaves a whole duplicate ``## <version>`` section — its entries intact
+    and its heading repeated — or the same ``### Fixed`` opened twice inside one section. A
+    reader then finds half the release notes under a second copy of the heading they already
+    read, and the release ships notes that describe the version twice and completely once.
+
+    The mirrors are held to this file by ``test_cli_guide`` and ``test_vendored_core``, so
+    checking the root document covers all three.
+    """
+    changelog = (_REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    versions = re.findall(r"^## (\d+\.\d+\.\d+)", changelog, re.MULTILINE)
+    duplicates = sorted({version for version in versions if versions.count(version) > 1})
+    assert not duplicates, f"version headings that appear more than once: {duplicates}"
+
+    for version in versions:
+        body = changelog.split(f"## {version}", 1)[1].split("\n## ", 1)[0]
+        subsections = re.findall(r"^### (.+)$", body, re.MULTILINE)
+        repeated = sorted({name for name in subsections if subsections.count(name) > 1})
+        assert not repeated, f"{version}: subsections opened more than once: {repeated}"

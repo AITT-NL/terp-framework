@@ -1136,6 +1136,22 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        id: "combobox-multiple",
+        title: "Combobox — multiple, with tokens",
+        // Two tokens and a third selectable, because the geometry this specimen exists to
+        // record is the wrapping token row sharing a box with the filter input — one token
+        // would not show that the field grows with the selection.
+        node: (
+          <Combobox
+            multiple
+            clearable
+            aria-label="Source fields"
+            defaultValue={["published", "draft"]}
+            options={SELECT_OPTIONS}
+          />
+        ),
+      },
+      {
         id: "combobox-disabled-invalid",
         title: "Combobox — disabled and flagged invalid",
         // These two states had no specimen, and that gap is exactly how a migration
@@ -1667,6 +1683,23 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         id: "empty-state-bare",
         title: "EmptyState — title only",
         node: <EmptyState title="Nothing to show" />,
+      },
+      {
+        id: "empty-state-compact",
+        // Two of them, because one compact block proves nothing: the reason this size
+        // exists is a screen with several empty sections, where the default's poster
+        // geometry repeated a sentence over 480px.
+        title: "EmptyState — compact, stacked",
+        node: (
+          <Stack gap={3}>
+            <EmptyState
+              size="compact"
+              title="No connections"
+              description="Add one to begin."
+            />
+            <EmptyState size="compact" title="No recent activity" />
+          </Stack>
+        ),
       },
       {
         id: "error-state",

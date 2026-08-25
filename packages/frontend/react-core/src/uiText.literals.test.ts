@@ -42,6 +42,21 @@ const ALLOWED: Record<string, string> = {
     '(data-placeholder="true"), never a string a user reads',
 };
 
+/**
+ * A line that only *documents* code.
+ *
+ * These checks forbid a shape, and the clearest way to document a forbidden shape is to
+ * write it down — so the prose explaining the fix contains the defect verbatim. The first
+ * version of the widened default check duly reported DatePicker's own comment, which says
+ * `placeholder = "Select date"` while the code beside it does the right thing. Skipping
+ * comment-only lines is the fix; a literal inside a trailing comment on a line of real code
+ * is still matched, which is the rarer shape and the one worth a false positive.
+ */
+function isComment(line: string): boolean {
+  const trimmed = line.trimStart();
+  return trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*");
+}
+
 function scannable(): [string, string][] {
   return Object.entries(sources).filter(
     ([file]) => !/\.(test|spec)\.tsx?$/.test(file) && ALLOWED[file] === undefined,
@@ -54,7 +69,7 @@ describe("user-facing strings", () => {
 
     for (const [file, source] of scannable()) {
       source.split("\n").forEach((line, index) => {
-        if (line.includes("i18n-ok")) {
+        if (line.includes("i18n-ok") || isComment(line)) {
           return;
         }
         for (const attribute of USER_FACING_ATTRIBUTES) {
@@ -80,6 +95,71 @@ describe("user-facing strings", () => {
     ).toEqual([]);
   });
 
+  it("never hides a literal inside a braced attribute value", () => {
+    // The shape the check above is blind to by construction. Its comment claimed a
+    // `{expression}` value "is the compliant shape: it resolves a UiText or reads a
+    // TerpStrings key" — true of most, and not of a ternary, a `??` fallback or a default,
+    // any of which carries the untranslatable literal straight through the braces. Not
+    // hypothetical: `aria-label={multiple ? "Clear all selections" : "Clear selection"}`
+    // shipped while this very file was being written to forbid it, and the two met in a
+    // merge. Treating braces as proof of compliance makes the fix for one control the
+    // loophole for the next.
+    //
+    // Same line only, which is a stated limit rather than a claim: the shapes that carry a
+    // literal (ternary, fallback, default) fit on one line under this repo's formatting.
+    const offenders: string[] = [];
+
+    for (const [file, source] of scannable()) {
+      source.split("\n").forEach((line, index) => {
+        if (line.includes("i18n-ok") || isComment(line)) {
+          return;
+        }
+        for (const attribute of USER_FACING_ATTRIBUTES) {
+          // The name must stand alone: `data-placeholder={…}` is not `placeholder`, and
+          // matching it as a substring reported a data attribute's `"true"` as prose.
+          const opener = new RegExp(`(?<![\w-])${attribute}=\{`, "g");
+          for (const opened of line.matchAll(opener)) {
+            // Read to the MATCHING brace. Reading to end-of-line swept up whatever attribute
+            // came next — `data-terp="breadcrumbs"` on the same element was reported as a
+            // user-facing literal.
+            const start = opened.index + opened[0].length;
+            let cursor = start;
+            let depth = 1;
+            while (cursor < line.length && depth > 0) {
+              if (line[cursor] === "{") depth += 1;
+              else if (line[cursor] === "}") depth -= 1;
+              if (depth === 0) break;
+              cursor += 1;
+            }
+            for (const [literal, inner] of line.slice(start, cursor).matchAll(/"([A-Za-z][^"]*)"/g)) {
+              // Inside an expression most literals are not prose: a discriminant
+              // (`kind === "role"`), a placeholder token, a data value. Unlike the direct
+              // `attribute="…"` position — where a literal is user-facing almost by
+              // definition — this one asks whether the string LOOKS like a label.
+              //
+              // A heuristic, stated as one: a lowercase single-word label
+              // (`aria-label={open ? "close" : "open"}`) slips through. Every user-facing
+              // string this framework ships is a capitalised phrase, so that shape does not
+              // exist here; if one lands, it wants the direct check's discipline rather than
+              // a wider net here, which would flag every discriminant in the package.
+              if (/^[A-Z]/.test(inner!) || inner!.includes(" ")) {
+                offenders.push(`${file}:${index + 1}  ${attribute}={… ${literal} …}`);
+              }
+            }
+          }
+        }
+      });
+    }
+
+    expect(
+      offenders,
+      "a user-facing attribute resolves an expression, and the expression still contains a " +
+        "hardcoded English string — most often a ternary picking between two literals, or a " +
+        "`??` fallback behind a translatable prop. Braces are not evidence of anything: move " +
+        "every branch to a TerpStrings key and read them through useStrings().",
+    ).toEqual([]);
+  });
+
   it("never defaults a UiText prop to a bare string", () => {
     // The subtler half, and the one that looks fine in review. A `UiText` prop defaulted to
     // `"Select date"` IS overridable — and still untranslatable: a plain string resolves
@@ -93,12 +173,18 @@ describe("user-facing strings", () => {
         [...source.matchAll(/^\s*(\w+)\??:\s*UiText[;\s|]/gm)].map((match) => match[1]!),
       );
       source.split("\n").forEach((line, index) => {
-        if (line.includes("i18n-ok")) {
+        if (line.includes("i18n-ok") || isComment(line)) {
           return;
         }
-        const assignment = /^\s*(\w+)\s*=\s*"([A-Za-z][^"]*)",?\s*$/.exec(line);
-        if (assignment !== null && uiTextProps.has(assignment[1]!)) {
-          offenders.push(`${file}:${index + 1}  ${assignment[1]} = "${assignment[2]}"`);
+        // Anywhere on the line, NOT anchored to own it. Anchoring made this depend on
+        // formatting: `removeLabel = "Remove"` inside a one-line destructuring
+        // (`const { value, onChange, removeLabel = "Remove", ...rest } = props`) was
+        // invisible, and became visible only when the line was split for unrelated reasons.
+        // A check that a reformat can switch on and off is not a check.
+        for (const assignment of line.matchAll(/(\w+)\s*=\s*"([A-Za-z][^"]*)"/g)) {
+          if (uiTextProps.has(assignment[1]!)) {
+            offenders.push(`${file}:${index + 1}  ${assignment[1]} = "${assignment[2]}"`);
+          }
         }
       });
     }
