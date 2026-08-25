@@ -39,8 +39,14 @@ export async function login(
 ): Promise<void> {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
-  await page.getByPlaceholder("Email").fill(credentials.email);
-  await page.getByPlaceholder("Password").fill(credentials.password);
+  // By LABEL, not by placeholder. The login fields were placeholder-only until the labels
+  // landed, and a placeholder was the only handle they had — which is the same defect from
+  // the other side: a name that vanishes the moment a user types is not a name. Selecting
+  // the way a user perceives the field is also what keeps this suite honest about
+  // accessibility, since a field with no accessible name now fails here rather than being
+  // reachable by a workaround.
+  await page.getByLabel("Email").fill(credentials.email);
+  await page.getByLabel("Password").fill(credentials.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0, {
     timeout: 15_000,

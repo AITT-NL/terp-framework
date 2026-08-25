@@ -42,8 +42,8 @@ test("a signed-in user can sign out and is returned to the sign-in screen", asyn
 test("bad credentials are refused", async ({ page }) => {
   await page.goto("/");
   // A non-existent account, so a failed attempt never locks out the seeded admin.
-  await page.getByPlaceholder("Email").fill("nobody@acme.test");
-  await page.getByPlaceholder("Password").fill("definitely-not-the-password");
+  await page.getByLabel("Email").fill("nobody@acme.test");
+  await page.getByLabel("Password").fill("definitely-not-the-password");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText("Sign-in failed")).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Primary" })).toHaveCount(0);
