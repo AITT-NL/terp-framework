@@ -16,7 +16,7 @@ Postgres is replaced by a throwaway SQLite file and the frontend dev server is i
 to whether the backend boots, so neither is started -- which is what makes this need no
 daemon and run in CI.
 
-Two translations make a container command runnable on the host, and both are read from the
+Three translations make a container command runnable on the host, and all are read from the
 compose file rather than guessed:
 
 * **paths** -- a bind mount (``./app:/app/app``) says what ``/app/app`` means here;
@@ -24,6 +24,14 @@ compose file rather than guessed:
   the host, so a value naming a service is rewritten to ``127.0.0.1`` and the port the
   API was actually started on. (This is the same host/container distinction the manifest
   records as ``resolvedBy``; see ``terp guide environment``.)
+* **what the substituted database cannot do** -- per-module schemas are PostgreSQL-only
+  (ADR 0070), so against the throwaway SQLite the declared layout is moved to ``flat``.
+  Without it the platform refused its own combination and nothing booted, which made this
+  command unavailable to precisely the apps most likely to be asking. Pass
+  ``--database-url`` pointing at a real PostgreSQL to keep the app's own layout.
+
+Every translation is ANNOUNCED (``SmokePlan.translations``), because a run whose
+configuration was moved is not evidence about the configuration the app ships.
 
 A pure planner (:func:`smoke_plan`) plus a thin executor with the process runner injected,
 so the plan is verified without running anything.
@@ -74,6 +82,11 @@ class SmokePlan:
     database_url: str
     api_port: int
     skipped: tuple[str, ...] = field(default=())
+    #: Settings this command had to CHANGE to make the chain runnable on the host,
+    #: announced rather than silent: a translated run is not exercising the app's own
+    #: configuration, and a reader comparing a green smoke against a red deployment
+    #: needs to know which knob moved.
+    translations: tuple[str, ...] = field(default=())
 
 
 def _load_compose(path: pathlib.Path) -> dict:
@@ -291,6 +304,7 @@ def smoke_plan(
     all_service_names = list(services)
 
     steps: list[SmokeStep] = []
+    translations: set[str] = set()
     for name in backend:
         service = services[name]
         command = service.get("command")
@@ -307,6 +321,21 @@ def smoke_plan(
         # network's; set them last so nothing above can put Postgres back.
         environment["DATABASE_URL"] = url
         environment.setdefault("ENVIRONMENT", "local")
+        # Per-module schemas are PostgreSQL-only (ADR 0070) and the substituted database
+        # is SQLite by default, so the platform refused its own combination and the app
+        # could not boot at all — which made this command unavailable to exactly the apps
+        # most likely to be asking "is it my app or my environment?". Translated the way
+        # container addresses and bind-mounted paths already are, and only when the
+        # substituted database cannot honour the declared layout: pass `--database-url`
+        # pointing at a real PostgreSQL and the app's own layout is preserved.
+        if environment.get("DB_SCHEMA_LAYOUT") == "per-module" and not url.startswith(
+            "postgresql"
+        ):
+            environment["DB_SCHEMA_LAYOUT"] = "flat"
+            translations.add(
+                "DB_SCHEMA_LAYOUT per-module -> flat (per-module needs PostgreSQL, "
+                "ADR 0070; pass --database-url to keep it)"
+            )
         # The image sets WORKDIR=/app and installs the app editable, so `app` and
         # `control_plane` import by name. On the host that holds only after `uv sync`,
         # which is precisely what a checkout being diagnosed may not have done — so put
@@ -338,7 +367,11 @@ def smoke_plan(
         )
     skipped = tuple(name for name in services if name not in backend)
     return SmokePlan(
-        steps=tuple(steps), database_url=url, api_port=port, skipped=skipped
+        steps=tuple(steps),
+        database_url=url,
+        api_port=port,
+        skipped=skipped,
+        translations=tuple(sorted(translations)),
     )
 
 
@@ -437,6 +470,8 @@ def run_smoke_command(
         f"terp smoke: skipping {', '.join(plan.skipped) or 'nothing'} "
         "(not the backend image)",
     )
+    for note in plan.translations:
+        print(f"terp smoke: translated {note}")
     server: subprocess.Popen[bytes] | None = None
     try:
         for step in plan.steps:

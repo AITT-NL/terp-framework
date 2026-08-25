@@ -390,16 +390,21 @@ Boundaries for a second top-level package (an ungated worker)
       source_modules = ["engine"]
       forbidden_modules = ["engine.plugins"]
       ignore_imports = ["engine.registry -> engine.plugins.*"]
-  Then `uv run lint-imports` in CI. That replaces a hand-rolled AST scan per boundary,
-  and it fails with the offending import chain rather than a file:line you have to trace.
+  `terp verify` runs it for you: the `package-boundaries` check fires whenever
+  `[tool.importlinter]` is present, so declaring contracts is the whole adoption step and
+  there is no second command to remember. That replaces a hand-rolled AST scan per
+  boundary, and it fails with the offending import chain rather than a file:line you have
+  to trace. Install the linter alongside the contracts (`uv add --dev import-linter`) —
+  declared-but-not-installed is a red, not a skip, because a boundary nothing can check is
+  not a boundary.
 - What terp.arch still owns, because these are Terp semantics and not graph shape:
   `no_dynamic_sql` (SQL must be a static, reviewable literal — the containment check an
   app would otherwise hand-roll), `no_raw_outbound_http`, `no_adhoc_background_runtime`,
   and every rule about BaseService / ModuleSpec / schemas. Run it on `app/` only: the
   second package is not a Terp app, and scanning it would report rules it cannot satisfy.
-- The worker's own gate is therefore two commands, not one:
-      uv run terp check              # Terp rules, over app/
-      uv run lint-imports            # the declared package graph, over both
+- The worker's own gate is one command, and both halves are in it:
+      uv run terp verify             # Terp rules over app/, then the declared
+                                     # package graph over both
 - Sharing types across the boundary: neither package may import the other, but BOTH may
   import a third. A `contracts/` package of frozen value objects (with `max_length` caps
   declared, so the app half satisfies the input-schema rule) is one declaration and two
