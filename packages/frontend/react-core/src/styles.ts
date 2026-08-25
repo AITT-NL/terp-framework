@@ -2822,6 +2822,71 @@ input[data-terp="input"][role="combobox"] {
   position: relative;
   display: grid;
 }
+/* Multiple: the tokens share the field's box with the input, wrapping onto as many rows
+   as the selection needs. A fixed-height field would either clip the third token or
+   reserve room for tokens nobody has chosen — and a set-valued field whose height never
+   changes is lying about how much is in it.
+
+   The input keeps a minimum inline size so a filter is still typeable when the tokens have
+   taken most of a row, and flex-basis 0 so it yields to them rather than pushing the last
+   token out of the box. */
+[data-terp="combobox-field"][data-multiple="true"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-0);
+}
+[data-terp="combobox-field"][data-multiple="true"] > [data-terp="input"] {
+  flex: 1 1 0;
+  min-inline-size: 6rem;
+  border: none;
+  background: transparent;
+  padding-inline: var(--space-1);
+}
+[data-terp="combobox-token"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-block: 0;
+  padding-inline: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-sm);
+  /* Matches the control height a token sits beside, so a row of tokens and the input
+     share one baseline instead of the tokens riding high. */
+  min-block-size: calc(var(--density-control-min-height) - var(--space-2));
+}
+/* The remove control is a real button and a real tab stop, which is the accessible half of
+   the Backspace shortcut rather than a duplicate of it: the shortcut is discoverable only if
+   you already know it, and a token nobody can reach by keyboard cannot be removed by one. */
+[data-terp="combobox-token-remove"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--space-4);
+  min-block-size: var(--space-4);
+  padding: 0;
+  color: var(--color-neutral-600);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  line-height: 1;
+}
+[data-terp="combobox-token-remove"]:hover:not(:disabled) {
+  color: var(--color-neutral-900);
+  background: var(--color-neutral-200);
+}
+[data-terp="combobox-token-remove"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 /* Addressed structurally rather than by a marker of its own: it is an
    iconbutton, and the only thing distinguishing it is where it sits. */
 [data-terp="combobox-field"] > [data-terp="iconbutton"] {
