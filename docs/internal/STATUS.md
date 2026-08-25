@@ -1175,11 +1175,11 @@ every pixel in every consuming app with nothing watching.
 | 1 | Build the safety net | ✅ | `apps/workbench` + four browser lanes; contrast, theme-completeness and marker-inventory gates. 0.7.0. |
 | 2 | The semantic token layer | ✅ | Semantic namespaces, the published `tokens.manifest.json`, five registered themes, and both contrast ratchets emptied. ADR 0093, 0.7.0. |
 | 3 | Attribute-keyed styling and variants | ✅ | Every base style moved into `TERP_STYLES_CSS` behind `data-terp` / `data-variant`, ordered `@layer terp.reset, terp.base, terp.state, terp.motion`. `!important` went 35 → **0**, pinned as exact equality in `styles.test.ts`, which is what makes an app's unlayered `theme.css` able to beat any rule in the sheet. ADR 0094, 0.8.0 + 0.9.0. |
-| 4 | Layout, archetypes and the shell | ✅ | The layout vocabulary (`Grid`, responsive `Stack`, `Divider`, prose primitives), three page archetypes, published shell geometry and the content measure, the density island, skip-to-content, the brand seam, and the ordered navigation model. ADR 0097 + 0098, open in 0.10.0. |
-| 5 | The component gap | ✅ | Field-level 422s, app-locale formatting, declared column widths as steps, `Avatar`, the password reveal — and thirteen candidate components refused with the evidence that decided each. ADR 0099, open in 0.10.0. |
+| 4 | Layout, archetypes and the shell | ✅ | The layout vocabulary (`Grid`, responsive `Stack`, `Divider`, prose primitives), three page archetypes, published shell geometry and the content measure, the density island, skip-to-content, the brand seam, and the ordered navigation model. ADR 0097 + 0098, 0.10.0. |
+| 5 | The component gap | ✅ | Field-level 422s, app-locale formatting, declared column widths as steps, `Avatar`, the password reveal — and thirteen candidate components refused with the evidence that decided each. ADR 0099, 0.10.0. |
 | 6 | The Studio's styling editor, built from the token manifest | 🚧 | Lands in **terp-studio**, not here. What this repo owes it is already published: the manifest carries every token's category, per-theme values and themeable flag, plus the pairings the contrast gate enforces (ADR 0093 §4). |
 | 7 | Layout editable in the Studio | ⬜ | Unblocked by phase 3 (attribute-keyed styling) and phase 4 (archetypes, density and nav placement as props rather than frozen constants). |
 
 **Releases:** phases 0–2 shipped as **0.7.0**, phase 3 across **0.8.0** and **0.9.0**. Phases 4
-and 5 are complete and sit in the open **0.10.0** section — deliberately unreleased until the
-whole build order is finished, so the consumers cross the whole styling change once.
+and 5 shipped together as **0.10.0**, held back until the whole build order was finished so
+that consumers cross the whole styling change in one upgrade.

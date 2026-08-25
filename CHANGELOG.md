@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.10.0
+## 0.10.0 — 2026-08-25
 
 ### Added
 
@@ -1282,6 +1282,25 @@ decision, 0001 onwards.
   `toDate` no longer rejecting an Invalid Date, the em dash replaced by an empty string,
   `formatDateTime` dropping its time of day, `useCellFormatter` losing its `Date` branch, and the
   audit column put back on `toLocaleString()`.
+
+- **The Standard moves to 0.26.0, and the document it adds is the one this release
+  writes.** `layout-declaration.schema.json` is normative and stack-neutral now: the file
+  an app checks in to declare its layout — the page contract it opts into, and with it
+  `shell.contentWidth`, `shell.density`, `shell.navPlacement`, `shell.navGroups`,
+  `shell.brand` and a top-level `defaultTheme` — is described by the Standard rather than
+  by one stack's template. The framework's half of it is above (ADR 0100); this pin is what
+  makes the document's shape the Standard's rather than ours, and therefore what lets a
+  second stack write the same file.
+
+  No new rules: 82 still, 69 backend and 13 frontend. `frontend/layout-contract` changes
+  what it *says* rather than what it refuses — an opted-in app's archetype body slots still
+  admit only the contract's components — but where the opt-in is declared is now normative,
+  and a key declared both in the document and in the app's own code is refused rather than
+  resolved by an invisible precedence.
+
+  Both pins move together, as ADR 0082 requires: `terp-spec==0.26.0` and `@terpjs/spec`
+  0.26.0, with `terp.arch.SPEC_VERSION` and the ESLint adapter's `SPEC_VERSION` beside
+  them — four constants a test holds to one value.
 
 ### Changed
 
