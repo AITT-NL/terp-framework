@@ -42,6 +42,19 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **The dev server's silent watcher failure is documented, and its flag is findable.**
+  Vite watches for file events and some filesystems deliver them unreliably or not at all.
+  The failure is silent: the server keeps serving the last build it saw, so a frontend edit
+  appears to have had no effect and nothing reports an error — long enough to screenshot a
+  screen that no longer exists in the source, and to conclude a change did nothing.
+
+  The escape hatch already existed (`TERP_DEV_FORCE_POLLING`, read by `vite.config.ts`) and
+  was reachable only by reading the Compose file that sets it, with a comment scoping the
+  problem to "Docker Desktop mounts, volume-backed checkouts". It is not Docker-only — a
+  plain Windows checkout on a synced or virtualised drive drops events too. The generated
+  README now names the symptom before the flag, because the symptom is what someone has in
+  hand when they need it.
+
 - **`Tabs` renders a single usable tab as bare content**, with no tablist and no tabpanel. A
   tab set over one tab spends a row of the screen to offer nothing, and to a screen reader it
   is worse than decorative: it announces "tab 1 of 1" and the only affordance is already
