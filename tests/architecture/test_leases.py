@@ -65,6 +65,7 @@ from terp.core import (
 )
 from terp.core._internal.session_guard import WriteGuardedSession
 from terp.core.db import get_session
+from terp.core.app import get_principal
 from terp.core.jobs import configure_jobs
 from terp.core.leases import (
     LEASE_HOLDER_MAX,
@@ -1220,3 +1221,75 @@ def _holder_client(
 
     app.dependency_overrides[get_session] = _session_override
     return TestClient(app)
+
+
+def test_the_terp_leases_fixture_installs_a_store_for_a_service_level_test(
+    terp_leases: object, engine: object, clock: _Clock
+) -> None:
+    """The fixture, used the way an app would use it — which is the only way to know it works.
+
+    The seam fails closed by design: no default store, so the FIRST lease call in a test
+    process raises. That is right, and its cost was that adopting leases broke every
+    service-level test touching a claim. This asserts the escape hatch the platform now
+    ships, through the MODULE surface rather than the store object, because that is what an
+    app calls: `acquire_lease` / `lease_for` / `release_lease` resolve the installed store,
+    and a fixture that installed something the module functions could not see would be
+    green here and useless in an app.
+    """
+    from terp.core import lease_for as module_lease_for
+    from terp.core.leases import acquire_lease, release_lease
+
+    terp_leases(InMemoryLeaseStore(clock=clock))  # type: ignore[operator]
+    resource = LeaseResource(kind="pipeline", key="fixture-1")
+
+    with Session(engine) as session:  # type: ignore[arg-type]
+        granted = acquire_lease(session, resource, holder="w1", ttl_seconds=60)
+        assert granted is not None
+
+        # Read back through the module, narrowed — the path an app takes when the process
+        # that finishes is not the one that claimed.
+        read_back = module_lease_for(session, resource, holder="w1")
+        assert read_back is not None and read_back.epoch == granted.epoch
+        assert module_lease_for(session, resource, holder="someone-else") is None
+
+        assert release_lease(session, read_back) is True
+        assert module_lease_for(session, resource) is None
+
+
+def test_the_heartbeat_route_refuses_an_anonymous_caller_on_its_own(
+    engine: object, store: DatabaseLeaseStore
+) -> None:
+    """Mounted WITHOUT the module guard, which is the only way to reach this branch.
+
+    In a composed app the policy rejects an anonymous caller before the handler runs, so the
+    explicit check inside it is unreachable through the app — and that is exactly why it is
+    worth asserting directly. The route stays correct if it is ever mounted without that
+    guard: a clean 401 rather than an AttributeError on `None`. `build_me_router` carries the
+    same check for the same reason.
+    """
+    from fastapi import FastAPI as BareApp
+
+    from terp.capabilities.leases.holder_router import build_holder_router
+    from terp.core.errors import AuthenticationError
+
+    app = BareApp()
+    app.include_router(build_holder_router(lambda _principal: "w1"), prefix="/custody")
+
+    @app.exception_handler(AuthenticationError)
+    def _unauthenticated(_request: object, _exc: AuthenticationError):  # noqa: ANN202
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse({"code": "unauthenticated"}, status_code=401)
+
+    def _session_override() -> Iterator[Session]:
+        with Session(engine) as session:  # type: ignore[arg-type]
+            yield session
+
+    app.dependency_overrides[get_session] = _session_override
+    app.dependency_overrides[get_principal] = lambda: None
+
+    response = TestClient(app).post(
+        "/custody/pipeline/p1/heartbeat",
+        json={"holder": "w1", "epoch": 1, "ttl_seconds": 60},
+    )
+    assert response.status_code == 401
