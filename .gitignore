@@ -48,3 +48,7 @@ apps/example/_frontend_tpl_check/
 # `terp smoke`'s throwaway database. Left in place deliberately after a failure — it is
 # the state the chain died on — so it must not show up as an untracked file.
 .terp-smoke.db
+
+# graphify: a knowledge graph an agent builds FROM this repository. Derived
+# data that is rebuilt on demand and goes stale the moment the code moves.
+graphify-out/

@@ -6,8 +6,9 @@
   and the inventory ratchet that keeps them a closed set),
   [ADR 0079](0079-slot-typed-layout-contracts.md) (`verifySlotChildren`, the other consumer of
   those markers at runtime), and
-  [ADR 0006](0006-agent-execution-boundary.md) (the quadruple this deliberately does not
-  complete — see §5)
+  Studio ADR 0006 — *Agent execution boundary* (the quadruple this deliberately does
+  not complete — see §5). That one lives in the terp-studio repo, not here, and is not
+  this repo's ADR 0006 (*Cross-cutting controls and opinionation policy*).
 
 ---
 

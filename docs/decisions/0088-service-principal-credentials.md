@@ -1,12 +1,16 @@
 # 0088 — Service-principal credentials: a machine is a subject kind, not a special user
 
 - **Status:** Accepted
-- **Relates to:** [0004](0004-authentication-capability.md),
-  [0012](0012-role-ranks.md), [0013](0013-permission-grants.md),
-  [0016](0016-audit-capability.md), [0022](0022-identity-capability.md),
-  [0031](0031-session-revocation.md), [0054](0054-oidc-capability.md),
-  [0058](0058-escape-hatch-budget.md), [0076](0076-write-chokepoint.md),
-  [0084](0084-runtime-applicability.md)
+- **Relates to:** [0004](0004-typed-principal-role.md),
+  [0012](0012-actor-stamping-trait.md),
+  [0013](0013-users-capability-and-identity-boundary.md),
+  [0016](0016-permission-in-policy-enforced-as-grant.md),
+  [0022](0022-role-model-agnostic-and-tenant-aware-login.md),
+  [0031](0031-session-management-token-revocation-and-login-lockout.md),
+  [0054](0054-refresh-token-sessions.md),
+  [0058](0058-pluggable-sso-oidc.md),
+  [0076](0076-webhook-secret-sealing-jwt-rotation-audit-append-only-and-upload-sniffing.md),
+  [0084](0084-runtime-applicability-classification.md)
 
 ## Context
 

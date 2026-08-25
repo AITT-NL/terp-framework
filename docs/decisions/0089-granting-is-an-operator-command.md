@@ -4,7 +4,7 @@ Status: accepted
 
 ## Context
 
-Terp has had per-subject permission grants since [ADR 0013](0013-permission-grants.md).
+Terp has had per-subject permission grants since [ADR 0016](0016-permission-in-policy-enforced-as-grant.md).
 In practice almost nobody uses them. Apps built on the platform reach for the role
 ladder instead: an integration that needs to export invoices gets made an admin.
 
