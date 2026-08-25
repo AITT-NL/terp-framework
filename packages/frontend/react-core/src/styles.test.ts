@@ -366,20 +366,30 @@ describe("cascade structure", () => {
     ).toContain("height: 100%");
   });
 
-  it("puts the DataView's surface on the full variant, not on the bare marker", () => {
+  it("puts the DataView's surface on the full variant's TABLE, not on the root or the marker", () => {
     // Both values of data-variant are stamped and only one has a rule, which is what keeps
     // the embedded variant a bare grid. The alternative — surface on the marker, un-declared
     // under [data-variant="embedded"] — needs background: transparent, border: 0 and
     // border-radius: 0, the un-declaring shape ADR 0094 exists to avoid.
     //
     // dataview-embedded is the negative evidence this rests on: deleting the full-variant
-    // rule must move five baselines and leave that one untouched.
+    // rule must move the full-variant baselines and leave that one untouched.
+    //
+    // The OWNER changed and the guarantee did not. The surface used to sit on the root, which
+    // made one card of the toolbar, the table and the pagination, divided by internal borders
+    // — and left the table's cells flush against the outer frame. It now sits on whatever
+    // occupies the table's slot, so the table is the object and the controls above and below
+    // it float on the page. Still keyed on the variant, for the reason above.
     const base = layerBody("terp.base");
     expect(declaresRuleFor(base, '[data-terp="dataview"]'), "the root needs a display").toBe(true);
     expect(
-      declaresRuleFor(base, '[data-terp="dataview"][data-variant="full"]'),
-      "the surface belongs to the full variant",
+      declaresRuleFor(base, '[data-terp="dataview"][data-variant="full"] > [data-terp="dataview-scroll"]'),
+      "the surface belongs to the full variant's table slot",
     ).toBe(true);
+    expect(
+      declaresRuleFor(base, '[data-terp="dataview"][data-variant="full"]'),
+      "the root must NOT carry a surface — that is the card this change removed",
+    ).toBe(false);
     expect(
       base,
       "un-declaring a surface under the embedded variant is the shape ADR 0094 avoids",
@@ -402,38 +412,30 @@ describe("cascade structure", () => {
     );
   });
 
-  it("keeps the toolbar band declaring its own surface, and no ink", () => {
-    // Three separate invariants about one element, and each has a way of going wrong that
-    // nothing else in the suite can see.
+  it("keeps the toolbar FLOATING — no surface, no divider, and still no ink", () => {
+    // This assertion reversed, and the reversal is the change: the band used to declare
+    // neutral-0 and two top radii because it was the top third of a card, and nothing else
+    // kept the selection colour inside the root's rounded frame. There is no card now. A
+    // background on a strip that sits on the page canvas paints a rectangle the design does
+    // not have, and a border under it draws a line across nothing.
     //
-    // The background. The inline style this replaced read `selectionMode ? neutral-50 :
-    // neutral-0` — an explicit value in BOTH branches, so the resting rule has to carry
-    // neutral-0 rather than leaving it to the host. Against every composed DataView specimen
-    // dropping it moves nothing, because the full variant's root and the workbench's specimen
-    // card are both neutral-0; it breaks the EMBEDDED variant in a real app, whose root
-    // declares nothing but a display, and the band would show the page canvas through it.
-    // `dataview-toolbar-bare` renders on a neutral-50 host so that mutation fails a baseline.
+    // The radii went with the card for the same reason: there is no rounded frame above the
+    // toolbar to stay inside. Selection mode keeps a fill — it marks a MODE and losing that
+    // makes selection invisible — but as a surface of its own, with its own padding and
+    // radius, asserted below.
     //
-    // The two top radii, which are load-bearing rather than decorative: the DataView root
-    // rounds its border with no overflow: hidden, so nothing else keeps the selection band's
-    // neutral-50 inside the rounded frame.
-    //
-    // And NO colour. Two of this element's direct children are arbitrary caller slots
-    // (`children` and `trailing`), so a muted ink here would inherit into app-authored filter
-    // controls — a silent restyle of app DOM, which is exactly what this migration exists to
-    // stop the framework doing.
+    // NO colour survives unchanged, and it is the invariant with the sharpest edge: two of
+    // this element's direct children are arbitrary caller slots (`children` and `trailing`),
+    // so a muted ink here would inherit into app-authored filter controls — a silent restyle
+    // of app DOM, which is what the styling migration exists to stop the framework doing.
     const base = layerBody("terp.base");
     const at = base.indexOf('[data-terp="dataview-toolbar"]');
     expect(at, "the toolbar band should have a base rule").toBeGreaterThan(-1);
     const block = base.slice(base.indexOf("{", at) + 1, base.indexOf("}", at));
-    expect(block, "the band must declare its own surface, not inherit the host's").toContain(
-      "background: var(--color-neutral-0)",
+    expect(block, "a floating strip paints no surface of its own").not.toContain("background:");
+    expect(block, "a divider under a floating strip is a line across nothing").not.toContain(
+      "border-block-end:",
     );
-    for (const radius of ["border-top-left-radius", "border-top-right-radius"]) {
-      expect(block, `${radius} keeps the selection band inside the root's rounded frame`).toContain(
-        `${radius}: var(--radius-lg)`,
-      );
-    }
     expect(
       /(^|;)\s*color:/.test(block),
       "a colour here inherits into the caller's filter slot and trailing slot",
@@ -449,11 +451,27 @@ describe("cascade structure", () => {
       layerBody("terp.state"),
       "selection mode is a resting surface, not an interaction state",
     ).not.toContain('[data-variant="selection"]');
-    // The bar reads the density token rather than a literal --space-3, which is what makes a
-    // compact view's band line up with its first cell. Zero-diff at comfortable, because
-    // comfortable --density-cell-pad-x IS --space-3 — so only dataview-compact can catch it.
-    expect(block, "the band's inline padding must follow density").toContain(
-      "padding: var(--space-2) var(--density-cell-pad-x)",
+    // The band used to read --density-cell-pad-x for its INLINE padding, so a compact view's
+    // band lined up with its first cell. That alignment target is gone with the card: the
+    // toolbar now aligns with the table's outer frame, whose position does not move with
+    // density, so inline padding here would push the controls off it. Block padding stays on
+    // the spacing scale — vertical rhythm was never the density question.
+    expect(block, "the band's block padding stays on the spacing scale").toContain(
+      "padding-block: var(--space-2)",
+    );
+    expect(
+      /padding-inline|padding:/.test(block),
+      "inline padding would push the controls off the table frame they now align to",
+    ).toBe(false);
+    // Selection mode is the exception and declares its own inline padding, because there it
+    // IS a surface and its fill needs to clear its text.
+    const selectionAt = base.indexOf('[data-terp="dataview-toolbar"][data-variant="selection"]');
+    const selectionBlock = base.slice(
+      base.indexOf("{", selectionAt) + 1,
+      base.indexOf("}", selectionAt),
+    );
+    expect(selectionBlock, "the selection surface reads density for its own inset").toContain(
+      "padding-inline: var(--density-cell-pad-x)",
     );
   });
 

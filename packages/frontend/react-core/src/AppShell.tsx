@@ -125,7 +125,11 @@ interface AppShellBaseProps {
   density?: "comfortable" | "compact";
   /** Pinned to the bottom of the sidebar (the {@link UserMenu}); may read the rail state. */
   navFooter?: ReactNode | ((context: AppShellSlotContext) => ReactNode);
-  /** Footer line under the content; default: a muted line with the app title. */
+  /**
+   * Footer content under the routed view. **Omit it and no footer renders** — there is no
+   * default, because the default was a strip restating the app title already in the header
+   * and the browser tab, on every screen of every app, and nobody chose it.
+   */
   footer?: ReactNode;
   /**
    * The current URL path, so the shell can decide which nav item is current.
@@ -298,7 +302,7 @@ function PanelIcon() {
  *   nav and the same user menu render in the header, and the drawer still handles mobile;
  * - a **sticky** header over the content: the sidebar toggle on the left, then
  *   `headerActions` and the standard theme + language controls on the right;
- * - the routed `children` in a `main` landmark, with a slim `footer` underneath.
+ * - the routed `children` in a `main` landmark, with an optional `footer` underneath.
  *
  * Router-agnostic: `renderLink` wraps the shell-styled icon + label in the active
  * stack's link. Landmarks (`header` / `nav` / `main` / `footer`) keep it accessible.
@@ -688,7 +692,17 @@ export function AppShell({
         <main id={mainId} data-terp="appshell-main" tabIndex={-1}>
           {children}
         </main>
-        <footer data-terp="appshell-footer">{footer ?? <small>{resolvedTitle}</small>}</footer>
+        {/* Rendered only when the app asks for one. It used to default to the app's own
+            title, which meant every screen in every app carried a footer restating the
+            name already in the header and the browser tab — a permanent strip of chrome
+            nobody chose, costing vertical space on exactly the small viewports that have
+            least of it. `footer` is now the switch: pass content to get a footer, pass
+            nothing to get none. The landmark goes with it, which is correct — an empty
+            `contentinfo` is a landmark a screen-reader user can navigate to and find
+            nothing in. */}
+        {footer !== undefined && (
+          <footer data-terp="appshell-footer">{footer}</footer>
+        )}
       </div>
     </div>
   );
