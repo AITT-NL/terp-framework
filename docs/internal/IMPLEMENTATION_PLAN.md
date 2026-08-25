@@ -9,13 +9,13 @@
 > **Status:** proposal for acceptance · **Audience:** platform/core team + agents.
 >
 > **Relationship to existing docs (no drift):**
-> - [AGENTIC_PLATFORM_DESIGN.md](../AGENTIC_PLATFORM_DESIGN.md) remains the
+> - [AGENTIC_PLATFORM_DESIGN.md](../../AGENTIC_PLATFORM_DESIGN.md) remains the
 >   canonical *vision*. This document refines its **backend execution** with the
 >   control‑plane model and **supersedes the backend ordering of §13** once
 >   accepted.
 > - [docs/STATUS.md](STATUS.md) remains the **living checkbox tracker**.
 > - Each phase below that encodes a decision lands an ADR under
->   [docs/decisions/](decisions/). When this file disagrees with a merged ADR,
+>   [docs/decisions/](../decisions/). When this file disagrees with a merged ADR,
 >   **the ADR wins — fix this file.**
 
 ---
@@ -328,7 +328,7 @@ line-coverage gate** (`pytest --cov=terp`, `fail_under = 100`), the
 `terp inspect control-plane --format mermaid` authority-map visualization, and a CI
 workflow running the whole gate on every push/PR. Gate: **141 passed, 100% line
 coverage**. See
-[ADR 0003](decisions/0003-conformance-and-coverage-gate.md).
+[ADR 0003](../decisions/0003-conformance-and-coverage-gate.md).
 
 ### Phase B — Permission model depth (groups · scopes · visibility)
 - Groups + group grants with union‑to‑highest resolution through one read boundary.
@@ -354,7 +354,7 @@ CORS and a disabled rate limit. The two enforceable build‑time rules are the
 **centralization** pair `no_adhoc_middleware` + `no_adhoc_logging_config` (the
 "config present / production‑safe" guarantee is a required, defaulted registry +
 `production_problems()` runtime boot check, not a build‑time‑only control — see the
-rule‑name note in [ADR 0005](decisions/0005-security-middleware-and-structured-logging.md)).
+rule‑name note in [ADR 0005](../decisions/0005-security-middleware-and-structured-logging.md)).
 Gate: **179 passed, 100% line coverage**; example app dogfoods clean (budget `{}`).
 
 ### Phase D — Event bus (EventCatalog) + audit (AuditPolicy)
@@ -382,8 +382,8 @@ accepts only catalog events, the `events_reference_catalog` rule, typed
 `terp-cap-eventbus` dispatcher behind a no‑op core seam (durable outbox deferred).
 Gate: **230 passed, 100% line coverage**; example app dogfoods both clean
 (budget `{}`). See
-[ADR 0007](decisions/0007-audit-auto-emit-and-the-audit-seam.md) and
-[ADR 0008](decisions/0008-event-bus-catalog-and-typed-emit.md).
+[ADR 0007](../decisions/0007-audit-auto-emit-and-the-audit-seam.md) and
+[ADR 0008](../decisions/0008-event-bus-catalog-and-typed-emit.md).
 
 ### Phase E — Realtime / websockets (RealtimeTopology)
 - Broadcaster (in‑proc + Redis), **driven by the bus**, topics registered centrally.
@@ -446,7 +446,7 @@ named permissions (Q2).
 
 **Confirmed on 2026-06-24:** Q3 = **C** (security middleware + structured
 logging) after the A/B keystone; Q4 = top-level `control_plane/`. These are
-recorded as [ADR 0002](decisions/0002-control-plane-and-auditable-module-authority.md).
+recorded as [ADR 0002](../decisions/0002-control-plane-and-auditable-module-authority.md).
 
 ---
 
@@ -578,7 +578,7 @@ place — not no‑code, and honest about it.
 > framework fit only CRUD‑shaped apps and break "applicable to any company." This
 > section records **how far we go, and the rule that keeps it from becoming a
 > straitjacket**, so future slices don't relitigate it. Recorded as
-> [ADR 0006](decisions/0006-cross-cutting-controls-and-opinionation-policy.md).
+> [ADR 0006](../decisions/0006-cross-cutting-controls-and-opinionation-policy.md).
 
 ### 10.1 The opinionation policy — every "always X" is one of three tiers
 

@@ -2,8 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-18
-- **Relates:** [ADR 0015](0015-project-styling-themes.md) (the Studio writes a project's
-  `theme.css`; this ADR is what that file can usefully say), and
+- **Relates:** Studio ADR 0015 — *Project styling themes* (the Studio writes a
+  project's `theme.css`; this ADR is what that file can usefully say — it lives in
+  the terp-studio repo, not here), and
   [ADR 0059](0059-strict-frontend-boundary-and-escape-hatch-budget.md) (app modules may
   not write `style` or `className`, which is what makes the token vocabulary the whole of
   an app's styling surface).

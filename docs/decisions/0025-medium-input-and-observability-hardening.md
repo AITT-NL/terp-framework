@@ -5,7 +5,7 @@
 - **Context phase:** Phase 2 (base profile) — adversarial-review follow-ups (medium)
 - **Relates:** [ADR 0014](0014-adversarial-review-hardening.md) (the review this
   closes four medium findings from),
-  [ADR 0020](0020-response-model-data-leak-guard.md) (the response-model guard M3
+  [ADR 0020](0020-response-model-not-table-model.md) (the response-model guard M3
   tightens), [ADR 0007](0007-audit-auto-emit-and-the-audit-seam.md) (the log-only
   audit sink M8 makes legible), and the
   [adversarial design review](../internal/reviews/2026-06-24-adversarial-design-review.md)

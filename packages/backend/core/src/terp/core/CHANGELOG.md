@@ -7,7 +7,7 @@ every frontend package (`@terpjs/contract`, `@terpjs/react-core`,
 publishes from the same tag
 (`v<version>`); the gate enforces the lockstep (`tests/architecture/test_release_versions.py`).
 
-The full rationale trail lives in [docs/decisions/](docs/decisions/) — one ADR per
+The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
 ## 0.10.0

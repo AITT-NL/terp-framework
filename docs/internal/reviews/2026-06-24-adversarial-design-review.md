@@ -378,7 +378,7 @@ Severity key: **Critical** (breaks a headline guarantee with a realistic trigger
 
 ## 5. Status of fixes (this review is being acted on)
 
-Recorded in [ADR 0014](../decisions/0014-adversarial-review-hardening.md) and
+Recorded in [ADR 0014](../../decisions/0014-adversarial-review-hardening.md) and
 `docs/STATUS.md`. Gate after this batch: **282 tests, 100% framework line coverage.**
 
 **Shipped (each with a runtime control + a build-time test):**

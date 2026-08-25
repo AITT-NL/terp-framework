@@ -2,9 +2,9 @@
 
 > **Living checklist.** This tracks *what's built* and *what's left*, at a glance.
 > It is deliberately thin: the **authoritative plan** is
-> [`AGENTIC_PLATFORM_DESIGN.md` §13](../AGENTIC_PLATFORM_DESIGN.md) and the
+> [`AGENTIC_PLATFORM_DESIGN.md` §13](../../AGENTIC_PLATFORM_DESIGN.md) and the
 > **authoritative rationale** is
-> [ADR 0001](decisions/0001-terp-namespace-and-kernel-scope.md). When this file
+> [ADR 0001](../decisions/0001-terp-namespace-and-kernel-scope.md). When this file
 > disagrees with those, **they win — fix this file.**
 >
 > **Keeping it current:** tick a box when an increment lands green; when an
@@ -424,7 +424,7 @@ Authoritative design refinement:
 [docs/IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
 Accepted decision:
-[ADR 0002](decisions/0002-control-plane-and-auditable-module-authority.md).
+[ADR 0002](../decisions/0002-control-plane-and-auditable-module-authority.md).
 
 **Phase A — control-plane spine + centralized permission model** landed (typed
 `ControlPlane`, typed `Role` / `Permission`, `Policy` normalization, boot
@@ -450,7 +450,7 @@ recorded in `docs/decisions/`, so progress survives chat loss.
 ### Phase A progress — 2026-06-24
 
 - [x] Accepted and recorded
-  [ADR 0002](decisions/0002-control-plane-and-auditable-module-authority.md):
+  [ADR 0002](../decisions/0002-control-plane-and-auditable-module-authority.md):
   control-plane package, typed object references, explicit security opt-outs,
   top-level `control_plane/`, and security middleware/logging as the next track
   after A/B.
@@ -506,7 +506,7 @@ The structured, enforced suite that catches drift / bad usage:
 
 The security substrate is now a central control-plane registry installed by
 `create_app` (design §5 Phase C). See
-[ADR 0005](decisions/0005-security-middleware-and-structured-logging.md).
+[ADR 0005](../decisions/0005-security-middleware-and-structured-logging.md).
 
 - [x] **`SecurityConfig` registry** on `ControlPlane.security` (defaulted, so
   existing apps boot unchanged): `SecurityHeaders`
@@ -540,7 +540,7 @@ fixed before moving on (they *complete* controls, not add features). The
 cross-cutting controls roadmap + the Tier A/B/C opinionation policy (the
 "quadruple" rule) are recorded in
 [IMPLEMENTATION_PLAN §10](IMPLEMENTATION_PLAN.md) and
-[ADR 0006](decisions/0006-cross-cutting-controls-and-opinionation-policy.md).
+[ADR 0006](../decisions/0006-cross-cutting-controls-and-opinionation-policy.md).
 
 - [x] **Logging redaction** now installed on every **handler** (not only the root
   logger), closing a child-logger bypass; sensitive `extra=` fields are redacted.
@@ -557,7 +557,7 @@ cross-cutting controls roadmap + the Tier A/B/C opinionation policy (the
 The highest-value Tier-A gap (ADR 0006): a mutation audit trail that is
 **unbypassable** and **wiring-free**, emitted from the single `BaseService` write
 chokepoint. See
-[ADR 0007](decisions/0007-audit-auto-emit-and-the-audit-seam.md).
+[ADR 0007](../decisions/0007-audit-auto-emit-and-the-audit-seam.md).
 
 - [x] **`AuditPolicy` registry** on `ControlPlane.audit` (safe default: audit
   **every** mutation; central redaction via `redact_keys`; `retention_days` knob;
@@ -590,7 +590,7 @@ chokepoint. See
 The open Phase-D subsystem (ADR 0007 split it out of audit): the event bus as an
 **optional product feature** whose only guarantee is **no drift** — every emitted
 or subscribed event is a registered, typed object, never a bare string. See
-[ADR 0008](decisions/0008-event-bus-catalog-and-typed-emit.md).
+[ADR 0008](../decisions/0008-event-bus-catalog-and-typed-emit.md).
 
 - [x] **`EventCatalog` registry** on `ControlPlane.events` (default **empty** = the
   bus is *inactive*, a silently-absent product feature — contrast the always-on
@@ -1053,7 +1053,7 @@ already split into a cohesive `rules/` package.
 
 How an agentic coder in a *consumer* repo learns correct Terp usage **without reading
 the installed package**. Layered, generated-where-possible, parity-tested; channels
-ranked by agent-reliability (design §9/§10, [ADR 0019](decisions/0019-agent-onboarding-and-discoverability.md)):
+ranked by agent-reliability (design §9/§10, [ADR 0019](../decisions/0019-agent-onboarding-and-discoverability.md)):
 
 - [x] **`terp guide [topic]`** — a deterministic, in-terminal authoring guide (overview
   + the golden rules the gate enforces + per-topic recipes: `module` / `service` /
@@ -1085,40 +1085,40 @@ points at H3 — so each becomes a tracked roadmap item.
 ## Recently recorded
 
 - [x] The `terp-arch` harness + `ModuleSpec.requires` boot validation are recorded
-  as [ADR Decision 9](decisions/0001-terp-namespace-and-kernel-scope.md).
+  as [ADR Decision 9](../decisions/0001-terp-namespace-and-kernel-scope.md).
 - [x] The governed escape-hatch opt-out (justified `# arch-allow-*` suppression +
   budget ratchet) is recorded as
-  [ADR Decision 10](decisions/0001-terp-namespace-and-kernel-scope.md).
+  [ADR Decision 10](../decisions/0001-terp-namespace-and-kernel-scope.md).
 - [x] The HTTP `TenantMiddleware` + JWT `tenant` claim (auth issues it, tenancy
   binds it per request) are recorded as
-  [ADR Decision 11](decisions/0001-terp-namespace-and-kernel-scope.md).
+  [ADR Decision 11](../decisions/0001-terp-namespace-and-kernel-scope.md).
 - [x] The `access` capability (RBAC permission grants + `require_permission`) and
   the `create_app` principal-seam override are recorded as
-  [ADR Decision 12](decisions/0001-terp-namespace-and-kernel-scope.md).
+  [ADR Decision 12](../decisions/0001-terp-namespace-and-kernel-scope.md).
 - [x] The control-plane security registry (`SecurityConfig`), the middleware stack
   + structured logging installed by `create_app`, the extended production
   fail-fast, and the `no_adhoc_middleware` / `no_adhoc_logging_config` rules are
   recorded as
-  [ADR 0005](decisions/0005-security-middleware-and-structured-logging.md).
+  [ADR 0005](../decisions/0005-security-middleware-and-structured-logging.md).
 - [x] The Tier A/B/C opinionation policy (the "quadruple" rule), the cross-cutting
   controls roadmap, the model/route authoring stance (Levels 0–2), and the Phase C
   hardening are recorded as
-  [ADR 0006](decisions/0006-cross-cutting-controls-and-opinionation-policy.md).
+  [ADR 0006](../decisions/0006-cross-cutting-controls-and-opinionation-policy.md).
 - [x] The audit auto-emit control — the `AuditPolicy` registry, fail-closed
   auto-emit from the single `BaseService` chokepoint, the core seam +
   `terp-cap-audit` durable sink (layering), and the `mutations_emit_audit` rule —
   is recorded as
-  [ADR 0007](decisions/0007-audit-auto-emit-and-the-audit-seam.md).
+  [ADR 0007](../decisions/0007-audit-auto-emit-and-the-audit-seam.md).
 - [x] The event bus — the typed `EventCatalog` registry, the fail-closed `emit`
   (accepts only catalog events), the core seam + in-process `terp-cap-eventbus`
   dispatcher (layering, durable outbox deferred), the typed `ModuleSpec.emits` /
   `subscribes`, and the `events_reference_catalog` rule — is recorded as
-  [ADR 0008](decisions/0008-event-bus-catalog-and-typed-emit.md).
+  [ADR 0008](../decisions/0008-event-bus-catalog-and-typed-emit.md).
 - [x] The **authoring model & opinionation boundary** — declarative-by-default,
   constrained-imperative-by-exception, zero implicit magic in modules, every
   deviation ledgered (Target A anti-drift pursued to the extreme; Target B no-code
   rejected) — is recorded as
-  [ADR 0009](decisions/0009-authoring-model-and-opinionation-boundary.md). Its first
+  [ADR 0009](../decisions/0009-authoring-model-and-opinionation-boundary.md). Its first
   slice (the declarative `LifecycleEventMap`, replacing `notes`' `super()` /
   `_after_write` emit) has shipped; soft-delete (ADR 0010) and actor-stamping (ADR
   0012) followed as auto-honored model traits, leaving `build_crud_router` next.
@@ -1126,7 +1126,7 @@ points at H3 — so each becomes a tracked roadmap item.
   makes `BaseService.base_query` exclude deleted rows and `delete` soft-delete
   automatically (no service code; `tasks` collapsed to a declaration + one business
   filter), policed by the two-layer `no_manual_scope_filtering` rule — is recorded as
-  [ADR 0010](decisions/0010-soft-delete-trait-and-no-manual-scope-filtering.md), with
+  [ADR 0010](../decisions/0010-soft-delete-trait-and-no-manual-scope-filtering.md), with
   a mixin survey (OCC/timestamps already always-on; **actor-stamping** shipped as
   ADR 0012; address = value-object only; tenancy converges later).
 - [x] The **model traits vs. control-plane policy boundary** — traits on the model
@@ -1134,20 +1134,20 @@ points at H3 — so each becomes a tracked roadmap item.
   database policies configure the app-wide *how* (retention, purge, naming,
   migrations, tenant binding), and central table allow/deny lists are rejected — is
   recorded as
-  [ADR 0011](decisions/0011-model-traits-vs-control-plane-policy.md).
+  [ADR 0011](../decisions/0011-model-traits-vs-control-plane-policy.md).
 - [x] **Actor-stamping as an auto-honored model trait** — declaring
   `ActorStampedMixin` makes `BaseService._save` fill FK-less `created_by_id` (on
   insert) and `modified_by_id` (on every save, so a soft-delete records *who*
   deleted) from the request actor (`audit_actor_ctx`), with zero module code,
   policed by the two-layer `no_manual_actor_stamping` rule; `notes` + `tasks`
   dogfood it (tasks shows the soft-delete + actor-stamp composition) — is recorded
-  as [ADR 0012](decisions/0012-actor-stamping-trait.md).
+  as [ADR 0012](../decisions/0012-actor-stamping-trait.md).
 - [x] The **`users` capability + the identity/users boundary** — `identity` becomes
   a library store (drops its router/entry point) and `terp-cap-users` owns the
   admin surface at `/api/v1/users` (provision / edit / deactivate / reactivate /
   reset-password, admin-only, audited, deactivate-over-delete) over the shared
   `User` table — is recorded as
-  [ADR 0013](decisions/0013-users-capability-and-identity-boundary.md). A review
+  [ADR 0013](../decisions/0013-users-capability-and-identity-boundary.md). A review
   tightened it: `IdentityService` is now auth-only (no mutation side-door), and
   `BaseService._save` maps a commit-time `IntegrityError` to a typed
   `ConflictError` (uniform 409, not a leaked 500) framework-wide.
@@ -1159,11 +1159,11 @@ points at H3 — so each becomes a tracked roadmap item.
 A track of its own, numbered separately from §13's phases, and recorded here because this file
 is where "what's built / what's left" is supposed to be legible. The authoritative narrative is
 [`CHANGELOG.md`](../../CHANGELOG.md) release by release; the authoritative rationale is
-ADRs [0093](decisions/0093-semantic-token-layer-and-named-themes.md),
-[0094](decisions/0094-attribute-keyed-styling.md),
-[0097](decisions/0097-shell-parameters-and-ordered-navigation.md),
-[0098](decisions/0098-archetypes-measures-and-the-density-island.md) and
-[0099](decisions/0099-the-component-gap-and-what-is-not-in-it.md).
+ADRs [0093](../decisions/0093-semantic-token-layer-and-named-themes.md),
+[0094](../decisions/0094-attribute-keyed-styling.md),
+[0097](../decisions/0097-shell-parameters-and-ordered-navigation.md),
+[0098](../decisions/0098-archetypes-measures-and-the-density-island.md) and
+[0099](../decisions/0099-the-component-gap-and-what-is-not-in-it.md).
 
 The one ordering constraint worth keeping: **the safety net came before the styling engine.**
 Phase 3 rewrote every component's base styles, and without phases 1–2 that would have moved
