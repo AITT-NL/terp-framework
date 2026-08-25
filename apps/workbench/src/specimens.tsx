@@ -1136,6 +1136,22 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        id: "combobox-multiple",
+        title: "Combobox — multiple, with tokens",
+        // Two tokens and a third selectable, because the geometry this specimen exists to
+        // record is the wrapping token row sharing a box with the filter input — one token
+        // would not show that the field grows with the selection.
+        node: (
+          <Combobox
+            multiple
+            clearable
+            aria-label="Source fields"
+            defaultValue={["published", "draft"]}
+            options={SELECT_OPTIONS}
+          />
+        ),
+      },
+      {
         id: "combobox-disabled-invalid",
         title: "Combobox — disabled and flagged invalid",
         // These two states had no specimen, and that gap is exactly how a migration

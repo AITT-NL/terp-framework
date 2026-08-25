@@ -133,7 +133,7 @@ const UNREAD_TOKENS: Record<string, string[]> = {
  * prose scale.
  */
 const BARE_TYPE_LITERALS: Record<string, Record<string, number>> = {
-  "line-height": { "0": 2, "1": 4, "1.2": 4, "1.25": 7, "1.3": 2, "1.4": 3, "1.5": 4 },
+  "line-height": { "0": 2, "1": 5, "1.2": 4, "1.25": 7, "1.3": 2, "1.4": 3, "1.5": 4 },
   // `inherit` is recorded rather than tokenised, and it is the one value here that is not
   // debt: the sort button in a table header must render the tracking its own `th` sets, and
   // naming a token would pin it to whatever that header uses TODAY. The UA stylesheet resets

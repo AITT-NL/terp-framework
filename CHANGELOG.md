@@ -14,6 +14,44 @@ decision, 0001 onwards.
 
 ### Added
 
+### Added
+
+- **`Combobox` takes `multiple`: a set-valued field, as a mode rather than a component.**
+  There was no sanctioned control for a set, and the absence did not stop anyone — it
+  produced comma-separated text boxes, one of them with its legal values listed in a grey
+  hint beside it. That last shape is the argument: a closed enum rendered as free text loses
+  the validation the value set could have enforced, the hint is documentation the input
+  cannot honour, and every consumer downstream parses a string where an array was meant.
+
+  `multiple` is a **discriminated union**, so it decides `value`, `defaultValue` and
+  `onChange` together: a plain string handed to a multiple combobox — or an array to a single
+  one — is a typecheck error rather than a runtime surprise. Selections render as removable
+  tokens; the listbox reports `aria-multiselectable`; each token's remove control is a real
+  button and a real tab stop whose accessible name carries the option ("Remove Netherlands"),
+  with Backspace-on-empty as an addition rather than the mechanism, because a shortcut is
+  discoverable only to someone who already knows it.
+
+  Three behaviours are decisions, not details: **the list stays open on pick and the filter
+  clears** (picking one member of a set is almost never the last thing a user wants, and
+  closing each time makes three choices three round trips); **a controlled set shows what the
+  prop says, not what was clicked** (the same invariant single mode already had); and token
+  order follows the **selection** rather than the option list, because a row that reorders
+  itself moves the target the user was about to click.
+
+  ADR 0099 §"Amendment" records why this passes that ADR's own bar. Read literally it does
+  not: the test is "a component that cannot name a consumer in this framework", and the
+  framework's own set-valued screen grants permissions one at a time into a table, which is a
+  designed pattern rather than a workaround. It passes on the reasoning §1 used for the two
+  components that ADR did build — *the consumers were already there, written twice* — because
+  two independent observations of the same defect, each with a named loss, is not
+  speculation. Multi-select was never among the thirteen refusals, so this is an omission
+  from that survey rather than a re-proposal.
+
+  Deliberately absent: tag *creation* (both observed cases were closed sets, and free entry
+  is a different control with a different validation story), drag-reordering, and a
+  `Select multiple` — the native multi-select affordance is undiscoverable, and two answers
+  to one question is how a component surface stops being honest.
+
 - **A holder that is not this process is a first-class holder now: leases gain a heartbeat,
   a read-back, and a test fixture.** Three gaps reported from adopting the lease seam, all
   one cause — every operation took the granted `Lease` value, whose `epoch` is the fence, so
@@ -64,6 +102,7 @@ decision, 0001 onwards.
   ADR 0095 §§9–11 record all three, and what the amendment deliberately does not add: no
   force-release, no holder-facing lease listing, and no platform-chosen heartbeat interval
   (how often a holder reports is a property of the work it is doing).
+
 
 - **`terp verify` runs the app's own declared package boundaries, so the guide and the
   profile stop contradicting each other.** `terp guide package-boundaries` tells an app to
