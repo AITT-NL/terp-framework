@@ -10,6 +10,61 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.11.0
+
+### Fixed
+
+- **The breadcrumb trail marked an ancestor as the current page.** On every detail route the
+  trail emitted two `aria-current="page"` — one on the crumb for the parent listing, one on
+  the current crumb — plus a stray `.active` class and `data-status="active"` that made an
+  ancestor look like the page you are on.
+
+  The cause is worth recording because the fix already existed twelve lines away. The
+  shell's own `renderLink` pins `activeOptions={{ exact: true }}` and its comment explains
+  exactly why: *"Prefix matching is what broke that: it marked every ancestor active, so
+  `/settings` and `/settings/users` were both current at `/settings/users`."* The renderer
+  published through `NavLinkContext` — the one `Breadcrumbs` and `HubCard` use, whose entire
+  job is rendering ancestors — was left on the router's default prefix matching. Now exact,
+  so a crumb is current only when it IS the URL, and the current crumb is a span rather than
+  a link.
+
+- **A table's header typography depended on whether the column was sortable.** Any table
+  mixing sortable and non-sortable columns rendered its header row in two treatments at
+  once: the plain `th` uppercase with 0.04em tracking, the sortable one sentence case with
+  none, side by side. `font: inherit` on the sort button is not enough — the `font` shorthand
+  carries neither `text-transform` nor `letter-spacing`, and the UA stylesheet resets both on
+  form controls. Both are now inherited explicitly.
+
+  The screenshot lane could not have caught it: it needs one specimen with both kinds of
+  column in a single table, and every specimen had one kind or the other.
+
+- **The column sort control was a 17px-tall target in a 34px cell.** Half the cell went
+  unused by the most-used control in a data app, clearing WCAG 2.5.8 only through the
+  spacing exception. The button's block padding now mirrors the header cell's and is pulled
+  back out by a negative margin, so it fills the cell it sits in. No layout moves — the
+  button grows into padding the `th` already reserved.
+
+- **A generated app was briefed on three page archetypes when six ship.** `FormPage`,
+  `SettingsPage` and `SplitPage` shipped in 0.10.0 and four documents went on listing
+  `Page` / `OverviewPage` / `DetailPage` / `HubPage`, including the template's own
+  `AGENTS.md` — so a new app and its agents were told half the archetypes exist.
+
+  Held by a gate now, and **the unit is one enumeration rather than one file**, which is the
+  whole gate: a per-file check passes as soon as the file mentions every name *somewhere*, so
+  a document carrying two lists satisfies it with one of them correct. That is not
+  hypothetical — it is what the first version of this gate did, and emptying one of
+  `template/AGENTS.md`'s two lists left it green. The set is read from the layout contract,
+  where it is already normative, because a list maintained in the gate is the thing that went
+  stale in the first place.
+
+- **`layout.manifest.json` is reachable through its export and not through the path it looks
+  like.** The subpath `@terpjs/react-core/layout.manifest.json` resolves; the file sits at
+  `src/layout.manifest.json` inside the package, so a literal
+  `node_modules/@terpjs/react-core/layout.manifest.json` is a 404. ADR 0100 now says so,
+  because of who that artifact is for: two of the three consumers it names — an agent with
+  file access, and a human — reach for the path before the resolver, and a 404 there reads as
+  "this release does not publish it" rather than "look one directory down".
+
 ## 0.10.0 — 2026-08-25
 
 ### Added

@@ -70,7 +70,7 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
 ## Page archetypes (the three-level screen pattern)
 
 Every routed view **must** render one of the archetypes (`Page`, or `OverviewPage` /
-`DetailPage` / `HubPage`, which compose it) — `buildAppRouter` refuses an unframed view at
+`DetailPage` / `HubPage` / `FormPage` / `SettingsPage` / `SplitPage`, which compose it) — `buildAppRouter` refuses an unframed view at
 runtime, fail closed (ADR 0059), so every screen keeps the breadcrumb/title/error frame.
 
 | Export | Use |

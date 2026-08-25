@@ -2296,15 +2296,31 @@ input[data-terp="input"][type="password"]::-ms-reveal {
    sorted, so the unsorted glyph's dimming keys off its ABSENCE rather than off
    an attribute minted for it — this component owns aria-sort, unlike the
    breadcrumb's aria-current, which a router stamps on every ancestor link. */
+/* font: inherit is not enough, and the gap it leaves split the header row in two.
+   The font shorthand carries no text-transform and no letter-spacing, and the UA
+   stylesheet resets both on form controls — so in any table mixing sortable and
+   non-sortable columns the plain th rendered uppercase with 0.04em tracking while
+   the sortable one rendered sentence case with none, side by side in one row. Both
+   are named explicitly because inheritance is what the UA overrode.
+
+   The block padding mirrors the th's so the button fills the cell it sits in,
+   pulled back out by the negative margin. The control was a 17px-tall target inside
+   a 34px cell — half the cell unused, and the most-used control in a data app
+   clearing WCAG 2.5.8 only through the spacing exception. Filling the cell costs
+   nothing and changes no layout: the button's box grows into padding the th
+   already reserved. */
 [data-terp="dataview-column-sort"] {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
   color: inherit;
   background: transparent;
   border: none;
-  padding: 0;
+  padding: var(--space-2) 0;
+  margin-block: calc(-1 * var(--space-2));
   cursor: pointer;
 }
 [data-terp="dataview-table"] > thead > tr > th:not([aria-sort]) > [data-terp="dataview-column-sort"] > svg {
