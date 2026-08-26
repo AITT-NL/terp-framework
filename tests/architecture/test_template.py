@@ -600,3 +600,50 @@ def test_the_scaffolded_theme_overlay_belongs_to_the_app() -> None:
     assert "terp guide theming" in overlay, (
         "theme.css should point at the recipe that is always available"
     )
+
+
+def _document_location_block(config: str) -> str:
+    """The ``location /`` block that serves index.html (the SPA fallback).
+
+    Sliced textually because the assertion below is specifically about *where* in
+    the file the headers sit: nginx applies ``add_header`` from an outer level only
+    when the block declares none of its own, so a header on the ``server`` block is
+    not a header on this response.
+    """
+    start = config.index("location / {")
+    return config[start : config.index("}", start)]
+
+
+def test_frontend_serves_document_security_headers() -> None:
+    # The SPA document, not the API, is where these decide anything: a CSP on a JSON
+    # response governs subresources a JSON body never loads and framing it cannot
+    # suffer, while the header on the HTML document decides whether a third-party
+    # script may execute, whether the app may be framed, and where it may connect.
+    # nginx serves that document, and shipped no security headers on it at all.
+    #
+    # Asserted *inside* the document location on purpose. Hoisting these to the
+    # server block is the obvious DRY refactor and it silently breaks the control —
+    # measured against a real nginx, the document then carries Cache-Control alone,
+    # because both content locations declare add_header of their own and nginx drops
+    # every inherited one. This test is what stops that refactor landing.
+    for config in (
+        _PROJECT / "frontend" / "nginx.conf",
+        pathlib.Path(__file__).resolve().parents[2] / "apps/example/frontend/nginx.conf",
+    ):
+        document = _document_location_block(config.read_text(encoding="utf-8"))
+        for header, expected in (
+            ("Content-Security-Policy", "frame-ancestors 'none'"),
+            ("X-Content-Type-Options", "nosniff"),
+            ("Referrer-Policy", "no-referrer"),
+            ("Cross-Origin-Opener-Policy", "same-origin"),
+        ):
+            assert header in document, f"{config.name}: no {header} on the document"
+            assert expected in document, f"{config.name}: {header} lost {expected!r}"
+        # 'unsafe-inline' is confined to styles: react-core injects its token sheet at
+        # runtime, so style-src needs it. script-src must never acquire it.
+        csp = document[document.index("Content-Security-Policy") :]
+        csp = csp[: csp.index("always;")]
+        assert "script-src 'self';" in csp, f"{config.name}: script-src is not exactly 'self'"
+        assert "'unsafe-inline'" not in csp.split("style-src")[0], (
+            f"{config.name}: 'unsafe-inline' appears before style-src — it must not reach scripts"
+        )
