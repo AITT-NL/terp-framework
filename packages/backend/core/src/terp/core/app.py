@@ -74,7 +74,7 @@ from terp.core._internal.middleware import install_security_middleware
 from terp.core._internal.session_guard import read_only_request
 from terp.core.module_spec import ModuleSpec, Policy
 from terp.core.passwords import configure_password_policy
-from terp.core.routing import MUTATING_METHODS, is_read_only
+from terp.core.routing import MUTATING_METHODS, is_read_only, request_method
 from terp.core.throttling import (
     InMemoryThrottleStore,
     ThrottleStore,
@@ -191,13 +191,9 @@ def build_guard(
         # WebSocket, so the SAME deny-by-default module guard protects both
         # transports. A WebSocket has no HTTP method after upgrade and defaults
         # to the write tier; a capability may apply finer per-message authority.
-        scope = getattr(connection, "scope", {})
-        method = getattr(connection, "method", None) or scope.get(
-            "method", "POST" if scope.get("type") == "websocket" else "GET"
-        )
         required = (
             policy.write_requirement
-            if method in MUTATING_METHODS
+            if request_method(connection) in MUTATING_METHODS
             else policy.read_requirement
         )
         if principal.role.rank < required.min_rank:
@@ -259,17 +255,13 @@ def build_read_only_request_binder() -> Callable[..., AsyncIterator[None]]:
     """
 
     async def binder(connection: HTTPConnection) -> AsyncIterator[None]:
-        scope = getattr(connection, "scope", {})
-        method = getattr(connection, "method", None) or scope.get(
-            "method", "POST" if scope.get("type") == "websocket" else "GET"
-        )
-        declared = is_read_only(scope.get("endpoint"))
+        declared = is_read_only(getattr(connection, "scope", {}).get("endpoint"))
         # The negation is load-bearing: the guard above authorizes *every* method
         # outside MUTATING_METHODS at the read tier, so every one of them must be
         # marked read-only here. Testing membership of a safe-method set instead
         # left a method in neither set (TRACE, or a verb registered through
         # add_api_route) authorized as a read and still able to write.
-        with read_only_request(declared or method.upper() not in MUTATING_METHODS):
+        with read_only_request(declared or request_method(connection) not in MUTATING_METHODS):
             yield
 
     return binder

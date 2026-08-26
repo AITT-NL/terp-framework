@@ -15,8 +15,10 @@ had drifted: the guard treated *any* non-mutating method as a read while the bin
 marked only ``GET`` / ``HEAD`` / ``OPTIONS`` read-only, so a route served under a
 method in neither set (``TRACE``, or a verb registered through
 ``add_api_route``) was authorized at the read tier and still allowed to write.
-One vocabulary, phrased once as a single negation, is what makes the two halves
-agree by construction rather than by coincidence.
+One vocabulary, read through one :func:`request_method`, and phrased once as a
+single negation: that is what makes the two halves agree by construction rather
+than by coincidence. Sharing only the vocabulary was not enough — they still
+disagreed about the method's *case* until the read was shared too.
 
 That mapping has one blind spot, and :func:`read_only` is for exactly that: a handler that
 uses an unsafe verb **because of where its input lives**, not because it writes.
@@ -62,6 +64,33 @@ from typing import Any, TypeVar
 #: classification is deliberately a single negation rather than two sets, so no method
 #: can fall between them.
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def request_method(connection: object) -> str:
+    """The upper-cased HTTP method *connection* is being served under.
+
+    The single reader of a request's method for an authority decision, so the
+    guard and the read-only binder cannot disagree about what the method *is*.
+    They previously each inlined this expression and only one of them upper-cased
+    the result, which reopened the very gap :data:`MUTATING_METHODS` exists to
+    close: a lower-case ``post`` matched no entry in the mutating set for the
+    guard (so it was authorized at the read tier) while the binder's own
+    upper-casing found ``POST`` there (so the request was not marked read-only),
+    and a handler served that way could write at the read tier.
+
+    HTTP methods are case-sensitive on the wire and a client may send whatever it
+    likes, so normalising is a **control**, not tidiness. A WebSocket has no
+    method after the upgrade and is treated as a write, matching the guard's
+    deny-by-default stance for a transport whose per-message authority a
+    capability must police itself.
+    """
+
+    scope = getattr(connection, "scope", {})
+    method = getattr(connection, "method", None) or scope.get(
+        "method", "POST" if scope.get("type") == "websocket" else "GET"
+    )
+    return str(method).upper()
+
 
 #: The attribute :func:`read_only` stamps on an endpoint. Read through
 #: :func:`is_read_only` rather than directly — the name is an implementation
@@ -133,5 +162,6 @@ __all__ = [
     "is_read_only",
     "mark_required_permission",
     "read_only",
+    "request_method",
     "required_permission",
 ]

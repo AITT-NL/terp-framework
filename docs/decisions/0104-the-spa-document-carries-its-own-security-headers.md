@@ -5,7 +5,7 @@
 - **Relates:** [ADR 0103](0103-the-ideology-one-pattern-enforced-escapable-by-proof.md) ("a control
   implemented only in the backend is half-built" — this ADR is the first instance found of
   exactly that), [ADR 0005](0005-security-middleware-and-structured-logging.md) (the backend
-  security-header stack this completes), [ADR 0062](0062-production-deployment-profile-phase-g-completion.md)
+  security-header stack this completes), [ADR 0062](0062-production-deployment-profile.md)
   (the production profile whose nginx config this amends).
 
 ---

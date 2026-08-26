@@ -11,6 +11,8 @@ with the build-time ``safe_methods_are_read_only`` rule.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
@@ -35,8 +37,8 @@ from terp.core import (
     create_app,
     get_session,
 )
-from terp.core._internal.session_guard import WriteGuardedSession
-from terp.core.app import build_guard
+from terp.core._internal.session_guard import WriteGuardedSession, _read_only_request
+from terp.core.app import build_guard, build_read_only_request_binder
 
 
 class _Memo(BaseTable, table=True):
@@ -148,3 +150,43 @@ def test_mutating_trace_is_refused(client: TestClient) -> None:
     """A write behind TRACE fails closed exactly as it does behind GET."""
     assert client.request("TRACE", "/api/v1/memo/trace-leak").status_code == 500
     assert client.get("/api/v1/memo/count").json() == 0
+
+
+def test_guard_and_binder_agree_on_a_lower_case_method() -> None:
+    """Case is a control, not tidiness: the two halves must classify identically.
+
+    HTTP methods are case-sensitive on the wire, so a client may send ``post``.
+    While the guard matched the raw string and the binder upper-cased before
+    matching, such a request was authorized at the *read* tier (no set entry
+    matched ``post``) yet not marked read-only (``POST`` did match) — the same
+    privilege-tier escape the mutating-method set exists to prevent, reached
+    through case instead of through an unknown verb.
+    """
+    guard = build_guard(Policy.default())
+    viewer = Principal(id=uuid.uuid4(), role=VIEWER)
+    binder = build_read_only_request_binder()
+
+    async def marks_read_only(method: str) -> bool:
+        connection = SimpleNamespace(scope={"method": method, "endpoint": None}, method=method)
+        agen = binder(connection)
+        await agen.__anext__()
+        marked = _read_only_request.get()
+        with contextlib.suppress(StopAsyncIteration):
+            await agen.__anext__()
+        return marked
+
+    def authorized_at_read_tier(method: str) -> bool:
+        try:
+            guard(SimpleNamespace(method=method), principal=viewer, session=None)
+        except PermissionDeniedError:
+            return False
+        return True
+
+    # Every spelling of a mutating verb is a write for BOTH halves...
+    for method in ("post", "PaTcH", "DELETE"):
+        assert not authorized_at_read_tier(method), f"{method} must need the write tier"
+        assert not asyncio.run(marks_read_only(method)), f"{method} must not be read-only"
+    # ...and a read-tier method is read-only for both, whatever its case.
+    for method in ("get", "GET", "TRACE"):
+        assert authorized_at_read_tier(method), f"{method} should clear the read tier"
+        assert asyncio.run(marks_read_only(method)), f"{method} must be marked read-only"

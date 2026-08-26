@@ -365,7 +365,7 @@ class IdempotencyMiddleware:
     def _fingerprint(scope: Scope, body: bytes) -> str:
         """The request digest a reused key must match: method + path + payload."""
         digest = hashlib.sha256()
-        digest.update(scope["method"].encode("ascii"))
+        digest.update(scope["method"].upper().encode("ascii"))
         digest.update(b"\n")
         digest.update(scope.get("path", "").encode("utf-8"))
         digest.update(b"\n")
@@ -376,7 +376,11 @@ class IdempotencyMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         # Only mutating methods are deduplicated; the rest are naturally idempotent.
-        if scope["type"] != "http" or scope["method"] not in MUTATING_METHODS:
+        # Upper-cased for the same reason the authority path normalises: HTTP methods
+        # are case-sensitive on the wire, so a lower-case "post" would otherwise skip
+        # deduplication entirely and hash to a different key than the same retry sent
+        # in upper case.
+        if scope["type"] != "http" or scope["method"].upper() not in MUTATING_METHODS:
             await self.app(scope, receive, send)
             return
         raw_key = self._header(scope, b"idempotency-key")
