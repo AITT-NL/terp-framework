@@ -11,7 +11,9 @@ with the build-time ``safe_methods_are_read_only`` rule.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pytest
 from fastapi import APIRouter
@@ -20,17 +22,21 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Field, Session, SQLModel, create_engine
 
 from terp.core import (
+    VIEWER,
     BaseSchema,
     BaseService,
     BaseTable,
     BaseUpdateSchema,
     ModuleSpec,
+    PermissionDeniedError,
     Policy,
+    Principal,
     SessionDep,
     create_app,
     get_session,
 )
 from terp.core._internal.session_guard import WriteGuardedSession
+from terp.core.app import build_guard
 
 
 class _Memo(BaseTable, table=True):
@@ -113,3 +119,32 @@ def test_same_write_behind_post_succeeds(client: TestClient) -> None:
     """The identical write authorized at the write tier (POST) is allowed and persists."""
     assert client.post("/api/v1/memo/").status_code == 201
     assert client.get("/api/v1/memo/count").json() == 1
+
+
+# --------------------------------------------------------------------------- #
+# A method in neither the mutating nor the safe set (regression)
+# --------------------------------------------------------------------------- #
+# The guard authorizes every non-mutating method at the *read* tier, so the binder
+# has to mark every one of them read-only. It used to test membership of a safe set
+# instead, which left TRACE — and any verb registered through add_api_route —
+# authorized as a read and still able to persist.
+def trace_leak(session: SessionDep) -> str:
+    return str(_service.create(session, _MemoCreate(text="from-trace")).id)
+
+
+router.add_api_route("/trace-leak", trace_leak, methods=["TRACE"], response_model=str)
+
+
+def test_guard_authorizes_a_non_mutating_method_at_the_read_tier() -> None:
+    """Why the binder must cover TRACE: a VIEWER clears the guard for it."""
+    guard = build_guard(Policy.default())
+    viewer = Principal(id=uuid.uuid4(), role=VIEWER)
+    guard(SimpleNamespace(method="TRACE"), principal=viewer, session=None)  # no raise
+    with pytest.raises(PermissionDeniedError):
+        guard(SimpleNamespace(method="POST"), principal=viewer, session=None)
+
+
+def test_mutating_trace_is_refused(client: TestClient) -> None:
+    """A write behind TRACE fails closed exactly as it does behind GET."""
+    assert client.request("TRACE", "/api/v1/memo/trace-leak").status_code == 500
+    assert client.get("/api/v1/memo/count").json() == 0

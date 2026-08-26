@@ -29,6 +29,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from terp.core.idempotency import IdempotencyStore, StoredResponse
 from terp.core.logging import request_id_ctx
+from terp.core.routing import MUTATING_METHODS
 from terp.core.security import SecurityConfig, SecurityHeaders, client_ip
 from terp.core.throttling import InMemoryThrottleStore, ThrottleStore
 
@@ -294,11 +295,6 @@ class RequestSizeLimitMiddleware:
         await self.app(scope, counting_receive, send)
 
 
-# The unsafe (mutating) HTTP methods the idempotency control applies to. Mirrors the
-# composition root's mutating set; safe methods are naturally idempotent already.
-_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-
-
 class IdempotencyMiddleware:
     """Deduplicate client-retried unsafe requests carrying an ``Idempotency-Key``.
 
@@ -379,7 +375,8 @@ class IdempotencyMiddleware:
         return digest.hexdigest()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["method"] not in _UNSAFE_METHODS:
+        # Only mutating methods are deduplicated; the rest are naturally idempotent.
+        if scope["type"] != "http" or scope["method"] not in MUTATING_METHODS:
             await self.app(scope, receive, send)
             return
         raw_key = self._header(scope, b"idempotency-key")

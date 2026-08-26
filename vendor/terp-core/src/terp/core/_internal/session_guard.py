@@ -61,13 +61,14 @@ _write_allowed: ContextVar[bool] = ContextVar(
     "terp_session_write_allowed", default=False
 )
 
-# Request-method gate: True while serving a safe (read-only) HTTP method
-# (GET/HEAD/OPTIONS). A write attempted during such a request fails closed even
-# inside the BaseService write scope, so a mutating safe-method handler cannot
-# persist a change it was only authorized to *read* — the deny-by-default guard
-# derives the role tier from the HTTP method, so a write during a GET runs at the
-# read tier (a privilege-tier escape). The default is False, so a non-HTTP context
-# (a test, the CLI, a migration) is unaffected.
+# Request-method gate: True while serving a request authorized at the read tier —
+# any method outside terp.core.routing.MUTATING_METHODS, which is every safe method
+# and anything else a route may be registered under. A write attempted during such a
+# request fails closed even inside the BaseService write scope, so such a handler
+# cannot persist a change it was only authorized to *read* — the deny-by-default
+# guard derives the role tier from the HTTP method, so a write during a GET runs at
+# the read tier (a privilege-tier escape). The default is False, so a non-HTTP
+# context (a test, the CLI, a migration) is unaffected.
 _read_only_request: ContextVar[bool] = ContextVar(
     "terp_read_only_request", default=False
 )
@@ -224,10 +225,11 @@ def _require_write_scope(operation: str) -> None:
     """
     if _read_only_request.get():
         raise ReadOnlyRequestError(
-            f"{operation!r} attempted while serving a safe, read-only HTTP method "
-            "(GET/HEAD/OPTIONS); a request authorized at the read tier must not "
-            "mutate — move the write behind a POST/PUT/PATCH/DELETE route so it is "
-            "authorized at the write tier and audited"
+            f"{operation!r} attempted while serving a read-only request — a method "
+            "outside POST/PUT/PATCH/DELETE, or a route declared terp.core.read_only; "
+            "a request authorized at the read tier must not mutate — move the write "
+            "behind a POST/PUT/PATCH/DELETE route so it is authorized at the write "
+            "tier and audited"
         )
     if not _write_allowed.get():
         raise UnauditedWriteError(

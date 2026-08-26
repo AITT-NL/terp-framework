@@ -74,19 +74,13 @@ from terp.core._internal.middleware import install_security_middleware
 from terp.core._internal.session_guard import read_only_request
 from terp.core.module_spec import ModuleSpec, Policy
 from terp.core.passwords import configure_password_policy
-from terp.core.routing import is_read_only
+from terp.core.routing import MUTATING_METHODS, is_read_only
 from terp.core.throttling import (
     InMemoryThrottleStore,
     ThrottleStore,
     is_shared_throttle_store,
 )
 from terp.core.permissions import PermissionModel, Role, as_role
-
-_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-# Safe (RFC 9110) HTTP methods: the deny-by-default guard authorizes these against
-# the policy's *read* requirement, so a handler bound to one must not mutate (a write
-# would run at the read tier). create_app marks such a request read-only at runtime.
-_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 _logger = logging.getLogger("terp.core")
 
@@ -203,7 +197,7 @@ def build_guard(
         )
         required = (
             policy.write_requirement
-            if method in _MUTATING_METHODS
+            if method in MUTATING_METHODS
             else policy.read_requirement
         )
         if principal.role.rank < required.min_rank:
@@ -270,7 +264,12 @@ def build_read_only_request_binder() -> Callable[..., AsyncIterator[None]]:
             "method", "POST" if scope.get("type") == "websocket" else "GET"
         )
         declared = is_read_only(scope.get("endpoint"))
-        with read_only_request(declared or method.upper() in _SAFE_METHODS):
+        # The negation is load-bearing: the guard above authorizes *every* method
+        # outside MUTATING_METHODS at the read tier, so every one of them must be
+        # marked read-only here. Testing membership of a safe-method set instead
+        # left a method in neither set (TRACE, or a verb registered through
+        # add_api_route) authorized as a read and still able to write.
+        with read_only_request(declared or method.upper() not in MUTATING_METHODS):
             yield
 
     return binder
@@ -645,7 +644,7 @@ def _validate_token_revocation(
 def _router_has_mutating_route(router: APIRouter) -> bool:
     """True when *router* (including nested included routers) declares a write method."""
     for route in _iter_api_routes(router.routes):
-        if _MUTATING_METHODS & {method.upper() for method in (route.methods or ())}:
+        if MUTATING_METHODS & {method.upper() for method in (route.methods or ())}:
             return True
     return False
 

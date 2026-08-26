@@ -41,10 +41,9 @@ from terp.core import (
     SoftDeleteMixin,
 )
 from terp.core.object_authz import registered_object_authz_predicates
+from terp.core.routing import MUTATING_METHODS
 from terp.core.scoping import registered_scope_predicates
 
-# Mirrors the kernel guard's method split (terp.core.app): any other method is a read.
-_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # Every module mounts under this prefix (``create_app``); a served path outside it is a
 # kernel / open route (e.g. health), not part of any module's policy surface.
@@ -95,7 +94,7 @@ def _route_permissions(route: APIRoute) -> list[str]:
 def _endpoint_json(spec: ModuleSpec, route: APIRoute) -> dict[str, object]:
     """The endpoint-access layer: one mounted route + its effective requirement."""
     methods = sorted(route.methods or ())
-    is_write = any(method in _MUTATING_METHODS for method in methods)
+    is_write = any(method in MUTATING_METHODS for method in methods)
     policy = spec.policy
     if policy is None:
         requirement = "denied (no policy declared)"
