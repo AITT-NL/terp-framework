@@ -443,8 +443,19 @@ endpoint *does* and the platform can guarantee every route is explained.
       are lower-risk than the one already done.
 - [ ] 1.5 Drop the method-derived `kind` from the access graph — waits on the Studio
       viewer no longer rendering it.
-- [ ] Phases 2–6: the core seam, the Studio viewer, OpenAPI wiring, annotating the
-      framework, then enforcement. Value lands at the viewer; enforcement is last.
+- [x] Phase 2 — the core seam. `OperationDefinition` / `OperationCatalog` /
+      `OperationCoverage` in `terp.core.operations`, the `@operation(...)` declaration
+      beside `read_only` in `terp.core.routing`, `ControlPlane.operations`, and the
+      boot validator. No-drift is unconditional and value-matched; coverage is
+      per-app `off` / `warn` / `strict` and defaults to off, so nothing observable
+      changes for an existing app.
+- [ ] Phase 3 — **the Studio viewer**: the first user-visible value, and what
+      unblocks 1.5.
+- [ ] Phase 4 — the operation feeds OpenAPI `summary` / `operation_id`, giving the
+      declaration a second reader.
+- [ ] Phase 5 — annotate the framework's own routes, `_CLEAN_CAPS` first since those
+      cannot be deferred behind a marker.
+- [ ] Phase 6 — the two Standard rules, corpus cases, then `warn` before `strict`.
 
 **The security-header / CSP track** — decided in
 [ADR 0104](../decisions/0104-the-spa-document-carries-its-own-security-headers.md),

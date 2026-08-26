@@ -1,5 +1,11 @@
 """Route-level declarations a module makes about one handler, and the method vocabulary.
 
+Three declarations live here: :func:`read_only` (this handler persists nothing),
+:func:`operation` (this is what the route does, ADR 0102), and the introspection
+marker :func:`mark_required_permission` the access capability stamps. Each is a
+stamped attribute read through a predicate, so a rule or a view can see the
+declaration without the writer and the reader sharing anything but this module.
+
 Terp derives a request's write authority from the **HTTP method**: a mutating
 method is authorized at the write tier and may persist, and every other method is
 authorized at the read tier and marked read-only at runtime. That mapping is right
@@ -55,6 +61,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any, TypeVar
+
+from terp.core.operations import OperationDefinition
 
 #: The HTTP methods that carry write authority — the one definition of the split.
 #:
@@ -155,12 +163,56 @@ def required_permission(dependency: object | None) -> str | None:
     return name if isinstance(name, str) else None
 
 
+#: The attribute :func:`operation` stamps on an endpoint. Read through
+#: :func:`declared_operation`; the name is this module's detail.
+OPERATION_ATTRIBUTE = "__terp_operation__"
+
+
+def operation(definition: OperationDefinition) -> Callable[[_Endpoint], _Endpoint]:
+    """Declare what *definition* the decorated route performs (ADR 0102).
+
+    Apply it **below** the route decorator, so the marked function is the one FastAPI
+    registers as the endpoint — the same placement :func:`read_only` requires::
+
+        @router.delete("/{file_id}", status_code=204)
+        @operation(OPS.FILES_DELETE)
+        def delete_file(file_id: uuid.UUID, session: SessionDep) -> None: ...
+
+    The definition must be the entry registered in the control plane's
+    :class:`~terp.core.operations.OperationCatalog`; boot refuses one that is not, so a
+    route can neither invent an operation nor reference an undeclared one. Under
+    :attr:`~terp.core.operations.OperationCoverage.STRICT` boot also refuses a mounted
+    route that declares none.
+
+    What it does **not** change is authorization — the promise :func:`read_only` makes,
+    for the same reason. A route's requirement comes from its module's ``Policy`` and
+    any route-level permission dependency; saying what a route *does* narrows nothing
+    about who may call it, and this is not a way to widen or restrict access.
+    """
+
+    def decorate(endpoint: _Endpoint) -> _Endpoint:
+        setattr(endpoint, OPERATION_ATTRIBUTE, definition)
+        return endpoint
+
+    return decorate
+
+
+def declared_operation(endpoint: object | None) -> OperationDefinition | None:
+    """The operation *endpoint* declares, or ``None`` if it declares none."""
+
+    found = getattr(endpoint, OPERATION_ATTRIBUTE, None)
+    return found if isinstance(found, OperationDefinition) else None
+
+
 __all__ = [
     "MUTATING_METHODS",
+    "OPERATION_ATTRIBUTE",
     "READ_ONLY_ATTRIBUTE",
     "REQUIRED_PERMISSION_ATTRIBUTE",
+    "declared_operation",
     "is_read_only",
     "mark_required_permission",
+    "operation",
     "read_only",
     "request_method",
     "required_permission",

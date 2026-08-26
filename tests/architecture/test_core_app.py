@@ -5,11 +5,14 @@ Pure-kernel unit checks (no app), complementing the reference-app end-to-end tes
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from fastapi import APIRouter, Request
 from fastapi.testclient import TestClient
 from starlette.middleware import Middleware
 
+from terp.core.app import build_guard
 from terp.core import (
     ADMIN,
     BootError,
@@ -17,11 +20,16 @@ from terp.core import (
     EDITOR,
     InMemoryThrottleStore,
     ModuleSpec,
+    OperationCatalog,
+    OperationCoverage,
+    OperationDefinition,
     Page,
     PaginationParams,
     Permission,
+    PermissionDeniedError,
     PermissionModel,
     Policy,
+    Principal,
     SecurityConfig,
     VIEWER,
     create_app,
@@ -418,3 +426,130 @@ def test_create_app_accepts_a_marked_shared_throttle_store() -> None:
         require_shared_throttle_store=True,
     )
     assert app.title == "Terp app"
+
+
+# --------------------------------------------------------------------------- #
+# Declared route operations (ADR 0102)
+# --------------------------------------------------------------------------- #
+_FILES_DELETE = OperationDefinition(id="files.delete", label="Delete a file")
+
+
+def _declaring_router(definition: OperationDefinition | None):
+    """A one-route router that declares *definition*, or nothing when it is None."""
+    from fastapi import APIRouter
+
+    from terp.core import operation
+
+    router = APIRouter()
+
+    if definition is None:
+
+        @router.get("/", response_model=str)
+        def read() -> str:
+            return "x"
+
+    else:
+
+        @router.get("/", response_model=str)
+        @operation(definition)
+        def read() -> str:
+            return "x"
+
+    return router
+
+
+def test_an_operation_absent_from_the_catalog_fails_the_boot() -> None:
+    # The no-drift half, and it is unconditional: coverage is left at its OFF default
+    # here, so this refusal is not the strict-coverage check in disguise.
+    spec = ModuleSpec(
+        name="files", router=_declaring_router(_FILES_DELETE), policy=Policy.default()
+    )
+    with pytest.raises(BootError, match="not the entry registered"):
+        create_app([spec], control_plane=ControlPlane())
+
+
+def test_a_same_id_operation_with_different_wording_is_refused() -> None:
+    # Matched by VALUE: a look-alike sharing the id would let a route present one
+    # wording while the catalog documents another, which is exactly the drift the
+    # catalog exists to prevent. The ids are identical on purpose — only the label
+    # differs, so an id-only comparison would accept this and the test would pass
+    # with the bug present.
+    shadow = OperationDefinition(id="files.delete", label="Remove a file for good")
+    spec = ModuleSpec(
+        name="files", router=_declaring_router(shadow), policy=Policy.default()
+    )
+    plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
+    with pytest.raises(BootError, match="not the entry registered"):
+        create_app([spec], control_plane=plane)
+
+
+def test_a_declared_operation_in_the_catalog_boots() -> None:
+    spec = ModuleSpec(
+        name="files", router=_declaring_router(_FILES_DELETE), policy=Policy.default()
+    )
+    plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
+    assert create_app([spec], control_plane=plane).title == "Terp app"
+
+
+def test_an_undeclared_route_boots_with_coverage_off_and_is_refused_under_strict() -> None:
+    # The feature is optional, the guarantee is not. Both halves in one test because
+    # each is only meaningful against the other: if OFF refused, the control would be
+    # a breaking change for every existing app; if STRICT accepted, there would be no
+    # state in which "every route is explained" is true.
+    spec = ModuleSpec(
+        name="files", router=_declaring_router(None), policy=Policy.default()
+    )
+    assert create_app([spec], control_plane=ControlPlane()).title == "Terp app"
+
+    strict = ControlPlane(
+        operations=OperationCatalog(coverage=OperationCoverage.STRICT)
+    )
+    with pytest.raises(BootError, match="coverage is STRICT"):
+        create_app([spec], control_plane=strict)
+
+
+def test_strict_coverage_reaches_a_route_on_an_included_sub_router() -> None:
+    """A guarantee that stopped at the top level is one an app sidesteps by nesting.
+
+    The assertion is on the reported *path*, not merely that the boot failed. Measured
+    reason: ``include_router`` keeps the child as an ``_IncludedRouter`` whose own
+    ``path`` is ``None``, so a validator that iterated ``router.routes`` directly would
+    still refuse the boot — counting that wrapper as an undeclared route — and a test
+    asserting only "it raised" would pass with the traversal broken. Naming
+    ``/nested-leaf`` is what distinguishes walking the tree from tripping over its root.
+    """
+    from fastapi import APIRouter
+
+    child = APIRouter()
+
+    @child.get("/nested-leaf", response_model=str)
+    def leaf() -> str:
+        return "x"
+
+    parent = APIRouter()
+    parent.include_router(child)
+    spec = ModuleSpec(name="files", router=parent, policy=Policy.default())
+    strict = ControlPlane(
+        operations=OperationCatalog(coverage=OperationCoverage.STRICT)
+    )
+    with pytest.raises(BootError, match="nested-leaf"):
+        create_app([spec], control_plane=strict)
+
+
+def test_declaring_an_operation_does_not_change_authorization() -> None:
+    # The promise read_only makes, for the same reason: saying what a route does must
+    # narrow nothing about who may call it. A VIEWER clears a read-tier route whether
+    # or not it declares an operation, and the declaration adds no requirement.
+    from types import SimpleNamespace
+
+    plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
+    spec = ModuleSpec(
+        name="files", router=_declaring_router(_FILES_DELETE), policy=Policy.default()
+    )
+    create_app([spec], control_plane=plane)  # boots
+
+    guard = build_guard(Policy.default())
+    viewer = Principal(id=uuid.uuid4(), role=VIEWER)
+    guard(SimpleNamespace(method="GET"), principal=viewer, session=None)  # no raise
+    with pytest.raises(PermissionDeniedError):
+        guard(SimpleNamespace(method="POST"), principal=viewer, session=None)

@@ -150,8 +150,15 @@ from terp.core.permissions import (
     project_permissions,
     register_permission_projector,
 )
+from terp.core.operations import (
+    OperationCatalog,
+    OperationCoverage,
+    OperationDefinition,
+)
 from terp.core.routing import (
+    declared_operation,
     mark_required_permission,
+    operation,
     read_only,
     required_permission,
 )
@@ -246,6 +253,9 @@ __all__ = [
     "ModuleSpec",
     "NotFoundError",
     "ObjectAuthzPredicate",
+    "OperationCatalog",
+    "OperationCoverage",
+    "OperationDefinition",
     "OwnedMixin",
     "Page",
     "PaginationDep",
@@ -292,6 +302,7 @@ __all__ = [
     "configure_logging",
     "create_app",
     "current_actor_id",
+    "declared_operation",
     "decrypt_config",
     "emit",
     "encrypt_config",
@@ -322,6 +333,7 @@ __all__ = [
     "mark_shared_throttle_store",
     "mark_token_revocation_provider",
     "mask_config",
+    "operation",
     "project_permissions",
     "purge_free_leases",
     "read_only",

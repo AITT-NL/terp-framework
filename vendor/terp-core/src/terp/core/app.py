@@ -74,7 +74,13 @@ from terp.core._internal.middleware import install_security_middleware
 from terp.core._internal.session_guard import read_only_request
 from terp.core.module_spec import ModuleSpec, Policy
 from terp.core.passwords import configure_password_policy
-from terp.core.routing import MUTATING_METHODS, is_read_only, request_method
+from terp.core.operations import OperationCatalog, OperationCoverage
+from terp.core.routing import (
+    MUTATING_METHODS,
+    declared_operation,
+    is_read_only,
+    request_method,
+)
 from terp.core.throttling import (
     InMemoryThrottleStore,
     ThrottleStore,
@@ -666,6 +672,51 @@ def _validate_policy_write_tiers(specs: Sequence[ModuleSpec]) -> None:
                 "(privilege inversion). Raise the write tier to at least the read tier "
                 "(e.g. Policy.default(): read=VIEWER, write=EDITOR)"
             )
+
+
+def _validate_declared_operations(
+    specs: Sequence[ModuleSpec], catalog: OperationCatalog
+) -> None:
+    """Fail closed on an operation that is not the catalog's, or a route missing one.
+
+    The runtime half of ADR 0102, and the same two-layer split the event catalog uses:
+    the **no-drift** guarantee is unconditional — an operation declared at a route must
+    be the registered entry, matched by value, so neither an invented id nor a same-id
+    shadow carrying different wording can reach a view — while **coverage** is the
+    per-app choice. ``STRICT`` refuses a mounted route that declares nothing, which is
+    the state in which the platform can claim every route is explained; ``OFF`` (the
+    default) requires nothing, so an app that declares no operations boots exactly as
+    it did before this control existed.
+
+    Routes are walked with :func:`_iter_api_routes`, so a route on an included
+    sub-router is covered too — a coverage guarantee that stopped at the top level
+    would be one an app could sidestep by nesting a router.
+    """
+    undeclared: list[str] = []
+    for spec in specs:
+        if spec.router is None:
+            continue
+        for route in _iter_api_routes(spec.router.routes):
+            declared = declared_operation(route.endpoint)
+            if declared is None:
+                undeclared.append(f"{spec.name}:{route.path}")
+                continue
+            if not catalog.has_operation(declared):
+                raise BootError(
+                    f"module {spec.name!r} route {route.path!r} declares operation "
+                    f"{declared.id!r}, which is not the entry registered in the "
+                    "control plane's OperationCatalog (an unknown id, or a same-id "
+                    "definition with different wording — either way the catalog is no "
+                    "longer the one source of truth). Reference the catalog constant "
+                    "rather than constructing an OperationDefinition at the route."
+                )
+    if undeclared and catalog.coverage is OperationCoverage.STRICT:
+        raise BootError(
+            "operation coverage is STRICT but these mounted routes declare no "
+            f"operation: {sorted(undeclared)}. Declare one with "
+            "terp.core.operation(...) for each, or set the catalog's coverage to WARN "
+            "while they are annotated."
+        )
 
 
 def _validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
@@ -1346,6 +1397,7 @@ def create_app(
     _validate_token_revocation(principal_provider, require_token_revocation)
     _validate_policy_write_tiers(collected)
     _validate_public_modules_read_only(collected)
+    _validate_declared_operations(collected, resolved_plane.operations)
     _validate_background_jobs_preserve_ownership(collected)
     _validate_shared_throttle_store(throttle_store, require_shared_throttle_store)
     _validate_durable_jobs(job_queue, require_durable_jobs)

@@ -10,6 +10,7 @@ from terp.core.audit import AuditPolicy
 from terp.core.events import EventCatalog
 from terp.core.jobs import JobCatalog
 from terp.core.module_spec import ModuleSpec
+from terp.core.operations import OperationCatalog
 from terp.core.passwords import PasswordPolicy
 from terp.core.permissions import PermissionModel
 from terp.core.scheduling import ScheduleCatalog
@@ -31,6 +32,7 @@ class ControlPlane:
     events: EventCatalog = field(default_factory=EventCatalog.default)
     passwords: PasswordPolicy = field(default_factory=PasswordPolicy.default)
     jobs: JobCatalog = field(default_factory=JobCatalog.default)
+    operations: OperationCatalog = field(default_factory=OperationCatalog.default)
     schedules: ScheduleCatalog = field(default_factory=ScheduleCatalog.default)
     job_system_actor_id: uuid.UUID | None = None
 

@@ -82,28 +82,36 @@ the feature commits small.
       rendering it (phase 3), so this is the *last* item of phase 1 in time even though it belongs
       here in spirit. Removes the field from `_endpoint_json` and from `_render_access_text`.
 
-## Phase 2 — the core seam (nothing observable yet)
+## Phase 2 — the core seam (nothing observable yet) — DONE
 
-- [ ] **2.1 `terp/core/operations.py`** — `OperationDefinition(id, label)` and `OperationCatalog`,
+- [x] **2.1 `terp/core/operations.py`** — `OperationDefinition(id, label)` and `OperationCatalog`,
       mirroring `EventDefinition` / `EventCatalog`: dotted-token id validation, duplicate-id
       refusal, `has_name` / `get` / `missing_*`, `default()` returning empty. Value-matched
       membership (`has_operation`) so a same-id look-alike with a different label is a shadow and is
       rejected, exactly as the event catalog does.
-- [ ] **2.2 `operation(...)` in `terp/core/routing.py`** — the decorator, `OPERATION_ATTRIBUTE`, and
+- [x] **2.2 `operation(...)` in `terp/core/routing.py`** — the decorator, `OPERATION_ATTRIBUTE`, and
       `declared_operation(endpoint)`. Applied below the route decorator. Docstring must state, as
       `read_only`'s does, that it changes nothing about authorization.
-- [ ] **2.3 `ControlPlane.operations`** — the catalog field plus `_operation_errors` in
+- [x] **2.3 `ControlPlane.operations`** — the catalog field plus `_operation_errors` in
       `validation_errors`, following `_event_errors`: a declared operation absent from the catalog
       fails the boot.
-- [ ] **2.4 Coverage mode** — `off` / `warn` / `strict` on the control plane. `strict` refuses a
+- [x] **2.4 Coverage mode** — `off` / `warn` / `strict` on the control plane. `strict` refuses a
       mounted route with no declaration at boot; `warn` records them for the graph; `off` is the
       default and changes nothing.
-- [ ] **2.5 Export from `terp.core`** and add to `__all__`.
+- [x] **2.5 Export from `terp.core`** and add to `__all__`.
 
-*Gates for phase 2:* boot refuses an uncatalogued operation; boot refuses an undeclared route under
-`strict` and accepts it under `off`; a shadow definition is rejected. Each mutation-checked by
-breaking the specific guard — for the shadow case the fixture's two definitions must differ in the
-label, or the value comparison is vacuous.
+*Gates for phase 2 (all mutation-checked, in `tests/architecture/test_core_app.py`):* an
+uncatalogued operation refuses the boot with coverage left OFF, so the refusal is not the
+coverage check in disguise; a same-id shadow differing only in its label is refused, which an
+id-only comparison would accept; an undeclared route boots under `off` and is refused under
+`strict`, each half meaningless without the other; and `strict` reaches a route on an included
+sub-router.
+
+The nested-router gate needed a second attempt and the reason is worth keeping: asserting only
+that the boot failed passed with the traversal broken, because `include_router` keeps the child
+as an `_IncludedRouter` whose own `path` is `None` — so a top-level-only walk counts that
+wrapper as an undeclared route and still refuses. The test now asserts the nested route's path
+appears in the message, which is what distinguishes walking the tree from tripping over its root.
 
 ## Phase 3 — the Studio viewer (first user-visible value)
 
