@@ -63,6 +63,38 @@ afterEach(() => {
 });
 
 describe("injectTerpStyles", () => {
+  it("adopts a constructable stylesheet when the document supports one", () => {
+    // jsdom exposes the CSSStyleSheet constructor but not document.adoptedStyleSheets,
+    // so the property is defined here to reach the branch a real browser takes. That
+    // branch is the whole point of the injector: an adopted sheet is not governed by
+    // CSP's style-src, so a generated app needs no 'unsafe-inline' — measured in
+    // Chromium, where a <style> element is reported as style-src-elem and dropped.
+    const sheets: CSSStyleSheet[] = [];
+    Object.defineProperty(document, "adoptedStyleSheets", {
+      configurable: true,
+      get: () => sheets,
+      set: (next: CSSStyleSheet[]) => {
+        sheets.length = 0;
+        sheets.push(...next);
+      },
+    });
+    try {
+      injectTerpStyles();
+      expect(sheets.length).toBe(1);
+      // No element: taking the adopted route must not also append a <style>, or the
+      // page would carry the rules twice and still need the CSP keyword.
+      expect(document.getElementById(TERP_STYLES_ID)).toBeNull();
+      expect(sheets[0]?.cssRules.length ?? 0).toBeGreaterThan(0);
+
+      // Idempotent by the sheet's own mark rather than by an element id.
+      injectTerpStyles();
+      injectTerpStyles();
+      expect(sheets.length).toBe(1);
+    } finally {
+      delete (document as unknown as { adoptedStyleSheets?: unknown }).adoptedStyleSheets;
+    }
+  });
+
   it("appends the stylesheet once and is idempotent on re-invocation", () => {
     injectTerpStyles();
     injectTerpStyles();

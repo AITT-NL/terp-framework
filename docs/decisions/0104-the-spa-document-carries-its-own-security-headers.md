@@ -43,7 +43,7 @@ the project template and the example app:
 
 ```
 Content-Security-Policy: default-src 'self'; script-src 'self';
-    style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';
+    style-src 'self'; img-src 'self' data:; font-src 'self';
     connect-src 'self'; object-src 'none'; base-uri 'none';
     frame-ancestors 'none'; form-action 'self'
 X-Content-Type-Options: nosniff
@@ -73,32 +73,44 @@ inspecting a live response. So `test_frontend_serves_document_security_headers` 
 headers inside the document `location` block specifically, and its own comment records why the
 refactor it forbids is tempting.
 
-### 2. `style-src` needs `'unsafe-inline'`, and the framework is why
+### 2. `style-src` carries no `'unsafe-inline'` — amended 2026-08-26
 
-`@terpjs/react-core` injects its token stylesheet at runtime as a `<style>` element built with
-`createElement("style")` and `textContent`. That is an inline stylesheet, so `style-src` must
-permit it.
+As first shipped this policy allowed `'unsafe-inline'` in `style-src`, because
+`@terpjs/react-core` injected its token stylesheet as a `<style>` element and a `<style>`
+element's rules are inline styles as far as CSP is concerned. That was measured with a control,
+and the control mattered: the naive check (reading a CSS custom property) passed with the keyword
+*and* without it, because that token comes from the bundled stylesheet rather than the injected
+one. Only counting live stylesheets, and seeing a heading render lowercase where a
+`text-transform` should have applied, showed the difference.
 
-Measured, with a control, by serving the example app's built bundle under the candidate policy in
-Chromium:
+**The keyword is now gone, because the injector changed.** react-core delivers the sheet through
+`document.adoptedStyleSheets`, and a constructable stylesheet is not governed by `style-src` at
+all. Measured in Chromium, first in isolation and then against the built example bundle:
 
-- **With `'unsafe-inline'`:** no violations reported, the injected sheet live, the chrome styled.
-- **Without it:** the browser reported a `style-src-elem` violation for `inline`, the document's
-  count of live stylesheets fell by one, and the rendering visibly degraded — a heading rendered
-  lowercase where the injected sheet's `text-transform` should have applied.
+| mechanism | under `style-src 'self'` |
+|---|---|
+| literal `style="…"` attribute in served markup | blocked |
+| CSSOM property assignment (`el.style.width = …`) | applies |
+| `style.cssText = …` | applies |
+| adopted constructable stylesheet | applies |
+| `<style>` element with `textContent` | blocked |
 
-The control mattered: the naive check (reading a CSS custom property) passed in **both** runs,
-because that token comes from the bundled stylesheet rather than the injected one. A gate that
-only read the token would have reported success while production shipped unstyled.
+Two consequences fall out of that table. The injector works, and so does React's
+`style={{ … }}`: React assigns through CSSOM rather than writing a markup attribute, so the
+handful of inline styles react-core sets for measured dimensions were never the obstacle they
+looked like. Only a literal attribute in server-sent markup is refused, and a client-rendered SPA
+sends none.
 
-`'unsafe-inline'` is confined to `style-src`; `script-src` is exactly `'self'`, and the gate
-asserts the keyword never appears before `style-src` in the policy.
+Against the built bundle the strict policy reported no violations, the sheet arrived adopted
+rather than as an element, and a rule only react-core declares (`cursor: pointer` on a button)
+applied. The permissive policy behaved identically, so the change is neutral for anyone still
+serving the old header.
 
-**Removing it is a framework change, not an app one.** Constructable stylesheets
-(`new CSSStyleSheet()` + `document.adoptedStyleSheets`) are not governed by `style-src`, so
-adopting them in react-core's injector would let every generated app drop the keyword. That is the
-right shape under ADR 0103 — the framework absorbs the cross-cutting concern and every app gets a
-stricter default for free — and it is recorded here as the follow-up rather than left implicit.
+This matters more than one keyword. `'unsafe-inline'` is not a permission for *our* stylesheet —
+it permits **every** inline stylesheet on the page, including one an injection manages to
+introduce. Removing it is what makes the frontend XSS rules' defence-in-depth real rather than
+nominal, and it is the framework absorbing the cost so every generated app is stricter by
+default without its author doing anything.
 
 ### 3. Assets get `nosniff` and no CSP
 
@@ -115,11 +127,12 @@ earns its place: it stops a mistyped bundle being reinterpreted as something exe
   nginx, and the shipped config is gated statically, but nothing in the suite asserts the header on
   a running production stack. The conformance suite cannot host that probe today: it targets the
   vite dev server by default, which sets none of these.
-- **Two follow-ups are recorded rather than done.** Giving the vite dev server a matching policy
-  would close the dev/prod parity gap — an agent adding a CDN script would then fail immediately
-  instead of at deploy — but vite's HMR needs websocket and inline-script allowances, so it needs
-  its own measurement cycle. And a smoke probe against the production compose stack would automate
-  what was verified by hand here.
+- **One follow-up remains.** Giving the vite dev server a matching policy would close the
+  dev/prod parity gap — an agent adding a CDN script would then fail immediately instead of at
+  deploy — but vite's HMR needs websocket and inline-script allowances, so it needs its own
+  measurement cycle. A smoke probe against the production compose stack would also automate what
+  was verified by hand here. The `'unsafe-inline'` removal that was recorded here as a follow-up
+  is done, in §2.
 - **The same gap exists in the Studio's own document.** `terp-studio` serves its SPA through
   FastAPI's `StaticFiles` and sets a CSP only on user-uploaded attachment downloads
   (`sandbox; default-src 'none'`, which is correct and worth keeping). Its own document has none.

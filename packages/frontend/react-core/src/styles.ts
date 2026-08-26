@@ -4229,12 +4229,49 @@ button[data-terp="input"][data-placeholder="true"] {
 `;
 
 /**
+ * The property stamped on the constructed sheet so a second call recognises it.
+ *
+ * On the sheet object rather than on an element or a `data-` attribute: the sheet
+ * lives on the `document`, so the mark is document-scoped exactly like the old
+ * element-id check was, and it cannot collide with the `data-terp*` selectors
+ * this very stylesheet declares.
+ */
+const ADOPTED_MARKER = "__terpStylesId";
+
+/** A constructed sheet plus the mark identifying it as ours. */
+type MarkedSheet = CSSStyleSheet & { [ADOPTED_MARKER]?: string };
+
+/**
+ * `document.adoptedStyleSheets` is absent in jsdom, so the property is read
+ * through a type that admits that. Cast via `unknown` rather than intersected
+ * with `Document`, because the DOM lib declares the property as always present
+ * and an intersection would keep that stricter declaration.
+ */
+type AdoptableDocument = { adoptedStyleSheets?: MarkedSheet[] };
+
+/**
  * Inject the react-core interaction-state stylesheet once per document.
  *
- * SSR-safe: no-op when `document` is undefined. Idempotent: the sheet element
- * is keyed by {@link TERP_STYLES_ID}, so repeated calls (from any component's
- * module scope) attach the rules exactly once. Content is set via
- * `textContent` — never `innerHTML` — so no HTML-injection sink is touched.
+ * Prefers a **constructable stylesheet** (`new CSSStyleSheet()` +
+ * `document.adoptedStyleSheets`), because that is the only injection route a
+ * Content-Security-Policy does not have to widen for. A `<style>` element's
+ * rules are inline styles as far as CSP is concerned, so shipping them obliged
+ * every generated app to serve `style-src 'unsafe-inline'` — a keyword that,
+ * once present, also permits every *other* inline stylesheet on the page,
+ * including one an injection managed to introduce. Measured in Chromium: an
+ * adopted sheet applies cleanly under `style-src 'self'` while a `<style>`
+ * element is reported as a `style-src-elem` violation and its rules dropped.
+ *
+ * The `<style>` element remains the fallback, because a browser without
+ * constructable stylesheets would otherwise render the chrome unstyled. Under a
+ * strict policy those browsers get no styling either way, so the fallback only
+ * ever helps.
+ *
+ * SSR-safe: no-op when `document` is undefined. Idempotent by either route — the
+ * adopted sheet carries {@link ADOPTED_MARKER}, the element is keyed by
+ * {@link TERP_STYLES_ID} — so repeated calls from any component's module scope
+ * attach the rules exactly once. Neither route touches an HTML sink: the element
+ * path sets `textContent`, never `innerHTML`, and `replaceSync` parses CSS only.
  */
 export function injectTerpStyles(): void {
   if (typeof document === "undefined") {
@@ -4243,6 +4280,23 @@ export function injectTerpStyles(): void {
   if (document.getElementById(TERP_STYLES_ID) !== null) {
     return;
   }
+
+  const adopted = (document as unknown as AdoptableDocument).adoptedStyleSheets;
+  if (adopted !== undefined && typeof CSSStyleSheet === "function") {
+    if (adopted.some((sheet) => sheet[ADOPTED_MARKER] === TERP_STYLES_ID)) {
+      return;
+    }
+    try {
+      const sheet: MarkedSheet = new CSSStyleSheet();
+      sheet.replaceSync(TERP_STYLES_CSS);
+      sheet[ADOPTED_MARKER] = TERP_STYLES_ID;
+      (document as unknown as AdoptableDocument).adoptedStyleSheets = [...adopted, sheet];
+      return;
+    } catch {
+      // A browser that exposes the API but refuses this sheet still gets styling.
+    }
+  }
+
   const el = document.createElement("style");
   el.id = TERP_STYLES_ID;
   el.textContent = TERP_STYLES_CSS;

@@ -639,11 +639,15 @@ def test_frontend_serves_document_security_headers() -> None:
         ):
             assert header in document, f"{config.name}: no {header} on the document"
             assert expected in document, f"{config.name}: {header} lost {expected!r}"
-        # 'unsafe-inline' is confined to styles: react-core injects its token sheet at
-        # runtime, so style-src needs it. script-src must never acquire it.
+        # No 'unsafe-inline' anywhere. react-core delivers its token stylesheet
+        # through adoptedStyleSheets, which CSP does not govern, so nothing on the
+        # page needs the keyword — and it cannot be reintroduced for styles without
+        # also permitting any other inline stylesheet an injection may add.
         csp = document[document.index("Content-Security-Policy") :]
         csp = csp[: csp.index("always;")]
         assert "script-src 'self';" in csp, f"{config.name}: script-src is not exactly 'self'"
-        assert "'unsafe-inline'" not in csp.split("style-src")[0], (
-            f"{config.name}: 'unsafe-inline' appears before style-src — it must not reach scripts"
+        assert "style-src 'self';" in csp, f"{config.name}: style-src is not exactly 'self'"
+        assert "'unsafe-inline'" not in csp, (
+            f"{config.name}: 'unsafe-inline' is back in the policy — react-core's "
+            "adopted stylesheet means no part of the page requires it"
         )
