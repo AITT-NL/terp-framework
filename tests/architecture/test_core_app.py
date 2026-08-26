@@ -537,22 +537,41 @@ def test_strict_coverage_reaches_a_route_on_an_included_sub_router() -> None:
 
 
 def test_declaring_an_operation_does_not_change_authorization() -> None:
-    # The promise read_only makes, for the same reason: saying what a route does must
-    # narrow nothing about who may call it. A VIEWER clears a read-tier route whether
-    # or not it declares an operation, and the declaration adds no requirement.
-    from types import SimpleNamespace
+    """The promise read_only makes: saying what a route does narrows nothing.
+
+    Observed by comparing the access graph for two routers that differ ONLY in whether
+    the route declares an operation — same policy, same method, same path. Every
+    authorization-bearing field must be identical. The first version of this test
+    asserted build_guard's read/write tier split instead, which is true whether or not
+    operations exist anywhere, so it would have passed had operation() rewritten the
+    policy outright.
+    """
+    from terp.cli.access import build_access_graph
 
     plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
-    spec = ModuleSpec(
-        name="files", router=_declaring_router(_FILES_DELETE), policy=Policy.default()
-    )
-    create_app([spec], control_plane=plane)  # boots
 
-    guard = build_guard(Policy.default())
-    viewer = Principal(id=uuid.uuid4(), role=VIEWER)
-    guard(SimpleNamespace(method="GET"), principal=viewer, session=None)  # no raise
-    with pytest.raises(PermissionDeniedError):
-        guard(SimpleNamespace(method="POST"), principal=viewer, session=None)
+    def graph_for(definition: OperationDefinition | None) -> dict:
+        spec = ModuleSpec(
+            name="files", router=_declaring_router(definition), policy=Policy.default()
+        )
+        return build_access_graph(plane, [spec])["modules"][0]
+
+    declared = graph_for(_FILES_DELETE)
+    plain = graph_for(None)
+
+    assert declared["policy"] == plain["policy"]
+    for field in ("requirement", "kind", "extra_permissions", "methods", "path"):
+        assert [e[field] for e in declared["endpoints"]] == [
+            e[field] for e in plain["endpoints"]
+        ], f"declaring an operation changed {field!r}"
+
+    # ...and the declaration really is present, so the comparison is between a
+    # declaring route and a plain one rather than between two plain ones.
+    assert declared["endpoints"][0]["operation"] == {
+        "id": "files.delete",
+        "label": "Delete a file",
+    }
+    assert plain["endpoints"][0]["operation"] is None
 
 
 def test_warn_coverage_reports_what_strict_would_refuse(caplog) -> None:
@@ -573,7 +592,7 @@ def test_warn_coverage_reports_what_strict_would_refuse(caplog) -> None:
     warn = ControlPlane(operations=OperationCatalog(coverage=OperationCoverage.WARN))
     with caplog.at_level(logging.WARNING, logger="terp.core"):
         assert create_app([spec], control_plane=warn).title == "Terp app"
-    assert "files:/" in caplog.text
+    assert "files:GET /" in caplog.text
     assert "WARN" in caplog.text
 
     # OFF is silent about the same app: the two settings are distinguishable.
@@ -581,3 +600,75 @@ def test_warn_coverage_reports_what_strict_would_refuse(caplog) -> None:
     with caplog.at_level(logging.WARNING, logger="terp.core"):
         create_app([spec], control_plane=ControlPlane())
     assert caplog.text == ""
+
+
+def test_strict_coverage_is_satisfied_by_a_fully_annotated_app() -> None:
+    """The behaviour strict-as-default rests on, and the only one not previously tested.
+
+    Both earlier STRICT tests asserted a refusal. A validator that refused every app —
+    the trivially over-strict failure — would have passed both of them, and would have
+    made STRICT unusable as a default the moment it was flipped.
+    """
+    spec = ModuleSpec(
+        name="files", router=_declaring_router(_FILES_DELETE), policy=Policy.default()
+    )
+    strict = ControlPlane(
+        operations=OperationCatalog(
+            operations=(_FILES_DELETE,), coverage=OperationCoverage.STRICT
+        )
+    )
+    assert create_app([spec], control_plane=strict).title == "Terp app"
+
+
+def test_a_websocket_route_is_held_to_both_halves_of_the_control() -> None:
+    """A WebSocket route is mounted, callable surface and must be explained like any other.
+
+    It used to escape both halves, because the walk yielded only ``APIRoute``: an
+    undeclared WebSocket passed STRICT, and an operation absent from the catalog was
+    accepted there while the *identical* declaration was refused on a ``GET`` — so the
+    guarantee described as unconditional was conditional on the route class. This is not
+    hypothetical surface: `terp.capabilities.realtime` ships one on its module router.
+    """
+    from fastapi import APIRouter, WebSocket
+
+    from terp.core import operation
+
+    plain = APIRouter()
+
+    @plain.websocket("/ws")
+    async def socket(websocket: WebSocket) -> None: ...
+
+    spec = ModuleSpec(name="rt", router=plain, policy=Policy.default())
+    strict = ControlPlane(
+        operations=OperationCatalog(coverage=OperationCoverage.STRICT)
+    )
+    with pytest.raises(BootError, match="rt:WS /ws"):
+        create_app([spec], control_plane=strict)
+
+    # The no-drift half applies to it too, with coverage left OFF so this refusal
+    # cannot be the coverage check in disguise.
+    ghost = OperationDefinition(id="ghost.op", label="Not in the catalog")
+    drifting = APIRouter()
+
+    @drifting.websocket("/ws")
+    @operation(ghost)
+    async def drift(websocket: WebSocket) -> None: ...
+
+    spec2 = ModuleSpec(name="rt", router=drifting, policy=Policy.default())
+    with pytest.raises(BootError, match="not the entry registered"):
+        create_app([spec2], control_plane=ControlPlane())
+
+
+def test_operation_refuses_an_argument_that_is_not_a_definition() -> None:
+    """A mistyped argument must fail where it is written, not go silently undeclared.
+
+    Stamping whatever was passed meant `declared_operation` discarded it for failing its
+    type check, so the route declared nothing at all — invisible under permissive
+    coverage, and under STRICT a boot refusal naming the route rather than the mistake.
+    """
+    from terp.core import operation
+
+    with pytest.raises(TypeError, match="OperationDefinition"):
+        operation("files.delete")
+    with pytest.raises(TypeError, match="OperationDefinition"):
+        operation(None)

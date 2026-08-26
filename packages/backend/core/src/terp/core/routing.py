@@ -196,6 +196,18 @@ def operation(definition: OperationDefinition) -> Callable[[_Endpoint], _Endpoin
     about who may call it, and this is not a way to widen or restrict access.
     """
 
+    if not isinstance(definition, OperationDefinition):
+        # Refuse at decoration time, which is import time. Stamping whatever was handed
+        # over meant `declared_operation` then discarded it for failing its isinstance
+        # check, so a mistyped argument left the route declaring *nothing* — silently
+        # under permissive coverage, and as a boot refusal naming the route rather than
+        # the mistake under STRICT. Neither tells the author what they actually did.
+        raise TypeError(
+            "terp.core.operation(...) takes an OperationDefinition from the control "
+            f"plane's catalog, got {type(definition).__name__}. Reference the catalog "
+            "constant rather than a string or a locally built object."
+        )
+
     def decorate(endpoint: _Endpoint) -> _Endpoint:
         setattr(endpoint, OPERATION_ATTRIBUTE, definition)
         return endpoint

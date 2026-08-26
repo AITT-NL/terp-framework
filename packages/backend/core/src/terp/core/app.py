@@ -24,7 +24,7 @@ from typing import get_args, get_origin, get_type_hints
 from fastapi import APIRouter, Depends, FastAPI, Request
 from starlette.requests import HTTPConnection
 from fastapi.responses import JSONResponse
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, APIWebSocketRoute
 from pydantic import BaseModel
 from sqlalchemy import Engine
 from sqlmodel import Session, SQLModel
@@ -674,6 +674,43 @@ def _validate_policy_write_tiers(specs: Sequence[ModuleSpec]) -> None:
             )
 
 
+def _route_label(spec: ModuleSpec, route: object) -> str:
+    """Name one route so a reader can find it: module, method(s) and path.
+
+    The path alone is ambiguous — a CRUD module has five routes across two paths, so a
+    report keyed on the path told the reader three strings for five missing
+    declarations and never which one to fix.
+    """
+    methods = sorted(getattr(route, "methods", None) or ())
+    verb = ",".join(methods) if methods else "WS"
+    return f"{spec.name}:{verb} {getattr(route, 'path', '?')}"
+
+
+def _iter_declaring_routes(routes: Sequence[object]) -> Iterator[object]:
+    """Every route with an endpoint reachable from *routes*, HTTP or WebSocket.
+
+    Distinct from :func:`_iter_api_routes`, which yields only ``APIRoute`` because its
+    consumers are about response models and HTTP methods. A route's *operation* is not
+    an HTTP concept: ``@router.websocket(...)`` declares a mounted, callable surface
+    that a permission view must explain like any other, and this framework's own
+    realtime capability ships one.
+
+    Yielding only ``APIRoute`` here silently dropped those from both halves of the
+    control — an undeclared WebSocket passed STRICT, and an operation absent from the
+    catalog was accepted on a WebSocket while the identical declaration was refused on
+    a ``GET``. A guarantee described as unconditional cannot be conditional on the
+    route class.
+    """
+    for route in routes:
+        if isinstance(route, APIRoute | APIWebSocketRoute):
+            yield route
+            continue
+        nested = getattr(route, "original_router", None) or route
+        sub = getattr(nested, "routes", None)
+        if sub:
+            yield from _iter_declaring_routes(sub)
+
+
 def _validate_declared_operations(
     specs: Sequence[ModuleSpec], catalog: OperationCatalog
 ) -> None:
@@ -696,10 +733,10 @@ def _validate_declared_operations(
     for spec in specs:
         if spec.router is None:
             continue
-        for route in _iter_api_routes(spec.router.routes):
+        for route in _iter_declaring_routes(spec.router.routes):
             declared = declared_operation(route.endpoint)
             if declared is None:
-                undeclared.append(f"{spec.name}:{route.path}")
+                undeclared.append(_route_label(spec, route))
                 continue
             if not catalog.has_operation(declared):
                 raise BootError(
