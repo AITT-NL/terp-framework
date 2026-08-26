@@ -500,3 +500,45 @@ def test_access_graph_alarms_undeclared_event_subscribers(monkeypatch) -> None:
     assert alarm["handlers"] == [f"{__name__}.{_ghost_handler.__qualname__}"]
     text = render_access_graph(graph, fmt="text")
     assert "UNDECLARED event subscribers" in text
+
+
+def test_access_graph_carries_a_declared_operation_and_null_without_one() -> None:
+    """The graph reports what a route *does*, so a view need not guess from its name.
+
+    Both halves matter. The declared label is the authored answer a permission view
+    should render; `null` for an undeclared route is what lets that view fall back to
+    the route name deliberately, instead of a missing key being indistinguishable from
+    a route that declined to declare.
+    """
+    from fastapi import APIRouter
+
+    from terp.core import (
+        ControlPlane,
+        ModuleSpec,
+        OperationCatalog,
+        OperationDefinition,
+        Policy,
+        operation,
+    )
+
+    delete_op = OperationDefinition(id="widgets.delete", label="Delete a widget")
+    router = APIRouter()
+
+    @router.delete("/{widget_id}", status_code=204)
+    @operation(delete_op)
+    def remove(widget_id: str) -> None: ...
+
+    @router.get("/", response_model=str)
+    def undeclared() -> str:
+        return "x"
+
+    spec = ModuleSpec(name="widgets", router=router, policy=Policy.default())
+    plane = ControlPlane(operations=OperationCatalog(operations=(delete_op,)))
+    graph = build_access_graph(plane, [spec])
+
+    endpoints = {
+        tuple(e["methods"]): e for e in graph["modules"][0]["endpoints"]
+    }
+    declared = endpoints[("DELETE",)]["operation"]
+    assert declared == {"id": "widgets.delete", "label": "Delete a widget"}
+    assert endpoints[("GET",)]["operation"] is None

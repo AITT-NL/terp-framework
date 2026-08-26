@@ -449,8 +449,10 @@ endpoint *does* and the platform can guarantee every route is explained.
       boot validator. No-drift is unconditional and value-matched; coverage is
       per-app `off` / `warn` / `strict` and defaults to off, so nothing observable
       changes for an existing app.
-- [ ] Phase 3 — **the Studio viewer**: the first user-visible value, and what
-      unblocks 1.5.
+- [~] Phase 3 — **the Studio viewer**: the first user-visible value, and what
+      unblocks 1.5. `terp inspect access` now carries each route's declared
+      operation (`null` where a route declares none, so a view can fall back to the
+      route name deliberately); the Studio side is not started.
 - [ ] Phase 4 — the operation feeds OpenAPI `summary` / `operation_id`, giving the
       declaration a second reader.
 - [ ] Phase 5 — annotate the framework's own routes, `_CLEAN_CAPS` first since those

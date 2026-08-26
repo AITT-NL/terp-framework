@@ -41,7 +41,11 @@ from terp.core import (
     SoftDeleteMixin,
 )
 from terp.core.object_authz import registered_object_authz_predicates
-from terp.core.routing import MUTATING_METHODS, required_permission
+from terp.core.routing import (
+    MUTATING_METHODS,
+    declared_operation,
+    required_permission,
+)
 from terp.core.scoping import registered_scope_predicates
 
 
@@ -104,6 +108,7 @@ def _endpoint_json(spec: ModuleSpec, route: APIRoute) -> dict[str, object]:
         requirement = (
             policy.write_requirement.label if is_write else policy.read_requirement.label
         )
+    declared = declared_operation(route.endpoint)
     return {
         "path": f"/api/v1/{spec.name}{route.path}",
         "methods": methods,
@@ -111,6 +116,16 @@ def _endpoint_json(spec: ModuleSpec, route: APIRoute) -> dict[str, object]:
         "requirement": requirement,
         "extra_permissions": _route_permissions(route),
         "name": route.name,
+        # The declared operation (ADR 0102), or null where the route declares none.
+        # A view that renders "what this endpoint does" needs the authored answer when
+        # there is one and must fall back to the route name when there is not, so the
+        # absence is reported as null rather than omitted — a missing key and a
+        # declined declaration would otherwise be indistinguishable.
+        "operation": (
+            None
+            if declared is None
+            else {"id": declared.id, "label": declared.label}
+        ),
     }
 
 
