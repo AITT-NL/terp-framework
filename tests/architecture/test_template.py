@@ -651,3 +651,55 @@ def test_frontend_serves_document_security_headers() -> None:
             f"{config.name}: 'unsafe-inline' is back in the policy — react-core's "
             "adopted stylesheet means no part of the page requires it"
         )
+
+
+def test_dev_server_holds_the_same_origin_rules_as_production() -> None:
+    # Production serves a strict policy; a dev server with none means a
+    # CSP-incompatible pattern — an agent reaching for a CDN chart library is the
+    # motivating case — works all the way to deploy before anything objects. The
+    # dev policy therefore keeps production's *origin* rules exactly, and relaxes
+    # only what Vite's own machinery forces: the Fast Refresh preamble is an
+    # inline script and imported CSS arrives as an injected <style>.
+    #
+    # Measured against a running dev server rather than assumed: a CDN script, an
+    # external stylesheet and a cross-origin fetch are each refused, and HMR still
+    # reports "[vite] connected." under `connect-src 'self'` with no `ws:`.
+    for config in (
+        _PROJECT / "frontend" / "vite.config.ts",
+        pathlib.Path(__file__).resolve().parents[2] / "apps/example/frontend/vite.config.ts",
+    ):
+        source = config.read_text(encoding="utf-8")
+        assert "Content-Security-Policy" in source, f"{config}: dev server sets no policy"
+        policy = source[source.index("devContentSecurityPolicy = [") :]
+        policy = policy[: policy.index("].join")]
+
+        for directive in (
+            '"default-src \'self\'"',
+            '"connect-src \'self\'"',
+            '"object-src \'none\'"',
+            '"frame-ancestors \'none\'"',
+        ):
+            assert directive in policy, f"{config}: dev policy is missing {directive}"
+
+        # `connect-src` must not widen to a scheme: 'self' already covers the HMR
+        # socket, and `ws:` would allow a socket to any host.
+        assert "ws:" not in policy, f"{config}: connect-src widened to ws: — 'self' suffices"
+
+        # No third-party origin, and no wildcard, anywhere in the dev policy: the
+        # whole point is that dev refuses what production refuses.
+        assert "http://" not in policy and "https://" not in policy, (
+            f"{config}: a third-party origin is allowed in dev but not in production"
+        )
+        assert "*" not in policy, f"{config}: a wildcard origin defeats the parity"
+
+        # The two dev-only relaxations, and *only* those two.
+        relaxed = [
+            line.split('"')[1]
+            for line in policy.splitlines()
+            if "'unsafe-inline'" in line and line.strip().startswith('"')
+        ]
+        assert sorted(relaxed) == [
+            "script-src 'self' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline'",
+        ], f"{config}: 'unsafe-inline' reaches directives beyond script/style: {relaxed}"
+        assert "'unsafe-eval'" not in policy, f"{config}: 'unsafe-eval' is never needed here"

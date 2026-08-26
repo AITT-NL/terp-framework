@@ -117,6 +117,38 @@ default without its author doing anything.
 Hashed bundle responses are not documents, so a CSP on them governs nothing. `nosniff` still
 earns its place: it stops a mistyped bundle being reinterpreted as something executable.
 
+### 4. The dev server holds the same origin rules — added 2026-08-26
+
+A strict policy in production and none in development means a CSP-incompatible pattern works all
+the way to deploy before anything objects. The motivating case is concrete: an agent reaching for
+a CDN chart library because that is how the wider ecosystem does it. Under the shipped
+arrangement that worked in development, passed review, and broke in production.
+
+The Vite dev server therefore serves the **same origin rules** as production. Measured against a
+running dev server in Chromium, the parity is real where it matters:
+
+| attempt from the page | dev server |
+|---|---|
+| `<script src="https://cdn.jsdelivr.net/…">` | refused — `script-src-elem` |
+| `<link rel=stylesheet href="https://fonts.googleapis.com/…">` | refused — `style-src-elem` |
+| `fetch("https://example.com/collect")` | refused — `connect-src` |
+
+Two relaxations are dev-only and forced by Vite's own machinery rather than by app code: the React
+Fast Refresh preamble is an inline script, and Vite serves imported CSS by injecting a `<style>`
+element. Starting from the production policy, the dev server rendered nothing at all — an inline
+`script-src-elem` violation — so `'unsafe-inline'` is granted to `script-src` and `style-src`
+there and nowhere else.
+
+**That asymmetry is the honest limit of this parity.** Development cannot catch a newly added
+inline script or style, because it cannot distinguish one from Vite's own. Production still does.
+What development now catches is every third-party origin, which is the failure mode that actually
+occurs.
+
+`connect-src` stays `'self'` rather than widening to `ws:`. `'self'` already covers the HMR socket
+— measured: the client logs "[vite] connected." with `'self'` alone — and `ws:` would permit a
+socket to any host. The gate asserts the narrower form, because the broader one is the plausible
+thing to reach for when HMR misbehaves for an unrelated reason.
+
 ## Consequences
 
 - **Every newly scaffolded app is hardened by default**, with no action by an app author who could
@@ -127,12 +159,9 @@ earns its place: it stops a mistyped bundle being reinterpreted as something exe
   nginx, and the shipped config is gated statically, but nothing in the suite asserts the header on
   a running production stack. The conformance suite cannot host that probe today: it targets the
   vite dev server by default, which sets none of these.
-- **One follow-up remains.** Giving the vite dev server a matching policy would close the
-  dev/prod parity gap — an agent adding a CDN script would then fail immediately instead of at
-  deploy — but vite's HMR needs websocket and inline-script allowances, so it needs its own
-  measurement cycle. A smoke probe against the production compose stack would also automate what
-  was verified by hand here. The `'unsafe-inline'` removal that was recorded here as a follow-up
-  is done, in §2.
+- **One follow-up remains:** a smoke probe against the production compose stack, to automate what
+  was verified by hand here. Both other follow-ups recorded in earlier revisions of this ADR are
+  done — the `'unsafe-inline'` removal in §2, and dev/prod parity in §4.
 - **The same gap exists in the Studio's own document.** `terp-studio` serves its SPA through
   FastAPI's `StaticFiles` and sets a CSP only on user-uploaded attachment downloads
   (`sandbox; default-src 'none'`, which is correct and worth keeping). Its own document has none.
