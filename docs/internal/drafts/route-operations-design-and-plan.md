@@ -62,13 +62,22 @@ the feature commits small.
       regeneration for existing apps, not a code migration, since only the generated client keys
       off those ids. Mutation-checked: removing the `name=` arguments fails with
       `{'create_item', ...} == {'create_project', ...}`.
-- [ ] **1.4 One route-discovery helper in `terp.arch`.** Several rule modules
+- [~] **1.4 One route-discovery helper in `terp.arch`.** *(partly done)* Several rule modules
       (`http`, `authz`, `occ`, `persistence`, over `_support`) each walk the AST for route
       decorators and `add_api_route` calls. Extract one iterator yielding
       (module, registration node, handler node, methods, factory-or-decorator) and move the existing
       rules onto it. Do this **before** adding the two new rules, not after.
       *Gate:* every existing route rule keeps its current findings on the example app and on the
       spec corpus — this is a refactor, so the corpus results are the assertion.
+      *Progress:* `iter_route_registrations` + `RouteRegistration` live in `_support.py`, and
+      `routes_declare_response_model` and `list_routes_paginate` are migrated, each verified
+      against the corpus and the harness. Migrating the walk found a real inconsistency worth
+      recording: those two rules had drifted to accept *different* decorator sets — one took
+      `api_route`, the other did not — without anyone deciding they should. Both keep their
+      existing surface (now named `_PAGINATED_ROUTE_VERBS` and the body-verb filter), because
+      changing which routes a security rule governs is not a refactor.
+      *Still to migrate:* `response_model_not_table_model`, `path_id_params_are_uuid`,
+      `_safe_reachable_handlers` in `http.py`, and `_has_mutating_route` in `authz.py`.
 - [ ] **1.5 Drop the method-derived `kind` from the access graph.** Blocked on the Studio no longer
       rendering it (phase 3), so this is the *last* item of phase 1 in time even though it belongs
       here in spirit. Removes the field from `_endpoint_json` and from `_render_access_text`.

@@ -27,6 +27,98 @@ _POLICY_AUTHZ_KEYWORDS = frozenset({"read", "write", "read_role", "write_role"})
 # module ``Policy`` must require a write tier above the read floor (VIEWER).
 _MUTATING_HTTP_METHODS = frozenset({"post", "put", "patch", "delete"})
 
+
+# Every attribute a route decorator can carry across the rules in this package:
+# the body verbs, the two extra safe verbs `safe_methods_are_read_only` inspects,
+# and `api_route`. Yielded together on purpose — each rule filters to the forms it
+# governs, so the *shapes* are found once here while the *policy* stays in the rule.
+_ROUTE_DECORATOR_ATTRS = _HTTP_METHODS | frozenset({"head", "options", "api_route"})
+
+
+@dataclass(frozen=True)
+class RouteRegistration:
+    """One place a module registers an HTTP route, in either form the platform allows.
+
+    A module may declare a route with a decorator (``@router.get("/x")``) or
+    imperatively (``router.add_api_route("/x", handler, ...)``), and a rule that
+    checks only the first is silently blind to half the surface. Every route rule
+    therefore had to walk the tree for both shapes itself, and that walk was written
+    out five times in ``http.py`` alone plus once in ``authz.py`` — which is how
+    ``routes_declare_response_model`` and ``list_routes_paginate`` came to accept
+    slightly different decorator sets without anyone deciding they should.
+
+    ``verb`` is the decorator's attribute (``get`` / ``api_route`` / …) and is
+    ``None`` for the imperative form, so a rule still decides for itself which forms
+    it governs.
+    """
+
+    lineno: int
+    keywords: tuple[ast.keyword, ...]
+    handler: ast.FunctionDef | ast.AsyncFunctionDef | None
+    verb: str | None
+    path: str | None
+
+    @property
+    def imperative(self) -> bool:
+        """Whether this route was registered through ``add_api_route``."""
+        return self.verb is None
+
+    @property
+    def label(self) -> str:
+        """What a violation message should call this route.
+
+        The handler's name where there is one, because that is what the author will
+        search for; otherwise the literal path, and ``<route>`` when even that is
+        computed — the same fallback the hand-written walks used.
+        """
+        if self.handler is not None:
+            return self.handler.name
+        return self.path if self.path is not None else "<route>"
+
+
+def _first_literal_path(args: list[ast.expr]) -> str | None:
+    """The route's path when it is a literal, else ``None`` (a computed path)."""
+    if args and isinstance(args[0], ast.Constant) and isinstance(args[0].value, str):
+        return args[0].value
+    return None
+
+
+def iter_route_registrations(tree: ast.AST) -> Iterable[RouteRegistration]:
+    """Yield every HTTP route *tree* registers, in either form.
+
+    Order is ``ast.walk`` order, which is what the hand-written walks produced, so a
+    rule's findings keep the sequence they had.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            for decorator in node.decorator_list:
+                if not isinstance(decorator, ast.Call):
+                    continue
+                if not isinstance(decorator.func, ast.Attribute):
+                    continue
+                if decorator.func.attr not in _ROUTE_DECORATOR_ATTRS:
+                    continue
+                yield RouteRegistration(
+                    lineno=decorator.lineno,
+                    keywords=tuple(decorator.keywords),
+                    handler=node,
+                    verb=decorator.func.attr,
+                    path=_first_literal_path(decorator.args),
+                )
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_api_route"
+        ):
+            yield RouteRegistration(
+                lineno=node.lineno,
+                keywords=tuple(node.keywords),
+                handler=None,
+                verb=None,
+                path=_first_literal_path(node.args),
+            )
+
+
 # Raw session-write verbs and the conventional session variable names a module
 # would call them on. ``mutations_emit_audit`` flags ``session.commit()`` and
 # friends so every persistence goes through the audited ``BaseService`` chokepoint.

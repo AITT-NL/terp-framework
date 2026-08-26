@@ -434,8 +434,11 @@ endpoint *does* and the platform can guarantee every route is explained.
 - [x] 1.2 Route-level markers live together in `terp.core.routing`.
 - [x] 1.3 `build_crud_router` names its routes after the entity, not `item` — which
       also fixed every factory-built module's OpenAPI `operationId`.
-- [ ] 1.4 One route-discovery helper in `terp.arch`, before a nineteenth route rule
-      extends the duplication instead of sharing it.
+- [~] 1.4 One route-discovery helper in `terp.arch` — `iter_route_registrations` is in
+      `_support.py` and `routes_declare_response_model` + `list_routes_paginate` are on
+      it. Four hand-written walks remain in `http.py` and one in `authz.py`
+      (`grep -c decorator_list` counts them); the next new route rule can use the helper
+      regardless, which was the point.
 - [ ] 1.5 Drop the method-derived `kind` from the access graph — waits on the Studio
       viewer no longer rendering it.
 - [ ] Phases 2–6: the core seam, the Studio viewer, OpenAPI wiring, annotating the

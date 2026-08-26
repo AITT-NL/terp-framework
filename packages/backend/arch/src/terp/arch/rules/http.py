@@ -15,6 +15,7 @@ from terp.arch._ast import base_name, iter_python_files, parse
 from terp.arch.rules._support import (
     ArchViolation,
     _HTTP_METHODS,
+    iter_route_registrations,
     _is_table_model_class,
     _rel,
 )
@@ -75,52 +76,30 @@ def check_routes_declare_response_model(
     for path in iter_python_files(root):
         tree = parse(path)
         rel = _rel(path, root)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                for decorator in node.decorator_list:
-                    if not isinstance(decorator, ast.Call):
-                        continue
-                    func = decorator.func
-                    if not isinstance(func, ast.Attribute) or func.attr not in _HTTP_METHODS:
-                        continue
-                    has_response_model, no_body_status = _route_declares_response(
-                        decorator.keywords
-                    )
-                    if not has_response_model and not no_body_status:
-                        violations.append(
-                            ArchViolation(
-                                "routes_declare_response_model",
-                                rel,
-                                decorator.lineno,
-                                f"route {node.name!r} declares no response_model and is not a "
-                                "no-body status (204/205/304); a bare ORM/data object must not "
-                                "leave the API boundary -- declare response_model= or set a "
-                                "no-body status_code",
-                            )
-                        )
-            elif (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "add_api_route"
-            ):
-                has_response_model, no_body_status = _route_declares_response(node.keywords)
-                if not has_response_model and not no_body_status:
-                    path_arg = (
-                        node.args[0].value
-                        if node.args and isinstance(node.args[0], ast.Constant)
-                        else "<route>"
-                    )
-                    violations.append(
-                        ArchViolation(
-                            "routes_declare_response_model",
-                            rel,
-                            node.lineno,
-                            f"imperative route {path_arg!r} (add_api_route) declares no "
-                            "response_model and is not a no-body status (204/205/304); a bare "
-                            "ORM/data object must not leave the API boundary -- declare "
-                            "response_model= or set a no-body status_code",
-                        )
-                    )
+        for route in iter_route_registrations(tree):
+            # Body verbs only, as before: `api_route` and the extra safe verbs are
+            # not this rule's surface.
+            if route.verb is not None and route.verb not in _HTTP_METHODS:
+                continue
+            has_response_model, no_body_status = _route_declares_response(
+                list(route.keywords)
+            )
+            if has_response_model or no_body_status:
+                continue
+            detail = (
+                f"imperative route {route.label!r} (add_api_route) declares no "
+                "response_model and is not a no-body status (204/205/304); a bare "
+                "ORM/data object must not leave the API boundary -- declare "
+                "response_model= or set a no-body status_code"
+                if route.imperative
+                else f"route {route.label!r} declares no response_model and is not a "
+                "no-body status (204/205/304); a bare ORM/data object must not "
+                "leave the API boundary -- declare response_model= or set a "
+                "no-body status_code"
+            )
+            violations.append(
+                ArchViolation("routes_declare_response_model", rel, route.lineno, detail)
+            )
     return violations
 
 
@@ -225,6 +204,10 @@ def _is_unpaginated_collection(value: ast.expr) -> bool:
     return base_name(value) in _COLLECTION_RESPONSE_TYPES
 
 
+#: The verbs `list_routes_paginate` governs: a body verb, or an explicit `api_route`.
+_PAGINATED_ROUTE_VERBS = _HTTP_METHODS | frozenset({"api_route"})
+
+
 def _is_route_decorator(func: ast.expr) -> bool:
     """True for the route decorator forms this rule owns (method shortcuts + api_route)."""
     return isinstance(func, ast.Attribute) and (
@@ -251,53 +234,29 @@ def check_list_routes_paginate(
     for path in iter_python_files(root):
         tree = parse(path)
         rel = _rel(path, root)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                for decorator in node.decorator_list:
-                    if not isinstance(decorator, ast.Call):
-                        continue
-                    func = decorator.func
-                    if not _is_route_decorator(func):
-                        continue
-                    for keyword in decorator.keywords:
-                        if keyword.arg == "response_model" and _is_unpaginated_collection(
-                            keyword.value
-                        ):
-                            violations.append(
-                                ArchViolation(
-                                    "list_routes_paginate",
-                                    rel,
-                                    decorator.lineno,
-                                    f"route {node.name!r} returns a bare collection "
-                                    "response_model (an unbounded list); return a capped "
-                                    "terp.core.Page[...] (with PaginationDep) so a list can "
-                                    "never serialize unbounded rows",
-                                )
-                            )
-            elif (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "add_api_route"
-            ):
-                for keyword in node.keywords:
-                    if keyword.arg == "response_model" and _is_unpaginated_collection(
-                        keyword.value
-                    ):
-                        path_arg = (
-                            node.args[0].value
-                            if node.args and isinstance(node.args[0], ast.Constant)
-                            else "<route>"
-                        )
-                        violations.append(
-                            ArchViolation(
-                                "list_routes_paginate",
-                                rel,
-                                node.lineno,
-                                f"imperative route {path_arg!r} (add_api_route) returns a bare "
-                                "collection response_model (an unbounded list); return a capped "
-                                "terp.core.Page[...] instead",
-                            )
-                        )
+        for route in iter_route_registrations(tree):
+            # This rule governs the body verbs and `api_route`, as it always has;
+            # `head` / `options` carry no collection to paginate.
+            if route.verb is not None and route.verb not in _PAGINATED_ROUTE_VERBS:
+                continue
+            for keyword in route.keywords:
+                if keyword.arg != "response_model":
+                    continue
+                if not _is_unpaginated_collection(keyword.value):
+                    continue
+                detail = (
+                    f"imperative route {route.label!r} (add_api_route) returns a bare "
+                    "collection response_model (an unbounded list); return a capped "
+                    "terp.core.Page[...] instead"
+                    if route.imperative
+                    else f"route {route.label!r} returns a bare collection "
+                    "response_model (an unbounded list); return a capped "
+                    "terp.core.Page[...] (with PaginationDep) so a list can "
+                    "never serialize unbounded rows"
+                )
+                violations.append(
+                    ArchViolation("list_routes_paginate", rel, route.lineno, detail)
+                )
     return violations
 
 
