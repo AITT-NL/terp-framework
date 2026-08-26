@@ -41,7 +41,7 @@ from terp.core import (
     SoftDeleteMixin,
 )
 from terp.core.object_authz import registered_object_authz_predicates
-from terp.core.routing import MUTATING_METHODS
+from terp.core.routing import MUTATING_METHODS, required_permission
 from terp.core.scoping import registered_scope_predicates
 
 
@@ -54,10 +54,6 @@ _API_PREFIX = "/api/v1/"
 _HTTP_METHODS = frozenset(
     {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 )
-
-# The attribute the access capability stamps on a ``require_permission(...)``
-# dependency so route-level grants are detectable here (a marker, not a control).
-PERMISSION_DEPENDENCY_ATTR = "__terp_required_permission__"
 
 
 def _policy_json(spec: ModuleSpec) -> dict[str, object] | None:
@@ -80,13 +76,17 @@ def _policy_json(spec: ModuleSpec) -> dict[str, object] | None:
 
 
 def _route_permissions(route: APIRoute) -> list[str]:
-    """Route-level ``require_permission`` names, where the dependency is marked."""
+    """Route-level ``require_permission`` names, where the dependency is marked.
+
+    The marker is stamped by the access capability and named in
+    ``terp.core.routing`` — this reads it through that module's accessor rather
+    than knowing the attribute name, which used to be declared here in the
+    reader rather than beside the writer.
+    """
     found: list[str] = []
     for depends in route.dependencies:
-        name = getattr(
-            getattr(depends, "dependency", None), PERMISSION_DEPENDENCY_ATTR, None
-        )
-        if isinstance(name, str):
+        name = required_permission(getattr(depends, "dependency", None))
+        if name is not None:
             found.append(name)
     return found
 
@@ -473,7 +473,6 @@ def render_access(
 
 
 __all__ = [
-    "PERMISSION_DEPENDENCY_ATTR",
     "build_access_graph",
     "build_access_graph_for_app",
     "render_access",

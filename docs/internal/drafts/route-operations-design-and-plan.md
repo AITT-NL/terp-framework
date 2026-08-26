@@ -31,14 +31,18 @@ routes, and the subset held to zero opt-outs by `_CLEAN_CAPS` is the part that c
 None of these need the operation seam, and each is independently verifiable. Doing them first keeps
 the feature commits small.
 
-- [ ] **1.1 One HTTP-method vocabulary.** `_MUTATING_METHODS` is declared in
+- [x] **1.1 One HTTP-method vocabulary.** *(done)* `_MUTATING_METHODS` is declared in
       `terp.core.app` and again in `terp.cli.access`, whose comment already concedes it "mirrors the
       kernel guard's method split (terp.core.app)". Export the split from core; have the CLI import
       it. Leave `terp.arch.rules._support`'s copy alone — it is a *source-form* vocabulary
       (lowercase decorator attribute names), genuinely a different thing from runtime HTTP verbs.
-      *Gate:* a test that the CLI's classification and the kernel guard's agree for every method,
-      mutation-checked by adding a verb to one side only.
-- [ ] **1.2 Route markers live together.** `PERMISSION_DEPENDENCY_ATTR` is defined in
+      *Outcome:* the copies had already drifted into a reachable privilege-tier escape — the guard
+      authorized every non-mutating method at the read tier while the binder marked only
+      GET/HEAD/OPTIONS read-only, so a TRACE route could write. Fixed by phrasing the split as one
+      negation. A same-set agreement test would have been vacuous once the constant is shared, so
+      the gate is the behavioural one: a write behind TRACE is refused (mutation-checked — reverting
+      the binder gives `assert 200 == 500`).
+- [x] **1.2 Route markers live together.** *(done)* `PERMISSION_DEPENDENCY_ATTR` is defined in
       `terp.cli.access` but stamped in `terp.capabilities.access.deps`; `READ_ONLY_ATTRIBUTE` is
       correctly in `terp.core.routing` beside its reader. Move the permission marker name to
       `terp.core.routing` and have both the capability and the CLI import it, so the third marker

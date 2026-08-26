@@ -98,4 +98,40 @@ def is_read_only(endpoint: object | None) -> bool:
     return bool(getattr(endpoint, READ_ONLY_ATTRIBUTE, False))
 
 
-__all__ = ["MUTATING_METHODS", "READ_ONLY_ATTRIBUTE", "is_read_only", "read_only"]
+#: The attribute :func:`mark_required_permission` stamps on a route dependency.
+#: Read through :func:`required_permission`; the name is this module's detail.
+REQUIRED_PERMISSION_ATTRIBUTE = "__terp_required_permission__"
+
+
+def mark_required_permission(dependency: _Endpoint, permission_name: str) -> _Endpoint:
+    """Mark *dependency* as gating a route on *permission_name*.
+
+    An **introspection marker, never a control**: the dependency the access
+    capability builds does the enforcing, and this only makes the requirement
+    legible to ``terp inspect access`` so a route-level grant appears in the
+    access graph. Stamping it through this function rather than assigning the
+    attribute inline keeps the name in one place — the capability that writes it
+    and the CLI that reads it live in different packages, and the name used to be
+    declared in the reader.
+    """
+
+    setattr(dependency, REQUIRED_PERMISSION_ATTRIBUTE, permission_name)
+    return dependency
+
+
+def required_permission(dependency: object | None) -> str | None:
+    """The permission *dependency* gates on, or ``None`` if it gates on none."""
+
+    name = getattr(dependency, REQUIRED_PERMISSION_ATTRIBUTE, None)
+    return name if isinstance(name, str) else None
+
+
+__all__ = [
+    "MUTATING_METHODS",
+    "READ_ONLY_ATTRIBUTE",
+    "REQUIRED_PERMISSION_ATTRIBUTE",
+    "is_read_only",
+    "mark_required_permission",
+    "read_only",
+    "required_permission",
+]

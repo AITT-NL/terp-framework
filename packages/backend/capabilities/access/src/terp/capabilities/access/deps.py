@@ -31,6 +31,7 @@ from terp.core import (
     Principal,
     SessionDep,
     get_principal,
+    mark_required_permission,
     register_permission_projector,
 )
 
@@ -59,8 +60,7 @@ def require_permission(permission: str | Permission) -> Callable[..., None]:
 
     # Introspection marker (never a control): `terp inspect access` reads this to
     # surface route-level permission requirements in the access graph.
-    dependency.__terp_required_permission__ = permission_name  # type: ignore[attr-defined]
-    return dependency
+    return mark_required_permission(dependency, permission_name)
 
 
 def enforce_permission(

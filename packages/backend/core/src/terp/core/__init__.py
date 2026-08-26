@@ -150,7 +150,11 @@ from terp.core.permissions import (
     project_permissions,
     register_permission_projector,
 )
-from terp.core.routing import read_only
+from terp.core.routing import (
+    mark_required_permission,
+    read_only,
+    required_permission,
+)
 from terp.core.scheduling import (
     ScheduleCatalog,
     ScheduleDefinition,
@@ -312,6 +316,7 @@ __all__ = [
     "lease_reaper_for",
     "mark_durable_job_queue",
     "mark_durable_lease_store",
+    "mark_required_permission",
     "mark_shared_cache_store",
     "mark_shared_idempotency_store",
     "mark_shared_throttle_store",
@@ -329,6 +334,7 @@ __all__ = [
     "release_lease",
     "renew_lease",
     "request_id_ctx",
+    "required_permission",
     "resolve_all_migration_trees",
     "resolve_migration_target",
     "resolve_migration_trees",
