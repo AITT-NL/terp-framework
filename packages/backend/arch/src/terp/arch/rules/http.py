@@ -204,15 +204,11 @@ def _is_unpaginated_collection(value: ast.expr) -> bool:
     return base_name(value) in _COLLECTION_RESPONSE_TYPES
 
 
-#: The verbs `list_routes_paginate` governs: a body verb, or an explicit `api_route`.
-_PAGINATED_ROUTE_VERBS = _HTTP_METHODS | frozenset({"api_route"})
-
-
-def _is_route_decorator(func: ast.expr) -> bool:
-    """True for the route decorator forms this rule owns (method shortcuts + api_route)."""
-    return isinstance(func, ast.Attribute) and (
-        func.attr in _HTTP_METHODS or func.attr == "api_route"
-    )
+#: The decorator attributes that register a route carrying a declarable response or
+#: a URL template: a body verb, or an explicit ``api_route``. The rules below filter
+#: `RouteRegistration.verb` against this; the predicate that used to express the same
+#: set over a raw decorator node is gone with its last caller.
+_ROUTE_DECORATOR_VERBS = _HTTP_METHODS | frozenset({"api_route"})
 
 
 def check_list_routes_paginate(
@@ -237,7 +233,7 @@ def check_list_routes_paginate(
         for route in iter_route_registrations(tree):
             # This rule governs the body verbs and `api_route`, as it always has;
             # `head` / `options` carry no collection to paginate.
-            if route.verb is not None and route.verb not in _PAGINATED_ROUTE_VERBS:
+            if route.verb is not None and route.verb not in _ROUTE_DECORATOR_VERBS:
                 continue
             for keyword in route.keywords:
                 if keyword.arg != "response_model":
@@ -268,16 +264,40 @@ _ID_PARAM_RE = re.compile(r"(?:^id$|_id$)")
 _PATH_PARAM_RE = re.compile(r"\{(\w+)(?::[^}]*)?\}")
 
 
-def _route_path_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
-    """The ``{param}`` names declared in *node*'s route-decorator URL templates."""
-    params: set[str] = set()
-    for decorator in node.decorator_list:
-        if not isinstance(decorator, ast.Call) or not _is_route_decorator(decorator.func):
+def _path_params_by_handler(
+    tree: ast.AST,
+) -> dict[ast.FunctionDef | ast.AsyncFunctionDef, set[str]]:
+    """Map each handler to the ``{param}`` names of every route that reaches it.
+
+    Both registration forms count. The imperative form is followed through the
+    endpoint name it passes, which is the only link from ``add_api_route`` back to a
+    signature; an endpoint that is not a plain name (a lambda, an attribute, a
+    computed value) cannot be followed and is skipped rather than guessed at.
+
+    Params are **unioned per handler** rather than checked per registration, so a
+    handler carrying two route decorators that both name ``{note_id}`` is still
+    reported once — the shape the single pre-migration pass produced.
+    """
+    functions = {
+        node.name: node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    params: dict[ast.FunctionDef | ast.AsyncFunctionDef, set[str]] = {}
+    for route in iter_route_registrations(tree):
+        if route.verb is not None and route.verb not in _ROUTE_DECORATOR_VERBS:
             continue
-        if decorator.args and isinstance(decorator.args[0], ast.Constant):
-            template = decorator.args[0].value
-            if isinstance(template, str):
-                params.update(_PATH_PARAM_RE.findall(template))
+        if route.path is None:
+            continue
+        declared = set(_PATH_PARAM_RE.findall(route.path))
+        if not declared:
+            continue
+        handler = route.handler
+        if handler is None and route.endpoint_name is not None:
+            handler = functions.get(route.endpoint_name)
+        if handler is None:
+            continue
+        params.setdefault(handler, set()).update(declared)
     return params
 
 
@@ -301,19 +321,35 @@ def check_path_id_params_are_uuid(
     type gives automatic boundary validation (a 422 on malformed input) instead of
     letting a bad id reach the service. Query / body parameters are out of scope —
     only path params are checked.
+
+    Both registration forms are covered, and every parameter kind is. Neither used to
+    be true, and this is the one route rule with no runtime half to fall back on
+    (``runtime.applicability`` is ``not-applicable`` in the Standard, where the other
+    route rules pair with a fail-closed boot scan), so each omission was a silent
+    hole rather than a slower failure: a route registered through ``add_api_route``
+    was never inspected at all, and a single ``*`` in the signature — making the same
+    parameter keyword-only, which FastAPI serves identically — took the handler out
+    of scope. The other two signature walks in this package
+    (``_support._annotated_session_params_for_function`` and its neighbour) already
+    read ``kwonlyargs``; this one did not.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in iter_python_files(root):
         tree = parse(path)
         rel = _rel(path, root)
+        params_by_handler = _path_params_by_handler(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
-            path_params = _route_path_params(node)
+            path_params = params_by_handler.get(node)
             if not path_params:
                 continue
-            for arg in (*node.args.posonlyargs, *node.args.args):
+            for arg in (
+                *node.args.posonlyargs,
+                *node.args.args,
+                *node.args.kwonlyargs,
+            ):
                 if arg.arg not in path_params or not _ID_PARAM_RE.search(arg.arg):
                     continue
                 if arg.annotation is None:
@@ -363,7 +399,10 @@ def _call_route_methods(keywords: list[ast.keyword]) -> set[str] | None:
     """
     for keyword in keywords:
         if keyword.arg == "methods":
-            if isinstance(keyword.value, ast.List):
+            # A tuple is as literal as a list and FastAPI accepts either, so reading
+            # only `ast.List` sent `methods=("GET",)` down the undeterminable path and
+            # left the route unchecked — a write behind such a GET went unseen.
+            if isinstance(keyword.value, ast.List | ast.Tuple):
                 return {
                     element.value.upper()
                     for element in keyword.value.elts

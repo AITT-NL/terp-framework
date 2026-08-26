@@ -435,10 +435,12 @@ endpoint *does* and the platform can guarantee every route is explained.
 - [x] 1.3 `build_crud_router` names its routes after the entity, not `item` — which
       also fixed every factory-built module's OpenAPI `operationId`.
 - [~] 1.4 One route-discovery helper in `terp.arch` — `iter_route_registrations` is in
-      `_support.py` and `routes_declare_response_model` + `list_routes_paginate` are on
-      it. Four hand-written walks remain in `http.py` and one in `authz.py`
-      (`grep -c decorator_list` counts them); the next new route rule can use the helper
-      regardless, which was the point.
+      `_support.py`, with `routes_declare_response_model`, `list_routes_paginate` and
+      `path_id_params_are_uuid` on it. Migrating the third closed two real coverage
+      holes (see ADR-less commit history); `response_model_not_table_model`,
+      `_safe_reachable_handlers` and `authz._has_mutating_route` still have their own
+      walks. Those three each pair with a fail-closed runtime half, which is why they
+      are lower-risk than the one already done.
 - [ ] 1.5 Drop the method-derived `kind` from the access graph — waits on the Studio
       viewer no longer rendering it.
 - [ ] Phases 2–6: the core seam, the Studio viewer, OpenAPI wiring, annotating the

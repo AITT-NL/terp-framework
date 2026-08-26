@@ -2426,6 +2426,80 @@ def test_list_routes_paginate(tmp_path: pathlib.Path) -> None:
     assert check_list_routes_paginate(app) == []
 
 
+def test_path_id_params_are_uuid_covers_both_forms_and_every_parameter_kind(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The rule follows an imperative registration and reads keyword-only params.
+
+    Neither used to hold, and this is the one route rule with no runtime half to fall
+    back on, so each omission was a silent hole: a route registered through
+    add_api_route was never inspected at all, and one `*` in the signature took the
+    handler out of scope while FastAPI went on serving it identically.
+
+    Each gap is paired with a control that was caught before and after, so a
+    regression reverting the fix cannot leave this test green.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/router.py",
+        "@router.get('/control/{note_id}')\n"
+        "def control(note_id: str) -> NoteRead:\n    return NoteRead()\n"
+        "@router.get('/kwonly/{note_id}')\n"
+        "def kwonly(*, note_id: str) -> NoteRead:\n    return NoteRead()\n"
+        "def imperative(note_id: str) -> NoteRead:\n    return NoteRead()\n"
+        "router.add_api_route('/{note_id}', imperative, methods=['GET'])\n",
+    )
+    flagged = check_path_id_params_are_uuid(app)
+    assert _rule_names(flagged) == {"path_id_params_are_uuid"}
+    assert len(flagged) == 3, f"expected all three shapes flagged, got {flagged}"
+
+    # A handler reached by two route decorators naming the same param is reported
+    # once: params are unioned per handler, not checked per registration.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "@router.get('/a/{note_id}')\n"
+        "@router.get('/b/{note_id}')\n"
+        "def two(note_id: str) -> NoteRead:\n    return NoteRead()\n",
+    )
+    assert len(check_path_id_params_are_uuid(app)) == 1
+
+    # Clean: a correctly typed param stays clean through the imperative form, so
+    # following the endpoint name did not become a blanket accusation; and an
+    # endpoint that is not a plain name cannot be followed and is not guessed at.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "def fine(note_id: uuid.UUID) -> NoteRead:\n    return NoteRead()\n"
+        "router.add_api_route('/{note_id}', fine, methods=['GET'])\n"
+        "router.add_api_route('/{note_id}', make_handler(), methods=['GET'])\n",
+    )
+    assert check_path_id_params_are_uuid(app) == []
+
+
+def test_safe_methods_are_read_only_reads_a_tuple_methods_literal(
+    tmp_path: pathlib.Path,
+) -> None:
+    """`methods=("GET",)` is as determinable as a list, and was treated as unknown.
+
+    A non-literal `methods=` is deliberately undeterminable, so such a route is left
+    unchecked rather than guessed at. A tuple is not that case — FastAPI accepts it
+    and its members are right there — so reading only ast.List sent it down the
+    unknown path and a write behind that GET was never seen.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/router.py",
+        "def leak(session) -> str:\n    return _service.create(session, None)\n"
+        "router.add_api_route('/leak', leak, methods=('GET',))\n",
+    )
+    assert _rule_names(check_safe_methods_are_read_only(app)) == {
+        "safe_methods_are_read_only"
+    }
+
+
 def test_path_id_params_are_uuid(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     # A path param named like a resource id (id / *_id) that also appears in the route's

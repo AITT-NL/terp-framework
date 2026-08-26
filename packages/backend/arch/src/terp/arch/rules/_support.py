@@ -28,11 +28,14 @@ _POLICY_AUTHZ_KEYWORDS = frozenset({"read", "write", "read_role", "write_role"})
 _MUTATING_HTTP_METHODS = frozenset({"post", "put", "patch", "delete"})
 
 
-# Every attribute a route decorator can carry across the rules in this package:
-# the body verbs, the two extra safe verbs `safe_methods_are_read_only` inspects,
-# and `api_route`. Yielded together on purpose — each rule filters to the forms it
-# governs, so the *shapes* are found once here while the *policy* stays in the rule.
-_ROUTE_DECORATOR_ATTRS = _HTTP_METHODS | frozenset({"head", "options", "api_route"})
+# The decorator attributes yielded as route registrations: the body verbs plus
+# `api_route`. Each consuming rule filters further to the forms it governs, so the
+# *shapes* are found once here while the *policy* stays in the rule.
+#
+# `head` / `options` are deliberately absent. Only `safe_methods_are_read_only`
+# inspects them, it still has its own walk, and a member no consumer reads is a
+# field without a reader — it belongs here when that rule migrates, not before.
+_ROUTE_DECORATOR_ATTRS = _HTTP_METHODS | frozenset({"api_route"})
 
 
 @dataclass(frozen=True)
@@ -43,9 +46,13 @@ class RouteRegistration:
     imperatively (``router.add_api_route("/x", handler, ...)``), and a rule that
     checks only the first is silently blind to half the surface. Every route rule
     therefore had to walk the tree for both shapes itself, and that walk was written
-    out five times in ``http.py`` alone plus once in ``authz.py`` — which is how
-    ``routes_declare_response_model`` and ``list_routes_paginate`` came to accept
-    slightly different decorator sets without anyone deciding they should.
+    out five times in ``http.py`` alone plus once in ``authz.py``, and those copies do
+    not all match: ``list_routes_paginate`` governs ``@router.api_route(...)`` and
+    ``routes_declare_response_model`` does not. Nothing in the Standard entry for
+    either rule records that as a decision, and it costs nothing at runtime — both
+    rules pair with a fail-closed boot check that walks every composed route,
+    imperative and nested-router forms included — so the difference is a gap in the
+    *early warning* rather than in the guarantee.
 
     ``verb`` is the decorator's attribute (``get`` / ``api_route`` / …) and is
     ``None`` for the imperative form, so a rule still decides for itself which forms
@@ -57,6 +64,10 @@ class RouteRegistration:
     handler: ast.FunctionDef | ast.AsyncFunctionDef | None
     verb: str | None
     path: str | None
+    #: For the imperative form, the name of the endpoint passed as the second
+    #: argument — the only link back to the handler's signature. ``None`` for a
+    #: decorator (where ``handler`` is already the function) or a computed endpoint.
+    endpoint_name: str | None = None
 
     @property
     def imperative(self) -> bool:
@@ -110,12 +121,14 @@ def iter_route_registrations(tree: ast.AST) -> Iterable[RouteRegistration]:
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "add_api_route"
         ):
+            endpoint = node.args[1] if len(node.args) >= 2 else None
             yield RouteRegistration(
                 lineno=node.lineno,
                 keywords=tuple(node.keywords),
                 handler=None,
                 verb=None,
                 path=_first_literal_path(node.args),
+                endpoint_name=endpoint.id if isinstance(endpoint, ast.Name) else None,
             )
 
 
