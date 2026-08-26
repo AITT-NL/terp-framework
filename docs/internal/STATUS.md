@@ -418,6 +418,56 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 
 ---
 
+## Open work — queued, in order
+
+Two threads are in flight. Detail lives in the linked plan and ADRs; this is the
+index, so nothing is tracked only in a commit message.
+
+**Route operations** — decided in
+[ADR 0102](../decisions/0102-route-operations-are-declared.md), sequenced in
+[route-operations-design-and-plan.md](drafts/route-operations-design-and-plan.md).
+A route declares the operation it performs, so a permission viewer can say what an
+endpoint *does* and the platform can guarantee every route is explained.
+
+- [x] 1.1 One HTTP-method vocabulary — and it had already drifted into a reachable
+      privilege-tier escape, fixed with it.
+- [x] 1.2 Route-level markers live together in `terp.core.routing`.
+- [x] 1.3 `build_crud_router` names its routes after the entity, not `item` — which
+      also fixed every factory-built module's OpenAPI `operationId`.
+- [ ] 1.4 One route-discovery helper in `terp.arch`, before a nineteenth route rule
+      extends the duplication instead of sharing it.
+- [ ] 1.5 Drop the method-derived `kind` from the access graph — waits on the Studio
+      viewer no longer rendering it.
+- [ ] Phases 2–6: the core seam, the Studio viewer, OpenAPI wiring, annotating the
+      framework, then enforcement. Value lands at the viewer; enforcement is last.
+
+**The security-header / CSP track** — decided in
+[ADR 0104](../decisions/0104-the-spa-document-carries-its-own-security-headers.md),
+which is also the first instance found of
+[ADR 0103](../decisions/0103-the-ideology-one-pattern-enforced-escapable-by-proof.md)'s "a control
+implemented only in the backend is half-built".
+
+- [x] The SPA document carries its own headers, in the template and the example app.
+- [x] `'unsafe-inline'` removed from `style-src`, by delivering react-core's token
+      stylesheet through `adoptedStyleSheets` instead of a `<style>` element.
+- [x] The dev server holds production's origin rules, so a third-party resource is
+      refused where it is added rather than at deploy.
+- [ ] A smoke probe against the production compose stack, to automate what was
+      verified by hand against a live nginx.
+- [ ] **In `terp-studio`:** the Studio's own document has the non-CSP headers but not
+      a full policy yet. It frames the user's running app, so `frame-src` needs
+      measuring against a live preview on a per-project port. Recorded in that repo's
+      ADR 0022.
+
+**Questions still open**, both from ADR 0102 and neither blocking phases 1–5:
+
+- Is strict operation coverage the eventual default, or permanently opt-in? Making it
+  the default later is a breaking change for every client, so the destination is worth
+  naming before the enforcement phase.
+- Where do an app's operation translations physically live so the Studio can read them
+  without a running app? The lean is a catalog file in the checkout, matching how the
+  Studio already reads design tokens.
+
 ## Active execution track
 
 Authoritative design refinement:

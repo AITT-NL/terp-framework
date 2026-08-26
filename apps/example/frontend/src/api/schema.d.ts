@@ -365,11 +365,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Items */
-        get: operations["list_items_api_v1_projects__get"];
+        /** List Projects */
+        get: operations["list_projects_api_v1_projects__get"];
         put?: never;
-        /** Create Item */
-        post: operations["create_item_api_v1_projects__post"];
+        /** Create Project */
+        post: operations["create_project_api_v1_projects__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -383,16 +383,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Item */
-        get: operations["get_item_api_v1_projects__item_id__get"];
+        /** Get Project */
+        get: operations["get_project_api_v1_projects__item_id__get"];
         put?: never;
         post?: never;
-        /** Delete Item */
-        delete: operations["delete_item_api_v1_projects__item_id__delete"];
+        /** Delete Project */
+        delete: operations["delete_project_api_v1_projects__item_id__delete"];
         options?: never;
         head?: never;
-        /** Update Item */
-        patch: operations["update_item_api_v1_projects__item_id__patch"];
+        /** Update Project */
+        patch: operations["update_project_api_v1_projects__item_id__patch"];
         trace?: never;
     };
     "/api/v1/realtime/sse/{channel_name}": {
@@ -2521,7 +2521,7 @@ export interface operations {
             };
         };
     };
-    list_items_api_v1_projects__get: {
+    list_projects_api_v1_projects__get: {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -2555,7 +2555,7 @@ export interface operations {
             };
         };
     };
-    create_item_api_v1_projects__post: {
+    create_project_api_v1_projects__post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2588,7 +2588,7 @@ export interface operations {
             };
         };
     };
-    get_item_api_v1_projects__item_id__get: {
+    get_project_api_v1_projects__item_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2619,7 +2619,7 @@ export interface operations {
             };
         };
     };
-    delete_item_api_v1_projects__item_id__delete: {
+    delete_project_api_v1_projects__item_id__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -2648,7 +2648,7 @@ export interface operations {
             };
         };
     };
-    update_item_api_v1_projects__item_id__patch: {
+    update_project_api_v1_projects__item_id__patch: {
         parameters: {
             query?: never;
             header?: never;

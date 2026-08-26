@@ -13,6 +13,7 @@ is always allowed; this is a convenience, never the only path.
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Sequence
 
@@ -23,6 +24,45 @@ from terp.core.base_models import BaseTable, BaseUpdateSchema
 from terp.core.base_service import BaseService
 from terp.core.db import SessionDep
 from terp.core.pagination import Page, PaginationDep
+
+# The read DTO's suffix, stripped to recover the entity's own name: ``ProjectRead``
+# describes a project, and the route is named for the project, not for the DTO.
+_READ_SUFFIX = "Read"
+
+
+def _snake(name: str) -> str:
+    """``SyncRun`` -> ``sync_run``; the naming shape hand-written routers use."""
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def _plural(noun: str) -> str:
+    """A regular English plural for *noun*, for the collection route's name.
+
+    Deliberately small: the three regular rules, and nothing that pretends to know
+    an irregular noun. A ``person`` collection is named ``persons`` here, which is
+    slightly wrong and entirely harmless — the name is a *fallback* identity for a
+    route that has not declared its own operation, and declaring one supersedes it.
+    Getting ``companies`` and ``addresses`` right is what earns the rules their keep.
+    """
+    if noun.endswith(("s", "x", "z", "ch", "sh")):
+        return noun + "es"
+    if len(noun) > 1 and noun.endswith("y") and noun[-2] not in "aeiou":
+        return noun[:-1] + "ies"
+    return noun + "s"
+
+
+def _entity_name(read_schema: type) -> str:
+    """The entity these routes are about, from the read DTO's class name.
+
+    Leading underscores are dropped first. A module-private DTO is a normal thing
+    to hand this factory — the repository's own tests declare ``_WidgetRead`` — and
+    the underscore is Python's visibility convention, not part of the entity's
+    name: without stripping it the collection route came out as ``list___widgets``.
+    """
+    name = read_schema.__name__.lstrip("_")
+    if name.endswith(_READ_SUFFIX) and len(name) > len(_READ_SUFFIX):
+        name = name[: -len(_READ_SUFFIX)]
+    return _snake(name) or "item"
 
 
 def build_crud_router[
@@ -48,6 +88,12 @@ def build_crud_router[
     """
     router = APIRouter(tags=list(tags or ()))
     page_model = Page[read_schema]
+    # Name the routes after the entity rather than after the closures below. Left
+    # to FastAPI they would all be called `*_item`, so every factory-built module
+    # was indistinguishable in the access graph AND in the exported OpenAPI, where
+    # `generate_unique_id` builds each operationId from the route name.
+    entity = _entity_name(read_schema)
+    collection = _plural(entity)
 
     def list_items(session, pagination):
         rows, total = service.list(session, skip=pagination.skip, limit=pagination.limit)
@@ -98,17 +144,42 @@ def build_crud_router[
         "session": SessionDep,
     }
 
-    router.add_api_route("/", list_items, methods=["GET"], response_model=page_model)
     router.add_api_route(
-        "/", create_item, methods=["POST"], response_model=read_schema, status_code=201
+        "/",
+        list_items,
+        methods=["GET"],
+        response_model=page_model,
+        name=f"list_{collection}",
     )
     router.add_api_route(
-        "/{item_id}", get_item, methods=["GET"], response_model=read_schema
+        "/",
+        create_item,
+        methods=["POST"],
+        response_model=read_schema,
+        status_code=201,
+        name=f"create_{entity}",
     )
     router.add_api_route(
-        "/{item_id}", update_item, methods=["PATCH"], response_model=read_schema
+        "/{item_id}",
+        get_item,
+        methods=["GET"],
+        response_model=read_schema,
+        name=f"get_{entity}",
     )
-    router.add_api_route("/{item_id}", delete_item, methods=["DELETE"], status_code=204)
+    router.add_api_route(
+        "/{item_id}",
+        update_item,
+        methods=["PATCH"],
+        response_model=read_schema,
+        name=f"update_{entity}",
+    )
+    router.add_api_route(
+        "/{item_id}",
+        delete_item,
+        methods=["DELETE"],
+        status_code=204,
+        name=f"delete_{entity}",
+    )
     return router
 
 

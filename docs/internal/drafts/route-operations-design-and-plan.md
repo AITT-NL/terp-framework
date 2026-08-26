@@ -49,13 +49,19 @@ the feature commits small.
       (the operation) lands in an established place rather than a fourth one.
       *Gate:* the access graph still reports route-level permissions — mutation-checked by removing
       the stamp and watching the assertion fail.
-- [ ] **1.3 The factory names its routes after its entity.** `build_crud_router` produces
+- [x] **1.3 The factory names its routes after its entity.** *(done)* `build_crud_router` produces
       `list_items` / `create_item` / `get_item` / `update_item` / `delete_item`, so every
       factory-built module is anonymous in the access graph *and* carries FastAPI's generated
       operation ids into the exported OpenAPI. Derive the entity from the read DTO (`ProjectRead`
       → `project`) and name the routes accordingly.
-      *Gate:* assert the produced names for a distinctly-named DTO — the fixture's entity must not
-      be `item`, or the assertion cannot observe the change.
+      *Outcome:* names come from the read DTO (`ProjectRead` -> `project`), with a small regular
+      pluraliser so the collection route is `list_projects` and `list_companies` rather than
+      `list_companys`. A leading underscore is stripped, because a module-private DTO is normal
+      input and `_WidgetRead` otherwise produced `list___widgets`. This also repaired every
+      factory-built module's OpenAPI `operationId`, which FastAPI builds from the route name — a
+      regeneration for existing apps, not a code migration, since only the generated client keys
+      off those ids. Mutation-checked: removing the `name=` arguments fails with
+      `{'create_item', ...} == {'create_project', ...}`.
 - [ ] **1.4 One route-discovery helper in `terp.arch`.** Several rule modules
       (`http`, `authz`, `occ`, `persistence`, over `_support`) each walk the AST for route
       decorators and `add_api_route` calls. Extract one iterator yielding

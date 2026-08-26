@@ -120,3 +120,45 @@ def test_stale_update_conflicts_409(client: TestClient) -> None:
         f"/api/v1/widgets/{created['id']}", json={"name": "y", "version": 999}
     )
     assert stale.status_code == 409
+
+
+def test_routes_are_named_after_the_entity_not_after_the_closure() -> None:
+    """The factory's routes carry the entity's name, as a hand-written router does.
+
+    Left to FastAPI the names come from the closures inside the factory, so every
+    factory-built module produced `list_items` / `get_item` / `delete_item` — the
+    same five names for every entity, indistinguishable in the access graph and
+    carried into the exported OpenAPI, where `generate_unique_id` builds each
+    operationId from the route name. A permission view built on those names can
+    only say "delete an item" about every module in the app.
+
+    The fixtures deliberately avoid `Item`, and include a plural the naive rule
+    gets wrong (`company` -> `companies`, not `companys`) and a multi-word entity,
+    so the assertion cannot pass by coincidence.
+    """
+
+    def names_for(dto_name: str) -> set[str]:
+        read = type(dto_name, (BaseSchema,), {"__annotations__": {}})
+        router = build_crud_router(
+            _WidgetService(),
+            read_schema=read,
+            create_schema=_WidgetCreate,
+            update_schema=_WidgetUpdate,
+        )
+        return {route.name for route in router.routes}
+
+    assert names_for("ProjectRead") == {
+        "list_projects",
+        "create_project",
+        "get_project",
+        "update_project",
+        "delete_project",
+    }
+    # A `y` plural the +s rule would botch, and a CamelCase entity that has to
+    # become snake_case rather than staying one word.
+    assert "list_companies" in names_for("CompanyRead")
+    assert "get_sync_run" in names_for("SyncRunRead")
+    # A module-private DTO is normal input; the underscore is not part of the name.
+    assert "list_widgets" in names_for("_WidgetRead")
+    # A DTO that does not follow the *Read convention keeps its whole name.
+    assert "get_widget_summary" in names_for("WidgetSummary")
