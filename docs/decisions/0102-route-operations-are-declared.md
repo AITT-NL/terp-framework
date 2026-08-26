@@ -153,9 +153,23 @@ guarantee is no drift".
   nothing behaves exactly as it does today), `warn` (undeclared routes are reported and the Studio
   marks their labels as derived), and `strict` (boot refuses a route with no declaration).
 
-`strict` is the state in which the platform can claim every route is explained. It is opt-in
-because making it the default would break every existing app on upgrade, and because an app whose
-only consumer is its own frontend may legitimately not want it.
+`strict` is the state in which the platform can claim every route is explained.
+
+**Amended 2026-08-26: `strict` is the destination default.** The original text left this open,
+and leaving it open was the wrong call — a coverage default is not a detail to settle later,
+because every app that adopts the framework in the meantime adopts whichever default it finds.
+The platform's stated posture is that the most secure, most enforced standard is the default
+(ADR 0103), and a control that is off unless someone opts in is not a default, it is a feature.
+
+The flip is sequenced, not immediate, and the sequence is load-bearing rather than cautious:
+`strict` refuses the boot of any mounted route that declares no operation, so switching the
+default before the framework's own capability routers and the example app are annotated would
+refuse the boot of every app including this repository's own test suite. The default therefore
+changes in the enforcement phase, after annotation, and an app that cannot annotate on that
+timetable sets `OperationCoverage.WARN` explicitly — a visible, greppable line, which is what the
+ideology asks an escape to be.
+
+`off` remains reachable and remains honest about what it is: no coverage guarantee at all.
 
 ### 7. The factory declares operations too
 

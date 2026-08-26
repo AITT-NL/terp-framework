@@ -553,3 +553,31 @@ def test_declaring_an_operation_does_not_change_authorization() -> None:
     guard(SimpleNamespace(method="GET"), principal=viewer, session=None)  # no raise
     with pytest.raises(PermissionDeniedError):
         guard(SimpleNamespace(method="POST"), principal=viewer, session=None)
+
+
+def test_warn_coverage_reports_what_strict_would_refuse(caplog) -> None:
+    """WARN has to say something, or it is OFF wearing a different name.
+
+    It is the staging step on the way to STRICT becoming the default, and afterwards the
+    documented escape for an app that cannot annotate yet — both of which require it to
+    actually name the routes STRICT would refuse. As first written nothing branched on
+    WARN at all, so it behaved identically to OFF while its docstring described
+    reporting; the assertion below is on the route appearing in the log, not merely on a
+    successful boot, because a successful boot is what OFF gives too.
+    """
+    import logging
+
+    spec = ModuleSpec(
+        name="files", router=_declaring_router(None), policy=Policy.default()
+    )
+    warn = ControlPlane(operations=OperationCatalog(coverage=OperationCoverage.WARN))
+    with caplog.at_level(logging.WARNING, logger="terp.core"):
+        assert create_app([spec], control_plane=warn).title == "Terp app"
+    assert "files:/" in caplog.text
+    assert "WARN" in caplog.text
+
+    # OFF is silent about the same app: the two settings are distinguishable.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="terp.core"):
+        create_app([spec], control_plane=ControlPlane())
+    assert caplog.text == ""

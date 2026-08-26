@@ -45,11 +45,20 @@ from terp.core.events import _is_dotted_token
 class OperationCoverage(str, Enum):
     """How strictly an app requires its routes to declare an operation.
 
-    Coverage is a per-app choice because the guarantee it buys differs per app, while
-    the no-drift guarantee below it is never optional. ``STRICT`` is the state in which
-    the platform can say every route is explained; it is opt-in because making it the
-    default would refuse the boot of every app that upgraded without annotating, and
-    an app whose only consumer is its own frontend may legitimately not want it.
+    ``STRICT`` is the state in which the platform can say every route is explained, and
+    it is the **destination default** (ADR 0102, amended). It is not the default *yet*
+    only because it refuses the boot of any mounted route that declares no operation:
+    flipping it before this framework's own capability routers and example app are
+    annotated would refuse the boot of every app, this repository's test suite
+    included. The default changes in the enforcement phase, after annotation.
+
+    ``WARN`` is the staging step, and afterwards the documented escape for an app that
+    cannot annotate on that timetable — an explicit, greppable line rather than a quiet
+    absence. ``OFF`` stays reachable and stays honest about what it is: no coverage
+    guarantee at all.
+
+    The no-drift guarantee underneath this is never tunable. Whatever the coverage, an
+    operation named at a route must be the registered catalog entry.
     """
 
     #: Declarations are honored where present and never required (the default).
@@ -93,6 +102,12 @@ class OperationCatalog:
     Optional by design: the default is **empty**, which means the feature is inactive
     and every route's label falls back to what can be derived from its name. When
     operations are used this is the single source of truth they reference.
+
+    The surface is deliberately smaller than the event catalog's, which it is otherwise
+    modelled on. Copying that catalog wholesale brought over ``has_id`` / ``get`` /
+    ``missing_operations`` / ``ids``, and nothing in the repository read any of them —
+    a field without a reader is removed here rather than kept for a caller that may
+    never arrive. They come back with the consumer that needs them.
     """
 
     operations: Sequence[OperationDefinition] = field(default_factory=tuple)
@@ -113,14 +128,6 @@ class OperationCatalog:
         """The compatibility catalog: empty, with coverage off — the feature is inactive."""
         return cls()
 
-    def has_id(self, operation_id: str) -> bool:
-        """Whether an operation with *operation_id* is registered."""
-        return operation_id in self._by_id
-
-    def get(self, operation_id: str) -> OperationDefinition | None:
-        """The canonical definition registered for *operation_id* (or ``None``)."""
-        return self._by_id.get(operation_id)
-
     def has_operation(self, definition: OperationDefinition) -> bool:
         """Whether *definition* is the canonical entry registered for its id.
 
@@ -130,16 +137,6 @@ class OperationCatalog:
         of truth, as it does for events.
         """
         return self._by_id.get(definition.id) == definition
-
-    def missing_operations(
-        self, definitions: Iterable[OperationDefinition]
-    ) -> tuple[OperationDefinition, ...]:
-        """Every definition that is not the registered entry for its id."""
-        return tuple(d for d in definitions if not self.has_operation(d))
-
-    def ids(self) -> tuple[str, ...]:
-        """The registered operation ids, in declaration order."""
-        return tuple(d.id for d in self.operations)
 
 
 __all__ = ["OperationCatalog", "OperationCoverage", "OperationDefinition"]

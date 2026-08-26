@@ -457,7 +457,9 @@ endpoint *does* and the platform can guarantee every route is explained.
       declaration a second reader.
 - [ ] Phase 5 — annotate the framework's own routes, `_CLEAN_CAPS` first since those
       cannot be deferred behind a marker.
-- [ ] Phase 6 — the two Standard rules, corpus cases, then `warn` before `strict`.
+- [ ] Phase 6 — the two Standard rules, corpus cases, then **flip the default to
+      `strict`** (decided; ADR 0102 amendment). `warn` is the staging step and the
+      documented escape for an app that cannot annotate on that timetable.
 
 **The security-header / CSP track** — decided in
 [ADR 0104](../decisions/0104-the-spa-document-carries-its-own-security-headers.md),
@@ -479,9 +481,10 @@ implemented only in the backend is half-built".
 
 **Questions still open**, both from ADR 0102 and neither blocking phases 1–5:
 
-- Is strict operation coverage the eventual default, or permanently opt-in? Making it
-  the default later is a breaking change for every client, so the destination is worth
-  naming before the enforcement phase.
+- ~~Is strict operation coverage the eventual default?~~ **Settled 2026-08-26: yes.**
+  Recorded as an amendment to ADR 0102. The flip happens in the enforcement phase,
+  after the framework's own routes are annotated — doing it sooner refuses the boot of
+  every app, this repository's example included.
 - Where do an app's operation translations physically live so the Studio can read them
   without a running app? The lean is a catalog file in the checkout, matching how the
   Studio already reads design tokens.

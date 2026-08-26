@@ -171,8 +171,8 @@ OPERATION_ATTRIBUTE = "__terp_operation__"
 def operation(definition: OperationDefinition) -> Callable[[_Endpoint], _Endpoint]:
     """Declare what *definition* the decorated route performs (ADR 0102).
 
-    Apply it **below** the route decorator, so the marked function is the one FastAPI
-    registers as the endpoint — the same placement :func:`read_only` requires::
+    Apply it **below** the route decorator, keeping the declaration next to the handler
+    it describes — the same placement :func:`read_only` uses::
 
         @router.delete("/{file_id}", status_code=204)
         @operation(OPS.FILES_DELETE)
@@ -183,6 +183,12 @@ def operation(definition: OperationDefinition) -> Callable[[_Endpoint], _Endpoin
     route can neither invent an operation nor reference an undeclared one. Under
     :attr:`~terp.core.operations.OperationCoverage.STRICT` boot also refuses a mounted
     route that declares none.
+
+    Measured rather than assumed: both orderings in fact work, because FastAPI's route
+    decorator returns the handler unchanged, so a stamp applied above it still lands on
+    the object the route recorded. The convention is therefore about keeping the
+    declarations legible together, not about correctness resting on an implementation
+    detail of the router.
 
     What it does **not** change is authorization — the promise :func:`read_only` makes,
     for the same reason. A route's requirement comes from its module's ``Policy`` and

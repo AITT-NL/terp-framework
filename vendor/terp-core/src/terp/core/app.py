@@ -710,12 +710,23 @@ def _validate_declared_operations(
                     "longer the one source of truth). Reference the catalog constant "
                     "rather than constructing an OperationDefinition at the route."
                 )
-    if undeclared and catalog.coverage is OperationCoverage.STRICT:
+    if not undeclared:
+        return
+    if catalog.coverage is OperationCoverage.STRICT:
         raise BootError(
             "operation coverage is STRICT but these mounted routes declare no "
             f"operation: {sorted(undeclared)}. Declare one with "
             "terp.core.operation(...) for each, or set the catalog's coverage to WARN "
             "while they are annotated."
+        )
+    if catalog.coverage is OperationCoverage.WARN:
+        # WARN is the staging step on the way to STRICT being the default, so it has to
+        # actually say what STRICT would refuse. Without this it was indistinguishable
+        # from OFF, which made it a setting that documented a behaviour it did not have.
+        _logger.warning(
+            "operation coverage is WARN: %d mounted route(s) declare no operation: %s",
+            len(undeclared),
+            sorted(undeclared),
         )
 
 
