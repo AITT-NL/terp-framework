@@ -1,7 +1,11 @@
-# 0102 — Localization is a checked contract
+# 0105 — Localization is a checked contract
 
 - **Status:** Accepted
 - **Date:** 2026-08-27
+- **Renumbered from 0102 on 2026-08-27:** two branches claimed the number
+  concurrently. This one moved because the other (route operations) is dated a day
+  earlier, is cited from roughly twenty places, and already has ADR 0103 and ADR 0104
+  built on top of it, while nothing yet cited this one.
 - **Relates:** ADR 0080 (the Terp Standard catalog and corpus), ADR 0081
   (certified enforcement), and ADR 0096 (typed seams cover the common case).
 
