@@ -70,6 +70,12 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   two tokens: `--color-brand-primary` is a filled surface carrying only
   `--color-brand-primary-contrast`, and `--color-fg-accent` is accent ink or a boundary on the
   app's own surfaces. One token cannot serve both and reach AA in a dark theme.
+- **Localization is a checked contract** — app-authored `src/**` copy uses `{ id, message }`
+  descriptors or `Trans`, every target entry lives in `frontend/i18n.json`, and adding a
+  non-English locale includes a complete framework `TerpStrings` catalog. The lint and runtime
+  controls fail closed on missing catalogs/messages, bare static UI copy, verbatim source copies
+  without `allowIdentical`, and a half-translated shell. Never bypass these checks to finish a
+  feature; add every target translation in the same change.
 - **Five themes ship**, not two: `light`, `dark`, `midnight`, `twilight` and `contrast`, plus
   `system` to follow the OS preference. They are registered in
   [packages/frontend/contract/themes.json](packages/frontend/contract/themes.json) and

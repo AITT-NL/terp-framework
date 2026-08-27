@@ -21,24 +21,39 @@ function buildColumns(
   formatDateTime: (value: string) => string,
 ): DataViewColumn<DeliveryRead>[] {
   return [
-    { id: "event", header: "Event", accessor: (d) => d.event, meta: { mobileSlot: "title" } },
-    { id: "outcome", header: "Outcome", accessor: (d) => d.outcome, meta: { mobileSlot: "status", width: "sm" } },
+    {
+      id: "event",
+      header: { id: "admin.deliveries.column.event", message: "Event" },
+      accessor: (d) => d.event,
+      meta: { mobileSlot: "title" },
+    },
+    {
+      id: "outcome",
+      header: { id: "admin.deliveries.column.outcome", message: "Outcome" },
+      accessor: (d) => d.outcome,
+      meta: { mobileSlot: "status", width: "sm" },
+    },
     {
       id: "response_code",
-      header: "Response",
+      header: { id: "admin.deliveries.column.response", message: "Response" },
       accessor: (d) => d.response_code ?? "",
       meta: { width: "xs" },
     },
-    { id: "attempt", header: "Attempt", accessor: (d) => d.attempt, meta: { width: "xs" } },
+    {
+      id: "attempt",
+      header: { id: "admin.deliveries.column.attempt", message: "Attempt" },
+      accessor: (d) => d.attempt,
+      meta: { width: "xs" },
+    },
     {
       id: "last_error",
-      header: "Last error",
+      header: { id: "admin.deliveries.column.lastError", message: "Last error" },
       accessor: (d) => d.last_error ?? "",
       meta: { mobileSlot: "subtitle" },
     },
     {
       id: "created_at",
-      header: "When",
+      header: { id: "admin.deliveries.column.when", message: "When" },
       accessor: (d) => d.created_at,
       cell: (d) => formatDateTime(d.created_at),
       meta: { mobileSlot: "date", width: "md" },
@@ -76,7 +91,7 @@ export function WebhookDeliveriesAdmin() {
 
   return (
     <OverviewPage
-      title="Webhook deliveries"
+      title={{ id: "admin.deliveries.title", message: "Webhook deliveries" }}
       parents={ADMIN_PARENTS}
       renderLink={renderAdminCrumb}
     >

@@ -2,7 +2,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import type { ComponentType, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import type { ModuleManifest, NavGroup } from "@terpjs/contract";
+import type { ModuleManifest, NavGroup, UiText } from "@terpjs/contract";
 
 import { LoginView } from "./LoginView";
 import type { DevCredentials } from "./LoginView";
@@ -95,7 +95,7 @@ export function collectModules(modules: Record<string, unknown>): {
 
 export interface RenderTerpAppOptions {
   /** App title shown in the shell's sidebar brand (and the default footer). */
-  title: string;
+  title: UiText;
   /** Discovered modules from an import.meta.glob over "./modules/<name>/module.tsx" (eager). */
   modules: Record<string, unknown>;
   /** Brand mark in the sidebar (any rendered node); default: the placeholder TerpMark. */
@@ -187,6 +187,8 @@ export interface RenderTerpAppOptions {
   locales?: Record<string, LocaleCatalog>;
   /** Starting locale when the user has not chosen one; default: the first `locales` key. */
   defaultLocale?: string;
+  /** Source locale for app-authored UiText descriptors; default: the first locale key. */
+  sourceLocale?: string;
   /**
    * Starting theme when the user has not chosen one; default `"system"` (OS preference).
    *
@@ -362,6 +364,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
         <LocaleProvider
           locales={options.locales ?? { en: {} }}
           defaultLocale={options.defaultLocale}
+          sourceLocale={options.sourceLocale}
         >
           <TerpProvider baseUrl={options.baseUrl ?? ""} ssoCallbackPath={options.ssoCallbackPath}>
             <ToastProvider>

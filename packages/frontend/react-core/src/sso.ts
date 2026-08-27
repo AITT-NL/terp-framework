@@ -1,4 +1,4 @@
-import type { TerpClient, TerpClientFor } from "@terpjs/contract";
+import type { TerpClient, TerpClientFor, UiText } from "@terpjs/contract";
 
 import { unwrap } from "./unwrap";
 
@@ -61,7 +61,7 @@ export interface SsoProvider {
   /** Provider name as mounted on the backend (the `{provider}` path segment). */
   name: string;
   /** Display label for the provider button (defaults to the name). */
-  label?: string;
+  label?: UiText;
 }
 
 /** Default SPA path prefix the IdP redirects back to: `/auth/callback/{provider}`. */

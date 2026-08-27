@@ -14,6 +14,12 @@ import type { IconName } from "./icons";
 
 export type RoleName = string;
 
+/**
+ * Stable user-interface copy: the source message plus the catalog id every target locale
+ * translates. Plain strings remain valid for dynamic business data and product names.
+ */
+export type UiText = string | { readonly id: string; readonly message: string };
+
 export interface ModuleRoute {
   /**
    * URL path the route mounts at, e.g. `/billing` or `/billing/:id`.
@@ -65,7 +71,7 @@ export interface ModuleRoute {
 
 export interface NavItem {
   /** Sidebar label. */
-  label: string;
+  label: UiText;
   /** Destination path; should match a {@link ModuleRoute.path}. */
   to: string;
   /**
@@ -154,7 +160,7 @@ export interface NavGroup {
    * heading for them. Required rather than optional so that "no label" is a decision the
    * declaration states, not an omission.
    */
-  label: string | null;
+  label: UiText | null;
   /**
    * Sort key against sibling groups.
    *

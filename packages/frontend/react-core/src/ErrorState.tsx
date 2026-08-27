@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import { useErrorMessage } from "./errorMessages";
 import { Icon } from "./icons";
 import { injectTerpStyles } from "./styles";
-import { useStrings, useUiText } from "./uiText";
-import type { UiText } from "./uiText";
+import { resolveUiTextNode, useStrings, useUiText } from "./uiText";
+import type { UiText, UiTextNode } from "./uiText";
 
 injectTerpStyles();
 
@@ -43,7 +43,7 @@ export interface ErrorStateProps {
    * copy for the error's stable `code` (see `useErrorMessage`), falling back to
    * {@link describeError}, so the platform error envelope surfaces consistently.
    */
-  description?: ReactNode;
+  description?: UiTextNode;
   /** The caught failure — used to derive `description` when none is given. */
   error?: unknown;
   /** Optional call to action (typically a retry `Button`). */
@@ -73,7 +73,11 @@ export function ErrorState({ icon, title, description, error, action }: ErrorSta
     <div role="alert" data-terp="error-state">
       {leading}
       <p data-terp="error-state-title">{resolve(title ?? strings.errorTitle)}</p>
-      {message !== null && message !== undefined && <div data-terp="error-state-description">{message}</div>}
+      {message !== null && message !== undefined && (
+        <div data-terp="error-state-description">
+          {resolveUiTextNode(message, resolve)}
+        </div>
+      )}
       {action}
     </div>
   );

@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 
 import { Icon } from "./icons";
 import { injectTerpStyles } from "./styles";
-import { useUiText } from "./uiText";
-import type { UiText } from "./uiText";
+import { resolveUiTextNode, useUiText } from "./uiText";
+import type { UiText, UiTextNode } from "./uiText";
 
 injectTerpStyles();
 
@@ -16,7 +16,7 @@ export interface EmptyStateProps {
   /** Short title — what is missing. */
   title: UiText;
   /** Optional explanation — why it's missing, or what to do next. */
-  description?: ReactNode;
+  description?: UiTextNode;
   /** Optional call to action (typically a `Button`). */
   action?: ReactNode;
   /**
@@ -58,9 +58,12 @@ export function EmptyState({
     <div data-terp="empty-state" data-size={compact ? "compact" : undefined}>
       {leading}
       <p data-terp="empty-state-title">{resolve(title)}</p>
-      {description !== undefined && <div data-terp="empty-state-description">{description}</div>}
+      {description !== undefined && (
+        <div data-terp="empty-state-description">
+          {resolveUiTextNode(description, resolve)}
+        </div>
+      )}
       {action}
     </div>
   );
 }
-

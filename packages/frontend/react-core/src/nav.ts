@@ -1,4 +1,4 @@
-import type { ModuleManifest, NavGroup, NavItem } from "@terpjs/contract";
+import type { ModuleManifest, NavGroup, NavItem, UiText } from "@terpjs/contract";
 
 /**
  * What a manifest's declared visibility is resolved against.
@@ -81,7 +81,7 @@ export interface NavSection {
   /** The declared group's id, or `null` for the default headerless group. */
   id: string | null;
   /** The label to render above the list, or `null` when the section renders none. */
-  label: string | null;
+  label: UiText | null;
   items: NavItem[];
 }
 

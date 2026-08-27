@@ -13,8 +13,16 @@ export const manifest = defineModuleManifest({
     { path: "/explorer/notes", view: "NotesExplorer" },
   ],
   nav: [
-    { label: "Devices (DataView)", to: "/explorer/devices", icon: "database" },
-    { label: "Notes (DataView)", to: "/explorer/notes", icon: "database" },
+    {
+      label: { id: "explorer.devices.nav", message: "Devices (DataView)" },
+      to: "/explorer/devices",
+      icon: "database",
+    },
+    {
+      label: { id: "explorer.notes.nav", message: "Notes (DataView)" },
+      to: "/explorer/notes",
+      icon: "database",
+    },
   ],
 });
 

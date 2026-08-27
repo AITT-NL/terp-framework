@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TerpProvider, useAuth } from "./TerpProvider";
 import { UserMenu, userInitials } from "./UserMenu";
-import { LOCALE_EN, LocaleProvider } from "./locale";
+import { LOCALE_EN, LOCALE_NL, LocaleProvider } from "./locale";
 import { ThemeProvider } from "./theme";
 
 function jsonResponse(body: unknown): Response {
@@ -73,7 +73,7 @@ describe("UserMenu", () => {
     stubAuthFetch();
     render(
       <ThemeProvider>
-        <LocaleProvider locales={{ en: LOCALE_EN, nl: { label: "Nederlands" } }}>
+        <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }}>
           <TerpProvider baseUrl="https://api.test">
             <LogInOnMount />
             <UserMenu />

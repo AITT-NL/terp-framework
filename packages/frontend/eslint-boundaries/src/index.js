@@ -95,6 +95,18 @@ function getJsxAttribute(openingElement, name) {
   );
 }
 
+function unwrapExpression(node) {
+  let current = node;
+  while (
+    current &&
+    ["ChainExpression", "TSAsExpression", "TSNonNullExpression", "TSSatisfiesExpression",
+      "TypeCastExpression"].includes(current.type)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
 function staticStringFromJsxValue(value) {
   if (!value) {
     return null;
@@ -103,13 +115,7 @@ function staticStringFromJsxValue(value) {
     return value.value;
   }
   if (value.type === "JSXExpressionContainer") {
-    const expression = value.expression;
-    if (expression.type === "Literal" && typeof expression.value === "string") {
-      return expression.value;
-    }
-    if (expression.type === "TemplateLiteral" && expression.expressions.length === 0) {
-      return expression.quasis.map((quasi) => quasi.value.cooked ?? quasi.value.raw).join("");
-    }
+    return staticString(value.expression);
   }
   return null;
 }
@@ -289,6 +295,478 @@ const noEval = {
   },
 };
 
+const UI_TEXT_ATTRIBUTES = new Set([
+  "actions",
+  "aria-description",
+  "aria-label",
+  "aria-placeholder",
+  "alt",
+  "ariaLabel",
+  "broadenedLabel",
+  "cancelLabel",
+  "cardView",
+  "caption",
+  "clearFilters",
+  "clearSearch",
+  "clearSelection",
+  "collapseRow",
+  "columns",
+  "confirmLabel",
+  "content",
+  "createPlaceholder",
+  "description",
+  "empty",
+  "emptyMessage",
+  "errorTitle",
+  "expandRow",
+  "firstPage",
+  "header",
+  "hint",
+  "label",
+  "lastPage",
+  "loading",
+  "loadingText",
+  "moreActions",
+  "moveDown",
+  "moveUp",
+  "nextPage",
+  "noOptionsText",
+  "openRow",
+  "pageOf",
+  "pageSize",
+  "placeholder",
+  "previousPage",
+  "refreshing",
+  "removeLabel",
+  "resizeColumn",
+  "resultsRange",
+  "searchPlaceholder",
+  "selectAllPage",
+  "selectAllResults",
+  "selected",
+  "selectRow",
+  "source",
+  "stat",
+  "subtitle",
+  "tableView",
+  "title",
+  "tooltip",
+  "triggerLabel",
+  "viewOptions",
+]);
+const UI_TEXT_PROPERTIES = new Set([
+  "actions",
+  "alt",
+  "aria-description",
+  "aria-label",
+  "aria-placeholder",
+  "ariaLabel",
+  "broadenedLabel",
+  "cancelLabel",
+  "cardView",
+  "caption",
+  "clearFilters",
+  "clearSearch",
+  "clearSelection",
+  "collapseRow",
+  "columns",
+  "confirmLabel",
+  "content",
+  "createPlaceholder",
+  "description",
+  "empty",
+  "emptyMessage",
+  "errorTitle",
+  "expandRow",
+  "firstPage",
+  "header",
+  "hint",
+  "label",
+  "lastPage",
+  "loading",
+  "loadingText",
+  "moreActions",
+  "moveDown",
+  "moveUp",
+  "nextPage",
+  "noOptionsText",
+  "openRow",
+  "pageOf",
+  "pageSize",
+  "placeholder",
+  "previousPage",
+  "refreshing",
+  "removeLabel",
+  "resizeColumn",
+  "resultsRange",
+  "searchPlaceholder",
+  "selectAllPage",
+  "selectAllResults",
+  "selected",
+  "selectRow",
+  "source",
+  "stat",
+  "subtitle",
+  "tableView",
+  "title",
+  "tooltip",
+  "triggerLabel",
+  "viewOptions",
+]);
+
+function staticString(node) {
+  const value = unwrapExpression(node);
+  if (value?.type === "Literal" && typeof value.value === "string") return value.value;
+  if (value?.type === "TemplateLiteral" && value.expressions.length === 0) {
+    return value.quasis.map((part) => part.value.cooked ?? part.value.raw).join("");
+  }
+  return null;
+}
+
+function containsAuthoredCopy(value) {
+  return typeof value === "string" && /\p{L}/u.test(value);
+}
+
+function isInsideCode(node) {
+  let parent = node.parent;
+  while (parent) {
+    if (parent.type === "JSXElement" && jsxName(parent.openingElement.name) === "Code") return true;
+    parent = parent.parent;
+  }
+  return false;
+}
+
+function propertyName(node) {
+  if (!node || node.computed) return null;
+  if (node.key.type === "Identifier") return node.key.name;
+  return typeof node.key.value === "string" ? node.key.value : null;
+}
+
+function isStaticDescriptor(node) {
+  const value = unwrapExpression(node);
+  if (value?.type !== "ObjectExpression") return false;
+  const named = (name) => value.properties.find(
+    (entry) => entry.type === "Property" && propertyName(entry) === name,
+  );
+  return staticString(named("id")?.value) !== null && staticString(named("message")?.value) !== null;
+}
+
+/** Authored string fragments in expressions that render or feed a known UiText property. */
+function containsStaticAuthoredCopy(node) {
+  const value = unwrapExpression(node);
+  if (!value) return false;
+  const direct = staticString(value);
+  if (containsAuthoredCopy(direct)) return true;
+  if (value.type === "TemplateLiteral") {
+    return value.quasis.some((part) =>
+      containsAuthoredCopy(part.value.cooked ?? part.value.raw),
+    );
+  }
+  if (value.type === "ConditionalExpression") {
+    return containsStaticAuthoredCopy(value.consequent) || containsStaticAuthoredCopy(value.alternate);
+  }
+  if (value.type === "LogicalExpression" || value.type === "BinaryExpression") {
+    return containsStaticAuthoredCopy(value.left) || containsStaticAuthoredCopy(value.right);
+  }
+  if (value.type === "ArrayExpression") {
+    return value.elements.some((entry) => entry !== null && containsStaticAuthoredCopy(entry));
+  }
+  if (value.type === "SequenceExpression") {
+    return value.expressions.some((entry) => containsStaticAuthoredCopy(entry));
+  }
+  if (value.type === "ObjectExpression") {
+    if (isStaticDescriptor(value)) return false;
+    return value.properties.some(
+      (entry) => entry.type === "Property" && containsStaticAuthoredCopy(entry.value),
+    );
+  }
+  return false;
+}
+
+const untranslatedMessage =
+  "Static user-facing text must use a UiText descriptor or <Trans id=... message=... /> " +
+  "and must be present in frontend/i18n.json.";
+
+/** Build-time extraction half of the app translation contract. */
+const noUntranslatedUi = {
+  meta: {
+    type: "problem",
+    docs: { description: "Require static app-authored UI copy to use the translation seam." },
+    schema: [],
+  },
+  create(context) {
+    const report = (node) => context.report({ node, message: untranslatedMessage });
+    const toastHookNames = new Set();
+    const reactCoreNamespaces = new Set();
+    const toastBindings = new Set();
+    const toastMethodBindings = new Set();
+    const toastMethods = new Set(["success", "error", "warning"]);
+    const isToastHookCall = (node) => {
+      if (node?.type !== "CallExpression") return false;
+      if (node.callee.type === "Identifier") {
+        return toastHookNames.has(node.callee.name);
+      }
+      return (
+        node.callee.type === "MemberExpression" &&
+        memberName(node.callee) === "useToast" &&
+        node.callee.object.type === "Identifier" &&
+        reactCoreNamespaces.has(node.callee.object.name)
+      );
+    };
+    return {
+      ImportDeclaration(node) {
+        if (node.source.value !== "@terpjs/react-core") return;
+        for (const specifier of node.specifiers) {
+          if (
+            specifier.type === "ImportSpecifier" &&
+            (specifier.imported.name ?? specifier.imported.value) === "useToast"
+          ) {
+            toastHookNames.add(specifier.local.name);
+          }
+          if (specifier.type === "ImportNamespaceSpecifier") {
+            reactCoreNamespaces.add(specifier.local.name);
+          }
+        }
+      },
+      VariableDeclarator(node) {
+        if (!isToastHookCall(node.init)) return;
+        if (node.id.type === "Identifier") {
+          toastBindings.add(node.id.name);
+          return;
+        }
+        if (node.id.type === "ObjectPattern") {
+          for (const entry of node.id.properties) {
+            if (
+              entry.type === "Property" &&
+              toastMethods.has(propertyName(entry)) &&
+              entry.value.type === "Identifier"
+            ) {
+              toastMethodBindings.add(entry.value.name);
+            }
+          }
+        }
+      },
+      CallExpression(node) {
+        let feedback = false;
+        if (
+          node.callee.type === "MemberExpression" &&
+          node.callee.object.type === "Identifier" &&
+          toastBindings.has(node.callee.object.name) &&
+          toastMethods.has(memberName(node.callee))
+        ) {
+          feedback = true;
+        } else if (
+          node.callee.type === "Identifier" &&
+          toastMethodBindings.has(node.callee.name)
+        ) {
+          feedback = true;
+        }
+        if (feedback && containsStaticAuthoredCopy(node.arguments[0])) {
+          report(node.arguments[0]);
+        }
+      },
+      JSXText(node) {
+        if (!isInsideCode(node) && containsAuthoredCopy(node.value)) report(node);
+      },
+      JSXExpressionContainer(node) {
+        if (!["JSXElement", "JSXFragment"].includes(node.parent?.type) || isInsideCode(node)) return;
+        if (containsStaticAuthoredCopy(node.expression)) report(node);
+      },
+      JSXAttribute(node) {
+        const name = jsxName(node.name);
+        if (!UI_TEXT_ATTRIBUTES.has(name)) return;
+        const expression = node.value?.type === "JSXExpressionContainer"
+          ? node.value.expression
+          : node.value;
+        if (containsStaticAuthoredCopy(expression)) report(node);
+      },
+      Property(node) {
+        if (!UI_TEXT_PROPERTIES.has(propertyName(node))) return;
+        if (containsStaticAuthoredCopy(node.value)) report(node);
+      },
+    };
+  },
+};
+
+/** Read the one authoritative locale declaration at the ESLint app root. */
+export function activeI18nDeclaration(appRoot) {
+  const file = path.join(appRoot, "i18n.json");
+  if (!fs.existsSync(file)) return null;
+  try {
+    return { file, declaration: JSON.parse(fs.readFileSync(file, "utf8")), error: null };
+  } catch (error) {
+    return { file, declaration: null, error: String(error) };
+  }
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Return the first fail-closed declaration problem, or null when its shape is sound. */
+function i18nDeclarationProblem(active) {
+  if (active.error !== null) return `${active.file} is not valid JSON; ${active.error}`;
+  const declaration = active.declaration;
+  if (!isRecord(declaration)) return `${active.file} must contain a JSON object.`;
+  const source = declaration.sourceLocale;
+  if (typeof source !== "string" || source.trim() === "") {
+    return `${active.file} must declare a non-empty sourceLocale.`;
+  }
+  if (!isRecord(declaration.locales) || !isRecord(declaration.locales[source])) {
+    return `${active.file} must contain a locales map that includes sourceLocale "${source}".`;
+  }
+  for (const [code, catalog] of Object.entries(declaration.locales)) {
+    if (code.trim() === "" || !isRecord(catalog)) {
+      return `${active.file} locale entries must be non-empty codes mapped to objects.`;
+    }
+    if (catalog.messages !== undefined && !isRecord(catalog.messages)) {
+      return `${active.file} locale "${code}" messages must be an object.`;
+    }
+    for (const [id, translated] of Object.entries(catalog.messages ?? {})) {
+      if (id.trim() === "" || typeof translated !== "string" || translated.trim() === "") {
+        return `${active.file} locale "${code}" has an empty or invalid message entry.`;
+      }
+    }
+    if (
+      catalog.allowIdentical !== undefined &&
+      (!Array.isArray(catalog.allowIdentical) ||
+        catalog.allowIdentical.some((id) => typeof id !== "string" || id.trim() === ""))
+    ) {
+      return `${active.file} locale "${code}" allowIdentical must be an array of non-empty ids.`;
+    }
+    const allowed = catalog.allowIdentical ?? [];
+    if (new Set(allowed).size !== allowed.length) {
+      return `${active.file} locale "${code}" allowIdentical contains duplicate ids.`;
+    }
+    const stale = allowed.find((id) => typeof catalog.messages?.[id] !== "string");
+    if (stale !== undefined) {
+      return `${active.file} locale "${code}" allowIdentical names missing message "${stale}".`;
+    }
+  }
+  return null;
+}
+
+function objectStringProperty(node, name) {
+  const property = node.properties.find(
+    (entry) => entry.type === "Property" && propertyName(entry) === name,
+  );
+  return property ? staticString(property.value) : null;
+}
+
+function transDescriptor(node) {
+  if (jsxName(node.name) !== "Trans") return null;
+  const id = staticStringFromJsxValue(getJsxAttribute(node, "id")?.value);
+  const message = staticStringFromJsxValue(getJsxAttribute(node, "message")?.value);
+  return typeof id === "string" && typeof message === "string" ? { id, message } : null;
+}
+
+const localeCatalogsComplete = {
+  meta: {
+    type: "problem",
+    docs: { description: "Require every UiText id in every declared target locale." },
+    schema: [],
+  },
+  create(context) {
+    // frontend/i18n.json is singular and rooted beside eslint.config.js. Walking
+    // upward from each source file would let a nested i18n.json shadow the app's
+    // declared target set and silently waive translations for one subtree.
+    const active = activeI18nDeclaration(context.cwd);
+    const declarationProblem = active === null ? null : i18nDeclarationProblem(active);
+    if (declarationProblem !== null) {
+      return {
+        Program(node) {
+          context.report({ node, message: declarationProblem });
+        },
+      };
+    }
+    const declaration = active?.declaration;
+
+    const check = (node, descriptor) => {
+      if (descriptor === null) return;
+      if (descriptor.id.trim() === "" || descriptor.message.trim() === "") {
+        context.report({
+          node,
+          message: "UiText descriptors require non-empty static id and message values.",
+        });
+        return;
+      }
+      if (declaration === undefined) {
+        context.report({
+          node,
+          message:
+            `Translation "${descriptor.id}" has no frontend/i18n.json declaration. ` +
+            "Restore the catalog and translate every target locale.",
+        });
+        return;
+      }
+      const problems = [];
+      for (const [code, catalog] of Object.entries(declaration.locales)) {
+        if (code === declaration.sourceLocale) continue;
+        const translated = catalog?.messages?.[descriptor.id];
+        if (typeof translated !== "string" || translated.trim() === "") {
+          problems.push(`${code}: missing`);
+        } else if (
+          translated === descriptor.message &&
+          !(Array.isArray(catalog.allowIdentical) && catalog.allowIdentical.includes(descriptor.id))
+        ) {
+          problems.push(`${code}: copied source (add allowIdentical only when intentional)`);
+        } else if (
+          translated !== descriptor.message &&
+          Array.isArray(catalog.allowIdentical) &&
+          catalog.allowIdentical.includes(descriptor.id)
+        ) {
+          problems.push(`${code}: stale allowIdentical entry (translation no longer matches source)`);
+        }
+      }
+      if (problems.length > 0) {
+        context.report({
+          node,
+          message: `Translation "${descriptor.id}" is incomplete in frontend/i18n.json (${problems.join(", ")}).`,
+        });
+      }
+    };
+    return {
+      ObjectExpression(node) {
+        const hasId = node.properties.some(
+          (entry) => entry.type === "Property" && propertyName(entry) === "id",
+        );
+        const hasMessage = node.properties.some(
+          (entry) => entry.type === "Property" && propertyName(entry) === "message",
+        );
+        if (!hasId || !hasMessage) return;
+        const id = objectStringProperty(node, "id");
+        const message = objectStringProperty(node, "message");
+        // The id/message pair is also a common dynamic business-data shape. With
+        // no authored literal there is nothing for the static catalog to inventory;
+        // if such a value is later used as UiText, LocaleProvider is the runtime
+        // backstop. One static half does identify a malformed descriptor and must
+        // not let its authored copy escape the catalog.
+        if (id === null && message === null) return;
+        if (id === null || message === null) {
+          context.report({
+            node,
+            message: "UiText descriptors require static non-empty id and message values.",
+          });
+          return;
+        }
+        check(node, { id, message });
+      },
+      JSXOpeningElement(node) {
+        if (jsxName(node.name) !== "Trans") return;
+        const descriptor = transDescriptor(node);
+        if (descriptor === null) {
+          context.report({
+            node,
+            message: "<Trans> requires static non-empty id and message attributes.",
+          });
+          return;
+        }
+        check(node, descriptor);
+      },
+    };
+  },
+};
+
 /** Find the app's checked-in layout-contract config upward from *dir*; null = no contract. */
 export function activeLayoutContract(dir) {
   let current = dir;
@@ -390,10 +868,12 @@ const layoutContract = {
 
 const terpPlugin = {
   rules: {
+    "locale-catalogs-complete": localeCatalogsComplete,
     "layout-contract": layoutContract,
     "no-cross-module-imports": noCrossModuleImports,
     "no-dom-html-injection": noDomHtmlInjection,
     "no-eval": noEval,
+    "no-untranslated-ui": noUntranslatedUi,
     "no-unsafe-href": noUnsafeHref,
     "no-unsafe-target-blank": noUnsafeTargetBlank,
   },
@@ -722,13 +1202,26 @@ function escapeHatchProcessor() {
 export function terpBoundaries() {
   return [
     {
-      files: BOUNDARY_SPEC.moduleFiles,
+      files: BOUNDARY_SPEC.appFiles,
       processor: escapeHatchProcessor(),
     },
     {
-      files: BOUNDARY_SPEC.moduleFiles,
-      // Inline `eslint-disable` comments are inert in app modules; the justified
+      files: BOUNDARY_SPEC.appFiles,
+      // Inline `eslint-disable` comments are inert in app source; the justified
       // `terp-allow-*` marker (budget-governed) is the *only* escape hatch (ADR 0059).
+      linterOptions: { noInlineConfig: true },
+      languageOptions: {
+        parser: tseslint.parser,
+        parserOptions: { ecmaFeatures: { jsx: true }, sourceType: "module" },
+      },
+      plugins: { terp: terpPlugin },
+      rules: {
+        "terp/locale-catalogs-complete": "error",
+        "terp/no-untranslated-ui": "error",
+      },
+    },
+    {
+      files: BOUNDARY_SPEC.moduleFiles,
       linterOptions: { noInlineConfig: true },
       languageOptions: {
         parser: tseslint.parser,

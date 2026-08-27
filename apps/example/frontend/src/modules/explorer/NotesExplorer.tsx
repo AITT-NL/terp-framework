@@ -18,11 +18,21 @@ function buildColumns(
   formatDate: (value: string) => string,
 ): DataViewColumn<NoteRead>[] {
   return [
-    { id: "title", header: "Title", accessor: (n) => n.title, meta: { mobileSlot: "title" } },
-    { id: "body", header: "Body", accessor: (n) => n.body, meta: { mobileSlot: "subtitle" } },
+    {
+      id: "title",
+      header: { id: "explorer.notes.column.title", message: "Title" },
+      accessor: (n) => n.title,
+      meta: { mobileSlot: "title" },
+    },
+    {
+      id: "body",
+      header: { id: "explorer.notes.column.body", message: "Body" },
+      accessor: (n) => n.body,
+      meta: { mobileSlot: "subtitle" },
+    },
     {
       id: "created_at",
-      header: "Created",
+      header: { id: "explorer.notes.column.created", message: "Created" },
       accessor: (n) => n.created_at,
       cell: (n) => formatDate(n.created_at),
       meta: { mobileSlot: "date", width: "sm" },
@@ -63,7 +73,7 @@ export function NotesExplorer() {
   );
 
   return (
-    <OverviewPage title="Notes explorer">
+    <OverviewPage title={{ id: "explorer.notes.title", message: "Notes explorer" }}>
       <DataView<NoteRead>
         viewId="explorer.notes"
         repository={repository}

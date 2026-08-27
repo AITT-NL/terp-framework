@@ -6,10 +6,10 @@ import { useProjects } from "./useProjects";
 export function ProjectsList() {
   const projects = useProjects();
   return (
-    <OverviewPage title="Projects">
+    <OverviewPage title={{ id: "projects.title", message: "Projects" }}>
       <ResourceList
         resource={projects}
-        createPlaceholder="New project name"
+        createPlaceholder={{ id: "projects.create", message: "New project name" }}
         renderItem={(project) => <strong>{project.name}</strong>}
       />
     </OverviewPage>

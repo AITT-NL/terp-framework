@@ -1,4 +1,13 @@
-import { Button, Field, Input, OverviewPage, ResourceList, Stack, Textarea } from "@terpjs/react-core";
+import {
+  Button,
+  Field,
+  Input,
+  OverviewPage,
+  ResourceList,
+  Stack,
+  Textarea,
+  Trans,
+} from "@terpjs/react-core";
 import { useState } from "react";
 import type { FormEvent } from "react";
 
@@ -25,13 +34,15 @@ function NewJournalForm({ onAdd }: { onAdd: (title: string, entry: string) => Pr
 
   return (
     <Stack as="form" onSubmit={onSubmit}>
-      <Field label="Title">
+      <Field label={{ id: "journals.field.title", message: "Title" }}>
         <Input value={title} onChange={(event) => setTitle(event.target.value)} />
       </Field>
-      <Field label="Entry">
+      <Field label={{ id: "journals.field.entry", message: "Entry" }}>
         <Textarea value={entry} onChange={(event) => setEntry(event.target.value)} rows={3} />
       </Field>
-      <Button type="submit">Add</Button>
+      <Button type="submit">
+        <Trans id="journals.add" message="Add" />
+      </Button>
     </Stack>
   );
 }
@@ -40,7 +51,7 @@ function NewJournalForm({ onAdd }: { onAdd: (title: string, entry: string) => Pr
 export function JournalsList() {
   const journals = useJournals();
   return (
-    <OverviewPage title="Journals">
+    <OverviewPage title={{ id: "journals.title", message: "Journals" }}>
       <ResourceList
         resource={journals}
         renderCreate={() => <NewJournalForm onAdd={journals.add} />}

@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 
 import { Button } from "./ui/Button";
 import { injectTerpStyles } from "./styles";
-import { useStrings, useUiText } from "./uiText";
-import type { UiText } from "./uiText";
+import { resolveUiTextNode, useStrings, useUiText } from "./uiText";
+import type { UiText, UiTextNode } from "./uiText";
 
 injectTerpStyles();
 
@@ -18,7 +18,7 @@ export interface ConfirmDialogProps {
   /** Short question — what is about to happen. */
   title: UiText;
   /** Optional consequence explanation. */
-  description?: ReactNode;
+  description?: UiTextNode;
   /** Confirm-button label; defaults to the `confirm` string. */
   confirmLabel?: UiText;
   /** Cancel-button label; defaults to the `cancel` string. */
@@ -118,7 +118,7 @@ export function ConfirmDialog({
         </h2>
         {description !== undefined && (
           <div id={descriptionId} data-terp="dialog-description">
-            {description}
+            {resolveUiTextNode(description, resolve)}
           </div>
         )}
         <div data-terp="dialog-actions">

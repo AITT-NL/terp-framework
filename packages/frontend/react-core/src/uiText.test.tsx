@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Page } from "./Page";
 import { ResourceList } from "./ResourceList";
 import { TerpProvider } from "./TerpProvider";
-import { resolveUiText, UiTextProvider } from "./uiText";
+import { resolveUiText, resolveUiTextNode, UiTextProvider } from "./uiText";
 
 afterEach(cleanup);
 
@@ -13,6 +13,20 @@ describe("resolveUiText", () => {
   it("passes plain strings through and falls back to a descriptor's message", () => {
     expect(resolveUiText("Tasks")).toBe("Tasks");
     expect(resolveUiText({ id: "tasks.title", message: "Tasks" })).toBe("Tasks");
+  });
+
+  it("resolves descriptors in prose slots and preserves rich React nodes", () => {
+    const resolve = (text: string | { readonly id: string; readonly message: string }) =>
+      typeof text === "string" ? text : `translated:${text.id}`;
+    expect(
+      resolveUiTextNode(
+        { id: "tasks.empty.description", message: "Create your first task." },
+        resolve,
+      ),
+    ).toBe("translated:tasks.empty.description");
+
+    const rich = <strong>Already rendered</strong>;
+    expect(resolveUiTextNode(rich, resolve)).toBe(rich);
   });
 });
 

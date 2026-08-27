@@ -172,6 +172,40 @@ def test_layout_presets_render_a_home_module() -> None:
     assert "style={{" not in view
 
 
+def test_frontend_template_ships_checked_complete_app_locales() -> None:
+    declaration = json.loads(
+        (_PROJECT / "frontend" / "i18n.json.jinja").read_text(encoding="utf-8")
+    )
+    assert declaration["sourceLocale"] == "nl"
+    assert set(declaration["locales"]) == {"nl", "en"}
+    english = declaration["locales"]["en"]["messages"]
+    assert english and all(value.strip() for value in english.values())
+
+    main = (_PROJECT / "frontend" / "src" / "main.tsx.jinja").read_text(
+        encoding="utf-8"
+    )
+    assert 'import i18n from "../i18n.json"' in main
+    assert "defineAppLocales(i18n" in main
+    assert "sourceLocale: i18n.sourceLocale" in main
+    assert 'const APP_TITLE = "{{ project_name }}"' in main
+    assert "title: APP_TITLE" in main
+    assert 'title: "{{ project_name }}"' not in main
+
+    home = (_PROJECT / "frontend" / "src" / "modules" / "home")
+    authored = "\n".join(
+        (home / filename).read_text(encoding="utf-8")
+        for filename in ("Home.tsx.jinja", "module.tsx.jinja")
+    )
+    ids = set(re.findall(r'id:\s*"([^"]+)"|id="([^"]+)"', authored))
+    flattened = {left or right for left, right in ids}
+    assert flattened <= set(english), "starter UiText ids missing from the English target"
+
+    agents = (_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8")
+    assert "frontend/i18n.json" in agents
+    assert "<Trans id message />" in agents
+    assert "every non-source locale" in agents
+
+
 def test_capability_toggles_wire_the_composition_root() -> None:
     # A toggled capability is a dependency AND its composition-root wiring — never a
     # half-mounted dep. Files rides discovery; SSO/events need explicit seams.
@@ -194,7 +228,7 @@ def test_capability_toggles_wire_the_composition_root() -> None:
     # the compose workbench forwards the same variables into the api container.
     assert 'os.environ.get("OIDC_ISSUER", "")' in auth
     main_tsx = (_PROJECT / "frontend" / "src" / "main.tsx.jinja").read_text()
-    assert 'ssoProviders: [{ name: "sso", label: "Single sign-on" }]' in main_tsx
+    assert 'label: { id: "auth.sso.label", message: "SSO" }' in main_tsx
     env_example = (_PROJECT / ".env.example.jinja").read_text()
     assert "OIDC_ISSUER" in env_example
     compose = (_PROJECT / "docker-compose.yml.jinja").read_text()

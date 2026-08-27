@@ -35,14 +35,14 @@ describe("terp/layout-contract", () => {
   it("is inert without an opted-in contract (backwards compatible)", async () => {
     const code =
       'import { HubPage } from "@terpjs/react-core";\n' +
-      "export const W = () => <HubPage title='x'><div /></HubPage>;";
+      "export const W = ({title}) => <HubPage title={title}><div /></HubPage>;";
     expect((await lint(code)).map((m) => m.ruleId)).toEqual([]);
   });
 
   it("refuses a non-conforming child in a HubPage body, with the directive message", async () => {
     const code =
       'import { HubPage, Stack } from "@terpjs/react-core";\n' +
-      "export const W = () => <HubPage title='x'><Stack /></HubPage>;";
+      "export const W = ({title}) => <HubPage title={title}><Stack /></HubPage>;";
     const messages = await lint(code, configWithContract("standard"));
     expect(messages.map((m) => m.ruleId)).toContain("terp/layout-contract");
     expect(messages[0].message).toBe(slotViolationMessage("standard", "HubPage", "<Stack>"));
@@ -51,9 +51,9 @@ describe("terp/layout-contract", () => {
   it("passes a conforming hub / overview / detail composition", async () => {
     const code = [
       'import { Card, DataView, DetailList, HubCard, HubPage, OverviewPage, DetailPage, Stack } from "@terpjs/react-core";',
-      "export const H = () => <HubPage title='x'><HubCard to='/a' title='a' /></HubPage>;",
-      "export const O = () => <OverviewPage title='x'><Card title='open'><DataView /></Card></OverviewPage>;",
-      "export const D = () => <DetailPage title='x' parents={[]}><Card title='a section'>body</Card><Stack><DetailList items={[]} /></Stack></DetailPage>;",
+      "export const H = ({title}) => <HubPage title={title}><HubCard to='/a' title={title} /></HubPage>;",
+      "export const O = ({title}) => <OverviewPage title={title}><Card title={title}><DataView /></Card></OverviewPage>;",
+      "export const D = ({title, body}) => <DetailPage title={title} parents={[]}><Card title={title}>{body}</Card><Stack><DetailList items={[]} /></Stack></DetailPage>;",
     ].join("\n");
     expect((await lint(code, configWithContract("standard"))).map((m) => m.ruleId)).toEqual([]);
   });
@@ -61,19 +61,19 @@ describe("terp/layout-contract", () => {
   it("refuses raw text and recurses through fragments; dynamic children are left to the runtime half", async () => {
     const text =
       'import { OverviewPage } from "@terpjs/react-core";\n' +
-      "export const W = () => <OverviewPage title='x'>loose text</OverviewPage>;";
+      "export const W = ({title}) => <OverviewPage title={title}>loose text</OverviewPage>;";
     expect((await lint(text, configWithContract("standard"))).map((m) => m.ruleId)).toContain(
       "terp/layout-contract",
     );
     const fragment =
       'import { HubPage } from "@terpjs/react-core";\n' +
-      "export const W = () => <HubPage title='x'><><span /></></HubPage>;";
+      "export const W = ({title}) => <HubPage title={title}><><span /></></HubPage>;";
     expect((await lint(fragment, configWithContract("standard"))).map((m) => m.ruleId)).toContain(
       "terp/layout-contract",
     );
     const dynamic =
       'import { HubPage } from "@terpjs/react-core";\n' +
-      "export const W = ({items}) => <HubPage title='x'>{items}</HubPage>;";
+      "export const W = ({title, items}) => <HubPage title={title}>{items}</HubPage>;";
     expect((await lint(dynamic, configWithContract("standard"))).map((m) => m.ruleId)).toEqual([]);
   });
 
@@ -86,7 +86,7 @@ describe("terp/layout-contract", () => {
   it("honours a justified escape-hatch marker (and only a justified one)", async () => {
     const code =
       'import { HubPage } from "@terpjs/react-core";\n' +
-      "export const W = () => <HubPage title='x'>\n" +
+      "export const W = ({title}) => <HubPage title={title}>\n" +
       "  {/* terp-allow-layout-contract: legacy widget pending HubCard port */}\n" +
       "  <div />\n" +
       "</HubPage>;";

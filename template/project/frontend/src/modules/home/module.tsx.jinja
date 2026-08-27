@@ -2,11 +2,23 @@ import { defineModuleManifest } from "@terpjs/contract";
 
 import { Home } from "./Home";
 
+const APP_TITLE = "{{ project_name }}";
+
 // The landing module ("/" belongs to it) — auto-discovered like every module slot.
 export const manifest = defineModuleManifest({
   name: "home",
   routes: [{ path: "/", view: "Home" }],
-  nav: [{ label: "{% if layout == 'process' %}Werkvoorraad{% elif layout == 'portal' %}Mijn overzicht{% else %}{{ project_name }}{% endif %}", to: "/", icon: "home" }],
+  nav: [{
+{% if layout == 'process' -%}
+    label: { id: "home.process.title", message: "Werkvoorraad" },
+{%- elif layout == 'portal' -%}
+    label: { id: "home.portal.title", message: "Mijn overzicht" },
+{%- else -%}
+    label: APP_TITLE,
+{%- endif %}
+    to: "/",
+    icon: "home",
+  }],
 });
 
 export const views = { Home };

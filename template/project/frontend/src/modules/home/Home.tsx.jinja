@@ -1,56 +1,75 @@
 {% if layout in ['hub', 'process', 'portal'] -%}
-// The {{ layout }} landing: a HubPage of cards. These are PLACEHOLDERS — each card
-// currently points at "/" because no module exists yet. When the first module lands
-// (`uv run terp new module <name>` or the agent), point the cards at its route (and
-// add a card per area as the app grows; a card can carry a live `stat`).
-import { HubCard, HubPage } from "@terpjs/react-core";
+// The {{ layout }} landing is a placeholder HubPage. Point its cards at real module routes
+// as those modules arrive; every stable label is a cataloged UiText descriptor.
+import { HubCard, HubPage, Trans } from "@terpjs/react-core";
 import { Link } from "@tanstack/react-router";
+
+const APP_TITLE = "{{ project_name }}";
+{% if layout == 'process' -%}
+const PAGE_TITLE = { id: "home.process.title", message: "Werkvoorraad" };
+const NEW_TITLE = { id: "home.process.new.title", message: "Nieuw" };
+const NEW_DESCRIPTION = { id: "home.process.new.description", message: "Hier komt de lijst met nieuwe aanvragen zodra het eerste onderdeel is gebouwd." };
+const ACTIVE_TITLE = { id: "home.process.active.title", message: "In behandeling" };
+const ACTIVE_DESCRIPTION = { id: "home.process.active.description", message: "Hier ga je verder met aanvragen waaraan al wordt gewerkt." };
+const DONE_TITLE = { id: "home.process.done.title", message: "Afgerond" };
+const DONE_DESCRIPTION = { id: "home.process.done.description", message: "Hier vind je afgeronde aanvragen en hun geschiedenis." };
+{%- elif layout == 'portal' -%}
+const PAGE_TITLE = { id: "home.portal.title", message: "Mijn overzicht" };
+const CASES_TITLE = { id: "home.portal.cases.title", message: "Mijn zaken" };
+const CASES_DESCRIPTION = { id: "home.portal.cases.description", message: "Hier komen de gegevens die bij jouw account horen zodra het eerste onderdeel is gebouwd." };
+const ACTIONS_TITLE = { id: "home.portal.actions.title", message: "Openstaande acties" };
+const ACTIONS_DESCRIPTION = { id: "home.portal.actions.description", message: "Hier ga je verder met wat nog aandacht of informatie nodig heeft." };
+{%- else -%}
+const PAGE_TITLE = APP_TITLE;
+const FIRST_TITLE = { id: "home.hub.first.title", message: "Eerste onderdeel" };
+const FIRST_DESCRIPTION = { id: "home.hub.first.description", message: "Hier komt je eerste onderdeel. Bouw het via de chat of met `terp new module`." };
+{%- endif %}
 
 export function Home() {
   return (
-    <HubPage title="{% if layout == 'process' %}Werkvoorraad{% elif layout == 'portal' %}Mijn overzicht{% else %}{{ project_name }}{% endif %}">
+    <HubPage title={PAGE_TITLE}>
 {% if layout == 'process' -%}
       <HubCard
         to="/"
-        title="Nieuw"
-        description="Hier komt de lijst met nieuwe aanvragen zodra het eerste onderdeel is gebouwd."
-        stat="Te beoordelen"
+        title={NEW_TITLE}
+        description={NEW_DESCRIPTION}
+        stat={<Trans id="home.process.new.stat" message="Te beoordelen" />}
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
       <HubCard
         to="/"
-        title="In behandeling"
-        description="Hier ga je verder met aanvragen waaraan al wordt gewerkt."
-        stat="Actief"
+        title={ACTIVE_TITLE}
+        description={ACTIVE_DESCRIPTION}
+        stat={<Trans id="home.process.active.stat" message="Actief" />}
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
       <HubCard
         to="/"
-        title="Afgerond"
-        description="Hier vind je afgeronde aanvragen en hun geschiedenis."
-        stat="Archief"
+        title={DONE_TITLE}
+        description={DONE_DESCRIPTION}
+        stat={<Trans id="home.process.done.stat" message="Archief" />}
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
 {%- elif layout == 'portal' -%}
       <HubCard
         to="/"
-        title="Mijn zaken"
-        description="Hier komen de gegevens die bij jouw account horen zodra het eerste onderdeel is gebouwd."
-        stat="Persoonlijk"
+        title={CASES_TITLE}
+        description={CASES_DESCRIPTION}
+        stat={<Trans id="home.portal.cases.stat" message="Persoonlijk" />}
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
       <HubCard
         to="/"
-        title="Openstaande acties"
-        description="Hier ga je verder met wat nog aandacht of informatie nodig heeft."
-        stat="Actie nodig"
+        title={ACTIONS_TITLE}
+        description={ACTIONS_DESCRIPTION}
+        stat={<Trans id="home.portal.actions.stat" message="Actie nodig" />}
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
 {%- else -%}
       <HubCard
         to="/"
-        title="Eerste onderdeel"
-        description="Hier komt je eerste onderdeel. Bouw het via de chat of met `terp new module`."
+        title={FIRST_TITLE}
+        description={FIRST_DESCRIPTION}
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
 {%- endif %}
@@ -58,23 +77,28 @@ export function Home() {
   );
 }
 {%- else -%}
-// The blank-shell landing — replace it with your first real screen. Add modules with
-// `uv run terp new module <name>` (or ask the agent); each drops in a routed, nav-linked slot.
-//
-// `Text` and `Code` rather than the bare paragraph and code elements this used to render,
-// and that is the point rather than tidiness: app modules may not write `style` or
-// `className`, and a bare element carries no marker for a rule in the framework sheet to
-// reach — so bare prose here is text this app could never theme. This file was the
-// framework's own example of that.
-import { Code, Page, Text } from "@terpjs/react-core";
+// The blank-shell landing. Product names and commands are intentionally not translated;
+// every stable sentence goes through Trans and is checked against frontend/i18n.json.
+import { Code, Page, Text, Trans } from "@terpjs/react-core";
+
+const APP_TITLE = "{{ project_name }}";
 
 export function Home() {
   return (
-    <Page title="{{ project_name }}">
+    <Page title={APP_TITLE}>
       <Text measure="base">
-        Your app is running: sign-in, admin and audit are already wired. Add your first
-        module with <Code>uv run terp new module &lt;name&gt;</Code> — it appears in the
-        navigation automatically.
+        <Trans
+          id="home.blank.running"
+          message="Je app draait: inloggen, beheer en audit zijn al aangesloten."
+        />
+      </Text>
+      <Text measure="base">
+        <Trans id="home.blank.add.before" message="Voeg je eerste module toe met" />{" "}
+        <Code>uv run terp new module &lt;name&gt;</Code>{" "}
+        <Trans
+          id="home.blank.add.after"
+          message="en deze verschijnt automatisch in de navigatie."
+        />
       </Text>
     </Page>
   );

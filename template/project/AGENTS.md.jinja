@@ -232,10 +232,20 @@ No lint modes — every violation is an error. The governed opt-out is a justifi
   - **To open on a palette other than `light`**, name it as `defaultTheme` in
     `frontend/layout-contract.json`. Do not restyle one palette to imitate another.
   - `uv run terp guide theming` is the full recipe.
-- **Languages** — `frontend/src/main.tsx` declares the `locales` catalogs. Add a
-  language by adding one entry (`{ label, strings }` overriding the framework strings);
-  the user menu then shows a persisted language picker. Keep user-facing text in module
-  code as `UiText` props so it follows the switch.
+- **Languages** — `frontend/i18n.json` is the authoritative app-copy catalog and
+  `frontend/src/main.tsx` merges it with the framework catalogs. Static user-facing copy
+  anywhere under `frontend/src/` must use `{ id, message }` for `UiText` props or
+  `<Trans id message />` for JSX
+  bodies; plain strings are only for dynamic business data, identifiers, commands and product
+  names. Add every changed id to **every non-source locale** in the same change.
+  `npm --prefix frontend run lint` rejects bare UI literals, empty/missing translations, and
+  copied source text unless its id is explicitly documented in `allowIdentical` (proper nouns
+  and acronyms only). Never silence either translation rule or raise its escape budget. The
+  runtime resolver also refuses missing target-locale entries and undocumented source copies.
+  Adding a language also requires a complete `TerpStrings` framework catalog: put its
+  `strings` map on the locale in `i18n.json`, or pass that catalog as the second
+  `defineAppLocales` argument. App messages alone do not translate the shell, and bootstrap
+  refuses that half-translated configuration.
 - **User menu** — every app gets the avatar menu (email, role, sign-out) pinned to the
   sidebar bottom automatically; there is nothing to wire. The theme toggle and the
   language switch are separate controls in the shell header, not entries in this menu.
