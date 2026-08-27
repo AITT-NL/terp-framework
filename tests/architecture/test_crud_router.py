@@ -21,12 +21,16 @@ from terp.core import (
     BaseService,
     BaseTable,
     BaseUpdateSchema,
+    ControlPlane,
     ModuleSpec,
+    OperationCatalog,
+    OperationDefinition,
     Policy,
     build_crud_router,
     create_app,
     get_session,
 )
+from terp.core.routing import declared_operation
 
 
 class _Widget(BaseTable, table=True):
@@ -162,3 +166,56 @@ def test_routes_are_named_after_the_entity_not_after_the_closure() -> None:
     assert "list_widgets" in names_for("_WidgetRead")
     # A DTO that does not follow the *Read convention keeps its whole name.
     assert "get_widget_summary" in names_for("WidgetSummary")
+
+
+def test_declares_operations_for_each_of_the_five_routes() -> None:
+    """ADR 0102 §7: the factory can declare what each of its five routes does.
+
+    Verified end-to-end through create_app's exported OpenAPI (not the route object
+    directly), so this proves the whole chain: the factory stamps the declaration,
+    create_app's boot validator confirms it against the catalog, and phase 4's
+    _apply_declared_operations populates the summary/operationId a client actually
+    sees from it.
+    """
+    ops = {
+        "list": OperationDefinition(id="widgets.list", label="List widgets"),
+        "create": OperationDefinition(id="widgets.create", label="Add a widget"),
+        "get": OperationDefinition(id="widgets.get", label="View a widget"),
+        "update": OperationDefinition(id="widgets.update", label="Edit a widget"),
+        "delete": OperationDefinition(id="widgets.delete", label="Remove a widget"),
+    }
+    router = build_crud_router(
+        _WidgetService(),
+        read_schema=_WidgetRead,
+        create_schema=_WidgetCreate,
+        update_schema=_WidgetUpdate,
+        list_operation=ops["list"],
+        create_operation=ops["create"],
+        get_operation=ops["get"],
+        update_operation=ops["update"],
+        delete_operation=ops["delete"],
+    )
+    spec = ModuleSpec(
+        name="widgets", router=router, policy=Policy.public_write(reason="factory under test")
+    )
+    plane = ControlPlane(operations=OperationCatalog(operations=tuple(ops.values())))
+    app = create_app([spec], control_plane=plane)
+    paths = app.openapi()["paths"]
+    assert paths["/api/v1/widgets/"]["get"]["summary"] == "List widgets"
+    assert paths["/api/v1/widgets/"]["get"]["operationId"] == "widgets.list"
+    assert paths["/api/v1/widgets/"]["post"]["summary"] == "Add a widget"
+    assert paths["/api/v1/widgets/{item_id}"]["get"]["summary"] == "View a widget"
+    assert paths["/api/v1/widgets/{item_id}"]["patch"]["summary"] == "Edit a widget"
+    assert paths["/api/v1/widgets/{item_id}"]["delete"]["summary"] == "Remove a widget"
+
+
+def test_omitting_an_operation_leaves_that_route_undeclared() -> None:
+    """The five parameters default to None, matching a hand-written route with no @operation."""
+    router = build_crud_router(
+        _WidgetService(),
+        read_schema=_WidgetRead,
+        create_schema=_WidgetCreate,
+        update_schema=_WidgetUpdate,
+    )
+    for route in router.routes:
+        assert declared_operation(route.endpoint) is None

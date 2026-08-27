@@ -23,7 +23,9 @@ from sqlmodel import SQLModel
 from terp.core.base_models import BaseTable, BaseUpdateSchema
 from terp.core.base_service import BaseService
 from terp.core.db import SessionDep
+from terp.core.operations import OperationDefinition
 from terp.core.pagination import Page, PaginationDep
+from terp.core.routing import operation
 
 # The read DTO's suffix, stripped to recover the entity's own name: ``ProjectRead``
 # describes a project, and the route is named for the project, not for the DTO.
@@ -77,6 +79,11 @@ def build_crud_router[
     create_schema: type[CreateT],
     update_schema: type[UpdateT],
     tags: Sequence[str] | None = None,
+    list_operation: OperationDefinition | None = None,
+    create_operation: OperationDefinition | None = None,
+    get_operation: OperationDefinition | None = None,
+    update_operation: OperationDefinition | None = None,
+    delete_operation: OperationDefinition | None = None,
 ) -> APIRouter:
     """Build the five canonical CRUD routes over *service* and its DTOs.
 
@@ -85,6 +92,16 @@ def build_crud_router[
     ``create_app`` like any hand-written module router (behind its policy guard);
     the responses are the read DTO, so the runtime response-model guard (ADR 0020)
     is satisfied by construction.
+
+    The five ``*_operation`` parameters declare what each route does (ADR 0102 §7):
+    a factory-built module is otherwise undeclarable — every one of them derives the
+    same five labels from the same five route names — which would make ``strict``
+    coverage unreachable for exactly the modules this framework tells consumers to
+    build with sugar. Each defaults to ``None`` (no declaration, matching a
+    hand-written route that carries no ``@operation``), so an existing caller is
+    unaffected; passing one is exactly like decorating the equivalent hand-written
+    handler with ``@operation(...)``, applied here because the factory builds the
+    handler rather than letting the caller decorate it.
     """
     router = APIRouter(tags=list(tags or ()))
     page_model = Page[read_schema]
@@ -143,6 +160,20 @@ def build_crud_router[
         "item_id": uuid.UUID,
         "session": SessionDep,
     }
+
+    # Declare each route's operation before registering it. `operation(...)` returns
+    # its argument unchanged (it stamps an attribute), so applying it here is exactly
+    # what `@operation(...)` does above a hand-written handler.
+    if list_operation is not None:
+        operation(list_operation)(list_items)
+    if create_operation is not None:
+        operation(create_operation)(create_item)
+    if get_operation is not None:
+        operation(get_operation)(get_item)
+    if update_operation is not None:
+        operation(update_operation)(update_item)
+    if delete_operation is not None:
+        operation(delete_operation)(delete_item)
 
     router.add_api_route(
         "/",
