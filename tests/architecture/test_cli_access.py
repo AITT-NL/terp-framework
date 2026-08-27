@@ -85,13 +85,20 @@ def test_access_graph_endpoint_layer_maps_verbs_to_requirements() -> None:
         for endpoint in notes["endpoints"]
         for method in endpoint["methods"]
     }
+    # `requirement` is what distinguishes these two, and it is the only thing that
+    # ever did: the guard picks the read or the write requirement by method, so the
+    # same path under GET and POST resolves to different authority. There is no
+    # read/write field to assert — it was computed from `methods`, which is asserted
+    # right here in the key, so it restated what the reader already had.
     listing = by_key[("/api/v1/notes/", "GET")]
-    assert listing["kind"] == "read"
     assert listing["requirement"] == "role:viewer"
     creating = by_key[("/api/v1/notes/", "POST")]
-    assert creating["kind"] == "write"
     assert creating["requirement"] == "role:editor"
     assert creating["extra_permissions"] == []
+    assert "kind" not in listing and "kind" not in creating, (
+        "the method-derived read/write field is gone; nothing reads it and it only "
+        "ever repeated `methods`"
+    )
 
 
 def test_access_graph_data_layer_reports_owner_trait_and_warning() -> None:

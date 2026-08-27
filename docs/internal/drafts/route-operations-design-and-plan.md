@@ -78,7 +78,7 @@ the feature commits small.
       changing which routes a security rule governs is not a refactor.
       *Still to migrate:* `response_model_not_table_model`, `path_id_params_are_uuid`,
       `_safe_reachable_handlers` in `http.py`, and `_has_mutating_route` in `authz.py`.
-- [ ] **1.5 Drop the method-derived `kind` from the access graph.** Blocked on the Studio no longer
+- [x] **1.5 Drop the method-derived `kind` from the access graph.** Blocked on the Studio no longer
       rendering it (phase 3), so this is the *last* item of phase 1 in time even though it belongs
       here in spirit. Removes the field from `_endpoint_json` and from `_render_access_text`.
 

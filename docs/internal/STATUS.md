@@ -423,7 +423,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 Two threads are in flight. Detail lives in the linked plan and ADRs; this is the
 index, so nothing is tracked only in a commit message.
 
-Phases 1.1–1.3 and 2–3 are shipped; 1.4 is partly done and 1.5 is unblocked.
+Phases 1.1–1.3, 1.5, 2 and 3 are shipped; only 1.4 is partly done.
 
 **Route operations** — decided in
 [ADR 0102](../decisions/0102-route-operations-are-declared.md), sequenced in
@@ -443,9 +443,9 @@ endpoint *does* and the platform can guarantee every route is explained.
       `_safe_reachable_handlers` and `authz._has_mutating_route` still have their own
       walks. Those three each pair with a fail-closed runtime half, which is why they
       are lower-risk than the one already done.
-- [ ] 1.5 Drop the method-derived `kind` from the access graph. **Unblocked:** phase 3
-      landed and nothing in the Studio reads `AccessEndpoint.kind` any more, so the
-      field now has no reader on either side.
+- [x] 1.5 The method-derived read/write field is gone from the access graph and from
+      the Studio's type. In `terp inspect access --format text` its column now shows
+      what the route *does*, where the route says so.
 - [x] Phase 2 — the core seam. `OperationDefinition` / `OperationCatalog` /
       `OperationCoverage` in `terp.core.operations`, the `@operation(...)` declaration
       beside `read_only` in `terp.core.routing`, `ControlPlane.operations`, and the

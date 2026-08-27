@@ -96,7 +96,16 @@ def _route_permissions(route: APIRoute) -> list[str]:
 
 
 def _endpoint_json(spec: ModuleSpec, route: APIRoute) -> dict[str, object]:
-    """The endpoint-access layer: one mounted route + its effective requirement."""
+    """The endpoint-access layer: one mounted route + its effective requirement.
+
+    No read/write field is emitted. One used to be, computed from the HTTP method
+    alone, which meant it restated the ``methods`` beside it and carried no authority
+    of its own — and it invited a false reading, because a module may require the same
+    tier for both (the boot check permits exactly that, and the files capability does
+    it), so "read" never meant "cannot write". ``requirement`` is the honest field:
+    the kernel guard has already chosen the read or write requirement for this
+    method, so it is the authority that actually applies to this one route.
+    """
     methods = sorted(route.methods or ())
     is_write = any(method in MUTATING_METHODS for method in methods)
     policy = spec.policy
@@ -112,7 +121,6 @@ def _endpoint_json(spec: ModuleSpec, route: APIRoute) -> dict[str, object]:
     return {
         "path": f"/api/v1/{spec.name}{route.path}",
         "methods": methods,
-        "kind": "write" if is_write else "read",
         "requirement": requirement,
         "extra_permissions": _route_permissions(route),
         "name": route.name,
@@ -426,9 +434,14 @@ def _render_access_text(graph: dict[str, object]) -> str:
                 if endpoint["extra_permissions"]
                 else ""
             )
+            # What the route DOES, where it says so, in the column the method-derived
+            # read/write field used to occupy — a field that only ever repeated the
+            # methods printed beside it.
+            operation = endpoint["operation"]
+            does = f"  {operation['label']}" if operation else ""
             lines.append(
                 f"  {','.join(endpoint['methods']):8} {endpoint['path']:40} "
-                f"{endpoint['kind']:5} {endpoint['requirement']}{extra}"
+                f"{endpoint['requirement']}{extra}{does}"
             )
         for model in module["models"]:
             read_scope = ", ".join(model["read_scope"]) or "none"

@@ -560,7 +560,7 @@ def test_declaring_an_operation_does_not_change_authorization() -> None:
     plain = graph_for(None)
 
     assert declared["policy"] == plain["policy"]
-    for field in ("requirement", "kind", "extra_permissions", "methods", "path"):
+    for field in ("requirement", "extra_permissions", "methods", "path"):
         assert [e[field] for e in declared["endpoints"]] == [
             e[field] for e in plain["endpoints"]
         ], f"declaring an operation changed {field!r}"
