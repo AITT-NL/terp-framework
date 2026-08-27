@@ -423,6 +423,8 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 Two threads are in flight. Detail lives in the linked plan and ADRs; this is the
 index, so nothing is tracked only in a commit message.
 
+Phases 1.1–1.3 and 2–3 are shipped; 1.4 is partly done and 1.5 is unblocked.
+
 **Route operations** — decided in
 [ADR 0102](../decisions/0102-route-operations-are-declared.md), sequenced in
 [route-operations-design-and-plan.md](drafts/route-operations-design-and-plan.md).
@@ -441,18 +443,19 @@ endpoint *does* and the platform can guarantee every route is explained.
       `_safe_reachable_handlers` and `authz._has_mutating_route` still have their own
       walks. Those three each pair with a fail-closed runtime half, which is why they
       are lower-risk than the one already done.
-- [ ] 1.5 Drop the method-derived `kind` from the access graph — waits on the Studio
-      viewer no longer rendering it.
+- [ ] 1.5 Drop the method-derived `kind` from the access graph. **Unblocked:** phase 3
+      landed and nothing in the Studio reads `AccessEndpoint.kind` any more, so the
+      field now has no reader on either side.
 - [x] Phase 2 — the core seam. `OperationDefinition` / `OperationCatalog` /
       `OperationCoverage` in `terp.core.operations`, the `@operation(...)` declaration
       beside `read_only` in `terp.core.routing`, `ControlPlane.operations`, and the
       boot validator. No-drift is unconditional and value-matched; coverage is
       per-app `off` / `warn` / `strict` and defaults to off, so nothing observable
       changes for an existing app.
-- [~] Phase 3 — **the Studio viewer**: the first user-visible value, and what
-      unblocks 1.5. `terp inspect access` now carries each route's declared
-      operation (`null` where a route declares none, so a view can fall back to the
-      route name deliberately); the Studio side is not started.
+- [x] Phase 3 — **the Studio viewer**, shipped in `terp-studio` (ADR 0004 gains an
+      amendment). The row reads as one sentence, the wording comes from the declared
+      operation or is derived-and-marked, and method/path/requirement are demoted
+      rather than removed. Verified in Chromium in both themes.
 - [ ] Phase 4 — the operation feeds OpenAPI `summary` / `operation_id`, giving the
       declaration a second reader.
 - [ ] Phase 5 — annotate the framework's own routes, `_CLEAN_CAPS` first since those

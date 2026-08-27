@@ -113,30 +113,35 @@ as an `_IncludedRouter` whose own `path` is `None` — so a top-level-only walk 
 wrapper as an undeclared route and still refuses. The test now asserts the nested route's path
 appears in the message, which is what distinguishes walking the tree from tripping over its root.
 
-## Phase 3 — the Studio viewer (first user-visible value)
+## Phase 3 — the Studio viewer (first user-visible value) — DONE
 
 Works against the current framework ref, because the derived label needs only `endpoint.name`, which
 the access graph already carries.
 
-- [ ] **3.1 A pure derivation module** in the Studio frontend: verb-frame table → plain-language
+- [x] **3.1 A pure derivation module** in the Studio frontend: verb-frame table → plain-language
       label, reporting whether the label was declared, derived, or a raw name. Frames are
       translated; the noun is left in the app's own vocabulary.
-- [ ] **3.2 Plain-language authority** from `endpoint.requirement`, handling all three shapes the
+- [x] **3.2 Plain-language authority** from `endpoint.requirement`, handling all three shapes the
       field can hold (`role:x`, `permission:x`, and the prose sentinels `public` /
       `denied (no policy declared)`). Reuse `requirementRank` / `requirementKind` from
       `accessMatrix.ts` rather than re-parsing.
-- [ ] **3.3 Role names in plain language** for the framework's own ladder, with a custom declared
+- [x] **3.3 Role names in plain language** for the framework's own ladder, with a custom declared
       role keeping its own name — a project may ship any ladder, and renaming a custom role here
       would disagree with the app's own user-management screen.
-- [ ] **3.4 Rewrite the endpoint table** to *Actie* / *Wie mag dit*, with method, path and raw
+- [x] **3.4 Rewrite the endpoint table** to *Actie* / *Wie mag dit*, with method, path and raw
       requirement demoted to dimmed sublines. ADR 0004 forbids hiding them; it only demotes them.
-- [ ] **3.5 Mark derived-only labels** so the gap is visible, in the same fail-visible spirit as
+- [x] **3.5 Mark derived-only labels** so the gap is visible, in the same fail-visible spirit as
       `omitted_routes`.
-- [ ] **3.6 Tolerate a framework that predates the field** — optional in the type, absent means
+- [x] **3.6 Tolerate a framework that predates the field** — optional in the type, absent means
       derive, as `undeclared_subscribers` already does.
 
-*Gates:* the derivation table, the three requirement shapes, and the custom-role fallback each get a
-test whose fixture the transformation must actually change.
+*Gates:* 14 derivation tests plus 5 render tests. Two things the mutation pass caught and that are
+worth keeping: asserting the technical subline with `toBeInTheDocument` passed with the whole
+subline hidden (`getByText` finds text inside a hidden element), so it asserts `toBeVisible` —
+which is the ADR 0004 rule this change rests on. And the browser measurement was wrong twice
+before it was right: the probe set `colorScheme` while this Studio themes on `html[data-theme]`,
+so both runs had measured the dark palette; with that fixed it showed the action and the subline
+both computed to 12px, so the hierarchy rested on colour alone until the action was raised a step.
 
 ## Phase 4 — OpenAPI, so the field has a second reader
 
