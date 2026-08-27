@@ -15,7 +15,7 @@ export interface FieldProps {
   /** A field-level error (e.g. mapped from a 422), shown under the control. */
   error?: string | null;
   /** Optional helper text under the control. */
-  hint?: string;
+  hint?: UiText;
 }
 
 /**
@@ -90,7 +90,7 @@ export function Field({ label, children, error, hint }: FieldProps) {
       </label>
       {hint !== undefined && (
         <span id={hintId} data-terp="field-hint">
-          {hint}
+          {resolve(hint)}
         </span>
       )}
       {hasError && (

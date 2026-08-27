@@ -7,7 +7,7 @@ import "@terpjs/contract/tokens.css";
 // default; it loads last, so anything it declares wins. `uv run terp guide theming` has
 // the recipe. A tool may generate it — see the note at the top of theme.css.
 import "./theme.css";
-import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terpjs/react-core";
+import { LOCALE_EN, LOCALE_NL, defineAppLocales, renderTerpApp } from "@terpjs/react-core";
 // The app's layout declaration, checked in beside this file. ONE file, two readers: the
 // `terp/layout-contract` lint rule finds it on disk, and the shell reads it here — so the
 // contract is declared once instead of once per half. It also carries the shell's own shape
@@ -19,25 +19,27 @@ import { LOCALE_EN, LOCALE_NL, renderTerpApp } from "@terpjs/react-core";
 // platform). Declaring any of those here as a bootstrap option as well is refused rather than
 // silently resolved.
 import layout from "../layout-contract.json";
+import i18n from "../i18n.json";
+
+// Product names are intentionally stable data, not locale copy. Hoisting also keeps the
+// src-wide localization rule from mistaking this generated value for an untranslated UI literal.
+const APP_TITLE = "{{ project_name }}";
 
 // The whole app: discover the modules and mount. baseUrl defaults to same-origin so the
 // Vite dev proxy forwards /api to the backend (uvicorn on :8000). Drop a module.tsx under
 // modules/<name>/ (or run `uv run terp new module <name>`) and it is wired with no registration.
 renderTerpApp({
-  title: "{{ project_name }}",
+  title: APP_TITLE,
   modules: import.meta.glob("./modules/*/module.tsx", { eager: true }),
   // Every archetype's body slot then accepts only the components the declared contract
   // allows; a failing check tells you exactly how to build the screen
   // (`terp guide layouts`). Drop `contract` from layout-contract.json to fall back to
   // archetype-only enforcement — one edit, in one place, and both halves follow.
   layout,
-  // The app's languages — English and Dutch out of the box (both catalogs ship complete).
-  // Every react-core string (and every UiText prop) follows the header's picker; adding
-  // another language is one more entry overriding the framework strings for that locale.
-  locales: {
-    en: LOCALE_EN,
-    nl: LOCALE_NL,
-  },
+  // App copy lives in i18n.json and lint requires every target translation. The built-in
+  // catalogs below provide the framework chrome around that app copy.
+  locales: defineAppLocales(i18n, { en: LOCALE_EN, nl: LOCALE_NL }),
+  sourceLocale: i18n.sourceLocale,
   // The brand mark lives in two places and neither implies the other: the mark inside the app
   // is declared in layout-contract.json, and `public/favicon.svg` is the mark in the browser
   // tab. Until both are replaced the app shows terp's placeholder in both.
@@ -64,7 +66,7 @@ renderTerpApp({
   // The SSO button on the sign-in screen. The backend mounts the OIDC module once the
   // OIDC_* variables are set (see .env.example + app/auth.py); until then, clicking it
   // fails closed with a normal API error instead of silently hiding the configured path.
-  ssoProviders: [{ name: "sso", label: "Single sign-on" }],
+  ssoProviders: [{ name: "sso", label: { id: "auth.sso.label", message: "SSO" } }],
 {%- endif %}
   // One-click fill of the seeded dev sign-in (app/seed.py). import.meta.env.DEV is
   // statically false in production builds, so the credentials never ship in a bundle.

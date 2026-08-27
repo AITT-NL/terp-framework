@@ -27,14 +27,16 @@ export function NotesList() {
     validate: isSystemNotice,
   });
   return (
-    <OverviewPage title="Notes">
+    <OverviewPage title={{ id: "notes.title", message: "Notes" }}>
       <Stack>
         {notices.lastMessage && (
-          <Alert title="Live system notice">{notices.lastMessage.text}</Alert>
+          <Alert title={{ id: "notes.liveNotice", message: "Live system notice" }}>
+            {notices.lastMessage.text}
+          </Alert>
         )}
         <ResourceList
           resource={notes}
-          createPlaceholder="New note title"
+          createPlaceholder={{ id: "notes.create", message: "New note title" }}
           renderItem={(note) => <strong>{note.title}</strong>}
         />
       </Stack>

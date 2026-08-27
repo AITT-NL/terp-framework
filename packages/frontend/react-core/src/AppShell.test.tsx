@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NavItem } from "@terpjs/contract";
 
 import { AppShell, SIDEBAR_STORAGE_KEY } from "./AppShell";
+import { LOCALE_NL, LocaleProvider } from "./locale";
 
 afterEach(() => {
   cleanup();
@@ -359,6 +360,48 @@ describe("AppShell navigation groups", () => {
     { label: "Reports", to: "/reports", group: "work" },
     { label: "Loose", to: "/loose" },
   ];
+
+  it("resolves localized item and group descriptors before rendering navigation", () => {
+    render(
+      <LocaleProvider
+        locales={{
+          en: {},
+          nl: {
+            ...LOCALE_NL,
+            messages: {
+              "nav.work": "Werkruimte",
+              "nav.notes": "Notities",
+            },
+          },
+        }}
+        defaultLocale="nl"
+        sourceLocale="en"
+      >
+        <AppShell
+          title="Terp"
+          nav={[
+            {
+              label: { id: "nav.notes", message: "Notes" },
+              to: "/notes",
+              group: "work",
+            },
+          ]}
+          navGroups={[
+            {
+              id: "work",
+              label: { id: "nav.work", message: "Workspace" },
+            },
+          ]}
+          renderLink={(item, children) => <a href={item.to}>{children}</a>}
+        >
+          <p>page content</p>
+        </AppShell>
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByRole("list", { name: "Werkruimte" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Notities" })).toHaveAttribute("href", "/notes");
+  });
 
   it("labels each group's list with its own visible label", () => {
     render(

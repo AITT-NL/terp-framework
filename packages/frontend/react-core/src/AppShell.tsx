@@ -477,11 +477,12 @@ export function AppShell({
       onClick={isMobile ? closeDrawer : undefined}
     >
       {groupNav(nav, navGroups).map((section, index) => {
+        const groupLabel = section.label === null ? null : resolve(section.label);
         // Only a labelled section needs an id, and only a DECLARED section can be labelled — the
         // default one has no declaration to carry a label. Keyed on the index rather than on
         // `section.id`: a group id is an app-supplied string, and whitespace in one would
         // silently break the IDREF rather than fail anywhere.
-        const labelId = section.label === null ? undefined : `${navGroupId}-${index}`;
+        const labelId = groupLabel === null ? undefined : `${navGroupId}-${index}`;
         return (
           // No heading element, and this is the decision rather than an oversight. `Heading`
           // refuses level 1 to reserve it for the routed view's title (see typography.tsx), and
@@ -504,22 +505,25 @@ export function AppShell({
           <div key={index} data-terp="appshell-nav-group">
             {labelId !== undefined && (
               <span id={labelId} data-terp="appshell-nav-group-label">
-                {section.label}
+                {groupLabel}
               </span>
             )}
             <ul data-terp="appshell-nav-list" aria-labelledby={labelId}>
-              {section.items.map((item) => (
-                <li key={item.to} title={railCollapsed ? item.label : undefined}>
-                  {renderLink(
-                    item,
-                    <>
-                      <NavIcon name={item.icon} label={item.label} />
-                      <span data-terp="appshell-nav-label">{item.label}</span>
-                    </>,
-                    { collapsed: railCollapsed, active: item.to === currentTo },
-                  )}
-                </li>
-              ))}
+              {section.items.map((item) => {
+                const label = resolve(item.label);
+                return (
+                  <li key={item.to} title={railCollapsed ? label : undefined}>
+                    {renderLink(
+                      item,
+                      <>
+                        <NavIcon name={item.icon} label={label} />
+                        <span data-terp="appshell-nav-label">{label}</span>
+                      </>,
+                      { collapsed: railCollapsed, active: item.to === currentTo },
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         );

@@ -52,6 +52,12 @@ are refused; static `target="_blank"` needs `rel="noopener"` — use `Markdown` 
 text). The one governed opt-out is a justified
 `// terp-allow-<rule>: <reason>` marker counted against the app's `escape-hatch-budget.json`.
 
+Localization is enforced src-wide: app copy uses `{ id, message }` descriptors or `Trans`, every
+target entry is checked in `frontend/i18n.json`, and a new non-English locale supplies a complete
+framework `TerpStrings` catalog as well as app messages. Missing/malformed entries and bare or
+undocumented verbatim source copy fail the lint/runtime contract; implement the translations in
+the same change instead of weakening either guard.
+
 Source of truth: [AGENTIC_PLATFORM_DESIGN.md](../AGENTIC_PLATFORM_DESIGN.md);
 decisions in [docs/decisions/](../docs/decisions/). The stack-neutral rule
 catalog + violation corpus (the Terp Standard, ADRs 0080/0081) lives in

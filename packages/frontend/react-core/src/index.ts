@@ -87,8 +87,23 @@ export type {
 } from "./SplitPage";
 export { HubPage, HubCard } from "./HubPage";
 export type { HubPageProps, HubCardProps, RenderHubCardLink } from "./HubPage";
-export { UiTextProvider, useStrings, useUiText, resolveUiText, DEFAULT_STRINGS } from "./uiText";
-export type { UiText, ResolveUiText, TerpStrings, UiTextProviderProps } from "./uiText";
+export {
+  UiTextProvider,
+  Trans,
+  useStrings,
+  useUiText,
+  resolveUiText,
+  resolveUiTextNode,
+  DEFAULT_STRINGS,
+} from "./uiText";
+export type {
+  UiText,
+  UiTextNode,
+  ResolveUiText,
+  TerpStrings,
+  TransProps,
+  UiTextProviderProps,
+} from "./uiText";
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 export { ErrorState, describeError } from "./ErrorState";
@@ -216,13 +231,19 @@ export { ThemeProvider, ThemeToggle, useTheme, THEME_STORAGE_KEY } from "./theme
 export type { Theme, ThemeProviderProps, ThemeToggleProps } from "./theme";
 export {
   LocaleProvider,
+  defineAppLocales,
   LanguageSwitcher,
   useLocale,
   LOCALE_EN,
   LOCALE_NL,
   LOCALE_STORAGE_KEY,
 } from "./locale";
-export type { LocaleCatalog, LocaleProviderProps, LanguageSwitcherProps } from "./locale";
+export type {
+  AppI18nDeclaration,
+  LocaleCatalog,
+  LocaleProviderProps,
+  LanguageSwitcherProps,
+} from "./locale";
 export { UserMenu, userInitials } from "./UserMenu";
 export type { UserMenuProps } from "./UserMenu";
 

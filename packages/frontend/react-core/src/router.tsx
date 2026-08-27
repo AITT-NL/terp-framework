@@ -14,7 +14,7 @@ import {
 } from "@tanstack/react-router";
 import type { ComponentType, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ModuleManifest, NavGroup } from "@terpjs/contract";
+import type { ModuleManifest, NavGroup, UiText } from "@terpjs/contract";
 
 import { AppShell } from "./AppShell";
 import { ProfileView } from "./ProfileView";
@@ -238,7 +238,7 @@ export interface BuildAppRouterOptions {
   /** Maps a manifest route's `view` id to the component that renders it. */
   views: Record<string, ComponentType>;
   /** App title shown in the shell's sidebar brand. */
-  title: string;
+  title: UiText;
   /** Brand mark in the sidebar (any rendered node); default: the placeholder TerpMark. */
   logo?: ReactNode;
   /**

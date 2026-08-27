@@ -31,9 +31,10 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
   focus ring, a checkbox's `accent-color`. One token cannot do both: in a dark theme the
   surface use needs a value dark enough to hold a white label and the ink use needs one light
   enough to read on a dark canvas, and there is no value satisfying both.
-- **User-facing text is `UiText`** — every text prop accepts a plain string or an
-  `{id, message}` descriptor, so apps can localize via `UiTextProvider` without
-  react-core taking an i18n dependency.
+- **Static user-facing text is cataloged** — use an `{id, message}` `UiText`
+  descriptor for text props and `<Trans id message />` for JSX bodies. Plain strings are
+  reserved for dynamic business data, identifiers and product names. The boundary lint
+  refuses bare static copy and checks every id against every target in `frontend/i18n.json`.
 - **Dependency-free UI** — react-core ships no icon/toast/i18n libraries. Glyphs are
   inline SVG; transient feedback goes through `ToastProvider` / `useToast`.
 - **Security defaults** — `dangerouslySetInnerHTML` and the DOM HTML-injection sinks
@@ -54,7 +55,7 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
 | `useSso`, `parseSsoCallback`, `fetchSsoAuthorizationUrl`, `completeSsoCallback` | The SSO login seam (ADR 0058): `useSso().begin(provider)` opens an OIDC flow; `TerpProvider` completes the `/auth/callback/{provider}` redirect landing into a normal session on boot. `renderTerpApp({ ssoProviders })` wires the buttons in one line. |
 | `RequireAuth` | Renders children only with a session; pairs with the router so the app mounts only when signed in. |
 | `ThemeProvider`, `ThemeToggle`, `useTheme` | Theming over the shipped palettes — `light`, `dark`, `midnight`, `twilight`, `contrast` — plus `system` to follow the OS preference. Applies `data-theme` on `<html>` (the token stylesheet carries every palette) and persists the choice. `defaultTheme` is how an app ships on a named theme — declare it in `layout-contract.json` so a tool can read and rewrite it, or pass the bootstrap option; both is refused. `renderTerpApp` mounts it for every app; the shell header uses an icon-only, token-themed `variant="inline"` menu. |
-| `LocaleProvider`, `LanguageSwitcher`, `useLocale`, `LOCALE_EN`, `LOCALE_NL` | The language seam over `UiTextProvider`: per-locale string catalogs, a persisted active locale, and an icon-only, token-themed menu in the shell header once an app declares a second locale. English and Dutch catalogs ship complete; `renderTerpApp({ locales })` wires them. |
+| `LocaleProvider`, `defineAppLocales`, `LanguageSwitcher`, `useLocale`, `LOCALE_EN`, `LOCALE_NL` | The language seam over `UiTextProvider`: `defineAppLocales(i18n, frameworkCatalogs)` validates and merges checked-in app messages with framework chrome, the active locale persists, and the shell offers a picker. Pass `sourceLocale` with `locales`; missing/empty target messages, undocumented source copies, invalid locale selection and a non-English locale without a complete framework-string catalog throw rather than silently falling back. |
 | `UserMenu`, `userInitials` | The signed-in user's menu, pinned by `buildAppRouter` to the bottom of the sidebar: an initials avatar trigger opening the identity block, **Settings** (the built-in profile page) and sign-out. Collapses to the avatar in the icon rail. |
 | `ProfileView` | The built-in profile / settings page (`/profile`): the server-validated identity, theme + language preferences, and sign-out. |
 
@@ -266,7 +267,7 @@ single screen by claiming its path from an app module.
 
 | Export | Use |
 |---|---|
-| `UiTextProvider`, `useUiText`, `useStrings`, `resolveUiText`, `DEFAULT_STRINGS` | The `UiText` seam: override built-in strings and plug in a resolver (e.g. an i18n library) at the app root. `LocaleProvider` (above) is the batteries-included layer over it: per-locale catalogs + a persisted switcher. |
+| `UiTextProvider`, `Trans`, `useUiText`, `useStrings`, `resolveUiText`, `DEFAULT_STRINGS` | The `UiText` seam: descriptors for props, `Trans` for body copy, and framework strings through one resolver. `LocaleProvider` is the batteries-included catalog layer and refuses missing target-locale entries. |
 
 ## Testing components
 

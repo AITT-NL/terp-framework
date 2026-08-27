@@ -7,7 +7,7 @@ import { FilesView } from "./FilesView";
 export const manifest = defineModuleManifest({
   name: "files",
   routes: [{ path: "/files", view: "FilesView" }],
-  nav: [{ label: "Files", to: "/files", icon: "upload" }],
+  nav: [{ label: { id: "files.title", message: "Files" }, to: "/files", icon: "upload" }],
 });
 
 export const views = { FilesView };

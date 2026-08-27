@@ -1,4 +1,13 @@
-import { Button, Field, Input, OverviewPage, ResourceList, Select, Stack } from "@terpjs/react-core";
+import {
+  Button,
+  Field,
+  Input,
+  OverviewPage,
+  ResourceList,
+  Select,
+  Stack,
+  Trans,
+} from "@terpjs/react-core";
 import { useState } from "react";
 import type { FormEvent } from "react";
 
@@ -19,9 +28,9 @@ type TaskStatus = "open" | "doing" | "done";
  * as a bare `string`, so nothing connected the markup to the union at all.
  */
 const TASK_STATUSES: SelectOption<TaskStatus>[] = [
-  { value: "open", label: "open" },
-  { value: "doing", label: "doing" },
-  { value: "done", label: "done" },
+  { value: "open", label: { id: "tasks.status.open", message: "Open" } },
+  { value: "doing", label: { id: "tasks.status.doing", message: "Doing" } },
+  { value: "done", label: { id: "tasks.status.done", message: "Done" } },
 ];
 
 /** A multi-field create form (title + status), composed from the shared form primitives. */
@@ -45,13 +54,15 @@ function NewTaskForm({ onAdd }: { onAdd: (title: string, status: string) => Prom
 
   return (
     <Stack as="form" onSubmit={onSubmit}>
-      <Field label="Title">
+      <Field label={{ id: "tasks.field.title", message: "Title" }}>
         <Input value={title} onChange={(event) => setTitle(event.target.value)} />
       </Field>
-      <Field label="Status">
+      <Field label={{ id: "tasks.field.status", message: "Status" }}>
         <Select options={TASK_STATUSES} value={status} onValueChange={setStatus} />
       </Field>
-      <Button type="submit">Add</Button>
+      <Button type="submit">
+        <Trans id="tasks.add" message="Add" />
+      </Button>
     </Stack>
   );
 }
@@ -60,7 +71,7 @@ function NewTaskForm({ onAdd }: { onAdd: (title: string, status: string) => Prom
 export function TasksList() {
   const tasks = useTasks();
   return (
-    <OverviewPage title="Tasks">
+    <OverviewPage title={{ id: "tasks.title", message: "Tasks" }}>
       <ResourceList
         resource={tasks}
         renderCreate={() => <NewTaskForm onAdd={tasks.add} />}
@@ -76,7 +87,7 @@ export function TasksList() {
               void tasks.remove(task.id).catch(() => undefined);
             }}
           >
-            Delete
+            <Trans id="tasks.delete" message="Delete" />
           </Button>
         )}
       />

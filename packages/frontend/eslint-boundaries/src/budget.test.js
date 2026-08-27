@@ -55,7 +55,20 @@ describe("countMarkers", () => {
     expect(countMarkers(root)).toEqual({ "terp-allow-no-unsafe-target-blank": 1 });
   });
 
-  it("is empty for an app with no modules directory", () => {
+  it("governs localization markers across app source but ignores the generated client", () => {
+    const root = appRoot({});
+    const main = path.join(root, "src", "main.tsx");
+    const generated = path.join(root, "src", "api", "schema.ts");
+    fs.mkdirSync(path.dirname(generated), { recursive: true });
+    fs.writeFileSync(
+      main,
+      "// terp-allow-no-untranslated-ui: product name is intentionally fixed\nexport const x = 1;\n",
+    );
+    fs.writeFileSync(generated, MARKED);
+    expect(countMarkers(root)).toEqual({ "terp-allow-no-untranslated-ui": 1 });
+  });
+
+  it("is empty for an app with no source directory", () => {
     const root = path.join(scratchRoot, `case-${rootCounter++}`);
     fs.rmSync(root, { recursive: true, force: true });
     fs.mkdirSync(root, { recursive: true });

@@ -8,7 +8,9 @@ import {
   Input,
   OverviewPage,
   Stack,
+  Trans,
   unwrap,
+  useUiText,
   useServerDataView,
   useTerpClient,
   useToast,
@@ -29,13 +31,13 @@ function buildColumns(
   return [
     {
       id: "permission",
-      header: "Permission",
+      header: { id: "admin.grants.column.permission", message: "Permission" },
       accessor: (g) => g.permission,
       meta: { mobileSlot: "title" },
     },
     {
       id: "created_at",
-      header: "Granted",
+      header: { id: "admin.grants.column.granted", message: "Granted" },
       accessor: (g) => g.created_at,
       cell: (g) => formatDate(g.created_at),
       meta: { mobileSlot: "date", width: "sm" },
@@ -53,6 +55,7 @@ export function AccessGrantsAdmin() {
   const columns = useMemo(() => buildColumns(formatDate), [formatDate]);
   const client = useTerpClient<paths>();
   const toast = useToast();
+  const text = useUiText();
   const serverQuery = useServerDataView({ initialPageSize: 10 });
   const [version, setVersion] = useState(0);
 
@@ -98,11 +101,20 @@ export function AccessGrantsAdmin() {
           body: { subject_id: subjectId, permission },
         }),
       );
-      toast.success(`Granted ${permission}`);
+      toast.success(
+        text({ id: "admin.grants.toast.granted", message: "Grant added" }),
+      );
       setPermission("");
       setVersion((v) => v + 1);
     } catch (error) {
-      toast.warning(error instanceof Error ? error.message : "Could not create the grant");
+      toast.warning(
+        error instanceof Error
+          ? error.message
+          : text({
+              id: "admin.grants.toast.createFailed",
+              message: "Could not create the grant",
+            }),
+      );
     } finally {
       setCreating(false);
     }
@@ -117,10 +129,19 @@ export function AccessGrantsAdmin() {
           params: { path: { grant_id: pendingRevoke.id } },
         }),
       );
-      toast.success(`Revoked ${pendingRevoke.permission}`);
+      toast.success(
+        text({ id: "admin.grants.toast.revoked", message: "Grant revoked" }),
+      );
       setVersion((v) => v + 1);
     } catch (error) {
-      toast.warning(error instanceof Error ? error.message : "Could not revoke the grant");
+      toast.warning(
+        error instanceof Error
+          ? error.message
+          : text({
+              id: "admin.grants.toast.revokeFailed",
+              message: "Could not revoke the grant",
+            }),
+      );
     } finally {
       setRevoking(false);
       setPendingRevoke(null);
@@ -129,12 +150,18 @@ export function AccessGrantsAdmin() {
 
   return (
     <OverviewPage
-      title="Access grants"
+      title={{ id: "admin.grants.title", message: "Access grants" }}
       parents={ADMIN_PARENTS}
       renderLink={renderAdminCrumb}
     >
       <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onLoad}>
-        <Field label="Subject id" hint="The user whose grants to manage">
+        <Field
+          label={{ id: "admin.grants.field.subject", message: "Subject id" }}
+          hint={{
+            id: "admin.grants.field.subjectHint",
+            message: "The user whose grants to manage",
+          }}
+        >
           <Input
             value={subjectInput}
             onChange={(event) => setSubjectInput(event.target.value)}
@@ -142,18 +169,24 @@ export function AccessGrantsAdmin() {
           />
         </Field>
         <Button type="submit" variant="secondary">
-          Load grants
+          <Trans id="admin.grants.load" message="Load grants" />
         </Button>
       </Stack>
       {repository === null ? (
         <EmptyState
-          title="No subject selected"
-          description="Enter a subject id to list and manage that user's grants."
+          title={{ id: "admin.grants.empty.title", message: "No subject selected" }}
+          description={{
+            id: "admin.grants.empty.description",
+            message: "Enter a subject id to list and manage that user's grants.",
+          }}
         />
       ) : (
         <>
           <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onCreate}>
-            <Field label="Permission" hint='e.g. "notes:write"'>
+            <Field
+              label={{ id: "admin.grants.field.permission", message: "Permission" }}
+              hint={{ id: "admin.grants.field.permissionHint", message: 'e.g. "notes:write"' }}
+            >
               <Input
                 value={permission}
                 onChange={(event) => setPermission(event.target.value)}
@@ -161,7 +194,11 @@ export function AccessGrantsAdmin() {
               />
             </Field>
             <Button type="submit" disabled={creating}>
-              {creating ? "Granting…" : "Add grant"}
+              {creating ? (
+                <Trans id="admin.grants.granting" message="Granting…" />
+              ) : (
+                <Trans id="admin.grants.add" message="Add grant" />
+              )}
             </Button>
           </Stack>
           <DataView<GrantRead>
@@ -172,7 +209,7 @@ export function AccessGrantsAdmin() {
             pageSizeOptions={[10, 25, 50]}
             rowActions={(grant) => [
               {
-                label: "Revoke",
+                label: { id: "admin.grants.revoke", message: "Revoke" },
                 variant: "destructive",
                 onClick: () => setPendingRevoke(grant),
               },
@@ -186,8 +223,11 @@ export function AccessGrantsAdmin() {
           if (!open) setPendingRevoke(null);
         }}
         onConfirm={() => void onConfirmRevoke()}
-        title={`Revoke ${pendingRevoke?.permission ?? "grant"}?`}
-        description="The subject loses this permission immediately."
+        title={{ id: "admin.grants.confirm.title", message: "Revoke this grant?" }}
+        description={{
+          id: "admin.grants.confirm.description",
+          message: "The subject loses this permission immediately.",
+        }}
         destructive
         isPending={revoking}
       />

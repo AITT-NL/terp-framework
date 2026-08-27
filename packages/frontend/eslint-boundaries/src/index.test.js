@@ -1,7 +1,8 @@
+import fs from "node:fs";
 import path from "node:path";
 
 import { ESLint } from "eslint";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 import terpBoundaries from "./index.js";
 
@@ -9,17 +10,26 @@ import terpBoundaries from "./index.js";
 // a violating fixture (and stays quiet on clean, out-of-module code), so "enforced" is real.
 // File paths are resolved under the cwd so ESLint's `files` globs match (the parser then applies).
 
-const MODULE_FILE = path.resolve("src/modules/widgets/Widget.tsx");
-const OUTSIDE_FILE = path.resolve("src/main.tsx");
+const LINT_ROOT = path.resolve("node_modules/.cache/terp-index-tests");
+fs.rmSync(LINT_ROOT, { recursive: true, force: true });
+fs.mkdirSync(LINT_ROOT, { recursive: true });
+fs.writeFileSync(
+  path.join(LINT_ROOT, "i18n.json"),
+  JSON.stringify({ sourceLocale: "en", locales: { en: {} } }),
+);
+const MODULE_FILE = path.join(LINT_ROOT, "src/modules/widgets/Widget.tsx");
+const OUTSIDE_FILE = path.join(LINT_ROOT, "src/main.tsx");
+
+afterAll(() => fs.rmSync(LINT_ROOT, { recursive: true, force: true }));
 
 async function lint(code, filePath = MODULE_FILE) {
-  const eslint = new ESLint({ overrideConfigFile: true, overrideConfig: terpBoundaries });
+  const eslint = new ESLint({ cwd: LINT_ROOT, overrideConfigFile: true, overrideConfig: terpBoundaries });
   const [result] = await eslint.lintText(code, { filePath });
   return result.messages.map((message) => message.ruleId);
 }
 
 async function lintMessages(code, filePath = MODULE_FILE) {
-  const eslint = new ESLint({ overrideConfigFile: true, overrideConfig: terpBoundaries });
+  const eslint = new ESLint({ cwd: LINT_ROOT, overrideConfigFile: true, overrideConfig: terpBoundaries });
   const [result] = await eslint.lintText(code, { filePath });
   return result.messages.map((message) => message.message);
 }
@@ -27,11 +37,11 @@ async function lintMessages(code, filePath = MODULE_FILE) {
 describe("terpBoundaries", () => {
   it("passes clean module code (react-core components + generated client)", async () => {
     const code = [
-      'import { Button, Select, Textarea, useTerpClient } from "@terpjs/react-core";',
+      'import { Button, Select, Textarea, Trans, useTerpClient } from "@terpjs/react-core";',
       "export function Widget() {",
       "  const client = useTerpClient();",
       "  void client;",
-      "  return <><Button>ok</Button><Select /><Textarea /></>;",
+      '  return <><Button><Trans id="widget.ok" message="OK" /></Button><Select /><Textarea /></>;',
       "}",
     ].join("\n");
     expect(await lint(code)).toEqual([]);
@@ -40,6 +50,24 @@ describe("terpBoundaries", () => {
   it("flags an import of a sibling module", async () => {
     const code = 'import { x } from "../other/thing";\nexport const W = () => null;';
     expect(await lint(code)).toContain("terp/no-cross-module-imports");
+  });
+
+  it("flags static JSX copy, UI attributes, and UI-bearing object properties", async () => {
+    expect(await lint("export const W = () => <Text>Save changes</Text>;"))
+      .toContain("terp/no-untranslated-ui");
+    expect(await lint('export const W = () => <Page title="Widgets" />;'))
+      .toContain("terp/no-untranslated-ui");
+    expect(await lint('export const columns = [{ header: "Created at" }];'))
+      .toContain("terp/no-untranslated-ui");
+  });
+
+  it("accepts descriptors and Trans as authored localization seams", async () => {
+    const code = [
+      'import { Page, Trans } from "@terpjs/react-core";',
+      'const title = { id: "widgets.title", message: "Widgets" };',
+      'export const W = () => <Page title={title}><Trans id="widgets.empty" message="Nothing here yet." /></Page>;',
+    ].join("\n");
+    expect(await lint(code)).toEqual([]);
   });
 
   it("flags a dynamic import() of a sibling module (no spelling escape)", async () => {
@@ -75,7 +103,7 @@ describe("terpBoundaries", () => {
   });
 
   it("allows an external anchor", async () => {
-    expect(await lint('export const W = () => <a href="https://example.com">docs</a>;')).toEqual([]);
+    expect(await lint('export const W = ({ label }) => <a href="https://example.com">{label}</a>;')).toEqual([]);
   });
 
   it("flags className (no side channel into hand-authored CSS)", async () => {
@@ -153,7 +181,7 @@ describe("terpBoundaries", () => {
     ).toContain("terp/no-unsafe-target-blank");
     expect(
       await lint(
-        'export const W = () => <a href="https://example.com" target={`_blank`} rel="noopener noreferrer">docs</a>;',
+        'export const W = ({ label }) => <a href="https://example.com" target={`_blank`} rel="noopener noreferrer">{label}</a>;',
       ),
     ).toEqual([]);
   });
@@ -168,7 +196,7 @@ describe("terpBoundaries", () => {
     expect(await lint('export const W = () => <a href={`javascript:${danger}`}>bad</a>;')).toContain(
       "terp/no-unsafe-href",
     );
-    expect(await lint('export const W = ({ href }) => <a href={href}>ok</a>;')).toEqual([]);
+    expect(await lint('export const W = ({ href, label }) => <a href={href}>{label}</a>;')).toEqual([]);
   });
 
   it("flags DOM HTML injection sinks", async () => {
@@ -206,8 +234,9 @@ describe("terpBoundaries", () => {
 
   it("suppresses a violation with a justified terp-allow marker on the line above", async () => {
     const code = [
+      'import { Trans } from "@terpjs/react-core";',
       "// terp-allow-token-styled-elements: native button needed for a browser extension host",
-      "export const W = () => <button>x</button>;",
+      'export const W = () => <button><Trans id="widget.action" message="Action" /></button>;',
     ].join("\n");
     expect(await lint(code)).toEqual([]);
   });
@@ -220,8 +249,9 @@ describe("terpBoundaries", () => {
 
   it("suppresses a custom terp rule with the reported rule id suffix", async () => {
     const code = [
+      'import { Trans } from "@terpjs/react-core";',
       "// terp-allow-no-unsafe-target-blank: external vendor requires opener for a handshake",
-      'export const W = () => <a href="https://example.com" target="_blank">docs</a>;',
+      'export const W = () => <a href="https://example.com" target="_blank"><Trans id="widget.docs" message="Docs" /></a>;',
     ].join("\n");
     expect(await lint(code)).toEqual([]);
   });

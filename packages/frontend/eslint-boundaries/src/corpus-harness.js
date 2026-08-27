@@ -55,12 +55,17 @@ export async function lintCaseFindings(caseDir) {
             rules: { "terp/layout-contract": ["error", { contract }] },
           },
         ];
-  const eslint = new ESLint({ overrideConfigFile: true, overrideConfig });
+  // Treat the corpus case as the app root. That keeps the real on-disk path
+  // (so declaration-backed rules can walk up to i18n.json/layout-contract.json)
+  // while still making the config's module globs relative to the case rather
+  // than to the framework checkout.
+  const eslint = new ESLint({ cwd: caseDir, overrideConfigFile: true, overrideConfig });
   const findings = [];
   for (const file of caseFiles(caseDir)) {
     if (!/\.tsx?$/.test(file)) continue; // config carriers (layout-contract.json) are not linted
-    // Resolve under the cwd so the config's `files` globs match the module path.
-    const filePath = path.resolve(path.relative(caseDir, file));
+    // Use the physical case path so declaration-backed rules can find checked-in
+    // carriers such as i18n.json by walking upward from the real file.
+    const filePath = file;
     const [result] = await eslint.lintText(fs.readFileSync(file, "utf8"), { filePath });
     findings.push(
       ...result.messages.map((message) => ({

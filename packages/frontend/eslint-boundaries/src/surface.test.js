@@ -160,18 +160,23 @@ const CATALOG_ENTRIES = fs
 
 /** A minimal violating line per frontend catalog rule (the marker goes on the line above). */
 const VIOLATION_SNIPPETS = {
-  "frontend/token-styled-elements": "export const W = () => <button>x</button>;",
+  "frontend/locale-catalogs-complete":
+    'export const title = { id: "widgets.title", message: "Widgets" };',
+  "frontend/token-styled-elements": "export const W = ({label}) => <button>{label}</button>;",
   "frontend/no-inline-styling": 'export const W = () => <div className="x" />;',
-  "frontend/router-links": 'export const W = () => <a href="/notes">go</a>;',
+  "frontend/router-links": 'export const W = ({label}) => <a href="/notes">{label}</a>;',
   "frontend/generated-client-only": 'export const ping = () => fetch("/healthz");',
   "frontend/no-deep-imports": 'import { x } from "@terpjs/react-core/src/internal";',
   "frontend/no-style-imports": 'import "./widget.css";',
   "frontend/no-cross-module-imports": 'import { x } from "../other/thing";',
   "frontend/no-dom-html-injection": "export const W = (el, html) => { el.innerHTML = html; };",
   "frontend/no-eval": "export const run = (code) => eval(code);",
-  "frontend/no-unsafe-href": 'export const W = () => <a href="javascript:alert(1)">x</a>;',
+  "frontend/no-unsafe-href":
+    'export const W = ({label}) => <a href="javascript:alert(1)">{label}</a>;',
   "frontend/no-unsafe-target-blank":
-    'export const W = () => <a href="https://example.com" target="_blank">x</a>;',
+    'export const W = ({label}) => <a href="https://example.com" target="_blank">{label}</a>;',
+  "frontend/no-untranslated-ui":
+    'export const W = () => <Text>Untranslated copy</Text>;',
 };
 
 describe(

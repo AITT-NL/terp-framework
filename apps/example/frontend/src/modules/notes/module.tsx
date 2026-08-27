@@ -7,7 +7,7 @@ import { NotesList } from "./NotesList";
 export const manifest = defineModuleManifest({
   name: "notes",
   routes: [{ path: "/", view: "NotesList" }],
-  nav: [{ label: "Notes", to: "/", icon: "clipboard" }],
+  nav: [{ label: { id: "notes.title", message: "Notes" }, to: "/", icon: "clipboard" }],
 });
 
 export const views = { NotesList };

@@ -1,21 +1,153 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import type { UiText } from "@terpjs/contract";
 
 import { Icon } from "./icons";
 import { Menu, MenuItem } from "./ui/Menu";
-import { UiTextProvider, useStrings } from "./uiText";
+import { DEFAULT_STRINGS, UiTextProvider, useStrings } from "./uiText";
 import type { TerpStrings } from "./uiText";
 
 /**
- * One locale's catalog: per-key overrides of the framework strings (missing keys fall
- * back to the bundled English defaults) plus an optional native display name for
- * language pickers. `{}` is a valid catalog — English needs no overrides.
+ * One locale's catalog: framework strings, app messages, and an optional native display
+ * name for language pickers. English locales may omit `strings` because react-core's
+ * bundled defaults are English; every declared non-English locale must supply the complete
+ * `TerpStrings` set so framework chrome cannot silently fall back to English.
  */
 export interface LocaleCatalog {
   /** Native display name shown by {@link LanguageSwitcher} (default: the locale code). */
   label?: string;
   /** Framework-string overrides for this locale. */
   strings?: Partial<TerpStrings>;
+  /** App-authored messages, keyed by the stable id carried by a `UiText` descriptor. */
+  messages?: Record<string, string>;
+  /** Message ids intentionally identical to their source copy (catalog-gate documentation). */
+  allowIdentical?: readonly string[];
+}
+
+/** Checked-in, JSON-compatible app declaration consumed by {@link defineAppLocales}. */
+export interface AppI18nDeclaration {
+  sourceLocale: string;
+  locales: Record<string, LocaleCatalog>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertLocaleCatalogs(
+  locales: unknown,
+  sourceLocale?: string,
+): asserts locales is Record<string, LocaleCatalog> {
+  if (!isRecord(locales) || Object.keys(locales).length === 0) {
+    throw new Error("Locale catalogs must declare at least one locale.");
+  }
+  if (
+    sourceLocale !== undefined &&
+    (sourceLocale.trim() === "" || !Object.hasOwn(locales, sourceLocale))
+  ) {
+    throw new Error(`Source locale "${sourceLocale}" is not present in the locale catalogs.`);
+  }
+  for (const [code, value] of Object.entries(locales)) {
+    if (code.trim() === "" || !isRecord(value)) {
+      throw new Error("Locale entries must be non-empty codes mapped to catalog objects.");
+    }
+    if (
+      value.label !== undefined &&
+      (typeof value.label !== "string" || value.label.trim() === "")
+    ) {
+      throw new Error(`Locale "${code}" label must be a non-empty string.`);
+    }
+    if (value.strings !== undefined && !isRecord(value.strings)) {
+      throw new Error(`Locale "${code}" framework strings must be an object.`);
+    }
+    for (const [key, translated] of Object.entries(value.strings ?? {})) {
+      if (!Object.hasOwn(DEFAULT_STRINGS, key)) {
+        throw new Error(`Locale "${code}" has unknown framework string "${key}".`);
+      }
+      if (typeof translated !== "string" || translated.trim() === "") {
+        throw new Error(`Locale "${code}" has an empty or invalid framework string "${key}".`);
+      }
+    }
+    const messages = value.messages;
+    if (messages !== undefined && !isRecord(messages)) {
+      throw new Error(`Locale "${code}" messages must be an object.`);
+    }
+    for (const [id, translated] of Object.entries(messages ?? {})) {
+      if (id.trim() === "" || typeof translated !== "string" || translated.trim() === "") {
+        throw new Error(`Locale "${code}" has an empty or invalid message entry.`);
+      }
+    }
+    const allowed = value.allowIdentical;
+    if (
+      allowed !== undefined &&
+      (!Array.isArray(allowed) ||
+        allowed.some((id) => typeof id !== "string" || id.trim() === ""))
+    ) {
+      throw new Error(`Locale "${code}" allowIdentical must be an array of non-empty ids.`);
+    }
+    if (allowed !== undefined && new Set(allowed).size !== allowed.length) {
+      throw new Error(`Locale "${code}" allowIdentical contains duplicate ids.`);
+    }
+    const stale = allowed?.find((id) => typeof messages?.[id] !== "string");
+    if (stale !== undefined) {
+      throw new Error(`Locale "${code}" allowIdentical names missing message "${stale}".`);
+    }
+  }
+}
+
+function assertFrameworkStringsComplete(locales: Record<string, LocaleCatalog>): void {
+  for (const [code, catalog] of Object.entries(locales)) {
+    if (code.split("-")[0].toLowerCase() === "en") continue;
+    const missing = Object.keys(DEFAULT_STRINGS).filter(
+      (key) =>
+        typeof catalog.strings?.[key as keyof TerpStrings] !== "string" ||
+        catalog.strings[key as keyof TerpStrings]?.trim() === "",
+    );
+    if (missing.length > 0) {
+      throw new Error(
+        `Locale "${code}" is missing ${missing.length} framework string translation(s) ` +
+          `(for example: ${missing.slice(0, 3).join(", ")}). ` +
+          "Pass a complete framework catalog; app messages alone do not translate the shell.",
+      );
+    }
+  }
+}
+
+/**
+ * Merge app message catalogs with react-core's framework-string catalogs. This keeps one
+ * checked-in `i18n.json` authoritative for app copy without duplicating LOCALE_EN/LOCALE_NL.
+ */
+export function defineAppLocales(
+  declaration: AppI18nDeclaration,
+  frameworkLocales: Record<string, LocaleCatalog> = {},
+): Record<string, LocaleCatalog> {
+  if (!isRecord(declaration) || typeof declaration.sourceLocale !== "string") {
+    throw new Error("frontend/i18n.json must declare sourceLocale and a locales map.");
+  }
+  assertLocaleCatalogs(declaration.locales, declaration.sourceLocale);
+  if (!isRecord(frameworkLocales)) {
+    throw new Error("Framework locale catalogs must be an object.");
+  }
+  if (Object.keys(frameworkLocales).length > 0) {
+    assertLocaleCatalogs(frameworkLocales);
+  }
+  const merged = Object.fromEntries(
+    Object.entries(declaration.locales).map(([code, app]) => {
+      const framework = frameworkLocales[code] ?? {};
+      return [
+        code,
+        {
+          ...framework,
+          ...app,
+          strings: { ...framework.strings, ...app.strings },
+          messages: { ...framework.messages, ...app.messages },
+        },
+      ];
+    }),
+  );
+  assertLocaleCatalogs(merged, declaration.sourceLocale);
+  assertFrameworkStringsComplete(merged);
+  return merged;
 }
 
 /** The built-in English catalog — the bundled defaults, no overrides needed. */
@@ -151,6 +283,8 @@ export interface LocaleProviderProps {
   locales: Record<string, LocaleCatalog>;
   /** Starting locale when the user has not chosen one; default: the first key. */
   defaultLocale?: string;
+  /** Locale whose descriptor `message` is the authored fallback; default: the first key. */
+  sourceLocale?: string;
   children: ReactNode;
 }
 
@@ -160,11 +294,20 @@ export interface LocaleProviderProps {
  * `UiText` context — so every react-core component (and every `UiText` prop) follows the
  * switch with no per-component wiring. Adding a language to an app is one catalog entry.
  */
-export function LocaleProvider({ locales, defaultLocale, children }: LocaleProviderProps) {
+export function LocaleProvider({
+  locales,
+  defaultLocale,
+  sourceLocale,
+  children,
+}: LocaleProviderProps) {
+  assertLocaleCatalogs(locales, sourceLocale);
+  assertFrameworkStringsComplete(locales);
   const codes = Object.keys(locales);
-  const fallback = defaultLocale !== undefined && codes.includes(defaultLocale)
-    ? defaultLocale
-    : codes[0];
+  if (defaultLocale !== undefined && !codes.includes(defaultLocale)) {
+    throw new Error(`Default locale "${defaultLocale}" is not present in the locale catalogs.`);
+  }
+  const resolvedSourceLocale = sourceLocale ?? codes[0];
+  const fallback = defaultLocale ?? codes[0];
   const [locale, setLocaleState] = useState<string>(() => {
     try {
       const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
@@ -173,6 +316,7 @@ export function LocaleProvider({ locales, defaultLocale, children }: LocaleProvi
       return fallback ?? "en";
     }
   });
+  const activeLocale = codes.includes(locale) ? locale : fallback;
 
   const setLocale = useCallback(
     (next: string) => {
@@ -191,17 +335,49 @@ export function LocaleProvider({ locales, defaultLocale, children }: LocaleProvi
 
   const value = useMemo<LocaleContextValue>(
     () => ({
-      locale,
+      locale: activeLocale,
       locales: codes,
       labelOf: (code) => locales[code]?.label ?? code,
       setLocale,
     }),
-    [locale, codes.join("\u0000"), setLocale, locales],
+    [activeLocale, codes.join("\u0000"), setLocale, locales],
+  );
+
+  const resolveText = useCallback(
+    (text: UiText): string => {
+      if (typeof text === "string") {
+        return text;
+      }
+      if (text.id.trim() === "" || text.message.trim() === "") {
+        throw new Error("UiText descriptors require non-empty id and message values.");
+      }
+      if (activeLocale === resolvedSourceLocale) {
+        return text.message;
+      }
+      const catalog = locales[activeLocale];
+      const translated = catalog?.messages?.[text.id];
+      if (typeof translated === "string" && translated.trim() !== "") {
+        if (translated === text.message && !catalog.allowIdentical?.includes(text.id)) {
+          throw new Error(
+            `Translation "${text.id}" for locale "${activeLocale}" copies its source text. ` +
+              "Translate it or document an intentional proper noun/acronym in allowIdentical.",
+          );
+        }
+        return translated;
+      }
+      throw new Error(
+        `Missing translation "${text.id}" for locale "${activeLocale}". ` +
+          "Add it to frontend/i18n.json and run the frontend lint gate.",
+      );
+    },
+    [activeLocale, locales, resolvedSourceLocale],
   );
 
   return (
     <LocaleContext.Provider value={value}>
-      <UiTextProvider strings={locales[locale]?.strings}>{children}</UiTextProvider>
+      <UiTextProvider strings={locales[activeLocale]?.strings} resolveText={resolveText}>
+        {children}
+      </UiTextProvider>
     </LocaleContext.Provider>
   );
 }

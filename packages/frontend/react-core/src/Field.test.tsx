@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { Field } from "./Field";
+import { UiTextProvider } from "./uiText";
 import { Input } from "./ui/Input";
 import { Select } from "./ui/Select";
 import { Textarea } from "./ui/Textarea";
@@ -10,6 +11,25 @@ import { Textarea } from "./ui/Textarea";
 afterEach(cleanup);
 
 describe("Field", () => {
+  it("resolves a descriptor used as helper text", () => {
+    render(
+      <UiTextProvider
+        resolveText={(text) =>
+          typeof text === "string" ? text : `translated:${text.id}`
+        }
+      >
+        <Field
+          label="Email"
+          hint={{ id: "account.email.hint", message: "We never share it" }}
+        >
+          <Input />
+        </Field>
+      </UiTextProvider>,
+    );
+
+    expect(screen.getByText("translated:account.email.hint")).toBeInTheDocument();
+  });
+
   it("labels its control (accessible association) and shows hint + error", () => {
     render(
       <Field label="Email" hint="we never share it" error="required">

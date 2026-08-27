@@ -50,15 +50,22 @@ async function lintModule(text) {
 }
 
 describe("catalogRuleIds (the evaluated-rule inventory)", () => {
-  it("matches the Terp Standard frontend catalog exactly, both directions", () => {
-    // The inventory can't lie: every catalog entry is evaluated, and no evaluated id
-    // outlives its catalog entry (the same parity discipline as test_spec_catalog).
+  it("covers the pinned catalog and matches a substituted candidate exactly", () => {
+    // Framework main must land a reference implementation before the corresponding
+    // Standard candidate can certify. The last published (equal-version) pin may
+    // therefore be a subset during that staging window. Candidate CI substitutes a
+    // newer spec, where exactness is restored before release.
     const catalogued = fs
       .readdirSync(path.join(SPEC_ROOT, "catalog", "frontend"))
       .filter((name) => name.endsWith(".json"))
       .map((name) => `frontend/${name.replace(/\.json$/, "")}`)
       .sort();
-    expect(catalogRuleIds()).toEqual(catalogued);
+    const consumedVersion = fs.readFileSync(path.join(SPEC_ROOT, "VERSION"), "utf8").trim();
+    if (consumedVersion === SPEC_VERSION) {
+      expect(catalogRuleIds()).toEqual(expect.arrayContaining(catalogued));
+    } else {
+      expect(catalogRuleIds()).toEqual(catalogued);
+    }
   });
 });
 
@@ -207,6 +214,39 @@ describe("terp-boundaries-lint (the bin)", () => {
     expect(envelope.rules).toEqual(
       catalogRuleIds().filter((id) => id !== "frontend/layout-contract"),
     );
+  });
+
+  it("invalidates cached source results when the locale declaration changes", () => {
+    const root = appRoot({
+      "package.json": '{ "type": "module" }',
+      "eslint.config.js": config,
+      "escape-hatch-budget.json": "{}",
+      "i18n.json": JSON.stringify({
+        sourceLocale: "en",
+        locales: { en: {}, nl: { messages: {} } },
+      }),
+      "src/main.tsx":
+        'export const title = { id: "app.title", message: "Example" };\n',
+    });
+
+    const missing = runBin(root);
+    expect(missing.status).toBe(1);
+    expect(JSON.parse(missing.stdout).findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rule: "frontend/locale-catalogs-complete" }),
+      ]),
+    );
+
+    fs.writeFileSync(
+      path.join(root, "i18n.json"),
+      JSON.stringify({
+        sourceLocale: "en",
+        locales: { en: {}, nl: { messages: { "app.title": "Voorbeeld" } } },
+      }),
+    );
+    const complete = runBin(root);
+    expect(complete.status).toBe(0);
+    expect(JSON.parse(complete.stdout).findings).toEqual([]);
   });
 
   it("reports budget drift even when the boundary lint fails (both halves always run)", () => {

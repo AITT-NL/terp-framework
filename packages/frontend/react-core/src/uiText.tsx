@@ -1,5 +1,8 @@
 import { createContext, useCallback, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
+import type { UiText } from "@terpjs/contract";
+
+export type { UiText } from "@terpjs/contract";
 
 /**
  * A piece of user-facing text: either a plain string (used as-is) or a message
@@ -7,10 +10,37 @@ import type { ReactNode } from "react";
  * `message` used as the fallback. Components accept `UiText` so an app can go
  * from hardcoded strings to a full i18n runtime without changing call sites.
  */
-export type UiText = string | { id: string; message: string };
-
 /** Resolves a {@link UiText} to the display string for the active locale. */
 export type ResolveUiText = (text: UiText) => string;
+
+/** Textual copy or an already-rendered rich node, for prose-bearing component slots. */
+export type UiTextNode = UiText | ReactNode;
+
+/**
+ * Resolve a descriptor/string while leaving rich React content untouched. Components
+ * with prose slots use this instead of making callers choose between localization and
+ * inline emphasis/links.
+ */
+export function resolveUiTextNode(
+  value: UiTextNode,
+  resolve: ResolveUiText = resolveUiText,
+): ReactNode {
+  if (typeof value === "string") {
+    return resolve(value);
+  }
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "id" in value &&
+    "message" in value &&
+    typeof value.id === "string" &&
+    typeof value.message === "string"
+  ) {
+    return resolve(value);
+  }
+  return value as ReactNode;
+}
 
 /** The default resolver: plain strings as-is, descriptors via their fallback `message`. */
 export function resolveUiText(text: UiText): string {
@@ -384,4 +414,16 @@ export function useStrings(): TerpStrings {
 export function useUiText(): ResolveUiText {
   const { resolveText } = useContext(UiTextContext);
   return useCallback((text: UiText) => resolveText(text), [resolveText]);
+}
+
+/** Props for {@link Trans}: one stable catalog id and its source-language fallback. */
+export interface TransProps {
+  id: string;
+  message: string;
+}
+
+/** Render authored copy through the active locale resolver, including plain JSX body text. */
+export function Trans({ id, message }: TransProps) {
+  const resolve = useUiText();
+  return <>{resolve({ id, message })}</>;
 }

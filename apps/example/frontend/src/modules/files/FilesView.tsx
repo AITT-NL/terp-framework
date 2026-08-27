@@ -9,6 +9,7 @@ import {
   useServerDataView,
   useTerpClient,
   useToast,
+  useUiText,
   useFormatDate,
   useFormatNumber,
 } from "@terpjs/react-core";
@@ -37,23 +38,28 @@ function buildColumns(
   formatSizeIn: (bytes: number) => string,
 ): DataViewColumn<FileRead>[] {
   return [
-    { id: "filename", header: "Filename", accessor: (f) => f.filename, meta: { mobileSlot: "title" } },
+    {
+      id: "filename",
+      header: { id: "files.column.filename", message: "Filename" },
+      accessor: (f) => f.filename,
+      meta: { mobileSlot: "title" },
+    },
     {
       id: "content_type",
-      header: "Type",
+      header: { id: "files.column.type", message: "Type" },
       accessor: (f) => f.content_type,
       meta: { mobileSlot: "subtitle" },
     },
     {
       id: "size",
-      header: "Size",
+      header: { id: "files.column.size", message: "Size" },
       accessor: (f) => f.size,
       cell: (f) => formatSizeIn(f.size),
       meta: { width: "xs" },
     },
     {
       id: "created_at",
-      header: "Uploaded",
+      header: { id: "files.column.uploaded", message: "Uploaded" },
       accessor: (f) => f.created_at,
       cell: (f) => formatDate(f.created_at),
       meta: { mobileSlot: "date", width: "sm" },
@@ -76,6 +82,7 @@ export function FilesView() {
   const columns = useMemo(() => buildColumns(formatDate, formatSizeIn), [formatDate, formatSizeIn]);
   const client = useTerpClient<paths>();
   const toast = useToast();
+  const text = useUiText();
   const download = useFileDownload();
   const serverQuery = useServerDataView({ initialPageSize: 10 });
   const [version, setVersion] = useState(0);
@@ -106,7 +113,9 @@ export function FilesView() {
     try {
       await download(file);
     } catch {
-      toast.warning(`Could not download ${file.filename}`);
+      toast.warning(
+        text({ id: "files.toast.downloadFailed", message: "Could not download the file" }),
+      );
     }
   }
 
@@ -119,10 +128,12 @@ export function FilesView() {
           params: { path: { file_id: pendingDelete.id } },
         }),
       );
-      toast.success(`Deleted ${pendingDelete.filename}`);
+      toast.success(text({ id: "files.toast.deleted", message: "File deleted" }));
       setVersion((v) => v + 1);
     } catch {
-      toast.warning(`Could not delete ${pendingDelete.filename}`);
+      toast.warning(
+        text({ id: "files.toast.deleteFailed", message: "Could not delete the file" }),
+      );
     } finally {
       setDeleting(false);
       setPendingDelete(null);
@@ -131,14 +142,16 @@ export function FilesView() {
 
   return (
     <OverviewPage
-      title="Files"
+      title={{ id: "files.title", message: "Files" }}
       actions={
         <FileUpload
           onUploaded={(file) => {
-            toast.success(`Uploaded ${file.filename}`);
+            toast.success(text({ id: "files.toast.uploaded", message: "File uploaded" }));
             setVersion((v) => v + 1);
           }}
-          onError={() => toast.warning("Upload failed")}
+          onError={() =>
+            toast.warning(text({ id: "files.toast.uploadFailed", message: "Upload failed" }))
+          }
         />
       }
     >
@@ -149,9 +162,13 @@ export function FilesView() {
         serverQuery={serverQuery}
         pageSizeOptions={[10, 25, 50]}
         rowActions={(file) => [
-          { label: "Download", inline: true, onClick: () => void onDownload(file) },
           {
-            label: "Delete",
+            label: { id: "files.download", message: "Download" },
+            inline: true,
+            onClick: () => void onDownload(file),
+          },
+          {
+            label: { id: "files.delete", message: "Delete" },
             variant: "destructive",
             onClick: () => setPendingDelete(file),
           },
@@ -163,8 +180,11 @@ export function FilesView() {
           if (!open) setPendingDelete(null);
         }}
         onConfirm={() => void onConfirmDelete()}
-        title={`Delete ${pendingDelete?.filename ?? "file"}?`}
-        description="The stored content is removed permanently."
+        title={{ id: "files.confirm.title", message: "Delete this file?" }}
+        description={{
+          id: "files.confirm.description",
+          message: "The stored content is removed permanently.",
+        }}
         destructive
         isPending={deleting}
       />

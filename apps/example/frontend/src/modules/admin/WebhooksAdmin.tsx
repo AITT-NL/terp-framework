@@ -8,10 +8,12 @@ import {
   ModuleNav,
   OverviewPage,
   Stack,
+  Trans,
   unwrap,
   useServerDataView,
   useTerpClient,
   useToast,
+  useUiText,
   useFormatDate,
 } from "@terpjs/react-core";
 import type { DataViewColumn } from "@terpjs/react-core";
@@ -24,8 +26,14 @@ import { ADMIN_PARENTS, renderAdminCrumb } from "./crumbs";
 type SubscriptionRead = components["schemas"]["WebhookSubscriptionRead"];
 
 export const WEBHOOKS_TABS = [
-  { label: "Subscriptions", to: "/admin/webhooks" },
-  { label: "Deliveries", to: "/admin/webhooks/deliveries" },
+  {
+    label: { id: "admin.webhooks.tab.subscriptions", message: "Subscriptions" },
+    to: "/admin/webhooks",
+  },
+  {
+    label: { id: "admin.webhooks.tab.deliveries", message: "Deliveries" },
+    to: "/admin/webhooks/deliveries",
+  },
 ] as const;
 
 function buildColumns(
@@ -34,20 +42,31 @@ function buildColumns(
   return [
     {
       id: "target_url",
-      header: "Target URL",
+      header: { id: "admin.webhooks.column.targetUrl", message: "Target URL" },
       accessor: (s) => s.target_url,
       meta: { mobileSlot: "title" },
     },
-    { id: "event", header: "Event", accessor: (s) => s.event, meta: { mobileSlot: "subtitle" } },
+    {
+      id: "event",
+      header: { id: "admin.webhooks.column.event", message: "Event" },
+      accessor: (s) => s.event,
+      meta: { mobileSlot: "subtitle" },
+    },
     {
       id: "active",
-      header: "Status",
+      header: { id: "admin.webhooks.column.status", message: "Status" },
       accessor: (s) => (s.active ? "active" : "paused"),
+      cell: (s) =>
+        s.active ? (
+          <Trans id="admin.webhooks.status.active" message="Active" />
+        ) : (
+          <Trans id="admin.webhooks.status.paused" message="Paused" />
+        ),
       meta: { mobileSlot: "status", width: "xs" },
     },
     {
       id: "created_at",
-      header: "Created",
+      header: { id: "admin.webhooks.column.created", message: "Created" },
       accessor: (s) => s.created_at,
       cell: (s) => formatDate(s.created_at),
       meta: { mobileSlot: "date", width: "sm" },
@@ -65,6 +84,7 @@ export function WebhooksAdmin() {
   const columns = useMemo(() => buildColumns(formatDate), [formatDate]);
   const client = useTerpClient<paths>();
   const toast = useToast();
+  const text = useUiText();
   const serverQuery = useServerDataView({ initialPageSize: 10 });
   const [version, setVersion] = useState(0);
 
@@ -105,13 +125,22 @@ export function WebhooksAdmin() {
           body: { target_url: targetUrl, event, secret, active: true },
         }),
       );
-      toast.success(`Subscribed to ${event}`);
+      toast.success(
+        text({ id: "admin.webhooks.toast.subscribed", message: "Subscription added" }),
+      );
       setTargetUrl("");
       setEvent("");
       setSecret("");
       refetch();
     } catch (error) {
-      toast.warning(error instanceof Error ? error.message : "Could not create the subscription");
+      toast.warning(
+        error instanceof Error
+          ? error.message
+          : text({
+              id: "admin.webhooks.toast.createFailed",
+              message: "Could not create the subscription",
+            }),
+      );
     } finally {
       setCreating(false);
     }
@@ -125,10 +154,24 @@ export function WebhooksAdmin() {
           body: { active, version: subscription.version },
         }),
       );
-      toast.success(active ? "Subscription resumed" : "Subscription paused");
+      toast.success(
+        active
+          ? text({
+              id: "admin.webhooks.toast.resumed",
+              message: "Subscription resumed",
+            })
+          : text({
+              id: "admin.webhooks.toast.paused",
+              message: "Subscription paused",
+            }),
+      );
       refetch();
     } catch (error) {
-      toast.warning(error instanceof Error ? error.message : "Update failed");
+      toast.warning(
+        error instanceof Error
+          ? error.message
+          : text({ id: "admin.webhooks.toast.updateFailed", message: "Update failed" }),
+      );
     }
   }
 
@@ -141,10 +184,19 @@ export function WebhooksAdmin() {
           params: { path: { subscription_id: pendingDelete.id } },
         }),
       );
-      toast.success("Subscription deleted");
+      toast.success(
+        text({ id: "admin.webhooks.toast.deleted", message: "Subscription deleted" }),
+      );
       refetch();
     } catch (error) {
-      toast.warning(error instanceof Error ? error.message : "Could not delete the subscription");
+      toast.warning(
+        error instanceof Error
+          ? error.message
+          : text({
+              id: "admin.webhooks.toast.deleteFailed",
+              message: "Could not delete the subscription",
+            }),
+      );
     } finally {
       setDeleting(false);
       setPendingDelete(null);
@@ -152,10 +204,14 @@ export function WebhooksAdmin() {
   }
 
   return (
-    <OverviewPage title="Webhooks" parents={ADMIN_PARENTS} renderLink={renderAdminCrumb}>
+    <OverviewPage
+      title={{ id: "admin.webhooks.title", message: "Webhooks" }}
+      parents={ADMIN_PARENTS}
+      renderLink={renderAdminCrumb}
+    >
       <ModuleNav items={WEBHOOKS_TABS} />
       <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onCreate}>
-        <Field label="Target URL">
+        <Field label={{ id: "admin.webhooks.field.targetUrl", message: "Target URL" }}>
           <Input
             type="url"
             value={targetUrl}
@@ -163,10 +219,19 @@ export function WebhooksAdmin() {
             required
           />
         </Field>
-        <Field label="Event" hint='e.g. "note.created"'>
+        <Field
+          label={{ id: "admin.webhooks.field.event", message: "Event" }}
+          hint={{ id: "admin.webhooks.field.eventHint", message: 'e.g. "note.created"' }}
+        >
           <Input value={event} onChange={(changeEvent) => setEvent(changeEvent.target.value)} required />
         </Field>
-        <Field label="Signing secret" hint="At least 16 characters">
+        <Field
+          label={{ id: "admin.webhooks.field.secret", message: "Signing secret" }}
+          hint={{
+            id: "admin.webhooks.field.secretHint",
+            message: "At least 16 characters",
+          }}
+        >
           <Input
             type="password"
             // The hint said "at least 16 characters" and nothing enforced it — ADR 0099 cites
@@ -181,7 +246,11 @@ export function WebhooksAdmin() {
           />
         </Field>
         <Button type="submit" disabled={creating}>
-          {creating ? "Subscribing…" : "Add subscription"}
+          {creating ? (
+            <Trans id="admin.webhooks.subscribing" message="Subscribing…" />
+          ) : (
+            <Trans id="admin.webhooks.add" message="Add subscription" />
+          )}
         </Button>
       </Stack>
       <DataView<SubscriptionRead>
@@ -192,10 +261,16 @@ export function WebhooksAdmin() {
         pageSizeOptions={[10, 25, 50]}
         rowActions={(subscription) => [
           subscription.active
-            ? { label: "Pause", onClick: () => void setActive(subscription, false) }
-            : { label: "Resume", onClick: () => void setActive(subscription, true) },
+            ? {
+                label: { id: "admin.webhooks.pause", message: "Pause" },
+                onClick: () => void setActive(subscription, false),
+              }
+            : {
+                label: { id: "admin.webhooks.resume", message: "Resume" },
+                onClick: () => void setActive(subscription, true),
+              },
           {
-            label: "Delete",
+            label: { id: "admin.webhooks.delete", message: "Delete" },
             variant: "destructive",
             onClick: () => setPendingDelete(subscription),
           },
@@ -207,8 +282,14 @@ export function WebhooksAdmin() {
           if (!open) setPendingDelete(null);
         }}
         onConfirm={() => void onConfirmDelete()}
-        title="Delete this subscription?"
-        description="No further deliveries will be attempted for it."
+        title={{
+          id: "admin.webhooks.confirm.title",
+          message: "Delete this subscription?",
+        }}
+        description={{
+          id: "admin.webhooks.confirm.description",
+          message: "No further deliveries will be attempted for it.",
+        }}
         destructive
         isPending={deleting}
       />

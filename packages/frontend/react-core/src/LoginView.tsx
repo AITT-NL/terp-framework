@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 
 import { TerpMark } from "./icons";
 import { useAuth, useSso } from "./TerpProvider";
-import { useStrings } from "./uiText";
+import { useStrings, useUiText } from "./uiText";
 import { Button } from "./ui/Button";
 import { Field } from "./Field";
 import { Input } from "./ui/Input";
@@ -53,6 +53,7 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
   const auth = useAuth();
   const sso = useSso();
   const strings = useStrings();
+  const resolve = useUiText();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +159,7 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
                   disabled={busy}
                   onClick={() => void onSso(provider)}
                 >
-                  {`${strings.continueWith} ${provider.label ?? provider.name}`}
+                  {`${strings.continueWith} ${resolve(provider.label ?? provider.name)}`}
                 </Button>
               ))}
             </div>

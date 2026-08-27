@@ -29,14 +29,22 @@ const SPEC_ROOT = path.dirname(
 const CATALOG = path.join(SPEC_ROOT, "catalog", "frontend");
 const CORPUS = path.join(SPEC_ROOT, "corpus", "frontend");
 
-const entries = fs
+const catalogEntries = fs
   .readdirSync(CATALOG)
   .filter((name) => name.endsWith(".json"))
-  .map((name) => JSON.parse(fs.readFileSync(path.join(CATALOG, name), "utf8")))
+  .map((name) => JSON.parse(fs.readFileSync(path.join(CATALOG, name), "utf8")));
+const catalogIds = new Set(catalogEntries.map((entry) => entry.id));
+const entries = catalogEntries
   .filter((entry) => entry.corpus);
 
+async function findingsForConsumedSpec(caseDir) {
+  return (await lintCaseFindings(caseDir)).filter(
+    (finding) => finding.rule === null || catalogIds.has(finding.rule),
+  );
+}
+
 async function lintCase(caseDir) {
-  return (await lintCaseFindings(caseDir)).map((finding) => finding.rule);
+  return (await findingsForConsumedSpec(caseDir)).map((finding) => finding.rule);
 }
 
 describe("frontend corpus (spec/corpus/frontend)", () => {
@@ -72,7 +80,7 @@ describe("findings round-trip (spec/findings.schema.json)", () => {
       const ruleDir = path.join(CORPUS, entry.id.split("/")[1]);
       for (const caseName of fs.readdirSync(ruleDir).sort()) {
         if (!caseName.startsWith("violation-")) continue;
-        findings.push(...(await lintCaseFindings(path.join(ruleDir, caseName))));
+        findings.push(...(await findingsForConsumedSpec(path.join(ruleDir, caseName))));
       }
     }
     expect(findings.length).toBeGreaterThan(0);

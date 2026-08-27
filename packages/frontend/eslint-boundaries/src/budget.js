@@ -2,7 +2,8 @@
 /**
  * The escape-hatch budget ratchet — the frontend analog of the backend's governed
  * `# arch-allow-*` budget (design §8): `terp-allow-*` marker counts in the app-authored
- * surface (`src/modules/**`) must match the checked-in `escape-hatch-budget.json` **exactly**.
+ * surface (`src/**`, excluding the generated `src/api/**`) must match the checked-in
+ * `escape-hatch-budget.json` **exactly**.
  * A marker that rose needs a justified budget bump in the same change; one that dropped must
  * be lowered to lock in the win; an unbudgeted marker must be added with a justified count.
  * This keeps every boundary opt-out visible, greppable, and governed.
@@ -42,10 +43,10 @@ function parsedReviewDate(value) {
   return roundTrips ? date : null;
 }
 
-/** Every `src/modules/**` TypeScript file under *root*, recursively. */
-function moduleFiles(root) {
-  const modulesRoot = path.join(root, "src", "modules");
-  if (!fs.existsSync(modulesRoot)) {
+/** Every app-authored `src/**` TypeScript file under *root*, recursively. */
+function sourceFiles(root) {
+  const sourceRoot = path.join(root, "src");
+  if (!fs.existsSync(sourceRoot)) {
     return [];
   }
   const files = [];
@@ -53,20 +54,21 @@ function moduleFiles(root) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (full === path.join(sourceRoot, "api")) continue;
         walk(full);
       } else if (MODULE_FILE_RE.test(entry.name)) {
         files.push(full);
       }
     }
   };
-  walk(modulesRoot);
+  walk(sourceRoot);
   return files;
 }
 
 /** Actual `terp-allow-<rule>` marker counts across the app-authored surface. */
 export function countMarkers(root) {
   const counts = {};
-  for (const file of moduleFiles(root)) {
+  for (const file of sourceFiles(root)) {
     for (const marker of parseAllowMarkers(fs.readFileSync(file, "utf-8"))) {
       const name = `${BOUNDARY_SPEC.allowMarkerPrefix}${marker.rule}`;
       counts[name] = (counts[name] ?? 0) + 1;
@@ -143,7 +145,7 @@ export function checkBudget(root, budgetPath, today = new Date()) {
   // Date-only comparison (like the backend checker): a review-by dated today
   // is due, not yet passed.
   const deadline = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-  for (const file of moduleFiles(root)) {
+  for (const file of sourceFiles(root)) {
     const relative = path.relative(root, file).split(path.sep).join("/");
     for (const marker of parseAllowMarkers(fs.readFileSync(file, "utf-8"))) {
       if (marker.reason === null) {

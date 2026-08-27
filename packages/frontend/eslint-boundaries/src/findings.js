@@ -43,6 +43,7 @@
  * seam (ADR 0083) existing consumers parse strictly. */
 
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -171,9 +172,30 @@ async function main() {
     args.splice(formatIndex, 2);
   }
   const budgetPath = args[0] ?? path.join(cwd, "escape-hatch-budget.json");
-  // The app's own config and ignore set, with the same cache the plain CLI used
-  // (`--cache --cache-location node_modules/.cache/eslint/`).
-  const eslint = new ESLint({ cache: true, cacheLocation: "node_modules/.cache/eslint/" });
+  // The app's own config and ignore set. Two rules also read checked-in declarations
+  // outside the linted source file, so include those bytes in the cache namespace.
+  // Otherwise fixing i18n.json can replay a stale failure, and breaking it after a
+  // cached pass can stay falsely green until a source file happens to change.
+  const externalInputs = ["i18n.json", "layout-contract.json"].map((name) => {
+    const file = path.join(cwd, name);
+    return fs.existsSync(file) ? fs.readFileSync(file) : Buffer.from("<missing>");
+  });
+  const declarationHash = createHash("sha256")
+    .update(externalInputs[0])
+    .update("\0")
+    .update(externalInputs[1])
+    .digest("hex")
+    .slice(0, 16);
+  const eslint = new ESLint({
+    cache: true,
+    cacheLocation: path.join(
+      "node_modules",
+      ".cache",
+      "eslint",
+      `declarations-${declarationHash}`,
+      ".eslintcache",
+    ),
+  });
   const results = await eslint.lintFiles(["."]);
   // The ratchet runs regardless of the lint verdict — both halves always report.
   const budgetProblems = checkBudget(cwd, budgetPath);

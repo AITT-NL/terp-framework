@@ -17,8 +17,18 @@ export const manifest = defineModuleManifest({
     { path: "/admin/webhooks/deliveries", view: "WebhookDeliveriesAdmin", role: "admin" },
   ],
   nav: [
-    { label: "Access grants", to: "/admin/grants", role: "admin", icon: "key" },
-    { label: "Webhooks", to: "/admin/webhooks", role: "admin", icon: "zap" },
+    {
+      label: { id: "admin.grants.title", message: "Access grants" },
+      to: "/admin/grants",
+      role: "admin",
+      icon: "key",
+    },
+    {
+      label: { id: "admin.webhooks.title", message: "Webhooks" },
+      to: "/admin/webhooks",
+      role: "admin",
+      icon: "zap",
+    },
   ],
 });
 

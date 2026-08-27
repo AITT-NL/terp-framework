@@ -13,7 +13,7 @@ import {
   useFormatDate,
   useFormatNumber,
 } from "./format";
-import { LocaleProvider } from "./locale";
+import { LOCALE_EN, LOCALE_NL, LocaleProvider } from "./locale";
 
 afterEach(() => {
   cleanup();
@@ -27,8 +27,8 @@ afterEach(() => {
 // version asserted the literal digit 7 and would have failed in Kiritimati and nowhere else.
 const WHEN = "2026-07-07T12:00:00Z";
 
-const NL = { label: "Nederlands", strings: {} };
-const EN = { label: "English", strings: {} };
+const NL = LOCALE_NL;
+const EN = LOCALE_EN;
 
 describe("the locale-explicit formatters", () => {
   it("actually varies with the locale it is given", () => {

@@ -4,7 +4,9 @@ import {
   InMemoryDataViewRepository,
   LocalStorageViewStateRepository,
   OverviewPage,
+  Trans,
   useToast,
+  useUiText,
 } from "@terpjs/react-core";
 import type { DataViewColumn } from "@terpjs/react-core";
 import { useMemo } from "react";
@@ -20,13 +22,11 @@ interface Device {
 
 const OWNERS = ["Ada", "Grace", "Linus", "Margaret", "Alan", "Katherine"];
 const STATUSES: Device["status"][] = ["active", "retired", "repair"];
-const KINDS = ["Laptop", "Monitor", "Dock", "Phone", "Keyboard", "Headset"];
-
 /** A deterministic 57-row data set, so paging and select-all have something to bite on. */
-function makeDevices(): Device[] {
+function makeDevices(kinds: readonly string[]): Device[] {
   return Array.from({ length: 57 }, (_, i) => ({
     id: `dev-${i + 1}`,
-    name: `${KINDS[i % KINDS.length]} #${i + 1}`,
+    name: `${kinds[i % kinds.length]} #${i + 1}`,
     owner: OWNERS[i % OWNERS.length] ?? "Ada",
     status: STATUSES[i % STATUSES.length] ?? "active",
     purchased: new Date(Date.UTC(2023, i % 12, (i % 27) + 1)).toISOString().slice(0, 10),
@@ -34,12 +34,35 @@ function makeDevices(): Device[] {
 }
 
 const columns: DataViewColumn<Device>[] = [
-  { id: "name", header: "Name", accessor: (d) => d.name, meta: { mobileSlot: "title" } },
-  { id: "owner", header: "Owner", accessor: (d) => d.owner, meta: { mobileSlot: "subtitle" } },
-  { id: "status", header: "Status", accessor: (d) => d.status, meta: { mobileSlot: "status", width: "xs" } },
+  {
+    id: "name",
+    header: { id: "explorer.devices.column.name", message: "Name" },
+    accessor: (d) => d.name,
+    meta: { mobileSlot: "title" },
+  },
+  {
+    id: "owner",
+    header: { id: "explorer.devices.column.owner", message: "Owner" },
+    accessor: (d) => d.owner,
+    meta: { mobileSlot: "subtitle" },
+  },
+  {
+    id: "status",
+    header: { id: "explorer.devices.column.status", message: "Status" },
+    accessor: (d) => d.status,
+    cell: (d) =>
+      d.status === "active" ? (
+        <Trans id="explorer.devices.status.active" message="Active" />
+      ) : d.status === "retired" ? (
+        <Trans id="explorer.devices.status.retired" message="Retired" />
+      ) : (
+        <Trans id="explorer.devices.status.repair" message="Under repair" />
+      ),
+    meta: { mobileSlot: "status", width: "xs" },
+  },
   {
     id: "purchased",
-    header: "Purchased",
+    header: { id: "explorer.devices.column.purchased", message: "Purchased" },
     // A Date, not the ISO string it is stored as: the shared cell default renders one through
     // the app locale, so this column needs no `cell` of its own and picks up the same shape
     // every other date in the app has.
@@ -57,18 +80,30 @@ const viewState = new LocalStorageViewStateRepository();
  */
 export function DevicesExplorer() {
   const toast = useToast();
+  const text = useUiText();
+  const kinds = useMemo(
+    () => [
+      text({ id: "explorer.devices.kind.laptop", message: "Laptop" }),
+      text({ id: "explorer.devices.kind.monitor", message: "Monitor" }),
+      text({ id: "explorer.devices.kind.dock", message: "Dock" }),
+      text({ id: "explorer.devices.kind.phone", message: "Phone" }),
+      text({ id: "explorer.devices.kind.keyboard", message: "Keyboard" }),
+      text({ id: "explorer.devices.kind.headset", message: "Headset" }),
+    ],
+    [text],
+  );
   const repository = useMemo(
     () =>
-      new InMemoryDataViewRepository(makeDevices(), {
+      new InMemoryDataViewRepository(makeDevices(kinds), {
         getRowId: (d) => d.id,
         getValue: (d, col) => d[col as keyof Device],
         searchFields: ["name", "owner", "status"],
       }),
-    [],
+    [kinds],
   );
 
   return (
-    <OverviewPage title="Devices">
+    <OverviewPage title={{ id: "explorer.devices.title", message: "Devices" }}>
       <DataView<Device>
         viewId="explorer.devices"
         repository={repository}
@@ -76,38 +111,81 @@ export function DevicesExplorer() {
         columns={columns}
         enableSelection
         searchDebounceMs={300}
-        searchPlaceholder="Search devices…"
+        searchPlaceholder={{
+          id: "explorer.devices.search",
+          message: "Search devices…",
+        }}
         pageSizeOptions={[10, 25, 50, 100]}
         getRowLabel={(d) => d.name}
-        onRowClick={(d) => toast.success(`Opened ${d.name}`)}
+        onRowClick={() =>
+          toast.success(
+            text({ id: "explorer.devices.toast.opened", message: "Device opened" }),
+          )
+        }
         batchActions={[
           {
-            label: "Retire",
+            label: { id: "explorer.devices.retire", message: "Retire" },
             inline: true,
-            onClick: (rows) => toast.success(`Retired ${rows.length} device(s)`),
-            onSelectAll: () => toast.success("Retired all matching devices"),
+            onClick: () =>
+              toast.success(
+                text({
+                  id: "explorer.devices.toast.retiredSelection",
+                  message: "Selected devices retired",
+                }),
+              ),
+            onSelectAll: () =>
+              toast.success(
+                text({
+                  id: "explorer.devices.toast.retiredAll",
+                  message: "All matching devices retired",
+                }),
+              ),
           },
           {
-            label: "Delete",
+            label: { id: "explorer.devices.delete", message: "Delete" },
             variant: "destructive",
             inline: false,
-            onClick: (rows) => toast.warning(`Deleted ${rows.length} device(s)`),
+            onClick: () =>
+              toast.warning(
+                text({
+                  id: "explorer.devices.toast.deletedSelection",
+                  message: "Selected devices deleted",
+                }),
+              ),
           },
         ]}
         rowActions={(d) => [
-          { label: "Rename", onClick: () => toast.success(`Rename ${d.name}`) },
           {
-            label: "Retire",
+            label: { id: "explorer.devices.rename", message: "Rename" },
+            onClick: () =>
+              toast.success(
+                text({ id: "explorer.devices.toast.rename", message: "Rename device" }),
+              ),
+          },
+          {
+            label: { id: "explorer.devices.retire", message: "Retire" },
             variant: "destructive",
             disabled: (row: Device) => row.status === "retired",
-            onClick: () => toast.warning(`Retired ${d.name}`),
+            onClick: () =>
+              toast.warning(
+                text({ id: "explorer.devices.toast.retired", message: "Device retired" }),
+              ),
           },
         ]}
         renderExpanded={(d) => (
           <DetailList
             items={[
-              { label: "Owner", value: d.owner },
-              { label: "Purchased", value: d.purchased },
+              {
+                label: { id: "explorer.devices.column.owner", message: "Owner" },
+                value: d.owner,
+              },
+              {
+                label: {
+                  id: "explorer.devices.column.purchased",
+                  message: "Purchased",
+                },
+                value: d.purchased,
+              },
             ]}
           />
         )}

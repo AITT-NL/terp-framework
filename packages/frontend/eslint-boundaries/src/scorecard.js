@@ -54,13 +54,25 @@ export async function buildScorecard() {
     .filter((name) => name.endsWith(".json"))
     .map((name) => JSON.parse(fs.readFileSync(path.join(catalogDir, name), "utf8")))
     .filter((entry) => entry.corpus);
+  const consumedRuleIds = new Set(
+    fs
+      .readdirSync(catalogDir)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => JSON.parse(fs.readFileSync(path.join(catalogDir, name), "utf8")).id),
+  );
   for (const entry of entries) {
     const ruleDir = path.join(corpusDir, entry.id.split("/")[1]);
     let pass = true;
     for (const caseName of fs.readdirSync(ruleDir).sort()) {
       const caseDir = path.join(ruleDir, caseName);
       if (!fs.statSync(caseDir).isDirectory()) continue;
-      const fired = (await lintCaseFindings(caseDir)).map((finding) => finding.rule);
+      // A framework implementation lands before its Standard candidate can certify.
+      // While running against the last published pin, ignore those forward rule ids;
+      // a substituted candidate includes them in consumedRuleIds and exercises them.
+      // Unattributed findings remain failures rather than disappearing in the filter.
+      const fired = (await lintCaseFindings(caseDir))
+        .filter((finding) => finding.rule === null || consumedRuleIds.has(finding.rule))
+        .map((finding) => finding.rule);
       if (caseName.startsWith("violation-") && !fired.includes(entry.id)) pass = false;
       if (caseName.startsWith("compliant-") && fired.length > 0) pass = false;
     }
