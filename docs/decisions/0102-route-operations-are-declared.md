@@ -113,6 +113,23 @@ the source-language fallback. **No call site names a language.** Adding a langua
 catalog, not a sweep through every declaration in every app — which is the difference between a
 translatable platform and one where "support French" is a breaking change.
 
+**Amended 2026-08-27: the operation id is the i18n message id; translations live in the app's
+`frontend/i18n.json`.** This settles the open question of where an app's operation translations
+physically live so the Studio can read them with no running app. ADR 0105 gave every generated
+app exactly one catalog for this shape — `{sourceLocale, locales: {<locale>: {label,
+allowIdentical, messages: {<id>: <message>}}}}` — keyed by the same `{id, message}` pair
+`OperationDefinition` already carries. Reusing it costs nothing new: no second catalog format,
+no new per-app file, no new wiring, and the Studio reads it the same way it already reads design
+tokens and module slots — straight from the checkout.
+
+This does not, on its own, make an operation's translation *complete* the way ADR 0105 makes UI
+copy complete. `frontend/no-untranslated-ui` and `frontend/locale-catalogs-complete` inventory
+literal JSX/TS copy under `src/**`; neither scans a backend `OperationDefinition`, so a declared
+operation with no matching `i18n.json` entry currently fails silently rather than failing the
+gate. Phase 5.5 of the route-operations plan is the completeness half this amendment does not
+supply on its own: a check shaped like `locale-catalogs-complete` but keyed off the app's
+`OperationCatalog` rather than a source scan.
+
 ### 4. The label feeds OpenAPI, so it is not a field with one reader
 
 No route in this framework sets `summary` or `operation_id` today; operation ids are FastAPI's

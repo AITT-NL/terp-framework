@@ -194,14 +194,16 @@ cannot be deferred behind a marker and are done first.
 
 ## Open questions
 
-1. **Is `strict` the eventual default, or permanently opt-in?** Planned as opt-in. Making it the
-   default later is a breaking change for every client, so the destination is worth naming now even
-   though nothing in phases 1–6 depends on the answer.
-2. **Where do an app's operation translations physically live** so the Studio can read them without
-   a running app? The lean is a catalog file in the checkout, matching how the Studio already reads
-   design tokens and module slots straight from the project directory. The alternative — serving
-   them from the app's API — needs the app up, which the permission viewer does not otherwise
-   require.
+1. ~~Is `strict` the eventual default, or permanently opt-in?~~ **Settled 2026-08-26: yes, `strict`
+   is the destination default**, recorded as an amendment to ADR 0102 (§6). The flip happens in the
+   enforcement phase, after the framework's own routes are annotated — doing it sooner refuses the
+   boot of every app, this repository's example included.
+2. ~~Where do an app's operation translations physically live~~ so the Studio can read them without
+   a running app? **Settled 2026-08-27: the operation id is the i18n message id**, and translations
+   live in the app's `frontend/i18n.json` — the same catalog ADR 0105 already ships, reused rather
+   than duplicated. Recorded as an amendment to ADR 0102 (§3). Phase 5.5 still owes the
+   completeness half: nothing yet fails the gate when a declared operation has no matching
+   `i18n.json` entry.
 3. **Should `operation` subsume `read_only`?** Both are route-level declarations about one handler
    and both now live in `terp.core.routing`. They answer different questions (what this does for a
    person; whether it may persist), so they stay separate — but if a third and fourth marker

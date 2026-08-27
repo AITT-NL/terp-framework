@@ -492,15 +492,18 @@ implemented only in the backend is half-built".
       measuring against a live preview on a per-project port. Recorded in that repo's
       ADR 0022.
 
-**Questions still open**, both from ADR 0102 and neither blocking phases 1–5:
+**Questions from ADR 0102, both now settled** (neither blocked phases 1–5):
 
 - ~~Is strict operation coverage the eventual default?~~ **Settled 2026-08-26: yes.**
   Recorded as an amendment to ADR 0102. The flip happens in the enforcement phase,
   after the framework's own routes are annotated — doing it sooner refuses the boot of
   every app, this repository's example included.
-- Where do an app's operation translations physically live so the Studio can read them
-  without a running app? The lean is a catalog file in the checkout, matching how the
-  Studio already reads design tokens.
+- ~~Where do an app's operation translations physically live so the Studio can read
+  them without a running app?~~ **Settled 2026-08-27: the operation id is the i18n
+  message id**, and translations live in the app's `frontend/i18n.json` — the same
+  catalog ADR 0105 already ships. Recorded as an amendment to ADR 0102. Phase 5.5
+  still owes the completeness check (nothing yet fails the gate when a declared
+  operation has no matching `i18n.json` entry).
 
 ## Active execution track
 
