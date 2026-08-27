@@ -28,14 +28,15 @@ _POLICY_AUTHZ_KEYWORDS = frozenset({"read", "write", "read_role", "write_role"})
 _MUTATING_HTTP_METHODS = frozenset({"post", "put", "patch", "delete"})
 
 
-# The decorator attributes yielded as route registrations: the body verbs plus
-# `api_route`. Each consuming rule filters further to the forms it governs, so the
-# *shapes* are found once here while the *policy* stays in the rule.
-#
-# `head` / `options` are deliberately absent. Only `safe_methods_are_read_only`
-# inspects them, it still has its own walk, and a member no consumer reads is a
-# field without a reader — it belongs here when that rule migrates, not before.
-_ROUTE_DECORATOR_ATTRS = _HTTP_METHODS | frozenset({"api_route"})
+# The decorator attributes yielded as route registrations: the body verbs, `api_route`,
+# and the two safe verbs `head` / `options`. Each consuming rule filters further to the
+# forms it governs, so the *shapes* are found once here while the *policy* stays in the
+# rule. `head` / `options` were dropped once already (they had no reader before
+# `safe_methods_are_read_only` migrated onto this helper) and are back now that it does:
+# a handler reachable only through `@router.head` / `@router.options` is exactly the
+# safe-method surface that rule exists to police, and its pre-migration walk read those
+# two decorators directly rather than through this constant.
+_ROUTE_DECORATOR_ATTRS = _HTTP_METHODS | frozenset({"api_route", "head", "options"})
 
 
 @dataclass(frozen=True)

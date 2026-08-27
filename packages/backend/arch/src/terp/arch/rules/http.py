@@ -14,6 +14,7 @@ import re
 from terp.arch._ast import base_name, iter_python_files, parse
 from terp.arch.rules._support import (
     ArchViolation,
+    RouteRegistration,
     _HTTP_METHODS,
     iter_route_registrations,
     _is_table_model_class,
@@ -135,6 +136,14 @@ def check_response_model_not_table_model(
     the rule needs no import resolution; the fail-closed runtime layer
     (``terp.core.create_app``) additionally rejects a table model reached across
     packages, where a static scan cannot follow the symbol.
+
+    Migrated onto ``iter_route_registrations``, this closes a real gap the
+    hand-written walk left open: it inspected only decorator routes, so
+    ``router.add_api_route(path, handler, response_model=User)`` leaked a table model
+    with nothing catching it. The imperative form is now covered, matching
+    ``routes_declare_response_model``'s own coverage of it. ``api_route`` stays
+    excluded, preserving the body-verb-only surface this rule has always had --
+    changing which routes a security rule governs is a decision, not a refactor.
     """
     root = pathlib.Path(app_root)
     parsed = [(_rel(path, root), parse(path)) for path in iter_python_files(root)]
@@ -163,30 +172,33 @@ def check_response_model_not_table_model(
                                 "(terp.core.BaseSchema) as read_schema instead",
                             )
                         )
+        for route in iter_route_registrations(tree):
+            # Body verbs only, as before -- api_route is not this rule's surface. The
+            # imperative form (route.verb is None) is never excluded by this check, so
+            # it is covered.
+            if route.verb is not None and route.verb not in _HTTP_METHODS:
                 continue
-            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                continue
-            for decorator in node.decorator_list:
-                if not isinstance(decorator, ast.Call):
+            for keyword in route.keywords:
+                if keyword.arg != "response_model":
                     continue
-                func = decorator.func
-                if not isinstance(func, ast.Attribute) or func.attr not in _HTTP_METHODS:
-                    continue
-                for keyword in decorator.keywords:
-                    if keyword.arg != "response_model":
-                        continue
-                    for name in sorted(_referenced_type_names(keyword.value) & table_models):
-                        violations.append(
-                            ArchViolation(
-                                "response_model_not_table_model",
-                                rel,
-                                decorator.lineno,
-                                f"route {node.name!r} exposes the table model {name!r} as its "
-                                "response_model (directly or via Page[...]/list[...]); a "
-                                "persisted model serializes every column (e.g. a password "
-                                "hash) -- return a *Read DTO (terp.core.BaseSchema) instead",
-                            )
+                for name in sorted(_referenced_type_names(keyword.value) & table_models):
+                    detail = (
+                        f"imperative route {route.label!r} (add_api_route) exposes the "
+                        f"table model {name!r} as its response_model (directly or via "
+                        "Page[...]/list[...]); a persisted model serializes every column "
+                        "(e.g. a password hash) -- pass a *Read DTO "
+                        "(terp.core.BaseSchema) instead"
+                        if route.imperative
+                        else f"route {route.label!r} exposes the table model {name!r} as its "
+                        "response_model (directly or via Page[...]/list[...]); a "
+                        "persisted model serializes every column (e.g. a password "
+                        "hash) -- return a *Read DTO (terp.core.BaseSchema) instead"
+                    )
+                    violations.append(
+                        ArchViolation(
+                            "response_model_not_table_model", rel, route.lineno, detail
                         )
+                    )
     return violations
 
 
@@ -412,20 +424,17 @@ def _call_route_methods(keywords: list[ast.keyword]) -> set[str] | None:
     return {"GET"}
 
 
-def _decorator_route_methods(decorator: ast.expr) -> set[str] | None:
-    """The methods a route *decorator* registers, or ``None`` if it is not a route.
+def _registration_methods(route: RouteRegistration) -> set[str] | None:
+    """The methods *route* serves, unifying the decorator and imperative forms.
 
-    ``@x.get(...)`` -> ``{"GET"}``; ``@x.api_route(...)`` -> its ``methods`` (default
-    ``{"GET"}``); a non-route decorator -> ``None``.
+    A body-verb or safe-verb decorator (``get`` / ``head`` / ``options`` / ...) names
+    its method directly; ``api_route`` (decorator or imperative ``add_api_route``)
+    reads its literal ``methods=`` (default ``{"GET"}``, ``None`` when the value is
+    not a literal list/tuple and so undeterminable).
     """
-    if not (isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute)):
-        return None
-    attr = decorator.func.attr
-    if attr in _HTTP_METHODS or attr in _SAFE_ROUTE_METHODS:
-        return {attr.upper()}
-    if attr == "api_route":
-        return _call_route_methods(decorator.keywords)
-    return None
+    if route.verb in _HTTP_METHODS or route.verb in _SAFE_ROUTE_METHODS:
+        return {route.verb.upper()}
+    return _call_route_methods(list(route.keywords))
 
 
 def _serves_safe_method(methods: set[str] | None) -> bool:
@@ -457,37 +466,33 @@ def _safe_reachable_handlers(
 ) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
     """Every route handler reachable through a safe HTTP method, decorator or imperative.
 
-    Covers ``@router.get`` / ``@router.api_route(methods=[…])`` decorators **and**
-    imperative ``router.add_api_route(path, endpoint, methods=[…])`` registration
-    (resolving ``endpoint`` to its ``def`` in this module) — and a route whose methods
-    *include* a safe one (a mixed ``["GET", "POST"]``), since the safe-method
-    invocation runs at the read tier. Returned sorted by line for determinism.
+    Covers ``@router.get`` / ``@router.head`` / ``@router.options`` /
+    ``@router.api_route(methods=[…])`` decorators **and** imperative
+    ``router.add_api_route(path, endpoint, methods=[…])`` registration (resolving
+    ``endpoint`` to its ``def`` in this module) — and a route whose methods *include*
+    a safe one (a mixed ``["GET", "POST"]``), since the safe-method invocation runs
+    at the read tier. Returned sorted by line for determinism.
+
+    Migrated onto ``iter_route_registrations``, which required widening its shared
+    ``_ROUTE_DECORATOR_ATTRS`` to include ``head`` / ``options`` — this is the rule
+    that constant's own comment named as the reason to add them back. Every other
+    consumer of the helper filters to a narrower verb set that already excludes
+    both, so the widening changes nothing for them.
     """
-    functions = [
-        node
+    functions = {
+        node.name: node
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-    ]
-    by_name = {node.name: node for node in functions}
+    }
     safe: set[ast.FunctionDef | ast.AsyncFunctionDef] = set()
-    for node in functions:
-        if any(
-            _serves_safe_method(_decorator_route_methods(decorator))
-            for decorator in node.decorator_list
-        ):
-            safe.add(node)
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "add_api_route"
-            and len(node.args) >= 2
-            and isinstance(node.args[1], ast.Name)
-            and _serves_safe_method(_call_route_methods(node.keywords))
-        ):
-            endpoint = by_name.get(node.args[1].id)
-            if endpoint is not None:
-                safe.add(endpoint)
+    for route in iter_route_registrations(tree):
+        if not _serves_safe_method(_registration_methods(route)):
+            continue
+        handler = route.handler
+        if handler is None and route.endpoint_name is not None:
+            handler = functions.get(route.endpoint_name)
+        if handler is not None:
+            safe.add(handler)
     return sorted(safe, key=lambda node: node.lineno)
 
 

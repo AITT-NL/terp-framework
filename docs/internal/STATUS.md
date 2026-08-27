@@ -423,7 +423,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 Two threads are in flight. Detail lives in the linked plan and ADRs; this is the
 index, so nothing is tracked only in a commit message.
 
-Phases 1.1–1.3, 1.5, 2 and 3 are shipped; only 1.4 is partly done.
+Phase 1 (1.1–1.5), 2 and 3 are shipped; phases 4–6 remain open.
 
 **Route operations** — decided in
 [ADR 0102](../decisions/0102-route-operations-are-declared.md), sequenced in
@@ -436,13 +436,23 @@ endpoint *does* and the platform can guarantee every route is explained.
 - [x] 1.2 Route-level markers live together in `terp.core.routing`.
 - [x] 1.3 `build_crud_router` names its routes after the entity, not `item` — which
       also fixed every factory-built module's OpenAPI `operationId`.
-- [~] 1.4 One route-discovery helper in `terp.arch` — `iter_route_registrations` is in
-      `_support.py`, with `routes_declare_response_model`, `list_routes_paginate` and
-      `path_id_params_are_uuid` on it. Migrating the third closed two real coverage
-      holes (see ADR-less commit history); `response_model_not_table_model`,
-      `_safe_reachable_handlers` and `authz._has_mutating_route` still have their own
-      walks. Those three each pair with a fail-closed runtime half, which is why they
-      are lower-risk than the one already done.
+- [x] 1.4 One route-discovery helper in `terp.arch` — `iter_route_registrations` is in
+      `_support.py`, and all six route rules are on it: `routes_declare_response_model`,
+      `list_routes_paginate` and `path_id_params_are_uuid` first (migrating the third
+      closed two real coverage holes — see ADR-less commit history), then
+      `response_model_not_table_model`, `_safe_reachable_handlers` and
+      `authz._has_mutating_route`. Migrating `response_model_not_table_model` closed a
+      third coverage hole of the same shape: the imperative
+      `add_api_route(..., response_model=SomeTableModel)` form was never inspected at
+      all, so a table model handed to it leaked with nothing catching it; `api_route`
+      stays out of its scope, as it always has been. Migrating
+      `_safe_reachable_handlers` required widening the shared `_ROUTE_DECORATOR_ATTRS`
+      to carry `head` / `options` again — exactly the widening its own comment had
+      deferred to this migration, and every other consumer filters those two out
+      before it matters. `_has_mutating_route` migrated with no behaviour change,
+      dropping a redundant generic Call-node branch no test or corpus case reached.
+      Each fix is mutation-checked (broken, watched red against its test or the spec
+      corpus, restored).
 - [x] 1.5 The method-derived read/write field is gone from the access graph and from
       the Studio's type. In `terp inspect access --format text` its column now shows
       what the route *does*, where the route says so.

@@ -1109,6 +1109,31 @@ def test_response_model_not_table_model(tmp_path: pathlib.Path) -> None:
     )
     assert check_response_model_not_table_model(app) == []
 
+    # The same leak through the imperative add_api_route form is caught too -- a real
+    # gap the pre-migration hand-written walk left open (it inspected only decorator
+    # routes, so response_model=User handed to add_api_route was never seen at all).
+    _write(
+        app,
+        "modules/users/router.py",
+        "class User(BaseTable, table=True):\n    secret: str\n\n"
+        "def get_user(user_id):\n    return _service.get(user_id)\n\n"
+        "router.add_api_route('/{user_id}', get_user, response_model=User)\n",
+    )
+    assert _rule_names(check_response_model_not_table_model(app)) == {
+        "response_model_not_table_model"
+    }
+
+    # Clean: the same imperative route with a *Read DTO.
+    _write(
+        app,
+        "modules/users/router.py",
+        "class User(BaseTable, table=True):\n    secret: str\n\n"
+        "class UserRead(BaseSchema):\n    id: int\n\n"
+        "def get_user(user_id):\n    return _service.get(user_id)\n\n"
+        "router.add_api_route('/{user_id}', get_user, response_model=UserRead)\n",
+    )
+    assert check_response_model_not_table_model(app) == []
+
 
 def test_no_raw_session_construction(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
@@ -2701,6 +2726,36 @@ def test_safe_methods_are_read_only(tmp_path: pathlib.Path) -> None:
         "def boot(session):\n    _service.create(session, payload)\n"
         "def wr(session):\n    return _service.create(session, payload)\n"
         "router.add_api_route('/wr', wr, methods=['POST'])\n",
+    )
+    assert check_safe_methods_are_read_only(app) == []
+
+
+def test_safe_methods_are_read_only_covers_head_and_options(tmp_path: pathlib.Path) -> None:
+    """@router.head / @router.options are safe methods too, decorated directly.
+
+    _ROUTE_DECORATOR_ATTRS (the shared iterator's decorator set) excluded head/options
+    until this rule migrated onto it -- every other consumer filters to a narrower verb
+    set that already excludes both, so widening it only ever adds surface here.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/router.py",
+        "@router.head('/probe')\n"
+        "def probe(session):\n    return _service.create(session, payload)\n"
+        "@router.options('/allowed')\n"
+        "def allowed(session):\n    _service._remove(session, row)\n",
+    )
+    flagged = check_safe_methods_are_read_only(app)
+    assert _rule_names(flagged) == {"safe_methods_are_read_only"}
+    assert len(flagged) == 2
+
+    # Clean: a HEAD/OPTIONS handler that only reads.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "@router.head('/probe')\n"
+        "def probe(session):\n    return _service.get(session, x)\n",
     )
     assert check_safe_methods_are_read_only(app) == []
 

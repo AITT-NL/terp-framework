@@ -62,22 +62,38 @@ the feature commits small.
       regeneration for existing apps, not a code migration, since only the generated client keys
       off those ids. Mutation-checked: removing the `name=` arguments fails with
       `{'create_item', ...} == {'create_project', ...}`.
-- [~] **1.4 One route-discovery helper in `terp.arch`.** *(partly done)* Several rule modules
-      (`http`, `authz`, `occ`, `persistence`, over `_support`) each walk the AST for route
-      decorators and `add_api_route` calls. Extract one iterator yielding
-      (module, registration node, handler node, methods, factory-or-decorator) and move the existing
-      rules onto it. Do this **before** adding the two new rules, not after.
+- [x] **1.4 One route-discovery helper in `terp.arch`.** *(done)* Several rule modules
+      (`http`, `authz`, `occ`, `persistence`, over `_support`) each used to walk the AST for route
+      decorators and `add_api_route` calls independently. All six route rules now share one
+      iterator, `iter_route_registrations` (`RouteRegistration` in `_support.py`).
       *Gate:* every existing route rule keeps its current findings on the example app and on the
       spec corpus — this is a refactor, so the corpus results are the assertion.
-      *Progress:* `iter_route_registrations` + `RouteRegistration` live in `_support.py`, and
-      `routes_declare_response_model` and `list_routes_paginate` are migrated, each verified
-      against the corpus and the harness. Migrating the walk found a real inconsistency worth
-      recording: those two rules had drifted to accept *different* decorator sets — one took
-      `api_route`, the other did not — without anyone deciding they should. Both keep their
-      existing surface (now named `_PAGINATED_ROUTE_VERBS` and the body-verb filter), because
-      changing which routes a security rule governs is not a refactor.
-      *Still to migrate:* `response_model_not_table_model`, `path_id_params_are_uuid`,
-      `_safe_reachable_handlers` in `http.py`, and `_has_mutating_route` in `authz.py`.
+      *Progress:* `routes_declare_response_model` and `list_routes_paginate` migrated first.
+      Migrating the walk found a real inconsistency worth recording: those two rules had drifted
+      to accept *different* decorator sets — one took `api_route`, the other did not — without
+      anyone deciding they should. Both kept their existing surface (now named
+      `_PAGINATED_ROUTE_VERBS` and the body-verb filter), because changing which routes a security
+      rule governs is not a refactor. `path_id_params_are_uuid` migrated third, and that migration
+      closed two real coverage holes: an imperative route (`add_api_route`) was never inspected at
+      all, and a keyword-only path parameter (one bare `*` in the signature) took the handler out
+      of scope entirely — see STATUS.md for the fixture-proven detail.
+      The remaining three are migrated too, closing out this item:
+        - `response_model_not_table_model` was decorator-only before migrating, and the imperative
+          form — `add_api_route(..., response_model=SomeTableModel)` — was never inspected at all,
+          the same shape of gap `path_id_params_are_uuid` closed. Now covered; `api_route` stays
+          excluded, preserving this rule's existing body-verb-only surface for the same "not a
+          refactor" reason as above.
+        - `_safe_reachable_handlers` (`http.py`) required widening the shared
+          `_ROUTE_DECORATOR_ATTRS` to add back `head` / `options` — exactly the widening its own
+          comment deferred to "when that rule migrates." Every other consumer of the constant
+          filters to a narrower verb set that already excludes both, so nothing else changed.
+          Covered by a new test exercising both decorators directly, mutation-checked.
+        - `authz._has_mutating_route` migrated with no behaviour change. Its pre-migration walk
+          carried a redundant generic Call-node branch that matched every real registration a
+          second time and, in principle, a bare non-decorator `.api_route(...)` call no test or
+          corpus case exercises (and FastAPI's own API gives no reason to write) — dropped.
+      Every fix mutation-checked: broken, watched to fail against its unit test and/or the spec
+      corpus, then restored.
 - [x] **1.5 Drop the method-derived `kind` from the access graph.** Blocked on the Studio no longer
       rendering it (phase 3), so this is the *last* item of phase 1 in time even though it belongs
       here in spirit. Removes the field from `_endpoint_json` and from `_render_access_text`.

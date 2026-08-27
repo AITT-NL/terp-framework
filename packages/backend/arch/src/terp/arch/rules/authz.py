@@ -16,6 +16,7 @@ from terp.arch.rules._support import (
     _POLICY_AUTHZ_KEYWORDS,
     _module_under,
     _rel,
+    iter_route_registrations,
 )
 
 
@@ -120,25 +121,22 @@ def _has_mutating_route(tree: ast.Module) -> bool:
     Catches the verb decorators (``@router.post``), a generic ``@router.api_route`` /
     imperative ``add_api_route`` with ``methods=`` listing a write verb, so a write
     surface cannot dodge the policy check by its registration spelling.
+
+    Migrated onto ``iter_route_registrations``: the pre-migration walk additionally
+    matched *any* ``Call`` node whose attribute was ``add_api_route`` / ``api_route``,
+    independent of whether it was a decorator or a registration at all. That caught
+    every real registration twice (once as the decorator, once as the same node
+    revisited by the generic walk) and, in principle, a bare non-decorator
+    ``router.api_route(...)`` call applied to nothing — a shape FastAPI's own API
+    does not produce and that no test or corpus case exercises. Dropping it changes
+    no observable behaviour: every registration this rule must see still reaches it
+    through the decorator or the imperative form below.
     """
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            for decorator in node.decorator_list:
-                if not isinstance(decorator, ast.Call) or not isinstance(
-                    decorator.func, ast.Attribute
-                ):
-                    continue
-                if decorator.func.attr in _MUTATING_HTTP_METHODS:
-                    return True
-                if decorator.func.attr == "api_route" and _methods_kwarg_has_mutation(
-                    decorator.keywords
-                ):
-                    return True
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in {"add_api_route", "api_route"}
-            and _methods_kwarg_has_mutation(node.keywords)
+    for route in iter_route_registrations(tree):
+        if route.verb in _MUTATING_HTTP_METHODS:
+            return True
+        if (route.verb == "api_route" or route.imperative) and _methods_kwarg_has_mutation(
+            list(route.keywords)
         ):
             return True
     return False
