@@ -13,6 +13,7 @@ from terp.core import ControlPlane, PermissionModel
 from control_plane.audit import audit
 from control_plane.events import event_catalog
 from control_plane.jobs import job_catalog
+from control_plane.operations import operation_catalog
 from control_plane.security import security
 
 control_plane = ControlPlane(
@@ -21,12 +22,19 @@ control_plane = ControlPlane(
     audit=audit,
     events=event_catalog,
     jobs=job_catalog,
+    operations=operation_catalog,
 )
 
 base_control_plane = ControlPlane(
     permissions=PermissionModel.default(),
     security=security,
     audit=audit,
+    # Shares the same catalog as `control_plane`: the base profile mounts a subset
+    # of the same modules and capabilities (login/me, access, audit, groups, users),
+    # every one of which is already declared here, and a superset catalog is
+    # harmless — coverage stays OFF, so nothing requires every entry to be
+    # referenced by a route this profile actually mounts.
+    operations=operation_catalog,
 )
 
 __all__ = ["base_control_plane", "control_plane"]

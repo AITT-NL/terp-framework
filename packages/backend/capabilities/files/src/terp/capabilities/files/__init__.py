@@ -33,6 +33,14 @@ never a sibling capability or a storage engine SDK.
 from __future__ import annotations
 
 from terp.capabilities.files.models import File
+from terp.capabilities.files.operations import (
+    FILES_DELETE,
+    FILES_DOWNLOAD,
+    FILES_GET,
+    FILES_LIST,
+    FILES_UPDATE,
+    FILES_UPLOAD,
+)
 from terp.capabilities.files.references import (
     FileRef,
     UndeclaredFileReferenceError,
@@ -70,6 +78,12 @@ from terp.capabilities.files.storage import (
 
 __all__ = [
     "DEFAULT_STORAGE_PROFILE",
+    "FILES_DELETE",
+    "FILES_DOWNLOAD",
+    "FILES_GET",
+    "FILES_LIST",
+    "FILES_UPDATE",
+    "FILES_UPLOAD",
     "MAX_UPLOAD_BYTES",
     "ContentTypeMismatchError",
     "File",

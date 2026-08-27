@@ -11,11 +11,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Grants */
-        get: operations["list_grants_api_v1_access_grants_get"];
+        /** List the permissions granted to someone */
+        get: operations["access.list_grants"];
         put?: never;
-        /** Create Grant */
-        post: operations["create_grant_api_v1_access_grants_post"];
+        /** Grant a permission to someone */
+        post: operations["access.create_grant"];
         delete?: never;
         options?: never;
         head?: never;
@@ -32,8 +32,8 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Grant */
-        delete: operations["delete_grant_api_v1_access_grants__grant_id__delete"];
+        /** Remove a granted permission */
+        delete: operations["access.delete_grant"];
         options?: never;
         head?: never;
         patch?: never;
@@ -46,8 +46,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Events */
-        get: operations["list_events_api_v1_audit__get"];
+        /** View the audit trail */
+        get: operations["audit.list_events"];
         put?: never;
         post?: never;
         delete?: never;
@@ -65,8 +65,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Login */
-        post: operations["login_api_v1_auth_login_post"];
+        /** Sign in with an email and password */
+        post: operations["auth.login"];
         delete?: never;
         options?: never;
         head?: never;
@@ -82,8 +82,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Logout */
-        post: operations["logout_api_v1_auth_logout_post"];
+        /** Sign out of the current session */
+        post: operations["auth.logout"];
         delete?: never;
         options?: never;
         head?: never;
@@ -99,8 +99,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Refresh */
-        post: operations["refresh_api_v1_auth_refresh_post"];
+        /** Stay signed in without entering a password again */
+        post: operations["auth.refresh"];
         delete?: never;
         options?: never;
         head?: never;
@@ -114,11 +114,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Groups */
-        get: operations["list_groups_api_v1_groups__get"];
+        /** List the groups */
+        get: operations["groups.list_groups"];
         put?: never;
-        /** Create Group */
-        post: operations["create_group_api_v1_groups__post"];
+        /** Create a new group */
+        post: operations["groups.create_group"];
         delete?: never;
         options?: never;
         head?: never;
@@ -132,16 +132,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Group */
-        get: operations["get_group_api_v1_groups__group_id__get"];
+        /** View a group's details */
+        get: operations["groups.get_group"];
         put?: never;
         post?: never;
-        /** Delete Group */
-        delete: operations["delete_group_api_v1_groups__group_id__delete"];
+        /** Delete a group */
+        delete: operations["groups.delete_group"];
         options?: never;
         head?: never;
-        /** Update Group */
-        patch: operations["update_group_api_v1_groups__group_id__patch"];
+        /** Change a group's details */
+        patch: operations["groups.update_group"];
         trace?: never;
     };
     "/api/v1/groups/{group_id}/members": {
@@ -151,11 +151,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Members */
-        get: operations["list_members_api_v1_groups__group_id__members_get"];
+        /** List who belongs to a group */
+        get: operations["groups.list_members"];
         put?: never;
-        /** Add Member */
-        post: operations["add_member_api_v1_groups__group_id__members_post"];
+        /** Add someone to a group */
+        post: operations["groups.add_member"];
         delete?: never;
         options?: never;
         head?: never;
@@ -172,8 +172,8 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Remove Member */
-        delete: operations["remove_member_api_v1_groups__group_id__members__user_id__delete"];
+        /** Remove someone from a group */
+        delete: operations["groups.remove_member"];
         options?: never;
         head?: never;
         patch?: never;
@@ -186,8 +186,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Me */
-        get: operations["me_api_v1_me__get"];
+        /** View your own profile */
+        get: operations["auth.me"];
         put?: never;
         post?: never;
         delete?: never;
@@ -203,11 +203,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Users */
-        get: operations["list_users_api_v1_users__get"];
+        /** List every user account */
+        get: operations["users.list_users"];
         put?: never;
-        /** Provision User */
-        post: operations["provision_user_api_v1_users__post"];
+        /** Create a new user account */
+        post: operations["users.provision_user"];
         delete?: never;
         options?: never;
         head?: never;
@@ -221,15 +221,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get User */
-        get: operations["get_user_api_v1_users__user_id__get"];
+        /** View a user account's details */
+        get: operations["users.get_user"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** Update User */
-        patch: operations["update_user_api_v1_users__user_id__patch"];
+        /** Change a user account's details */
+        patch: operations["users.update_user"];
         trace?: never;
     };
     "/api/v1/users/{user_id}/deactivate": {
@@ -241,8 +241,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Deactivate User */
-        post: operations["deactivate_user_api_v1_users__user_id__deactivate_post"];
+        /** Disable a user account without deleting it */
+        post: operations["users.deactivate_user"];
         delete?: never;
         options?: never;
         head?: never;
@@ -258,8 +258,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reactivate User */
-        post: operations["reactivate_user_api_v1_users__user_id__reactivate_post"];
+        /** Re-enable a disabled user account */
+        post: operations["users.reactivate_user"];
         delete?: never;
         options?: never;
         head?: never;
@@ -275,8 +275,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reset User Password */
-        post: operations["reset_user_password_api_v1_users__user_id__reset_password_post"];
+        /** Set a new password for a user */
+        post: operations["users.reset_user_password"];
         delete?: never;
         options?: never;
         head?: never;
@@ -671,7 +671,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    list_grants_api_v1_access_grants_get: {
+    "access.list_grants": {
         parameters: {
             query: {
                 subject_id: string;
@@ -706,7 +706,7 @@ export interface operations {
             };
         };
     };
-    create_grant_api_v1_access_grants_post: {
+    "access.create_grant": {
         parameters: {
             query?: never;
             header?: never;
@@ -739,7 +739,7 @@ export interface operations {
             };
         };
     };
-    delete_grant_api_v1_access_grants__grant_id__delete: {
+    "access.delete_grant": {
         parameters: {
             query?: never;
             header?: never;
@@ -768,7 +768,7 @@ export interface operations {
             };
         };
     };
-    list_events_api_v1_audit__get: {
+    "audit.list_events": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -802,7 +802,7 @@ export interface operations {
             };
         };
     };
-    login_api_v1_auth_login_post: {
+    "auth.login": {
         parameters: {
             query?: never;
             header?: never;
@@ -835,7 +835,7 @@ export interface operations {
             };
         };
     };
-    logout_api_v1_auth_logout_post: {
+    "auth.logout": {
         parameters: {
             query?: never;
             header?: never;
@@ -853,7 +853,7 @@ export interface operations {
             };
         };
     };
-    refresh_api_v1_auth_refresh_post: {
+    "auth.refresh": {
         parameters: {
             query?: never;
             header?: never;
@@ -873,7 +873,7 @@ export interface operations {
             };
         };
     };
-    list_groups_api_v1_groups__get: {
+    "groups.list_groups": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -907,7 +907,7 @@ export interface operations {
             };
         };
     };
-    create_group_api_v1_groups__post: {
+    "groups.create_group": {
         parameters: {
             query?: never;
             header?: never;
@@ -940,7 +940,7 @@ export interface operations {
             };
         };
     };
-    get_group_api_v1_groups__group_id__get: {
+    "groups.get_group": {
         parameters: {
             query?: never;
             header?: never;
@@ -971,7 +971,7 @@ export interface operations {
             };
         };
     };
-    delete_group_api_v1_groups__group_id__delete: {
+    "groups.delete_group": {
         parameters: {
             query?: never;
             header?: never;
@@ -1000,7 +1000,7 @@ export interface operations {
             };
         };
     };
-    update_group_api_v1_groups__group_id__patch: {
+    "groups.update_group": {
         parameters: {
             query?: never;
             header?: never;
@@ -1035,7 +1035,7 @@ export interface operations {
             };
         };
     };
-    list_members_api_v1_groups__group_id__members_get: {
+    "groups.list_members": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -1071,7 +1071,7 @@ export interface operations {
             };
         };
     };
-    add_member_api_v1_groups__group_id__members_post: {
+    "groups.add_member": {
         parameters: {
             query?: never;
             header?: never;
@@ -1106,7 +1106,7 @@ export interface operations {
             };
         };
     };
-    remove_member_api_v1_groups__group_id__members__user_id__delete: {
+    "groups.remove_member": {
         parameters: {
             query?: never;
             header?: never;
@@ -1136,7 +1136,7 @@ export interface operations {
             };
         };
     };
-    me_api_v1_me__get: {
+    "auth.me": {
         parameters: {
             query?: never;
             header?: never;
@@ -1156,7 +1156,7 @@ export interface operations {
             };
         };
     };
-    list_users_api_v1_users__get: {
+    "users.list_users": {
         parameters: {
             query?: {
                 /** @description Filter to users whose email contains this text (case-insensitive). */
@@ -1192,7 +1192,7 @@ export interface operations {
             };
         };
     };
-    provision_user_api_v1_users__post: {
+    "users.provision_user": {
         parameters: {
             query?: never;
             header?: never;
@@ -1225,7 +1225,7 @@ export interface operations {
             };
         };
     };
-    get_user_api_v1_users__user_id__get: {
+    "users.get_user": {
         parameters: {
             query?: never;
             header?: never;
@@ -1256,7 +1256,7 @@ export interface operations {
             };
         };
     };
-    update_user_api_v1_users__user_id__patch: {
+    "users.update_user": {
         parameters: {
             query?: never;
             header?: never;
@@ -1291,7 +1291,7 @@ export interface operations {
             };
         };
     };
-    deactivate_user_api_v1_users__user_id__deactivate_post: {
+    "users.deactivate_user": {
         parameters: {
             query?: never;
             header?: never;
@@ -1322,7 +1322,7 @@ export interface operations {
             };
         };
     };
-    reactivate_user_api_v1_users__user_id__reactivate_post: {
+    "users.reactivate_user": {
         parameters: {
             query?: never;
             header?: never;
@@ -1353,7 +1353,7 @@ export interface operations {
             };
         };
     };
-    reset_user_password_api_v1_users__user_id__reset_password_post: {
+    "users.reset_user_password": {
         parameters: {
             query?: never;
             header?: never;

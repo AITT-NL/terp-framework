@@ -378,7 +378,15 @@ def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
         {
             "path": path,
             "methods": sorted(methods),
-            "note": "unauthenticated kernel route (no module policy)",
+            # ADR 0102 §5.4: kernel routes (health and friends) declare no operation
+            # either, for the same reason they carry no module policy — they are
+            # kernel-owned, identical in every app, and read by infrastructure
+            # (a load balancer's liveness probe), not by a person navigating the
+            # Studio's permission viewer. This is the explicit exemption the
+            # decision calls for, not a silent gap: it is this same note, and it
+            # already keeps kernel routes in their own reported category rather
+            # than folding them into "undeclared".
+            "note": "unauthenticated kernel route (no module policy, no operation)",
         }
         for path, methods in sorted(served.items())
         if not path.startswith(_API_PREFIX)

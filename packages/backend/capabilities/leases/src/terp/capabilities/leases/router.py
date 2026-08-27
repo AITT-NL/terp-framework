@@ -25,9 +25,22 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from terp.core import ADMIN, ModuleSpec, Page, PaginationDep, Policy, SessionDep
+from terp.core import (
+    ADMIN,
+    ModuleSpec,
+    Page,
+    PaginationDep,
+    Policy,
+    SessionDep,
+    operation,
+)
 
 from terp.capabilities.leases.jobs import LEASE_REAP
+from terp.capabilities.leases.operations import (
+    LEASES_LIST,
+    LEASES_LIST_EXPIRED,
+    LEASES_REAP,
+)
 from terp.capabilities.leases.schemas import LeaseReapReport, ResourceLeaseRead
 from terp.capabilities.leases.service import list_leases, reap_now
 
@@ -35,6 +48,7 @@ router = APIRouter(tags=["leases"])
 
 
 @router.get("/", response_model=Page[ResourceLeaseRead])
+@operation(LEASES_LIST)
 def list_resource_leases(
     session: SessionDep,
     pagination: PaginationDep,
@@ -47,6 +61,7 @@ def list_resource_leases(
 
 
 @router.get("/expired", response_model=Page[ResourceLeaseRead])
+@operation(LEASES_LIST_EXPIRED)
 def list_expired_resource_leases(
     session: SessionDep,
     pagination: PaginationDep,
@@ -61,6 +76,7 @@ def list_expired_resource_leases(
 
 
 @router.post("/reap", response_model=LeaseReapReport)
+@operation(LEASES_REAP)
 def reap_expired_now(
     session: SessionDep,
     kind: str | None = None,

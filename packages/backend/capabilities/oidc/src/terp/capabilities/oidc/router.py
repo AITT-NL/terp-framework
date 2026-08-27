@@ -38,6 +38,7 @@ from terp.core import (
     SessionDep,
     client_ip,
     is_sealed_config,
+    operation,
 )
 
 from terp.capabilities.auth import (
@@ -52,6 +53,7 @@ from terp.capabilities.auth import (
 
 from terp.capabilities.oidc.client import OIDCClient
 from terp.capabilities.oidc.config import OIDCClaims, OIDCProviderConfig
+from terp.capabilities.oidc.operations import OIDC_AUTHORIZE, OIDC_CALLBACK
 from terp.capabilities.oidc.schemas import AuthorizationRequest, OIDCCallbackRequest
 from terp.capabilities.oidc.state import (
     InMemoryStateStore,
@@ -144,6 +146,7 @@ def build_oidc_router(
     router = APIRouter(tags=["auth"])
 
     @router.get("/{provider}/authorize", response_model=AuthorizationRequest)
+    @operation(OIDC_AUTHORIZE)
     def authorize(provider: str) -> AuthorizationRequest:
         client = _client(provider)
         state, pending = store.issue(provider)
@@ -157,6 +160,7 @@ def build_oidc_router(
         )
 
     @router.post("/{provider}/callback", response_model=AccessToken)
+    @operation(OIDC_CALLBACK)
     def callback(
         provider: str,
         payload: OIDCCallbackRequest,

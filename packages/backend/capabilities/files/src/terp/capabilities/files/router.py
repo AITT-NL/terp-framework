@@ -35,9 +35,18 @@ from terp.core import (
     Policy,
     SessionDep,
     ValidationFailedError,
+    operation,
 )
 
 from terp.capabilities.files.models import CONTENT_TYPE_MAX, FILENAME_MAX
+from terp.capabilities.files.operations import (
+    FILES_DELETE,
+    FILES_DOWNLOAD,
+    FILES_GET,
+    FILES_LIST,
+    FILES_UPDATE,
+    FILES_UPLOAD,
+)
 from terp.capabilities.files.schemas import FileRead, FileUpdate
 from terp.capabilities.files.service import FileService
 
@@ -126,6 +135,7 @@ def _content_disposition(filename: str) -> str:
 
 
 @router.post("/", response_model=FileRead, status_code=201)
+@operation(FILES_UPLOAD)
 async def upload_file(request: Request, session: SessionDep) -> FileRead:
     form = await request.form(max_files=1, max_fields=0, max_part_size=1024)
     uploaded = form.get("file")
@@ -159,6 +169,7 @@ async def upload_file(request: Request, session: SessionDep) -> FileRead:
 
 
 @router.get("/", response_model=Page[FileRead])
+@operation(FILES_LIST)
 def list_files(session: SessionDep, pagination: PaginationDep) -> Page[FileRead]:
     rows, total = _service.list(session, skip=pagination.skip, limit=pagination.limit)
     return Page[FileRead].of(
@@ -167,11 +178,13 @@ def list_files(session: SessionDep, pagination: PaginationDep) -> Page[FileRead]
 
 
 @router.get("/{file_id}", response_model=FileRead)
+@operation(FILES_GET)
 def get_file(file_id: uuid.UUID, session: SessionDep) -> FileRead:
     return FileRead.model_validate(_service.get(session, file_id))
 
 
 @router.get("/{file_id}/content")  # arch-allow-routes-declare-response-model: binary download — the bytes stream out through a StreamingResponse (stored media type + sanitized attachment disposition), never a serialized ORM object
+@operation(FILES_DOWNLOAD)
 def download_file(file_id: uuid.UUID, session: SessionDep) -> StreamingResponse:
     row, stream = _service.open_stream(session, file_id)
     return StreamingResponse(
@@ -189,6 +202,7 @@ def download_file(file_id: uuid.UUID, session: SessionDep) -> StreamingResponse:
 
 
 @router.patch("/{file_id}", response_model=FileRead)
+@operation(FILES_UPDATE)
 def update_file(
     file_id: uuid.UUID, payload: FileUpdate, session: SessionDep
 ) -> FileRead:
@@ -196,6 +210,7 @@ def update_file(
 
 
 @router.delete("/{file_id}", status_code=204)
+@operation(FILES_DELETE)
 def delete_file(file_id: uuid.UUID, session: SessionDep) -> None:
     _service.remove(session, file_id)
 

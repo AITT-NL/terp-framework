@@ -11,16 +11,24 @@ import uuid
 
 from fastapi import APIRouter
 
-from terp.core import Page, PaginationDep, SessionDep
+from terp.core import Page, PaginationDep, SessionDep, operation
 
 from app.modules.notes.schemas import NoteCreate, NoteRead, NoteUpdate
 from app.modules.notes.service import NoteService
+from control_plane.operations import (
+    NOTES_CREATE,
+    NOTES_DELETE,
+    NOTES_GET,
+    NOTES_LIST,
+    NOTES_UPDATE,
+)
 
 router = APIRouter(tags=["notes"])
 _service = NoteService()
 
 
 @router.get("/", response_model=Page[NoteRead])
+@operation(NOTES_LIST)
 def list_notes(session: SessionDep, pagination: PaginationDep) -> Page[NoteRead]:
     rows, total = _service.list(session, skip=pagination.skip, limit=pagination.limit)
     return Page[NoteRead].of(
@@ -29,20 +37,24 @@ def list_notes(session: SessionDep, pagination: PaginationDep) -> Page[NoteRead]
 
 
 @router.post("/", response_model=NoteRead, status_code=201)
+@operation(NOTES_CREATE)
 def create_note(payload: NoteCreate, session: SessionDep) -> NoteRead:
     return NoteRead.model_validate(_service.create(session, payload))
 
 
 @router.get("/{note_id}", response_model=NoteRead)
+@operation(NOTES_GET)
 def get_note(note_id: uuid.UUID, session: SessionDep) -> NoteRead:
     return NoteRead.model_validate(_service.get(session, note_id))
 
 
 @router.patch("/{note_id}", response_model=NoteRead)
+@operation(NOTES_UPDATE)
 def update_note(note_id: uuid.UUID, payload: NoteUpdate, session: SessionDep) -> NoteRead:
     return NoteRead.model_validate(_service.update(session, note_id, payload))
 
 
 @router.delete("/{note_id}", status_code=204)
+@operation(NOTES_DELETE)
 def delete_note(note_id: uuid.UUID, session: SessionDep) -> None:
     _service.delete(session, note_id)

@@ -40,6 +40,14 @@ from terp.capabilities.webhooks.models import (
     WebhookDelivery,
     WebhookSubscription,
 )
+from terp.capabilities.webhooks.operations import (
+    WEBHOOKS_CREATE_SUBSCRIPTION,
+    WEBHOOKS_DELETE_SUBSCRIPTION,
+    WEBHOOKS_GET_SUBSCRIPTION,
+    WEBHOOKS_LIST_DELIVERIES,
+    WEBHOOKS_LIST_SUBSCRIPTIONS,
+    WEBHOOKS_UPDATE_SUBSCRIPTION,
+)
 from terp.capabilities.webhooks.router import module, router
 from terp.capabilities.webhooks.sealing import (
     WebhookSecretError,
@@ -71,6 +79,12 @@ __all__ = [
     "OUTCOME_DELIVERED",
     "OUTCOME_FAILED",
     "OUTCOME_SKIPPED",
+    "WEBHOOKS_CREATE_SUBSCRIPTION",
+    "WEBHOOKS_DELETE_SUBSCRIPTION",
+    "WEBHOOKS_GET_SUBSCRIPTION",
+    "WEBHOOKS_LIST_DELIVERIES",
+    "WEBHOOKS_LIST_SUBSCRIPTIONS",
+    "WEBHOOKS_UPDATE_SUBSCRIPTION",
     "WEBHOOK_DELIVER",
     "PinnedTarget",
     "WebhookDelivery",

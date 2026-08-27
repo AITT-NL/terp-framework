@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from terp.core import ADMIN, ModuleSpec, Page, PaginationDep, Policy, SessionDep
+from terp.core import ADMIN, ModuleSpec, Page, PaginationDep, Policy, SessionDep, operation
 
+from terp.capabilities.audit.operations import AUDIT_LIST_EVENTS
 from terp.capabilities.audit.schemas import AuditEventRead
 from terp.capabilities.audit.service import list_audit_events
 
@@ -20,6 +21,7 @@ router = APIRouter(tags=["audit"])
 
 
 @router.get("/", response_model=Page[AuditEventRead])
+@operation(AUDIT_LIST_EVENTS)
 def list_events(session: SessionDep, pagination: PaginationDep) -> Page[AuditEventRead]:
     rows, total = list_audit_events(session, pagination=pagination)
     return Page[AuditEventRead].of(

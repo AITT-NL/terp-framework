@@ -28,11 +28,19 @@ from terp.capabilities.access.expansion import (
     subject_ids_for,
 )
 from terp.capabilities.access.models import Grant
+from terp.capabilities.access.operations import (
+    ACCESS_CREATE_GRANT,
+    ACCESS_DELETE_GRANT,
+    ACCESS_LIST_GRANTS,
+)
 from terp.capabilities.access.router import module, router
 from terp.capabilities.access.schemas import GrantCreate, GrantRead, GrantUpdate
 from terp.capabilities.access.service import AccessService
 
 __all__ = [
+    "ACCESS_CREATE_GRANT",
+    "ACCESS_DELETE_GRANT",
+    "ACCESS_LIST_GRANTS",
     "AccessService",
     "Grant",
     "GrantCreate",

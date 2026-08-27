@@ -16,8 +16,16 @@ import uuid
 
 from fastapi import APIRouter
 
-from terp.core import ADMIN, ModuleSpec, Page, PaginationDep, Policy, SessionDep
+from terp.core import ADMIN, ModuleSpec, Page, PaginationDep, Policy, SessionDep, operation
 
+from terp.capabilities.webhooks.operations import (
+    WEBHOOKS_CREATE_SUBSCRIPTION,
+    WEBHOOKS_DELETE_SUBSCRIPTION,
+    WEBHOOKS_GET_SUBSCRIPTION,
+    WEBHOOKS_LIST_DELIVERIES,
+    WEBHOOKS_LIST_SUBSCRIPTIONS,
+    WEBHOOKS_UPDATE_SUBSCRIPTION,
+)
 from terp.capabilities.webhooks.schemas import (
     WebhookDeliveryRead,
     WebhookSubscriptionCreate,
@@ -32,6 +40,7 @@ _service = WebhookSubscriptionService()
 
 
 @router.get("/subscriptions", response_model=Page[WebhookSubscriptionRead])
+@operation(WEBHOOKS_LIST_SUBSCRIPTIONS)
 def list_subscriptions(
     session: SessionDep, pagination: PaginationDep
 ) -> Page[WebhookSubscriptionRead]:
@@ -42,6 +51,7 @@ def list_subscriptions(
 
 
 @router.post("/subscriptions", response_model=WebhookSubscriptionRead, status_code=201)
+@operation(WEBHOOKS_CREATE_SUBSCRIPTION)
 def create_subscription(
     payload: WebhookSubscriptionCreate, session: SessionDep
 ) -> WebhookSubscriptionRead:
@@ -50,6 +60,7 @@ def create_subscription(
 
 
 @router.get("/subscriptions/{subscription_id}", response_model=WebhookSubscriptionRead)
+@operation(WEBHOOKS_GET_SUBSCRIPTION)
 def get_subscription(
     subscription_id: uuid.UUID, session: SessionDep
 ) -> WebhookSubscriptionRead:
@@ -57,6 +68,7 @@ def get_subscription(
 
 
 @router.patch("/subscriptions/{subscription_id}", response_model=WebhookSubscriptionRead)
+@operation(WEBHOOKS_UPDATE_SUBSCRIPTION)
 def update_subscription(
     subscription_id: uuid.UUID, payload: WebhookSubscriptionUpdate, session: SessionDep
 ) -> WebhookSubscriptionRead:
@@ -68,11 +80,13 @@ def update_subscription(
 
 
 @router.delete("/subscriptions/{subscription_id}", status_code=204)
+@operation(WEBHOOKS_DELETE_SUBSCRIPTION)
 def delete_subscription(subscription_id: uuid.UUID, session: SessionDep) -> None:
     _service.delete(session, subscription_id)
 
 
 @router.get("/deliveries", response_model=Page[WebhookDeliveryRead])
+@operation(WEBHOOKS_LIST_DELIVERIES)
 def list_webhook_deliveries(
     session: SessionDep,
     pagination: PaginationDep,

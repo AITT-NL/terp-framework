@@ -17,9 +17,15 @@ import uuid
 
 from fastapi import APIRouter
 
-from terp.core import ADMIN, ModuleSpec, Page, PaginationDep, Policy, SessionDep
+from terp.core import ADMIN, ModuleSpec, Page, PaginationDep, Policy, SessionDep, operation
 
 from terp.capabilities.sync.jobs import SYNC_PULL, SYNC_PUSH
+from terp.capabilities.sync.operations import (
+    SYNC_GET_RUN,
+    SYNC_LIST_MAPPINGS,
+    SYNC_LIST_RUNS,
+    SYNC_LIST_RUN_LOGS,
+)
 from terp.capabilities.sync.schemas import (
     SyncMappingRead,
     SyncRecordLogRead,
@@ -36,6 +42,7 @@ router = APIRouter(tags=["sync"])
 
 
 @router.get("/runs", response_model=Page[SyncRunRead])
+@operation(SYNC_LIST_RUNS)
 def list_sync_runs(
     session: SessionDep,
     pagination: PaginationDep,
@@ -48,6 +55,7 @@ def list_sync_runs(
 
 
 @router.get("/runs/{run_id}", response_model=SyncRunRead)
+@operation(SYNC_GET_RUN)
 def get_sync_run(
     run_id: uuid.UUID, session: SessionDep, tenant_id: uuid.UUID | None = None
 ) -> SyncRunRead:
@@ -55,6 +63,7 @@ def get_sync_run(
 
 
 @router.get("/runs/{run_id}/logs", response_model=Page[SyncRecordLogRead])
+@operation(SYNC_LIST_RUN_LOGS)
 def list_sync_run_logs(
     run_id: uuid.UUID,
     session: SessionDep,
@@ -70,6 +79,7 @@ def list_sync_run_logs(
 
 
 @router.get("/mappings", response_model=Page[SyncMappingRead])
+@operation(SYNC_LIST_MAPPINGS)
 def list_sync_mappings(
     session: SessionDep,
     pagination: PaginationDep,

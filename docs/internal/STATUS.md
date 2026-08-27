@@ -423,7 +423,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 Two threads are in flight. Detail lives in the linked plan and ADRs; this is the
 index, so nothing is tracked only in a commit message.
 
-Phases 1–4 are shipped; phases 5 and 6 remain open.
+Phases 1–5 are shipped; phase 6 remains open.
 
 **Route operations** — decided in
 [ADR 0102](../decisions/0102-route-operations-are-declared.md), sequenced in
@@ -473,8 +473,23 @@ endpoint *does* and the platform can guarantee every route is explained.
       boot (two answers to the same promise). No checked-in artifact needed
       regenerating — nothing declares an operation yet outside the two new tests, so
       this phase is a no-op until phase 5 lands.
-- [ ] Phase 5 — annotate the framework's own routes, `_CLEAN_CAPS` first since those
-      cannot be deferred behind a marker.
+- [x] Phase 5 — every route in the framework's eleven routed capabilities (`access`,
+      `audit`, `auth`, `files`, `groups`, `leases`, `oidc`, `realtime`, `sync`, `users`,
+      `webhooks`) and the example app's own modules (`notes`, `tasks`, `journals`, and
+      `projects` via the new `build_crud_router(*_operation=...)` keywords) now declares
+      a real operation, with zero escape-hatch markers anywhere — the clean-first
+      ordering `_CLEAN_CAPS` would have required never had to matter. Kernel routes
+      (health) are explicitly exempted rather than labelled, extending their existing
+      documented policy exemption to name operations too. Doing this at scale surfaced a
+      real bug in phase 4's own `_apply_declared_operations`: it treated its own
+      prior-call summary as a hand-written conflict, since a module's router is a
+      process-wide singleton and `create_app` is routinely called on it more than once —
+      fixed by comparing to the declared label instead of only checking truthiness. It
+      also broke 31 tests across 9 files whose `create_app` fixtures predate operations
+      and mounted a now-annotated capability with no matching `OperationCatalog` — each
+      fixed with the catalog its mounted routes actually need. Both committed OpenAPI
+      artifacts and their generated `schema.d.ts` files were regenerated (phase 4.3's
+      deferred step, now genuinely due).
 - [ ] Phase 6 — the two Standard rules, corpus cases, then **flip the default to
       `strict`** (decided; ADR 0102 amendment). `warn` is the staging step and the
       documented escape for an app that cannot annotate on that timetable.

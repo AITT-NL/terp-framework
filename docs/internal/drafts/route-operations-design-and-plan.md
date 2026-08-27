@@ -178,9 +178,10 @@ both computed to 12px, so the hierarchy rested on colour alone until the action 
       new Standard rules phase 6 adds are about catalog membership and coverage, not
       this).
 - [x] **4.3** Regenerate any checked-in OpenAPI artifacts and confirm the drift checks pass.
-      Nothing to regenerate: the example app declares no operations yet (that is phase 5),
-      so `test_openapi_contract` / `test_cli_openapi` pass unchanged, confirming this
-      phase is a no-op until routes actually declare something.
+      Nothing to regenerate *at this commit*: the example app declares no operations yet
+      (that is phase 5), so `test_openapi_contract` / `test_cli_openapi` pass unchanged,
+      confirming this phase is a no-op until routes actually declare something. Phase 5
+      is where the real regeneration happens, once routes actually declare operations.
 
 *Gates:* two new tests in `test_core_app.py`, both mutation-checked — dropping the
 `route.summary` / `route.operation_id` assignment turns the populate test red
@@ -189,17 +190,78 @@ disabling the refusal turns the hand-written-summary test red (`DID NOT RAISE Bo
 Full suite green, ruff clean, vendored `terp.core` mirror resynced (this phase touches
 `packages/backend/core`).
 
+*A real bug, found once phase 5 actually exercised this at scale:* a module's router is a
+process-wide singleton built once at import time, and `create_app` is routinely called more
+than once over the same router objects in one process — the example app boots its full
+profile and its base profile from the same capability routers, and so does any test suite
+that builds the same app twice. The second call saw the summary `_apply_declared_operations`
+itself had set on the first one and raised the hand-written-summary refusal against its own
+prior work. Fixed by comparing `route.summary` to `declared.label` rather than only checking
+truthiness — the two can only differ when an author, not this function, set it — with a third
+test proving the fix (`create_app` called twice over the same spec must not raise the second
+time) and mutation-checked the same way as the other two.
+
 ## Phase 5 — annotate the framework
 
 Order matters: the capabilities in `_CLEAN_CAPS` must be clean with **zero** opt-outs, so they
 cannot be deferred behind a marker and are done first.
 
-- [ ] **5.1** Catalogue and annotate the `_CLEAN_CAPS` capabilities' routes.
-- [ ] **5.2** Catalogue and annotate the remaining capabilities' routes.
-- [ ] **5.3** Annotate the example app, including the factory-built module via 1.3.
-- [ ] **5.4** Decide the kernel routes' treatment — health and friends sit outside any module and are
-      already reported separately. Either label them once in the framework or exempt them
-      explicitly; an unexplained exemption is the thing this whole change exists to prevent.
+- [x] **5.1** Catalogue and annotate the `_CLEAN_CAPS` capabilities' routes.
+- [x] **5.2** Catalogue and annotate the remaining capabilities' routes.
+      In practice 5.1 and 5.2 landed together: all eleven capabilities that carry routes
+      (`access`, `audit`, `auth`, `files`, `groups`, `leases`, `oidc`, `realtime`, `sync`,
+      `users`, `webhooks` — `eventbus` is a library cap with no router) got a real
+      declaration for every route with zero escape-hatch markers anywhere, so the
+      clean-first ordering never had to matter: nothing needed deferring. Each capability
+      gained its own `operations.py` (an `OperationDefinition` constant per route, named
+      `<CAPABILITY>_<ACTION>`, id `<capability>.<handler_function_name>`), re-exported from
+      the capability's `__init__.py` — the same shape `WEBHOOK_DELIVER` already established
+      for a capability-owned `JobDefinition`. `files.delete_file` reuses ADR 0102's own
+      worked example verbatim (`FILES_DELETE`, `id="files.delete"`,
+      `label="Delete a file"`).
+      **A real, wide-reaching bug surfaced doing this at scale, not from any one route's
+      annotation:** the no-drift catalog-membership check (`_validate_declared_operations`,
+      phase 2) is unconditional by design, so the instant a capability's routes declared
+      real operations, every existing test anywhere in the suite that boots an app
+      mounting that capability *without* a matching `OperationCatalog` started failing —
+      31 tests across 9 files (`test_framework_stack.py`, `test_cli_access.py`,
+      `test_cli_leases.py`, `test_cli_openapi.py`, `test_leases.py`, `test_oidc.py`,
+      `test_openapi_contract.py`, `test_realtime.py`, `test_sync.py`). None were a design
+      flaw in the check itself — each was a fixture built before operations existed,
+      constructing `create_app(...)` or a generated CLI test app with no `control_plane=`
+      at all. Each file's `create_app` call site(s) now pass an `OperationCatalog`
+      containing exactly the operations its mounted capability's routes declare. The two
+      committed OpenAPI artifacts (`apps/example/openapi.json`,
+      `packages/frontend/contract/openapi.json`) and their generated
+      `schema.d.ts` files (in `packages/frontend/contract` and
+      `apps/example/frontend`) were regenerated — this is where phase 4.3's
+      deferred regeneration actually happens, since routes now declare real
+      operations. `apps/example/frontend`'s `tsc --noEmit` and `npm run build`
+      both stay clean against the regenerated schema.
+- [x] **5.3** Annotate the example app, including the factory-built module via 1.3.
+      `notes` / `tasks` / `journals` each declare their five operations directly on the
+      hand-written router; `projects` (the `build_crud_router` factory module) passes its
+      five via the new `*_operation=` keywords (this item is what phase-5 needed the
+      1.3/§7 factory support *for*). Every app-level `OperationDefinition` lives in the new
+      `apps/example/control_plane/operations.py`, alongside the capability operations it
+      imports and folds into one `operation_catalog` — the same centralisation
+      `control_plane/events.py` / `jobs.py` already established, now extended to
+      `ControlPlane.operations`. `base_control_plane` shares the same catalog (a superset
+      is harmless under `OFF` coverage, and the base profile mounts a subset of the same
+      modules). Coverage is deliberately left at its `OFF` default here — flipping it is
+      phase 6.4's job, sequenced after the two Standard rules land.
+- [x] **5.4** Decide the kernel routes' treatment. **Exempted explicitly**, not labelled:
+      health and friends already had a documented, fail-visible exemption from the
+      module-policy dimension (the access graph's `kernel_routes` category, note
+      "unauthenticated kernel route (no module policy)") for the same reason an operation
+      would not add anything here — they are kernel-owned, identical in every app, and
+      read by infrastructure (a load balancer's liveness probe) rather than a person in
+      the Studio's permission viewer. Labelling them would also have meant teaching the
+      no-drift catalog check about a router mounted outside any `ModuleSpec`, for routes
+      whose "who may do this" is already answered by being outside `/api/v1` entirely.
+      The existing note now reads "no module policy, no operation" — extending the
+      already-explicit exemption to name this dimension too, rather than leaving it as a
+      second, silent gap next to the first, documented one.
 - [ ] **5.5** Ship the Dutch catalog for the framework's own operations, pinned by a completeness
       test against the operation-id set — the same shape as the existing locale completeness test.
 

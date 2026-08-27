@@ -790,6 +790,18 @@ def _apply_declared_operations(specs: Sequence[ModuleSpec]) -> None:
     ``include_router`` keeps a mounted router's original ``APIRoute`` objects rather
     than cloning them -- so mutating them here, before ``create_app`` ever mounts the
     spec's router, reaches the exported document unchanged.
+
+    Idempotent by necessity, not merely by convenience: a module's router is a
+    process-wide singleton built once at import time (``router = APIRouter()`` at
+    module scope), and ``create_app`` is routinely called more than once over the
+    same router objects in one process -- the example app alone does this for its
+    full profile and its base profile, and so does any test suite that boots the
+    same capability's app more than once. The second call sees the summary THIS
+    function itself set on the first one; comparing to ``declared.label`` (always
+    the same value, since ``declared_operation`` reads a stamp fixed at decoration
+    time) tells that apart from an author's hand-written ``summary=``, which is
+    fixed at route construction and can never equal the label by this route's own
+    doing on a first call.
     """
     for spec in specs:
         if spec.router is None:
@@ -798,7 +810,7 @@ def _apply_declared_operations(specs: Sequence[ModuleSpec]) -> None:
             declared = declared_operation(route.endpoint)
             if declared is None:
                 continue
-            if route.summary:
+            if route.summary and route.summary != declared.label:
                 raise BootError(
                     f"module {spec.name!r} route {route.path!r} declares operation "
                     f"{declared.id!r} and also sets summary={route.summary!r} by hand; "

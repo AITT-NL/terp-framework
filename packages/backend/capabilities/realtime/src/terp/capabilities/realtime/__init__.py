@@ -32,6 +32,10 @@ from terp.capabilities.realtime.channel import (
     registered_channels,
     principal_audience,
 )
+from terp.capabilities.realtime.operations import (
+    REALTIME_MINT_TICKET,
+    REALTIME_SUBSCRIBE_SSE,
+)
 from terp.capabilities.realtime.router import (
     HEARTBEAT_SECONDS,
     MAX_INBOUND_BYTES,
@@ -78,6 +82,8 @@ __all__ = [
     "MAX_INBOUND_BYTES",
     "MessageSessionProvider",
     "PrincipalValidator",
+    "REALTIME_MINT_TICKET",
+    "REALTIME_SUBSCRIBE_SSE",
     "RealtimeBroker",
     "RealtimeChannel",
     "RealtimeAuthzRef",

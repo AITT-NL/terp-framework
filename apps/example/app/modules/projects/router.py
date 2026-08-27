@@ -14,6 +14,13 @@ from terp.core import build_crud_router
 
 from app.modules.projects.schemas import ProjectCreate, ProjectRead, ProjectUpdate
 from app.modules.projects.service import ProjectService
+from control_plane.operations import (
+    PROJECTS_CREATE,
+    PROJECTS_DELETE,
+    PROJECTS_GET,
+    PROJECTS_LIST,
+    PROJECTS_UPDATE,
+)
 
 router = build_crud_router(
     ProjectService(),
@@ -21,4 +28,9 @@ router = build_crud_router(
     create_schema=ProjectCreate,
     update_schema=ProjectUpdate,
     tags=["projects"],
+    list_operation=PROJECTS_LIST,
+    create_operation=PROJECTS_CREATE,
+    get_operation=PROJECTS_GET,
+    update_operation=PROJECTS_UPDATE,
+    delete_operation=PROJECTS_DELETE,
 )

@@ -13,6 +13,15 @@ the ``BaseService`` chokepoint) and passwords are hashed via ``terp-cap-auth``.
 
 from __future__ import annotations
 
+from terp.capabilities.users.operations import (
+    USERS_DEACTIVATE,
+    USERS_GET,
+    USERS_LIST,
+    USERS_PROVISION,
+    USERS_REACTIVATE,
+    USERS_RESET_PASSWORD,
+    USERS_UPDATE,
+)
 from terp.capabilities.users.router import module, router
 from terp.capabilities.users.schemas import (
     UserAdminUpdate,
@@ -23,6 +32,13 @@ from terp.capabilities.users.schemas import (
 from terp.capabilities.users.service import UsersService
 
 __all__ = [
+    "USERS_DEACTIVATE",
+    "USERS_GET",
+    "USERS_LIST",
+    "USERS_PROVISION",
+    "USERS_REACTIVATE",
+    "USERS_RESET_PASSWORD",
+    "USERS_UPDATE",
     "UserAdminUpdate",
     "UserPasswordReset",
     "UserProvision",

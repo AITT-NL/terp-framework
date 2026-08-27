@@ -37,6 +37,7 @@ from terp.core import (
     InProcessJobQueue,
     JobCatalog,
     JobEnvelope,
+    OperationCatalog,
     Principal,
     Roles,
     LeaseHeldError,
@@ -58,6 +59,10 @@ from terp.capabilities.sync import (
     STATUS_FAILED,
     STATUS_RUNNING,
     STATUS_SUCCEEDED,
+    SYNC_GET_RUN,
+    SYNC_LIST_MAPPINGS,
+    SYNC_LIST_RUN_LOGS,
+    SYNC_LIST_RUNS,
     SYNC_PULL,
     SYNC_PUSH,
     RemotePage,
@@ -521,7 +526,17 @@ def _client(engine: object) -> TestClient:
     app: FastAPI = create_app(
         [sync_module],
         principal_provider=lambda: _ADMIN,
-        control_plane=ControlPlane(jobs=JobCatalog([SYNC_PULL, SYNC_PUSH])),
+        control_plane=ControlPlane(
+            jobs=JobCatalog([SYNC_PULL, SYNC_PUSH]),
+            operations=OperationCatalog(
+                operations=(
+                    SYNC_LIST_RUNS,
+                    SYNC_GET_RUN,
+                    SYNC_LIST_RUN_LOGS,
+                    SYNC_LIST_MAPPINGS,
+                )
+            ),
+        ),
     )
 
     def _session_override() -> Iterator[Session]:

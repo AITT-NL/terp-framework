@@ -13,8 +13,13 @@ import uuid
 
 from fastapi import APIRouter
 
-from terp.core import ModuleSpec, Page, PaginationDep, Policy, Roles, SessionDep
+from terp.core import ModuleSpec, Page, PaginationDep, Policy, Roles, SessionDep, operation
 
+from terp.capabilities.access.operations import (
+    ACCESS_CREATE_GRANT,
+    ACCESS_DELETE_GRANT,
+    ACCESS_LIST_GRANTS,
+)
 from terp.capabilities.access.schemas import GrantCreate, GrantRead
 from terp.capabilities.access.service import AccessService
 
@@ -23,6 +28,7 @@ _service = AccessService()
 
 
 @router.get("/grants", response_model=Page[GrantRead])
+@operation(ACCESS_LIST_GRANTS)
 def list_grants(
     subject_id: uuid.UUID, session: SessionDep, pagination: PaginationDep
 ) -> Page[GrantRead]:
@@ -35,6 +41,7 @@ def list_grants(
 
 
 @router.post("/grants", response_model=GrantRead, status_code=201)
+@operation(ACCESS_CREATE_GRANT)
 def create_grant(payload: GrantCreate, session: SessionDep) -> GrantRead:
     return GrantRead.model_validate(
         _service.grant(session, payload.subject_id, payload.permission)
@@ -42,6 +49,7 @@ def create_grant(payload: GrantCreate, session: SessionDep) -> GrantRead:
 
 
 @router.delete("/grants/{grant_id}", status_code=204)
+@operation(ACCESS_DELETE_GRANT)
 def delete_grant(grant_id: uuid.UUID, session: SessionDep) -> None:
     _service.delete(session, grant_id)
 

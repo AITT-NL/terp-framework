@@ -55,8 +55,10 @@ from terp.core import (
     Principal,
     SessionDep,
     get_principal,
+    operation,
 )
 
+from terp.capabilities.leases.operations import LEASES_HEARTBEAT
 from terp.capabilities.leases.schemas import LeaseHeartbeat, LeaseHeartbeatAccepted
 from terp.capabilities.leases.service import heartbeat
 
@@ -71,6 +73,7 @@ def build_holder_router(resolve_holder: HolderResolver) -> APIRouter:
     router = APIRouter(tags=["leases"])
 
     @router.post("/{kind}/{key}/heartbeat", response_model=LeaseHeartbeatAccepted)
+    @operation(LEASES_HEARTBEAT)
     def send_heartbeat(
         kind: str,
         key: str,

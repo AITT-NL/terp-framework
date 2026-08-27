@@ -25,6 +25,16 @@ from terp.capabilities.groups.expander import (
     register_group_expansion,
 )
 from terp.capabilities.groups.models import Group, GroupMember
+from terp.capabilities.groups.operations import (
+    GROUPS_ADD_MEMBER,
+    GROUPS_CREATE,
+    GROUPS_DELETE,
+    GROUPS_GET,
+    GROUPS_LIST,
+    GROUPS_LIST_MEMBERS,
+    GROUPS_REMOVE_MEMBER,
+    GROUPS_UPDATE,
+)
 from terp.capabilities.groups.router import module, router
 from terp.capabilities.groups.schemas import (
     GroupCreate,
@@ -40,6 +50,14 @@ from terp.capabilities.groups.service import GroupsService
 register_group_expansion()
 
 __all__ = [
+    "GROUPS_ADD_MEMBER",
+    "GROUPS_CREATE",
+    "GROUPS_DELETE",
+    "GROUPS_GET",
+    "GROUPS_LIST",
+    "GROUPS_LIST_MEMBERS",
+    "GROUPS_REMOVE_MEMBER",
+    "GROUPS_UPDATE",
     "Group",
     "GroupCreate",
     "GroupMember",

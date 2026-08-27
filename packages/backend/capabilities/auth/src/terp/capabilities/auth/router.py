@@ -33,9 +33,17 @@ from terp.core import (
     Principal,
     SessionDep,
     get_principal,
+    operation,
     settings,
 )
 
+from terp.capabilities.auth.operations import (
+    AUTH_LOGIN,
+    AUTH_LOGOUT,
+    AUTH_ME,
+    AUTH_REFRESH,
+    AUTH_TOKEN,
+)
 from terp.capabilities.auth.refresh import (
     RefreshRotation,
     clear_refresh_cookie,
@@ -176,6 +184,7 @@ def build_login_router(
         )
 
     @router.post("/login", response_model=AccessToken)
+    @operation(AUTH_LOGIN)
     def login(
         credentials: LoginRequest, session: SessionDep, response: Response
     ) -> AccessToken:
@@ -196,6 +205,7 @@ def build_login_router(
         verify_client = authenticate_client
 
         @router.post("/token", response_model=AccessToken)
+        @operation(AUTH_TOKEN)
         def token(
             credentials: ClientCredentialsRequest, session: SessionDep
         ) -> AccessToken:
@@ -217,6 +227,7 @@ def build_login_router(
         resolve_principal = principal_resolver
 
         @router.post("/refresh", response_model=AccessToken)
+        @operation(AUTH_REFRESH)
         def refresh(
             request: Request, session: SessionDep, response: Response
         ) -> AccessToken:
@@ -239,6 +250,7 @@ def build_login_router(
     if revoke_sessions is not None or refresh_enabled:
 
         @router.post("/logout", status_code=204)
+        @operation(AUTH_LOGOUT)
         def logout(
             session: SessionDep,
             principal: Principal | None = Depends(get_principal),
@@ -324,6 +336,7 @@ def build_me_router(resolve_current_user: CurrentUserResolver) -> APIRouter:
     router = APIRouter(tags=["auth"])
 
     @router.get("/", response_model=CurrentUser)
+    @operation(AUTH_ME)
     def me(
         session: SessionDep,
         principal: Principal | None = Depends(get_principal),

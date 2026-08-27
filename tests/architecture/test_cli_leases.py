@@ -45,12 +45,19 @@ from terp.core import (
     ControlPlane,
     JobCatalog,
     LeaseResource,
+    OperationCatalog,
     create_app,
     register_lease_reaper,
 )
 from terp.core._internal.engine import get_engine
 
-from terp.capabilities.leases import LEASE_REAP, DatabaseLeaseStore
+from terp.capabilities.leases import (
+    LEASE_REAP,
+    LEASES_LIST,
+    LEASES_LIST_EXPIRED,
+    LEASES_REAP,
+    DatabaseLeaseStore,
+)
 from terp.capabilities.leases import module as leases_module
 
 
@@ -88,7 +95,12 @@ def build():
     register_lease_reaper("cli_ticket", requeue)
     app = create_app(
         [leases_module],
-        control_plane=ControlPlane(jobs=JobCatalog([LEASE_REAP])),
+        control_plane=ControlPlane(
+            jobs=JobCatalog([LEASE_REAP]),
+            operations=OperationCatalog(
+                operations=(LEASES_LIST, LEASES_LIST_EXPIRED, LEASES_REAP)
+            ),
+        ),
         lease_store=DatabaseLeaseStore(),
     )
     engine = get_engine()
@@ -115,10 +127,16 @@ from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, SQLModel
 
-from terp.core import ControlPlane, JobCatalog, LeaseResource, create_app
+from terp.core import ControlPlane, JobCatalog, LeaseResource, OperationCatalog, create_app
 from terp.core._internal.engine import get_engine
 
-from terp.capabilities.leases import LEASE_REAP, DatabaseLeaseStore
+from terp.capabilities.leases import (
+    LEASE_REAP,
+    LEASES_LIST,
+    LEASES_LIST_EXPIRED,
+    LEASES_REAP,
+    DatabaseLeaseStore,
+)
 from terp.capabilities.leases import module as leases_module
 
 STALE = datetime.now(UTC) - timedelta(hours=1)
@@ -127,7 +145,12 @@ STALE = datetime.now(UTC) - timedelta(hours=1)
 def build():
     app = create_app(
         [leases_module],
-        control_plane=ControlPlane(jobs=JobCatalog([LEASE_REAP])),
+        control_plane=ControlPlane(
+            jobs=JobCatalog([LEASE_REAP]),
+            operations=OperationCatalog(
+                operations=(LEASES_LIST, LEASES_LIST_EXPIRED, LEASES_REAP)
+            ),
+        ),
         lease_store=DatabaseLeaseStore(),
     )
     engine = get_engine()

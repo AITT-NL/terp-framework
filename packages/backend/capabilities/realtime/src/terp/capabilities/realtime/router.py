@@ -32,6 +32,7 @@ from terp.core import (
     bind_audit_actor,
     get_principal,
     get_session,
+    operation,
 )
 
 from terp.capabilities.realtime.broker import (
@@ -40,6 +41,10 @@ from terp.capabilities.realtime.broker import (
     get_broker,
 )
 from terp.capabilities.realtime.channel import RealtimeChannel, get_channel
+from terp.capabilities.realtime.operations import (
+    REALTIME_MINT_TICKET,
+    REALTIME_SUBSCRIBE_SSE,
+)
 from terp.capabilities.realtime.tickets import ConnectionTicket, get_ticket_store
 
 TICKET_TTL_SECONDS = 30
@@ -190,6 +195,7 @@ router = APIRouter(tags=["realtime"])
 
 
 @router.post("/tickets", response_model=TicketResponse, status_code=201)
+@operation(REALTIME_MINT_TICKET)
 def mint_ticket(
     payload: TicketRequest,
     request: Request,
@@ -285,6 +291,7 @@ async def _sse_stream(
     response_model=None,
     response_class=StreamingResponse,
 )
+@operation(REALTIME_SUBSCRIBE_SSE)
 def subscribe_sse(
     channel_name: str,
     ticket: Annotated[str, Query(min_length=1, max_length=200)],

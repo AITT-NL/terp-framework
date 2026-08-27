@@ -39,6 +39,12 @@ from terp.capabilities.leases.holder_router import (
 )
 from terp.capabilities.leases.jobs import LEASE_REAP, LeaseReapPayload
 from terp.capabilities.leases.models import ResourceLease
+from terp.capabilities.leases.operations import (
+    LEASES_HEARTBEAT,
+    LEASES_LIST,
+    LEASES_LIST_EXPIRED,
+    LEASES_REAP,
+)
 from terp.capabilities.leases.reaper import ReapResult, reap_expired_leases
 from terp.capabilities.leases.router import module, router
 from terp.capabilities.leases.schedule import lease_reap_schedule
@@ -55,6 +61,10 @@ __all__ = [
     "LEASE_REAP",
     "DatabaseLeaseStore",
     "HolderResolver",
+    "LEASES_HEARTBEAT",
+    "LEASES_LIST",
+    "LEASES_LIST_EXPIRED",
+    "LEASES_REAP",
     "LeaseHeartbeat",
     "LeaseHeartbeatAccepted",
     "LeaseReapPayload",

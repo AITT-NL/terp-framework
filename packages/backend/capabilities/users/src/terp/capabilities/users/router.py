@@ -22,9 +22,19 @@ from terp.core import (
     Roles,
     SessionDep,
     get_principal,
+    operation,
 )
 
 from terp.capabilities.identity import RefreshTokenService
+from terp.capabilities.users.operations import (
+    USERS_DEACTIVATE,
+    USERS_GET,
+    USERS_LIST,
+    USERS_PROVISION,
+    USERS_REACTIVATE,
+    USERS_RESET_PASSWORD,
+    USERS_UPDATE,
+)
 from terp.capabilities.users.schemas import (
     UserAdminUpdate,
     UserPasswordReset,
@@ -42,6 +52,7 @@ _service = UsersService(refresh_revoker=RefreshTokenService().revoke_all_for_use
 
 
 @router.get("/", response_model=Page[UserRead])
+@operation(USERS_LIST)
 def list_users(
     session: SessionDep,
     pagination: PaginationDep,
@@ -65,16 +76,19 @@ def list_users(
 
 
 @router.post("/", response_model=UserRead, status_code=201)
+@operation(USERS_PROVISION)
 def provision_user(payload: UserProvision, session: SessionDep) -> UserRead:
     return UserRead.model_validate(_service.create(session, payload))
 
 
 @router.get("/{user_id}", response_model=UserRead)
+@operation(USERS_GET)
 def get_user(user_id: uuid.UUID, session: SessionDep) -> UserRead:
     return UserRead.model_validate(_service.get(session, user_id))
 
 
 @router.patch("/{user_id}", response_model=UserRead)
+@operation(USERS_UPDATE)
 def update_user(
     user_id: uuid.UUID,
     payload: UserAdminUpdate,
@@ -92,6 +106,7 @@ def update_user(
 
 
 @router.post("/{user_id}/deactivate", response_model=UserRead)
+@operation(USERS_DEACTIVATE)
 def deactivate_user(
     user_id: uuid.UUID,
     session: SessionDep,
@@ -108,11 +123,13 @@ def deactivate_user(
 
 
 @router.post("/{user_id}/reactivate", response_model=UserRead)
+@operation(USERS_REACTIVATE)
 def reactivate_user(user_id: uuid.UUID, session: SessionDep) -> UserRead:
     return UserRead.model_validate(_service.set_active(session, user_id, active=True))
 
 
 @router.post("/{user_id}/reset-password", response_model=UserRead)
+@operation(USERS_RESET_PASSWORD)
 def reset_user_password(
     user_id: uuid.UUID, payload: UserPasswordReset, session: SessionDep
 ) -> UserRead:

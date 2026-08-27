@@ -41,6 +41,12 @@ from terp.capabilities.sync.models import (
     SyncRecordLog,
     SyncRun,
 )
+from terp.capabilities.sync.operations import (
+    SYNC_GET_RUN,
+    SYNC_LIST_MAPPINGS,
+    SYNC_LIST_RUNS,
+    SYNC_LIST_RUN_LOGS,
+)
 from terp.capabilities.sync.remote import (
     RemotePage,
     RemoteRecord,
@@ -80,7 +86,11 @@ __all__ = [
     "STATUS_RUNNING",
     "STATUS_SUCCEEDED",
     "STATUS_SYNCED",
+    "SYNC_GET_RUN",
     "SYNC_LEASE_TTL_SECONDS",
+    "SYNC_LIST_MAPPINGS",
+    "SYNC_LIST_RUNS",
+    "SYNC_LIST_RUN_LOGS",
     "SYNC_PULL",
     "SYNC_PUSH",
     "SYNC_SOURCE_LEASE",

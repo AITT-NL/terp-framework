@@ -1826,7 +1826,7 @@
   "paths": {
     "/api/v1/access/grants": {
       "get": {
-        "operationId": "list_grants_api_v1_access_grants_get",
+        "operationId": "access.list_grants",
         "parameters": [
           {
             "in": "query",
@@ -1888,13 +1888,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Grants",
+        "summary": "List the permissions granted to someone",
         "tags": [
           "access"
         ]
       },
       "post": {
-        "operationId": "create_grant_api_v1_access_grants_post",
+        "operationId": "access.create_grant",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1927,7 +1927,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Grant",
+        "summary": "Grant a permission to someone",
         "tags": [
           "access"
         ]
@@ -1935,7 +1935,7 @@
     },
     "/api/v1/access/grants/{grant_id}": {
       "delete": {
-        "operationId": "delete_grant_api_v1_access_grants__grant_id__delete",
+        "operationId": "access.delete_grant",
         "parameters": [
           {
             "in": "path",
@@ -1963,7 +1963,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Grant",
+        "summary": "Remove a granted permission",
         "tags": [
           "access"
         ]
@@ -1971,7 +1971,7 @@
     },
     "/api/v1/audit/": {
       "get": {
-        "operationId": "list_events_api_v1_audit__get",
+        "operationId": "audit.list_events",
         "parameters": [
           {
             "description": "Rows to skip.",
@@ -2023,7 +2023,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Events",
+        "summary": "View the audit trail",
         "tags": [
           "audit"
         ]
@@ -2031,7 +2031,7 @@
     },
     "/api/v1/auth/login": {
       "post": {
-        "operationId": "login_api_v1_auth_login_post",
+        "operationId": "auth.login",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2064,7 +2064,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Login",
+        "summary": "Sign in with an email and password",
         "tags": [
           "auth"
         ]
@@ -2072,13 +2072,13 @@
     },
     "/api/v1/auth/logout": {
       "post": {
-        "operationId": "logout_api_v1_auth_logout_post",
+        "operationId": "auth.logout",
         "responses": {
           "204": {
             "description": "Successful Response"
           }
         },
-        "summary": "Logout",
+        "summary": "Sign out of the current session",
         "tags": [
           "auth"
         ]
@@ -2086,7 +2086,7 @@
     },
     "/api/v1/auth/refresh": {
       "post": {
-        "operationId": "refresh_api_v1_auth_refresh_post",
+        "operationId": "auth.refresh",
         "responses": {
           "200": {
             "content": {
@@ -2099,7 +2099,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Refresh",
+        "summary": "Stay signed in without entering a password again",
         "tags": [
           "auth"
         ]
@@ -2107,7 +2107,7 @@
     },
     "/api/v1/files/": {
       "get": {
-        "operationId": "list_files_api_v1_files__get",
+        "operationId": "files.list_files",
         "parameters": [
           {
             "description": "Rows to skip.",
@@ -2159,13 +2159,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Files",
+        "summary": "List every uploaded file",
         "tags": [
           "files"
         ]
       },
       "post": {
-        "operationId": "upload_file_api_v1_files__post",
+        "operationId": "files.upload_file",
         "responses": {
           "201": {
             "content": {
@@ -2178,7 +2178,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Upload File",
+        "summary": "Upload a new file",
         "tags": [
           "files"
         ]
@@ -2186,7 +2186,7 @@
     },
     "/api/v1/files/{file_id}": {
       "delete": {
-        "operationId": "delete_file_api_v1_files__file_id__delete",
+        "operationId": "files.delete",
         "parameters": [
           {
             "in": "path",
@@ -2214,13 +2214,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete File",
+        "summary": "Delete a file",
         "tags": [
           "files"
         ]
       },
       "get": {
-        "operationId": "get_file_api_v1_files__file_id__get",
+        "operationId": "files.get_file",
         "parameters": [
           {
             "in": "path",
@@ -2255,13 +2255,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get File",
+        "summary": "View a file's details",
         "tags": [
           "files"
         ]
       },
       "patch": {
-        "operationId": "update_file_api_v1_files__file_id__patch",
+        "operationId": "files.update_file",
         "parameters": [
           {
             "in": "path",
@@ -2306,7 +2306,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update File",
+        "summary": "Edit a file's details",
         "tags": [
           "files"
         ]
@@ -2314,7 +2314,7 @@
     },
     "/api/v1/files/{file_id}/content": {
       "get": {
-        "operationId": "download_file_api_v1_files__file_id__content_get",
+        "operationId": "files.download_file",
         "parameters": [
           {
             "in": "path",
@@ -2347,7 +2347,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Download File",
+        "summary": "Download a file's contents",
         "tags": [
           "files"
         ]
@@ -2355,7 +2355,7 @@
     },
     "/api/v1/groups/": {
       "get": {
-        "operationId": "list_groups_api_v1_groups__get",
+        "operationId": "groups.list_groups",
         "parameters": [
           {
             "description": "Rows to skip.",
@@ -2407,13 +2407,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Groups",
+        "summary": "List the groups",
         "tags": [
           "groups"
         ]
       },
       "post": {
-        "operationId": "create_group_api_v1_groups__post",
+        "operationId": "groups.create_group",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2446,7 +2446,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Group",
+        "summary": "Create a new group",
         "tags": [
           "groups"
         ]
@@ -2454,7 +2454,7 @@
     },
     "/api/v1/groups/{group_id}": {
       "delete": {
-        "operationId": "delete_group_api_v1_groups__group_id__delete",
+        "operationId": "groups.delete_group",
         "parameters": [
           {
             "in": "path",
@@ -2482,13 +2482,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Group",
+        "summary": "Delete a group",
         "tags": [
           "groups"
         ]
       },
       "get": {
-        "operationId": "get_group_api_v1_groups__group_id__get",
+        "operationId": "groups.get_group",
         "parameters": [
           {
             "in": "path",
@@ -2523,13 +2523,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Group",
+        "summary": "View a group's details",
         "tags": [
           "groups"
         ]
       },
       "patch": {
-        "operationId": "update_group_api_v1_groups__group_id__patch",
+        "operationId": "groups.update_group",
         "parameters": [
           {
             "in": "path",
@@ -2574,7 +2574,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update Group",
+        "summary": "Change a group's details",
         "tags": [
           "groups"
         ]
@@ -2582,7 +2582,7 @@
     },
     "/api/v1/groups/{group_id}/members": {
       "get": {
-        "operationId": "list_members_api_v1_groups__group_id__members_get",
+        "operationId": "groups.list_members",
         "parameters": [
           {
             "in": "path",
@@ -2644,13 +2644,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Members",
+        "summary": "List who belongs to a group",
         "tags": [
           "groups"
         ]
       },
       "post": {
-        "operationId": "add_member_api_v1_groups__group_id__members_post",
+        "operationId": "groups.add_member",
         "parameters": [
           {
             "in": "path",
@@ -2695,7 +2695,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Add Member",
+        "summary": "Add someone to a group",
         "tags": [
           "groups"
         ]
@@ -2703,7 +2703,7 @@
     },
     "/api/v1/groups/{group_id}/members/{user_id}": {
       "delete": {
-        "operationId": "remove_member_api_v1_groups__group_id__members__user_id__delete",
+        "operationId": "groups.remove_member",
         "parameters": [
           {
             "in": "path",
@@ -2741,7 +2741,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Remove Member",
+        "summary": "Remove someone from a group",
         "tags": [
           "groups"
         ]
@@ -2749,7 +2749,7 @@
     },
     "/api/v1/journals/": {
       "get": {
-        "operationId": "list_journals_api_v1_journals__get",
+        "operationId": "journals.list_journals",
         "parameters": [
           {
             "description": "Rows to skip.",
@@ -2801,13 +2801,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Journals",
+        "summary": "List every journal entry you can see",
         "tags": [
           "journals"
         ]
       },
       "post": {
-        "operationId": "create_journal_api_v1_journals__post",
+        "operationId": "journals.create_journal",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2840,7 +2840,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Journal",
+        "summary": "Write a new journal entry",
         "tags": [
           "journals"
         ]
@@ -2848,7 +2848,7 @@
     },
     "/api/v1/journals/{journal_id}": {
       "delete": {
-        "operationId": "delete_journal_api_v1_journals__journal_id__delete",
+        "operationId": "journals.delete_journal",
         "parameters": [
           {
             "in": "path",
@@ -2876,13 +2876,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Journal",
+        "summary": "Delete a journal entry",
         "tags": [
           "journals"
         ]
       },
       "get": {
-        "operationId": "get_journal_api_v1_journals__journal_id__get",
+        "operationId": "journals.get_journal",
         "parameters": [
           {
             "in": "path",
@@ -2917,13 +2917,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Journal",
+        "summary": "View a journal entry",
         "tags": [
           "journals"
         ]
       },
       "patch": {
-        "operationId": "update_journal_api_v1_journals__journal_id__patch",
+        "operationId": "journals.update_journal",
         "parameters": [
           {
             "in": "path",
@@ -2968,7 +2968,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update Journal",
+        "summary": "Edit a journal entry",
         "tags": [
           "journals"
         ]
@@ -2976,7 +2976,7 @@
     },
     "/api/v1/me/": {
       "get": {
-        "operationId": "me_api_v1_me__get",
+        "operationId": "auth.me",
         "responses": {
           "200": {
             "content": {
@@ -2989,7 +2989,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Me",
+        "summary": "View your own profile",
         "tags": [
           "auth"
         ]
@@ -2997,7 +2997,7 @@
     },
     "/api/v1/notes/": {
       "get": {
-        "operationId": "list_notes_api_v1_notes__get",
+        "operationId": "notes.list_notes",
         "parameters": [
           {
             "description": "Rows to skip.",
@@ -3049,13 +3049,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Notes",
+        "summary": "List every note",
         "tags": [
           "notes"
         ]
       },
       "post": {
-        "operationId": "create_note_api_v1_notes__post",
+        "operationId": "notes.create_note",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3088,7 +3088,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Note",
+        "summary": "Write a new note",
         "tags": [
           "notes"
         ]
@@ -3096,7 +3096,7 @@
     },
     "/api/v1/notes/{note_id}": {
       "delete": {
-        "operationId": "delete_note_api_v1_notes__note_id__delete",
+        "operationId": "notes.delete_note",
         "parameters": [
           {
             "in": "path",
@@ -3124,13 +3124,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Note",
+        "summary": "Delete a note",
         "tags": [
           "notes"
         ]
       },
       "get": {
-        "operationId": "get_note_api_v1_notes__note_id__get",
+        "operationId": "notes.get_note",
         "parameters": [
           {
             "in": "path",
@@ -3165,13 +3165,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Note",
+        "summary": "View a note",
         "tags": [
           "notes"
         ]
       },
       "patch": {
-        "operationId": "update_note_api_v1_notes__note_id__patch",
+        "operationId": "notes.update_note",
         "parameters": [
           {
             "in": "path",
@@ -3216,7 +3216,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update Note",
+        "summary": "Edit a note",
         "tags": [
           "notes"
         ]
@@ -3224,7 +3224,7 @@
     },
     "/api/v1/oidc/{provider}/authorize": {
       "get": {
-        "operationId": "authorize_api_v1_oidc__provider__authorize_get",
+        "operationId": "oidc.authorize",
         "parameters": [
           {
             "in": "path",
@@ -3258,7 +3258,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Authorize",
+        "summary": "Start signing in with an external login provider",
         "tags": [
           "auth"
         ]
@@ -3266,7 +3266,7 @@
     },
     "/api/v1/oidc/{provider}/callback": {
       "post": {
-        "operationId": "callback_api_v1_oidc__provider__callback_post",
+        "operationId": "oidc.callback",
         "parameters": [
           {
             "in": "path",
@@ -3310,7 +3310,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Callback",
+        "summary": "Finish signing in after the external login provider redirects back",
         "tags": [
           "auth"
         ]
@@ -3318,7 +3318,7 @@
     },
     "/api/v1/projects/": {
       "get": {
-        "operationId": "list_projects_api_v1_projects__get",
+        "operationId": "projects.list_projects",
         "parameters": [
           {
             "description": "Rows to skip.",
@@ -3370,13 +3370,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Projects",
+        "summary": "List every project",
         "tags": [
           "projects"
         ]
       },
       "post": {
-        "operationId": "create_project_api_v1_projects__post",
+        "operationId": "projects.create_project",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3409,7 +3409,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Project",
+        "summary": "Start a new project",
         "tags": [
           "projects"
         ]
@@ -3417,7 +3417,7 @@
     },
     "/api/v1/projects/{item_id}": {
       "delete": {
-        "operationId": "delete_project_api_v1_projects__item_id__delete",
+        "operationId": "projects.delete_project",
         "parameters": [
           {
             "in": "path",
@@ -3445,13 +3445,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Project",
+        "summary": "Delete a project",
         "tags": [
           "projects"
         ]
       },
       "get": {
-        "operationId": "get_project_api_v1_projects__item_id__get",
+        "operationId": "projects.get_project",
         "parameters": [
           {
             "in": "path",
@@ -3486,13 +3486,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Project",
+        "summary": "View a project",
         "tags": [
           "projects"
         ]
       },
       "patch": {
-        "operationId": "update_project_api_v1_projects__item_id__patch",
+        "operationId": "projects.update_project",
         "parameters": [
           {
             "in": "path",
@@ -3537,7 +3537,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update Project",
+        "summary": "Edit a project",
         "tags": [
           "projects"
         ]
@@ -3545,7 +3545,7 @@
     },
     "/api/v1/realtime/sse/{channel_name}": {
       "get": {
-        "operationId": "subscribe_sse_api_v1_realtime_sse__channel_name__get",
+        "operationId": "realtime.subscribe_sse",
         "parameters": [
           {
             "in": "path",
@@ -3583,7 +3583,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Subscribe Sse",
+        "summary": "Start streaming live updates for one channel",
         "tags": [
           "realtime"
         ]
@@ -3591,7 +3591,7 @@
     },
     "/api/v1/realtime/tickets": {
       "post": {
-        "operationId": "mint_ticket_api_v1_realtime_tickets_post",
+        "operationId": "realtime.mint_ticket",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3624,7 +3624,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Mint Ticket",
+        "summary": "Create a short-lived pass that lets someone open a live connection",
         "tags": [
           "realtime"
         ]
@@ -3632,7 +3632,7 @@
     },
     "/api/v1/tasks/": {
       "get": {
-        "operationId": "list_tasks_api_v1_tasks__get",
+        "operationId": "tasks.list_tasks",
         "parameters": [
           {
             "in": "query",
@@ -3700,13 +3700,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Tasks",
+        "summary": "List every task",
         "tags": [
           "tasks"
         ]
       },
       "post": {
-        "operationId": "create_task_api_v1_tasks__post",
+        "operationId": "tasks.create_task",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3739,7 +3739,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Task",
+        "summary": "Add a new task",
         "tags": [
           "tasks"
         ]
@@ -3747,7 +3747,7 @@
     },
     "/api/v1/tasks/{task_id}": {
       "delete": {
-        "operationId": "delete_task_api_v1_tasks__task_id__delete",
+        "operationId": "tasks.delete_task",
         "parameters": [
           {
             "in": "path",
@@ -3775,13 +3775,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Task",
+        "summary": "Delete a task",
         "tags": [
           "tasks"
         ]
       },
       "get": {
-        "operationId": "get_task_api_v1_tasks__task_id__get",
+        "operationId": "tasks.get_task",
         "parameters": [
           {
             "in": "path",
@@ -3816,13 +3816,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Task",
+        "summary": "View a task",
         "tags": [
           "tasks"
         ]
       },
       "patch": {
-        "operationId": "update_task_api_v1_tasks__task_id__patch",
+        "operationId": "tasks.update_task",
         "parameters": [
           {
             "in": "path",
@@ -3867,7 +3867,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update Task",
+        "summary": "Edit a task",
         "tags": [
           "tasks"
         ]
@@ -3875,7 +3875,7 @@
     },
     "/api/v1/users/": {
       "get": {
-        "operationId": "list_users_api_v1_users__get",
+        "operationId": "users.list_users",
         "parameters": [
           {
             "description": "Filter to users whose email contains this text (case-insensitive).",
@@ -3946,13 +3946,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Users",
+        "summary": "List every user account",
         "tags": [
           "users"
         ]
       },
       "post": {
-        "operationId": "provision_user_api_v1_users__post",
+        "operationId": "users.provision_user",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3985,7 +3985,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Provision User",
+        "summary": "Create a new user account",
         "tags": [
           "users"
         ]
@@ -3993,7 +3993,7 @@
     },
     "/api/v1/users/{user_id}": {
       "get": {
-        "operationId": "get_user_api_v1_users__user_id__get",
+        "operationId": "users.get_user",
         "parameters": [
           {
             "in": "path",
@@ -4028,13 +4028,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get User",
+        "summary": "View a user account's details",
         "tags": [
           "users"
         ]
       },
       "patch": {
-        "operationId": "update_user_api_v1_users__user_id__patch",
+        "operationId": "users.update_user",
         "parameters": [
           {
             "in": "path",
@@ -4079,7 +4079,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update User",
+        "summary": "Change a user account's details",
         "tags": [
           "users"
         ]
@@ -4087,7 +4087,7 @@
     },
     "/api/v1/users/{user_id}/deactivate": {
       "post": {
-        "operationId": "deactivate_user_api_v1_users__user_id__deactivate_post",
+        "operationId": "users.deactivate_user",
         "parameters": [
           {
             "in": "path",
@@ -4122,7 +4122,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Deactivate User",
+        "summary": "Disable a user account without deleting it",
         "tags": [
           "users"
         ]
@@ -4130,7 +4130,7 @@
     },
     "/api/v1/users/{user_id}/reactivate": {
       "post": {
-        "operationId": "reactivate_user_api_v1_users__user_id__reactivate_post",
+        "operationId": "users.reactivate_user",
         "parameters": [
           {
             "in": "path",
@@ -4165,7 +4165,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Reactivate User",
+        "summary": "Re-enable a disabled user account",
         "tags": [
           "users"
         ]
@@ -4173,7 +4173,7 @@
     },
     "/api/v1/users/{user_id}/reset-password": {
       "post": {
-        "operationId": "reset_user_password_api_v1_users__user_id__reset_password_post",
+        "operationId": "users.reset_user_password",
         "parameters": [
           {
             "in": "path",
@@ -4218,7 +4218,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Reset User Password",
+        "summary": "Set a new password for a user",
         "tags": [
           "users"
         ]
@@ -4226,7 +4226,7 @@
     },
     "/api/v1/webhooks/deliveries": {
       "get": {
-        "operationId": "list_webhook_deliveries_api_v1_webhooks_deliveries_get",
+        "operationId": "webhooks.list_webhook_deliveries",
         "parameters": [
           {
             "in": "query",
@@ -4295,7 +4295,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Webhook Deliveries",
+        "summary": "List the delivery attempts made to subscribed webhooks",
         "tags": [
           "webhooks"
         ]
@@ -4303,7 +4303,7 @@
     },
     "/api/v1/webhooks/subscriptions": {
       "get": {
-        "operationId": "list_subscriptions_api_v1_webhooks_subscriptions_get",
+        "operationId": "webhooks.list_subscriptions",
         "parameters": [
           {
             "description": "Rows to skip.",
@@ -4355,13 +4355,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Subscriptions",
+        "summary": "List every webhook subscription",
         "tags": [
           "webhooks"
         ]
       },
       "post": {
-        "operationId": "create_subscription_api_v1_webhooks_subscriptions_post",
+        "operationId": "webhooks.create_subscription",
         "requestBody": {
           "content": {
             "application/json": {
@@ -4394,7 +4394,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Subscription",
+        "summary": "Add a new webhook subscription",
         "tags": [
           "webhooks"
         ]
@@ -4402,7 +4402,7 @@
     },
     "/api/v1/webhooks/subscriptions/{subscription_id}": {
       "delete": {
-        "operationId": "delete_subscription_api_v1_webhooks_subscriptions__subscription_id__delete",
+        "operationId": "webhooks.delete_subscription",
         "parameters": [
           {
             "in": "path",
@@ -4430,13 +4430,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Subscription",
+        "summary": "Delete a webhook subscription",
         "tags": [
           "webhooks"
         ]
       },
       "get": {
-        "operationId": "get_subscription_api_v1_webhooks_subscriptions__subscription_id__get",
+        "operationId": "webhooks.get_subscription",
         "parameters": [
           {
             "in": "path",
@@ -4471,13 +4471,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Subscription",
+        "summary": "View a webhook subscription's details",
         "tags": [
           "webhooks"
         ]
       },
       "patch": {
-        "operationId": "update_subscription_api_v1_webhooks_subscriptions__subscription_id__patch",
+        "operationId": "webhooks.update_subscription",
         "parameters": [
           {
             "in": "path",
@@ -4522,7 +4522,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update Subscription",
+        "summary": "Edit a webhook subscription's details",
         "tags": [
           "webhooks"
         ]

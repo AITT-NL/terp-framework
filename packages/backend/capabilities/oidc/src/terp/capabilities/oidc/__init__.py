@@ -18,6 +18,7 @@ from terp.capabilities.oidc.client import (
     ProviderUnavailableError,
 )
 from terp.capabilities.oidc.config import OIDCClaims, OIDCProviderConfig
+from terp.capabilities.oidc.operations import OIDC_AUTHORIZE, OIDC_CALLBACK
 from terp.capabilities.oidc.router import (
     IdentityResolver,
     SecretResolver,
@@ -46,6 +47,8 @@ __all__ = [
     "OIDCClient",
     "OIDCProviderConfig",
     "OIDCStateStore",
+    "OIDC_AUTHORIZE",
+    "OIDC_CALLBACK",
     "PendingAuthorization",
     "ProviderUnavailableError",
     "SecretResolver",

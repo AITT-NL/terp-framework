@@ -21,6 +21,13 @@ from terp.capabilities.auth.hashing import (
     verify_password,
     verify_password_dummy,
 )
+from terp.capabilities.auth.operations import (
+    AUTH_LOGIN,
+    AUTH_LOGOUT,
+    AUTH_ME,
+    AUTH_REFRESH,
+    AUTH_TOKEN,
+)
 from terp.capabilities.auth.refresh import (
     RefreshRotation,
     clear_refresh_cookie,
@@ -61,6 +68,11 @@ from terp.capabilities.auth.tokens import (
 )
 
 __all__ = [
+    "AUTH_LOGIN",
+    "AUTH_LOGOUT",
+    "AUTH_ME",
+    "AUTH_REFRESH",
+    "AUTH_TOKEN",
     "AccessToken",
     "AccessTokenClaims",
     "AccountLockedError",

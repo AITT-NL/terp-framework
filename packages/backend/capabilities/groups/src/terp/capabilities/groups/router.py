@@ -16,9 +16,27 @@ import uuid
 
 from fastapi import APIRouter
 
-from terp.core import ModuleSpec, Page, PaginationDep, Policy, Roles, SessionDep
+from terp.core import (
+    ModuleSpec,
+    Page,
+    PaginationDep,
+    Policy,
+    Roles,
+    SessionDep,
+    operation,
+)
 
 from terp.capabilities.groups.models import Group
+from terp.capabilities.groups.operations import (
+    GROUPS_ADD_MEMBER,
+    GROUPS_CREATE,
+    GROUPS_DELETE,
+    GROUPS_GET,
+    GROUPS_LIST,
+    GROUPS_LIST_MEMBERS,
+    GROUPS_REMOVE_MEMBER,
+    GROUPS_UPDATE,
+)
 from terp.capabilities.groups.schemas import (
     GroupCreate,
     GroupMemberAdd,
@@ -45,6 +63,7 @@ def _read(group: Group, member_count: int) -> GroupRead:
 
 
 @router.get("/", response_model=Page[GroupRead])
+@operation(GROUPS_LIST)
 def list_groups(session: SessionDep, pagination: PaginationDep) -> Page[GroupRead]:
     rows, total = _service.list(session, skip=pagination.skip, limit=pagination.limit)
     counts = _service.member_counts(session, [row.id for row in rows])
@@ -54,11 +73,13 @@ def list_groups(session: SessionDep, pagination: PaginationDep) -> Page[GroupRea
 
 
 @router.post("/", response_model=GroupRead, status_code=201)
+@operation(GROUPS_CREATE)
 def create_group(payload: GroupCreate, session: SessionDep) -> GroupRead:
     return _read(_service.create(session, payload), 0)
 
 
 @router.get("/{group_id}", response_model=GroupRead)
+@operation(GROUPS_GET)
 def get_group(group_id: uuid.UUID, session: SessionDep) -> GroupRead:
     group = _service.get(session, group_id)
     counts = _service.member_counts(session, [group.id])
@@ -66,6 +87,7 @@ def get_group(group_id: uuid.UUID, session: SessionDep) -> GroupRead:
 
 
 @router.patch("/{group_id}", response_model=GroupRead)
+@operation(GROUPS_UPDATE)
 def update_group(
     group_id: uuid.UUID, payload: GroupUpdate, session: SessionDep
 ) -> GroupRead:
@@ -75,11 +97,13 @@ def update_group(
 
 
 @router.delete("/{group_id}", status_code=204)
+@operation(GROUPS_DELETE)
 def delete_group(group_id: uuid.UUID, session: SessionDep) -> None:
     _service.delete(session, group_id)
 
 
 @router.get("/{group_id}/members", response_model=Page[GroupMemberRead])
+@operation(GROUPS_LIST_MEMBERS)
 def list_members(
     group_id: uuid.UUID, session: SessionDep, pagination: PaginationDep
 ) -> Page[GroupMemberRead]:
@@ -101,6 +125,7 @@ def list_members(
 
 
 @router.post("/{group_id}/members", response_model=GroupMemberRead, status_code=201)
+@operation(GROUPS_ADD_MEMBER)
 def add_member(
     group_id: uuid.UUID, payload: GroupMemberAdd, session: SessionDep
 ) -> GroupMemberRead:
@@ -110,6 +135,7 @@ def add_member(
 
 
 @router.delete("/{group_id}/members/{user_id}", status_code=204)
+@operation(GROUPS_REMOVE_MEMBER)
 def remove_member(
     group_id: uuid.UUID, user_id: uuid.UUID, session: SessionDep
 ) -> None:

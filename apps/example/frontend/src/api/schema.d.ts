@@ -11,11 +11,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Grants */
-        get: operations["list_grants_api_v1_access_grants_get"];
+        /** List the permissions granted to someone */
+        get: operations["access.list_grants"];
         put?: never;
-        /** Create Grant */
-        post: operations["create_grant_api_v1_access_grants_post"];
+        /** Grant a permission to someone */
+        post: operations["access.create_grant"];
         delete?: never;
         options?: never;
         head?: never;
@@ -32,8 +32,8 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Grant */
-        delete: operations["delete_grant_api_v1_access_grants__grant_id__delete"];
+        /** Remove a granted permission */
+        delete: operations["access.delete_grant"];
         options?: never;
         head?: never;
         patch?: never;
@@ -46,8 +46,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Events */
-        get: operations["list_events_api_v1_audit__get"];
+        /** View the audit trail */
+        get: operations["audit.list_events"];
         put?: never;
         post?: never;
         delete?: never;
@@ -65,8 +65,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Login */
-        post: operations["login_api_v1_auth_login_post"];
+        /** Sign in with an email and password */
+        post: operations["auth.login"];
         delete?: never;
         options?: never;
         head?: never;
@@ -82,8 +82,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Logout */
-        post: operations["logout_api_v1_auth_logout_post"];
+        /** Sign out of the current session */
+        post: operations["auth.logout"];
         delete?: never;
         options?: never;
         head?: never;
@@ -99,8 +99,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Refresh */
-        post: operations["refresh_api_v1_auth_refresh_post"];
+        /** Stay signed in without entering a password again */
+        post: operations["auth.refresh"];
         delete?: never;
         options?: never;
         head?: never;
@@ -114,11 +114,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Files */
-        get: operations["list_files_api_v1_files__get"];
+        /** List every uploaded file */
+        get: operations["files.list_files"];
         put?: never;
-        /** Upload File */
-        post: operations["upload_file_api_v1_files__post"];
+        /** Upload a new file */
+        post: operations["files.upload_file"];
         delete?: never;
         options?: never;
         head?: never;
@@ -132,16 +132,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get File */
-        get: operations["get_file_api_v1_files__file_id__get"];
+        /** View a file's details */
+        get: operations["files.get_file"];
         put?: never;
         post?: never;
-        /** Delete File */
-        delete: operations["delete_file_api_v1_files__file_id__delete"];
+        /** Delete a file */
+        delete: operations["files.delete"];
         options?: never;
         head?: never;
-        /** Update File */
-        patch: operations["update_file_api_v1_files__file_id__patch"];
+        /** Edit a file's details */
+        patch: operations["files.update_file"];
         trace?: never;
     };
     "/api/v1/files/{file_id}/content": {
@@ -151,8 +151,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download File */
-        get: operations["download_file_api_v1_files__file_id__content_get"];
+        /** Download a file's contents */
+        get: operations["files.download_file"];
         put?: never;
         post?: never;
         delete?: never;
@@ -168,11 +168,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Groups */
-        get: operations["list_groups_api_v1_groups__get"];
+        /** List the groups */
+        get: operations["groups.list_groups"];
         put?: never;
-        /** Create Group */
-        post: operations["create_group_api_v1_groups__post"];
+        /** Create a new group */
+        post: operations["groups.create_group"];
         delete?: never;
         options?: never;
         head?: never;
@@ -186,16 +186,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Group */
-        get: operations["get_group_api_v1_groups__group_id__get"];
+        /** View a group's details */
+        get: operations["groups.get_group"];
         put?: never;
         post?: never;
-        /** Delete Group */
-        delete: operations["delete_group_api_v1_groups__group_id__delete"];
+        /** Delete a group */
+        delete: operations["groups.delete_group"];
         options?: never;
         head?: never;
-        /** Update Group */
-        patch: operations["update_group_api_v1_groups__group_id__patch"];
+        /** Change a group's details */
+        patch: operations["groups.update_group"];
         trace?: never;
     };
     "/api/v1/groups/{group_id}/members": {
@@ -205,11 +205,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Members */
-        get: operations["list_members_api_v1_groups__group_id__members_get"];
+        /** List who belongs to a group */
+        get: operations["groups.list_members"];
         put?: never;
-        /** Add Member */
-        post: operations["add_member_api_v1_groups__group_id__members_post"];
+        /** Add someone to a group */
+        post: operations["groups.add_member"];
         delete?: never;
         options?: never;
         head?: never;
@@ -226,8 +226,8 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Remove Member */
-        delete: operations["remove_member_api_v1_groups__group_id__members__user_id__delete"];
+        /** Remove someone from a group */
+        delete: operations["groups.remove_member"];
         options?: never;
         head?: never;
         patch?: never;
@@ -240,11 +240,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Journals */
-        get: operations["list_journals_api_v1_journals__get"];
+        /** List every journal entry you can see */
+        get: operations["journals.list_journals"];
         put?: never;
-        /** Create Journal */
-        post: operations["create_journal_api_v1_journals__post"];
+        /** Write a new journal entry */
+        post: operations["journals.create_journal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -258,16 +258,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Journal */
-        get: operations["get_journal_api_v1_journals__journal_id__get"];
+        /** View a journal entry */
+        get: operations["journals.get_journal"];
         put?: never;
         post?: never;
-        /** Delete Journal */
-        delete: operations["delete_journal_api_v1_journals__journal_id__delete"];
+        /** Delete a journal entry */
+        delete: operations["journals.delete_journal"];
         options?: never;
         head?: never;
-        /** Update Journal */
-        patch: operations["update_journal_api_v1_journals__journal_id__patch"];
+        /** Edit a journal entry */
+        patch: operations["journals.update_journal"];
         trace?: never;
     };
     "/api/v1/me/": {
@@ -277,8 +277,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Me */
-        get: operations["me_api_v1_me__get"];
+        /** View your own profile */
+        get: operations["auth.me"];
         put?: never;
         post?: never;
         delete?: never;
@@ -294,11 +294,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Notes */
-        get: operations["list_notes_api_v1_notes__get"];
+        /** List every note */
+        get: operations["notes.list_notes"];
         put?: never;
-        /** Create Note */
-        post: operations["create_note_api_v1_notes__post"];
+        /** Write a new note */
+        post: operations["notes.create_note"];
         delete?: never;
         options?: never;
         head?: never;
@@ -312,16 +312,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Note */
-        get: operations["get_note_api_v1_notes__note_id__get"];
+        /** View a note */
+        get: operations["notes.get_note"];
         put?: never;
         post?: never;
-        /** Delete Note */
-        delete: operations["delete_note_api_v1_notes__note_id__delete"];
+        /** Delete a note */
+        delete: operations["notes.delete_note"];
         options?: never;
         head?: never;
-        /** Update Note */
-        patch: operations["update_note_api_v1_notes__note_id__patch"];
+        /** Edit a note */
+        patch: operations["notes.update_note"];
         trace?: never;
     };
     "/api/v1/oidc/{provider}/authorize": {
@@ -331,8 +331,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Authorize */
-        get: operations["authorize_api_v1_oidc__provider__authorize_get"];
+        /** Start signing in with an external login provider */
+        get: operations["oidc.authorize"];
         put?: never;
         post?: never;
         delete?: never;
@@ -350,8 +350,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Callback */
-        post: operations["callback_api_v1_oidc__provider__callback_post"];
+        /** Finish signing in after the external login provider redirects back */
+        post: operations["oidc.callback"];
         delete?: never;
         options?: never;
         head?: never;
@@ -365,11 +365,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Projects */
-        get: operations["list_projects_api_v1_projects__get"];
+        /** List every project */
+        get: operations["projects.list_projects"];
         put?: never;
-        /** Create Project */
-        post: operations["create_project_api_v1_projects__post"];
+        /** Start a new project */
+        post: operations["projects.create_project"];
         delete?: never;
         options?: never;
         head?: never;
@@ -383,16 +383,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Project */
-        get: operations["get_project_api_v1_projects__item_id__get"];
+        /** View a project */
+        get: operations["projects.get_project"];
         put?: never;
         post?: never;
-        /** Delete Project */
-        delete: operations["delete_project_api_v1_projects__item_id__delete"];
+        /** Delete a project */
+        delete: operations["projects.delete_project"];
         options?: never;
         head?: never;
-        /** Update Project */
-        patch: operations["update_project_api_v1_projects__item_id__patch"];
+        /** Edit a project */
+        patch: operations["projects.update_project"];
         trace?: never;
     };
     "/api/v1/realtime/sse/{channel_name}": {
@@ -402,8 +402,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Subscribe Sse */
-        get: operations["subscribe_sse_api_v1_realtime_sse__channel_name__get"];
+        /** Start streaming live updates for one channel */
+        get: operations["realtime.subscribe_sse"];
         put?: never;
         post?: never;
         delete?: never;
@@ -421,8 +421,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Mint Ticket */
-        post: operations["mint_ticket_api_v1_realtime_tickets_post"];
+        /** Create a short-lived pass that lets someone open a live connection */
+        post: operations["realtime.mint_ticket"];
         delete?: never;
         options?: never;
         head?: never;
@@ -436,11 +436,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Tasks */
-        get: operations["list_tasks_api_v1_tasks__get"];
+        /** List every task */
+        get: operations["tasks.list_tasks"];
         put?: never;
-        /** Create Task */
-        post: operations["create_task_api_v1_tasks__post"];
+        /** Add a new task */
+        post: operations["tasks.create_task"];
         delete?: never;
         options?: never;
         head?: never;
@@ -454,16 +454,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Task */
-        get: operations["get_task_api_v1_tasks__task_id__get"];
+        /** View a task */
+        get: operations["tasks.get_task"];
         put?: never;
         post?: never;
-        /** Delete Task */
-        delete: operations["delete_task_api_v1_tasks__task_id__delete"];
+        /** Delete a task */
+        delete: operations["tasks.delete_task"];
         options?: never;
         head?: never;
-        /** Update Task */
-        patch: operations["update_task_api_v1_tasks__task_id__patch"];
+        /** Edit a task */
+        patch: operations["tasks.update_task"];
         trace?: never;
     };
     "/api/v1/users/": {
@@ -473,11 +473,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Users */
-        get: operations["list_users_api_v1_users__get"];
+        /** List every user account */
+        get: operations["users.list_users"];
         put?: never;
-        /** Provision User */
-        post: operations["provision_user_api_v1_users__post"];
+        /** Create a new user account */
+        post: operations["users.provision_user"];
         delete?: never;
         options?: never;
         head?: never;
@@ -491,15 +491,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get User */
-        get: operations["get_user_api_v1_users__user_id__get"];
+        /** View a user account's details */
+        get: operations["users.get_user"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** Update User */
-        patch: operations["update_user_api_v1_users__user_id__patch"];
+        /** Change a user account's details */
+        patch: operations["users.update_user"];
         trace?: never;
     };
     "/api/v1/users/{user_id}/deactivate": {
@@ -511,8 +511,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Deactivate User */
-        post: operations["deactivate_user_api_v1_users__user_id__deactivate_post"];
+        /** Disable a user account without deleting it */
+        post: operations["users.deactivate_user"];
         delete?: never;
         options?: never;
         head?: never;
@@ -528,8 +528,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reactivate User */
-        post: operations["reactivate_user_api_v1_users__user_id__reactivate_post"];
+        /** Re-enable a disabled user account */
+        post: operations["users.reactivate_user"];
         delete?: never;
         options?: never;
         head?: never;
@@ -545,8 +545,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reset User Password */
-        post: operations["reset_user_password_api_v1_users__user_id__reset_password_post"];
+        /** Set a new password for a user */
+        post: operations["users.reset_user_password"];
         delete?: never;
         options?: never;
         head?: never;
@@ -560,8 +560,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Webhook Deliveries */
-        get: operations["list_webhook_deliveries_api_v1_webhooks_deliveries_get"];
+        /** List the delivery attempts made to subscribed webhooks */
+        get: operations["webhooks.list_webhook_deliveries"];
         put?: never;
         post?: never;
         delete?: never;
@@ -577,11 +577,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Subscriptions */
-        get: operations["list_subscriptions_api_v1_webhooks_subscriptions_get"];
+        /** List every webhook subscription */
+        get: operations["webhooks.list_subscriptions"];
         put?: never;
-        /** Create Subscription */
-        post: operations["create_subscription_api_v1_webhooks_subscriptions_post"];
+        /** Add a new webhook subscription */
+        post: operations["webhooks.create_subscription"];
         delete?: never;
         options?: never;
         head?: never;
@@ -595,16 +595,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Subscription */
-        get: operations["get_subscription_api_v1_webhooks_subscriptions__subscription_id__get"];
+        /** View a webhook subscription's details */
+        get: operations["webhooks.get_subscription"];
         put?: never;
         post?: never;
-        /** Delete Subscription */
-        delete: operations["delete_subscription_api_v1_webhooks_subscriptions__subscription_id__delete"];
+        /** Delete a webhook subscription */
+        delete: operations["webhooks.delete_subscription"];
         options?: never;
         head?: never;
-        /** Update Subscription */
-        patch: operations["update_subscription_api_v1_webhooks_subscriptions__subscription_id__patch"];
+        /** Edit a webhook subscription's details */
+        patch: operations["webhooks.update_subscription"];
         trace?: never;
     };
     "/health/live": {
@@ -1466,7 +1466,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    list_grants_api_v1_access_grants_get: {
+    "access.list_grants": {
         parameters: {
             query: {
                 subject_id: string;
@@ -1501,7 +1501,7 @@ export interface operations {
             };
         };
     };
-    create_grant_api_v1_access_grants_post: {
+    "access.create_grant": {
         parameters: {
             query?: never;
             header?: never;
@@ -1534,7 +1534,7 @@ export interface operations {
             };
         };
     };
-    delete_grant_api_v1_access_grants__grant_id__delete: {
+    "access.delete_grant": {
         parameters: {
             query?: never;
             header?: never;
@@ -1563,7 +1563,7 @@ export interface operations {
             };
         };
     };
-    list_events_api_v1_audit__get: {
+    "audit.list_events": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -1597,7 +1597,7 @@ export interface operations {
             };
         };
     };
-    login_api_v1_auth_login_post: {
+    "auth.login": {
         parameters: {
             query?: never;
             header?: never;
@@ -1630,7 +1630,7 @@ export interface operations {
             };
         };
     };
-    logout_api_v1_auth_logout_post: {
+    "auth.logout": {
         parameters: {
             query?: never;
             header?: never;
@@ -1648,7 +1648,7 @@ export interface operations {
             };
         };
     };
-    refresh_api_v1_auth_refresh_post: {
+    "auth.refresh": {
         parameters: {
             query?: never;
             header?: never;
@@ -1668,7 +1668,7 @@ export interface operations {
             };
         };
     };
-    list_files_api_v1_files__get: {
+    "files.list_files": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -1702,7 +1702,7 @@ export interface operations {
             };
         };
     };
-    upload_file_api_v1_files__post: {
+    "files.upload_file": {
         parameters: {
             query?: never;
             header?: never;
@@ -1722,7 +1722,7 @@ export interface operations {
             };
         };
     };
-    get_file_api_v1_files__file_id__get: {
+    "files.get_file": {
         parameters: {
             query?: never;
             header?: never;
@@ -1753,7 +1753,7 @@ export interface operations {
             };
         };
     };
-    delete_file_api_v1_files__file_id__delete: {
+    "files.delete": {
         parameters: {
             query?: never;
             header?: never;
@@ -1782,7 +1782,7 @@ export interface operations {
             };
         };
     };
-    update_file_api_v1_files__file_id__patch: {
+    "files.update_file": {
         parameters: {
             query?: never;
             header?: never;
@@ -1817,7 +1817,7 @@ export interface operations {
             };
         };
     };
-    download_file_api_v1_files__file_id__content_get: {
+    "files.download_file": {
         parameters: {
             query?: never;
             header?: never;
@@ -1848,7 +1848,7 @@ export interface operations {
             };
         };
     };
-    list_groups_api_v1_groups__get: {
+    "groups.list_groups": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -1882,7 +1882,7 @@ export interface operations {
             };
         };
     };
-    create_group_api_v1_groups__post: {
+    "groups.create_group": {
         parameters: {
             query?: never;
             header?: never;
@@ -1915,7 +1915,7 @@ export interface operations {
             };
         };
     };
-    get_group_api_v1_groups__group_id__get: {
+    "groups.get_group": {
         parameters: {
             query?: never;
             header?: never;
@@ -1946,7 +1946,7 @@ export interface operations {
             };
         };
     };
-    delete_group_api_v1_groups__group_id__delete: {
+    "groups.delete_group": {
         parameters: {
             query?: never;
             header?: never;
@@ -1975,7 +1975,7 @@ export interface operations {
             };
         };
     };
-    update_group_api_v1_groups__group_id__patch: {
+    "groups.update_group": {
         parameters: {
             query?: never;
             header?: never;
@@ -2010,7 +2010,7 @@ export interface operations {
             };
         };
     };
-    list_members_api_v1_groups__group_id__members_get: {
+    "groups.list_members": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -2046,7 +2046,7 @@ export interface operations {
             };
         };
     };
-    add_member_api_v1_groups__group_id__members_post: {
+    "groups.add_member": {
         parameters: {
             query?: never;
             header?: never;
@@ -2081,7 +2081,7 @@ export interface operations {
             };
         };
     };
-    remove_member_api_v1_groups__group_id__members__user_id__delete: {
+    "groups.remove_member": {
         parameters: {
             query?: never;
             header?: never;
@@ -2111,7 +2111,7 @@ export interface operations {
             };
         };
     };
-    list_journals_api_v1_journals__get: {
+    "journals.list_journals": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -2145,7 +2145,7 @@ export interface operations {
             };
         };
     };
-    create_journal_api_v1_journals__post: {
+    "journals.create_journal": {
         parameters: {
             query?: never;
             header?: never;
@@ -2178,7 +2178,7 @@ export interface operations {
             };
         };
     };
-    get_journal_api_v1_journals__journal_id__get: {
+    "journals.get_journal": {
         parameters: {
             query?: never;
             header?: never;
@@ -2209,7 +2209,7 @@ export interface operations {
             };
         };
     };
-    delete_journal_api_v1_journals__journal_id__delete: {
+    "journals.delete_journal": {
         parameters: {
             query?: never;
             header?: never;
@@ -2238,7 +2238,7 @@ export interface operations {
             };
         };
     };
-    update_journal_api_v1_journals__journal_id__patch: {
+    "journals.update_journal": {
         parameters: {
             query?: never;
             header?: never;
@@ -2273,7 +2273,7 @@ export interface operations {
             };
         };
     };
-    me_api_v1_me__get: {
+    "auth.me": {
         parameters: {
             query?: never;
             header?: never;
@@ -2293,7 +2293,7 @@ export interface operations {
             };
         };
     };
-    list_notes_api_v1_notes__get: {
+    "notes.list_notes": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -2327,7 +2327,7 @@ export interface operations {
             };
         };
     };
-    create_note_api_v1_notes__post: {
+    "notes.create_note": {
         parameters: {
             query?: never;
             header?: never;
@@ -2360,7 +2360,7 @@ export interface operations {
             };
         };
     };
-    get_note_api_v1_notes__note_id__get: {
+    "notes.get_note": {
         parameters: {
             query?: never;
             header?: never;
@@ -2391,7 +2391,7 @@ export interface operations {
             };
         };
     };
-    delete_note_api_v1_notes__note_id__delete: {
+    "notes.delete_note": {
         parameters: {
             query?: never;
             header?: never;
@@ -2420,7 +2420,7 @@ export interface operations {
             };
         };
     };
-    update_note_api_v1_notes__note_id__patch: {
+    "notes.update_note": {
         parameters: {
             query?: never;
             header?: never;
@@ -2455,7 +2455,7 @@ export interface operations {
             };
         };
     };
-    authorize_api_v1_oidc__provider__authorize_get: {
+    "oidc.authorize": {
         parameters: {
             query?: never;
             header?: never;
@@ -2486,7 +2486,7 @@ export interface operations {
             };
         };
     };
-    callback_api_v1_oidc__provider__callback_post: {
+    "oidc.callback": {
         parameters: {
             query?: never;
             header?: never;
@@ -2521,7 +2521,7 @@ export interface operations {
             };
         };
     };
-    list_projects_api_v1_projects__get: {
+    "projects.list_projects": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -2555,7 +2555,7 @@ export interface operations {
             };
         };
     };
-    create_project_api_v1_projects__post: {
+    "projects.create_project": {
         parameters: {
             query?: never;
             header?: never;
@@ -2588,7 +2588,7 @@ export interface operations {
             };
         };
     };
-    get_project_api_v1_projects__item_id__get: {
+    "projects.get_project": {
         parameters: {
             query?: never;
             header?: never;
@@ -2619,7 +2619,7 @@ export interface operations {
             };
         };
     };
-    delete_project_api_v1_projects__item_id__delete: {
+    "projects.delete_project": {
         parameters: {
             query?: never;
             header?: never;
@@ -2648,7 +2648,7 @@ export interface operations {
             };
         };
     };
-    update_project_api_v1_projects__item_id__patch: {
+    "projects.update_project": {
         parameters: {
             query?: never;
             header?: never;
@@ -2683,7 +2683,7 @@ export interface operations {
             };
         };
     };
-    subscribe_sse_api_v1_realtime_sse__channel_name__get: {
+    "realtime.subscribe_sse": {
         parameters: {
             query: {
                 ticket: string;
@@ -2714,7 +2714,7 @@ export interface operations {
             };
         };
     };
-    mint_ticket_api_v1_realtime_tickets_post: {
+    "realtime.mint_ticket": {
         parameters: {
             query?: never;
             header?: never;
@@ -2747,7 +2747,7 @@ export interface operations {
             };
         };
     };
-    list_tasks_api_v1_tasks__get: {
+    "tasks.list_tasks": {
         parameters: {
             query?: {
                 status?: string | null;
@@ -2782,7 +2782,7 @@ export interface operations {
             };
         };
     };
-    create_task_api_v1_tasks__post: {
+    "tasks.create_task": {
         parameters: {
             query?: never;
             header?: never;
@@ -2815,7 +2815,7 @@ export interface operations {
             };
         };
     };
-    get_task_api_v1_tasks__task_id__get: {
+    "tasks.get_task": {
         parameters: {
             query?: never;
             header?: never;
@@ -2846,7 +2846,7 @@ export interface operations {
             };
         };
     };
-    delete_task_api_v1_tasks__task_id__delete: {
+    "tasks.delete_task": {
         parameters: {
             query?: never;
             header?: never;
@@ -2875,7 +2875,7 @@ export interface operations {
             };
         };
     };
-    update_task_api_v1_tasks__task_id__patch: {
+    "tasks.update_task": {
         parameters: {
             query?: never;
             header?: never;
@@ -2910,7 +2910,7 @@ export interface operations {
             };
         };
     };
-    list_users_api_v1_users__get: {
+    "users.list_users": {
         parameters: {
             query?: {
                 /** @description Filter to users whose email contains this text (case-insensitive). */
@@ -2946,7 +2946,7 @@ export interface operations {
             };
         };
     };
-    provision_user_api_v1_users__post: {
+    "users.provision_user": {
         parameters: {
             query?: never;
             header?: never;
@@ -2979,7 +2979,7 @@ export interface operations {
             };
         };
     };
-    get_user_api_v1_users__user_id__get: {
+    "users.get_user": {
         parameters: {
             query?: never;
             header?: never;
@@ -3010,7 +3010,7 @@ export interface operations {
             };
         };
     };
-    update_user_api_v1_users__user_id__patch: {
+    "users.update_user": {
         parameters: {
             query?: never;
             header?: never;
@@ -3045,7 +3045,7 @@ export interface operations {
             };
         };
     };
-    deactivate_user_api_v1_users__user_id__deactivate_post: {
+    "users.deactivate_user": {
         parameters: {
             query?: never;
             header?: never;
@@ -3076,7 +3076,7 @@ export interface operations {
             };
         };
     };
-    reactivate_user_api_v1_users__user_id__reactivate_post: {
+    "users.reactivate_user": {
         parameters: {
             query?: never;
             header?: never;
@@ -3107,7 +3107,7 @@ export interface operations {
             };
         };
     };
-    reset_user_password_api_v1_users__user_id__reset_password_post: {
+    "users.reset_user_password": {
         parameters: {
             query?: never;
             header?: never;
@@ -3142,7 +3142,7 @@ export interface operations {
             };
         };
     };
-    list_webhook_deliveries_api_v1_webhooks_deliveries_get: {
+    "webhooks.list_webhook_deliveries": {
         parameters: {
             query?: {
                 subscription_id?: string | null;
@@ -3177,7 +3177,7 @@ export interface operations {
             };
         };
     };
-    list_subscriptions_api_v1_webhooks_subscriptions_get: {
+    "webhooks.list_subscriptions": {
         parameters: {
             query?: {
                 /** @description Rows to skip. */
@@ -3211,7 +3211,7 @@ export interface operations {
             };
         };
     };
-    create_subscription_api_v1_webhooks_subscriptions_post: {
+    "webhooks.create_subscription": {
         parameters: {
             query?: never;
             header?: never;
@@ -3244,7 +3244,7 @@ export interface operations {
             };
         };
     };
-    get_subscription_api_v1_webhooks_subscriptions__subscription_id__get: {
+    "webhooks.get_subscription": {
         parameters: {
             query?: never;
             header?: never;
@@ -3275,7 +3275,7 @@ export interface operations {
             };
         };
     };
-    delete_subscription_api_v1_webhooks_subscriptions__subscription_id__delete: {
+    "webhooks.delete_subscription": {
         parameters: {
             query?: never;
             header?: never;
@@ -3304,7 +3304,7 @@ export interface operations {
             };
         };
     };
-    update_subscription_api_v1_webhooks_subscriptions__subscription_id__patch: {
+    "webhooks.update_subscription": {
         parameters: {
             query?: never;
             header?: never;

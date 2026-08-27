@@ -23,6 +23,8 @@ from starlette.requests import Request
 from starlette.websockets import WebSocketDisconnect
 
 from terp.capabilities.realtime import (
+    REALTIME_MINT_TICKET,
+    REALTIME_SUBSCRIBE_SSE,
     BackpressureError,
     ConnectionTicket,
     InMemoryConnectionTicketStore,
@@ -60,6 +62,8 @@ from terp.core import AuthorizationRequirement
 from terp.core import (
     EDITOR,
     VIEWER,
+    ControlPlane,
+    OperationCatalog,
     Permission,
     PermissionDeniedError,
     Principal,
@@ -782,7 +786,15 @@ def _app(principal: Principal):
         with Session(engine) as session:
             yield session
 
-    app = create_app([module], discover_capabilities=False)
+    app = create_app(
+        [module],
+        discover_capabilities=False,
+        control_plane=ControlPlane(
+            operations=OperationCatalog(
+                operations=(REALTIME_MINT_TICKET, REALTIME_SUBSCRIBE_SSE)
+            )
+        ),
+    )
     app.dependency_overrides[get_principal] = lambda: principal
     app.dependency_overrides[get_session] = session_override
     configure_realtime(message_session_provider=session_override)

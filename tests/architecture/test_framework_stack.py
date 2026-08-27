@@ -24,6 +24,8 @@ from starlette.middleware import Middleware
 
 from terp.core import (
     AuthenticationError,
+    ControlPlane,
+    OperationCatalog,
     PermissionDeniedError,
     Roles,
     create_app,
@@ -35,15 +37,61 @@ from terp.core._internal.session_guard import WriteGuardedSession
 import terp.capabilities.access.models  # noqa: F401  (register Grant table)
 import terp.capabilities.audit.models  # noqa: F401  (register AuditEvent table)
 import terp.capabilities.identity.models  # noqa: F401  (register User table)
-from terp.capabilities.access import AccessService, enforce_permission, require_permission
-from terp.capabilities.audit import persist_audit
-from terp.capabilities.auth import build_login_module, create_access_token, tenant_from_bearer
+from terp.capabilities.access import (
+    ACCESS_CREATE_GRANT,
+    ACCESS_DELETE_GRANT,
+    ACCESS_LIST_GRANTS,
+    AccessService,
+    enforce_permission,
+    require_permission,
+)
+from terp.capabilities.audit import AUDIT_LIST_EVENTS, persist_audit
+from terp.capabilities.auth import (
+    AUTH_LOGIN,
+    AUTH_LOGOUT,
+    build_login_module,
+    create_access_token,
+    tenant_from_bearer,
+)
 from terp.capabilities.identity import IdentityService
 from terp.capabilities.tenancy import TenantMiddleware
-from terp.capabilities.users import UserProvision, UsersService
+from terp.capabilities.users import (
+    USERS_DEACTIVATE,
+    USERS_GET,
+    USERS_LIST,
+    USERS_PROVISION,
+    USERS_REACTIVATE,
+    USERS_RESET_PASSWORD,
+    USERS_UPDATE,
+    UserProvision,
+    UsersService,
+)
 from terp.capabilities.users.router import module as users_module
 from terp.capabilities.access.router import module as access_module
 from terp.capabilities.audit.router import module as audit_module
+
+# This suite's own operation catalog: exactly the operations the four mounted
+# modules (login, users, access, audit) declare on their routes (ADR 0102). The
+# no-drift half of that control is unconditional -- a mounted route that declares
+# an operation absent from the catalog fails the boot regardless of coverage --
+# so this fixture needs it even though the suite itself is not testing operations.
+_OPERATIONS = OperationCatalog(
+    operations=(
+        AUTH_LOGIN,
+        AUTH_LOGOUT,
+        USERS_LIST,
+        USERS_PROVISION,
+        USERS_GET,
+        USERS_UPDATE,
+        USERS_DEACTIVATE,
+        USERS_REACTIVATE,
+        USERS_RESET_PASSWORD,
+        ACCESS_LIST_GRANTS,
+        ACCESS_CREATE_GRANT,
+        ACCESS_DELETE_GRANT,
+        AUDIT_LIST_EVENTS,
+    )
+)
 
 _PASSWORD = "correct horse battery"  # 12+ chars, 2 classes; satisfies the default policy
 settings.SECRET_KEY = "terp-framework-stack-secret-key-0123456789ab"
@@ -83,6 +131,7 @@ def app(engine: Engine) -> Iterator[FastAPI]:
         audit_sink=persist_audit,
         permission_enforcer=enforce_permission,
         middleware=[Middleware(TenantMiddleware, resolve_tenant=tenant_from_bearer)],
+        control_plane=ControlPlane(operations=_OPERATIONS),
     )
 
     def _session() -> Iterator[Session]:

@@ -703,6 +703,26 @@ def test_a_declared_operation_populates_openapi_summary_and_operation_id() -> No
     assert plain_get_op["operationId"] != "files.delete"
 
 
+def test_applying_a_declared_operation_twice_over_the_same_router_is_not_a_conflict() -> None:
+    """create_app is routinely called more than once over the same router objects.
+
+    A module's router is built once at import time (module-level `router =
+    APIRouter()`); `create_app` mounting it twice in one process (the example app's
+    full profile and base profile both boot from the same capability routers, and
+    so does any test suite that builds the same app more than once) must not treat
+    the summary THIS control itself set on the first call as a hand-written
+    conflict on the second. A regression here is a boot failure on the *second*
+    `create_app` call only — the first alone would not have caught it.
+    """
+    spec = ModuleSpec(
+        name="files", router=_declaring_router(_FILES_DELETE), policy=Policy.default()
+    )
+    plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
+    create_app([spec], control_plane=plane)  # first call: applies the label
+    app = create_app([spec], control_plane=plane)  # second call: must not re-raise
+    assert app.openapi()["paths"]["/api/v1/files/"]["get"]["summary"] == "Delete a file"
+
+
 def test_a_hand_written_summary_beside_a_declared_operation_is_refused() -> None:
     """Two answers to the same promise (ADR 0102 S4), refused at boot.
 

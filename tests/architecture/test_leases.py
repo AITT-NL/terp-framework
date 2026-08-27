@@ -47,6 +47,7 @@ from terp.core import (
     LeaseLostError,
     LeaseResource,
     LeaseStore,
+    OperationCatalog,
     Principal,
     Roles,
     acquire_lease,
@@ -81,6 +82,10 @@ from terp.core.runtime import capture_runtimes, reset_runtimes, restore_runtimes
 from terp.capabilities.leases import (
     holder_module,
     LEASE_REAP,
+    LEASES_HEARTBEAT,
+    LEASES_LIST,
+    LEASES_LIST_EXPIRED,
+    LEASES_REAP,
     DatabaseLeaseStore,
     LeaseReapPayload,
     ReapResult,
@@ -894,7 +899,12 @@ def _client(engine: object) -> TestClient:
     app: FastAPI = create_app(
         [leases_module],
         principal_provider=lambda: _ADMIN,
-        control_plane=ControlPlane(jobs=JobCatalog([LEASE_REAP])),
+        control_plane=ControlPlane(
+            jobs=JobCatalog([LEASE_REAP]),
+            operations=OperationCatalog(
+                operations=(LEASES_LIST, LEASES_LIST_EXPIRED, LEASES_REAP)
+            ),
+        ),
     )
 
     def _session_override() -> Iterator[Session]:
@@ -1213,6 +1223,9 @@ def _holder_client(
         [holder_module(resolve_holder=lambda _principal: acting_as)],
         principal_provider=lambda: _WORKER,
         lease_store=store,
+        control_plane=ControlPlane(
+            operations=OperationCatalog(operations=(LEASES_HEARTBEAT,))
+        ),
     )
 
     def _session_override() -> Iterator[Session]:
