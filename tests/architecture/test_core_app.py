@@ -672,3 +672,54 @@ def test_operation_refuses_an_argument_that_is_not_a_definition() -> None:
         operation("files.delete")
     with pytest.raises(TypeError, match="OperationDefinition"):
         operation(None)
+
+
+def test_a_declared_operation_populates_openapi_summary_and_operation_id() -> None:
+    """ADR 0102 phase 4: the declaration feeds a second reader, the exported document.
+
+    Asserted against the real generated schema (app.openapi()), not the route object,
+    because that is what a generated client or terp openapi actually sees, and because
+    FastAPI reads both fields live at schema-generation time rather than from a value
+    cached at route construction -- asserting on the route object would pass even if
+    that laziness broke.
+    """
+    spec = ModuleSpec(
+        name="files", router=_declaring_router(_FILES_DELETE), policy=Policy.default()
+    )
+    plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
+    app = create_app([spec], control_plane=plane)
+    get_op = app.openapi()["paths"]["/api/v1/files/"]["get"]
+    assert get_op["summary"] == "Delete a file"
+    assert get_op["operationId"] == "files.delete"
+
+    # A route that declares nothing is untouched: FastAPI's own generated fallback,
+    # not something this control invented for it.
+    plain_spec = ModuleSpec(
+        name="files", router=_declaring_router(None), policy=Policy.default()
+    )
+    plain_app = create_app([plain_spec], control_plane=ControlPlane())
+    plain_get_op = plain_app.openapi()["paths"]["/api/v1/files/"]["get"]
+    assert plain_get_op["summary"] != "Delete a file"
+    assert plain_get_op["operationId"] != "files.delete"
+
+
+def test_a_hand_written_summary_beside_a_declared_operation_is_refused() -> None:
+    """Two answers to the same promise (ADR 0102 S4), refused at boot.
+
+    Mirrors the refusal declared_read_only_routes_do_not_write names for @read_only
+    plus a write in the same handler: the mere presence of the second answer is the
+    defect, independent of whether the two summaries happen to agree.
+    """
+    from terp.core import operation
+
+    router = APIRouter()
+
+    @router.get("/", response_model=str, summary="Remove the file for good")
+    @operation(_FILES_DELETE)
+    def delete() -> str:
+        return "x"
+
+    spec = ModuleSpec(name="files", router=router, policy=Policy.default())
+    plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
+    with pytest.raises(BootError, match="two answers to the same promise"):
+        create_app([spec], control_plane=plane)

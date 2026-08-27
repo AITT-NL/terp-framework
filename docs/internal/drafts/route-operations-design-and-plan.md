@@ -159,12 +159,35 @@ before it was right: the probe set `colorScheme` while this Studio themes on `ht
 so both runs had measured the dark palette; with that fixed it showed the action and the subline
 both computed to 12px, so the hierarchy rested on colour alone until the action was raised a step.
 
-## Phase 4 — OpenAPI, so the field has a second reader
+## Phase 4 — OpenAPI, so the field has a second reader — DONE
 
-- [ ] **4.1** A declared operation populates the route's `summary` and `operation_id`.
-- [ ] **4.2** Refuse a hand-written `summary=` on a route that declares an operation — two answers
-      to the same promise.
-- [ ] **4.3** Regenerate any checked-in OpenAPI artifacts and confirm the drift checks pass.
+- [x] **4.1** A declared operation populates the route's `summary` and `operation_id`.
+      `create_app`'s new `_apply_declared_operations` walks the same routes
+      `_validate_declared_operations` already confirmed against the catalog, and sets
+      `route.summary` / `route.operation_id` from the declaration. Measured, not assumed:
+      FastAPI's OpenAPI generator (`fastapi.openapi.utils.generate_operation_summary` /
+      `get_openapi_operation_metadata`) reads both fields **live** at schema-generation
+      time rather than a value cached at route construction, and `include_router` keeps
+      a mounted router's original `APIRoute` objects rather than cloning them — so
+      mutating them before a spec's router is ever mounted reaches the exported document
+      unchanged either way. Only `APIRoute` carries these fields in OpenAPI; a declared
+      operation on a WebSocket route stays validated (no-drift, coverage) but has
+      nothing here to populate.
+- [x] **4.2** Refuse a hand-written `summary=` on a route that declares an operation — two answers
+      to the same promise. Boot-time only for now (no paired `terp.arch` rule; the two
+      new Standard rules phase 6 adds are about catalog membership and coverage, not
+      this).
+- [x] **4.3** Regenerate any checked-in OpenAPI artifacts and confirm the drift checks pass.
+      Nothing to regenerate: the example app declares no operations yet (that is phase 5),
+      so `test_openapi_contract` / `test_cli_openapi` pass unchanged, confirming this
+      phase is a no-op until routes actually declare something.
+
+*Gates:* two new tests in `test_core_app.py`, both mutation-checked — dropping the
+`route.summary` / `route.operation_id` assignment turns the populate test red
+(`assert 'Read' == 'Delete a file'`, FastAPI's own name-derived fallback surfacing);
+disabling the refusal turns the hand-written-summary test red (`DID NOT RAISE BootError`).
+Full suite green, ruff clean, vendored `terp.core` mirror resynced (this phase touches
+`packages/backend/core`).
 
 ## Phase 5 — annotate the framework
 

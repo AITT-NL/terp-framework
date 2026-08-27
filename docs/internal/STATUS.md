@@ -423,7 +423,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 Two threads are in flight. Detail lives in the linked plan and ADRs; this is the
 index, so nothing is tracked only in a commit message.
 
-Phase 1 (1.1–1.5), 2 and 3 are shipped; phases 4–6 remain open.
+Phases 1–4 are shipped; phases 5 and 6 remain open.
 
 **Route operations** — decided in
 [ADR 0102](../decisions/0102-route-operations-are-declared.md), sequenced in
@@ -466,8 +466,13 @@ endpoint *does* and the platform can guarantee every route is explained.
       amendment). The row reads as one sentence, the wording comes from the declared
       operation or is derived-and-marked, and method/path/requirement are demoted
       rather than removed. Verified in Chromium in both themes.
-- [ ] Phase 4 — the operation feeds OpenAPI `summary` / `operation_id`, giving the
-      declaration a second reader.
+- [x] Phase 4 — the operation feeds OpenAPI `summary` / `operation_id`, giving the
+      declaration a second reader. `create_app`'s new `_apply_declared_operations`
+      mutates the same routes `_validate_declared_operations` already checked against
+      the catalog; a hand-written `summary=` beside a declared operation now fails the
+      boot (two answers to the same promise). No checked-in artifact needed
+      regenerating — nothing declares an operation yet outside the two new tests, so
+      this phase is a no-op until phase 5 lands.
 - [ ] Phase 5 — annotate the framework's own routes, `_CLEAN_CAPS` first since those
       cannot be deferred behind a marker.
 - [ ] Phase 6 — the two Standard rules, corpus cases, then **flip the default to

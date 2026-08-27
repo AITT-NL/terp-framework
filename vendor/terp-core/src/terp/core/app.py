@@ -767,6 +767,50 @@ def _validate_declared_operations(
         )
 
 
+def _apply_declared_operations(specs: Sequence[ModuleSpec]) -> None:
+    """Populate a declaring route's OpenAPI ``summary`` / ``operation_id`` (ADR 0102 §4),
+    and refuse a hand-written ``summary=`` beside a declared operation.
+
+    Must run after :func:`_validate_declared_operations`, so every operation reaching
+    here is already confirmed to be the catalog's own entry -- this function only
+    applies it, it does not re-check membership. Only ``APIRoute`` carries
+    ``summary`` / ``operation_id`` in OpenAPI; a declared operation on a WebSocket
+    route is validated the same way but has nothing here to populate.
+
+    A hand-written ``summary=`` on a route that also declares an operation is two
+    answers to the same promise -- the same failure
+    ``declared_read_only_routes_do_not_write`` names for ``@read_only`` and a write in
+    the same handler. Refused at boot rather than left to whichever one FastAPI's
+    OpenAPI generator happens to prefer.
+
+    Both fields are read **live** by FastAPI's OpenAPI generator
+    (``fastapi.openapi.utils.generate_operation_summary`` /
+    ``get_openapi_operation_metadata`` read ``route.summary`` / ``route.operation_id``
+    at schema-generation time, not a value cached at route construction), and
+    ``include_router`` keeps a mounted router's original ``APIRoute`` objects rather
+    than cloning them -- so mutating them here, before ``create_app`` ever mounts the
+    spec's router, reaches the exported document unchanged.
+    """
+    for spec in specs:
+        if spec.router is None:
+            continue
+        for route in _iter_api_routes(spec.router.routes):
+            declared = declared_operation(route.endpoint)
+            if declared is None:
+                continue
+            if route.summary:
+                raise BootError(
+                    f"module {spec.name!r} route {route.path!r} declares operation "
+                    f"{declared.id!r} and also sets summary={route.summary!r} by hand; "
+                    "that is two answers to the same promise -- drop the hand-written "
+                    "summary= and let the declared operation's label supply it, or "
+                    "drop the operation() declaration if this route genuinely needs a "
+                    "different summary"
+                )
+            route.summary = declared.label
+            route.operation_id = declared.id
+
+
 def _validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed when a public router exposes writes without the stronger opt-out."""
     for spec in specs:
@@ -1446,6 +1490,7 @@ def create_app(
     _validate_policy_write_tiers(collected)
     _validate_public_modules_read_only(collected)
     _validate_declared_operations(collected, resolved_plane.operations)
+    _apply_declared_operations(collected)
     _validate_background_jobs_preserve_ownership(collected)
     _validate_shared_throttle_store(throttle_store, require_shared_throttle_store)
     _validate_durable_jobs(job_queue, require_durable_jobs)
