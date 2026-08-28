@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shlex
 import subprocess
 import sys
 
@@ -1690,8 +1691,30 @@ def test_the_separator_scan_answers_only_is_this_quoted() -> None:
     assert _shell_separators_in('grep -F "&&" scripts') == []
     assert _shell_separators_in('curl --url="http://h/p?a=1&b=2"') == []
     assert _shell_separators_in("terp check --package engine") == []
-    # A backslash escape is honoured inside double quotes, where a shell honours it.
-    assert _shell_separators_in('echo "a\\"&& b"') == []
+    # A backslash escapes the next character OUTSIDE quotes too, matching
+    # `shlex.split` — which is what actually builds the argv. Honouring it inside
+    # double quotes only was a fail-OPEN: a `\"` outside quotes opened a phantom
+    # quoted region that swallowed the rest of the line.
+    swallowed = 'node --eval console.log(\"hi\") && rm -rf /tmp/x'
+    assert _shell_separators_in(swallowed) == ["&&"]
+    assert "&&" in shlex.split(swallowed), "and the real argv did carry one"
+
+
+def test_the_separator_length_is_derived_not_assumed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first scan hard-coded a two-character slice, so adding a one-character
+    separator would have made it silently unmatchable with every test still
+    green."""
+    import terp.cli.verify as verify_module
+
+    monkeypatch.setattr(
+        verify_module, "_COMMAND_SEPARATORS", frozenset({"&&", "||", ";"})
+    )
+    assert verify_module._shell_separators_in("a ; b") == [";"]
+    assert verify_module._shell_separators_in("a && b") == ["&&"], (
+        "and the longer one is still read whole, not as two shorter ones"
+    )
 
 
 @pytest.mark.parametrize(

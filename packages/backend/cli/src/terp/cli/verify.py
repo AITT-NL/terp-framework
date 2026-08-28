@@ -113,20 +113,30 @@ def _shell_separators_in(command: str) -> list[str]:
     for everything after it; and matching whole argv elements missed ``a&&b``,
     where the separator is welded to its neighbours.
 
-    Fifteen lines that answer exactly one question — is this ``&&`` inside quotes?
-    — get all three right, and nothing here can be surprised by a lexer setting.
-    Backslash escaping is honoured inside double quotes only, which is where a
-    shell honours it.
+    A few lines that answer exactly one question — is this ``&&`` inside quotes? —
+    and nothing here can be surprised by a lexer setting.
+
+    A backslash escapes the next character both outside quotes and inside double
+    quotes, matching ``shlex.split``, which is what actually builds the argv.
+    Honouring it inside double quotes only was a fail-OPEN: a ``\\"`` outside
+    quotes opened a phantom quoted region that swallowed the rest of the line, so
+    ``node --eval console.log(\\"hi\\") && rm -rf /tmp/x`` was accepted while the
+    real argv carried a real ``&&``.
     """
     found: set[str] = set()
+    # Longest first, so a two-character separator is never read as a one-character
+    # one. Derived from the set rather than assumed, because the previous version
+    # hard-coded a two-character slice: adding ``;`` to the set would have made it
+    # silently unmatchable, with every existing test still green.
+    lengths = sorted({len(separator) for separator in _COMMAND_SEPARATORS}, reverse=True)
     quote: str | None = None
     index = 0
     while index < len(command):
         character = command[index]
+        if character == "\\" and (quote is None or quote == '"'):
+            index += 2  # the escaped character, whatever it is
+            continue
         if quote is not None:
-            if character == "\\" and quote == '"':
-                index += 2  # an escaped character inside double quotes
-                continue
             if character == quote:
                 quote = None
             index += 1
@@ -135,12 +145,14 @@ def _shell_separators_in(command: str) -> list[str]:
             quote = character
             index += 1
             continue
-        pair = command[index : index + 2]
-        if pair in _COMMAND_SEPARATORS:
-            found.add(pair)
-            index += 2
-            continue
-        index += 1
+        for length in lengths:
+            candidate = command[index : index + length]
+            if candidate in _COMMAND_SEPARATORS:
+                found.add(candidate)
+                index += length
+                break
+        else:
+            index += 1
     return sorted(found)
 
 
@@ -483,7 +495,9 @@ def _app_check_from(entry: object, index: int, known: frozenset[str]) -> VerifyC
             "runs as a fixed argv with no shell, so that would be passed as an "
             "argument rather than composing two commands — and the check would "
             "report the first command's verdict. Declare each command as its own "
-            "check, or put the composition in a script the check calls"
+            "check, or put the composition in a script the check calls. If it is "
+            "meant literally — an argument that really contains it — quote it, and "
+            "this stops applying"
         )
     profile = entry.get("profile")
     if profile not in PROFILES:
