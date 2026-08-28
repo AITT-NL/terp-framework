@@ -103,21 +103,45 @@ _APP_CHECK_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _COMMAND_SEPARATORS = frozenset({"&&", "||"})
 
 
-def _shell_separators_in(argv: list[str]) -> list[str]:
-    """Command separators sitting in *argv* as arguments of their own.
+def _shell_separators_in(command: str) -> list[str]:
+    """The command separators in *command* that are not inside quotes.
 
-    Judged on the argv that will actually run — the list ``_run_subprocess``
-    passes to ``subprocess.run`` with ``shell=False`` — rather than on a second
-    lexer. That was the mistake in two earlier attempts: a lexer configured
-    differently from the one that produces the argv disagrees with it, and both
-    disagreements were real. Non-POSIX lexing raised on ``-F'|'`` (a quote that
-    does not start its token), which silently disabled the guard for anything
-    following it; and it flagged the ``&`` inside a quoted URL, which is one
-    argument and always was.
+    A purpose-built scan rather than a lexer, after three attempts to borrow one
+    and three different wrong answers. ``shlex.split`` strips quotes, so a literal
+    ``grep -F '&&'`` looked like composition; non-POSIX lexing raised on a quote
+    that does not start its token (``-F'|'``), which silently disabled the guard
+    for everything after it; and matching whole argv elements missed ``a&&b``,
+    where the separator is welded to its neighbours.
 
-    Here there is only one tokenisation, and it is the one that runs.
+    Fifteen lines that answer exactly one question — is this ``&&`` inside quotes?
+    — get all three right, and nothing here can be surprised by a lexer setting.
+    Backslash escaping is honoured inside double quotes only, which is where a
+    shell honours it.
     """
-    return sorted({token for token in argv if token in _COMMAND_SEPARATORS})
+    found: set[str] = set()
+    quote: str | None = None
+    index = 0
+    while index < len(command):
+        character = command[index]
+        if quote is not None:
+            if character == "\\" and quote == '"':
+                index += 2  # an escaped character inside double quotes
+                continue
+            if character == quote:
+                quote = None
+            index += 1
+            continue
+        if character in "'\"":
+            quote = character
+            index += 1
+            continue
+        pair = command[index : index + 2]
+        if pair in _COMMAND_SEPARATORS:
+            found.add(pair)
+            index += 2
+            continue
+        index += 1
+    return sorted(found)
 
 
 @dataclass(frozen=True)
@@ -452,7 +476,7 @@ def _app_check_from(entry: object, index: int, known: frozenset[str]) -> VerifyC
     # and `b` as its arguments and report THAT verdict: a green for a check nobody
     # ran. Note what is not claimed — no shell syntax is interpreted at all, and
     # only the two unambiguous separators are refused.
-    separators = _shell_separators_in(argv)
+    separators = _shell_separators_in(command)
     if separators:
         raise _declaration_error(
             f"{check_id!r} has {', '.join(separators)} in its command, but a check "
@@ -726,7 +750,14 @@ def _node_modules_problem(root: pathlib.Path) -> str | None:
 
 
 def _run_subprocess(check: VerifyCheck, root: pathlib.Path) -> tuple[int, str]:
-    """Run one manifest command (shell-less; ``&&`` composites never land here)."""
+    """Run one manifest command as a fixed argv, with no shell.
+
+    No shell syntax is interpreted: a redirection, a pipe or a glob arrives as a
+    literal argument. A declared check carrying ``&&`` or ``||`` unquoted is
+    refused when it is read (:func:`_shell_separators_in`), because that one is
+    always a mistake; the rest fail visibly at run time, on the command's own
+    output, which is the right place for them.
+    """
     argv = shlex.split(check.command)
     if argv and argv[0] == "npm":
         problem = _node_modules_problem(root)

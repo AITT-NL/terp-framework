@@ -1675,32 +1675,37 @@ def test_dependency_hygiene_passes_a_clean_run_through(
     ), "a real finding travels unaltered; only the missing-tool case is annotated"
 
 
-def test_a_command_separator_is_refused_on_the_argv_that_actually_runs() -> None:
-    """Judged on the argv ``_run_subprocess`` passes to ``subprocess.run``, not on
-    a second lexer configured differently from the one that produces it.
-
-    Two earlier attempts used such a lexer and both disagreements were real: it
-    raised on ``-F'|'`` (a quote that does not start its token), silently
-    disabling the guard for everything after it, and it flagged the ``&`` inside a
-    quoted URL, which is one argument and always was.
-    """
+def test_the_separator_scan_answers_only_is_this_quoted() -> None:
+    """A purpose-built scan, after three attempts to borrow a lexer produced three
+    different wrong answers: ``shlex.split`` strips quotes, so a literal
+    ``grep -F '&&'`` looked like composition; non-POSIX lexing raised on a quote
+    that does not start its token, silently disabling the guard for everything
+    after it; and matching whole argv elements missed ``a&&b``."""
     from terp.cli.verify import _shell_separators_in
 
-    assert _shell_separators_in(["lint", ".", "&&", "test", "."]) == ["&&"]
-    assert _shell_separators_in(["lint", ".", "||", "true"]) == ["||"]
-    assert _shell_separators_in(["awk", "-F", "|", "-f", "c.awk"]) == []
-    assert _shell_separators_in(["curl", "--url=http://h/p?a=1&b=2"]) == []
+    assert _shell_separators_in("lint . && test .") == ["&&"]
+    assert _shell_separators_in("lint .&&test .") == ["&&"], "welding is not a hiding place"
+    assert _shell_separators_in("lint . || true") == ["||"]
+    assert _shell_separators_in("grep -F '&&' scripts") == [], "a quoted literal"
+    assert _shell_separators_in('grep -F "&&" scripts') == []
+    assert _shell_separators_in('curl --url="http://h/p?a=1&b=2"') == []
+    assert _shell_separators_in("terp check --package engine") == []
+    # A backslash escape is honoured inside double quotes, where a shell honours it.
+    assert _shell_separators_in('echo "a\\"&& b"') == []
 
 
 @pytest.mark.parametrize(
     ("command", "accepted"),
     [
         pytest.param("lint . && test .", False, id="the mistake this catches"),
+        pytest.param("lint .&&test .", False, id="welded to its neighbours"),
+        pytest.param("lint . || true", False, id="the other separator"),
         pytest.param(
             "awk -F'|' -f a.awk src && rm -rf /tmp/x",
             False,
             id="a quote that does not start its token no longer hides it",
         ),
+        pytest.param("grep -F '&&' scripts", True, id="a quoted literal separator"),
         pytest.param(
             "awk -F '|' -f check.awk src", True, id="a quoted pipe is one argument"
         ),
@@ -1719,13 +1724,11 @@ def test_a_command_separator_is_refused_on_the_argv_that_actually_runs() -> None
         pytest.param("uv run pytest -k 'not slow'", True, id="a quoted expression"),
     ],
 )
-def test_only_an_unambiguous_separator_is_refused(
-    tmp_path: pathlib.Path, command: str, accepted: bool
-) -> None:
+def test_only_an_unquoted_separator_is_refused(command: str, accepted: bool) -> None:
     """A guard whose false positives are commands people really write is worse
-    than the mistake it catches, so only ``&&`` and ``||`` are refused. Every
-    other piece of shell syntax has a legitimate bare-argument use, and no shell
-    interprets any of it here."""
+    than the mistake it catches, so only an UNQUOTED ``&&`` or ``||`` is refused.
+    No other shell syntax is interpreted at all; the rest fails visibly at run
+    time, on the command's own output."""
     from terp.cli.verify import _app_check_from
 
     entry = {
