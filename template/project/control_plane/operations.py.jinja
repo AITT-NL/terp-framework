@@ -1,0 +1,118 @@
+"""What every route does — declared once (ADR 0102).
+
+Mirrors the event and job catalogs: a route declares the operation it performs,
+and the control plane holds the one catalog those declarations are checked
+against at boot. A capability declares its own operations *inside* its package
+(it cannot reach into this app's control plane) and re-exports them; this file
+folds every capability this app mounts into the single catalog below.
+
+Add your own module's operations here as you build them, next to the
+capabilities — one place to read what this app can do, in plain English, without
+tracing HTTP verbs and paths.
+"""
+
+from __future__ import annotations
+
+from terp.core import OperationCatalog
+
+from terp.capabilities.access import (
+    ACCESS_CREATE_GRANT,
+    ACCESS_DELETE_GRANT,
+    ACCESS_LIST_GRANTS,
+)
+from terp.capabilities.audit import AUDIT_LIST_EVENTS
+from terp.capabilities.auth import (
+    AUTH_LOGIN,
+    AUTH_LOGOUT,
+    AUTH_ME,
+    AUTH_REFRESH,
+    AUTH_TOKEN,
+)
+from terp.capabilities.groups import (
+    GROUPS_ADD_MEMBER,
+    GROUPS_CREATE,
+    GROUPS_DELETE,
+    GROUPS_GET,
+    GROUPS_LIST,
+    GROUPS_LIST_MEMBERS,
+    GROUPS_REMOVE_MEMBER,
+    GROUPS_UPDATE,
+)
+from terp.capabilities.users import (
+    USERS_DEACTIVATE,
+    USERS_GET,
+    USERS_LIST,
+    USERS_PROVISION,
+    USERS_REACTIVATE,
+    USERS_RESET_PASSWORD,
+    USERS_UPDATE,
+)
+{%- if use_files %}
+from terp.capabilities.files import (
+    FILES_DELETE,
+    FILES_DOWNLOAD,
+    FILES_GET,
+    FILES_LIST,
+    FILES_UPDATE,
+    FILES_UPLOAD,
+)
+{%- endif %}
+{%- if use_sso %}
+from terp.capabilities.oidc import OIDC_AUTHORIZE, OIDC_CALLBACK
+{%- endif %}
+{%- if use_realtime %}
+from terp.capabilities.realtime import REALTIME_MINT_TICKET, REALTIME_SUBSCRIBE_SSE
+{%- endif %}
+
+operation_catalog = OperationCatalog(
+    operations=(
+        # Signing in, staying signed in, signing out.
+        AUTH_LOGIN,
+        AUTH_TOKEN,
+        AUTH_REFRESH,
+        AUTH_LOGOUT,
+        AUTH_ME,
+        # Who exists, and what they may do.
+        USERS_LIST,
+        USERS_GET,
+        USERS_PROVISION,
+        USERS_UPDATE,
+        USERS_DEACTIVATE,
+        USERS_REACTIVATE,
+        USERS_RESET_PASSWORD,
+        GROUPS_LIST,
+        GROUPS_CREATE,
+        GROUPS_GET,
+        GROUPS_UPDATE,
+        GROUPS_DELETE,
+        GROUPS_LIST_MEMBERS,
+        GROUPS_ADD_MEMBER,
+        GROUPS_REMOVE_MEMBER,
+        ACCESS_LIST_GRANTS,
+        ACCESS_CREATE_GRANT,
+        ACCESS_DELETE_GRANT,
+        # What happened.
+        AUDIT_LIST_EVENTS,
+{%- if use_files %}
+        # Attachments.
+        FILES_LIST,
+        FILES_UPLOAD,
+        FILES_GET,
+        FILES_UPDATE,
+        FILES_DOWNLOAD,
+        FILES_DELETE,
+{%- endif %}
+{%- if use_sso %}
+        # Single sign-on.
+        OIDC_AUTHORIZE,
+        OIDC_CALLBACK,
+{%- endif %}
+{%- if use_realtime %}
+        # Live updates.
+        REALTIME_SUBSCRIBE_SSE,
+        REALTIME_MINT_TICKET,
+{%- endif %}
+    )
+)
+
+__all__ = ["operation_catalog"]
