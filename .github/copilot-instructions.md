@@ -14,6 +14,10 @@ body, or a PR title or description. Describe the friction and the evidence, neve
 the reporter -- "an app whose worker speaks to a legacy database", not the
 project or the person who found it.
 
+This is a dual-context hazard, not a contributor one: it happens when one session has a
+Terp repository and an application built on Terp open at once, and a real detail gets
+quoted rather than invented.
+
 Get it right the first time. Git history keeps the original text, the commit list
 shows the original subject, and a name that reaches a published package cannot be
 edited out of it -- only the whole release can be withdrawn.

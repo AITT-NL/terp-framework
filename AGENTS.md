@@ -25,6 +25,14 @@ The evidence is what travels, and it travels just as well anonymous. A neutral
 sentence is never weaker — it is usually clearer, because it describes the
 mistake instead of the person.
 
+**When this actually happens.** Almost never from an outside contributor: they
+have no application of ours to name. It happens when one person — or one agent
+session — has a Terp repository and an application built on Terp open at the same
+time, and a detail crosses over because it was on screen: a real variable name, a
+real container, a real incident, quoted rather than invented. That is the moment
+the rule exists for. If you are working both sides, write the example; do not
+copy it.
+
 **Get it right the first time; a later scrub is incomplete by construction.**
 Git history keeps the original text, the commit list shows the original subject,
 and a name that reaches a published package cannot be edited out of it at all —
