@@ -3,6 +3,47 @@
 Instructions for **all** AI coding agents (Copilot, Claude, Cursor, Codex, …)
 working in this repository. Read this before any non‑trivial change.
 
+## These repositories are public
+
+`terp-framework` and `terp-spec` are public on GitHub, and every backend
+distribution and frontend package publishes to PyPI and npm.
+
+**Never name a downstream application, its owner, or its client in anything that
+lands here.** Not in code, comments, identifiers, tests, docs, ADRs, the
+CHANGELOG, a commit subject or body, or a PR title or description. The apps built
+on Terp belong to someone, and their names are not ours to publish.
+
+Write the *friction* and the *evidence*, never the reporter:
+
+- Wrong: "the connector app's own `ACME_API_BASE_URL: http://api:8000`"
+- Right: "the shape apps reach for most: a plain `SOME_API_BASE_URL` written
+  straight into the compose block"
+- Wrong: "reported while building Acme Portal"
+- Right: "friction reported from building two modules on Terp"
+
+The evidence is what travels, and it travels just as well anonymous. A neutral
+sentence is never weaker — it is usually clearer, because it describes the
+mistake instead of the person.
+
+**Get it right the first time; a later scrub is incomplete by construction.**
+Git history keeps the original text, the commit list shows the original subject,
+and a name that reaches a published package cannot be edited out of it at all —
+only the whole release can be withdrawn. This has already happened once and been
+cleaned up twice; both regressions came from prose written by an agent that had
+never been told.
+
+Four places it actually gets in, so check them before you commit:
+
+1. **CHANGELOG entries** — the narrative intro that explains who hit the problem.
+2. **ADR Context sections** — the same, one paragraph longer.
+3. **Commit subjects and bodies** — no file scan will ever catch these.
+4. **Test docstrings** — where a real-world example gets quoted verbatim.
+
+If you need a concrete example to make a point, invent a neutral one
+(`SOME_API_BASE_URL`, "an app whose worker speaks to a legacy database"). If you
+cannot make the point without naming someone, the point is not yet general
+enough to belong in a platform repository.
+
 ## What Terp is
 
 Terp ("Trusted Enterprise Reinforced Platform") is a secure‑by‑default,

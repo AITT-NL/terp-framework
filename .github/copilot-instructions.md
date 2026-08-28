@@ -3,6 +3,26 @@
 Instructions for AI coding agents working on the **Terp** platform itself — the
 maintained core, the opt‑in capabilities, and the enforcement harness.
 
+## These repositories are public
+
+`terp-framework` and `terp-spec` are public on GitHub, and every backend
+distribution and frontend package publishes to PyPI and npm.
+
+**Never name a downstream application, its owner, or its client** in code,
+comments, identifiers, tests, docs, ADRs, the CHANGELOG, a commit subject or
+body, or a PR title or description. Describe the friction and the evidence, never
+the reporter -- "an app whose worker speaks to a legacy database", not the
+project or the person who found it.
+
+Get it right the first time. Git history keeps the original text, the commit list
+shows the original subject, and a name that reaches a published package cannot be
+edited out of it -- only the whole release can be withdrawn.
+
+Four places it actually gets in: CHANGELOG narrative intros, ADR Context
+sections, commit subjects and bodies, and test docstrings quoting a real example.
+Invent a neutral example instead (`SOME_API_BASE_URL`). If the point cannot be
+made without naming someone, it is not general enough for a platform repository.
+
 ## Enforced invariants
 
 Enforced by fail‑closed runtime controls **and** build‑time tests — never weaken
