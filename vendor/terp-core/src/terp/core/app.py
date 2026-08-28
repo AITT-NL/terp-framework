@@ -857,9 +857,15 @@ def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) ->
                 f"module {spec.name!r} declares background jobs and service "
                 f"{service.__name__!r} binds unowned model {model.__name__!r}; "
                 "scheduled work runs as the system actor, which is not an ownership "
-                "bypass. Compose OwnedMixin for user-owned rows and stop for a "
-                "reviewed maintenance-authority capability instead of dropping the "
-                "owner gate (backend/no_manual_ownership_checks)."
+                "bypass. Three routes, and exactly one of them applies: (1) the rows "
+                "belong to users -> compose OwnedMixin on the model; (2) the work is "
+                "lease-shaped (reclaiming what a dead worker held) -> "
+                "register_lease_reaper does it without a job declaration, firing per "
+                "LAPSED lease only; (3) it is genuine cross-owner maintenance -> take "
+                "the budgeted `# arch-allow-no-manual-ownership-checks: <reason>` "
+                "opt-out on the service class. Route 3 is the honest answer more often "
+                "than it reads: no maintenance-authority capability ships "
+                "(backend/no_manual_ownership_checks)."
             )
 
 

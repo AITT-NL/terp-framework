@@ -221,9 +221,18 @@ def check_no_manual_ownership_checks(
                 f"module declares background jobs while service "
                 f"{service_name!r} binds model {model_name!r} without "
                 "OwnedMixin; a system actor is not an ownership bypass. "
-                "Compose OwnedMixin for user-owned rows and stop for a "
-                "reviewed maintenance-authority capability instead of "
-                "dropping the owner gate",
+                "Three routes, and exactly one of them applies: (1) the rows "
+                "belong to users -> compose OwnedMixin on the model and let "
+                "the write boundary gate it; (2) the work is lease-shaped "
+                "(reclaiming what a dead worker held) -> register_lease_reaper "
+                "does it without a job declaration, though it fires only per "
+                "LAPSED lease, so rows that were never in custody have nothing "
+                "to lapse; (3) it is genuine cross-owner maintenance -> take "
+                "the budgeted opt-out "
+                "`# arch-allow-no-manual-ownership-checks: <reason>` on this "
+                "class line. Route 3 is the honest answer more often than it "
+                "reads: no maintenance-authority capability ships, so there is "
+                "nothing to install and nothing to wait for",
             )
         )
     return violations

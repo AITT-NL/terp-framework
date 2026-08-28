@@ -563,9 +563,48 @@ Object-level (per-row) authorization (OwnedMixin)
   seam (ADR 0017) — an OwnedMixin row stays readable by a non-owner unless you also restrict
   reads. An owner-keyed read filter necessarily references the managed owner_id, so (like the
   tenancy capability's tenant filter) it belongs in a governed predicate carrying a justified
-  `# arch-allow-no_manual_ownership_checks`; a built-in owner-read filter is planned sugar.
+  `# arch-allow-no-manual-ownership-checks: <reason>` -- HYPHENS, which is what the
+  suppressor matches; an underscored marker is silently not a marker. A built-in
+  owner-read filter is planned sugar.
   Endpoint authority (Policy), row-read visibility (register_scope_predicate) and row-write
   authority (OwnedMixin) are the three composable layers.
+- BACKGROUND JOBS ARE HELD TO THE SAME OWNERSHIP, and this is the clause that surprises
+  people, because it is not about `owner_id` at all. A module that declares
+  `ModuleSpec(jobs=[...])` may not also declare a service binding a model without
+  OwnedMixin: scheduled work runs as the system actor, and a system actor is not an
+  ownership bypass. Two things to know about the shape of it:
+  - The trigger is PER MODULE, not per job. One job anywhere in the module puts every
+    service in that module under the clause, including an operational table no job goes
+    near and no user owns. The fix is per SERVICE CLASS, so it is available, but nothing
+    here is scoped to the job that actually needed the authority.
+  - The refusal names a "reviewed maintenance-authority capability". NONE SHIPS. So if
+    your work is genuinely cross-owner maintenance, that sentence is not an instruction
+    to go and install something; the budgeted opt-out below is the supported answer.
+  Three routes, and exactly one applies:
+      1. The rows belong to users        -> compose OwnedMixin on the model.
+      2. The work is lease-shaped        -> register_lease_reaper(kind, reaper), which
+         (reclaiming what a dead              needs no job declaration. Caveat: it fires
+          worker held)                        per LAPSED lease, so rows that were never
+                                              in custody have nothing to lapse -- and it
+                                              only keeps you clear of the clause while the
+                                              module declares no `jobs=[...]` at all.
+      3. Genuine cross-owner maintenance -> `# arch-allow-no-manual-ownership-checks:
+         (a nightly purge, a reindex)         <reason>` on the service class line. It is
+                                              budgeted and greppable, which is the point:
+                                              the authority is visible and counted rather
+                                              than absent.
+  Two things that make route 3 fail in ways that look like something else:
+  - HYPHENS. `# arch-allow-no_manual_ownership_checks` parses as the token
+    `arch-allow-no`, which names no rule, so it suppresses nothing and carries no
+    justification -- the refusal simply stays, with the marker sitting right there.
+  - The reason is required, and so is the budget. A marker with no `: <reason>` is
+    re-reported as `ungoverned_escape_hatch`; ANY marker without a checked-in
+    escape-hatch budget stops the whole run with a governance error before a single
+    rule is listed. Pass `--budget escape-hatch-budget.json` (the profile already
+    does) and commit the file.
+  The runtime agrees with route 3, for what it is worth: apply_object_authz does not
+  restrict a row with no ownership trait, so the job would run. The clause is a build-time
+  judgement about the DESIGN, not a description of what the write boundary would do.
 """,
     "leases": """\
 Leases: expiring, fenced custody of work (leases capability)
