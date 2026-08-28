@@ -1220,3 +1220,317 @@ def test_the_package_graph_check_on_a_tree_with_no_manifest_or_a_broken_one(
     exit_code, output = _run_package_boundaries(tmp_path)
     assert exit_code == 1
     assert "unreadable" in output
+
+
+# --------------------------------------------------------------------------- #
+# the app's own checks — [[tool.terp.verify.checks]]
+# --------------------------------------------------------------------------- #
+def _declaring(tmp_path: pathlib.Path, body: str) -> pathlib.Path:
+    """A project root whose pyproject.toml carries *body*."""
+    (tmp_path / "pyproject.toml").write_text(body, encoding="utf-8")
+    return tmp_path
+
+
+_SIDECAR = """
+[[tool.terp.verify.checks]]
+id = "engine-architecture"
+command = "terp check --package engine"
+profile = "quick"
+scope = ["engine/**"]
+"""
+
+
+def test_the_category_vocabulary_is_the_one_a_driving_tool_files() -> None:
+    """The set an app check is held to is the set this suite asserts for built-ins.
+
+    Two copies on purpose — the runtime constant and this file's independent
+    statement of the contract — so a category added on one side without the
+    other is loud rather than a tab in Studio that silently never fills.
+    """
+    from terp.cli.verify import CHECK_CATEGORIES
+
+    assert set(CHECK_CATEGORIES) == _KNOWN_CATEGORIES
+
+
+def test_an_app_can_declare_a_check_of_its_own(tmp_path: pathlib.Path) -> None:
+    """The profile is a floor, not a ceiling.
+
+    Before this seam, an app with a check of its own — a sidecar package's
+    architecture scan, a domain invariant, a generated-artifact drift test — had
+    to put it in a pytest wrapper or a CI step outside the one command documented
+    as what green means. Both leave the app's own gate where nothing driving the
+    project through the manifest looks.
+    """
+    from terp.cli.verify import app_declared_checks, profile_checks
+
+    root = _declaring(tmp_path, _SIDECAR)
+    ((check, declared_profile),) = app_declared_checks(root)
+    assert (check.id, declared_profile) == ("engine-architecture", "quick")
+    assert check.category == "architecture", "the default category"
+    assert check.command == "terp check --package engine"
+    assert check.scope == ("engine/**",)
+
+    # It rides the ratchet from the profile it names, exactly as a built-in does.
+    for profile in profile_ids():
+        assert profile_checks(profile, root)[-1].id == "engine-architecture"
+    # ...and runs AFTER the platform's floor, so a red from Terp's own rules
+    # still reports first.
+    assert [check.id for check in PROFILES["quick"]] == [
+        check.id for check in profile_checks("quick", root)[:-1]
+    ]
+
+
+def test_a_declared_check_joins_only_its_profile_and_above(
+    tmp_path: pathlib.Path,
+) -> None:
+    from terp.cli.verify import profile_checks
+
+    root = _declaring(
+        tmp_path,
+        """
+[[tool.terp.verify.checks]]
+id = "domain-invariants"
+command = "uv run pytest tests/invariants"
+profile = "release"
+scope = ["app/**"]
+category = "backend-tests"
+requires = "a seeded database"
+""",
+    )
+    assert "domain-invariants" not in {c.id for c in profile_checks("quick", root)}
+    assert "domain-invariants" not in {c.id for c in profile_checks("full", root)}
+    (declared,) = [
+        c for c in profile_checks("release", root) if c.id == "domain-invariants"
+    ]
+    assert declared.requires == "a seeded database"
+
+
+def test_the_platform_floor_is_what_the_profile_means_without_an_app(
+    tmp_path: pathlib.Path,
+) -> None:
+    from terp.cli.verify import profile_checks
+
+    assert profile_checks("quick") == PROFILES["quick"]
+    # An app that never adopted the seam is untouched: upgrading the framework
+    # must not add a check to a gate nobody declared.
+    assert profile_checks("quick", _declaring(tmp_path, "[project]\nname='x'\n")) == (
+        PROFILES["quick"]
+    )
+    # Neither does a project with no pyproject.toml at all.
+    assert profile_checks("quick", tmp_path / "nowhere") == PROFILES["quick"]
+
+
+def test_profile_checks_refuses_an_unknown_profile() -> None:
+    from terp.cli.verify import profile_checks
+
+    with pytest.raises(SystemExit, match="unknown profile"):
+        profile_checks("nightly")
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "architecture"\n'
+            'command = "true"\nprofile = "quick"\nscope = ["app/**"]\n',
+            "already a Terp check",
+            id="an app check may not shadow a platform check's id",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
+            'command = "true"\nprofil = "quick"\nscope = ["engine/**"]\n',
+            "unknown key",
+            id="a typo is refused, never ignored",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "Engine_Arch"\n'
+            'command = "true"\nprofile = "quick"\nscope = ["engine/**"]\n',
+            "lowercase words joined by hyphens",
+            id="an id that does not read like a check id",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = 3\n'
+            'command = "true"\nprofile = "quick"\nscope = ["engine/**"]\n',
+            "lowercase words joined by hyphens",
+            id="an id that is not a string",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
+            'command = "   "\nprofile = "quick"\nscope = ["engine/**"]\n',
+            "non-empty `command`",
+            id="a command that splits to no argv",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
+            'command = 7\nprofile = "quick"\nscope = ["engine/**"]\n',
+            "non-empty `command`",
+            id="a command that is not a string",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
+            'command = "true"\nprofile = "nightly"\nscope = ["engine/**"]\n',
+            "cheapest profile it joins",
+            id="a profile outside the ratchet",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\ncommand = "true"\n'
+            'profile = "quick"\nscope = ["engine/**"]\ncategory = "vibes"\n',
+            "no driving tool can file",
+            id="a category with no tab to land in",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
+            'command = "true"\nprofile = "quick"\nscope = "engine/**"\n',
+            "list of globs",
+            id="a scope that is not a list",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
+            'command = "true"\nprofile = "quick"\nscope = [3]\n',
+            "list of globs",
+            id="a scope holding something that is not a glob",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
+            'command = "true"\nprofile = "quick"\nscope = []\n',
+            "non-empty `scope`",
+            id="no declared inputs, so no safe skip",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\ncommand = "true"\n'
+            'profile = "quick"\nscope = ["engine/**"]\nrequires = 1\n',
+            "`requires` to be a string",
+            id="a precondition that is not prose",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\ncommand = "true"\n'
+            'profile = "quick"\nscope = ["engine/**"]\n\n'
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\ncommand = "false"\n'
+            'profile = "quick"\nscope = ["engine/**"]\n',
+            "declared twice",
+            id="the same id declared twice",
+        ),
+        pytest.param(
+            '[tool.terp]\nverify = "yes"\n',
+            "not a table",
+            id="[tool.terp.verify] is not a table",
+        ),
+        pytest.param(
+            '[tool.terp.verify]\nchecks = 1\n',
+            "list of tables",
+            id="`checks` is not a list",
+        ),
+        pytest.param(
+            '[tool.terp.verify]\nchecks = [1]\n',
+            "is not a table",
+            id="an entry that is not a table",
+        ),
+        pytest.param(
+            '[tool.terp.verify]\nprofile = "quick"\n',
+            "unknown key",
+            id="an unknown key on the table itself",
+        ),
+        pytest.param(
+            "[tool.terp.verify\n",
+            "unreadable",
+            id="pyproject.toml does not parse",
+        ),
+    ],
+)
+def test_a_malformed_declaration_fails_closed(
+    tmp_path: pathlib.Path, body: str, expected: str
+) -> None:
+    """Every refusal above could have been a silent skip, and must not be.
+
+    A seam that drops what it cannot parse hands the app a gate that is green
+    because its own check never ran — the precise failure this seam was opened
+    to remove, and worse coming from the seam itself. So the reader fails closed
+    on every branch and names the entry it refused.
+    """
+    from terp.cli.verify import app_declared_checks
+
+    with pytest.raises(SystemExit, match=expected):
+        app_declared_checks(_declaring(tmp_path, body))
+
+
+def test_the_manifest_carries_the_apps_checks_too(tmp_path: pathlib.Path) -> None:
+    """A driving tool reads the whole gate, not the platform half of it."""
+    root = _declaring(tmp_path, _SIDECAR)
+    manifest = verify_manifest("quick", root)
+    assert manifest["checks"][-1] == {
+        "id": "engine-architecture",
+        "category": "architecture",
+        "command": "terp check --package engine",
+        "scope": ["engine/**"],
+    }
+    assert [entry["id"] for entry in verify_manifest("quick")["checks"]] == [
+        check.id for check in PROFILES["quick"]
+    ], "without a root, the manifest is the platform floor"
+
+
+def test_cli_list_shows_a_declared_check(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _declaring(tmp_path, _SIDECAR)
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "quick", "--root", str(root), "--list"])
+    assert excinfo.value.code == 0
+    assert "engine-architecture" in capsys.readouterr().out
+
+
+def test_a_declared_check_runs_and_carries_the_verdict(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The point of the seam: the app's own check decides the exit code."""
+    failing = tmp_path / "failing.py"
+    failing.write_text("raise SystemExit(3)\n", encoding="utf-8")
+    root = _declaring(
+        tmp_path,
+        f"""
+[[tool.terp.verify.checks]]
+id = "domain-invariants"
+command = "{pathlib.Path(sys.executable).as_posix()} {failing.as_posix()}"
+profile = "quick"
+scope = ["app/**"]
+""",
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "quick",
+                "--root",
+                str(root),
+                "--only",
+                "domain-invariants",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 1, "an app's own red is the run's red"
+    (result,) = json.loads(capsys.readouterr().out)["checks"]
+    assert result["id"] == "domain-invariants" and result["ok"] is False
+    assert result["exit_code"] == 3
+
+
+def test_a_declared_check_composes_into_no_assurance_lane() -> None:
+    """The lane vocabulary is normative in the spec.
+
+    An app may extend its own gate; it may not thereby restate — or satisfy — a
+    claim the Terp Standard defines. Lanes compose by the ids they NAME, so a
+    declared check contributes to none of them by construction.
+    """
+    from terp.cli.verify import ASSURANCE_LANES, assurance_document
+
+    named = {check_id for _lane, _req, ids in ASSURANCE_LANES for check_id in ids}
+    results = [
+        {"id": check.id, "ok": True} for check in PROFILES["release"]
+    ] + [{"id": "domain-invariants", "ok": False}]
+    document = assurance_document(results)
+    assert document["ok"] is True, (
+        "a red app check must not fail a lane it was never part of"
+    )
+    assert "domain-invariants" not in named
+    for lane in document["lanes"]:
+        assert "domain-invariants" not in lane["checks"]

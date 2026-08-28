@@ -15,6 +15,11 @@ data and executed sequentially in the project root. Three profiles ratchet up:
   checks and the black-box conformance suite (which needs the Docker workbench
   running; see the check's ``requires`` note in the manifest).
 
+An app EXTENDS the profile through ``[[tool.terp.verify.checks]]`` in its own
+``pyproject.toml`` (see :func:`app_declared_checks`): the platform's checks are
+the floor, not the ceiling, and an app-specific check no longer has to live in a
+pytest wrapper outside the one command that defines green.
+
 ``--list`` prints the manifest without running anything — the seam a driving
 tool reads so its gate DEFINITION comes from the project's own pinned
 toolchain instead of a hardcoded copy. ``--only <id>`` runs a subset (the
@@ -34,6 +39,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import shlex
 import shutil
 import subprocess
@@ -50,6 +56,37 @@ _OUTPUT_TAIL_CHARS = 20_000
 #: whole test log), which is how the routes-drift adoption hint came to be announced
 #: only in `--format json`: an opt-in nobody is told about does not get adopted.
 NOTE_PREFIX = "note: "
+
+#: The issue categories a driving tool (Terp Studio's issue tabs) understands.
+#: Built-in checks are held to it by the gate; an app-declared check is held to
+#: it here, because a category outside this set is a check whose findings the
+#: driving tool has nowhere to file — silently, which is the failure mode this
+#: whole seam exists to remove.
+CHECK_CATEGORIES: frozenset[str] = frozenset(
+    {
+        "architecture",
+        "backend-tests",
+        "frontend-boundaries",
+        "build",
+        "conformance",
+    }
+)
+
+#: Where an app declares its own checks. A list of tables, so the shape reads the
+#: same as ``[[tool.importlinter.contracts]]`` an app already writes next to it.
+APP_CHECK_TABLE = "[[tool.terp.verify.checks]]"
+
+#: The keys an app-declared check may carry. Unknown keys are REFUSED rather than
+#: ignored: a typo'd ``profil`` that silently drops the check would be a new
+#: instance of the exact bug this seam closes — a gate that looks green because a
+#: check it was told about never ran.
+_APP_CHECK_KEYS = frozenset(
+    {"id", "command", "profile", "scope", "category", "requires"}
+)
+
+#: An app check id: the same lowercase-slug shape the built-in ids use, so the
+#: two are indistinguishable in ``--only``, the manifest and the JSON envelope.
+_APP_CHECK_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 @dataclass(frozen=True)
@@ -300,18 +337,169 @@ def profile_ids() -> tuple[str, ...]:
     return tuple(PROFILES)
 
 
-def verify_manifest(profile: str) -> dict[str, object]:
-    """The profile's check manifest as data (the ``--list --format json`` body).
+def _declaration_error(message: str) -> SystemExit:
+    return SystemExit(f"{APP_CHECK_TABLE} in pyproject.toml: {message}")
 
-    A driving tool configures its gate FROM this — the project's own pinned
-    toolchain states what green means — instead of hardcoding a copy that
-    drifts. ``command`` is the exact invocation ``terp verify`` itself runs.
+
+def _app_check_from(entry: object, index: int, known: frozenset[str]) -> VerifyCheck:
+    """One declared table validated into a :class:`VerifyCheck`, or a refusal.
+
+    Every branch here fails closed. The alternative — skip what does not parse —
+    would hand an app a gate that passes because its own check was quietly
+    dropped, which is the failure this seam was opened to remove and would be
+    worse coming from the seam itself.
+    """
+    where = f"check #{index + 1}"
+    if not isinstance(entry, dict):
+        raise _declaration_error(f"{where} is not a table")
+    unknown = sorted(set(entry) - _APP_CHECK_KEYS)
+    if unknown:
+        raise _declaration_error(
+            f"{where} has unknown key(s) {', '.join(unknown)} "
+            f"(allowed: {', '.join(sorted(_APP_CHECK_KEYS))})"
+        )
+    check_id = entry.get("id")
+    if not isinstance(check_id, str) or not _APP_CHECK_ID.match(check_id):
+        raise _declaration_error(
+            f"{where} needs an `id` of lowercase words joined by hyphens, "
+            f"got {check_id!r}"
+        )
+    if check_id in known:
+        raise _declaration_error(
+            f"{check_id!r} is already a Terp check. An app check may not take a "
+            "platform check's id: `--only` could not tell them apart, and the "
+            "assurance claim composes its lanes by id, so the shadowing check "
+            "would report on a lane it never ran"
+        )
+    command = entry.get("command")
+    if not isinstance(command, str) or not shlex.split(command):
+        raise _declaration_error(f"{check_id!r} needs a non-empty `command` string")
+    profile = entry.get("profile")
+    if profile not in PROFILES:
+        raise _declaration_error(
+            f"{check_id!r} needs a `profile` naming the cheapest profile it joins, "
+            f"one of {', '.join(profile_ids())}; got {profile!r}"
+        )
+    category = entry.get("category", "architecture")
+    if category not in CHECK_CATEGORIES:
+        raise _declaration_error(
+            f"{check_id!r} has `category` {category!r}, which no driving tool can "
+            f"file; use one of {', '.join(sorted(CHECK_CATEGORIES))}"
+        )
+    scope = entry.get("scope", ())
+    if not isinstance(scope, list) or not all(isinstance(item, str) for item in scope):
+        raise _declaration_error(f"{check_id!r} needs `scope` to be a list of globs")
+    if not scope:
+        raise _declaration_error(
+            f"{check_id!r} needs a non-empty `scope`: it is the input claim a "
+            "change-aware runner uses to prove a rerun unnecessary, and a check "
+            "with no declared inputs can never be skipped safely"
+        )
+    requires = entry.get("requires", "")
+    if not isinstance(requires, str):
+        raise _declaration_error(f"{check_id!r} needs `requires` to be a string")
+    return VerifyCheck(
+        id=check_id,
+        category=category,
+        command=command,
+        scope=tuple(scope),
+        requires=requires,
+    )
+
+
+def app_declared_checks(root: pathlib.Path) -> tuple[tuple[VerifyCheck, str], ...]:
+    """The app's own checks from ``[[tool.terp.verify.checks]]``, with their profiles.
+
+    The profile table above is the platform's floor. It used to be the whole
+    ceiling too — a literal dict no app could reach — so an app with a check of
+    its own (a sidecar package's architecture scan, a domain invariant, a
+    generated-artifact drift test) had two options: a pytest wrapper shelling out
+    to the real command, or a CI step outside the one command documented as
+    "what green means". Both put the app's own gate somewhere ``terp verify``
+    does not look, which is how a check comes to be skipped by everyone driving
+    the project through the manifest.
+
+    Each entry names the CHEAPEST profile it joins and rides the ratchet from
+    there, exactly as a built-in does: ``profile = "quick"`` also runs in ``full``
+    and ``release``. Declared checks run AFTER the platform's, so a red from the
+    floor still comes first, and they compose into **no assurance lane** — the
+    lane vocabulary is normative in the spec, and an app may extend its own gate
+    without touching a claim the spec defines. The seam is the generalisation of
+    ``package-boundaries``: the same conditional-on-declaration adoption, now
+    without the platform having to have anticipated the tool.
+    """
+    manifest = root / "pyproject.toml"
+    if not manifest.is_file():
+        return ()
+    try:
+        declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise _declaration_error(
+            f"pyproject.toml is unreadable ({exc}), so whether this app declares "
+            "checks of its own cannot be established"
+        ) from exc
+    table = ((declared.get("tool") or {}).get("terp") or {}).get("verify") or {}
+    if not isinstance(table, dict):
+        raise _declaration_error("[tool.terp.verify] is not a table")
+    unknown = sorted(set(table) - {"checks"})
+    if unknown:
+        raise _declaration_error(
+            f"[tool.terp.verify] has unknown key(s) {', '.join(unknown)}; the only "
+            "key is `checks`"
+        )
+    entries = table.get("checks", [])
+    if not isinstance(entries, list):
+        raise _declaration_error("`checks` must be a list of tables")
+    known = frozenset(check.id for checks in PROFILES.values() for check in checks)
+    resolved: list[tuple[VerifyCheck, str]] = []
+    seen: set[str] = set()
+    for index, entry in enumerate(entries):
+        check = _app_check_from(entry, index, known)
+        if check.id in seen:
+            raise _declaration_error(f"{check.id!r} is declared twice")
+        seen.add(check.id)
+        resolved.append((check, str(entry["profile"])))
+    return tuple(resolved)
+
+
+def profile_checks(
+    profile: str, root: pathlib.Path | None = None
+) -> tuple[VerifyCheck, ...]:
+    """The profile's checks: the platform's floor plus the app's own declarations.
+
+    *root* is the project the checks run in; ``None`` asks for the platform floor
+    alone (what the profile means before any app extends it).
     """
     checks = PROFILES.get(profile)
     if checks is None:
         raise SystemExit(
             f"unknown profile {profile!r}; expected one of {profile_ids()}"
         )
+    if root is None:
+        return checks
+    order = profile_ids()
+    reached = order.index(profile)
+    return checks + tuple(
+        check
+        for check, declared_profile in app_declared_checks(root)
+        if order.index(declared_profile) <= reached
+    )
+
+
+def verify_manifest(
+    profile: str, root: pathlib.Path | None = None
+) -> dict[str, object]:
+    """The profile's check manifest as data (the ``--list --format json`` body).
+
+    A driving tool configures its gate FROM this — the project's own pinned
+    toolchain states what green means — instead of hardcoding a copy that
+    drifts. ``command`` is the exact invocation ``terp verify`` itself runs.
+
+    *root* includes the app's own ``[[tool.terp.verify.checks]]``, so a driving
+    tool reading the manifest sees the whole gate rather than the platform half
+    of it. Omitting it yields the platform floor.
+    """
+    checks = profile_checks(profile, root)
     return {
         "terp_verify_manifest": 1,
         "profile": profile,
@@ -864,6 +1052,10 @@ def assurance_document(results: list[dict[str, object]]) -> dict[str, object]:
 
     from terp.arch import SPEC_VERSION  # lazy: the package imports this module
 
+    # Keyed by id over the NAMED composing checks only, so an app's declared
+    # check contributes to no lane by construction: the lane vocabulary is the
+    # spec's, and an app extending its own gate may not restate a normative
+    # claim. Its verdict still carries the run's exit code in text/json.
     verdicts = {str(result["id"]): bool(result["ok"]) for result in results}
     lanes: list[dict[str, object]] = []
     ok = True
@@ -919,8 +1111,10 @@ def run_verify_command(
             "--profile release and refuses --only/--list — a partial run can "
             "never become a release claim"
         )
-    manifest = verify_manifest(profile)
-    checks = list(PROFILES[profile])
+    project_root = pathlib.Path(root).resolve()
+    resolved = profile_checks(profile, project_root)
+    manifest = verify_manifest(profile, project_root)
+    checks = list(resolved)
     selected = [name for name in (only or []) if name]
     if selected:
         known = {check.id for check in checks}
@@ -937,12 +1131,11 @@ def run_verify_command(
             print(json.dumps(manifest, indent=2))
         else:
             print(f"profile {profile}:")
-            for check in PROFILES[profile]:
+            for check in resolved:
                 requires = f"  [requires {check.requires}]" if check.requires else ""
                 print(f"  {check.id:<20} {check.command}{requires}")
         return 0
 
-    project_root = pathlib.Path(root).resolve()
     results: list[dict[str, object]] = []
     all_ok = True
     for check in checks:
