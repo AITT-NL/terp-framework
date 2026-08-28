@@ -1331,6 +1331,7 @@ def create_app(
     require_shared_throttle_store: bool = False,
     job_queue: JobQueue | None = None,
     require_durable_jobs: bool = False,
+    expose_health_detail: bool = False,
     cache_store: CacheStore | None = None,
     require_shared_cache_store: bool = False,
     idempotency_store: IdempotencyStore | None = None,
@@ -1603,7 +1604,9 @@ def create_app(
                     read_only_binder,
                 ],
             )
-    app.include_router(build_health_router(), prefix="/health")
+    app.include_router(
+        build_health_router(expose_detail=expose_health_detail), prefix="/health"
+    )
     # The contract-shape gate runs against the finished document — after every
     # module router, capability router, and the health router are mounted — so
     # nothing that serialises into the contract can arrive after it looked.

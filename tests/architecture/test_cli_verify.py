@@ -1368,6 +1368,20 @@ def test_profile_checks_refuses_an_unknown_profile() -> None:
         ),
         pytest.param(
             '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
+            'command = "lint . && test ."\nprofile = "quick"\n'
+            'scope = ["engine/**"]\n',
+            "no shell",
+            id="a shell operator, which would become an argument",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
+            'command = "cat x | grep y"\nprofile = "quick"\n'
+            'scope = ["engine/**"]\n',
+            "no shell",
+            id="a pipe, same reason",
+        ),
+        pytest.param(
+            '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
             'command = 7\nprofile = "quick"\nscope = ["engine/**"]\n',
             "non-empty `command`",
             id="a command that is not a string",

@@ -166,7 +166,7 @@ def finalize(session: Session) -> None:
         session.commit()  # arch-allow-mutations-emit-audit: persist the worker's status transition (dispatched / rescheduled / dead-lettered)
 
 
-__all__ = ["append", "claim_due", "finalize"]
+__all__ = ["OutboxBacklog", "append", "backlog", "claim_due", "finalize"]
 
 
 def backlog(session: Session, *, now: datetime | None = None) -> OutboxBacklog:

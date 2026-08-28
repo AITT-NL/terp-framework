@@ -12,7 +12,9 @@ limiting, and capability middleware), but do not require authentication.
   uses, so tests and overrides apply). Returns 200 when ready, 503 otherwise, so a
   load balancer withholds traffic until the dependency recovers.
 * ``GET /health/detail`` — *observation*: everything a registered capability can say
-  about itself, and **never** a verdict. See :func:`register_health_detail`.
+  about itself, and **never** a verdict. **Opt-in**, and mounted only when
+  ``create_app(expose_health_detail=True)`` asks for it. See
+  :func:`register_health_detail`.
 
 The detail surface exists because of a shape the platform had in its own capability:
 a durable queue with no consumer running looks exactly like a durable queue with idle
@@ -20,6 +22,15 @@ consumers — a table of pending rows either way — and nothing anywhere report
 difference. That is not a readiness question (an undrained queue does not make this
 instance unable to serve traffic, and failing readiness on it would turn a delivery
 problem into an outage), so it gets a surface of its own where a monitor can watch it.
+
+It is off by default because **this whole router is public**: it is mounted outside
+the policy guard so an orchestrator probe can always reach it, and ``terp.core`` sits
+below every authentication capability, so there is nothing here to gate it with. Queue
+depths and timestamps are business signal — volume, activity, when work stopped — and
+an unauthenticated endpoint is the wrong place for them by default. Enable it where
+``/health`` is already restricted to an internal network or an ingress rule, and use
+``terp outbox backlog`` everywhere else: the CLI reports the same numbers from the
+same function, through the operator's own credentials.
 """
 
 from __future__ import annotations
@@ -79,8 +90,12 @@ def reset_health_details() -> None:
     _details.clear()
 
 
-def build_health_router() -> APIRouter:
-    """Build the ``/health`` router (liveness + readiness + detail)."""
+def build_health_router(*, expose_detail: bool = False) -> APIRouter:
+    """Build the ``/health`` router (liveness + readiness, and optionally detail).
+
+    *expose_detail* mounts ``GET /health/detail``. Off by default: this router is
+    public by design, and the details a capability registers are business signal.
+    """
     router = APIRouter(tags=["health"])
 
     @router.get("/live")
@@ -106,24 +121,34 @@ def build_health_router() -> APIRouter:
             content={"status": "ready", "checks": {"database": "ok"}},
         )
 
-    @router.get("/detail")
-    def detail(session: SessionDep) -> JSONResponse:
-        """What each registered capability says about itself. Always 200.
+    if expose_detail:
 
-        Always 200 because this is an observation and not a verdict: a monitor reads
-        the numbers and decides. One detail that raises is reported as an error in its
-        own slot and does not suppress the others — a broken probe must not blind the
-        operator to every working one, which is the same failure this surface exists
-        to remove.
-        """
-        reported: dict[str, object] = {}
-        for name, probe in health_details().items():
-            try:
-                reported[name] = probe(session)
-            except Exception as exc:
-                _logger.error("health detail %r failed", name, exc_info=exc)
-                reported[name] = {"error": "unavailable"}
-        return JSONResponse(status_code=200, content={"details": reported})
+        @router.get("/detail")
+        def detail(session: SessionDep) -> JSONResponse:
+            """What each registered capability says about itself. Always 200.
+
+            Always 200 because this is an observation and not a verdict: a monitor
+            reads the numbers and decides. One detail that raises is reported as an
+            error in its own slot and does not suppress the others — a broken probe
+            must not blind the operator to every working one, which is the same
+            failure this surface exists to remove.
+            """
+            reported: dict[str, object] = {}
+            for name, probe in health_details().items():
+                try:
+                    reported[name] = probe(session)
+                except Exception as exc:
+                    _logger.error("health detail %r failed", name, exc_info=exc)
+                    # The probes share one session, and on PostgreSQL a failed
+                    # statement aborts the transaction: without this rollback the
+                    # FIRST failure would make every probe after it fail too, which
+                    # is exactly the blinding this handler claims to prevent.
+                    try:
+                        session.rollback()
+                    except Exception:  # pragma: no cover - a dead session
+                        _logger.error("health detail session rollback failed")
+                    reported[name] = {"error": "unavailable"}
+            return JSONResponse(status_code=200, content={"details": reported})
 
     return router
 

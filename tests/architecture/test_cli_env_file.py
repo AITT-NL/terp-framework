@@ -220,3 +220,107 @@ def test_the_cli_exposes_every_subcommand(tmp_path: pathlib.Path) -> None:
         main(["env", "init", "--root", str(root)])
     assert excinfo.value.code == 0
     assert (root / ".app.env").is_file()
+
+
+# --------------------------------------------------------------------------- #
+# what the first review of this command found
+# --------------------------------------------------------------------------- #
+def test_required_is_read_from_the_document_not_the_property(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    """The dialect puts required names in a DOCUMENT-level array. Reading them off
+    each property meant `check` never reported a required-and-empty variable and
+    exited 0 — a green for the one thing it exists to catch."""
+    root = _project(
+        tmp_path,
+        {
+            "type": "object",
+            "properties": {"VENDOR_API_URL": {"type": "string"}},
+            "required": ["VENDOR_API_URL"],
+        },
+    )
+    (root / ".app.env").write_text("VENDOR_API_URL=\n", encoding="utf-8")
+
+    assert run_env_command(action="check", root=str(root)) == 1
+    assert "required by the manifest and empty" in capsys.readouterr().out
+
+
+def test_example_refuses_an_unusable_manifest(tmp_path: pathlib.Path) -> None:
+    """An unusable manifest declares NOTHING, so rendering from it would replace
+    the committed example with a header and report success — the loudest possible
+    way to lose a file."""
+    root = _project(tmp_path, '{"properties": {"lower_case": {"type": "string"}}}')
+    (root / ".app.env.example").write_text("KEEP=me\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="not usable as written"):
+        run_env_command(action="example", root=str(root))
+
+    assert (root / ".app.env.example").read_text(encoding="utf-8") == "KEEP=me\n"
+
+
+@pytest.mark.parametrize(
+    ("name", "reason"),
+    [
+        ("SECRET_KEY", "platform-owned"),
+        ("lower_case", "UPPER_SNAKE"),
+        ("VITE_THING", "build-time"),
+    ],
+)
+def test_declare_will_not_brick_the_manifest(
+    tmp_path: pathlib.Path, name: str, reason: str
+) -> None:
+    """`--declare` writes to the file whose reader fails closed on the WHOLE file.
+    One name it refuses and every declaration is dropped, the app's secrets
+    included. A convenience flag that can do that is not a convenience."""
+    root = _project(tmp_path, _MANIFEST)
+    before = (root / "environment.schema.json").read_text(encoding="utf-8")
+
+    with pytest.raises(SystemExit, match=reason):
+        run_env_command(
+            action="set", root=str(root), names=[f"{name}=x"], declare=True
+        )
+
+    assert (root / "environment.schema.json").read_text(encoding="utf-8") == before
+
+
+def test_a_line_break_in_a_value_is_refused(tmp_path: pathlib.Path) -> None:
+    """Quoting does not save it: compose's reader ends the value at the break, so
+    the file would be one this command's own parser then rejects — and every later
+    `terp env` would refuse to touch it."""
+    root = _project(tmp_path, _MANIFEST)
+    with pytest.raises(SystemExit, match="line break"):
+        run_env_command(
+            action="set", root=str(root), names=["VENDOR_API_URL=a\nb"]
+        )
+    assert not (root / ".app.env").exists()
+
+
+def test_a_generated_example_quotes_the_way_the_live_file_does(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A default containing ` #` would otherwise be truncated the moment the
+    example is copied to .app.env, and a non-string default would render as
+    Python's `True`."""
+    root = _project(
+        tmp_path,
+        {
+            "type": "object",
+            "properties": {
+                "TRICKY": {"type": "string", "default": "keep # this"},
+                "FLAGGED": {"type": "boolean", "default": True},
+            },
+            "required": [],
+        },
+    )
+    run_env_command(action="example", root=str(root))
+
+    example = (root / ".app.env.example").read_text(encoding="utf-8")
+    assert 'TRICKY="keep # this"' in example
+    assert "FLAGGED=True" in example
+
+    # ...and copying it through is lossless.
+    from terp.cli.envseams import parse_dotenv
+
+    values, problems = parse_dotenv(example)
+    assert problems == []
+    assert values["TRICKY"] == "keep # this"

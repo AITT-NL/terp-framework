@@ -40,7 +40,14 @@ from __future__ import annotations
 import json
 import pathlib
 
-from terp.cli.envschema import APP_ENV_SCHEMA_FILE, declared_variables, manifest_findings
+from terp.cli.envschema import (
+    APP_ENV_SCHEMA_FILE,
+    MAX_PROPERTIES,
+    PLATFORM_OWNED_NAMES,
+    _NAME_RE,
+    declared_variables,
+    manifest_findings,
+)
 from terp.cli.envseams import APP_ENV_EXAMPLE_FILE, APP_ENV_FILE, parse_dotenv
 
 #: What a declared-secret variable renders as wherever a value would go.
@@ -62,15 +69,42 @@ _EXAMPLE_HEADER = """\
 # variable declared `"format": "secret"` appears here with an EMPTY value."""
 
 
+def _required_names(root: pathlib.Path) -> set[str]:
+    """The manifest's required names — a DOCUMENT-level array, not a per-property
+    field, which is where the dialect actually puts them."""
+    path = root / APP_ENV_SCHEMA_FILE
+    if not path.is_file():
+        return set()
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    required = document.get("required") if isinstance(document, dict) else None
+    return {name for name in required if isinstance(name, str)} if isinstance(
+        required, list
+    ) else set()
+
+
 def _secret(prop: dict) -> bool:
     """Whether a declaration marks a write-only secret."""
     return prop.get("format") == "secret"
 
 
 def _render(values: dict[str, str], *, header: str = "") -> str:
-    """A ``.app.env`` body: one ``KEY=value`` per line, quoted when it has to be."""
+    """A ``.app.env`` body: one ``KEY=value`` per line, quoted when it has to be.
+
+    A newline in a value is REFUSED rather than written. Quoting does not save it:
+    compose's dotenv reader ends the value at the line break, so the file would be
+    one this command's own parser then rejects — and every later ``terp env`` would
+    refuse to touch it, leaving a hand edit as the only way out.
+    """
     lines = [header] if header else []
     for name, value in values.items():
+        if "\n" in value or "\r" in value:
+            raise SystemExit(
+                f"{name}: a value cannot contain a line break — compose's dotenv "
+                "reader ends the value at the break, so the file would be unreadable"
+            )
         needs_quotes = value != value.strip() or any(
             character in value for character in ' \t#"\'$'
         )
@@ -109,7 +143,32 @@ def _refuse_unusable_manifest(root: pathlib.Path) -> None:
 
 
 def _declare(root: pathlib.Path, names: list[str]) -> None:
-    """Add *names* to the manifest as plain strings, preserving what is there."""
+    """Add *names* to the manifest as plain strings, preserving what is there.
+
+    Held to the manifest dialect FIRST, because the reader on the other side fails
+    closed on the whole file: one name it refuses and every declaration in the file
+    is dropped — the app's secrets included. A convenience flag that can brick the
+    manifest is not a convenience, so a name that would not survive the reader is
+    refused here, with the reason, before anything is written.
+    """
+    refused = []
+    for name in names:
+        if not _NAME_RE.fullmatch(name):
+            refused.append(f"{name}: must be UPPER_SNAKE (a letter, then letters, "
+                           "digits and underscores; at most 64 characters)")
+        elif name in PLATFORM_OWNED_NAMES:
+            refused.append(f"{name}: is platform-owned — one owner per variable")
+        elif name.startswith("VITE_"):
+            refused.append(
+                f"{name}: is a frontend build-time variable, baked at image build; "
+                "it cannot be injected at run time"
+            )
+    if refused:
+        raise SystemExit(
+            "cannot declare:\n  " + "\n  ".join(refused) + "\n"
+            f"  {APP_ENV_SCHEMA_FILE}'s reader fails closed on the WHOLE file, so "
+            "writing one of these would drop every declaration in it."
+        )
     path = root / APP_ENV_SCHEMA_FILE
     if path.is_file():
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -118,6 +177,12 @@ def _declare(root: pathlib.Path, names: list[str]) -> None:
     properties = document.setdefault("properties", {})
     for name in names:
         properties.setdefault(name, {"type": "string"})
+    if len(properties) > MAX_PROPERTIES:
+        raise SystemExit(
+            f"{APP_ENV_SCHEMA_FILE} would declare {len(properties)} variables, over "
+            f"the dialect's limit of {MAX_PROPERTIES} — the reader drops the whole "
+            "file past it"
+        )
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
 
@@ -151,9 +216,12 @@ def run_env_command(
     """Run one ``terp env`` subcommand; returns the process exit code."""
     project_root = pathlib.Path(root).resolve()
     names = list(names or [])
+    # Every action, `example` included: an unusable manifest declares NOTHING, so
+    # rendering the example from it would replace the committed file with an empty
+    # one and report success. That is the loudest possible way to lose a file.
+    _refuse_unusable_manifest(project_root)
     if action == "example":
         return _example(project_root)
-    _refuse_unusable_manifest(project_root)
     if action == "init":
         return _init(project_root)
     if action == "list":
@@ -179,7 +247,7 @@ def _init(root: pathlib.Path) -> int:
     if not declared:
         raise SystemExit(
             f"{APP_ENV_SCHEMA_FILE} declares no variables, so there is nothing to "
-            "put in {APP_ENV_FILE} yet"
+            f"put in {APP_ENV_FILE} yet"
         )
     values = {
         name: "" if _secret(prop) else str(prop.get("default", ""))
@@ -260,11 +328,9 @@ def _check(root: pathlib.Path) -> int:
         findings.append(
             f"{name}: set here but not declared, so it reaches no deployed environment"
         )
-    for name, prop in sorted(declared.items()):
-        if _secret(prop) and values.get(name):
-            continue
-        if prop.get("required") and not values.get(name):
-            findings.append(f"{name}: required and empty")
+    for name in sorted(_required_names(root)):
+        if not values.get(name):
+            findings.append(f"{name}: required by the manifest and empty here")
     if not findings:
         print(f"{APP_ENV_FILE} supplies every declared variable")
         return 0
@@ -293,7 +359,11 @@ def _example(root: pathlib.Path) -> int:
             lines.append("# Declared secret: leave this empty, it is committed.")
             lines.append(f"{name}=")
         else:
-            lines.append(f"{name}={prop.get('default', '')}")
+            # Rendered through the same quoting the live file uses: a default
+            # containing ` #` would otherwise be truncated the moment this file is
+            # copied to .app.env, and a non-string default would render as Python.
+            default = prop.get("default", "")
+            lines.append(_render({name: "" if default is None else str(default)}).strip())
         lines.append("")
     (root / APP_ENV_EXAMPLE_FILE).write_text("\n".join(lines), encoding="utf-8")
     print(f"wrote {APP_ENV_EXAMPLE_FILE} from {len(declared)} declaration(s)")

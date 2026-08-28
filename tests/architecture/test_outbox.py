@@ -778,11 +778,83 @@ def test_a_failing_detail_does_not_blind_the_operator_to_the_others(
     from terp.core.health import build_health_router
 
     app = FastAPI()
-    app.include_router(build_health_router(), prefix="/health")
-    app.dependency_overrides[get_session] = lambda: None
+    app.include_router(build_health_router(expose_detail=True), prefix="/health")
+    app.dependency_overrides[get_session] = lambda: _RollbackRecorder()
     response = TestClient(app).get("/health/detail")
     assert response.status_code == 200
     assert response.json()["details"]["explodes"] == {"error": "unavailable"}
+
+
+class _RollbackRecorder:
+    """A stand-in session that records whether the handler rolled it back."""
+
+    def __init__(self) -> None:
+        self.rolled_back = False
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+
+def test_a_failing_probe_does_not_poison_the_session_for_the_next_one() -> None:
+    """The probes share one session, and on PostgreSQL a failed statement aborts
+    the transaction. Without a rollback the FIRST failure makes every probe after
+    it fail too — precisely the blinding this handler claims to prevent."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from terp.core.db import get_session
+    from terp.core.health import build_health_router, register_health_detail
+
+    recorder = _RollbackRecorder()
+
+    def explodes(session: object) -> object:
+        raise RuntimeError("probe is broken")
+
+    def works(session: object) -> object:
+        return {"fine": True}
+
+    register_health_detail("aaa-explodes", explodes)
+    register_health_detail("zzz-works", works)
+    app = FastAPI()
+    app.include_router(build_health_router(expose_detail=True), prefix="/health")
+    app.dependency_overrides[get_session] = lambda: recorder
+
+    details = TestClient(app).get("/health/detail").json()["details"]
+
+    assert recorder.rolled_back, "a raising probe must roll the shared session back"
+    assert details["aaa-explodes"] == {"error": "unavailable"}
+    assert details["zzz-works"] == {"fine": True}, (
+        "the probe after the failure still has to report"
+    )
+
+
+def test_the_detail_route_is_off_unless_asked_for() -> None:
+    """This router is PUBLIC — mounted outside the policy guard so an orchestrator
+    probe can always reach it — and terp.core sits below every authentication
+    capability, so there is nothing here to gate it with. Queue depths and
+    timestamps are business signal, so they are opt-in."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from terp.core.db import get_session
+    from terp.core.health import build_health_router
+
+    app = FastAPI()
+    app.include_router(build_health_router(), prefix="/health")
+    app.dependency_overrides[get_session] = lambda: None
+    client = TestClient(app)
+
+    assert client.get("/health/detail").status_code == 404
+    assert client.get("/health/live").status_code == 200, "liveness stays public"
+
+
+def test_create_app_does_not_expose_detail_by_default() -> None:
+    import inspect
+
+    from terp.core.app import create_app
+
+    parameter = inspect.signature(create_app).parameters["expose_health_detail"]
+    assert parameter.default is False
 
 
 def test_a_second_different_detail_under_one_name_is_refused(

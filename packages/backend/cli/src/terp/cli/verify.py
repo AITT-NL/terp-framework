@@ -90,6 +90,10 @@ _APP_CHECK_KEYS = frozenset(
 #: two are indistinguishable in ``--only``, the manifest and the JSON envelope.
 _APP_CHECK_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
+#: Tokens that mean "compose two commands" to a shell and mean nothing here,
+#: because a check runs as a fixed argv with ``shell=False``.
+_SHELL_OPERATORS = frozenset({"&&", "||", ";", "|", ">", ">>", "<", "&"})
+
 
 @dataclass(frozen=True)
 class VerifyCheck:
@@ -406,6 +410,21 @@ def _app_check_from(entry: object, index: int, known: frozenset[str]) -> VerifyC
     command = entry.get("command")
     if not isinstance(command, str) or not shlex.split(command):
         raise _declaration_error(f"{check_id!r} needs a non-empty `command` string")
+    # Manifest commands run as a fixed argv with shell=False, so a shell operator
+    # is not composition here — it is an argument. `a && b` would run `a` with
+    # `&&` and `b` as its arguments and report that verdict, which is a green for
+    # something nobody asked to run. Every other branch of this reader fails
+    # closed with a reason; this one used to accept and misbehave at run time.
+    shell_operators = sorted(
+        {token for token in shlex.split(command) if token in _SHELL_OPERATORS}
+    )
+    if shell_operators:
+        raise _declaration_error(
+            f"{check_id!r} has {', '.join(shell_operators)} in its command, but a "
+            "check runs as a fixed argv with no shell, so that would be passed as "
+            "an argument rather than composing two commands. Declare each command "
+            "as its own check, or put the composition in a script the check calls"
+        )
     profile = entry.get("profile")
     if profile not in PROFILES:
         raise _declaration_error(
