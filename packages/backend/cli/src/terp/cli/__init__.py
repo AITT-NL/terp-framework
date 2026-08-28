@@ -47,6 +47,7 @@ from terp.cli.grants import (
 )
 from terp.cli.service_accounts import create_service_account_command
 from terp.cli.users import create_user_command
+from terp.cli.envfile import run_env_command
 from terp.cli.outbox import render_backlog
 from terp.cli.verify import (
     profile_ids,
@@ -1440,12 +1441,37 @@ configuration, so `env-seams` checks the shape first and reports every defect at
 Unknown fields are dropped rather than refused, so anything outside that set is not
 carried to Studio -- do not encode meaning in one.
 
+`terp env` IS THE COMMAND FOR THE MACHINE YOU ARE ON. A deploy tool renders and
+seals .app.env per environment; for the working copy the only seam used to be a
+hand-edited file, which is the pressure that produces an undeclared side file no
+manifest governs.
+
+    terp env init             # .app.env from the declarations, defaults filled in
+    terp env set FOO=bar      # one or more NAME=value
+    terp env unset FOO
+    terp env list             # what is set, what is missing
+    terp env check            # readable, and does it satisfy the manifest?
+    terp env example          # render .app.env.example FROM the declarations
+
+Two rules run through all of it. An UNDECLARED NAME IS REFUSED -- the manifest is
+what a deploy tool renders and what env-seams checks, so a value under a name it
+does not declare reaches no deployed environment. `--declare` adds it as a string
+in the same breath, which is the difference between a guard and an obstacle. And
+A SECRET'S VALUE IS NEVER PRINTED: `set` and `list` show that it is set, never
+what it is. It still reaches .app.env, which is gitignored; your terminal is not.
+
+`terp env example` is the generator half of the env-seams parity check, so that
+file is generated rather than hand-maintained. The command is deliberately in no
+verify profile: env-seams gates the seam, and a gate that edits your files is not
+a gate.
+
 WHEN A FEATURE ADDS A VARIABLE
 
 1. Declare it in environment.schema.json (UPPER_SNAKE; `"format": "secret"` for tokens,
    passwords, API keys and client secrets; `"resolvedBy"` for addresses).
+   (Or: `terp env set NAME=value --declare`, which does both.)
 2. Do NOT add it to a compose `environment:` block -- that would kill the declaration.
-3. Add a workbench value to .app.env.example, so the inner loop runs the deployed seam.
+3. `terp env example` to refresh .app.env.example, so the inner loop runs the deployed seam.
 4. `terp verify --only env-seams`.
 
 Step 3 is CHECKED, not advice: env-seams reads .app.env.example and requires one entry
@@ -2388,6 +2414,42 @@ def _build_parser() -> argparse.ArgumentParser:
         "--app-root", default=".", help="App root placed first on sys.path (default: .)"
     )
 
+    env_parser = subcommands.add_parser(
+        "env",
+        help="Read and write this project's .app.env, with the manifest as the allow-list",
+    )
+    env_subcommands = env_parser.add_subparsers(dest="env_command", required=True)
+    for _name, _help in (
+        ("init", "Create .app.env from the declarations, defaults filled in"),
+        ("list", "What is set, what is missing - never a secret's value"),
+        ("check", "Is the file readable, and does it satisfy the manifest?"),
+        (
+            "example",
+            "Render .app.env.example FROM the declarations (the generator half "
+            "of the env-seams parity check)",
+        ),
+    ):
+        _sub = env_subcommands.add_parser(_name, help=_help)
+        _sub.add_argument(
+            "--root", default=".", help="Project root (default: .)"
+        )
+    env_set_parser = env_subcommands.add_parser(
+        "set", help="Set one or more NAME=value pairs"
+    )
+    env_set_parser.add_argument("pairs", nargs="+", metavar="NAME=value")
+    env_set_parser.add_argument("--root", default=".", help="Project root (default: .)")
+    env_set_parser.add_argument(
+        "--declare",
+        action="store_true",
+        help="Also add an undeclared name to environment.schema.json as a string",
+    )
+    env_unset_parser = env_subcommands.add_parser(
+        "unset", help="Remove one or more names"
+    )
+    env_unset_parser.add_argument("names", nargs="+", metavar="NAME")
+    env_unset_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
     outbox_parser = subcommands.add_parser(
         "outbox",
         help="Report the durable outbox's backlog - whether anything is draining it",
@@ -2875,6 +2937,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "jobs" and args.jobs_command == "scheduler":
         print(run_scheduler_command(app_ref=args.app, app_root=args.app_root))
         return
+    if args.command == "env":
+        raise SystemExit(
+            run_env_command(
+                action=args.env_command,
+                root=args.root,
+                names=getattr(args, "pairs", None) or getattr(args, "names", None),
+                declare=getattr(args, "declare", False),
+            )
+        )
     if args.command == "outbox" and args.outbox_command == "backlog":
         print(
             render_backlog(

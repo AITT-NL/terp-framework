@@ -1,0 +1,222 @@
+"""``terp env`` — the inner loop's own command over ``.app.env``.
+
+Both halves of the platform had a values story for a *deployed* environment and
+neither had one for the machine the code is written on: the documented route was
+``cp .app.env.example .app.env`` plus a text editor, and the only seam was a
+hand-maintained file. These assertions hold the two rules that make the command a
+seam rather than a shortcut — the manifest is the allow-list, and a secret's value
+is never printed — plus the parity with ``env-seams`` that makes the example file
+generated rather than maintained.
+"""
+
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+import pytest
+
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO_ROOT / "packages" / "backend" / "cli" / "src"))
+
+from terp.cli import main  # noqa: E402
+from terp.cli.envfile import MASKED, run_env_command  # noqa: E402
+from terp.cli.envseams import run_env_seams_check  # noqa: E402
+
+_MANIFEST = {
+    "type": "object",
+    "properties": {
+        "VENDOR_API_URL": {
+            "type": "string",
+            "title": "Where the vendor API lives",
+            "default": "http://api:8000",
+            "resolvedBy": "container",
+        },
+        "VENDOR_TOKEN": {"type": "string", "format": "secret"},
+    },
+    "required": [],
+}
+
+
+def _project(tmp_path: pathlib.Path, manifest: dict | str | None = None) -> pathlib.Path:
+    if manifest is not None:
+        body = manifest if isinstance(manifest, str) else json.dumps(manifest)
+        (tmp_path / "environment.schema.json").write_text(body, encoding="utf-8")
+    return tmp_path
+
+
+def _env(root: pathlib.Path) -> str:
+    return (root / ".app.env").read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# the manifest is the allow-list
+# --------------------------------------------------------------------------- #
+def test_an_undeclared_name_is_refused(tmp_path: pathlib.Path) -> None:
+    """A value under a name the manifest does not declare reaches no deployed
+    environment: a deploy tool renders declarations and nothing else. Writing it
+    silently would be the local file quietly disagreeing with every other one."""
+    root = _project(tmp_path, _MANIFEST)
+    with pytest.raises(SystemExit, match="not declared"):
+        run_env_command(action="set", root=str(root), names=["SNEAKY=1"])
+    assert not (root / ".app.env").exists(), "a refusal writes nothing at all"
+
+
+def test_declare_makes_the_name_real_in_the_same_breath(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The difference between a guard and an obstacle: the one flag that turns a
+    refusal into a declaration, so the manifest and the file stay in step."""
+    root = _project(tmp_path, _MANIFEST)
+    run_env_command(action="set", root=str(root), names=["SNEAKY=1"], declare=True)
+
+    manifest = json.loads((root / "environment.schema.json").read_text(encoding="utf-8"))
+    assert manifest["properties"]["SNEAKY"] == {"type": "string"}
+    assert "SNEAKY=1" in _env(root)
+    # ...and it leaves the declarations that were already there alone.
+    assert "VENDOR_API_URL" in manifest["properties"]
+
+
+def test_a_manifest_the_reader_refuses_stops_everything(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A deploy tool's reader fails closed on the WHOLE file, so a manifest with
+    one defect declares nothing at all. Editing values against it would be
+    arranging furniture in a house with no walls."""
+    root = _project(tmp_path, '{"properties": {"lower_case": {"type": "string"}}}')
+    with pytest.raises(SystemExit, match="not usable as written"):
+        run_env_command(action="list", root=str(root))
+
+
+# --------------------------------------------------------------------------- #
+# a secret's value is never printed
+# --------------------------------------------------------------------------- #
+def test_a_secret_is_masked_on_the_way_in_and_on_the_way_out(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`"format": "secret"` means the value belongs in a sealed store or the
+    developer's own file — not in terminal scrollback, a screen share or a CI log.
+    It still has to REACH the file, which is the distinction being tested."""
+    root = _project(tmp_path, _MANIFEST)
+    run_env_command(action="set", root=str(root), names=["VENDOR_TOKEN=sk-live-abc"])
+    written = capsys.readouterr().out
+    assert MASKED in written and "sk-live-abc" not in written
+
+    run_env_command(action="list", root=str(root))
+    listed = capsys.readouterr().out
+    assert MASKED in listed and "sk-live-abc" not in listed
+
+    assert "sk-live-abc" in _env(root), (
+        "the value must still be delivered — .app.env is gitignored, the terminal is not"
+    )
+
+
+def test_a_plain_value_is_shown(tmp_path: pathlib.Path, capsys) -> None:
+    root = _project(tmp_path, _MANIFEST)
+    run_env_command(action="set", root=str(root), names=["VENDOR_API_URL=http://api:9000"])
+    run_env_command(action="list", root=str(root))
+    assert "http://api:9000" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- #
+# init / unset / check
+# --------------------------------------------------------------------------- #
+def test_init_writes_the_declarations_with_their_defaults(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    root = _project(tmp_path, _MANIFEST)
+    run_env_command(action="init", root=str(root))
+    body = _env(root)
+    assert "VENDOR_API_URL=http://api:8000" in body
+    assert "VENDOR_TOKEN=" in body, "a secret gets its name, never a default"
+    assert "VENDOR_TOKEN" in capsys.readouterr().out, "and is named as still to fill in"
+
+
+def test_init_refuses_to_clobber_an_existing_file(tmp_path: pathlib.Path) -> None:
+    root = _project(tmp_path, _MANIFEST)
+    (root / ".app.env").write_text("VENDOR_API_URL=mine\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="already exists"):
+        run_env_command(action="init", root=str(root))
+    assert _env(root) == "VENDOR_API_URL=mine\n"
+
+
+def test_unset_reports_what_was_not_there(tmp_path: pathlib.Path, capsys) -> None:
+    root = _project(tmp_path, _MANIFEST)
+    run_env_command(action="set", root=str(root), names=["VENDOR_API_URL=x"])
+    capsys.readouterr()
+    run_env_command(action="unset", root=str(root), names=["VENDOR_API_URL", "ABSENT"])
+    assert "not set anyway: ABSENT" in capsys.readouterr().out
+    assert "VENDOR_API_URL" not in _env(root)
+
+
+def test_check_names_both_directions_of_disagreement(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    root = _project(tmp_path, _MANIFEST)
+    (root / ".app.env").write_text("VENDOR_API_URL=x\nSTRAY=1\n", encoding="utf-8")
+    assert run_env_command(action="check", root=str(root)) == 1
+    out = capsys.readouterr().out
+    assert "VENDOR_TOKEN: declared but not set" in out
+    assert "STRAY" in out and "reaches no deployed environment" in out
+
+
+def test_a_file_the_parser_cannot_read_is_never_rewritten(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Rewriting from a partial parse would silently drop whatever failed, which
+    is the class of bug this whole seam exists to remove."""
+    root = _project(tmp_path, _MANIFEST)
+    broken = 'VENDOR_API_URL="unterminated\n'
+    (root / ".app.env").write_text(broken, encoding="utf-8")
+    with pytest.raises(SystemExit, match="cannot be read"):
+        run_env_command(action="set", root=str(root), names=["VENDOR_API_URL=x"])
+    assert _env(root) == broken
+
+
+# --------------------------------------------------------------------------- #
+# the generator half of the env-seams parity check
+# --------------------------------------------------------------------------- #
+def test_example_satisfies_the_check_that_demands_it(tmp_path: pathlib.Path) -> None:
+    """The point of `example`: an app satisfies the parity check by running a
+    command instead of hand-maintaining a third file."""
+    root = _project(tmp_path, _MANIFEST)
+    assert run_env_seams_check(root)[0] == 1, "no example file yet, so env-seams is red"
+
+    run_env_command(action="example", root=str(root))
+
+    exit_code, output = run_env_seams_check(root)
+    assert exit_code == 0, output
+
+
+def test_a_generated_example_never_carries_a_secret_value(
+    tmp_path: pathlib.Path,
+) -> None:
+    """This file is committed. The name tells a reader what to supply; supplying
+    it here would put the credential in git."""
+    root = _project(tmp_path, _MANIFEST)
+    run_env_command(action="set", root=str(root), names=["VENDOR_TOKEN=sk-live-abc"])
+    run_env_command(action="example", root=str(root))
+
+    example = (root / ".app.env.example").read_text(encoding="utf-8")
+    assert "sk-live-abc" not in example
+    assert "VENDOR_TOKEN=" in example
+    assert "VENDOR_API_URL=http://api:8000" in example, "a default is a helpful example"
+
+
+def test_env_is_not_in_any_verify_profile() -> None:
+    """`env-seams` already gates the seam; this is a developer's command, and a
+    gate that edits your files is not a gate."""
+    from terp.cli.verify import PROFILES
+
+    for profile, checks in PROFILES.items():
+        for check in checks:
+            assert not check.command.startswith("terp env "), f"{profile}/{check.id}"
+
+
+def test_the_cli_exposes_every_subcommand(tmp_path: pathlib.Path) -> None:
+    root = _project(tmp_path, _MANIFEST)
+    with pytest.raises(SystemExit) as excinfo:
+        main(["env", "init", "--root", str(root)])
+    assert excinfo.value.code == 0
+    assert (root / ".app.env").is_file()
