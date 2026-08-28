@@ -90,39 +90,34 @@ _APP_CHECK_KEYS = frozenset(
 #: two are indistinguishable in ``--only``, the manifest and the JSON envelope.
 _APP_CHECK_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
-#: The characters ``shlex`` treats as shell punctuation. A token made ONLY of
-#: these is an operator — tested that way rather than against a list of spellings,
-#: because a list is a thing to forget: the first version of this check enumerated
-#: ten operators and missed ``>&``, so ``pytest -q 2>&1`` was accepted and ran with
-#: ``2>&1`` as a literal argument.
-_SHELL_PUNCTUATION = frozenset("();<>|&")
+#: Argv elements that are a command SEPARATOR and nothing else. No program takes
+#: a bare ``&&`` or ``||`` as an argument, so one of these arriving as its own
+#: argument is always an author expecting a shell that is not there.
+#:
+#: Deliberately just these two. Every other piece of shell syntax has a
+#: legitimate bare-argument use — ``awk -F '|'``, ``find … -exec rm {} ;`` — and
+#: two earlier versions of this check refused exactly those, failing an app's
+#: whole table closed over a command that was correct. A guard whose false
+#: positives are commands people really write is worse than the mistake it
+#: catches.
+_COMMAND_SEPARATORS = frozenset({"&&", "||"})
 
 
-def _unquoted_shell_operators(command: str) -> list[str]:
-    """Shell operators in *command* that are not inside quotes.
+def _shell_separators_in(argv: list[str]) -> list[str]:
+    """Command separators sitting in *argv* as arguments of their own.
 
-    Lexed the way a shell reads it, which matters in both directions and neither
-    is theoretical. Splitting on whitespace misses ``a&&b``; splitting with
-    ``shlex.split`` strips the quotes first, so a legitimate ``awk -F '|'`` reads
-    as a pipe and the whole app-check table fails closed. Non-POSIX lexing keeps
-    the quotes on the token, and ``punctuation_chars`` makes an unquoted operator
-    a token of its own regardless of spacing.
+    Judged on the argv that will actually run — the list ``_run_subprocess``
+    passes to ``subprocess.run`` with ``shell=False`` — rather than on a second
+    lexer. That was the mistake in two earlier attempts: a lexer configured
+    differently from the one that produces the argv disagrees with it, and both
+    disagreements were real. Non-POSIX lexing raised on ``-F'|'`` (a quote that
+    does not start its token), which silently disabled the guard for anything
+    following it; and it flagged the ``&`` inside a quoted URL, which is one
+    argument and always was.
+
+    Here there is only one tokenisation, and it is the one that runs.
     """
-    lexer = shlex.shlex(command, posix=False, punctuation_chars=True)
-    lexer.whitespace_split = True
-    try:
-        tokens = list(lexer)
-    except ValueError:
-        # An unbalanced quote. Not this function's verdict — the caller reports it
-        # with the name of the check, which is the more useful message.
-        return []
-    return sorted(
-        {
-            token
-            for token in tokens
-            if token and set(token) <= _SHELL_PUNCTUATION
-        }
-    )
+    return sorted({token for token in argv if token in _COMMAND_SEPARATORS})
 
 
 @dataclass(frozen=True)
@@ -452,17 +447,19 @@ def _app_check_from(entry: object, index: int, known: frozenset[str]) -> VerifyC
         ) from exc
     if not argv:
         raise _declaration_error(f"{check_id!r} needs a non-empty `command` string")
-    # Manifest commands run as a fixed argv with shell=False, so a shell operator
-    # is not composition here — it is an argument. `a && b` would run `a` with
-    # `&&` and `b` as its arguments and report that verdict, which is a green for
-    # something nobody asked to run.
-    shell_operators = _unquoted_shell_operators(command)
-    if shell_operators:
+    # Manifest commands run as a fixed argv with shell=False, so a separator is
+    # not composition here — it is an argument. `a && b` would run `a` with `&&`
+    # and `b` as its arguments and report THAT verdict: a green for a check nobody
+    # ran. Note what is not claimed — no shell syntax is interpreted at all, and
+    # only the two unambiguous separators are refused.
+    separators = _shell_separators_in(argv)
+    if separators:
         raise _declaration_error(
-            f"{check_id!r} has {', '.join(shell_operators)} in its command, but a "
-            "check runs as a fixed argv with no shell, so that would be passed as "
-            "an argument rather than composing two commands. Declare each command "
-            "as its own check, or put the composition in a script the check calls"
+            f"{check_id!r} has {', '.join(separators)} in its command, but a check "
+            "runs as a fixed argv with no shell, so that would be passed as an "
+            "argument rather than composing two commands — and the check would "
+            "report the first command's verdict. Declare each command as its own "
+            "check, or put the composition in a script the check calls"
         )
     profile = entry.get("profile")
     if profile not in PROFILES:

@@ -1371,14 +1371,7 @@ def test_profile_checks_refuses_an_unknown_profile() -> None:
             'command = "lint . && test ."\nprofile = "quick"\n'
             'scope = ["engine/**"]\n',
             "no shell",
-            id="a shell operator, which would become an argument",
-        ),
-        pytest.param(
-            '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
-            'command = "cat x | grep y"\nprofile = "quick"\n'
-            'scope = ["engine/**"]\n',
-            "no shell",
-            id="a pipe, same reason",
+            id="a command separator, which would become an argument",
         ),
         pytest.param(
             '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
@@ -1682,31 +1675,70 @@ def test_dependency_hygiene_passes_a_clean_run_through(
     ), "a real finding travels unaltered; only the missing-tool case is annotated"
 
 
-def test_a_shell_operator_is_detected_the_way_a_shell_reads_it() -> None:
-    """Both directions, and neither is theoretical. Splitting on whitespace misses
-    `a&&b`; `shlex.split` strips the quotes first, so a legitimate `awk -F '|'`
-    reads as a pipe and the whole app-check table fails closed."""
-    from terp.cli.verify import _unquoted_shell_operators
+def test_a_command_separator_is_refused_on_the_argv_that_actually_runs() -> None:
+    """Judged on the argv ``_run_subprocess`` passes to ``subprocess.run``, not on
+    a second lexer configured differently from the one that produces it.
 
-    assert _unquoted_shell_operators("lint . && test .") == ["&&"]
-    assert _unquoted_shell_operators("a&&b") == ["&&"], "spacing is not the signal"
-    assert _unquoted_shell_operators("awk -F '|' -f check.awk src") == []
-    assert _unquoted_shell_operators("uv run pytest -k 'not slow'") == []
-    assert _unquoted_shell_operators("terp check --package engine") == []
-    # An unbalanced quote is the caller's finding, not this one's.
-    assert _unquoted_shell_operators('echo "unterminated') == []
+    Two earlier attempts used such a lexer and both disagreements were real: it
+    raised on ``-F'|'`` (a quote that does not start its token), silently
+    disabling the guard for everything after it, and it flagged the ``&`` inside a
+    quoted URL, which is one argument and always was.
+    """
+    from terp.cli.verify import _shell_separators_in
+
+    assert _shell_separators_in(["lint", ".", "&&", "test", "."]) == ["&&"]
+    assert _shell_separators_in(["lint", ".", "||", "true"]) == ["||"]
+    assert _shell_separators_in(["awk", "-F", "|", "-f", "c.awk"]) == []
+    assert _shell_separators_in(["curl", "--url=http://h/p?a=1&b=2"]) == []
 
 
-def test_a_compound_redirection_is_an_operator_too() -> None:
-    """Tested as "a token made only of shell punctuation" rather than against a
-    list of spellings, because a list is a thing to forget: the first version
-    enumerated ten operators and missed `>&`, so `pytest -q 2>&1` was accepted and
-    ran with `2>&1` as a literal argument."""
-    from terp.cli.verify import _unquoted_shell_operators
+@pytest.mark.parametrize(
+    ("command", "accepted"),
+    [
+        pytest.param("lint . && test .", False, id="the mistake this catches"),
+        pytest.param(
+            "awk -F'|' -f a.awk src && rm -rf /tmp/x",
+            False,
+            id="a quote that does not start its token no longer hides it",
+        ),
+        pytest.param(
+            "awk -F '|' -f check.awk src", True, id="a quoted pipe is one argument"
+        ),
+        pytest.param(
+            'curl --url="http://host/p?a=1&b=2"',
+            True,
+            id="an ampersand inside a URL is one argument",
+        ),
+        pytest.param(
+            "node --eval console.log(1)", True, id="parentheses are not composition"
+        ),
+        pytest.param("pytest -q 2>&1", True, id="a redirection is only an argument"),
+        pytest.param(
+            "find . -name x -exec rm {} ;", True, id="find's own semicolon"
+        ),
+        pytest.param("uv run pytest -k 'not slow'", True, id="a quoted expression"),
+    ],
+)
+def test_only_an_unambiguous_separator_is_refused(
+    tmp_path: pathlib.Path, command: str, accepted: bool
+) -> None:
+    """A guard whose false positives are commands people really write is worse
+    than the mistake it catches, so only ``&&`` and ``||`` are refused. Every
+    other piece of shell syntax has a legitimate bare-argument use, and no shell
+    interprets any of it here."""
+    from terp.cli.verify import _app_check_from
 
-    assert _unquoted_shell_operators("pytest -q 2>&1") == [">&"]
-    assert _unquoted_shell_operators("pytest -q &> log") == ["&>"]
-    assert _unquoted_shell_operators("cmd 2>/dev/null") == [">"]
+    entry = {
+        "id": "app-check",
+        "command": command,
+        "profile": "quick",
+        "scope": ["app/**"],
+    }
+    if accepted:
+        assert _app_check_from(entry, 0, frozenset()).command == command
+    else:
+        with pytest.raises(SystemExit, match="no shell"):
+            _app_check_from(entry, 0, frozenset())
 
 
 def test_an_unbalanced_quote_is_a_declaration_error_not_a_traceback(
