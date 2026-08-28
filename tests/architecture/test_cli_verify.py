@@ -85,6 +85,12 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # had a boundary the claim did not cover. No workflow change propagates it:
         # the template's CI runs `terp verify --profile full` and delegates the list.
         "package-boundaries",
+        # Is every distribution the app imports one it declares? No Terp rule can
+        # answer it — the import-name to distribution-name mapping needs installed
+        # metadata — so it is delegated to deptry, and it is BLOCKING here rather
+        # than advisory: the failure is a green gate over an undeclared import on a
+        # path no test reaches, which is a control or it is nothing.
+        "dependency-hygiene",
         "frontend-boundaries",
         "routes-drift",
         # The generated API client is an INPUT to the typecheck below and is
@@ -1534,3 +1540,129 @@ def test_a_declared_check_composes_into_no_assurance_lane() -> None:
     assert "domain-invariants" not in named
     for lane in document["lanes"]:
         assert "domain-invariants" not in lane["checks"]
+
+
+# --------------------------------------------------------------------------- #
+# dependency hygiene — delegated, and blocking
+# --------------------------------------------------------------------------- #
+def test_dependency_hygiene_is_blocking_and_lane_less() -> None:
+    """It carries the exit code, and it claims no normative lane.
+
+    Advisory was the status quo and is not a control: the failure this catches is
+    a green gate over an undeclared import on a path no test reaches — the app
+    runs where a transitive dependency happens to be installed and dies on a
+    clean machine. So it lands in the merge bar.
+
+    It joins no assurance lane on purpose. The spec's `dependency-audit` lane is
+    normatively "both trees against known-vulnerability databases", which is a
+    different question from "is what you import declared"; claiming it there
+    would widen a normative lane from the toolchain side.
+    """
+    from terp.cli.verify import ASSURANCE_LANES
+
+    for profile in ("full", "release"):
+        assert "dependency-hygiene" in {check.id for check in PROFILES[profile]}
+    assert "dependency-hygiene" not in {check.id for check in PROFILES["quick"]}, (
+        "quick is static enforcement over source; this one needs a resolved "
+        "environment to map an import name to a distribution"
+    )
+    for _lane, _requirement, check_ids in ASSURANCE_LANES:
+        assert "dependency-hygiene" not in check_ids
+
+
+def test_dependency_hygiene_is_conditional_on_the_app_declaring_it(
+    tmp_path: pathlib.Path,
+) -> None:
+    from terp.cli.verify import NOTE_PREFIX, _run_dependency_hygiene
+
+    exit_code, output = _run_dependency_hygiene(tmp_path / "nowhere")
+    assert (exit_code, "not applicable" in output) == (0, True)
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
+    exit_code, output = _run_dependency_hygiene(tmp_path)
+    assert exit_code == 0, "an app that never adopted deptry must not fail the gate"
+    assert output.startswith(NOTE_PREFIX) and "deptry" in output
+
+
+def test_dependency_hygiene_reads_the_table_rather_than_matching_text(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Declaring only `[tool.deptry.per_rule_ignores]` still creates the parent
+    table — and the word in a comment does not. Same reasoning as the package
+    graph check next to it."""
+    import terp.cli.verify as verify_module
+
+    reached: list[str] = []
+    monkeypatch.setattr(
+        verify_module,
+        "_run_subprocess",
+        lambda check, root: (reached.append(check.id), (0, "clean"))[1],
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '# tool.deptry in a comment\n[tool.deptry.per_rule_ignores]\nDEP003 = ["x"]\n',
+        encoding="utf-8",
+    )
+    assert verify_module._run_dependency_hygiene(tmp_path) == (0, "clean")
+    assert reached == ["dependency-hygiene"]
+
+    reached.clear()
+    (tmp_path / "pyproject.toml").write_text(
+        "# nothing here declares [tool.deptry] for real\n", encoding="utf-8"
+    )
+    exit_code, _output = verify_module._run_dependency_hygiene(tmp_path)
+    assert (exit_code, reached) == (0, []), "a comment is not a declaration"
+
+    # An empty table is the most ordinary adoption there is — every setting left
+    # at its default — and an empty table is falsy. Testing the value rather than
+    # the key would skip it silently, which is the fail-open this check exists to
+    # prevent, occurring inside the check itself.
+    reached.clear()
+    (tmp_path / "pyproject.toml").write_text("[tool.deptry]\n", encoding="utf-8")
+    assert verify_module._run_dependency_hygiene(tmp_path) == (0, "clean")
+    assert reached == ["dependency-hygiene"]
+
+
+def test_dependency_hygiene_names_the_missing_tool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Declared-but-unrunnable is a RED that says what to install.
+
+    An app that declared the hygiene and cannot run it has a broken gate;
+    reporting that as a pass is the failure the check exists to remove.
+    """
+    import terp.cli.verify as verify_module
+
+    monkeypatch.setattr(
+        verify_module,
+        "_run_subprocess",
+        lambda check, root: (127, "deptry: executable not found on PATH"),
+    )
+    (tmp_path / "pyproject.toml").write_text("[tool.deptry]\n", encoding="utf-8")
+    exit_code, output = verify_module._run_dependency_hygiene(tmp_path)
+    assert exit_code == 127
+    assert "checked by nothing" in output and 'add "deptry>=0.20"' in output
+
+
+def test_dependency_hygiene_refuses_an_unreadable_manifest(
+    tmp_path: pathlib.Path,
+) -> None:
+    from terp.cli.verify import _run_dependency_hygiene
+
+    (tmp_path / "pyproject.toml").write_text("[tool.deptry\n", encoding="utf-8")
+    exit_code, output = _run_dependency_hygiene(tmp_path)
+    assert exit_code == 1 and "unreadable" in output
+
+
+def test_dependency_hygiene_passes_a_clean_run_through(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    import terp.cli.verify as verify_module
+
+    monkeypatch.setattr(
+        verify_module, "_run_subprocess", lambda check, root: (1, "DEP001 missing: yaml")
+    )
+    (tmp_path / "pyproject.toml").write_text("[tool.deptry]\n", encoding="utf-8")
+    assert verify_module._run_dependency_hygiene(tmp_path) == (
+        1,
+        "DEP001 missing: yaml",
+    ), "a real finding travels unaltered; only the missing-tool case is annotated"

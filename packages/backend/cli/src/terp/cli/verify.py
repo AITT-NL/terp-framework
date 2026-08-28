@@ -8,8 +8,10 @@ data and executed sequentially in the project root. Three profiles ratchet up:
 * ``quick`` — static enforcement only (architecture gate, frontend boundary
   lint, frontend typecheck): cheap enough to run after every agent turn.
 * ``full`` — the merge bar: quick plus the backend test suite, the delegated
-  generic AppSec baseline (ruff ``S``, ADR 0085), and the production frontend
-  build. This is exactly the template CI's blocking surface.
+  generic AppSec baseline (ruff ``S``, ADR 0085), the delegated dependency
+  hygiene check (deptry — is every distribution this app imports declared?), and
+  the production frontend build. This is exactly the template CI's blocking
+  surface.
 * ``release`` — full plus the dependency audits (pip-audit / npm audit — the
   spec's required ``dependency-audit`` assurance lane), the contract-drift
   checks and the black-box conformance suite (which needs the Docker workbench
@@ -109,6 +111,7 @@ class VerifyCheck:
     #: subprocess — same verdict surface, no interpreter round-trip.
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
+    # | "dependency-hygiene"
     runner: str = "subprocess"
 
 
@@ -162,6 +165,29 @@ _PACKAGE_BOUNDARIES = VerifyCheck(
     command="lint-imports",
     scope=("pyproject.toml", "**/*.py"),
     runner="package-boundaries",
+)
+
+# "Is every distribution this app imports actually declared?" — the question no
+# Terp rule can answer. The import-name to distribution-name mapping (`yaml` comes
+# from PyYAML) needs installed metadata, and `terp.arch` reads source, never
+# `pyproject.toml`; hand-rolling the mapping inside the gate would be a worse copy
+# of a solved problem. So it is delegated, following the appsec-baseline precedent
+# (ADR 0085, ADR 0033) — and it is BLOCKING, unlike the advisory run the platform
+# does over its own packages. The failure it catches is a green gate over an
+# undeclared driver import on a path no test reaches: the app works on the machine
+# where a transitive dependency happens to be installed and fails on a clean one.
+# Advisory is not a control.
+#
+# `full`, not `quick`: the question is a shipping property, not a per-turn one, and
+# answering it needs a resolved environment that `quick` deliberately does not
+# assume. Conditional on the app declaring `[tool.deptry]`, so an app that never
+# adopted it is unaffected — and declared-but-unrunnable is a RED, not a skip.
+_DEPENDENCY_HYGIENE = VerifyCheck(
+    id="dependency-hygiene",
+    category="architecture",
+    command="uv run deptry .",
+    scope=("pyproject.toml", "uv.lock", "**/*.py"),
+    runner="dependency-hygiene",
 )
 
 _FRONTEND_BOUNDARIES = VerifyCheck(
@@ -285,6 +311,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ENV_SEAMS,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
+        _DEPENDENCY_HYGIENE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
         _FRONTEND_BOUNDARIES,
@@ -298,6 +325,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ENV_SEAMS,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
+        _DEPENDENCY_HYGIENE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
         _DEPENDENCY_AUDIT_PYTHON,
@@ -974,6 +1002,53 @@ def _run_package_boundaries(root: pathlib.Path) -> tuple[int, str]:
     return _run_subprocess(_PACKAGE_BOUNDARIES, root)
 
 
+def _run_dependency_hygiene(root: pathlib.Path) -> tuple[int, str]:
+    """Run deptry over the app, if the app declares it.
+
+    Reads `[tool.deptry]` as TOML for the same reason `package-boundaries` reads
+    `[tool.importlinter]`: declaring only `[tool.deptry.per_rule_ignores]` still
+    creates the parent table, and a substring test would fire on the word in a
+    comment.
+
+    Not in any assurance lane. The spec's `dependency-audit` lane is normatively
+    "both dependency trees against known-vulnerability databases" — a different
+    question from "is what you import declared", and claiming this check there
+    would widen a normative lane from the toolchain side. It carries the exit
+    code instead, which is what makes it a control.
+    """
+    manifest = root / "pyproject.toml"
+    if not manifest.is_file():
+        return 0, "no pyproject.toml - dependency hygiene not applicable"
+    try:
+        declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        return 1, (
+            f"pyproject.toml is unreadable ({exc}), so whether this app declares "
+            "dependency hygiene cannot be established"
+        )
+    # PRESENCE, not truthiness: `[tool.deptry]` with every setting left at its
+    # default is an empty table, and an empty table is falsy. Testing the value
+    # would silently skip the most ordinary way to adopt the tool — a fail-open
+    # inside the check whose whole purpose is to stop a gate going green over
+    # something nobody ran.
+    if "deptry" not in (declared.get("tool") or {}):
+        return (
+            0,
+            f"{NOTE_PREFIX}no [tool.deptry] in pyproject.toml - dependency hygiene "
+            "skipped (declare it to enable: it answers whether every distribution "
+            "this app imports is one it depends on; see `terp guide "
+            "dependency-hygiene`)",
+        )
+    exit_code, output = _run_subprocess(_DEPENDENCY_HYGIENE, root)
+    if exit_code != 0 and "deptry" in output and "not found" in output.lower():
+        output += (
+            "\n  This app declares [tool.deptry] but deptry is not installed, so the "
+            "hygiene it declared is checked by nothing.\n"
+            '  Fix: add "deptry>=0.20" to the dev dependency group.'
+        )
+    return exit_code, output
+
+
 def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     """Generate the typed API client from the live backend contract.
 
@@ -1151,6 +1226,8 @@ def run_verify_command(
             exit_code, output = _run_api_client(project_root)
         elif check.runner == "package-boundaries":
             exit_code, output = _run_package_boundaries(project_root)
+        elif check.runner == "dependency-hygiene":
+            exit_code, output = _run_dependency_hygiene(project_root)
         elif check.runner == "routes-drift":
             exit_code, output = _run_routes_drift(project_root)
         elif check.runner == "env-seams":
