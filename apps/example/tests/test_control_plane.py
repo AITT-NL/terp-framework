@@ -31,14 +31,27 @@ def test_example_build_uses_control_plane() -> None:
 def test_every_declared_operation_has_a_dutch_translation() -> None:
     """Phase 5.5 (ADR 0102, amending §3): the operation id IS the i18n message id.
 
-    The same completeness drift-guard `LOCALE_NL` already has for framework strings
-    (`packages/frontend/react-core/src/locale.test.tsx`), keyed off this app's own
-    `OperationCatalog` instead of a frontend `TerpStrings` export -- a new operation
-    with no Dutch entry in `frontend/i18n.json` fails here, so the catalog can never
-    silently fall back to its English label for a route nobody translated.
+    Shaped like the completeness drift-guard `LOCALE_NL` already has for framework
+    strings (`packages/frontend/react-core/src/locale.test.tsx`), keyed off this app's
+    own `OperationCatalog` instead of a frontend `TerpStrings` export -- a new
+    operation with no Dutch entry in `frontend/i18n.json`, or one that is just its
+    English label copy-pasted, fails here.
+
+    What this proves is narrower than it might sound: only that `frontend/i18n.json`
+    itself is complete. It says nothing about whether anything actually *renders* that
+    entry -- at the time this was written, the Studio's own viewer does not read this
+    file at all and shows the English label regardless of locale (see ADR 0102's
+    amendment). Closing that gap is separate, un-started work; this test cannot detect
+    it either way, because it never leaves this file.
     """
     i18n = json.loads((_FRONTEND_ROOT / "i18n.json").read_text(encoding="utf-8"))
-    dutch_messages = set(i18n["locales"]["nl"]["messages"])
-    operation_ids = {definition.id for definition in operation_catalog.operations}
-    missing = operation_ids - dutch_messages
+    dutch_messages: dict[str, str] = i18n["locales"]["nl"]["messages"]
+    operation_ids = {definition.id: definition.label for definition in operation_catalog.operations}
+    missing = set(operation_ids) - set(dutch_messages)
     assert not missing, f"operations with no Dutch translation: {sorted(missing)}"
+    copied = sorted(
+        op_id
+        for op_id, english in operation_ids.items()
+        if dutch_messages[op_id] == english
+    )
+    assert not copied, f"Dutch translation is just the English label, verbatim: {copied}"

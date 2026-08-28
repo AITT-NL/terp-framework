@@ -114,13 +114,23 @@ catalog, not a sweep through every declaration in every app — which is the dif
 translatable platform and one where "support French" is a breaking change.
 
 **Amended 2026-08-27: the operation id is the i18n message id; translations live in the app's
-`frontend/i18n.json`.** This settles the open question of where an app's operation translations
-physically live so the Studio can read them with no running app. ADR 0105 gave every generated
-app exactly one catalog for this shape — `{sourceLocale, locales: {<locale>: {label,
-allowIdentical, messages: {<id>: <message>}}}}` — keyed by the same `{id, message}` pair
-`OperationDefinition` already carries. Reusing it costs nothing new: no second catalog format,
-no new per-app file, no new wiring, and the Studio reads it the same way it already reads design
-tokens and module slots — straight from the checkout.
+`frontend/i18n.json`.** This settles *where* an app's operation translations physically live, so
+the Studio can eventually read them with no running app. ADR 0105 gave every generated app exactly
+one catalog for this shape — `{sourceLocale, locales: {<locale>: {label, allowIdentical, messages:
+{<id>: <message>}}}}` — keyed by the same `{id, message}` pair `OperationDefinition` already
+carries. Reusing it costs nothing new: no second catalog format, no new per-app file, no new
+wiring on the framework side, and it is read the same way the Studio already reads design tokens
+and module slots — straight from the checkout — for those two things.
+
+**This does not yet mean the Studio's permission viewer actually renders a translation from this
+file.** A review of the shipped Studio code found that claim overstated: `endpointAction.ts`'s
+`describeEndpointAction` takes `declared_operation`'s English `label` straight off the access-graph
+JSON and copies it verbatim into both its `nl` and `en` output — there is no code path anywhere in
+`terp-studio`, frontend or backend, that reads a target app's `frontend/i18n.json`. The location
+decided here is real and is the correct one to build against; the Studio-side reader that turns an
+operation id into its Dutch text by actually opening that file is separate work that has not
+started. Recorded honestly rather than left implied: `terp-framework/docs/internal/STATUS.md`
+tracks it as open.
 
 This does not, on its own, make an operation's translation *complete* the way ADR 0105 makes UI
 copy complete. `frontend/no-untranslated-ui` and `frontend/locale-catalogs-complete` inventory

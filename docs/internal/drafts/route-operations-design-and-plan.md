@@ -264,19 +264,33 @@ cannot be deferred behind a marker and are done first.
       second, silent gap next to the first, documented one.
 - [x] **5.5** Ship the Dutch catalog for the framework's own operations, pinned by a completeness
       test against the operation-id set — the same shape as the existing locale completeness test.
-      All 68 operations gained a Dutch entry in `apps/example/frontend/i18n.json`, keyed by the
-      operation id exactly as the settled item-2 decision specifies. `files.delete` reuses ADR
-      0102's own Dutch worked example ("Verwijder een bestand") verbatim.
+      Every operation in `apps/example/control_plane/operations.py`'s `operation_catalog` (run
+      `len(operation_catalog.operations)` to see the current count — it grows with every future
+      annotation, so it is not restated here) gained a Dutch entry in
+      `apps/example/frontend/i18n.json`, keyed by the operation id exactly as the settled item-2
+      decision specifies. `files.delete` reuses ADR 0102's own Dutch worked example ("Verwijder
+      een bestand") verbatim.
       **A real collision surfaced doing this, not a hypothetical one:** `files.delete` was already
       a UI-text id in `FilesView.tsx` — a delete *button's* caption ("Delete" / "Verwijderen") — a
       different kind of text than an operation's permission-viewer sentence, that happened to share
       one id purely because both namespaces (UI copy and route operations) now live in the same
-      `i18n.json`. Checked every one of the 68 operation ids against every UI-text id already used
-      in `apps/example/frontend/src`; this was the only collision. Resolved by renaming the
+      `i18n.json`. Checked every operation id against every UI-text id already used in
+      `apps/example/frontend/src`; this was the only collision. Resolved by renaming the
       *button's* id to `files.deleteFile` (the smaller, purely-internal change — nothing user-visible
       moves, since its Dutch text is unchanged) rather than moving the already-shipped, ADR-documented
       operation id. The completeness test (`apps/example/tests/test_control_plane.py`) is
-      mutation-checked: deleting one operation's Dutch entry turns it red, naming exactly that id.
+      mutation-checked: deleting one operation's Dutch entry turns it red, naming exactly that id;
+      it also refuses a Dutch entry that is just the English label copy-pasted verbatim.
+      **Two things this does not yet close, found by review rather than left implied:** (a) the
+      Studio's own viewer does not read this file at all yet — `endpointAction.ts` copies the
+      English `label` verbatim into both its Dutch and English output, so the translation exists in
+      the checkout but nothing renders it; wiring that reader is separate, un-started work, and ADR
+      0102's amendment now says so honestly instead of implying it already happens. (b) this
+      completeness test is hand-written once, against this one app's catalog and i18n file — any
+      other app built on the framework gets no automatic protection against a missing translation
+      unless it copies this test by hand. Neither is phase 6's job (phase 6 is catalog-membership and
+      coverage, not translation completeness), so both are recorded here as open rather than folded
+      into a phase they do not belong to.
 
 ## Phase 6 — enforcement
 
@@ -296,12 +310,15 @@ cannot be deferred behind a marker and are done first.
    is the destination default**, recorded as an amendment to ADR 0102 (§6). The flip happens in the
    enforcement phase, after the framework's own routes are annotated — doing it sooner refuses the
    boot of every app, this repository's example included.
-2. ~~Where do an app's operation translations physically live~~ so the Studio can read them without
-   a running app? **Settled 2026-08-27: the operation id is the i18n message id**, and translations
-   live in the app's `frontend/i18n.json` — the same catalog ADR 0105 already ships, reused rather
-   than duplicated. Recorded as an amendment to ADR 0102 (§3). Phase 5.5 still owes the
-   completeness half: nothing yet fails the gate when a declared operation has no matching
-   `i18n.json` entry.
+2. ~~Where do an app's operation translations physically live?~~ **Settled 2026-08-27: the
+   operation id is the i18n message id**, and translations live in the app's `frontend/i18n.json`
+   — the same catalog ADR 0105 already ships, reused rather than duplicated. Recorded as an
+   amendment to ADR 0102 (§3). Phase 5.5 shipped the completeness half (a mutation-checked test
+   fails the gate when a declared operation has no matching `i18n.json` entry, or when its entry is
+   just the English label copy-pasted). **Not yet true: "so the Studio can read them."** The
+   location is settled and the file is populated, but the Studio's own viewer does not read it —
+   it currently renders the English label verbatim regardless of locale. Wiring that reader is
+   separate work, not started, and not implied to be done by this being marked settled.
 3. **Should `operation` subsume `read_only`?** Both are route-level declarations about one handler
    and both now live in `terp.core.routing`. They answer different questions (what this does for a
    person; whether it may persist), so they stay separate — but if a third and fourth marker

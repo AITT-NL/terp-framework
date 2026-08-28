@@ -485,17 +485,28 @@ endpoint *does* and the platform can guarantee every route is explained.
       prior-call summary as a hand-written conflict, since a module's router is a
       process-wide singleton and `create_app` is routinely called on it more than once —
       fixed by comparing to the declared label instead of only checking truthiness. It
-      also broke 31 tests across 9 files whose `create_app` fixtures predate operations
-      and mounted a now-annotated capability with no matching `OperationCatalog` — each
-      fixed with the catalog its mounted routes actually need. Both committed OpenAPI
-      artifacts and their generated `schema.d.ts` files were regenerated (phase 4.3's
-      deferred step, now genuinely due). All 68 operations gained a Dutch entry in
-      `apps/example/frontend/i18n.json`, pinned by a completeness test
-      (`apps/example/tests/test_control_plane.py`). Sharing that catalog with the
-      frontend's own UI-text ids has a real cost, found rather than argued: `files.delete`
-      already named a delete button's caption before this, and colliding with the
-      operation of the same name — resolved by renaming the *button's* id
-      (`files.deleteFile`), never the operation id, recorded as a consequence in ADR 0102.
+      also broke every `create_app` fixture, across both `tests/` and
+      `apps/example/tests/`, that predated operations and mounted a now-annotated
+      capability with no matching `OperationCatalog` — fixed one file at a time with the
+      catalog its mounted routes actually need. A point-in-time count of that set was
+      recorded here and then went stale within the same phase — `pytest` (the bare
+      invocation, covering both configured `testpaths`) is the only thing worth trusting
+      for how many, not this sentence. Both committed OpenAPI artifacts and their
+      generated `schema.d.ts` files were regenerated (phase 4.3's deferred step, now
+      genuinely due). Every operation in `apps/example/control_plane/operations.py`
+      gained a Dutch entry in `apps/example/frontend/i18n.json`, pinned by a
+      completeness test (`apps/example/tests/test_control_plane.py`) that also refuses
+      a translation that is just the English label copy-pasted. Sharing that catalog
+      with the frontend's own UI-text ids has a real cost, found rather than argued:
+      `files.delete` already named a delete button's caption before this, and colliding
+      with the operation of the same name — resolved by renaming the *button's* id
+      (`files.deleteFile`), never the operation id, recorded as a consequence in ADR
+      0102. **Two things this does not close:** the Studio's own viewer does not read
+      `i18n.json` yet — it renders the English label verbatim regardless of locale, a
+      claim ADR 0102's amendment overstated until a review caught it; and this
+      completeness test is hand-written once, for this one app, with no reusable
+      framework-level equivalent an app built on top of Terp could inherit. Neither is
+      phase 6's job; both are open.
 - [ ] Phase 6 — the two Standard rules, corpus cases, then **flip the default to
       `strict`** (decided; ADR 0102 amendment). `warn` is the staging step and the
       documented escape for an app that cannot annotate on that timetable.
@@ -524,12 +535,13 @@ implemented only in the backend is half-built".
   Recorded as an amendment to ADR 0102. The flip happens in the enforcement phase,
   after the framework's own routes are annotated — doing it sooner refuses the boot of
   every app, this repository's example included.
-- ~~Where do an app's operation translations physically live so the Studio can read
-  them without a running app?~~ **Settled 2026-08-27: the operation id is the i18n
-  message id**, and translations live in the app's `frontend/i18n.json` — the same
-  catalog ADR 0105 already ships. Recorded as an amendment to ADR 0102. Phase 5.5
-  still owes the completeness check (nothing yet fails the gate when a declared
-  operation has no matching `i18n.json` entry).
+- ~~Where do an app's operation translations physically live?~~ **Settled 2026-08-27:
+  the operation id is the i18n message id**, and translations live in the app's
+  `frontend/i18n.json` — the same catalog ADR 0105 already ships. Recorded as an
+  amendment to ADR 0102. Phase 5.5 shipped the completeness check. **Not settled:**
+  the Studio does not yet read this file — its viewer renders the English label
+  regardless of locale, and ADR 0102's amendment now says so plainly instead of
+  implying otherwise.
 
 ## Active execution track
 
