@@ -354,6 +354,17 @@ def _example(root: pathlib.Path) -> int:
     check by running this instead of hand-maintaining a third file.
     """
     declared = declared_variables(root)
+    if not declared:
+        # `manifest_findings` is empty for a manifest that is merely ABSENT, so the
+        # usability guard does not cover this — and this command overwrites a
+        # COMMITTED file. Replacing it with a header and reporting success is the
+        # loudest possible way to lose it, so refuse instead. (`init` already
+        # refuses here; `example` writes the more valuable file of the two.)
+        raise SystemExit(
+            f"{APP_ENV_SCHEMA_FILE} declares no variables, so there is nothing to "
+            f"put in {APP_ENV_EXAMPLE_FILE} — writing it now would replace whatever "
+            "is committed there with an empty file"
+        )
     header = _EXAMPLE_HEADER.format(
         example=APP_ENV_EXAMPLE_FILE, live=APP_ENV_FILE, manifest=APP_ENV_SCHEMA_FILE
     )

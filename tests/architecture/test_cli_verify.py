@@ -1693,5 +1693,34 @@ def test_a_shell_operator_is_detected_the_way_a_shell_reads_it() -> None:
     assert _unquoted_shell_operators("awk -F '|' -f check.awk src") == []
     assert _unquoted_shell_operators("uv run pytest -k 'not slow'") == []
     assert _unquoted_shell_operators("terp check --package engine") == []
-    # An unbalanced quote is the argv check's finding, not this one's.
+    # An unbalanced quote is the caller's finding, not this one's.
     assert _unquoted_shell_operators('echo "unterminated') == []
+
+
+def test_a_compound_redirection_is_an_operator_too() -> None:
+    """Tested as "a token made only of shell punctuation" rather than against a
+    list of spellings, because a list is a thing to forget: the first version
+    enumerated ten operators and missed `>&`, so `pytest -q 2>&1` was accepted and
+    ran with `2>&1` as a literal argument."""
+    from terp.cli.verify import _unquoted_shell_operators
+
+    assert _unquoted_shell_operators("pytest -q 2>&1") == [">&"]
+    assert _unquoted_shell_operators("pytest -q &> log") == ["&>"]
+    assert _unquoted_shell_operators("cmd 2>/dev/null") == [">"]
+
+
+def test_an_unbalanced_quote_is_a_declaration_error_not_a_traceback(
+    tmp_path: pathlib.Path,
+) -> None:
+    """`shlex.split` raises on it. Uncaught, that is a traceback out of
+    `terp verify` about a file the user can fix in a second."""
+    from terp.cli.verify import app_declared_checks
+
+    (tmp_path / "pyproject.toml").write_text(
+        '[[tool.terp.verify.checks]]\nid = "engine-arch"\n'
+        'command = "echo \\"oops"\nprofile = "quick"\n'
+        'scope = ["engine/**"]\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="cannot be read as a command line"):
+        app_declared_checks(tmp_path)

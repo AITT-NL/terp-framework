@@ -356,3 +356,24 @@ def test_a_null_default_is_empty_not_the_string_none(
 
     run_env_command(action="example", root=str(root))
     assert "OPT=None" not in (root / ".app.env.example").read_text(encoding="utf-8")
+
+
+def test_example_refuses_to_wipe_a_committed_file_with_nothing(
+    tmp_path: pathlib.Path,
+) -> None:
+    """`manifest_findings` is empty for a manifest that is merely ABSENT, so the
+    usability guard does not cover this — and this command overwrites a COMMITTED
+    file. Replacing it with a header and reporting success is the loudest possible
+    way to lose it."""
+    root = _project(tmp_path, {"type": "object", "properties": {}, "required": []})
+    (root / ".app.env.example").write_text("KEEP=me\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="declares no variables"):
+        run_env_command(action="example", root=str(root))
+    assert (root / ".app.env.example").read_text(encoding="utf-8") == "KEEP=me\n"
+
+    # ...and the same when there is no manifest at all.
+    (root / "environment.schema.json").unlink()
+    with pytest.raises(SystemExit, match="declares no variables"):
+        run_env_command(action="example", root=str(root))
+    assert (root / ".app.env.example").read_text(encoding="utf-8") == "KEEP=me\n"

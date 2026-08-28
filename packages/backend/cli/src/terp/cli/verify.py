@@ -90,9 +90,12 @@ _APP_CHECK_KEYS = frozenset(
 #: two are indistinguishable in ``--only``, the manifest and the JSON envelope.
 _APP_CHECK_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
-#: Tokens that mean "compose two commands" to a shell and mean nothing here,
-#: because a check runs as a fixed argv with ``shell=False``.
-_SHELL_OPERATORS = frozenset({"&&", "||", ";", ";;", "|", "|&", ">", ">>", "<", "&"})
+#: The characters ``shlex`` treats as shell punctuation. A token made ONLY of
+#: these is an operator — tested that way rather than against a list of spellings,
+#: because a list is a thing to forget: the first version of this check enumerated
+#: ten operators and missed ``>&``, so ``pytest -q 2>&1`` was accepted and ran with
+#: ``2>&1`` as a literal argument.
+_SHELL_PUNCTUATION = frozenset("();<>|&")
 
 
 def _unquoted_shell_operators(command: str) -> list[str]:
@@ -109,9 +112,17 @@ def _unquoted_shell_operators(command: str) -> list[str]:
     lexer.whitespace_split = True
     try:
         tokens = list(lexer)
-    except ValueError:  # an unbalanced quote — the argv check below reports it
+    except ValueError:
+        # An unbalanced quote. Not this function's verdict — the caller reports it
+        # with the name of the check, which is the more useful message.
         return []
-    return sorted({token for token in tokens if token in _SHELL_OPERATORS})
+    return sorted(
+        {
+            token
+            for token in tokens
+            if token and set(token) <= _SHELL_PUNCTUATION
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -427,7 +438,19 @@ def _app_check_from(entry: object, index: int, known: frozenset[str]) -> VerifyC
             "would report on a lane it never ran"
         )
     command = entry.get("command")
-    if not isinstance(command, str) or not shlex.split(command):
+    if not isinstance(command, str):
+        raise _declaration_error(f"{check_id!r} needs a non-empty `command` string")
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        # `shlex.split` raises on an unbalanced quote. Uncaught, that is a
+        # traceback out of `terp verify` about a file the user can fix in a second
+        # — so it becomes a declaration error like every other defect here.
+        raise _declaration_error(
+            f"{check_id!r} has a `command` that cannot be read as a command "
+            f"line ({exc})"
+        ) from exc
+    if not argv:
         raise _declaration_error(f"{check_id!r} needs a non-empty `command` string")
     # Manifest commands run as a fixed argv with shell=False, so a shell operator
     # is not composition here — it is an argument. `a && b` would run `a` with
