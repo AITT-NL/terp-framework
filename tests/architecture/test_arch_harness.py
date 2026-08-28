@@ -1913,6 +1913,21 @@ def test_operations_reference_catalog(tmp_path: pathlib.Path) -> None:
     assert _rule_names(violations) == {"operations_reference_catalog"}
     assert len(violations) == 2
 
+    # The same drift, called by operation(...)'s keyword name rather than positionally --
+    # both are valid Python for a one-parameter function, and only the positional form
+    # was checked at first.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from terp.core import operation\n"
+        "@router.delete('/{note_id}', status_code=204)\n"
+        "@operation(definition='notes.delete')\n"
+        "def delete_note(note_id, session) -> None:\n    _service.delete(session, note_id)\n",
+    )
+    violations = check_operations_reference_catalog(app)
+    assert _rule_names(violations) == {"operations_reference_catalog"}
+    assert len(violations) == 1
+
     # A bare string at a build_crud_router(...) *_operation= keyword is drift too.
     _write(
         app,
@@ -2024,6 +2039,46 @@ def test_routes_declare_operation(tmp_path: pathlib.Path) -> None:
         "    list_operation=NOTES_LIST, create_operation=NOTES_CREATE,\n"
         "    get_operation=NOTES_GET, update_operation=NOTES_UPDATE,\n"
         "    delete_operation=NOTES_DELETE)\n",
+    )
+    assert check_routes_declare_operation(app) == []
+
+
+def test_routes_declare_operation_covers_websocket_routes(tmp_path: pathlib.Path) -> None:
+    """A ``@router.websocket(...)`` route is a route too, not an HTTP-only concept.
+
+    ``iter_route_registrations`` (the shared helper this rule and several others
+    build on) once yielded only the body verbs / ``api_route`` / ``head`` /
+    ``options`` -- a ``@router.websocket(...)`` handler was structurally invisible
+    to it, so this build-time rule could never flag one left undeclared under
+    strict coverage, even though the runtime boot check has always covered
+    ``APIWebSocketRoute``. Regression test for that gap.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/realtime/router.py",
+        "@router.websocket('/ws/{channel_name}')\n"
+        "async def subscribe_websocket(websocket, channel_name):\n    ...\n",
+    )
+    _write(
+        tmp_path,
+        "control_plane/operations.py",
+        "from terp.core import OperationCatalog, OperationCoverage\n"
+        "operation_catalog = OperationCatalog(coverage=OperationCoverage.STRICT)\n",
+    )
+    violations = check_routes_declare_operation(app)
+    assert _rule_names(violations) == {"routes_declare_operation"}
+    assert len(violations) == 1
+
+    # Declaring it makes the websocket route clean, same as any other route form.
+    _write(
+        app,
+        "modules/realtime/router.py",
+        "from control_plane.operations import REALTIME_SUBSCRIBE\n"
+        "from terp.core import operation\n"
+        "@router.websocket('/ws/{channel_name}')\n"
+        "@operation(REALTIME_SUBSCRIBE)\n"
+        "async def subscribe_websocket(websocket, channel_name):\n    ...\n",
     )
     assert check_routes_declare_operation(app) == []
 

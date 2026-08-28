@@ -325,9 +325,9 @@ cannot be deferred behind a marker and are done first.
 - [x] **6.3 Escape-hatch budgets** — no update needed. Every route in every capability and the
       example app already declared a real operation from phase 5, and both new rules' own
       implementations needed zero opt-outs anywhere; `apps/example/escape-hatch-budget.json` is
-      unchanged (still exactly the one pre-existing `no-manual-ownership-checks` entry from before
-      this whole effort started). A budget update genuinely was not needed, which is itself worth
-      recording rather than leaving unstated.
+      unchanged from before this whole effort started (see that file for its current entries — not
+      restated here, for the same reason the operation count above isn't). A budget update genuinely
+      was not needed, which is itself worth recording rather than leaving unstated.
 - [x] **6.4** Flipped `apps/example/control_plane/operations.py`'s `operation_catalog` to
       `OperationCoverage.STRICT`. Both `app.main:build()` and `app.main:build_base_profile()` boot
       successfully under it — measured directly, not inferred from phase 5's own bookkeeping — which

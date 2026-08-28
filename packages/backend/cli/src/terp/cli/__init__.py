@@ -577,10 +577,12 @@ Route operations (what a route does for the person calling it, ADR 0102)
   module's Policy and any route-level permission dependency — the same promise
   read_only makes. Declaring what a route does narrows nothing about who may call it.
 - Coverage is the app's own choice, on OperationCatalog(coverage=...): OFF (default,
-  nothing required), WARN (undeclared routes are reported, boot still succeeds), or
-  STRICT (a mounted route with no declared operation fails the boot). The build-time
-  rule (routes_declare_operation) mirrors whichever of those the app has chosen — it
-  stays silent under OFF/WARN, exactly like the boot check does.
+  nothing required), WARN (the boot check logs every undeclared route but still boots),
+  or STRICT (a mounted route with no declared operation fails the boot). The build-time
+  rule (routes_declare_operation) is binary, not three-way: it reports nothing under
+  OFF or WARN and only starts requiring a declared operation on every route once the
+  app has opted into STRICT — WARN's own signal comes from the boot check's log line,
+  not from this rule.
 - The label feeds OpenAPI too: a declared operation sets the route's summary and
   operation_id, so a hand-written summary= beside a declared operation is refused (two
   answers to the same promise).

@@ -530,6 +530,37 @@ endpoint *does* and the platform can guarantee every route is explained.
       moment terp-spec 0.29.0 is tagged, published, and the pins bumped to match. That
       tag push is a human decision (it triggers an outward-facing, effectively
       irreversible PyPI/npm publish) and is the one step this session did not take.
+- [x] **Phase 6 review pass.** A code-review scoped to phase 6's diff (the only part of
+      this effort not yet through a dedicated review) found and fixed five real issues.
+      `iter_route_registrations` — the shared helper `routes_declare_operation` builds
+      on — never yielded a `@router.websocket(...)` registration, so the new build-time
+      rule could never see one; the very route class this same phase had just fixed by
+      hand for the runtime check. Fixed by widening `_ROUTE_DECORATOR_ATTRS` to
+      `websocket`, verified harmless to every other consumer (each already narrows
+      `route.verb` down to its own subset) and mutation-checked with a new regression
+      test. `check_operations_reference_catalog` only checked `operation(...)`'s
+      positional form, missing the equally-valid `operation(definition=...)` keyword
+      form — fixed and mutation-checked. `_coverage_is_strict`'s docstring claimed
+      `control_plane/` is "checked first" while the code checked `app_root` first;
+      reordered to match (also the faster order for a real app) and rewrote the
+      docstring to state its actual, narrower guarantee (a syntactic match, not a
+      resolved reference) instead of the unproven claim that it can never find a false
+      STRICT signal. The new Dutch-translation completeness test
+      (`test_every_declared_operation_has_a_dutch_translation`) had no escape hatch for
+      a legitimately-identical translation, unlike the JS-side test it was explicitly
+      modeled on — fixed by honoring the same `locales.nl.allowIdentical` list from
+      `frontend/i18n.json`, mutation-checked against a real operation id (temporarily
+      aliased, confirmed red, exempted, confirmed green, then restored to its real,
+      non-identical translation). The CLI's new `operations` guide topic claimed the
+      boot check "stays silent under OFF/WARN," contradicting its own preceding
+      sentence and the runtime, which logs a warning for every undeclared route under
+      WARN — reworded to state the actual three-way runtime behaviour versus the
+      build-time rule's binary one. Left alone, deliberately: several duplication
+      findings (`operations.py`'s violation-message and handler-resolution helpers
+      mirror shapes already duplicated across `jobs.py`/`events.py`/`http.py`) match an
+      established, pre-existing repository pattern rather than a regression this phase
+      introduced, and a wider dedup refactor across all four files is separate,
+      un-started work, not a fix belonging to this pass.
 
 **The security-header / CSP track** — decided in
 [ADR 0104](../decisions/0104-the-spa-document-carries-its-own-security-headers.md),

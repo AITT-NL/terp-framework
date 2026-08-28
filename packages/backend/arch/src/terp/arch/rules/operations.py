@@ -83,8 +83,19 @@ def check_operations_reference_catalog(
                 continue
             name = base_name(node.func)
             candidates: list[tuple[ast.expr, str]] = []
-            if name == "operation" and node.args:
-                candidates.append((node.args[0], "operation(...)"))
+            if name == "operation":
+                # `operation(definition: OperationDefinition)` has one parameter,
+                # callable positionally (the documented, universal spelling in this
+                # codebase) or by its keyword name -- both must be checked, or the
+                # keyword form drifts in undetected.
+                if node.args:
+                    candidates.append((node.args[0], "operation(...)"))
+                else:
+                    candidates += [
+                        (keyword.value, "operation(definition=...)")
+                        for keyword in node.keywords
+                        if keyword.arg == "definition"
+                    ]
             elif name == "build_crud_router":
                 candidates += [
                     (keyword.value, f"build_crud_router({keyword.arg}=...)")
@@ -98,29 +109,29 @@ def check_operations_reference_catalog(
     return violations
 
 
-def _terminal_name(value: ast.expr) -> str | None:
-    """The constant's own identifier: ``STRICT`` / ``OperationCoverage.STRICT``."""
-    if isinstance(value, ast.Name):
-        return value.id
-    if isinstance(value, ast.Attribute):
-        return value.attr
-    return None
-
-
 def _coverage_is_strict(app_root: pathlib.Path) -> bool:
     """Statically detect an ``OperationCatalog(coverage=OperationCoverage.STRICT)``.
 
     Real apps declare their operations catalog in a sibling ``control_plane/``
     (the same convention ``policy_refs_resolve`` uses for the permissions
-    registry), reached via ``app_root.parent`` -- so that is checked first. The
-    scan also covers ``app_root`` itself: the Standard's own corpus can only
-    place files inside the tree it copies into the scanned root, never as a true
-    sibling, so a corpus case declares its catalog inside that tree instead. This
-    is not a looser rule for real apps -- it can only find the same *STRICT*
-    signal in one more place, never a false one.
+    registry), reached via ``app_root.parent`` -- so that is checked first, and a
+    real app's own scan usually never needs to fall through to ``app_root`` at
+    all. The scan also covers ``app_root`` itself: the Standard's own corpus can
+    only place files inside the tree it copies into the scanned root, never as a
+    true sibling, so a corpus case declares its catalog inside that tree instead.
+
+    This is a syntactic match, not a resolved reference: it recognizes
+    ``coverage=OperationCoverage.STRICT`` (or a bare ``coverage=STRICT`` given an
+    aliased import) written directly at the call site, the spelling this
+    codebase's own control-plane modules use throughout. It does not follow a
+    value assigned to an intermediate variable, and it does not check that the
+    matched ``OperationCatalog(...)`` is the one actually mounted on a
+    ``ControlPlane`` -- so it is a best-effort static signal, paired with (never
+    a substitute for) the runtime ``_validate_declared_operations`` boot check,
+    which resolves the real, mounted catalog and enforces coverage unconditionally.
     """
     control_plane = app_root.parent / "control_plane"
-    roots = [app_root, control_plane] if control_plane.is_dir() else [app_root]
+    roots = [control_plane, app_root] if control_plane.is_dir() else [app_root]
     for root in roots:
         for path in iter_python_files(root):
             tree = parse(path)
@@ -128,7 +139,7 @@ def _coverage_is_strict(app_root: pathlib.Path) -> bool:
                 if not (isinstance(node, ast.Call) and base_name(node.func) == "OperationCatalog"):
                     continue
                 for keyword in node.keywords:
-                    if keyword.arg == "coverage" and _terminal_name(keyword.value) == "STRICT":
+                    if keyword.arg == "coverage" and base_name(keyword.value) == "STRICT":
                         return True
     return False
 

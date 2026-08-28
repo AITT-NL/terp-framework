@@ -29,14 +29,21 @@ _MUTATING_HTTP_METHODS = frozenset({"post", "put", "patch", "delete"})
 
 
 # The decorator attributes yielded as route registrations: the body verbs, `api_route`,
-# and the two safe verbs `head` / `options`. Each consuming rule filters further to the
-# forms it governs, so the *shapes* are found once here while the *policy* stays in the
-# rule. `head` / `options` were dropped once already (they had no reader before
-# `safe_methods_are_read_only` migrated onto this helper) and are back now that it does:
-# a handler reachable only through `@router.head` / `@router.options` is exactly the
-# safe-method surface that rule exists to police, and its pre-migration walk read those
-# two decorators directly rather than through this constant.
-_ROUTE_DECORATOR_ATTRS = _HTTP_METHODS | frozenset({"api_route", "head", "options"})
+# the two safe verbs `head` / `options`, and `websocket`. Each consuming rule filters
+# further to the forms it governs, so the *shapes* are found once here while the
+# *policy* stays in the rule. `head` / `options` were dropped once already (they had no
+# reader before `safe_methods_are_read_only` migrated onto this helper) and are back now
+# that it does: a handler reachable only through `@router.head` / `@router.options` is
+# exactly the safe-method surface that rule exists to police, and its pre-migration walk
+# read those two decorators directly rather than through this constant. `websocket` was
+# missing outright until `routes_declare_operation` needed it: that rule has no narrower
+# verb filter the way the HTTP-only rules do, so a `@router.websocket(...)` handler with
+# no `@operation(...)` was invisible to it even under strict coverage -- caught only by
+# the runtime boot check, never by this build-time gate. Every existing HTTP-only
+# consumer already narrows `route.verb` down to `_HTTP_METHODS` (or a subset) itself, so
+# adding `websocket` here is transparent to them: a websocket registration now reaches
+# their filter and is discarded there, same as it always was for `head` / `options`.
+_ROUTE_DECORATOR_ATTRS = _HTTP_METHODS | frozenset({"api_route", "head", "options", "websocket"})
 
 
 @dataclass(frozen=True)
