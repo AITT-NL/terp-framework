@@ -46,20 +46,8 @@ from terp.capabilities.groups import (
     GROUPS_REMOVE_MEMBER,
     GROUPS_UPDATE,
 )
-from terp.capabilities.leases import (
-    LEASES_HEARTBEAT,
-    LEASES_LIST,
-    LEASES_LIST_EXPIRED,
-    LEASES_REAP,
-)
 from terp.capabilities.oidc import OIDC_AUTHORIZE, OIDC_CALLBACK
 from terp.capabilities.realtime import REALTIME_MINT_TICKET, REALTIME_SUBSCRIBE_SSE
-from terp.capabilities.sync import (
-    SYNC_GET_RUN,
-    SYNC_LIST_MAPPINGS,
-    SYNC_LIST_RUN_LOGS,
-    SYNC_LIST_RUNS,
-)
 from terp.capabilities.users import (
     USERS_DEACTIVATE,
     USERS_GET,
@@ -159,18 +147,10 @@ operation_catalog = OperationCatalog(
         GROUPS_LIST_MEMBERS,
         GROUPS_ADD_MEMBER,
         GROUPS_REMOVE_MEMBER,
-        LEASES_LIST,
-        LEASES_LIST_EXPIRED,
-        LEASES_REAP,
-        LEASES_HEARTBEAT,
         OIDC_AUTHORIZE,
         OIDC_CALLBACK,
         REALTIME_MINT_TICKET,
         REALTIME_SUBSCRIBE_SSE,
-        SYNC_LIST_RUNS,
-        SYNC_GET_RUN,
-        SYNC_LIST_RUN_LOGS,
-        SYNC_LIST_MAPPINGS,
         USERS_LIST,
         USERS_PROVISION,
         USERS_GET,
@@ -211,8 +191,12 @@ __all__ = [
     "operation_catalog",
 ]
 
-# Note: `leases` and `sync` are not mounted by this example app today (neither
-# appears in app.main's capability_names), but their operations are folded into
-# the catalog anyway — a superset costs nothing under OFF coverage, and it means
-# the catalog does not silently fall behind the moment either capability is
-# actually wired in.
+# `leases` and `sync` are deliberately absent. Their operations used to be folded
+# in on the reasoning that a superset costs nothing under OFF coverage — true of
+# the CATALOG, and false of the IMPORT that fills it. Neither capability is
+# installed in the production image, so the import raised ModuleNotFoundError
+# before the app could serve a single request, and the container never became
+# healthy. It ran fine in the workspace, where every package is installed.
+#
+# So this file lists what this app MOUNTS, and nothing else. Wiring one of them in
+# means adding it here too, which is the moment you would be looking anyway.
