@@ -283,18 +283,6 @@ def test_declare_will_not_brick_the_manifest(
     assert (root / "environment.schema.json").read_text(encoding="utf-8") == before
 
 
-def test_a_line_break_in_a_value_is_refused(tmp_path: pathlib.Path) -> None:
-    """Quoting does not save it: compose's reader ends the value at the break, so
-    the file would be one this command's own parser then rejects — and every later
-    `terp env` would refuse to touch it."""
-    root = _project(tmp_path, _MANIFEST)
-    with pytest.raises(SystemExit, match="line break"):
-        run_env_command(
-            action="set", root=str(root), names=["VENDOR_API_URL=a\nb"]
-        )
-    assert not (root / ".app.env").exists()
-
-
 def test_a_generated_example_quotes_the_way_the_live_file_does(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -324,3 +312,47 @@ def test_a_generated_example_quotes_the_way_the_live_file_does(
     values, problems = parse_dotenv(example)
     assert problems == []
     assert values["TRICKY"] == "keep # this"
+
+
+def test_a_multi_line_value_round_trips_instead_of_blocking(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A certificate or a private key is the ordinary case here, and `parse_dotenv`
+    legitimately produces such a value from a quoted escape. Refusing it on write
+    would make a file this tool can READ one it will not touch, permanently."""
+    from terp.cli.envseams import parse_dotenv
+
+    root = _project(
+        tmp_path,
+        {"type": "object", "properties": {"PEM_KEY": {"type": "string"}}, "required": []},
+    )
+    secret_key = "-----BEGIN\nMIIB-----"
+    run_env_command(action="set", root=str(root), names=[f"PEM_KEY={secret_key}"])
+
+    values, problems = parse_dotenv(_env(root))
+    assert problems == [] and values["PEM_KEY"] == secret_key
+
+    # ...and the file stays workable afterwards, which is the half that bit.
+    run_env_command(action="set", root=str(root), names=["PEM_KEY=plain"])
+    assert parse_dotenv(_env(root))[0]["PEM_KEY"] == "plain"
+
+
+def test_a_null_default_is_empty_not_the_string_none(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    """`str(None)` is "None", which is truthy — so it would read as "already filled
+    in" in the still-to-fill list and keep `check` green on a variable nobody set."""
+    root = _project(
+        tmp_path,
+        {
+            "type": "object",
+            "properties": {"OPT": {"type": "string", "default": None}},
+            "required": [],
+        },
+    )
+    run_env_command(action="init", root=str(root))
+    assert "OPT=None" not in _env(root)
+    assert "OPT" in capsys.readouterr().out, "and it is named as still to fill in"
+
+    run_env_command(action="example", root=str(root))
+    assert "OPT=None" not in (root / ".app.env.example").read_text(encoding="utf-8")

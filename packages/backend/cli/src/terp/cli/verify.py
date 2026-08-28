@@ -92,7 +92,26 @@ _APP_CHECK_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 #: Tokens that mean "compose two commands" to a shell and mean nothing here,
 #: because a check runs as a fixed argv with ``shell=False``.
-_SHELL_OPERATORS = frozenset({"&&", "||", ";", "|", ">", ">>", "<", "&"})
+_SHELL_OPERATORS = frozenset({"&&", "||", ";", ";;", "|", "|&", ">", ">>", "<", "&"})
+
+
+def _unquoted_shell_operators(command: str) -> list[str]:
+    """Shell operators in *command* that are not inside quotes.
+
+    Lexed the way a shell reads it, which matters in both directions and neither
+    is theoretical. Splitting on whitespace misses ``a&&b``; splitting with
+    ``shlex.split`` strips the quotes first, so a legitimate ``awk -F '|'`` reads
+    as a pipe and the whole app-check table fails closed. Non-POSIX lexing keeps
+    the quotes on the token, and ``punctuation_chars`` makes an unquoted operator
+    a token of its own regardless of spacing.
+    """
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:  # an unbalanced quote — the argv check below reports it
+        return []
+    return sorted({token for token in tokens if token in _SHELL_OPERATORS})
 
 
 @dataclass(frozen=True)
@@ -413,11 +432,8 @@ def _app_check_from(entry: object, index: int, known: frozenset[str]) -> VerifyC
     # Manifest commands run as a fixed argv with shell=False, so a shell operator
     # is not composition here — it is an argument. `a && b` would run `a` with
     # `&&` and `b` as its arguments and report that verdict, which is a green for
-    # something nobody asked to run. Every other branch of this reader fails
-    # closed with a reason; this one used to accept and misbehave at run time.
-    shell_operators = sorted(
-        {token for token in shlex.split(command) if token in _SHELL_OPERATORS}
-    )
+    # something nobody asked to run.
+    shell_operators = _unquoted_shell_operators(command)
     if shell_operators:
         raise _declaration_error(
             f"{check_id!r} has {', '.join(shell_operators)} in its command, but a "

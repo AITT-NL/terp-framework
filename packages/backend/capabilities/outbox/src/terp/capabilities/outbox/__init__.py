@@ -13,7 +13,8 @@ one append-only :class:`OutboxMessage` table and supplies:
   claims due rows, runs jobs through the context-binding kernel runner and events
   through the in-process handlers, and retries / dead-letters per the
   :class:`~terp.core.RetryPolicy`.
-* a registered **health detail** (``GET /health/detail``) and ``terp outbox backlog``,
+* ``terp outbox backlog`` and a registered **health detail** (``GET
+  /health/detail``, opt-in via ``create_app(expose_health_detail=True)``),
   which report what is waiting. The capability had no operator surface at all: if
   nobody ran the worker, rows sat ``pending`` forever and nothing anywhere said so.
   The reaper could not help by construction — it scans lapsed claims, and work nobody

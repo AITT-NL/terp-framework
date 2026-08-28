@@ -10,9 +10,11 @@ queue with idle consumers look identical from every existing surface. What tells
 apart is how long the oldest DUE row has been due: a healthy queue drains that to
 seconds, a queue nobody is consuming lets it grow without bound.
 
-This command and ``GET /health/detail`` report the same numbers from the same function
-(``terp.capabilities.outbox.backlog``), so a value an operator reads at 3am and a value a
-monitor alerts on cannot disagree.
+This command is the surface that always exists. ``GET /health/detail`` reports the same
+numbers from the same function (``terp.capabilities.outbox.backlog``), so an operator at
+3am and a monitor's threshold cannot disagree — but it is opt-in
+(``create_app(expose_health_detail=True)``), because ``/health`` is mounted outside the
+policy guard and queue depths are business signal.
 """
 
 from __future__ import annotations

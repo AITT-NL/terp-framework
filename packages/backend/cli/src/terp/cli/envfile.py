@@ -90,29 +90,39 @@ def _secret(prop: dict) -> bool:
     return prop.get("format") == "secret"
 
 
+def _default_of(prop: dict) -> str:
+    """A declaration's starting value: empty for a secret, and empty for a JSON
+    ``null`` — which ``str()`` would otherwise render as the literal ``None``, a
+    truthy string that then reads as "already filled in" everywhere downstream."""
+    if _secret(prop):
+        return ""
+    default = prop.get("default", "")
+    return "" if default is None else str(default)
+
+
 def _render(values: dict[str, str], *, header: str = "") -> str:
     """A ``.app.env`` body: one ``KEY=value`` per line, quoted when it has to be.
 
-    A newline in a value is REFUSED rather than written. Quoting does not save it:
-    compose's dotenv reader ends the value at the line break, so the file would be
-    one this command's own parser then rejects — and every later ``terp env`` would
-    refuse to touch it, leaving a hand edit as the only way out.
+    A line break is ESCAPED, not refused. Compose's reader ends an unquoted value
+    at the break, but it also interprets ``\\n`` inside double quotes — and
+    :func:`parse_dotenv` produces such a value, so a certificate or a private key
+    round-trips. Refusing it here instead would mean a file this tool itself can
+    read becomes one it will not touch, permanently.
     """
     lines = [header] if header else []
     for name, value in values.items():
-        if "\n" in value or "\r" in value:
-            raise SystemExit(
-                f"{name}: a value cannot contain a line break — compose's dotenv "
-                "reader ends the value at the break, so the file would be unreadable"
-            )
-        needs_quotes = value != value.strip() or any(
-            character in value for character in ' \t#"\'$'
+        escaped = (
+            value.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
         )
-        if needs_quotes:
-            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-            lines.append(f'{name}="{escaped}"')
-        else:
-            lines.append(f"{name}={value}")
+        needs_quotes = (
+            escaped != value
+            or value != value.strip()
+            or any(character in value for character in ' \t#\'$')
+        )
+        lines.append(f'{name}="{escaped}"' if needs_quotes else f"{name}={value}")
     return "\n".join(lines) + "\n"
 
 
@@ -249,10 +259,7 @@ def _init(root: pathlib.Path) -> int:
             f"{APP_ENV_SCHEMA_FILE} declares no variables, so there is nothing to "
             f"put in {APP_ENV_FILE} yet"
         )
-    values = {
-        name: "" if _secret(prop) else str(prop.get("default", ""))
-        for name, prop in declared.items()
-    }
+    values = {name: _default_of(prop) for name, prop in declared.items()}
     path.write_text(_render(values), encoding="utf-8")
     empty = sorted(name for name, value in values.items() if not value)
     print(f"wrote {APP_ENV_FILE} with {len(values)} declared variable(s)")
@@ -362,8 +369,7 @@ def _example(root: pathlib.Path) -> int:
             # Rendered through the same quoting the live file uses: a default
             # containing ` #` would otherwise be truncated the moment this file is
             # copied to .app.env, and a non-string default would render as Python.
-            default = prop.get("default", "")
-            lines.append(_render({name: "" if default is None else str(default)}).strip())
+            lines.append(_render({name: _default_of(prop)}).strip())
         lines.append("")
     (root / APP_ENV_EXAMPLE_FILE).write_text("\n".join(lines), encoding="utf-8")
     print(f"wrote {APP_ENV_EXAMPLE_FILE} from {len(declared)} declaration(s)")

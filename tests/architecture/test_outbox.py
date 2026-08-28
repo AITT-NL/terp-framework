@@ -795,7 +795,9 @@ class _RollbackRecorder:
         self.rolled_back = True
 
 
-def test_a_failing_probe_does_not_poison_the_session_for_the_next_one() -> None:
+def test_a_failing_probe_does_not_poison_the_session_for_the_next_one(
+    isolated_health_details: None,
+) -> None:
     """The probes share one session, and on PostgreSQL a failed statement aborts
     the transaction. Without a rollback the FIRST failure makes every probe after
     it fail too — precisely the blinding this handler claims to prevent."""

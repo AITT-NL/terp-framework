@@ -881,7 +881,13 @@ Durable post-commit delivery (outbox capability)
   help either -- it scans LAPSED claims, and work nobody claimed has no claim to lapse
   -- so a queue with zero consumers and a queue with idle consumers are the same table.
       terp outbox backlog             # or --format json
+  ...and, if you opt in, an endpoint a monitor can poll:
+      create_app(..., expose_health_detail=True)
       GET /health/detail              # {"details": {"outbox": {...}}}
+  That is OFF by default and deliberately so: /health is mounted outside the policy
+  guard so an orchestrator probe can always reach it, and queue depths are business
+  signal. Turn it on only where /health is already restricted to an internal network
+  or an ingress rule; otherwise alert from the CLI, which runs as you.
   Both report the same four numbers from the same function:
       pending                 everything undelivered, incl. rows scheduled for later
       due                     what a worker could claim RIGHT NOW

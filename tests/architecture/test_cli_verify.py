@@ -1680,3 +1680,18 @@ def test_dependency_hygiene_passes_a_clean_run_through(
         1,
         "DEP001 missing: yaml",
     ), "a real finding travels unaltered; only the missing-tool case is annotated"
+
+
+def test_a_shell_operator_is_detected_the_way_a_shell_reads_it() -> None:
+    """Both directions, and neither is theoretical. Splitting on whitespace misses
+    `a&&b`; `shlex.split` strips the quotes first, so a legitimate `awk -F '|'`
+    reads as a pipe and the whole app-check table fails closed."""
+    from terp.cli.verify import _unquoted_shell_operators
+
+    assert _unquoted_shell_operators("lint . && test .") == ["&&"]
+    assert _unquoted_shell_operators("a&&b") == ["&&"], "spacing is not the signal"
+    assert _unquoted_shell_operators("awk -F '|' -f check.awk src") == []
+    assert _unquoted_shell_operators("uv run pytest -k 'not slow'") == []
+    assert _unquoted_shell_operators("terp check --package engine") == []
+    # An unbalanced quote is the argv check's finding, not this one's.
+    assert _unquoted_shell_operators('echo "unterminated') == []
