@@ -112,8 +112,8 @@ def test_a_declared_variable_hardcoded_in_compose_is_refused(
 ) -> None:
     """A literal discards `.app.env` as completely as a `${}` forward.
 
-    Scanning only for interpolation would miss the shape apps reach for most - the
-    reporting app's own `PLACEHOLDER_API_BASE_URL: http://api:8000`.
+    Scanning only for interpolation would miss the shape apps reach for most: a plain
+    `SOME_API_BASE_URL: http://api:8000` written straight into the compose block.
     """
     root = _project(
         tmp_path,
