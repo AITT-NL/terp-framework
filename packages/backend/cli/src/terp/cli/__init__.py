@@ -146,6 +146,115 @@ When NOT to declare an edge:
 
 Check it: `terp check`  |  See the declared edges: `terp inspect control-plane`
 """,
+    "dependency-hygiene": """\
+Is every distribution you import one you declared?
+
+The gate cannot answer this, and deliberately does not try. Mapping an import name to
+the distribution that provides it (`yaml` comes from PyYAML, `dateutil` from
+python-dateutil) needs INSTALLED METADATA, and terp.arch reads source. Hand-rolling
+the mapping inside the gate would be a second, worse copy of a solved problem.
+
+So it is delegated to deptry, and unlike the platform's own advisory run over its
+packages, it BLOCKS: the failure it catches is a green gate over an undeclared import
+on a path no test reaches \— the app works on the machine where a transitive
+dependency happens to be installed, and dies on a clean one.
+
+Adopt it by declaring the table (a project from the template already has it):
+
+    [tool.deptry]
+    known_first_party = ["app", "control_plane"]
+
+    [tool.deptry.per_rule_ignores]
+    # `terp.*` is one PEP 420 namespace across distributions, and pydantic
+    # re-exports through sqlmodel / pydantic-settings.
+    DEP003 = ["terp", "pydantic"]
+
+and installing the tool: `uv add --dev deptry`.
+
+`terp verify --profile full` then runs it. No table, no check \— it skips with a note
+rather than failing an app that never adopted it. Table but no tool is a RED, not a
+skip: hygiene you declared and cannot check is not hygiene.
+
+What it catches, and why each one is a real outage:
+  DEP001  imported, never declared      \— works here, ImportError on a clean install
+  DEP002  declared, never imported      \— install surface (and CVE surface) for nothing
+  DEP003  imported transitively         \— works until the middle package drops it
+  DEP004  a dev dependency in app code  \— absent from the production image
+
+Run it directly while fixing: `uv run deptry .`
+
+This is a delegated generic check (ADR 0033, the ADR 0085 precedent) and it composes
+into NO assurance lane: the spec's `dependency-audit` lane means both trees against
+known-vulnerability databases, which is a different question. It carries the exit code
+instead, which is what makes it a control rather than a report.
+""",
+    "secrets": """\
+Store a credential the app itself holds (sealed config)
+
+The rule first: AN ENVIRONMENT VARIABLE IS NOT THE SEAM FOR A PER-ROW CREDENTIAL.
+`environment.schema.json` declares a FIXED set of deploy-time names, and that is the
+point of it — undeclared variables stay impossible by construction, which is what lets
+a deploy tool render and seal the file. A credential belonging to a ROW (one tenant's
+API key, one connection's password, one customer's certificate) has no deploy-time
+name, because the rows are data. Declaring a family of them would make adding a tenant
+a redeploy and put every tenant's secret in one deploy-time file.
+
+Sealed config is the seam, and it already ships (ADR 0055). Install the extra:
+`terp-core[secrets]`.
+
+1) SEAL on the way in — in the service, never in the router. One string, one column:
+     from terp.core import encrypt_config
+
+     class ConnectionService(BaseService[Connection, ConnectionCreate, ...]):
+         model = Connection
+
+         def create(self, db, *, obj_in, actor):
+             sealed = obj_in.model_copy(
+                 update={"password": encrypt_config(obj_in.password)}
+             )
+             return super().create(db, obj_in=sealed, actor=actor)
+
+   `encrypt_config` is safe to call anywhere — sealing leaks nothing. The stored
+   value carries the portable, versioned `enc:v1:` prefix, so a key rotation is a
+   migration rather than an archaeology project. `is_sealed_config(value)` tells you
+   whether a column already holds one.
+
+2) MASK on the way out. A read schema never returns the sealed blob:
+     from terp.core import mask_config
+     password: str          # rendered as mask_config(row.password)
+
+   The mask is the CONSTANT "****" — never a prefix, a suffix, or the real length.
+   A mask that varied with the value would be an oracle, so it does not vary.
+
+3) DECRYPT at exactly one place, registered in the composition root:
+     from terp.core import decrypt_config, register_decrypt_call_site
+
+     @register_decrypt_call_site
+     def open_connection(connection: Connection):
+         password = decrypt_config(connection.password)   # the only site
+         return client.session(user=connection.user, password=password)
+
+   One call site per process. Registering a second, different callable raises;
+   calling `decrypt_config` from anywhere else raises; no registered site at all
+   means every decrypt fails. Fail-closed on all three.
+
+What is enforced, on both sides (ADR 0006): the runtime half is that call-site
+allowlist. The build-time half is `no_adhoc_config_decrypt`, which refuses a
+`decrypt_config(...)` call in app code — so the one sanctioned site is a budgeted,
+greppable `# arch-allow-*` opt-out rather than a convention. A debug endpoint or a
+log line cannot quietly become an exfiltration path.
+
+You do not manage a second key: the seal key derives from `SECRET_KEY` through an
+HKDF with a Terp-specific label, so it is domain-separated from every other use of it.
+
+What DOES still belong in the environment: `SECRET_KEY` itself, and deploy-time
+infrastructure names (a database URL, an SMTP host). Those are per-environment, not
+per-row — `terp guide environment` covers declaring them. Never write a secret VALUE
+into the manifest, into `.app.env.example`, or into source.
+
+Rule of thumb: if adding a customer would mean editing a deploy file, you are using
+the wrong seam.
+""",
     "service": """\
 Services (BaseService)
 
@@ -363,7 +472,7 @@ Boundaries for a second top-level package (an ungated worker)
 
 - The shape: an app whose work cannot run under the gate — a legacy-DB connector, a
   device, a non-Python runtime — keeps a SECOND top-level package beside `app/`, and the
-  two must not import each other. `terp check` scans `app/` for Terp's own rules; it
+  two must not import each other. `terp check` defaults to scanning `app/`; it
   deliberately does not own generic import-graph checks, because a graph contract is
   exactly what a generic tool already does better (and terp.arch would then be a second,
   weaker copy).
@@ -400,11 +509,29 @@ Boundaries for a second top-level package (an ungated worker)
 - What terp.arch still owns, because these are Terp semantics and not graph shape:
   `no_dynamic_sql` (SQL must be a static, reviewable literal — the containment check an
   app would otherwise hand-roll), `no_raw_outbound_http`, `no_adhoc_background_runtime`,
-  and every rule about BaseService / ModuleSpec / schemas. Run it on `app/` only: the
-  second package is not a Terp app, and scanning it would report rules it cannot satisfy.
+  and every rule about BaseService / ModuleSpec / schemas.
+- YOU CAN SCAN THE SIDECAR, and you should. `terp check` takes the package to scan:
+      terp check --package engine
+  It runs the same rule set and reports the same file:line, so the hygiene rules that
+  apply to any Python at all — `no_print`, `no_naive_datetime`, `no_dynamic_sql`,
+  `no_raw_outbound_http` — cover the second package too. A hand-written AST test per
+  rule is not the alternative to this; it is a weaker copy of it.
+  One honest caveat: the check REPORT names the whole rule inventory, and a package that
+  is not a Terp app cannot exercise most of it (it has no modules, no ModuleSpec, no
+  schemas). So read a green here as "the rules that apply are clean", and do not publish
+  that report as a Terp Standard claim over the sidecar.
 - The worker's own gate is one command, and both halves are in it:
       uv run terp verify             # Terp rules over app/, then the declared
                                      # package graph over both
+  To put the sidecar's own scan in the same gate, declare it — the profile is open at
+  the app end (ADR 0106):
+      [[tool.terp.verify.checks]]
+      id = "engine-architecture"
+      command = "terp check --package engine"
+      profile = "quick"
+      scope = ["engine/**"]
+  It then runs in `quick`, `full` and `release`, appears in `terp verify --list`, and
+  carries the exit code — instead of living in a pytest wrapper the gate never reads.
 - Sharing types across the boundary: neither package may import the other, but BOTH may
   import a third. A `contracts/` package of frozen value objects (with `max_length` caps
   declared, so the app half satisfies the input-schema rule) is one declaration and two
@@ -1043,6 +1170,26 @@ Forms (react-core primitives)
   read; a 409 version_conflict means reload-and-retry, surfaced via ErrorState copy.
 - Mirror the backend's input caps client-side (maxLength on Input matching the schema's
   Field(max_length=...)) so users see the limit before the 422 does.
+- BOOLEANS AND CHOICES DO NOT GO INSIDE Field. Checkbox, Switch and RadioGroup each
+  render their own <label> around the input, and a <label> inside Field's <label> is
+  invalid HTML — the browser associates the control with the outer one, and Field would
+  hand `aria-describedby` to the label rather than to the input. Place them as siblings
+  in the Stack, with the label prop doing the naming:
+      <Stack as="form" onSubmit={submit}>
+        <Field label="Number" error={errors.number}>
+          <Input value={number} onChange={...} maxLength={50} />
+        </Field>
+        <Switch label="Actief" checked={active} onChange={setActive} />
+        <RadioGroup label="Frequentie" options={FREQUENCIES}
+                    value={frequency} onChange={setFrequency} />
+        <Button type="submit" variant="primary">Save</Button>
+      </Stack>
+  The honest limitation: these three have no hint or error slot, so a hint goes beside
+  them as <Text tone="muted" size="sm"> and is NOT wired to the control for a screen
+  reader. For a boolean that costs little — a switch cannot hold a value its type
+  refuses — but a RadioGroup CAN be left unset when a choice is required, and that
+  error has nowhere to go today. If you need it, put the message in the form-level
+  ErrorState rather than inventing a per-control slot.
 """,
     "theming": """\
 Theming and branding (design tokens, palettes, the brand mark)
