@@ -25,6 +25,7 @@ from starlette.websockets import WebSocketDisconnect
 from terp.capabilities.realtime import (
     REALTIME_MINT_TICKET,
     REALTIME_SUBSCRIBE_SSE,
+    REALTIME_SUBSCRIBE_WEBSOCKET,
     BackpressureError,
     ConnectionTicket,
     InMemoryConnectionTicketStore,
@@ -791,7 +792,11 @@ def _app(principal: Principal):
         discover_capabilities=False,
         control_plane=ControlPlane(
             operations=OperationCatalog(
-                operations=(REALTIME_MINT_TICKET, REALTIME_SUBSCRIBE_SSE)
+                operations=(
+                    REALTIME_MINT_TICKET,
+                    REALTIME_SUBSCRIBE_SSE,
+                    REALTIME_SUBSCRIBE_WEBSOCKET,
+                )
             )
         ),
     )

@@ -171,6 +171,7 @@
         "projects.update_project": "Wijzig een project",
         "realtime.mint_ticket": "Maak een kortdurend toegangsbewijs waarmee iemand een live verbinding kan openen",
         "realtime.subscribe_sse": "Start het live streamen van updates voor één kanaal",
+        "realtime.subscribe_websocket": "Open een tweerichtingsverbinding met een kanaal",
         "sync.get_sync_run": "Bekijk de details van één synchronisatieronde",
         "sync.list_sync_mappings": "Toon hoe records worden gekoppeld tussen de twee verbonden systemen",
         "sync.list_sync_run_logs": "Toon wat er is gebeurd met elk record in één synchronisatieronde",

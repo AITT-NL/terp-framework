@@ -25,6 +25,8 @@ from terp.arch import (
     check_input_str_fields_have_max_length,
     check_schemas_avoid_positional_tuples,
     check_jobs_reference_catalog,
+    check_operations_reference_catalog,
+    check_routes_declare_operation,
     check_list_routes_paginate,
     check_modules_declare_policy,
     check_mutations_emit_audit,
@@ -1891,6 +1893,139 @@ def test_emitted_events_are_declared(tmp_path: pathlib.Path) -> None:
     violations = check_emitted_events_are_declared(app)
     assert len(violations) == 1
     assert "ledger" in violations[0].path and "'ledger'" in violations[0].message
+
+
+def test_operations_reference_catalog(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # A bare string and an inline OperationDefinition(...) at the route-level marker.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from terp.core import OperationDefinition, operation\n"
+        "@router.delete('/{note_id}', status_code=204)\n"
+        "@operation('notes.delete')\n"
+        "def delete_note(note_id, session) -> None:\n    _service.delete(session, note_id)\n"
+        "@router.get('/{note_id}')\n"
+        "@operation(OperationDefinition(id='notes.get', label='View a note'))\n"
+        "def get_note(note_id, session):\n    return _service.get(session, note_id)\n",
+    )
+    violations = check_operations_reference_catalog(app)
+    assert _rule_names(violations) == {"operations_reference_catalog"}
+    assert len(violations) == 2
+
+    # A bare string at a build_crud_router(...) *_operation= keyword is drift too.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from terp.core import build_crud_router\n"
+        "router = build_crud_router(NoteService(), read_schema=NoteRead,\n"
+        "    create_schema=NoteCreate, update_schema=NoteUpdate,\n"
+        "    list_operation='notes.list')\n",
+    )
+    assert _rule_names(check_operations_reference_catalog(app)) == {
+        "operations_reference_catalog"
+    }
+
+    # Typed catalog constants (Name / Attribute) are clean at both call sites, and a
+    # route declaring no operation at all is not this rule's concern -- that is
+    # routes_declare_operation's question, not drift's.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from control_plane.operations import NOTES_DELETE, NOTES_LIST\n"
+        "from control_plane import operations\n"
+        "from terp.core import build_crud_router, operation\n"
+        "@router.delete('/{note_id}', status_code=204)\n"
+        "@operation(NOTES_DELETE)\n"
+        "def delete_note(note_id, session) -> None:\n    _service.delete(session, note_id)\n"
+        "@router.get('/{note_id}')\n"
+        "@operation(operations.NOTES_DELETE)\n"
+        "def get_note(note_id, session):\n    return _service.get(session, note_id)\n"
+        "@router.get('/')\n"
+        "def list_notes():\n    return []\n"
+        "router = build_crud_router(NoteService(), read_schema=NoteRead,\n"
+        "    create_schema=NoteCreate, update_schema=NoteUpdate,\n"
+        "    list_operation=NOTES_LIST)\n",
+    )
+    assert check_operations_reference_catalog(app) == []
+
+
+def test_routes_declare_operation(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(app, "modules/notes/router.py", "@router.get('/')\ndef list_notes():\n    return notes\n")
+
+    # No control_plane/operations.py at all: this app has not opted into coverage
+    # (the default), so an undeclared route is not this rule's concern.
+    assert check_routes_declare_operation(app) == []
+
+    # Strict coverage, declared in the sibling control_plane/ -- the same convention
+    # policy_refs_resolve uses for the permissions registry -- now refuses the same
+    # undeclared route.
+    _write(
+        tmp_path,
+        "control_plane/operations.py",
+        "from terp.core import OperationCatalog, OperationCoverage\n"
+        "operation_catalog = OperationCatalog(coverage=OperationCoverage.STRICT)\n",
+    )
+    violations = check_routes_declare_operation(app)
+    assert _rule_names(violations) == {"routes_declare_operation"}
+    assert len(violations) == 1
+
+    # Declaring it makes the route clean again.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from control_plane.operations import NOTES_LIST\n"
+        "from terp.core import operation\n"
+        "@router.get('/')\n@operation(NOTES_LIST)\ndef list_notes():\n    return notes\n",
+    )
+    assert check_routes_declare_operation(app) == []
+
+    # An imperative route follows the same rule, resolved through its endpoint name.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "def list_notes():\n    return notes\n"
+        "router.add_api_route('/', list_notes, methods=['GET'])\n",
+    )
+    assert _rule_names(check_routes_declare_operation(app)) == {"routes_declare_operation"}
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from control_plane.operations import NOTES_LIST\n"
+        "from terp.core import operation\n"
+        "@operation(NOTES_LIST)\n"
+        "def list_notes():\n    return notes\n"
+        "router.add_api_route('/', list_notes, methods=['GET'])\n",
+    )
+    assert check_routes_declare_operation(app) == []
+
+    # build_crud_router(...) with no *_operation= keywords is five undeclared routes.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from terp.core import build_crud_router\n"
+        "router = build_crud_router(NoteService(), read_schema=NoteRead,\n"
+        "    create_schema=NoteCreate, update_schema=NoteUpdate)\n",
+    )
+    violations = check_routes_declare_operation(app)
+    assert _rule_names(violations) == {"routes_declare_operation"}
+    assert len(violations) == 5
+
+    # Declaring all five makes the factory-built module clean too.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from control_plane.operations import (\n"
+        "    NOTES_CREATE, NOTES_DELETE, NOTES_GET, NOTES_LIST, NOTES_UPDATE)\n"
+        "from terp.core import build_crud_router\n"
+        "router = build_crud_router(NoteService(), read_schema=NoteRead,\n"
+        "    create_schema=NoteCreate, update_schema=NoteUpdate,\n"
+        "    list_operation=NOTES_LIST, create_operation=NOTES_CREATE,\n"
+        "    get_operation=NOTES_GET, update_operation=NOTES_UPDATE,\n"
+        "    delete_operation=NOTES_DELETE)\n",
+    )
+    assert check_routes_declare_operation(app) == []
 
 
 def test_jobs_reference_catalog(tmp_path: pathlib.Path) -> None:

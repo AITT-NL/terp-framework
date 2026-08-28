@@ -35,6 +35,7 @@ from terp.capabilities.realtime.channel import (
 from terp.capabilities.realtime.operations import (
     REALTIME_MINT_TICKET,
     REALTIME_SUBSCRIBE_SSE,
+    REALTIME_SUBSCRIBE_WEBSOCKET,
 )
 from terp.capabilities.realtime.router import (
     HEARTBEAT_SECONDS,
@@ -84,6 +85,7 @@ __all__ = [
     "PrincipalValidator",
     "REALTIME_MINT_TICKET",
     "REALTIME_SUBSCRIBE_SSE",
+    "REALTIME_SUBSCRIBE_WEBSOCKET",
     "RealtimeBroker",
     "RealtimeChannel",
     "RealtimeAuthzRef",

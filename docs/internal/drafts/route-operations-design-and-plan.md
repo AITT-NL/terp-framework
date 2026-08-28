@@ -247,9 +247,9 @@ cannot be deferred behind a marker and are done first.
       imports and folds into one `operation_catalog` — the same centralisation
       `control_plane/events.py` / `jobs.py` already established, now extended to
       `ControlPlane.operations`. `base_control_plane` shares the same catalog (a superset
-      is harmless under `OFF` coverage, and the base profile mounts a subset of the same
-      modules). Coverage is deliberately left at its `OFF` default here — flipping it is
-      phase 6.4's job, sequenced after the two Standard rules land.
+      is harmless regardless of coverage, and the base profile mounts a subset of the same
+      modules). Coverage stayed at its `OFF` default at the time this item landed;
+      phase 6.4 below is where it flips to `strict`.
 - [x] **5.4** Decide the kernel routes' treatment. **Exempted explicitly**, not labelled:
       health and friends already had a documented, fail-visible exemption from the
       module-policy dimension (the access graph's `kernel_routes` category, note
@@ -294,15 +294,60 @@ cannot be deferred behind a marker and are done first.
 
 ## Phase 6 — enforcement
 
-- [ ] **6.1 `operations_reference_catalog`** (no-drift) and **`routes_declare_operation`** (coverage)
+- [x] **6.1 `operations_reference_catalog`** (no-drift) and **`routes_declare_operation`** (coverage)
       in `terp-spec`: catalog entry, corpus cases, generated rule docs, guide topic, and the parity
-      tests. Normative prose must stay stack-neutral — `test_normative_prose_is_stack_neutral`
-      forbids naming FastAPI or a decorator in the rule text.
-- [ ] **6.2 The `terp.arch` checks**, on the phase-1.4 helper, registered in `_ALL_RULES` — a
-      meta-test in `test_arch_harness.py` fails if a `check_*` function is not registered.
-- [ ] **6.3 Escape-hatch budgets** updated wherever a marker is genuinely needed, each with a
-      justification.
-- [ ] **6.4** Flip the example app to `strict` as the worked reference.
+      tests. Shipped as terp-spec 0.29.0 (committed to that repo's `main`; not yet released — see
+      the note below). `operations_reference_catalog` mirrors `events_reference_catalog` exactly:
+      a bare string or an inline `OperationDefinition(...)` is drift wherever an operation is
+      named (the `operation(...)` marker, or a CRUD factory's five `*_operation=` keywords).
+      `routes_declare_operation` mirrors `routes_declare_response_model`'s coverage shape, but with
+      a real design difference this pairing forced into the open: coverage is the *app's own
+      choice* (off/warn/strict), so the rule cannot fire unconditionally the way response-model
+      coverage does — it must find the app's chosen coverage level first. The static check reads a
+      sibling `control_plane/`'s `OperationCatalog(coverage=...)` (the same convention
+      `policy_refs_resolve` already uses for the permissions registry), and also checks inside the
+      scanned root itself — the corpus harness copies a case's whole directory into the tree it
+      scans and can never place a true sibling, so a corpus case declares its catalog inside that
+      tree instead; a real app's convention (control_plane as an actual sibling) is unaffected.
+      Both rules' `title`/`intent` passed `test_normative_prose_is_stack_neutral` without needing
+      a rewrite — the ADR's own stack-neutral framing carried over directly.
+- [x] **6.2 The `terp.arch` checks**, on the phase-1.4 helper (`iter_route_registrations`),
+      registered in `_ALL_RULES`, `GUIDE_TOPIC_BY_RULE` (a new `operations` guide topic, with a
+      full authoring recipe in `terp guide operations`), and `test_arch_harness.py`'s required
+      `test_<rule>` pair — each mutation-checked (dropping the no-drift detection, dropping the
+      `build_crud_router` scan, dropping the strict-coverage gate, and dropping the missing-crud-
+      operation report each independently turn their test red). Fixed a real gap this surfaced
+      immediately: `realtime`'s WebSocket route (`subscribe_websocket`) had been deliberately left
+      undeclared in phase 5 on the (wrong) assumption that operations were an HTTP-only concept —
+      the *runtime* half already covers WebSocket routes (proven by an existing test), so leaving
+      it undeclared would have refused the boot the moment coverage went strict. Declared
+      (`REALTIME_SUBSCRIBE_WEBSOCKET`) and translated before proceeding.
+- [x] **6.3 Escape-hatch budgets** — no update needed. Every route in every capability and the
+      example app already declared a real operation from phase 5, and both new rules' own
+      implementations needed zero opt-outs anywhere; `apps/example/escape-hatch-budget.json` is
+      unchanged (still exactly the one pre-existing `no-manual-ownership-checks` entry from before
+      this whole effort started). A budget update genuinely was not needed, which is itself worth
+      recording rather than leaving unstated.
+- [x] **6.4** Flipped `apps/example/control_plane/operations.py`'s `operation_catalog` to
+      `OperationCoverage.STRICT`. Both `app.main:build()` and `app.main:build_base_profile()` boot
+      successfully under it — measured directly, not inferred from phase 5's own bookkeeping — which
+      is the actual proof phase 5's annotation work was complete, not merely believed to be.
+
+**A structural blocker, worth recording precisely rather than working around silently:** the two
+new rules are implemented, tested, and registered in terp-framework's source, verified correct by
+locally substituting the terp-spec checkout for the pinned release (`uv pip install -e ../terp-spec`,
+the same substitution terp-spec's own CI does before a release) — but the *committed* dependency
+pins (`pyproject.toml`'s `terp-spec==0.27.0`, `package.json`'s `"@terpjs/spec": "0.27.0"`) stay at the
+last real release. Bumping them to `0.29.0` was tried and reverted: `uv.lock` cannot resolve a version
+that has not been published (`uv lock` would fail outright), so a phantom pin bump only traded one
+kind of inconsistency for another. The one consequence, left as a single clearly-named red test rather
+than hidden: `test_backend_catalog_matches_the_rule_registry` fails against the real 0.27.0 catalog
+with `rules shipped without a spec/catalog/backend entry: ['operations_reference_catalog',
+'routes_declare_operation']` — an accurate description of the actual state (the code is ready; the
+release is not), not a regression. It resolves itself the moment terp-spec 0.29.0 is tagged and
+published and terp-framework's pins are bumped to match — the one remaining step, and it needs a
+human's authorization (pushing a tag is what triggers terp-spec's `release.yml` to publish to PyPI
+and npm, an outward-facing, effectively irreversible action once a package version ships).
 
 ## Open questions
 

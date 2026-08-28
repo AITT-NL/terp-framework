@@ -29,11 +29,12 @@ base_control_plane = ControlPlane(
     permissions=PermissionModel.default(),
     security=security,
     audit=audit,
-    # Shares the same catalog as `control_plane`: the base profile mounts a subset
-    # of the same modules and capabilities (login/me, access, audit, groups, users),
-    # every one of which is already declared here, and a superset catalog is
-    # harmless — coverage stays OFF, so nothing requires every entry to be
-    # referenced by a route this profile actually mounts.
+    # Shares the same catalog as `control_plane`, strict coverage included: the base
+    # profile mounts a subset of the same modules and capabilities (login/me, access,
+    # audit, groups, users), and every route in that subset already declares an
+    # operation (phase 5), so strict refuses nothing here either — a superset catalog
+    # is harmless regardless, since strict only checks a MOUNTED route, never an
+    # unused catalog entry.
     operations=operation_catalog,
 )
 

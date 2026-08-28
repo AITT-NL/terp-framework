@@ -423,7 +423,8 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 Two threads are in flight. Detail lives in the linked plan and ADRs; this is the
 index, so nothing is tracked only in a commit message.
 
-Phases 1–5 are shipped; phase 6 remains open.
+All six phases are implemented; phase 6's terp-spec dependency pin bump awaits an
+actual terp-spec release (see phase 6 below).
 
 **Route operations** — decided in
 [ADR 0102](../decisions/0102-route-operations-are-declared.md), sequenced in
@@ -507,9 +508,28 @@ endpoint *does* and the platform can guarantee every route is explained.
       completeness test is hand-written once, for this one app, with no reusable
       framework-level equivalent an app built on top of Terp could inherit. Neither is
       phase 6's job; both are open.
-- [ ] Phase 6 — the two Standard rules, corpus cases, then **flip the default to
-      `strict`** (decided; ADR 0102 amendment). `warn` is the staging step and the
-      documented escape for an app that cannot annotate on that timetable.
+- [x] Phase 6 — `operations_reference_catalog` (no-drift) and `routes_declare_operation`
+      (coverage) shipped in terp-spec as 0.29.0 (committed there; not yet released — see
+      below), their `terp.arch` checks implemented, registered, and mutation-checked,
+      a new `operations` guide topic, and the example app flipped to `strict` — both
+      `build()` and `build_base_profile()` boot clean under it, the actual proof phase
+      5's annotation was complete. Fixed one gap phase 6 surfaced immediately: the
+      realtime capability's WebSocket route had been left undeclared in phase 5 on the
+      wrong assumption that operations were HTTP-only; the runtime coverage check
+      already covered WebSocket routes, so strict would have refused the boot without
+      this fix. No escape-hatch budget update was needed anywhere.
+      **One structural blocker, recorded rather than routed around:** the new rules are
+      implemented and verified (via a local terp-spec checkout substituted for the
+      pinned release, the same substitution terp-spec's own CI uses pre-release), but
+      the committed dependency pins stay at the last real release (0.27.0) — bumping
+      them to 0.29.0 was tried and reverted, because `uv.lock` cannot resolve a version
+      that has not been published. The one consequence:
+      `test_backend_catalog_matches_the_rule_registry` fails with `rules shipped
+      without a spec/catalog/backend entry: ['operations_reference_catalog',
+      'routes_declare_operation']` — accurate, not a regression, and it resolves the
+      moment terp-spec 0.29.0 is tagged, published, and the pins bumped to match. That
+      tag push is a human decision (it triggers an outward-facing, effectively
+      irreversible PyPI/npm publish) and is the one step this session did not take.
 
 **The security-header / CSP track** — decided in
 [ADR 0104](../decisions/0104-the-spa-document-carries-its-own-security-headers.md),

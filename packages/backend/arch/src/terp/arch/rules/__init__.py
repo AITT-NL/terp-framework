@@ -90,6 +90,10 @@ from terp.arch.rules.migrations import (
     check_no_destructive_migrations,
 )
 from terp.arch.rules.jobs import check_jobs_reference_catalog
+from terp.arch.rules.operations import (
+    check_operations_reference_catalog,
+    check_routes_declare_operation,
+)
 from terp.arch.rules.occ import (
     check_no_manual_version_assignment,
     check_update_schemas_inherit_base_update_schema,
@@ -178,6 +182,8 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "events_reference_catalog": "events",
     "emitted_events_are_declared": "events",
     "jobs_reference_catalog": "jobs",
+    "operations_reference_catalog": "operations",
+    "routes_declare_operation": "operations",
     "no_adhoc_config_decrypt": "capability",
     "no_hardcoded_credentials": "capability",
     "input_str_fields_have_max_length": "module",
@@ -263,6 +269,8 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_events_reference_catalog,
     check_emitted_events_are_declared,
     check_jobs_reference_catalog,
+    check_operations_reference_catalog,
+    check_routes_declare_operation,
     check_no_adhoc_config_decrypt,
     check_no_hardcoded_credentials,
     check_input_str_fields_have_max_length,
@@ -434,6 +442,8 @@ __all__ = [
     "check_no_raw_session_construction",
     "check_no_unique_columns_on_soft_delete_models",
     "check_offset_queries_declare_ordering",
+    "check_operations_reference_catalog",
+    "check_routes_declare_operation",
     "check_forwarded_filters_are_declared",
     "check_declared_read_controls_are_forwarded",
     "check_frozen_values_hold_no_mutable_collection",

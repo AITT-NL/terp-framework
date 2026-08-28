@@ -17,5 +17,13 @@ REALTIME_SUBSCRIBE_SSE = OperationDefinition(
     id="realtime.subscribe_sse",
     label="Start streaming live updates for one channel",
 )
+REALTIME_SUBSCRIBE_WEBSOCKET = OperationDefinition(
+    id="realtime.subscribe_websocket",
+    label="Open a two-way live connection to one channel",
+)
 
-__all__ = ["REALTIME_MINT_TICKET", "REALTIME_SUBSCRIBE_SSE"]
+__all__ = [
+    "REALTIME_MINT_TICKET",
+    "REALTIME_SUBSCRIBE_SSE",
+    "REALTIME_SUBSCRIBE_WEBSOCKET",
+]

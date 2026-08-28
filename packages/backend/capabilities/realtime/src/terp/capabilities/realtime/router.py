@@ -44,6 +44,7 @@ from terp.capabilities.realtime.channel import RealtimeChannel, get_channel
 from terp.capabilities.realtime.operations import (
     REALTIME_MINT_TICKET,
     REALTIME_SUBSCRIBE_SSE,
+    REALTIME_SUBSCRIBE_WEBSOCKET,
 )
 from terp.capabilities.realtime.tickets import ConnectionTicket, get_ticket_store
 
@@ -402,6 +403,7 @@ async def _settle_websocket_tasks(*tasks: asyncio.Task[None]) -> None:
 
 
 @router.websocket("/ws/{channel_name}")
+@operation(REALTIME_SUBSCRIBE_WEBSOCKET)
 async def subscribe_websocket(
     websocket: WebSocket,
     channel_name: str,

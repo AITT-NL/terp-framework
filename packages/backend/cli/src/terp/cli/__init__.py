@@ -556,6 +556,35 @@ Domain events (eventbus capability)
 - Switching the bus on in a service-level test: the `terp_events` fixture, never a
   direct configure_events (see `terp guide testing`).
 """,
+    "operations": """\
+Route operations (what a route does for the person calling it, ADR 0102)
+
+- Declare typed operations in your control plane (never bare strings or a value built
+  inline at the call site):
+      NOTES_DELETE = OperationDefinition(id="notes.delete_note", label="Delete a note")
+      operation_catalog = OperationCatalog([NOTES_DELETE])
+      control_plane = ControlPlane(operations=operation_catalog, ...)
+- Apply it to a hand-written route with @operation(...), below the route decorator:
+      @router.delete("/{note_id}", status_code=204)
+      @operation(NOTES_DELETE)
+      def delete_note(note_id: uuid.UUID, session: SessionDep) -> None: ...
+- A canonical CRUD factory takes one per generated route instead of a decorator:
+      router = build_crud_router(
+          NoteService(), read_schema=NoteRead, create_schema=NoteCreate,
+          update_schema=NoteUpdate, delete_operation=NOTES_DELETE,
+      )
+- What it does NOT change: authorization. A route's requirement still comes from its
+  module's Policy and any route-level permission dependency — the same promise
+  read_only makes. Declaring what a route does narrows nothing about who may call it.
+- Coverage is the app's own choice, on OperationCatalog(coverage=...): OFF (default,
+  nothing required), WARN (undeclared routes are reported, boot still succeeds), or
+  STRICT (a mounted route with no declared operation fails the boot). The build-time
+  rule (routes_declare_operation) mirrors whichever of those the app has chosen — it
+  stays silent under OFF/WARN, exactly like the boot check does.
+- The label feeds OpenAPI too: a declared operation sets the route's summary and
+  operation_id, so a hand-written summary= beside a declared operation is refused (two
+  answers to the same promise).
+""",
     "testing": """\
 Testing a Terp app (process-global runtime isolation)
 

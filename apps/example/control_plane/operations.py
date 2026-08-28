@@ -13,7 +13,7 @@ app serves, hand-written or capability-supplied alike.
 
 from __future__ import annotations
 
-from terp.core import OperationCatalog, OperationDefinition
+from terp.core import OperationCatalog, OperationCoverage, OperationDefinition
 
 from terp.capabilities.access import (
     ACCESS_CREATE_GRANT,
@@ -53,7 +53,11 @@ from terp.capabilities.leases import (
     LEASES_REAP,
 )
 from terp.capabilities.oidc import OIDC_AUTHORIZE, OIDC_CALLBACK
-from terp.capabilities.realtime import REALTIME_MINT_TICKET, REALTIME_SUBSCRIBE_SSE
+from terp.capabilities.realtime import (
+    REALTIME_MINT_TICKET,
+    REALTIME_SUBSCRIBE_SSE,
+    REALTIME_SUBSCRIBE_WEBSOCKET,
+)
 from terp.capabilities.sync import (
     SYNC_GET_RUN,
     SYNC_LIST_MAPPINGS,
@@ -167,6 +171,7 @@ operation_catalog = OperationCatalog(
         OIDC_CALLBACK,
         REALTIME_MINT_TICKET,
         REALTIME_SUBSCRIBE_SSE,
+        REALTIME_SUBSCRIBE_WEBSOCKET,
         SYNC_LIST_RUNS,
         SYNC_GET_RUN,
         SYNC_LIST_RUN_LOGS,
@@ -184,7 +189,12 @@ operation_catalog = OperationCatalog(
         WEBHOOKS_UPDATE_SUBSCRIPTION,
         WEBHOOKS_DELETE_SUBSCRIPTION,
         WEBHOOKS_LIST_DELIVERIES,
-    )
+    ),
+    # Phase 6.4 (ADR 0102): the worked reference for the destination default. Every
+    # route this app mounts declares an operation (phase 5), so strict coverage
+    # refuses nothing here -- the boot succeeding under it IS the proof phase 5 was
+    # actually complete, not merely believed to be.
+    coverage=OperationCoverage.STRICT,
 )
 
 __all__ = [
@@ -213,6 +223,7 @@ __all__ = [
 
 # Note: `leases` and `sync` are not mounted by this example app today (neither
 # appears in app.main's capability_names), but their operations are folded into
-# the catalog anyway — a superset costs nothing under OFF coverage, and it means
-# the catalog does not silently fall behind the moment either capability is
-# actually wired in.
+# the catalog anyway. A superset is harmless even under strict coverage: strict
+# only refuses a MOUNTED route with no declared operation, never an unused
+# catalog entry, so this also means the catalog does not silently fall behind
+# the moment either capability is actually wired in.
