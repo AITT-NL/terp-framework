@@ -1691,13 +1691,40 @@ def test_the_separator_scan_answers_only_is_this_quoted() -> None:
     assert _shell_separators_in('grep -F "&&" scripts') == []
     assert _shell_separators_in('curl --url="http://h/p?a=1&b=2"') == []
     assert _shell_separators_in("terp check --package engine") == []
-    # A backslash escapes the next character OUTSIDE quotes too, matching
-    # `shlex.split` — which is what actually builds the argv. Honouring it inside
-    # double quotes only was a fail-OPEN: a `\"` outside quotes opened a phantom
-    # quoted region that swallowed the rest of the line.
-    swallowed = 'node --eval console.log(\"hi\") && rm -rf /tmp/x'
+    # A backslash escapes the next character OUTSIDE quotes too. Honouring it
+    # inside double quotes only was a fail-OPEN: a `\\"` outside quotes opened a
+    # phantom quoted region that swallowed the rest of the line.
+    #
+    # RAW string on purpose. The first version of this test wrote it non-raw, so
+    # `\\"` collapsed to `"` and the input carried no backslash at all -- it passed
+    # against the very implementation it was meant to pin.
+    swallowed = r'node --eval console.log(\"hi\") && rm -rf /tmp/x'
+    assert chr(92) in swallowed, "the input has to contain the character under test"
     assert _shell_separators_in(swallowed) == ["&&"]
     assert "&&" in shlex.split(swallowed), "and the real argv did carry one"
+
+    # ...and inside double quotes, which the docstring promises and nothing else
+    # covers.
+    assert _shell_separators_in(r'echo "a\"&& b"') == []
+
+
+def test_quoting_and_escaping_both_mean_literal() -> None:
+    """The boundary this scan draws, stated so it is deliberate rather than
+    incidental.
+
+    `shlex.split` cannot help here: a quoted `'&&'` and a bare `&&` both arrive as
+    the same bare argv element, so argv membership would refuse a literal anyone
+    is entitled to pass. The discriminator is what the author wrote, and a command
+    line has exactly two ways to say "literally this": quote it, or escape it.
+    """
+    from terp.cli.verify import _shell_separators_in
+
+    assert _shell_separators_in("lint . && test .") == ["&&"], "plain: refused"
+    assert _shell_separators_in("grep -F '&&' x") == [], "quoted: accepted"
+    assert _shell_separators_in(r"grep -F \&\& x") == [], "escaped: accepted"
+    # Both spellings reach argv as the same bare element, which is exactly why
+    # this cannot be decided from argv.
+    assert shlex.split("grep -F '&&' x") == shlex.split(r"grep -F \&\& x")
 
 
 def test_the_separator_length_is_derived_not_assumed(

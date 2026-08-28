@@ -116,12 +116,18 @@ def _shell_separators_in(command: str) -> list[str]:
     A few lines that answer exactly one question — is this ``&&`` inside quotes? —
     and nothing here can be surprised by a lexer setting.
 
-    A backslash escapes the next character both outside quotes and inside double
-    quotes, matching ``shlex.split``, which is what actually builds the argv.
-    Honouring it inside double quotes only was a fail-OPEN: a ``\\"`` outside
-    quotes opened a phantom quoted region that swallowed the rest of the line, so
+    The question is not "what argv does this produce" — ``shlex.split`` answers
+    that, and it cannot tell a quoted ``&&`` from a bare one, since both arrive as
+    the same bare element. The question is whether the AUTHOR meant it literally,
+    and in a command line there are exactly two ways to say so: quote it, or
+    escape it. Both are honoured here, and both are accepted; only a separator
+    written plainly is refused.
+
+    So a backslash escapes the next character in either state. Honouring it inside
+    double quotes only was a fail-OPEN, not a rough edge: a ``\\"`` outside quotes
+    opened a phantom quoted region that swallowed the rest of the line, so
     ``node --eval console.log(\\"hi\\") && rm -rf /tmp/x`` was accepted while the
-    real argv carried a real ``&&``.
+    argv carried a real ``&&``.
     """
     found: set[str] = set()
     # Longest first, so a two-character separator is never read as a one-character
