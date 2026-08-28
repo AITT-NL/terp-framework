@@ -1386,6 +1386,15 @@ WHEN A FEATURE ADDS A VARIABLE
 3. Add a workbench value to .app.env.example, so the inner loop runs the deployed seam.
 4. `terp verify --only env-seams`.
 
+Step 3 is CHECKED, not advice: env-seams reads .app.env.example and requires one entry
+per declared name and no others, parsed the way compose parses it (an unquoted `#`
+starts a comment, an unterminated quote is an error). A declared name missing from it
+means `cp .app.env.example .app.env` hands you a workbench without configuration the app
+needs; a name in it the manifest does not declare is usually a misspelling of one that
+is, and reaches no environment at all because Studio renders declarations and nothing
+else. A `"format": "secret"` declaration must appear with an EMPTY value: this file is
+committed, .app.env is not.
+
 Never write a secret value into the manifest, .env.example, .app.env.example, source,
 tests, prompts or logs. Platform-owned names (SECRET_KEY, POSTGRES_PASSWORD, DATABASE_URL,
 ENVIRONMENT, WEB_PORT, BACKEND_CORS_ORIGINS) are refused in the manifest: they already

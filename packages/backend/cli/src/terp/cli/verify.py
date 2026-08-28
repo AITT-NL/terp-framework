@@ -140,7 +140,11 @@ _ENV_SEAMS = VerifyCheck(
     id="env-seams",
     category="architecture",
     command="terp verify --only env-seams",
-    scope=("environment.schema.json", "docker-compose*.yml"),
+    scope=(
+        "environment.schema.json",
+        ".app.env.example",
+        "docker-compose*.yml",
+    ),
     runner="env-seams",
 )
 
