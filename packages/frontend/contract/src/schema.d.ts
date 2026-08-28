@@ -283,6 +283,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health/detail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Detail
+         * @description What each registered capability says about itself. Always 200.
+         *
+         *     Always 200 because this is an observation and not a verdict: a monitor reads
+         *     the numbers and decides. One detail that raises is reported as an error in its
+         *     own slot and does not suppress the others — a broken probe must not blind the
+         *     operator to every working one, which is the same failure this surface exists
+         *     to remove.
+         */
+        get: operations["detail_health_detail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -1384,6 +1410,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detail_health_detail_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

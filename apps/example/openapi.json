@@ -4528,6 +4528,26 @@
         ]
       }
     },
+    "/health/detail": {
+      "get": {
+        "description": "What each registered capability says about itself. Always 200.\n\nAlways 200 because this is an observation and not a verdict: a monitor reads\nthe numbers and decides. One detail that raises is reported as an error in its\nown slot and does not suppress the others \u2014 a broken probe must not blind the\noperator to every working one, which is the same failure this surface exists\nto remove.",
+        "operationId": "detail_health_detail_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Detail",
+        "tags": [
+          "health"
+        ]
+      }
+    },
     "/health/live": {
       "get": {
         "description": "Liveness: the process is up. No dependency is checked.",

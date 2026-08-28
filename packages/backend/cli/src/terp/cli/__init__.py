@@ -47,7 +47,12 @@ from terp.cli.grants import (
 )
 from terp.cli.service_accounts import create_service_account_command
 from terp.cli.users import create_user_command
-from terp.cli.verify import profile_ids, run_verify_command, verify_manifest
+from terp.cli.outbox import render_backlog
+from terp.cli.verify import (
+    profile_ids,
+    run_verify_command,
+    verify_manifest,
+)
 
 _GUIDE_TOPICS: dict[str, str] = {
     "module": """\
@@ -869,6 +874,24 @@ Durable post-commit delivery (outbox capability)
 - In production, refuse to boot on the in-process default:
       create_app(..., job_queue=OutboxJobQueue(),
                  require_durable_jobs=get_settings().is_production)
+- WATCH THAT SOMETHING IS ACTUALLY DRAINING IT. This is the failure mode worth wiring
+  an alert for, because every other surface is silent about it: if nobody runs the
+  worker, rows sit `pending` forever and the app looks healthy. The lease reaper cannot
+  help either -- it scans LAPSED claims, and work nobody claimed has no claim to lapse
+  -- so a queue with zero consumers and a queue with idle consumers are the same table.
+      terp outbox backlog             # or --format json
+      GET /health/detail              # {"details": {"outbox": {...}}}
+  Both report the same four numbers from the same function:
+      pending                 everything undelivered, incl. rows scheduled for later
+      due                     what a worker could claim RIGHT NOW
+      oldest_due_age_seconds  how long the longest-ready row has been ready
+      dead_lettered           what gave up
+  `oldest_due_age_seconds` is the one to alert on. A running worker claims due rows
+  continuously, so a healthy queue keeps it at seconds; minutes of it means no consumer
+  is running. `pending` alone cannot tell you that -- a busy queue and a dead one both
+  have rows. Note that /health/detail is an OBSERVATION and always answers 200: a
+  backlog is a reason to page someone, not a reason to take the instance out of the
+  load balancer, which would turn a delivery problem into an outage.
 """,
     "idempotency": """\
 Idempotency (the Idempotency-Key header, terp.core.idempotency)
@@ -2365,6 +2388,29 @@ def _build_parser() -> argparse.ArgumentParser:
         "--app-root", default=".", help="App root placed first on sys.path (default: .)"
     )
 
+    outbox_parser = subcommands.add_parser(
+        "outbox",
+        help="Report the durable outbox's backlog - whether anything is draining it",
+    )
+    outbox_subcommands = outbox_parser.add_subparsers(dest="outbox_command", required=True)
+    outbox_backlog_parser = outbox_subcommands.add_parser(
+        "backlog",
+        help="What is pending, what is due now, and how long the oldest due row has waited",
+    )
+    outbox_backlog_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app or factory (default: app.main:app)",
+    )
+    outbox_backlog_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+    outbox_backlog_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format (default: text)",
+    )
     leases_parser = subcommands.add_parser(
         "leases",
         help="Inspect held/expired leases and recover a dead worker's claim (ADR 0095)",
@@ -2828,6 +2874,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "jobs" and args.jobs_command == "scheduler":
         print(run_scheduler_command(app_ref=args.app, app_root=args.app_root))
+        return
+    if args.command == "outbox" and args.outbox_command == "backlog":
+        print(
+            render_backlog(
+                app_ref=args.app, app_root=args.app_root, fmt=args.format
+            )
+        )
         return
     if args.command == "leases" and args.leases_command == "list":
         print(

@@ -627,3 +627,173 @@ def test_worker_finalize_treats_a_vanished_row_as_lost(engine: object) -> None:
     assert worker.drain_once() == DrainResult(claimed=1, lost=1)
     with Session(engine) as session:  # type: ignore[arg-type]
         assert session.exec(select(OutboxMessage)).all() == []
+
+
+# --------------------------------------------------------------------------- #
+# the backlog — telling "no consumer" apart from "idle consumers"
+# --------------------------------------------------------------------------- #
+def test_an_empty_outbox_reports_nothing_waiting(engine: object) -> None:
+    from terp.capabilities.outbox import backlog
+
+    with Session(engine) as session:  # type: ignore[arg-type]
+        waiting = backlog(session, now=_T0)
+    assert waiting.as_dict() == {
+        "pending": 0,
+        "due": 0,
+        "dead_lettered": 0,
+        "oldest_due_at": None,
+        "oldest_due_age_seconds": None,
+    }
+
+
+def test_the_backlog_distinguishes_an_unclaimed_row_from_a_scheduled_one(
+    engine: object,
+) -> None:
+    """The whole point of the measurement.
+
+    Before it, a queue with zero consumers and a queue with idle consumers were the
+    same table of pending rows, and the reaper could not tell them apart either — it
+    scans LAPSED claims, and work nobody claimed has no claim to lapse. What separates
+    them is how long the oldest DUE row has been due, so "due" has to mean exactly what
+    a worker would claim: not a row scheduled for later, not one a live worker holds.
+    """
+    from terp.capabilities.outbox import backlog
+
+    now = _T0 + timedelta(hours=4)
+    _insert_row(engine, name="stuck", available_at=_T0)
+    _insert_row(engine, name="later", available_at=now + timedelta(hours=6))
+    _insert_row(
+        engine,
+        name="in-flight",
+        available_at=now - timedelta(seconds=5),
+        locked_by="worker-1",
+        locked_until=now + timedelta(seconds=55),
+    )
+
+    with Session(engine) as session:  # type: ignore[arg-type]
+        waiting = backlog(session, now=now)
+
+    assert waiting.pending == 3, "everything undelivered counts as pending"
+    assert waiting.due == 1, (
+        "only the unclaimed, already-due row is claimable: a row scheduled for later is "
+        "not a backlog, and one a live worker holds is not stuck"
+    )
+    assert waiting.oldest_due_age_seconds == 4 * 3600
+
+
+def test_an_expired_claim_counts_as_due_again(engine: object) -> None:
+    """A crashed worker's rows are reclaimable, so they are backlog again — the same
+    `locked_until < now` branch claim_due uses. A measure that drifted from what the
+    worker actually claims would report a backlog nobody can drain."""
+    from terp.capabilities.outbox import backlog
+
+    now = _T0 + timedelta(minutes=30)
+    _insert_row(
+        engine,
+        name="abandoned",
+        available_at=_T0,
+        locked_by="worker-that-died",
+        locked_until=_T0 + timedelta(minutes=1),
+    )
+    with Session(engine) as session:  # type: ignore[arg-type]
+        waiting = backlog(session, now=now)
+    assert (waiting.due, waiting.oldest_due_age_seconds) == (1, 30 * 60)
+
+
+def test_the_outbox_registers_its_backlog_as_a_health_detail(engine: object) -> None:
+    """Installing the distribution is the whole adoption step, as with every other
+    capability seam — the capability shipped no router and no operator surface at all,
+    so nothing anywhere could report that nothing was draining it."""
+    import terp.capabilities.outbox  # noqa: F401  (registers at import)
+    from terp.core.health import health_details
+
+    detail = health_details()["outbox"]
+    _insert_row(engine, name="stuck", available_at=_T0)
+    with Session(engine) as session:  # type: ignore[arg-type]
+        reported = detail(session)
+    assert reported["pending"] == 1
+    assert set(reported) == {
+        "pending",
+        "due",
+        "dead_lettered",
+        "oldest_due_at",
+        "oldest_due_age_seconds",
+    }
+
+
+def test_a_health_detail_is_never_part_of_the_readiness_verdict() -> None:
+    """Readiness answers "route traffic here". A growing backlog is a reason to page
+    someone, not to take the instance out of the load balancer — doing that would turn a
+    delivery problem into an outage, which is the failure this surface exists to expose
+    rather than to cause."""
+    import inspect
+
+    from terp.core import health as health_module
+
+    ready_source = inspect.getsource(health_module.build_health_router)
+    detail_index = ready_source.index('@router.get("/detail")')
+    ready_body = ready_source[: ready_source.index('@router.get("/detail")')]
+    assert "health_details" not in ready_body, (
+        "the readiness verdict must not consult a registered detail"
+    )
+    assert detail_index > 0
+
+
+@pytest.fixture
+def isolated_health_details() -> Iterator[None]:
+    """Restore the detail registry around a test that registers one.
+
+    It is a capability registration rather than a per-app runtime seam (owners register
+    once at import), so nothing resets it between tests -- which means a test that adds
+    one has to take it back out, or the next test's registration of the same name fails
+    for a reason that has nothing to do with it.
+    """
+    from terp.core import health as health_module
+
+    snapshot = dict(health_module._details)
+    try:
+        yield
+    finally:
+        health_module._details.clear()
+        health_module._details.update(snapshot)
+
+
+def test_a_failing_detail_does_not_blind_the_operator_to_the_others(
+    isolated_health_details: None,
+) -> None:
+    from terp.core.health import health_details, register_health_detail
+
+    def explodes(session: object) -> object:
+        raise RuntimeError("probe is broken")
+
+    register_health_detail("explodes", explodes)
+    assert "explodes" in health_details()
+
+    # The router reports it in its own slot rather than failing the response: one broken
+    # probe must not hide every working one.
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from terp.core.db import get_session
+    from terp.core.health import build_health_router
+
+    app = FastAPI()
+    app.include_router(build_health_router(), prefix="/health")
+    app.dependency_overrides[get_session] = lambda: None
+    response = TestClient(app).get("/health/detail")
+    assert response.status_code == 200
+    assert response.json()["details"]["explodes"] == {"error": "unavailable"}
+
+
+def test_a_second_different_detail_under_one_name_is_refused(
+    isolated_health_details: None,
+) -> None:
+    """Two capabilities silently overwriting each other's report would make the surface
+    unreliable in exactly the way it exists to fix."""
+    from terp.core.health import register_health_detail
+
+    probe = lambda session: {}  # noqa: E731
+    register_health_detail("dup", probe)
+    register_health_detail("dup", probe)  # idempotent
+    with pytest.raises(ValueError, match="already registered"):
+        register_health_detail("dup", lambda session: {"other": True})
