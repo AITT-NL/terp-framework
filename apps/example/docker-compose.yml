@@ -12,6 +12,14 @@ name: terp-example
 # Shared backend definition — migrate / seed / api run the same image. Only the `api`
 # service declares the build: one builder produces the tag (concurrent builds of a shared
 # tag race in the exporter: "already exists"), the one-shots reuse it.
+#
+# The cost of that choice: `migrate` and `seed` name a tag they cannot produce, so
+# they only work once something has built it. `api` depends on `migrate`, which means
+# compose resolves the one-shot's image FIRST — and with no build to fall back on it
+# reaches for a registry and fails with "pull access denied for terp-example-backend".
+# Whether that happens is a compose-version detail, which is exactly why nothing here
+# should depend on it: build the tag explicitly before bringing the stack up
+# (`docker compose build api web`, as CI does) rather than relying on the order.
 x-backend: &backend
   image: terp-example-backend
   # App-declared environment variables (environment.schema.json): same seam as
