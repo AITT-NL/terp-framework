@@ -236,3 +236,71 @@ def test_budget_rejects_non_object_and_non_int_counts(tmp_path: pathlib.Path) ->
     assert "JSON object" in check_escape_hatch_budget(
         app, budget_path=tmp_path / "budget.json"
     )[0].message
+
+
+# --------------------------------------------------------------------------- #
+# the route shapes the HTTP rules deliberately skip
+# --------------------------------------------------------------------------- #
+_UNPOLICED_ROUTES = """\
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+@router.head("/things")
+def head_things():
+    return None
+
+
+@router.options("/things")
+def options_things():
+    return None
+"""
+
+
+def test_the_http_rules_skip_the_verbs_they_do_not_govern(
+    tmp_path: pathlib.Path,
+) -> None:
+    """`head` and `options` carry no body and no collection, so the response-model,
+    table-model, pagination and path-parameter rules all pass over them. Each rule
+    skips independently, so each one is asserted rather than inferred from one."""
+    from terp.arch.rules.http import (
+        check_list_routes_paginate,
+        check_path_id_params_are_uuid,
+        check_response_model_not_table_model,
+        check_routes_declare_response_model,
+    )
+
+    app_root = tmp_path / "app"
+    _write(app_root, "modules/things/router.py", _UNPOLICED_ROUTES)
+
+    for rule in (
+        check_routes_declare_response_model,
+        check_response_model_not_table_model,
+        check_list_routes_paginate,
+        check_path_id_params_are_uuid,
+    ):
+        assert rule(app_root, package="app") == [], rule.__name__
+
+
+def test_a_route_with_no_literal_path_is_skipped(tmp_path: pathlib.Path) -> None:
+    """The path-parameter rule reads the path to find `{id}`. A path built at
+    runtime has none to read, so there is nothing to judge — and guessing would be
+    a finding about a string this rule cannot see."""
+    from terp.arch.rules.http import check_path_id_params_are_uuid
+
+    app_root = tmp_path / "app"
+    _write(
+        app_root,
+        "modules/things/router.py",
+        "from fastapi import APIRouter\n"
+        "\n"
+        "router = APIRouter()\n"
+        "PREFIX = '/things'\n"
+        "\n"
+        "\n"
+        "@router.get(PREFIX)\n"
+        "def list_things():\n"
+        "    return []\n",
+    )
+    assert check_path_id_params_are_uuid(app_root, package="app") == []

@@ -377,3 +377,104 @@ def test_example_refuses_to_wipe_a_committed_file_with_nothing(
     with pytest.raises(SystemExit, match="declares no variables"):
         run_env_command(action="example", root=str(root))
     assert (root / ".app.env.example").read_text(encoding="utf-8") == "KEEP=me\n"
+
+
+# --------------------------------------------------------------------------- #
+# the paths a person actually hits by mistake
+# --------------------------------------------------------------------------- #
+def test_a_manifest_with_no_required_array_asks_for_nothing(
+    tmp_path: pathlib.Path,
+) -> None:
+    """`required` is optional, and an unreadable or absent manifest asks for
+    nothing rather than raising — `check` still has the file to report on."""
+    from terp.cli.envfile import _required_names
+
+    assert _required_names(tmp_path) == set(), "no manifest at all"
+    (tmp_path / "environment.schema.json").write_text("{ not json", encoding="utf-8")
+    assert _required_names(tmp_path) == set(), "unreadable"
+    (tmp_path / "environment.schema.json").write_text(
+        '{"properties": {}, "required": "NOPE"}', encoding="utf-8"
+    )
+    assert _required_names(tmp_path) == set(), "not a list"
+
+
+def test_declare_creates_the_manifest_when_there_is_none(
+    tmp_path: pathlib.Path,
+) -> None:
+    """An app that has not declared anything yet still gets a first variable."""
+    run_env_command(
+        action="set", root=str(tmp_path), names=["FIRST=1"], declare=True
+    )
+    manifest = json.loads(
+        (tmp_path / "environment.schema.json").read_text(encoding="utf-8")
+    )
+    assert manifest["properties"]["FIRST"] == {"type": "string"}
+    assert "FIRST=1" in _env(tmp_path)
+
+
+def test_declare_refuses_to_exceed_the_dialect_limit(tmp_path: pathlib.Path) -> None:
+    """The reader drops the WHOLE file past the property cap, so adding the one
+    that crosses it would cost every declaration already there."""
+    from terp.cli.envschema import MAX_PROPERTIES
+
+    properties = {f"VAR_{index}": {"type": "string"} for index in range(MAX_PROPERTIES)}
+    root = _project(
+        tmp_path, {"type": "object", "properties": properties, "required": []}
+    )
+    with pytest.raises(SystemExit, match="over the dialect's limit"):
+        run_env_command(
+            action="set", root=str(root), names=["ONE_TOO_MANY=1"], declare=True
+        )
+
+
+def test_an_unknown_action_is_refused(tmp_path: pathlib.Path) -> None:
+    root = _project(tmp_path, _MANIFEST)
+    with pytest.raises(SystemExit, match="unknown action"):
+        run_env_command(action="frobnicate", root=str(root))
+
+
+def test_set_and_unset_need_something_to_do(tmp_path: pathlib.Path) -> None:
+    root = _project(tmp_path, _MANIFEST)
+    with pytest.raises(SystemExit, match="expected NAME=value"):
+        run_env_command(action="set", root=str(root), names=["JUST_A_NAME"])
+    with pytest.raises(SystemExit, match="nothing to set"):
+        run_env_command(action="set", root=str(root), names=[])
+    with pytest.raises(SystemExit, match="nothing to unset"):
+        run_env_command(action="unset", root=str(root), names=[])
+
+
+def test_init_needs_something_to_write(tmp_path: pathlib.Path) -> None:
+    root = _project(tmp_path, {"type": "object", "properties": {}, "required": []})
+    with pytest.raises(SystemExit, match="nothing to"):
+        run_env_command(action="init", root=str(root))
+
+
+def test_list_says_so_when_there_is_nothing_at_all(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    root = _project(tmp_path, {"type": "object", "properties": {}, "required": []})
+    assert run_env_command(action="list", root=str(root)) == 0
+    assert "declares nothing" in capsys.readouterr().out
+
+
+def test_list_names_a_value_that_reaches_no_environment(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    root = _project(tmp_path, _MANIFEST)
+    (root / ".app.env").write_text("STRAY=1\n", encoding="utf-8")
+    run_env_command(action="list", root=str(root))
+    assert "not declared" in capsys.readouterr().out
+
+
+def test_check_is_green_on_an_app_that_agrees_with_its_manifest(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    root = _project(tmp_path, _MANIFEST)
+    run_env_command(
+        action="set",
+        root=str(root),
+        names=["VENDOR_API_URL=http://api:8000", "VENDOR_TOKEN=x"],
+    )
+    capsys.readouterr()
+    assert run_env_command(action="check", root=str(root)) == 0
+    assert "supplies every declared variable" in capsys.readouterr().out

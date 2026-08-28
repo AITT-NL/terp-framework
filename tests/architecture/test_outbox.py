@@ -871,3 +871,18 @@ def test_a_second_different_detail_under_one_name_is_refused(
     register_health_detail("dup", probe)  # idempotent
     with pytest.raises(ValueError, match="already registered"):
         register_health_detail("dup", lambda session: {"other": True})
+
+
+def test_the_detail_registry_can_be_reset(isolated_health_details: None) -> None:
+    """A capability registers at import, so nothing clears this between apps — but
+    a test seam has to exist, exactly as the lease reaper registry has one."""
+    from terp.core.health import (
+        health_details,
+        register_health_detail,
+        reset_health_details,
+    )
+
+    register_health_detail("temporary", lambda session: {})
+    assert "temporary" in health_details()
+    reset_health_details()
+    assert health_details() == {}

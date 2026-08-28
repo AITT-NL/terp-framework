@@ -743,3 +743,46 @@ def test_a_hand_written_summary_beside_a_declared_operation_is_refused() -> None
     plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
     with pytest.raises(BootError, match="two answers to the same promise"):
         create_app([spec], control_plane=plane)
+
+
+# --------------------------------------------------------------------------- #
+# what an operation declaration refuses (ADR 0102)
+# --------------------------------------------------------------------------- #
+def test_an_operation_id_must_be_a_dotted_token() -> None:
+    """The id is the i18n message id and the catalog key, so a loose string would
+    make the catalog's own lookups ambiguous."""
+    from terp.core import OperationDefinition
+
+    with pytest.raises(ValueError, match="id"):
+        OperationDefinition(id="not a dotted token", label="Do a thing")
+
+
+def test_an_operation_needs_a_label_a_person_can_read() -> None:
+    """The whole point is that a non-technical reader can see what a route does;
+    a blank label is the one value that cannot do that."""
+    from terp.core import OperationDefinition
+
+    with pytest.raises(ValueError, match="label"):
+        OperationDefinition(id="thing.do", label="   ")
+
+
+def test_a_catalog_refuses_the_same_id_twice() -> None:
+    """Two declarations under one id means the catalog is no longer the single
+    source of truth for what that id says."""
+    from terp.core import OperationCatalog, OperationDefinition
+
+    first = OperationDefinition(id="thing.do", label="Do the thing")
+    second = OperationDefinition(id="thing.do", label="Do it differently")
+    with pytest.raises(ValueError, match="duplicate operation"):
+        OperationCatalog(operations=(first, second))
+
+
+def test_a_sibilant_noun_pluralises_with_es() -> None:
+    """`box` -> `boxes`, not `boxs`. The CRUD factory names a module's routes from
+    its noun, so this shows up in every generated summary and operation id."""
+    from terp.core.crud import _plural
+
+    assert _plural("box") == "boxes"
+    assert _plural("batch") == "batches"
+    assert _plural("note") == "notes"
+    assert _plural("company") == "companies"

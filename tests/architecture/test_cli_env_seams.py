@@ -748,3 +748,38 @@ def test_the_example_findings_get_their_own_fix_recipe(
     assert exit_code == 1
     assert "a human maintains" in output
     assert "Compose resolves `environment:` over `env_file:`" not in output
+
+
+def test_the_parser_refuses_a_name_no_manifest_could_declare() -> None:
+    """The manifest dialect is UPPER_SNAKE, so a lowercase name in the file is a
+    value that could never be declared and therefore never delivered."""
+    from terp.cli.envseams import parse_dotenv
+
+    values, problems = parse_dotenv("lower_case=1\n")
+    assert values == {}
+    assert "not a usable variable name" in problems[0][1]
+
+
+def test_the_parser_refuses_trailing_text_after_a_closing_quote() -> None:
+    from terp.cli.envseams import parse_dotenv
+
+    values, problems = parse_dotenv('NAME="value" and more\n')
+    assert values == {}
+    assert "after the closing quote" in problems[0][1]
+
+
+def test_an_unreadable_example_file_is_a_finding_not_a_crash(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory where the file should be, a permission problem — either way the
+    check reports it rather than raising out of the gate."""
+    from terp.cli import envseams
+
+    root = _project(tmp_path, declared={"API_URL": {"type": "string"}})
+
+    def _refuse(self, *args, **kwargs):
+        raise OSError("is a directory")
+
+    monkeypatch.setattr(pathlib.Path, "read_text", _refuse)
+    findings = envseams._example_findings(root, {"API_URL": {"type": "string"}})
+    assert findings and "cannot be read" in findings[0].detail

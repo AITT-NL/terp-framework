@@ -1809,3 +1809,25 @@ def test_an_unbalanced_quote_is_a_declaration_error_not_a_traceback(
     )
     with pytest.raises(SystemExit, match="cannot be read as a command line"):
         app_declared_checks(tmp_path)
+
+
+def test_the_dependency_hygiene_runner_is_reached_through_the_dispatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, capsys
+) -> None:
+    """The check is declared with its own runner, so the profile loop has to route
+    to it — a check nothing dispatches is a check that never runs."""
+    import terp.cli.verify as verify_module
+
+    monkeypatch.setattr(
+        verify_module,
+        "_run_dependency_hygiene",
+        lambda root: (0, "note: reached the runner"),
+    )
+    monkeypatch.setitem(
+        PROFILES, "quick", (verify_module._DEPENDENCY_HYGIENE,)
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "quick", "--root", str(tmp_path), "--format", "json"])
+    assert excinfo.value.code == 0
+    (result,) = json.loads(capsys.readouterr().out)["checks"]
+    assert result["id"] == "dependency-hygiene" and result["ok"] is True
