@@ -19,9 +19,22 @@ from sqlalchemy import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from terp.capabilities.auth import build_login_module, decode_access_token, hash_password
+from terp.capabilities.auth import (
+    AUTH_LOGIN,
+    build_login_module,
+    decode_access_token,
+    hash_password,
+)
 from terp.capabilities.identity import IdentityService, User
-from terp.core import PermissionModel, Principal, Role, create_app, get_session
+from terp.core import (
+    ControlPlane,
+    OperationCatalog,
+    PermissionModel,
+    Principal,
+    Role,
+    create_app,
+    get_session,
+)
 
 _VIEWER = Role("viewer", rank=10)
 _EDITOR = Role("editor", rank=20)
@@ -78,7 +91,10 @@ def _login_app(engine: Engine, *, subject: uuid.UUID, tenant_resolver=None) -> F
     def _authenticate(session: Session, email: str, password: str) -> Principal | None:
         return Principal(id=subject, role=_EDITOR) if password == "ok" else None
 
-    app = create_app([build_login_module(_authenticate, tenant_resolver=tenant_resolver)])
+    app = create_app(
+        [build_login_module(_authenticate, tenant_resolver=tenant_resolver)],
+        control_plane=ControlPlane(operations=OperationCatalog(operations=(AUTH_LOGIN,))),
+    )
 
     def _session_override() -> Iterator[Session]:
         with Session(engine) as session:

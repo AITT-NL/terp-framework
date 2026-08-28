@@ -168,7 +168,7 @@ export function FilesView() {
             onClick: () => void onDownload(file),
           },
           {
-            label: { id: "files.delete", message: "Delete" },
+            label: { id: "files.deleteFile", message: "Delete" },
             variant: "destructive",
             onClick: () => setPendingDelete(file),
           },

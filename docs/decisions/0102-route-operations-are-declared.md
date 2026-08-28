@@ -130,6 +130,19 @@ gate. Phase 5.5 of the route-operations plan is the completeness half this amend
 supply on its own: a check shaped like `locale-catalogs-complete` but keyed off the app's
 `OperationCatalog` rather than a source scan.
 
+Sharing one catalog has one real cost, found while shipping phase 5.5 rather than argued in the
+abstract: an operation id and a UI-text id now share one namespace, so they can collide, and they
+did — `files.delete` was already a UI-text id for a delete *button's* caption ("Delete") before
+this amendment, and `files.delete` is also ADR 0102's own worked example for the operation. The
+two answer different questions (a button's short caption; a permission-viewer's description of
+the action) and must never be forced to share one string. The resolution is to rename the
+*UI-text* id, not the operation id: a `{ id, message }` descriptor's id is an internal
+translation key with no meaning outside this file, so renaming it changes nothing a user sees,
+while an operation id is load-bearing (it is also, since phase 4, the OpenAPI `operation_id` a
+generated client keys off). The collision is mechanically checkable — diff the app's
+`OperationCatalog` ids against every UI-text id already used under `src/**` — and worth checking
+before choosing a new operation id, not only after a completeness test fails.
+
 ### 4. The label feeds OpenAPI, so it is not a field with one reader
 
 No route in this framework sets `summary` or `operation_id` today; operation ids are FastAPI's

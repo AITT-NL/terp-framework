@@ -262,8 +262,21 @@ cannot be deferred behind a marker and are done first.
       The existing note now reads "no module policy, no operation" — extending the
       already-explicit exemption to name this dimension too, rather than leaving it as a
       second, silent gap next to the first, documented one.
-- [ ] **5.5** Ship the Dutch catalog for the framework's own operations, pinned by a completeness
+- [x] **5.5** Ship the Dutch catalog for the framework's own operations, pinned by a completeness
       test against the operation-id set — the same shape as the existing locale completeness test.
+      All 68 operations gained a Dutch entry in `apps/example/frontend/i18n.json`, keyed by the
+      operation id exactly as the settled item-2 decision specifies. `files.delete` reuses ADR
+      0102's own Dutch worked example ("Verwijder een bestand") verbatim.
+      **A real collision surfaced doing this, not a hypothetical one:** `files.delete` was already
+      a UI-text id in `FilesView.tsx` — a delete *button's* caption ("Delete" / "Verwijderen") — a
+      different kind of text than an operation's permission-viewer sentence, that happened to share
+      one id purely because both namespaces (UI copy and route operations) now live in the same
+      `i18n.json`. Checked every one of the 68 operation ids against every UI-text id already used
+      in `apps/example/frontend/src`; this was the only collision. Resolved by renaming the
+      *button's* id to `files.deleteFile` (the smaller, purely-internal change — nothing user-visible
+      moves, since its Dutch text is unchanged) rather than moving the already-shipped, ADR-documented
+      operation id. The completeness test (`apps/example/tests/test_control_plane.py`) is
+      mutation-checked: deleting one operation's Dutch entry turns it red, naming exactly that id.
 
 ## Phase 6 — enforcement
 

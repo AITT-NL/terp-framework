@@ -489,7 +489,13 @@ endpoint *does* and the platform can guarantee every route is explained.
       and mounted a now-annotated capability with no matching `OperationCatalog` — each
       fixed with the catalog its mounted routes actually need. Both committed OpenAPI
       artifacts and their generated `schema.d.ts` files were regenerated (phase 4.3's
-      deferred step, now genuinely due).
+      deferred step, now genuinely due). All 68 operations gained a Dutch entry in
+      `apps/example/frontend/i18n.json`, pinned by a completeness test
+      (`apps/example/tests/test_control_plane.py`). Sharing that catalog with the
+      frontend's own UI-text ids has a real cost, found rather than argued: `files.delete`
+      already named a delete button's caption before this, and colliding with the
+      operation of the same name — resolved by renaming the *button's* id
+      (`files.deleteFile`), never the operation id, recorded as a consequence in ADR 0102.
 - [ ] Phase 6 — the two Standard rules, corpus cases, then **flip the default to
       `strict`** (decided; ADR 0102 amendment). `warn` is the staging step and the
       documented escape for an app that cannot annotate on that timetable.
