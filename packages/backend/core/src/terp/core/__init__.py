@@ -168,6 +168,7 @@ from terp.core.scheduling import (
     Scheduler,
     trigger_schedule,
 )
+from terp.core.health import HealthDetail, register_health_detail
 from terp.core.scoping import ScopePredicate, register_scope_predicate
 from terp.core.secrets import (
     SecretsError,
@@ -223,6 +224,7 @@ __all__ = [
     "EventVisibility",
     "FilterField",
     "FilterOp",
+    "HealthDetail",
     "IdempotencyStore",
     "InMemoryCacheStore",
     "InMemoryIdempotencyStore",
@@ -338,6 +340,7 @@ __all__ = [
     "purge_free_leases",
     "read_only",
     "register_decrypt_call_site",
+    "register_health_detail",
     "register_job_tenant_context",
     "register_lease_reaper",
     "register_object_authz_predicate",

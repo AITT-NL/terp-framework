@@ -20,9 +20,10 @@ catalog; a descriptor missing from Dutch silently rendered its source message. T
 picker therefore promised more than the app delivered, and an agent could finish a feature
 with a green gate while one language remained incomplete.
 
-FAST-v2 makes both omissions build failures: static user-interface literals are inventoried
-and every shipped catalog must be complete. Terp needs the same guarantees without coupling
-its framework contract to Lingui or to one frontend stack.
+A mature application built on this platform makes both omissions build failures: static
+user-interface literals are inventoried and every shipped catalog must be complete. Terp
+needs the same guarantees without coupling its framework contract to Lingui or to one
+frontend stack.
 
 ## Decision
 

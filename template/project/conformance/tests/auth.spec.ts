@@ -12,6 +12,12 @@ const ADMIN = {
 // screen, the seeded admin signs in to reach the app shell, and can sign out again. This suite is
 // yours to grow: add module specs alongside this file using the @terpjs/conformance login/logout
 // helpers (see the notes/tasks specs in the Terp example app for the pattern).
+//
+// One fixed rate-limit window keyed by client IP covers every request the app answers, so a long
+// suite on a shared runner can exhaust it — and every symptom of that is an element that never
+// appears. `login`/`logout` already say so when it happens. For a flow of your own, wrap it:
+// `watchForThrottling(page)` once, then `assertNotThrottled(response)` on a direct API call, so a
+// throttled run fails with the throttle named instead of a timeout on an unrelated locator.
 
 test("an unauthenticated visitor is gated to the sign-in screen", async ({ page }) => {
   await page.goto("/");

@@ -49,8 +49,23 @@ jobs:
       # exits — even with 0 — as a failure (docker/compose#10596).
       - name: Start the workbench
         run: |
+          # Build the shared backend tag BEFORE anything depends on it. Only `api`
+          # declares the build (one builder, so concurrent builds of one tag cannot
+          # race in the exporter), and `migrate` runs first as api's dependency — so
+          # if the tag does not exist yet, compose resolves migrate's image the only
+          # other way it can, by pulling, and fails with "pull access denied for
+          # terp-example-backend". That is a local tag; no registry has it. Building
+          # explicitly removes the ordering assumption entirely.
+          docker compose -f apps/example/docker-compose.yml build api web
           docker compose -f apps/example/docker-compose.yml up -d --wait api web
           docker compose -f apps/example/docker-compose.yml run --rm seed
+
+      # `--wait` reports only "container X is unhealthy" — never why. Without this
+      # the log shows a stack that did not come up and nothing about the process
+      # inside it, which is a rerun-and-guess loop rather than a diagnosis.
+      - name: Why the workbench did not come up
+        if: failure()
+        run: docker compose -f apps/example/docker-compose.yml logs --no-color --tail=120
 
       - name: Run the base-profile conformance suite (app-agnostic)
         env:

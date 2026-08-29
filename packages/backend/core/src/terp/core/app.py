@@ -841,10 +841,20 @@ def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) ->
     """Refuse a module job that can mutate an unowned CRUD model.
 
     Background work can run without an originating user and then uses the control-plane
-    system actor. That actor is deliberately not an ownership bypass: cross-owner
-    maintenance needs a reviewed capability. Keeping this check at composition makes
-    the ownership choice structural; an app module cannot make a purge "work" by
-    dropping ``OwnedMixin`` from the model its declared service binds.
+    system actor. That actor is deliberately not an ownership bypass. Keeping this check
+    at composition makes the ownership choice structural; an app module cannot make a
+    purge "work" by dropping ``OwnedMixin`` from the model its declared service binds.
+
+    This is the composition half of ``backend/no_manual_ownership_checks``; the build
+    half is :func:`terp.arch.check_no_manual_ownership_checks`. The two halves are NOT
+    equally escapable, and the difference is load-bearing for the message below: the
+    build half honours a budgeted ``# arch-allow-no-manual-ownership-checks: <reason>``
+    marker, and this one cannot — a comment is gone by the time a class object exists.
+    So the marker must never be offered here as the way out, or an app takes it, passes
+    ``terp check``, and then cannot start. Genuine cross-owner maintenance has no
+    supported route through either half today, and no maintenance-authority capability
+    ships; ``tests/architecture/test_jobs.py`` pins that the marker does not silence
+    this check and that neither message promises it does.
     """
     for spec in specs:
         if not spec.jobs:
@@ -857,9 +867,17 @@ def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) ->
                 f"module {spec.name!r} declares background jobs and service "
                 f"{service.__name__!r} binds unowned model {model.__name__!r}; "
                 "scheduled work runs as the system actor, which is not an ownership "
-                "bypass. Compose OwnedMixin for user-owned rows and stop for a "
-                "reviewed maintenance-authority capability instead of dropping the "
-                "owner gate (backend/no_manual_ownership_checks)."
+                "bypass. Two routes out: (1) the rows belong to users -> compose "
+                "OwnedMixin on the model; (2) the work is lease-shaped (reclaiming "
+                "what a dead worker held) -> register_lease_reaper does it without a "
+                "job declaration, firing per LAPSED lease only. For genuine "
+                "cross-owner maintenance there is no supported route yet: no "
+                "maintenance-authority capability ships, and the budgeted "
+                "`# arch-allow-no-manual-ownership-checks: <reason>` marker clears "
+                "the BUILD gate only — this check runs at composition and reads no "
+                "source markers, which is why you are seeing it. Declare the job and "
+                "the unowned service on different modules, or raise the gap "
+                "(backend/no_manual_ownership_checks)."
             )
 
 
@@ -1325,6 +1343,7 @@ def create_app(
     require_shared_throttle_store: bool = False,
     job_queue: JobQueue | None = None,
     require_durable_jobs: bool = False,
+    expose_health_detail: bool = False,
     cache_store: CacheStore | None = None,
     require_shared_cache_store: bool = False,
     idempotency_store: IdempotencyStore | None = None,
@@ -1597,7 +1616,9 @@ def create_app(
                     read_only_binder,
                 ],
             )
-    app.include_router(build_health_router(), prefix="/health")
+    app.include_router(
+        build_health_router(expose_detail=expose_health_detail), prefix="/health"
+    )
     # The contract-shape gate runs against the finished document — after every
     # module router, capability router, and the health router are mounted — so
     # nothing that serialises into the contract can arrive after it looked.

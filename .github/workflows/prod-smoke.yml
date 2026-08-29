@@ -38,6 +38,11 @@ jobs:
       - name: Build and start the production profile
         run: docker compose -f apps/example/docker-compose.prod.yml up -d --wait --build api web
 
+      # `--wait` reports only "container X is unhealthy" — never why.
+      - name: Why the production profile did not come up
+        if: failure()
+        run: docker compose -f apps/example/docker-compose.prod.yml logs --no-color --tail=120
+
       - name: Liveness + readiness through the API container
         run: |
           docker compose -f apps/example/docker-compose.prod.yml exec -T api \

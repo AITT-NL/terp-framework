@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
-import { ADMIN } from "../src/index";
+import { ADMIN, assertNotThrottled } from "../src/index";
 
 // Terp Standard black-box probes (spec/catalog entries with layer "black-box"): these
 // invariants are observable on a RUNNING app with no source access, so they are portable to
@@ -10,7 +10,10 @@ import { ADMIN } from "../src/index";
 // app-agnostic. Each test title is the catalog entry's enforcement `ref`.
 
 async function bearer(request: APIRequestContext): Promise<{ Authorization: string }> {
-  const response = await request.post("/api/v1/auth/login", { data: ADMIN });
+  // Through the throttle check first: one fixed IP-keyed window covers every request in the
+  // run, so the way this suite fails when it is rate-limited should be a sentence about the
+  // rate limit rather than `expect(received).toBe(expected)` on a login nobody suspects.
+  const response = assertNotThrottled(await request.post("/api/v1/auth/login", { data: ADMIN }));
   expect(response.ok()).toBe(true);
   const { access_token } = (await response.json()) as { access_token: string };
   return { Authorization: "Bearer " + access_token };

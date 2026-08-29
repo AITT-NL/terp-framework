@@ -66,13 +66,24 @@ def _project(
     *,
     declared: dict,
     environment: str = "    ENVIRONMENT: local",
+    example: str | None = None,
 ) -> pathlib.Path:
+    """A project whose seams are complete except for what the test is about.
+
+    `.app.env.example` gets one entry per declared name by default, because that is
+    what a whole app looks like and these fixtures exist to isolate the shadowing and
+    loopback verdicts. Pass *example* to make the example file itself the subject.
+    """
     (tmp_path / "environment.schema.json").write_text(
         json.dumps({"type": "object", "properties": declared, "required": []}),
         encoding="utf-8",
     )
     (tmp_path / "docker-compose.yml").write_text(
         _COMPOSE.format(environment=environment), encoding="utf-8"
+    )
+    (tmp_path / ".app.env.example").write_text(
+        "\n".join(f"{name}=" for name in declared) + "\n" if example is None else example,
+        encoding="utf-8",
     )
     return tmp_path
 
@@ -101,8 +112,8 @@ def test_a_declared_variable_hardcoded_in_compose_is_refused(
 ) -> None:
     """A literal discards `.app.env` as completely as a `${}` forward.
 
-    Scanning only for interpolation would miss the shape apps reach for most — the
-    reporting app's own `FAST_SYNC_API_BASE_URL: http://api:8000`.
+    Scanning only for interpolation would miss the shape apps reach for most: a plain
+    `SOME_API_BASE_URL: http://api:8000` written straight into the compose block.
     """
     root = _project(
         tmp_path,
@@ -343,6 +354,7 @@ def test_an_unreadable_compose_file_is_skipped_not_fatal(tmp_path: pathlib.Path)
         '{"properties": {"API_URL": {"type": "string"}}}', encoding="utf-8"
     )
     (tmp_path / "docker-compose.yml").write_text("services: [ unbalanced\n", encoding="utf-8")
+    (tmp_path / ".app.env.example").write_text("API_URL=\n", encoding="utf-8")
     assert env_seam_findings(tmp_path) == []
 
 
@@ -351,6 +363,7 @@ def test_a_compose_file_without_a_services_mapping_is_skipped(tmp_path: pathlib.
         '{"properties": {"API_URL": {"type": "string"}}}', encoding="utf-8"
     )
     (tmp_path / "docker-compose.yml").write_text("services: not-a-mapping\n", encoding="utf-8")
+    (tmp_path / ".app.env.example").write_text("API_URL=\n", encoding="utf-8")
     assert env_seam_findings(tmp_path) == []
 
 
@@ -595,3 +608,178 @@ def test_the_shape_verdict_comes_before_the_seam_verdict(
     assert "MY_VAR.description" in output
     assert "docker-compose.yml" not in output
 
+
+# --------------------------------------------------------------------------- #
+# .app.env.example — the one file in the seam a human maintains
+# --------------------------------------------------------------------------- #
+_DECLARED = {
+    "API_URL": {"type": "string", "resolvedBy": "container"},
+    "VENDOR_TOKEN": {"type": "string", "format": "secret"},
+}
+
+
+def _kinds(root: pathlib.Path) -> list[tuple[str, str]]:
+    return [
+        (finding.variable, finding.detail)
+        for finding in env_seam_findings(root)
+        if finding.kind == "example"
+    ]
+
+
+def test_a_complete_example_file_is_clean(tmp_path: pathlib.Path) -> None:
+    root = _project(
+        tmp_path,
+        declared=_DECLARED,
+        example="# workbench values\nAPI_URL=http://api:8000\nVENDOR_TOKEN=\n",
+    )
+    assert _kinds(root) == []
+
+
+def test_a_declared_variable_missing_from_the_example_is_refused(
+    tmp_path: pathlib.Path,
+) -> None:
+    """`terp guide environment` says to add a workbench value here, and until now
+    nothing opened the file. A name missing from it means the documented
+    `cp .app.env.example .app.env` produces a workbench without configuration the app
+    requires — discovered at run time, by whoever copied it."""
+    root = _project(tmp_path, declared=_DECLARED, example="API_URL=http://api:8000\n")
+    ((variable, detail),) = _kinds(root)
+    assert variable == "VENDOR_TOKEN" and "no entry here" in detail
+
+
+def test_an_undeclared_entry_in_the_example_is_refused(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Studio renders declarations and nothing else, so this value reaches no deployed
+    environment. In practice it is a misspelling of a name that IS declared, which is
+    the same outage wearing a different hat."""
+    root = _project(
+        tmp_path,
+        declared=_DECLARED,
+        example="API_URL=http://api:8000\nVENDOR_TOKEN=\nAPI_UROL=oops\n",
+    )
+    ((variable, detail),) = _kinds(root)
+    assert variable == "API_UROL" and "never renders it" in detail
+
+
+def test_a_secret_with_a_value_in_the_example_is_refused(
+    tmp_path: pathlib.Path,
+) -> None:
+    """This file is COMMITTED; `.app.env` is not. So the one value rule in it is that a
+    `"format": "secret"` declaration carries no value — the name tells a reader what to
+    supply, and supplying it here puts the credential in git."""
+    root = _project(
+        tmp_path,
+        declared=_DECLARED,
+        example="API_URL=http://api:8000\nVENDOR_TOKEN=sk-live-abc123\n",
+    )
+    ((variable, detail),) = _kinds(root)
+    assert variable == "VENDOR_TOKEN" and "COMMITTED" in detail
+
+    # A secret declared with an empty value is the whole point of the entry.
+    clean = _project(
+        tmp_path,
+        declared=_DECLARED,
+        example='API_URL=http://api:8000\nVENDOR_TOKEN=""\n',
+    )
+    assert _kinds(clean) == []
+
+
+def test_a_missing_example_file_is_refused_when_variables_are_declared(
+    tmp_path: pathlib.Path,
+) -> None:
+    root = _project(tmp_path, declared=_DECLARED)
+    (root / ".app.env.example").unlink()
+    ((variable, detail),) = _kinds(root)
+    assert variable == "" and "is missing" in detail
+
+
+def test_an_app_declaring_nothing_is_not_asked_for_an_example(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Fail-open on an unadopted seam: a manifest with no variables has nothing to
+    exemplify, so the absent file is not a defect."""
+    root = _project(tmp_path, declared={}, example="")
+    (root / ".app.env.example").unlink()
+    assert env_seam_findings(root) == []
+
+
+def test_the_example_is_parsed_the_way_compose_parses_it(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A value that reads differently to compose than to its author is the failure a
+    looser parser hides. `TOKEN=abc # prod` is three characters to compose."""
+    from terp.cli.envseams import parse_dotenv
+
+    values, problems = parse_dotenv("TOKEN=abc # prod\nQUOTED='a # b'\n")
+    assert values == {"TOKEN": "abc", "QUOTED": "a # b"} and problems == []
+
+    # An unterminated quote is an error, not a value: compose refuses the file, so a
+    # parser that guessed here would report a variable the app never receives.
+    values, problems = parse_dotenv('BROKEN="oops\n')
+    assert values == {} and "never closed" in problems[0][1]
+
+    # An `export` prefix is accepted, as compose accepts it.
+    assert parse_dotenv("export NAME=value\n")[0] == {"NAME": "value"}
+
+
+def test_an_unparseable_example_line_is_reported_not_guessed(
+    tmp_path: pathlib.Path,
+) -> None:
+    root = _project(
+        tmp_path,
+        declared={"API_URL": {"type": "string"}},
+        example='API_URL="http://api:8000\n',
+    )
+    details = [detail for _variable, detail in _kinds(root)]
+    assert any("never closed" in detail for detail in details)
+    # ...and the variable is then ALSO reported as absent, because a line that does not
+    # parse supplies nothing. Both statements are true and the app needs both.
+    assert any("no entry here" in detail for detail in details)
+
+
+def test_the_example_findings_get_their_own_fix_recipe(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The three kinds have different fixes; offering the compose precedence recipe for
+    a missing example entry would be a confident answer to a question nobody asked."""
+    root = _project(tmp_path, declared=_DECLARED, example="API_URL=http://api:8000\n")
+    exit_code, output = run_env_seams_check(root)
+    assert exit_code == 1
+    assert "a human maintains" in output
+    assert "Compose resolves `environment:` over `env_file:`" not in output
+
+
+def test_the_parser_refuses_a_name_no_manifest_could_declare() -> None:
+    """The manifest dialect is UPPER_SNAKE, so a lowercase name in the file is a
+    value that could never be declared and therefore never delivered."""
+    from terp.cli.envseams import parse_dotenv
+
+    values, problems = parse_dotenv("lower_case=1\n")
+    assert values == {}
+    assert "not a usable variable name" in problems[0][1]
+
+
+def test_the_parser_refuses_trailing_text_after_a_closing_quote() -> None:
+    from terp.cli.envseams import parse_dotenv
+
+    values, problems = parse_dotenv('NAME="value" and more\n')
+    assert values == {}
+    assert "after the closing quote" in problems[0][1]
+
+
+def test_an_unreadable_example_file_is_a_finding_not_a_crash(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory where the file should be, a permission problem — either way the
+    check reports it rather than raising out of the gate."""
+    from terp.cli import envseams
+
+    root = _project(tmp_path, declared={"API_URL": {"type": "string"}})
+
+    def _refuse(self, *args, **kwargs):
+        raise OSError("is a directory")
+
+    monkeypatch.setattr(pathlib.Path, "read_text", _refuse)
+    findings = envseams._example_findings(root, {"API_URL": {"type": "string"}})
+    assert findings and "cannot be read" in findings[0].detail

@@ -15,6 +15,12 @@ opt-out lives in one place:
   it), so N workers drain one outbox without double-dispatch.
 * :func:`finalize` commits a worker's status transition (dispatched / rescheduled /
   dead-lettered) on the outbox's own table.
+* :func:`backlog` reads what is waiting, and is the only one of the four that writes
+  nothing. It exists because an outbox with no consumer is otherwise indistinguishable
+  from an outbox with idle consumers: both are a table of ``pending`` rows. The lease
+  reaper cannot tell them apart either, by construction — it scans LAPSED claims, and
+  work nobody ever claimed has no claim to lapse. What distinguishes them is how long
+  the oldest DUE row has been due, so that is the number this returns.
 
 The worker drives :func:`claim_due` / :func:`finalize` on a **plain** session, but the
 session is still a :class:`~terp.core._internal.session_guard.WriteGuardedSession`
@@ -27,9 +33,10 @@ mutation, but the guard cannot tell that from an ``# arch-allow-*`` comment alon
 
 from __future__ import annotations
 
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
-from sqlalchemy import or_, update
+from sqlalchemy import func, or_, update
 from sqlmodel import Session, col, select
 
 # The outbox is framework delivery infrastructure: its row must ride the audited write
@@ -39,7 +46,49 @@ from sqlmodel import Session, col, select
 # base of the write stack.
 from terp.core._internal.session_guard import enter_write_unit  # arch-allow-no-internal-imports: durable delivery infra must ride the audited write unit to append atomically with the business write; the scope primitive is _internal so app modules cannot open it
 
-from terp.capabilities.outbox.models import STATUS_PENDING, OutboxMessage
+from terp.capabilities.outbox.models import (
+    STATUS_DEAD_LETTERED,
+    STATUS_PENDING,
+    OutboxMessage,
+)
+
+
+@dataclass(frozen=True)
+class OutboxBacklog:
+    """What is waiting in the outbox, and how long the oldest ready item has waited.
+
+    ``oldest_due_age_seconds`` is the field that answers "is anything draining this?",
+    and it is the reason a plain count is not enough: a healthy busy queue and a queue
+    whose worker died both show pending rows. A row that has been DUE for an hour, with
+    no live claim on it, means no consumer is running — the one condition the outbox
+    could not previously report about itself.
+
+    ``pending`` counts everything undelivered, including rows deliberately scheduled for
+    later or backing off between retries; ``due`` counts only what a worker could claim
+    right now. Both age fields are ``None`` when nothing is due, which is the good case.
+    """
+
+    pending: int
+    due: int
+    dead_lettered: int
+    oldest_due_at: datetime | None
+    oldest_due_age_seconds: float | None
+
+    def as_dict(self) -> dict[str, object]:
+        """A JSON-safe rendering (the health detail and the CLI share it)."""
+        return {
+            "pending": self.pending,
+            "due": self.due,
+            "dead_lettered": self.dead_lettered,
+            "oldest_due_at": (
+                None if self.oldest_due_at is None else self.oldest_due_at.isoformat()
+            ),
+            "oldest_due_age_seconds": (
+                None
+                if self.oldest_due_age_seconds is None
+                else round(self.oldest_due_age_seconds, 3)
+            ),
+        }
 
 
 def append(session: Session, message: OutboxMessage) -> OutboxMessage:
@@ -117,4 +166,50 @@ def finalize(session: Session) -> None:
         session.commit()  # arch-allow-mutations-emit-audit: persist the worker's status transition (dispatched / rescheduled / dead-lettered)
 
 
-__all__ = ["append", "claim_due", "finalize"]
+__all__ = ["OutboxBacklog", "append", "backlog", "claim_due", "finalize"]
+
+
+def backlog(session: Session, *, now: datetime | None = None) -> OutboxBacklog:
+    """What is waiting in the outbox right now. Reads only; writes nothing.
+
+    "Due" mirrors :func:`claim_due`'s own predicate exactly — pending, ``available_at``
+    reached, and the lease free or expired — because the question being asked is "what
+    could a worker take, and how long has it been sitting there". A measure that drifted
+    from what the worker actually claims would report a backlog nobody can drain, or
+    miss one nobody is draining.
+
+    The age is computed in Python rather than in SQL so the answer is identical on
+    SQLite and PostgreSQL. That matters more than the microsecond it costs: this number
+    is the one an alert threshold gets written against.
+    """
+    moment = now or datetime.now(UTC)
+    pending = session.exec(
+        select(func.count()).where(col(OutboxMessage.status) == STATUS_PENDING)
+    ).one()
+    dead_lettered = session.exec(
+        select(func.count()).where(col(OutboxMessage.status) == STATUS_DEAD_LETTERED)
+    ).one()
+    due_count, oldest_due = session.exec(
+        select(func.count(), func.min(col(OutboxMessage.available_at))).where(
+            col(OutboxMessage.status) == STATUS_PENDING,
+            col(OutboxMessage.available_at) <= moment,
+            or_(
+                col(OutboxMessage.locked_until).is_(None),
+                col(OutboxMessage.locked_until) < moment,
+            ),
+        )
+    ).one()
+    if oldest_due is not None and oldest_due.tzinfo is None:
+        # SQLite hands back a naive value for a timezone-aware column, and the
+        # subtraction below would raise on it. A health probe must never be the thing
+        # that breaks; the column is written in UTC, so that is what it is.
+        oldest_due = oldest_due.replace(tzinfo=UTC)
+    return OutboxBacklog(
+        pending=int(pending or 0),
+        due=int(due_count or 0),
+        dead_lettered=int(dead_lettered or 0),
+        oldest_due_at=oldest_due,
+        oldest_due_age_seconds=(
+            None if oldest_due is None else max(0.0, (moment - oldest_due).total_seconds())
+        ),
+    )

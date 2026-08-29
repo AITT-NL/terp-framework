@@ -579,6 +579,62 @@ def test_create_app_refuses_background_job_that_drops_row_ownership() -> None:
     create_app([safe], control_plane=plane)
 
 
+class _MarkedDocService(BaseService[_JobDoc, _DocCreate, _DocUpdate]):  # arch-allow-no-manual-ownership-checks: pins that the marker does NOT reach the composition half
+    model = _JobDoc
+
+
+def test_the_ownership_marker_does_not_reach_the_composition_half() -> None:
+    """The build half honours ``# arch-allow-no-manual-ownership-checks``; this one cannot.
+
+    A comment does not survive into a class object, so the composition check has no way
+    to see the marker even in principle. That asymmetry is only safe while every message
+    says so: an app told to "take the budgeted opt-out" would add the marker, watch
+    ``terp check`` go green, and then fail to boot — the build gate and the boot gate
+    disagreeing about the same rule, with nothing naming the disagreement.
+
+    So this pins both halves of the contract: the marker really does not silence the
+    refusal, AND no refusal text offers it as the way out.
+    """
+    job = _doc_job()
+    plane = ControlPlane(jobs=JobCatalog([job]))
+    marked = ModuleSpec(
+        name="docs",
+        policy=Policy.default(),
+        jobs=(job,),
+        services=(_MarkedDocService,),
+    )
+
+    with pytest.raises(BootError) as refusal:
+        create_app([marked], control_plane=plane)
+
+    message = str(refusal.value)
+    assert "arch-allow-no-manual-ownership-checks" in message, (
+        "the refusal should still NAME the marker — silence would leave an app that "
+        "took it with no idea why the gate and the boot disagree"
+    )
+    assert "BUILD gate only" in message, (
+        "naming the marker without saying it does not apply here is the failure this "
+        "test exists for"
+    )
+
+
+def test_separating_the_job_from_the_unowned_service_satisfies_composition() -> None:
+    """The structural route both halves agree on, since both key on the declaring spec.
+
+    The refusal points here, so it has to work. Each half asks the same question of ONE
+    module: does *this* spec declare jobs and also bind an unowned service? Declaring
+    them on separate modules answers no for both, without an opt-out anywhere.
+    """
+    job = _doc_job()
+    plane = ControlPlane(jobs=JobCatalog([job]))
+    worker = ModuleSpec(name="docs_worker", policy=Policy.default(), jobs=(job,))
+    unowned = ModuleSpec(
+        name="docs_store", policy=Policy.default(), services=(_DocService,)
+    )
+
+    create_app([worker, unowned], control_plane=plane)
+
+
 def test_create_app_requires_a_durable_queue_when_asked() -> None:
     spec = ModuleSpec(name="thing", policy=Policy.default())
     with pytest.raises(BootError, match="not a durable"):

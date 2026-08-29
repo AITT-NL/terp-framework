@@ -47,7 +47,13 @@ from terp.cli.grants import (
 )
 from terp.cli.service_accounts import create_service_account_command
 from terp.cli.users import create_user_command
-from terp.cli.verify import profile_ids, run_verify_command, verify_manifest
+from terp.cli.envfile import run_env_command
+from terp.cli.outbox import render_backlog
+from terp.cli.verify import (
+    profile_ids,
+    run_verify_command,
+    verify_manifest,
+)
 
 _GUIDE_TOPICS: dict[str, str] = {
     "module": """\
@@ -145,6 +151,115 @@ When NOT to declare an edge:
   by every module already.
 
 Check it: `terp check`  |  See the declared edges: `terp inspect control-plane`
+""",
+    "dependency-hygiene": """\
+Is every distribution you import one you declared?
+
+The gate cannot answer this, and deliberately does not try. Mapping an import name to
+the distribution that provides it (`yaml` comes from PyYAML, `dateutil` from
+python-dateutil) needs INSTALLED METADATA, and terp.arch reads source. Hand-rolling
+the mapping inside the gate would be a second, worse copy of a solved problem.
+
+So it is delegated to deptry, and unlike the platform's own advisory run over its
+packages, it BLOCKS: the failure it catches is a green gate over an undeclared import
+on a path no test reaches \— the app works on the machine where a transitive
+dependency happens to be installed, and dies on a clean one.
+
+Adopt it by declaring the table (a project from the template already has it):
+
+    [tool.deptry]
+    known_first_party = ["app", "control_plane"]
+
+    [tool.deptry.per_rule_ignores]
+    # `terp.*` is one PEP 420 namespace across distributions, and pydantic
+    # re-exports through sqlmodel / pydantic-settings.
+    DEP003 = ["terp", "pydantic"]
+
+and installing the tool: `uv add --dev deptry`.
+
+`terp verify --profile full` then runs it. No table, no check \— it skips with a note
+rather than failing an app that never adopted it. Table but no tool is a RED, not a
+skip: hygiene you declared and cannot check is not hygiene.
+
+What it catches, and why each one is a real outage:
+  DEP001  imported, never declared      \— works here, ImportError on a clean install
+  DEP002  declared, never imported      \— install surface (and CVE surface) for nothing
+  DEP003  imported transitively         \— works until the middle package drops it
+  DEP004  a dev dependency in app code  \— absent from the production image
+
+Run it directly while fixing: `uv run deptry .`
+
+This is a delegated generic check (ADR 0033, the ADR 0085 precedent) and it composes
+into NO assurance lane: the spec's `dependency-audit` lane means both trees against
+known-vulnerability databases, which is a different question. It carries the exit code
+instead, which is what makes it a control rather than a report.
+""",
+    "secrets": """\
+Store a credential the app itself holds (sealed config)
+
+The rule first: AN ENVIRONMENT VARIABLE IS NOT THE SEAM FOR A PER-ROW CREDENTIAL.
+`environment.schema.json` declares a FIXED set of deploy-time names, and that is the
+point of it — undeclared variables stay impossible by construction, which is what lets
+a deploy tool render and seal the file. A credential belonging to a ROW (one tenant's
+API key, one connection's password, one customer's certificate) has no deploy-time
+name, because the rows are data. Declaring a family of them would make adding a tenant
+a redeploy and put every tenant's secret in one deploy-time file.
+
+Sealed config is the seam, and it already ships (ADR 0055). Install the extra:
+`terp-core[secrets]`.
+
+1) SEAL on the way in — in the service, never in the router. One string, one column:
+     from terp.core import encrypt_config
+
+     class ConnectionService(BaseService[Connection, ConnectionCreate, ...]):
+         model = Connection
+
+         def create(self, db, *, obj_in, actor):
+             sealed = obj_in.model_copy(
+                 update={"password": encrypt_config(obj_in.password)}
+             )
+             return super().create(db, obj_in=sealed, actor=actor)
+
+   `encrypt_config` is safe to call anywhere — sealing leaks nothing. The stored
+   value carries the portable, versioned `enc:v1:` prefix, so a key rotation is a
+   migration rather than an archaeology project. `is_sealed_config(value)` tells you
+   whether a column already holds one.
+
+2) MASK on the way out. A read schema never returns the sealed blob:
+     from terp.core import mask_config
+     password: str          # rendered as mask_config(row.password)
+
+   The mask is the CONSTANT "****" — never a prefix, a suffix, or the real length.
+   A mask that varied with the value would be an oracle, so it does not vary.
+
+3) DECRYPT at exactly one place, registered in the composition root:
+     from terp.core import decrypt_config, register_decrypt_call_site
+
+     @register_decrypt_call_site
+     def open_connection(connection: Connection):
+         password = decrypt_config(connection.password)   # the only site
+         return client.session(user=connection.user, password=password)
+
+   One call site per process. Registering a second, different callable raises;
+   calling `decrypt_config` from anywhere else raises; no registered site at all
+   means every decrypt fails. Fail-closed on all three.
+
+What is enforced, on both sides (ADR 0006): the runtime half is that call-site
+allowlist. The build-time half is `no_adhoc_config_decrypt`, which refuses a
+`decrypt_config(...)` call in app code — so the one sanctioned site is a budgeted,
+greppable `# arch-allow-*` opt-out rather than a convention. A debug endpoint or a
+log line cannot quietly become an exfiltration path.
+
+You do not manage a second key: the seal key derives from `SECRET_KEY` through an
+HKDF with a Terp-specific label, so it is domain-separated from every other use of it.
+
+What DOES still belong in the environment: `SECRET_KEY` itself, and deploy-time
+infrastructure names (a database URL, an SMTP host). Those are per-environment, not
+per-row — `terp guide environment` covers declaring them. Never write a secret VALUE
+into the manifest, into `.app.env.example`, or into source.
+
+Rule of thumb: if adding a customer would mean editing a deploy file, you are using
+the wrong seam.
 """,
     "service": """\
 Services (BaseService)
@@ -363,7 +478,7 @@ Boundaries for a second top-level package (an ungated worker)
 
 - The shape: an app whose work cannot run under the gate — a legacy-DB connector, a
   device, a non-Python runtime — keeps a SECOND top-level package beside `app/`, and the
-  two must not import each other. `terp check` scans `app/` for Terp's own rules; it
+  two must not import each other. `terp check` defaults to scanning `app/`; it
   deliberately does not own generic import-graph checks, because a graph contract is
   exactly what a generic tool already does better (and terp.arch would then be a second,
   weaker copy).
@@ -400,11 +515,29 @@ Boundaries for a second top-level package (an ungated worker)
 - What terp.arch still owns, because these are Terp semantics and not graph shape:
   `no_dynamic_sql` (SQL must be a static, reviewable literal — the containment check an
   app would otherwise hand-roll), `no_raw_outbound_http`, `no_adhoc_background_runtime`,
-  and every rule about BaseService / ModuleSpec / schemas. Run it on `app/` only: the
-  second package is not a Terp app, and scanning it would report rules it cannot satisfy.
+  and every rule about BaseService / ModuleSpec / schemas.
+- YOU CAN SCAN THE SIDECAR, and you should. `terp check` takes the package to scan:
+      terp check --package engine
+  It runs the same rule set and reports the same file:line, so the hygiene rules that
+  apply to any Python at all — `no_print`, `no_naive_datetime`, `no_dynamic_sql`,
+  `no_raw_outbound_http` — cover the second package too. A hand-written AST test per
+  rule is not the alternative to this; it is a weaker copy of it.
+  One honest caveat: the check REPORT names the whole rule inventory, and a package that
+  is not a Terp app cannot exercise most of it (it has no modules, no ModuleSpec, no
+  schemas). So read a green here as "the rules that apply are clean", and do not publish
+  that report as a Terp Standard claim over the sidecar.
 - The worker's own gate is one command, and both halves are in it:
       uv run terp verify             # Terp rules over app/, then the declared
                                      # package graph over both
+  To put the sidecar's own scan in the same gate, declare it — the profile is open at
+  the app end (ADR 0106):
+      [[tool.terp.verify.checks]]
+      id = "engine-architecture"
+      command = "terp check --package engine"
+      profile = "quick"
+      scope = ["engine/**"]
+  It then runs in `quick`, `full` and `release`, appears in `terp verify --list`, and
+  carries the exit code — instead of living in a pytest wrapper the gate never reads.
 - Sharing types across the boundary: neither package may import the other, but BOTH may
   import a third. A `contracts/` package of frozen value objects (with `max_length` caps
   declared, so the app half satisfies the input-schema rule) is one declaration and two
@@ -436,9 +569,63 @@ Object-level (per-row) authorization (OwnedMixin)
   seam (ADR 0017) — an OwnedMixin row stays readable by a non-owner unless you also restrict
   reads. An owner-keyed read filter necessarily references the managed owner_id, so (like the
   tenancy capability's tenant filter) it belongs in a governed predicate carrying a justified
-  `# arch-allow-no_manual_ownership_checks`; a built-in owner-read filter is planned sugar.
+  `# arch-allow-no-manual-ownership-checks: <reason>` -- HYPHENS, which is what the
+  suppressor matches; an underscored marker is silently not a marker. A built-in
+  owner-read filter is planned sugar.
   Endpoint authority (Policy), row-read visibility (register_scope_predicate) and row-write
   authority (OwnedMixin) are the three composable layers.
+- BACKGROUND JOBS ARE HELD TO THE SAME OWNERSHIP, and this is the clause that surprises
+  people, because it is not about `owner_id` at all. A module that declares
+  `ModuleSpec(jobs=[...])` may not also declare a service binding a model without
+  OwnedMixin: scheduled work runs as the system actor, and a system actor is not an
+  ownership bypass. Two things to know about the shape of it:
+  - The trigger is PER MODULE, not per job. One job anywhere in the module puts every
+    service in that module under the clause, including an operational table no job goes
+    near and no user owns. The fix is per SERVICE CLASS, so it is available, but nothing
+    here is scoped to the job that actually needed the authority.
+  - THE CLAUSE HAS TWO HALVES AND THEY ARE NOT EQUALLY ESCAPABLE. `terp check` runs the
+    build half; `create_app` re-applies the same rule at composition and raises
+    BootError. The build half honours a budgeted `# arch-allow-...` marker. The
+    composition half CANNOT -- by the time a service class object exists, the comment
+    is gone -- so a marker leaves you with a green gate and an app that will not start.
+    Do not reach for the marker here.
+  - The old refusal named a "reviewed maintenance-authority capability". NONE SHIPS, and
+    none is coming as part of this clause; that sentence was not an instruction to go and
+    install something.
+  Two routes out, and for the third case there is currently nothing:
+      1. The rows belong to users        -> compose OwnedMixin on the model.
+      2. The work is lease-shaped        -> register_lease_reaper(kind, reaper), which
+         (reclaiming what a dead              needs no job declaration. Caveat: it fires
+          worker held)                        per LAPSED lease, so rows that were never
+                                              in custody have nothing to lapse -- and it
+                                              only keeps you clear of the clause while the
+                                              module declares no `jobs=[...]` at all.
+      3. Genuine cross-owner maintenance -> NO SUPPORTED ROUTE TODAY. Both halves refuse
+         (a nightly purge, a reindex)         it and no capability grants the authority.
+                                              The one structural answer that satisfies
+                                              both halves is to separate them: declare
+                                              the job on one module and the unowned
+                                              service on another, since each half is
+                                              keyed on the module/spec that declares
+                                              both. That is a real change to your module
+                                              layout, not a formality -- if it does not
+                                              fit your design, this is a platform gap
+                                              worth raising rather than working around.
+  If you take a marker for the OTHER clause of this rule (the `owner_id` reference in a
+  read-visibility predicate, which is a build-only finding and where the marker is the
+  supported answer), two things make it fail in ways that look like something else:
+  - HYPHENS. `# arch-allow-no_manual_ownership_checks` parses as the token
+    `arch-allow-no`, which names no rule, so it suppresses nothing and carries no
+    justification -- the refusal simply stays, with the marker sitting right there.
+  - The reason is required, and so is the budget. A marker with no `: <reason>` is
+    re-reported as `ungoverned_escape_hatch`; ANY marker without a checked-in
+    escape-hatch budget stops the whole run with a governance error before a single
+    rule is listed. Pass `--budget escape-hatch-budget.json` (the profile already
+    does) and commit the file.
+  What the WRITE BOUNDARY would do is a separate question from what composition allows:
+  apply_object_authz does not restrict a row with no ownership trait, so the job body
+  itself would run fine. The clause is a judgement about the DESIGN, enforced before the
+  app serves anything -- not a description of what the write boundary would do.
 """,
     "leases": """\
 Leases: expiring, fenced custody of work (leases capability)
@@ -734,6 +921,30 @@ Durable post-commit delivery (outbox capability)
 - In production, refuse to boot on the in-process default:
       create_app(..., job_queue=OutboxJobQueue(),
                  require_durable_jobs=get_settings().is_production)
+- WATCH THAT SOMETHING IS ACTUALLY DRAINING IT. This is the failure mode worth wiring
+  an alert for, because every other surface is silent about it: if nobody runs the
+  worker, rows sit `pending` forever and the app looks healthy. The lease reaper cannot
+  help either -- it scans LAPSED claims, and work nobody claimed has no claim to lapse
+  -- so a queue with zero consumers and a queue with idle consumers are the same table.
+      terp outbox backlog             # or --format json
+  ...and, if you opt in, an endpoint a monitor can poll:
+      create_app(..., expose_health_detail=True)
+      GET /health/detail              # {"details": {"outbox": {...}}}
+  That is OFF by default and deliberately so: /health is mounted outside the policy
+  guard so an orchestrator probe can always reach it, and queue depths are business
+  signal. Turn it on only where /health is already restricted to an internal network
+  or an ingress rule; otherwise alert from the CLI, which runs as you.
+  Both report the same four numbers from the same function:
+      pending                 everything undelivered, incl. rows scheduled for later
+      due                     what a worker could claim RIGHT NOW
+      oldest_due_age_seconds  how long the longest-ready row has been ready
+      dead_lettered           what gave up
+  `oldest_due_age_seconds` is the one to alert on. A running worker claims due rows
+  continuously, so a healthy queue keeps it at seconds; minutes of it means no consumer
+  is running. `pending` alone cannot tell you that -- a busy queue and a dead one both
+  have rows. Note that /health/detail is an OBSERVATION and always answers 200: a
+  backlog is a reason to page someone, not a reason to take the instance out of the
+  load balancer, which would turn a delivery problem into an outage.
 """,
     "idempotency": """\
 Idempotency (the Idempotency-Key header, terp.core.idempotency)
@@ -1074,6 +1285,26 @@ Forms (react-core primitives)
   read; a 409 version_conflict means reload-and-retry, surfaced via ErrorState copy.
 - Mirror the backend's input caps client-side (maxLength on Input matching the schema's
   Field(max_length=...)) so users see the limit before the 422 does.
+- BOOLEANS AND CHOICES DO NOT GO INSIDE Field. Checkbox, Switch and RadioGroup each
+  render their own <label> around the input, and a <label> inside Field's <label> is
+  invalid HTML — the browser associates the control with the outer one, and Field would
+  hand `aria-describedby` to the label rather than to the input. Place them as siblings
+  in the Stack, with the label prop doing the naming:
+      <Stack as="form" onSubmit={submit}>
+        <Field label="Number" error={errors.number}>
+          <Input value={number} onChange={...} maxLength={50} />
+        </Field>
+        <Switch label="Actief" checked={active} onChange={setActive} />
+        <RadioGroup label="Frequentie" options={FREQUENCIES}
+                    value={frequency} onChange={setFrequency} />
+        <Button type="submit" variant="primary">Save</Button>
+      </Stack>
+  The honest limitation: these three have no hint or error slot, so a hint goes beside
+  them as <Text tone="muted" size="sm"> and is NOT wired to the control for a screen
+  reader. For a boolean that costs little — a switch cannot hold a value its type
+  refuses — but a RadioGroup CAN be left unset when a choice is required, and that
+  error has nowhere to go today. If you need it, put the message in the form-level
+  ErrorState rather than inventing a per-control slot.
 """,
     "theming": """\
 Theming and branding (design tokens, palettes, the brand mark)
@@ -1262,13 +1493,47 @@ configuration, so `env-seams` checks the shape first and reports every defect at
 Unknown fields are dropped rather than refused, so anything outside that set is not
 carried to Studio -- do not encode meaning in one.
 
+`terp env` IS THE COMMAND FOR THE MACHINE YOU ARE ON. A deploy tool renders and
+seals .app.env per environment; for the working copy the only seam used to be a
+hand-edited file, which is the pressure that produces an undeclared side file no
+manifest governs.
+
+    terp env init             # .app.env from the declarations, defaults filled in
+    terp env set FOO=bar      # one or more NAME=value
+    terp env unset FOO
+    terp env list             # what is set, what is missing
+    terp env check            # readable, and does it satisfy the manifest?
+    terp env example          # render .app.env.example FROM the declarations
+
+Two rules run through all of it. An UNDECLARED NAME IS REFUSED -- the manifest is
+what a deploy tool renders and what env-seams checks, so a value under a name it
+does not declare reaches no deployed environment. `--declare` adds it as a string
+in the same breath, which is the difference between a guard and an obstacle. And
+A SECRET'S VALUE IS NEVER PRINTED: `set` and `list` show that it is set, never
+what it is. It still reaches .app.env, which is gitignored; your terminal is not.
+
+`terp env example` is the generator half of the env-seams parity check, so that
+file is generated rather than hand-maintained. The command is deliberately in no
+verify profile: env-seams gates the seam, and a gate that edits your files is not
+a gate.
+
 WHEN A FEATURE ADDS A VARIABLE
 
 1. Declare it in environment.schema.json (UPPER_SNAKE; `"format": "secret"` for tokens,
    passwords, API keys and client secrets; `"resolvedBy"` for addresses).
+   (Or: `terp env set NAME=value --declare`, which does both.)
 2. Do NOT add it to a compose `environment:` block -- that would kill the declaration.
-3. Add a workbench value to .app.env.example, so the inner loop runs the deployed seam.
+3. `terp env example` to refresh .app.env.example, so the inner loop runs the deployed seam.
 4. `terp verify --only env-seams`.
+
+Step 3 is CHECKED, not advice: env-seams reads .app.env.example and requires one entry
+per declared name and no others, parsed the way compose parses it (an unquoted `#`
+starts a comment, an unterminated quote is an error). A declared name missing from it
+means `cp .app.env.example .app.env` hands you a workbench without configuration the app
+needs; a name in it the manifest does not declare is usually a misspelling of one that
+is, and reaches no environment at all because Studio renders declarations and nothing
+else. A `"format": "secret"` declaration must appear with an EMPTY value: this file is
+committed, .app.env is not.
 
 Never write a secret value into the manifest, .env.example, .app.env.example, source,
 tests, prompts or logs. Platform-owned names (SECRET_KEY, POSTGRES_PASSWORD, DATABASE_URL,
@@ -2201,6 +2466,65 @@ def _build_parser() -> argparse.ArgumentParser:
         "--app-root", default=".", help="App root placed first on sys.path (default: .)"
     )
 
+    env_parser = subcommands.add_parser(
+        "env",
+        help="Read and write this project's .app.env, with the manifest as the allow-list",
+    )
+    env_subcommands = env_parser.add_subparsers(dest="env_command", required=True)
+    for _name, _help in (
+        ("init", "Create .app.env from the declarations, defaults filled in"),
+        ("list", "What is set, what is missing - never a secret's value"),
+        ("check", "Is the file readable, and does it satisfy the manifest?"),
+        (
+            "example",
+            "Render .app.env.example FROM the declarations (the generator half "
+            "of the env-seams parity check)",
+        ),
+    ):
+        _sub = env_subcommands.add_parser(_name, help=_help)
+        _sub.add_argument(
+            "--root", default=".", help="Project root (default: .)"
+        )
+    env_set_parser = env_subcommands.add_parser(
+        "set", help="Set one or more NAME=value pairs"
+    )
+    env_set_parser.add_argument("pairs", nargs="+", metavar="NAME=value")
+    env_set_parser.add_argument("--root", default=".", help="Project root (default: .)")
+    env_set_parser.add_argument(
+        "--declare",
+        action="store_true",
+        help="Also add an undeclared name to environment.schema.json as a string",
+    )
+    env_unset_parser = env_subcommands.add_parser(
+        "unset", help="Remove one or more names"
+    )
+    env_unset_parser.add_argument("names", nargs="+", metavar="NAME")
+    env_unset_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    outbox_parser = subcommands.add_parser(
+        "outbox",
+        help="Report the durable outbox's backlog - whether anything is draining it",
+    )
+    outbox_subcommands = outbox_parser.add_subparsers(dest="outbox_command", required=True)
+    outbox_backlog_parser = outbox_subcommands.add_parser(
+        "backlog",
+        help="What is pending, what is due now, and how long the oldest due row has waited",
+    )
+    outbox_backlog_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app or factory (default: app.main:app)",
+    )
+    outbox_backlog_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+    outbox_backlog_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format (default: text)",
+    )
     leases_parser = subcommands.add_parser(
         "leases",
         help="Inspect held/expired leases and recover a dead worker's claim (ADR 0095)",
@@ -2664,6 +2988,22 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "jobs" and args.jobs_command == "scheduler":
         print(run_scheduler_command(app_ref=args.app, app_root=args.app_root))
+        return
+    if args.command == "env":
+        raise SystemExit(
+            run_env_command(
+                action=args.env_command,
+                root=args.root,
+                names=getattr(args, "pairs", None) or getattr(args, "names", None),
+                declare=getattr(args, "declare", False),
+            )
+        )
+    if args.command == "outbox" and args.outbox_command == "backlog":
+        print(
+            render_backlog(
+                app_ref=args.app, app_root=args.app_root, fmt=args.format
+            )
+        )
         return
     if args.command == "leases" and args.leases_command == "list":
         print(

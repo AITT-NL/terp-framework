@@ -379,3 +379,34 @@ def test_no_agent_surface_invents_a_capability() -> None:
         }
         ghosts = sorted(named - shipped)
         assert not ghosts, f"{label} names capabilities that do not exist: {ghosts}"
+
+
+def test_the_example_catalog_imports_only_capabilities_the_image_installs() -> None:
+    """A catalog entry costs nothing; the import that fills it costs everything.
+
+    `control_plane/operations.py` folded in two capabilities the app does not
+    mount, on the reasoning that a superset is free under OFF coverage. True of
+    the catalog, false of the import: neither is installed in the production
+    image, so the module raised ModuleNotFoundError before uvicorn could serve a
+    request and the container never became healthy — while the workspace, where
+    every package is present, imported it happily. Nothing caught the difference.
+    """
+    import re
+
+    dockerfile = (_REPO_ROOT / "apps" / "example" / "Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    installed = set(re.findall(r"packages/backend/capabilities/(\w+)", dockerfile))
+    assert installed, "the image must install some capabilities"
+
+    source = (
+        _REPO_ROOT / "apps" / "example" / "control_plane" / "operations.py"
+    ).read_text(encoding="utf-8")
+    imported = set(re.findall(r"from terp\.capabilities\.(\w+) import", source))
+
+    missing = sorted(imported - installed)
+    assert not missing, (
+        f"control_plane/operations.py imports {', '.join(missing)}, which "
+        f"apps/example/Dockerfile does not install — the app cannot start in "
+        f"production, and only in production"
+    )

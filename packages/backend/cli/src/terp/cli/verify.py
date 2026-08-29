@@ -8,12 +8,19 @@ data and executed sequentially in the project root. Three profiles ratchet up:
 * ``quick`` — static enforcement only (architecture gate, frontend boundary
   lint, frontend typecheck): cheap enough to run after every agent turn.
 * ``full`` — the merge bar: quick plus the backend test suite, the delegated
-  generic AppSec baseline (ruff ``S``, ADR 0085), and the production frontend
-  build. This is exactly the template CI's blocking surface.
+  generic AppSec baseline (ruff ``S``, ADR 0085), the delegated dependency
+  hygiene check (deptry — is every distribution this app imports declared?), and
+  the production frontend build. This is exactly the template CI's blocking
+  surface.
 * ``release`` — full plus the dependency audits (pip-audit / npm audit — the
   spec's required ``dependency-audit`` assurance lane), the contract-drift
   checks and the black-box conformance suite (which needs the Docker workbench
   running; see the check's ``requires`` note in the manifest).
+
+An app EXTENDS the profile through ``[[tool.terp.verify.checks]]`` in its own
+``pyproject.toml`` (see :func:`app_declared_checks`): the platform's checks are
+the floor, not the ceiling, and an app-specific check no longer has to live in a
+pytest wrapper outside the one command that defines green.
 
 ``--list`` prints the manifest without running anything — the seam a driving
 tool reads so its gate DEFINITION comes from the project's own pinned
@@ -34,6 +41,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import shlex
 import shutil
 import subprocess
@@ -50,6 +58,108 @@ _OUTPUT_TAIL_CHARS = 20_000
 #: whole test log), which is how the routes-drift adoption hint came to be announced
 #: only in `--format json`: an opt-in nobody is told about does not get adopted.
 NOTE_PREFIX = "note: "
+
+#: The issue categories a driving tool (Terp Studio's issue tabs) understands.
+#: Built-in checks are held to it by the gate; an app-declared check is held to
+#: it here, because a category outside this set is a check whose findings the
+#: driving tool has nowhere to file — silently, which is the failure mode this
+#: whole seam exists to remove.
+CHECK_CATEGORIES: frozenset[str] = frozenset(
+    {
+        "architecture",
+        "backend-tests",
+        "frontend-boundaries",
+        "build",
+        "conformance",
+    }
+)
+
+#: Where an app declares its own checks. A list of tables, so the shape reads the
+#: same as ``[[tool.importlinter.contracts]]`` an app already writes next to it.
+APP_CHECK_TABLE = "[[tool.terp.verify.checks]]"
+
+#: The keys an app-declared check may carry. Unknown keys are REFUSED rather than
+#: ignored: a typo'd ``profil`` that silently drops the check would be a new
+#: instance of the exact bug this seam closes — a gate that looks green because a
+#: check it was told about never ran.
+_APP_CHECK_KEYS = frozenset(
+    {"id", "command", "profile", "scope", "category", "requires"}
+)
+
+#: An app check id: the same lowercase-slug shape the built-in ids use, so the
+#: two are indistinguishable in ``--only``, the manifest and the JSON envelope.
+_APP_CHECK_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+#: Argv elements that are a command SEPARATOR and nothing else. No program takes
+#: a bare ``&&`` or ``||`` as an argument, so one of these arriving as its own
+#: argument is always an author expecting a shell that is not there.
+#:
+#: Deliberately just these two. Every other piece of shell syntax has a
+#: legitimate bare-argument use — ``awk -F '|'``, ``find … -exec rm {} ;`` — and
+#: two earlier versions of this check refused exactly those, failing an app's
+#: whole table closed over a command that was correct. A guard whose false
+#: positives are commands people really write is worse than the mistake it
+#: catches.
+_COMMAND_SEPARATORS = frozenset({"&&", "||"})
+
+
+def _shell_separators_in(command: str) -> list[str]:
+    """The command separators in *command* that are not inside quotes.
+
+    A purpose-built scan rather than a lexer, after three attempts to borrow one
+    and three different wrong answers. ``shlex.split`` strips quotes, so a literal
+    ``grep -F '&&'`` looked like composition; non-POSIX lexing raised on a quote
+    that does not start its token (``-F'|'``), which silently disabled the guard
+    for everything after it; and matching whole argv elements missed ``a&&b``,
+    where the separator is welded to its neighbours.
+
+    A few lines that answer exactly one question — is this ``&&`` inside quotes? —
+    and nothing here can be surprised by a lexer setting.
+
+    The question is not "what argv does this produce" — ``shlex.split`` answers
+    that, and it cannot tell a quoted ``&&`` from a bare one, since both arrive as
+    the same bare element. The question is whether the AUTHOR meant it literally,
+    and in a command line there are exactly two ways to say so: quote it, or
+    escape it. Both are honoured here, and both are accepted; only a separator
+    written plainly is refused.
+
+    So a backslash escapes the next character in either state. Honouring it inside
+    double quotes only was a fail-OPEN, not a rough edge: a ``\\"`` outside quotes
+    opened a phantom quoted region that swallowed the rest of the line, so
+    ``node --eval console.log(\\"hi\\") && rm -rf /tmp/x`` was accepted while the
+    argv carried a real ``&&``.
+    """
+    found: set[str] = set()
+    # Longest first, so a two-character separator is never read as a one-character
+    # one. Derived from the set rather than assumed, because the previous version
+    # hard-coded a two-character slice: adding ``;`` to the set would have made it
+    # silently unmatchable, with every existing test still green.
+    lengths = sorted({len(separator) for separator in _COMMAND_SEPARATORS}, reverse=True)
+    quote: str | None = None
+    index = 0
+    while index < len(command):
+        character = command[index]
+        if character == "\\" and (quote is None or quote == '"'):
+            index += 2  # the escaped character, whatever it is
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            index += 1
+            continue
+        if character in "'\"":
+            quote = character
+            index += 1
+            continue
+        for length in lengths:
+            candidate = command[index : index + length]
+            if candidate in _COMMAND_SEPARATORS:
+                found.add(candidate)
+                index += length
+                break
+        else:
+            index += 1
+    return sorted(found)
 
 
 @dataclass(frozen=True)
@@ -72,6 +182,7 @@ class VerifyCheck:
     #: subprocess — same verdict surface, no interpreter round-trip.
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
+    # | "dependency-hygiene"
     runner: str = "subprocess"
 
 
@@ -100,7 +211,11 @@ _ENV_SEAMS = VerifyCheck(
     id="env-seams",
     category="architecture",
     command="terp verify --only env-seams",
-    scope=("environment.schema.json", "docker-compose*.yml"),
+    scope=(
+        "environment.schema.json",
+        ".app.env.example",
+        "docker-compose*.yml",
+    ),
     runner="env-seams",
 )
 
@@ -125,6 +240,29 @@ _PACKAGE_BOUNDARIES = VerifyCheck(
     command="lint-imports",
     scope=("pyproject.toml", "**/*.py"),
     runner="package-boundaries",
+)
+
+# "Is every distribution this app imports actually declared?" — the question no
+# Terp rule can answer. The import-name to distribution-name mapping (`yaml` comes
+# from PyYAML) needs installed metadata, and `terp.arch` reads source, never
+# `pyproject.toml`; hand-rolling the mapping inside the gate would be a worse copy
+# of a solved problem. So it is delegated, following the appsec-baseline precedent
+# (ADR 0085, ADR 0033) — and it is BLOCKING, unlike the advisory run the platform
+# does over its own packages. The failure it catches is a green gate over an
+# undeclared driver import on a path no test reaches: the app works on the machine
+# where a transitive dependency happens to be installed and fails on a clean one.
+# Advisory is not a control.
+#
+# `full`, not `quick`: the question is a shipping property, not a per-turn one, and
+# answering it needs a resolved environment that `quick` deliberately does not
+# assume. Conditional on the app declaring `[tool.deptry]`, so an app that never
+# adopted it is unaffected — and declared-but-unrunnable is a RED, not a skip.
+_DEPENDENCY_HYGIENE = VerifyCheck(
+    id="dependency-hygiene",
+    category="architecture",
+    command="uv run deptry .",
+    scope=("pyproject.toml", "uv.lock", "**/*.py"),
+    runner="dependency-hygiene",
 )
 
 _FRONTEND_BOUNDARIES = VerifyCheck(
@@ -248,6 +386,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ENV_SEAMS,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
+        _DEPENDENCY_HYGIENE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
         _FRONTEND_BOUNDARIES,
@@ -261,6 +400,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ENV_SEAMS,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
+        _DEPENDENCY_HYGIENE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
         _DEPENDENCY_AUDIT_PYTHON,
@@ -300,18 +440,197 @@ def profile_ids() -> tuple[str, ...]:
     return tuple(PROFILES)
 
 
-def verify_manifest(profile: str) -> dict[str, object]:
-    """The profile's check manifest as data (the ``--list --format json`` body).
+def _declaration_error(message: str) -> SystemExit:
+    return SystemExit(f"{APP_CHECK_TABLE} in pyproject.toml: {message}")
 
-    A driving tool configures its gate FROM this — the project's own pinned
-    toolchain states what green means — instead of hardcoding a copy that
-    drifts. ``command`` is the exact invocation ``terp verify`` itself runs.
+
+def _app_check_from(entry: object, index: int, known: frozenset[str]) -> VerifyCheck:
+    """One declared table validated into a :class:`VerifyCheck`, or a refusal.
+
+    Every branch here fails closed. The alternative — skip what does not parse —
+    would hand an app a gate that passes because its own check was quietly
+    dropped, which is the failure this seam was opened to remove and would be
+    worse coming from the seam itself.
+    """
+    where = f"check #{index + 1}"
+    if not isinstance(entry, dict):
+        raise _declaration_error(f"{where} is not a table")
+    unknown = sorted(set(entry) - _APP_CHECK_KEYS)
+    if unknown:
+        raise _declaration_error(
+            f"{where} has unknown key(s) {', '.join(unknown)} "
+            f"(allowed: {', '.join(sorted(_APP_CHECK_KEYS))})"
+        )
+    check_id = entry.get("id")
+    if not isinstance(check_id, str) or not _APP_CHECK_ID.match(check_id):
+        raise _declaration_error(
+            f"{where} needs an `id` of lowercase words joined by hyphens, "
+            f"got {check_id!r}"
+        )
+    if check_id in known:
+        raise _declaration_error(
+            f"{check_id!r} is already a Terp check. An app check may not take a "
+            "platform check's id: `--only` could not tell them apart, and the "
+            "assurance claim composes its lanes by id, so the shadowing check "
+            "would report on a lane it never ran"
+        )
+    command = entry.get("command")
+    if not isinstance(command, str):
+        raise _declaration_error(f"{check_id!r} needs a non-empty `command` string")
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        # `shlex.split` raises on an unbalanced quote. Uncaught, that is a
+        # traceback out of `terp verify` about a file the user can fix in a second
+        # — so it becomes a declaration error like every other defect here.
+        raise _declaration_error(
+            f"{check_id!r} has a `command` that cannot be read as a command "
+            f"line ({exc})"
+        ) from exc
+    if not argv:
+        raise _declaration_error(f"{check_id!r} needs a non-empty `command` string")
+    # Manifest commands run as a fixed argv with shell=False, so a separator is
+    # not composition here — it is an argument. `a && b` would run `a` with `&&`
+    # and `b` as its arguments and report THAT verdict: a green for a check nobody
+    # ran. Note what is not claimed — no shell syntax is interpreted at all, and
+    # only the two unambiguous separators are refused.
+    separators = _shell_separators_in(command)
+    if separators:
+        raise _declaration_error(
+            f"{check_id!r} has {', '.join(separators)} in its command, but a check "
+            "runs as a fixed argv with no shell, so that would be passed as an "
+            "argument rather than composing two commands — and the check would "
+            "report the first command's verdict. Declare each command as its own "
+            "check, or put the composition in a script the check calls. If it is "
+            "meant literally — an argument that really contains it — quote it, and "
+            "this stops applying"
+        )
+    profile = entry.get("profile")
+    if profile not in PROFILES:
+        raise _declaration_error(
+            f"{check_id!r} needs a `profile` naming the cheapest profile it joins, "
+            f"one of {', '.join(profile_ids())}; got {profile!r}"
+        )
+    category = entry.get("category", "architecture")
+    if category not in CHECK_CATEGORIES:
+        raise _declaration_error(
+            f"{check_id!r} has `category` {category!r}, which no driving tool can "
+            f"file; use one of {', '.join(sorted(CHECK_CATEGORIES))}"
+        )
+    scope = entry.get("scope", ())
+    if not isinstance(scope, list) or not all(isinstance(item, str) for item in scope):
+        raise _declaration_error(f"{check_id!r} needs `scope` to be a list of globs")
+    if not scope:
+        raise _declaration_error(
+            f"{check_id!r} needs a non-empty `scope`: it is the input claim a "
+            "change-aware runner uses to prove a rerun unnecessary, and a check "
+            "with no declared inputs can never be skipped safely"
+        )
+    requires = entry.get("requires", "")
+    if not isinstance(requires, str):
+        raise _declaration_error(f"{check_id!r} needs `requires` to be a string")
+    return VerifyCheck(
+        id=check_id,
+        category=category,
+        command=command,
+        scope=tuple(scope),
+        requires=requires,
+    )
+
+
+def app_declared_checks(root: pathlib.Path) -> tuple[tuple[VerifyCheck, str], ...]:
+    """The app's own checks from ``[[tool.terp.verify.checks]]``, with their profiles.
+
+    The profile table above is the platform's floor. It used to be the whole
+    ceiling too — a literal dict no app could reach — so an app with a check of
+    its own (a sidecar package's architecture scan, a domain invariant, a
+    generated-artifact drift test) had two options: a pytest wrapper shelling out
+    to the real command, or a CI step outside the one command documented as
+    "what green means". Both put the app's own gate somewhere ``terp verify``
+    does not look, which is how a check comes to be skipped by everyone driving
+    the project through the manifest.
+
+    Each entry names the CHEAPEST profile it joins and rides the ratchet from
+    there, exactly as a built-in does: ``profile = "quick"`` also runs in ``full``
+    and ``release``. Declared checks run AFTER the platform's, so a red from the
+    floor still comes first, and they compose into **no assurance lane** — the
+    lane vocabulary is normative in the spec, and an app may extend its own gate
+    without touching a claim the spec defines. The seam is the generalisation of
+    ``package-boundaries``: the same conditional-on-declaration adoption, now
+    without the platform having to have anticipated the tool.
+    """
+    manifest = root / "pyproject.toml"
+    if not manifest.is_file():
+        return ()
+    try:
+        declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise _declaration_error(
+            f"pyproject.toml is unreadable ({exc}), so whether this app declares "
+            "checks of its own cannot be established"
+        ) from exc
+    table = ((declared.get("tool") or {}).get("terp") or {}).get("verify") or {}
+    if not isinstance(table, dict):
+        raise _declaration_error("[tool.terp.verify] is not a table")
+    unknown = sorted(set(table) - {"checks"})
+    if unknown:
+        raise _declaration_error(
+            f"[tool.terp.verify] has unknown key(s) {', '.join(unknown)}; the only "
+            "key is `checks`"
+        )
+    entries = table.get("checks", [])
+    if not isinstance(entries, list):
+        raise _declaration_error("`checks` must be a list of tables")
+    known = frozenset(check.id for checks in PROFILES.values() for check in checks)
+    resolved: list[tuple[VerifyCheck, str]] = []
+    seen: set[str] = set()
+    for index, entry in enumerate(entries):
+        check = _app_check_from(entry, index, known)
+        if check.id in seen:
+            raise _declaration_error(f"{check.id!r} is declared twice")
+        seen.add(check.id)
+        resolved.append((check, str(entry["profile"])))
+    return tuple(resolved)
+
+
+def profile_checks(
+    profile: str, root: pathlib.Path | None = None
+) -> tuple[VerifyCheck, ...]:
+    """The profile's checks: the platform's floor plus the app's own declarations.
+
+    *root* is the project the checks run in; ``None`` asks for the platform floor
+    alone (what the profile means before any app extends it).
     """
     checks = PROFILES.get(profile)
     if checks is None:
         raise SystemExit(
             f"unknown profile {profile!r}; expected one of {profile_ids()}"
         )
+    if root is None:
+        return checks
+    order = profile_ids()
+    reached = order.index(profile)
+    return checks + tuple(
+        check
+        for check, declared_profile in app_declared_checks(root)
+        if order.index(declared_profile) <= reached
+    )
+
+
+def verify_manifest(
+    profile: str, root: pathlib.Path | None = None
+) -> dict[str, object]:
+    """The profile's check manifest as data (the ``--list --format json`` body).
+
+    A driving tool configures its gate FROM this — the project's own pinned
+    toolchain states what green means — instead of hardcoding a copy that
+    drifts. ``command`` is the exact invocation ``terp verify`` itself runs.
+
+    *root* includes the app's own ``[[tool.terp.verify.checks]]``, so a driving
+    tool reading the manifest sees the whole gate rather than the platform half
+    of it. Omitting it yields the platform floor.
+    """
+    checks = profile_checks(profile, root)
     return {
         "terp_verify_manifest": 1,
         "profile": profile,
@@ -451,7 +770,14 @@ def _node_modules_problem(root: pathlib.Path) -> str | None:
 
 
 def _run_subprocess(check: VerifyCheck, root: pathlib.Path) -> tuple[int, str]:
-    """Run one manifest command (shell-less; ``&&`` composites never land here)."""
+    """Run one manifest command as a fixed argv, with no shell.
+
+    No shell syntax is interpreted: a redirection, a pipe or a glob arrives as a
+    literal argument. A declared check carrying ``&&`` or ``||`` unquoted is
+    refused when it is read (:func:`_shell_separators_in`), because that one is
+    always a mistake; the rest fail visibly at run time, on the command's own
+    output, which is the right place for them.
+    """
     argv = shlex.split(check.command)
     if argv and argv[0] == "npm":
         problem = _node_modules_problem(root)
@@ -786,6 +1112,53 @@ def _run_package_boundaries(root: pathlib.Path) -> tuple[int, str]:
     return _run_subprocess(_PACKAGE_BOUNDARIES, root)
 
 
+def _run_dependency_hygiene(root: pathlib.Path) -> tuple[int, str]:
+    """Run deptry over the app, if the app declares it.
+
+    Reads `[tool.deptry]` as TOML for the same reason `package-boundaries` reads
+    `[tool.importlinter]`: declaring only `[tool.deptry.per_rule_ignores]` still
+    creates the parent table, and a substring test would fire on the word in a
+    comment.
+
+    Not in any assurance lane. The spec's `dependency-audit` lane is normatively
+    "both dependency trees against known-vulnerability databases" — a different
+    question from "is what you import declared", and claiming this check there
+    would widen a normative lane from the toolchain side. It carries the exit
+    code instead, which is what makes it a control.
+    """
+    manifest = root / "pyproject.toml"
+    if not manifest.is_file():
+        return 0, "no pyproject.toml - dependency hygiene not applicable"
+    try:
+        declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        return 1, (
+            f"pyproject.toml is unreadable ({exc}), so whether this app declares "
+            "dependency hygiene cannot be established"
+        )
+    # PRESENCE, not truthiness: `[tool.deptry]` with every setting left at its
+    # default is an empty table, and an empty table is falsy. Testing the value
+    # would silently skip the most ordinary way to adopt the tool — a fail-open
+    # inside the check whose whole purpose is to stop a gate going green over
+    # something nobody ran.
+    if "deptry" not in (declared.get("tool") or {}):
+        return (
+            0,
+            f"{NOTE_PREFIX}no [tool.deptry] in pyproject.toml - dependency hygiene "
+            "skipped (declare it to enable: it answers whether every distribution "
+            "this app imports is one it depends on; see `terp guide "
+            "dependency-hygiene`)",
+        )
+    exit_code, output = _run_subprocess(_DEPENDENCY_HYGIENE, root)
+    if exit_code != 0 and "deptry" in output and "not found" in output.lower():
+        output += (
+            "\n  This app declares [tool.deptry] but deptry is not installed, so the "
+            "hygiene it declared is checked by nothing.\n"
+            '  Fix: add "deptry>=0.20" to the dev dependency group.'
+        )
+    return exit_code, output
+
+
 def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     """Generate the typed API client from the live backend contract.
 
@@ -864,6 +1237,10 @@ def assurance_document(results: list[dict[str, object]]) -> dict[str, object]:
 
     from terp.arch import SPEC_VERSION  # lazy: the package imports this module
 
+    # Keyed by id over the NAMED composing checks only, so an app's declared
+    # check contributes to no lane by construction: the lane vocabulary is the
+    # spec's, and an app extending its own gate may not restate a normative
+    # claim. Its verdict still carries the run's exit code in text/json.
     verdicts = {str(result["id"]): bool(result["ok"]) for result in results}
     lanes: list[dict[str, object]] = []
     ok = True
@@ -919,8 +1296,10 @@ def run_verify_command(
             "--profile release and refuses --only/--list — a partial run can "
             "never become a release claim"
         )
-    manifest = verify_manifest(profile)
-    checks = list(PROFILES[profile])
+    project_root = pathlib.Path(root).resolve()
+    resolved = profile_checks(profile, project_root)
+    manifest = verify_manifest(profile, project_root)
+    checks = list(resolved)
     selected = [name for name in (only or []) if name]
     if selected:
         known = {check.id for check in checks}
@@ -937,12 +1316,11 @@ def run_verify_command(
             print(json.dumps(manifest, indent=2))
         else:
             print(f"profile {profile}:")
-            for check in PROFILES[profile]:
+            for check in resolved:
                 requires = f"  [requires {check.requires}]" if check.requires else ""
                 print(f"  {check.id:<20} {check.command}{requires}")
         return 0
 
-    project_root = pathlib.Path(root).resolve()
     results: list[dict[str, object]] = []
     all_ok = True
     for check in checks:
@@ -958,6 +1336,8 @@ def run_verify_command(
             exit_code, output = _run_api_client(project_root)
         elif check.runner == "package-boundaries":
             exit_code, output = _run_package_boundaries(project_root)
+        elif check.runner == "dependency-hygiene":
+            exit_code, output = _run_dependency_hygiene(project_root)
         elif check.runner == "routes-drift":
             exit_code, output = _run_routes_drift(project_root)
         elif check.runner == "env-seams":
