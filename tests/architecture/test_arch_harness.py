@@ -2043,6 +2043,105 @@ def test_routes_declare_operation(tmp_path: pathlib.Path) -> None:
     assert check_routes_declare_operation(app) == []
 
 
+def test_operations_reference_catalog_allows_an_explicit_none(
+    tmp_path: pathlib.Path,
+) -> None:
+    """``*_operation=None`` is the factory's own default written out, not drift.
+
+    The no-drift rule polices what an operation reference IS, not whether one is
+    present -- and the CRUD factory documents ``None`` as "no operation for this
+    route". Flagging it would make the rule contradict the signature it reads, and
+    would collide with ``routes_declare_operation``, which is the half that owns the
+    "this route has none" question and reports ``None`` and an absent keyword
+    identically.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from terp.core import build_crud_router, operation\n"
+        "router = build_crud_router(NoteService(), read_schema=NoteRead,\n"
+        "    create_schema=NoteCreate, update_schema=NoteUpdate,\n"
+        "    list_operation=None)\n"
+        "@router.get('/health')\n"
+        "@operation(None)\n"
+        "def probe():\n    return {}\n",
+    )
+    assert check_operations_reference_catalog(app) == []
+
+
+def test_routes_declare_operation_reads_a_module_qualified_marker(
+    tmp_path: pathlib.Path,
+) -> None:
+    """``@core.operation(...)`` declares an operation as surely as ``@operation(...)``.
+
+    The detector matches the decorator's FINAL name, because the import spelling is
+    the module author's business: a project that imports the module rather than the
+    symbol must not be told it declared nothing. A decorator that is not a call at
+    all (``@cached``) sits in the same list and is simply stepped over -- it is
+    neither a route marker nor an operation marker.
+    """
+    app = tmp_path / "app"
+    _write(
+        tmp_path,
+        "control_plane/operations.py",
+        "from terp.core import OperationCatalog, OperationCoverage\n"
+        "operation_catalog = OperationCatalog(coverage=OperationCoverage.STRICT)\n",
+    )
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from control_plane.operations import NOTES_LIST\n"
+        "from terp import core\n"
+        "@router.get('/')\n"
+        "@core.operation(NOTES_LIST)\n"
+        "def list_notes():\n    return notes\n",
+    )
+    assert check_routes_declare_operation(app) == []
+
+    # The same route with its operation marker swapped for a decorator that is not a
+    # call: nothing here declares an operation, so the refusal stands.
+    _write(
+        app,
+        "modules/notes/router.py",
+        "@router.get('/')\n"
+        "@cached\n"
+        "def list_notes():\n    return notes\n",
+    )
+    assert _rule_names(check_routes_declare_operation(app)) == {"routes_declare_operation"}
+
+
+def test_routes_declare_operation_skips_an_unfollowable_endpoint(
+    tmp_path: pathlib.Path,
+) -> None:
+    """An ``add_api_route`` endpoint that is not a plain local name is skipped.
+
+    ``iter_route_registrations`` can only hand over an endpoint NAME when the
+    argument is one, and only a function defined in the same module can be looked up
+    from it. An attribute (``handlers.list_notes``) resolves to neither, and an
+    imported name resolves to no local function -- this rule refuses to guess at
+    either. The alternative is reporting "this route declares no operation" about a
+    function it never read, which is a false accusation the author cannot act on.
+    Fail-open here, with the runtime boot check -- which resolves the real mounted
+    route -- as the half that still catches it.
+    """
+    app = tmp_path / "app"
+    _write(
+        tmp_path,
+        "control_plane/operations.py",
+        "from terp.core import OperationCatalog, OperationCoverage\n"
+        "operation_catalog = OperationCatalog(coverage=OperationCoverage.STRICT)\n",
+    )
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from modules.notes import handlers\n"
+        "router.add_api_route('/', handlers.list_notes, methods=['GET'])\n"
+        "router.add_api_route('/imported', imported_handler, methods=['GET'])\n",
+    )
+    assert check_routes_declare_operation(app) == []
+
+
 def test_routes_declare_operation_covers_websocket_routes(tmp_path: pathlib.Path) -> None:
     """A ``@router.websocket(...)`` route is a route too, not an HTTP-only concept.
 

@@ -122,6 +122,49 @@ def test_a_plain_value_is_shown(tmp_path: pathlib.Path, capsys) -> None:
 # --------------------------------------------------------------------------- #
 # init / unset / check
 # --------------------------------------------------------------------------- #
+def test_the_live_file_is_written_owner_only(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`.app.env` holds real secret values, so it is not left world-readable.
+
+    Every other file in this seam is safe at default permissions: the example is
+    committed with its secrets blank, and a deployed environment keeps its values
+    in a sealed store. This one holds the developer's actual credentials, and the
+    deploy path already writes the same content owner-only — a local file readable
+    by every other account on the machine is the weaker default for the more
+    sensitive copy.
+
+    The mode is asserted two ways on purpose. Recording the ``chmod`` call proves
+    the code asks for owner-only on EVERY platform, which is the part that can
+    regress; reading the mode back proves the ask lands, but only where the OS has
+    the bits to answer with. Windows' ``chmod`` only toggles the read-only flag, so
+    a 0o600 file still reports 0o666 there — asserting the mode alone would make
+    this test silently vacuous on the machine much of this code is written on.
+    """
+    root = _project(tmp_path, _MANIFEST)
+    asked: list[tuple[str, int]] = []
+    real_chmod = pathlib.Path.chmod
+
+    def recording_chmod(self: pathlib.Path, mode: int, **kwargs: object) -> None:
+        asked.append((self.name, mode))
+        real_chmod(self, mode, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pathlib.Path, "chmod", recording_chmod)
+
+    run_env_command(action="set", root=str(root), names=["VENDOR_TOKEN=live-secret"])
+    assert (".app.env", 0o600) in asked
+
+    path = root / ".app.env"
+    assert path.is_file()
+    if sys.platform != "win32":
+        assert path.stat().st_mode & 0o777 == 0o600
+
+    # And it stays owner-only when a later write replaces the file.
+    asked.clear()
+    run_env_command(action="unset", root=str(root), names=["VENDOR_TOKEN"])
+    assert (".app.env", 0o600) in asked
+
+
 def test_init_writes_the_declarations_with_their_defaults(
     tmp_path: pathlib.Path, capsys
 ) -> None:

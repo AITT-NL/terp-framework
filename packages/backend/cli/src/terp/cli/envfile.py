@@ -85,6 +85,25 @@ def _required_names(root: pathlib.Path) -> set[str]:
     ) else set()
 
 
+def _write_live(root: pathlib.Path, values: dict[str, str]) -> None:
+    """Write ``.app.env`` owner-only.
+
+    This is the one file in the seam that holds real secret VALUES — the example
+    is committed with them blank, and every deployed environment keeps its own in
+    a sealed store. A default-permission write leaves an app's credentials
+    readable by every other account on the machine, which is a weaker default
+    than the deploy path already holds itself to, for the same content.
+
+    ``chmod`` is called unconditionally rather than guarded: the file was just
+    written through this same path, so a permission change on it cannot fail for
+    a reason a guard could sensibly swallow. On Windows it narrows what it can
+    and is a no-op for the rest, exactly as ``pathlib`` documents.
+    """
+    path = root / APP_ENV_FILE
+    path.write_text(_render(values), encoding="utf-8")
+    path.chmod(0o600)
+
+
 def _secret(prop: dict) -> bool:
     """Whether a declaration marks a write-only secret."""
     return prop.get("format") == "secret"
@@ -260,7 +279,7 @@ def _init(root: pathlib.Path) -> int:
             f"put in {APP_ENV_FILE} yet"
         )
     values = {name: _default_of(prop) for name, prop in declared.items()}
-    path.write_text(_render(values), encoding="utf-8")
+    _write_live(root, values)
     empty = sorted(name for name, value in values.items() if not value)
     print(f"wrote {APP_ENV_FILE} with {len(values)} declared variable(s)")
     if empty:
@@ -281,7 +300,7 @@ def _set(root: pathlib.Path, pairs: list[str], *, declare: bool) -> int:
     values, problems = _read(root)
     _refuse_unreadable(problems)
     values.update(parsed)
-    (root / APP_ENV_FILE).write_text(_render(values), encoding="utf-8")
+    _write_live(root, values)
     for name in parsed:
         shown = MASKED if _secret(declared.get(name, {})) else parsed[name]
         print(f"{name}={shown}")
@@ -296,7 +315,7 @@ def _unset(root: pathlib.Path, names: list[str]) -> int:
     missing = [name for name in names if name not in values]
     for name in names:
         values.pop(name, None)
-    (root / APP_ENV_FILE).write_text(_render(values), encoding="utf-8")
+    _write_live(root, values)
     print(f"removed {len(names) - len(missing)} of {len(names)} name(s)")
     if missing:
         print(f"  not set anyway: {', '.join(missing)}")
