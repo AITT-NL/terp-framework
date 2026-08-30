@@ -241,9 +241,11 @@ def _scaffold_lines(root: pathlib.Path, platform: str) -> list[str]:
         "",
         f"Scaffolding: rendered from template {ref}, while the packages are on "
         f"{platform}.",
-        "Files the template owns — main.tsx, theme.css, index.html, layout-contract.json,",
-        "AGENTS.md — are still the older release's. Nothing gates this, so it stays green;",
-        "a stale AGENTS.md in particular briefs every agent from the wrong rulebook.",
+        "Files the template owns — main.tsx, index.html, AGENTS.md — are still the",
+        "older release's. Nothing gates this, so it stays green; a stale AGENTS.md in",
+        "particular briefs every agent from the wrong rulebook. theme.css,",
+        "house-style.css and layout-contract.json are NOT in that list: they carry the",
+        "app's own content, so a re-render leaves them alone (copier _skip_if_exists).",
         "  Re-render:  copier update  (or the Studio's upgrade flow, which records the",
         "              answers file it needs).",
     ]

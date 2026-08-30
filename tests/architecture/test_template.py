@@ -737,3 +737,56 @@ def test_dev_server_holds_the_same_origin_rules_as_production() -> None:
             "style-src 'self' 'unsafe-inline'",
         ], f"{config}: 'unsafe-inline' reaches directives beyond script/style: {relaxed}"
         assert "'unsafe-eval'" not in policy, f"{config}: 'unsafe-eval' is never needed here"
+
+
+def test_the_style_cascade_is_three_layers_in_one_order() -> None:
+    """tokens.css, then the house style, then the app's own — and the order IS the design.
+
+    The middle layer exists so a styling tool has an address of its own. Before it, such a
+    tool had to write `theme.css`, the file the template hands the app as "simply yours" —
+    so an organisation-wide rollout and an app's own tweak were the same bytes, and one of
+    them always lost. With three layers the house can restyle every app it manages without
+    touching a file the app owns, and an app departs from the house style by declaring the
+    token in `theme.css`, which nothing takes back.
+    """
+    main = (_PROJECT / "frontend/src/main.tsx.jinja").read_text(encoding="utf-8")
+    order = [
+        main.index('import "@terpjs/contract/tokens.css"'),
+        main.index('import "./house-style.css"'),
+        main.index('import "./theme.css"'),
+    ]
+    assert order == sorted(order), "the cascade order decides which layer wins"
+    assert (_PROJECT / "frontend/src/house-style.css").is_file()
+
+
+def test_the_template_never_restores_a_file_that_carries_the_app_s_own_content() -> None:
+    """`copier recopy --overwrite` runs on the Studio's legacy-migration path.
+
+    Every file listed here would otherwise be replaced by the template's empty version:
+    the two stylesheets revert every token the app or its house style set, and the layout
+    contract un-declares the palette, the shell shape and the navigation groups at once —
+    silently, with nothing in the diff that explains why the app went back to defaults.
+    """
+    config = (_TEMPLATE / "copier.yml").read_text(encoding="utf-8")
+    skipped = {
+        line.strip().removeprefix("- ").strip()
+        for line in config.splitlines()
+        if line.strip().startswith("- ")
+    }
+    for owned in (
+        "frontend/src/theme.css",
+        "frontend/src/house-style.css",
+        "frontend/layout-contract.json",
+    ):
+        assert owned in skipped, f"{owned} would be restored over the app's own content"
+
+
+def test_the_agent_rulebook_sends_edits_to_the_app_s_own_layer() -> None:
+    """The agent writes most of the code, and its rulebook is the primary interface.
+
+    It must name house-style.css as off limits: an agent that "fixes" a colour there has
+    its work deleted by the next rollout, with no error and nothing to learn from.
+    """
+    rulebook = (_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8")
+    assert "Never edit `frontend/src/house-style.css`" in rulebook
+    assert "theme.css" in rulebook

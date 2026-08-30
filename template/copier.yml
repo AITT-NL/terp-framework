@@ -21,10 +21,20 @@ _templates_suffix: .jinja
 #                         update would silently un-declare every runtime variable it has.
 #   escape-hatch-budget.json  the app's ratchet counts; the template's is `{}`, which
 #                         would reset the ratchet to "no exceptions ever recorded".
+#   theme.css / house-style.css  how the app looks. The template's are empty comment
+#                         headers, so restoring them silently reverts every token the app
+#                         or its house style has set — with no error and nothing in the
+#                         diff to explain why the app went back to the default palette.
+#   layout-contract.json  the app's shell, palette and navigation groups. The template's
+#                         is `{"contract": "standard"}`, so restoring it un-declares all
+#                         of them at once.
 _skip_if_exists:
   - frontend/src/routes.gen.d.ts
   - environment.schema.json
   - escape-hatch-budget.json
+  - frontend/src/theme.css
+  - frontend/src/house-style.css
+  - frontend/layout-contract.json
 
 project_name:
   type: str

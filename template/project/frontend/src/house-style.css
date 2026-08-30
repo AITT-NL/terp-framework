@@ -1,0 +1,19 @@
+/* The organisation's house style — a tool owns this file.
+ *
+ * It starts empty. Terp Studio writes it wholesale when a house style is
+ * applied to this app, and overwrites it again on the next apply. Do not edit
+ * it: your changes are the ones that disappear.
+ *
+ * It is imported between the framework's tokens and this app's own theme.css,
+ * so the cascade is:
+ *
+ *   @terpjs/contract/tokens.css   the framework's palettes
+ *   house-style.css               the organisation's, applied by a tool
+ *   theme.css                     THIS APP's own — always wins
+ *
+ * That order is the whole design. The house can restyle every app it manages
+ * without ever touching a file the app owns, and an app that needs to differ
+ * says so in theme.css and keeps saying it — no tool takes it back, because no
+ * tool writes there. If you do not use such a tool this file simply stays
+ * empty and costs you nothing.
+ */

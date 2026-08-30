@@ -3,9 +3,13 @@
 // header's theme toggle switches between them (plus "system", which follows the viewer's
 // own platform preference) via <html data-theme>, with no per-module changes.
 import "@terpjs/contract/tokens.css";
+// The organisation's house style, if a tool manages one. Empty by default and owned by
+// that tool — it is overwritten wholesale each time a style is applied, so never edit it.
+import "./house-style.css";
 // This app's own token overlay, and the file to edit to change how it looks. Empty by
-// default; it loads last, so anything it declares wins. `uv run terp guide theming` has
-// the recipe. A tool may generate it — see the note at the top of theme.css.
+// default; it loads LAST, so anything it declares wins — over the framework's palettes and
+// over the house style both. That is how an app that must differ keeps differing: no tool
+// writes here. `uv run terp guide theming` has the recipe.
 import "./theme.css";
 import { LOCALE_EN, LOCALE_NL, defineAppLocales, renderTerpApp } from "@terpjs/react-core";
 // The app's layout declaration, checked in beside this file. ONE file, two readers: the

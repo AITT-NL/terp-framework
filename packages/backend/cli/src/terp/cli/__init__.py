@@ -1320,8 +1320,12 @@ Theming and branding (design tokens, palettes, the brand mark)
   own platform preference) and persists the choice. `system` resolves to the dark set
   when the platform asks for dark.
 - TO CHANGE HOW YOUR APP LOOKS, redefine tokens in `frontend/src/theme.css`. It is
-  imported immediately after tokens.css and therefore wins the cascade. Declare only
-  what you are changing; everything else falls back to the framework's value.
+  imported last and therefore wins the cascade. Declare only what you are changing;
+  everything else falls back to the framework's value.
+
+  The order is tokens.css, then house-style.css, then theme.css. The middle one belongs
+  to your organisation's styling tool, which rewrites it wholesale — never edit it. To
+  depart from a house style, declare the token in theme.css; nothing takes that back.
 
       :root { --color-brand-primary: #2563eb; }
       [data-theme="dark"] { --color-brand-primary: #60a5fa; }
@@ -1335,7 +1339,8 @@ Theming and branding (design tokens, palettes, the brand mark)
       frontend/layout-contract.json -> { "defaultTheme": "midnight" }
 
   Legal values are the five above plus "system". Passing `defaultTheme` as a bootstrap
-  option as well is refused (terp guide layouts).
+  option as well is refused (terp guide layouts). Your organisation's styling tool may
+  seed this key; changing it here makes it yours and later rollouts leave it alone.
 - THE BRAND MARK is a path, not JSX. Put the file in `frontend/public/` (Vite serves
   that directory at the site root) and declare it:
 

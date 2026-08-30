@@ -228,10 +228,17 @@ No lint modes — every violation is an error. The governed opt-out is a justifi
   (follow the viewer's platform preference) and switches `<html data-theme>`. Because all
   styling is token-driven, modules never need theme-specific code.
   - **To change how this app looks**, redefine tokens in `frontend/src/theme.css` — it
-    loads after the framework's own tokens, so it wins. Per palette, use that palette's
-    selector (`[data-theme="dark"] { ... }`). Never inline colours.
+    loads last, after the framework's own tokens and after any house style, so it wins.
+    Per palette, use that palette's selector (`[data-theme="dark"] { ... }`). Never inline
+    colours.
+  - **Never edit `frontend/src/house-style.css`.** It belongs to the organisation's styling
+    tool, which rewrites it wholesale; edits there are the ones that vanish. To depart from
+    the house style, declare the token in `theme.css` instead — that is the supported way,
+    and it survives every rollout.
   - **To open on a palette other than `light`**, name it as `defaultTheme` in
-    `frontend/layout-contract.json`. Do not restyle one palette to imitate another.
+    `frontend/layout-contract.json`. Do not restyle one palette to imitate another. That
+    file may also be seeded by the organisation's styling tool: a key you change there is
+    yours from then on and later rollouts leave it alone, so change it deliberately.
   - `uv run terp guide theming` is the full recipe.
 - **Languages** — `frontend/i18n.json` is the authoritative app-copy catalog and
   `frontend/src/main.tsx` merges it with the framework catalogs. Static user-facing copy

@@ -19,8 +19,12 @@
  * `uv run terp guide theming` has the whole recipe, including which token names
  * exist and how to ship on a palette other than light.
  *
- * A TOOL MAY GENERATE THIS FILE. Terp Studio's theme editor writes it wholesale
- * when a theme is applied, and will overwrite hand edits the next time that
- * happens — it is a normal, reviewable working-copy change, never auto-committed.
- * If you do not use such a tool, this file is simply yours: edit it freely.
+ * THIS FILE IS ALWAYS YOURS. No tool writes here. If your organisation manages
+ * a house style, it is applied to `house-style.css` next door, which is
+ * imported just before this file — so anything you declare here wins over it,
+ * per token, and keeps winning every time that style is applied again.
+ *
+ * That is the escape hatch: to depart from the house style, declare the token
+ * here. It is checked in, it shows up in the diff, and no rollout takes it
+ * back.
  */
