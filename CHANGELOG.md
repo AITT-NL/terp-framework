@@ -10,6 +10,144 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.12.0 — 2026-08-30
+
+### Added
+
+- **ADR 0102 — a route declares the operation it performs.** An app's audit trail, its permission
+  screens and its access graph all wanted the same sentence — *what does this endpoint do for the
+  person calling it* — and each was deriving it separately from the method and the path. That
+  derivation is guesswork the moment a route is anything but plain CRUD, and three consumers
+  guessing separately drift apart from each other as well as from the truth.
+
+  So it is declared, once, as a typed constant: `@operation(NOTES_DELETE)` on the route, with
+  `OperationDefinition` living in the app's own operations catalog beside its permissions.
+  `build_crud_router(...)` takes one per generated route. A declared operation feeds OpenAPI's
+  `summary` and `operation_id`, so the generated client is named after what the endpoint does
+  rather than after the Python closure that happened to implement it, and it travels in the access
+  graph for anything reading the app from outside.
+
+  **Coverage is the app's own choice, and the guarantee once chosen is unconditional.** An
+  `OperationCatalog` opts into `strict`, and only then does a mounted route with no declared
+  operation refuse the boot. What is never optional is *drift*: wherever an operation IS named, it
+  must be a catalog constant, never a bare string or a value built inline — the same shape
+  `events_reference_catalog` already holds the event bus to. Both halves share one runtime seam and
+  are mirrored at build time by `backend/operations_reference_catalog` and
+  `backend/routes_declare_operation` (terp-spec 0.29.1).
+
+  The open question ADR 0102 shipped with is settled in the same release: **an operation id is an
+  i18n message id**, so an operation's wording joins the localization contract below rather than
+  sitting outside it. The example app demonstrates the whole of it — every operation it declares,
+  its own and every mounted capability's, has a Dutch entry keyed by the operation id. Those
+  translations belong to the app: a capability ships the operation, not its wording, so an app
+  translates the ids it mounts.
+
+- **ADR 0106 — an app extends the verify profile.** `terp verify` is documented as the single
+  answer to "what does green mean", and that was true of the platform's checks and false of the
+  app's: `PROFILES` was a literal an app could select from and never add to. An app with a check of
+  its own — a sidecar package outside the default scan, a drift check on an artifact it generates —
+  had to put it in a pytest wrapper or a CI step, both outside the command that defines green.
+
+  `[[tool.terp.verify.checks]]` in the app's own `pyproject.toml` declares one: an id, a command, a
+  profile to join, a category, and the input globs a change-aware runner needs to prove a rerun
+  unnecessary. Every branch of the reader fails closed, because a gate that silently drops a check
+  it could not parse is worse than the gap it was opened to fill. An app check may not take a
+  platform check's id, and a command carrying an unquoted `&&` or `||` is refused outright: checks
+  run as a fixed argv with no shell, so a separator would arrive as an argument and the check would
+  report the first command's verdict — a green for something nobody ran.
+
+- **`terp env` — the inner loop's missing command.** Both halves of the platform had a values story
+  for a deployed environment and neither had one for the machine the code is written on, where the
+  documented route was `cp .app.env.example .app.env` and a text editor. Six subcommands — `init`,
+  `set`, `unset`, `list`, `check`, `example` — with the manifest as the allow-list in all of them:
+  an undeclared name is refused unless `--declare` makes it real in the same breath, because a
+  value under a name `environment.schema.json` does not carry reaches no deployed environment at
+  all. A declared secret's value is never printed, and `example` generates the committed template
+  from the declarations, so the parity `env-seams` checks is satisfied by running a command instead
+  of hand-maintaining a third file.
+
+- **ADR 0105 — localization is a checked contract.** `frontend/no-untranslated-ui` refuses static
+  user-facing copy that is not a `UiText` descriptor or `Trans` — bare JSX text, rendered
+  expression branches, accessibility text, toast feedback — and `frontend/locale-catalogs-complete`
+  refuses a catalog that is missing a key another locale has. A half-translated app used to be
+  discoverable only by reading it in the other language.
+
+- **An undrained outbox can say so.** The platform's own durable queue had no operator surface:
+  with no worker running, rows sat `pending` forever and the app looked healthy. The reaper cannot
+  cover it by construction — it scans lapsed claims, and work nobody claimed has no claim to lapse.
+  `terp outbox backlog` reports the queue, and capabilities can register a health detail surfaced
+  at `GET /health/detail`. That endpoint is **opt-in and off by default**
+  (`create_app(expose_health_detail=True)`): `/health` is mounted outside the policy guard so an
+  orchestrator probe can always reach it, and queue depths are business signal.
+
+- **`dependency-hygiene` joins the merge bar, blocking.** deptry answers "is every distribution this
+  app imports actually declared", conditional on the app carrying a `[tool.deptry]` section, and it
+  is wired into the template rather than only run on the platform itself — the recurring shape ADR
+  0106 names, where a generic concern is delegated to a tool the platform never wires for apps.
+
+- **ADR 0103 — the ideology, written down.** Enforce one pattern; never limit a capability. Escape
+  by explicit, greppable, budgeted declaration. The design centre is someone building through an
+  agent who cannot themselves evaluate a security trade-off. It had governed every decision here
+  for a long time without being stated anywhere a new contributor — or a new agent — could read it.
+
+### Changed
+
+- **ADR 0104 — the SPA document carries its own security headers, and the token stylesheet stops
+  needing `unsafe-inline`.** `@terpjs/react-core` delivers design tokens through
+  `adoptedStyleSheets` instead of an injected `<style>`, which removes the last reason the served
+  policy had to allow inline content: the template's production CSP is now `style-src 'self'`.
+  Development still carries `'unsafe-inline'`, because Vite injects imported CSS as a `<style>`
+  element and its Fast Refresh preamble is inline — but the dev server now serves production's
+  ORIGIN rules, so a CDN or a stray origin fails immediately rather than at deploy time.
+
+- **The pinned Terp Standard moves to 0.29.1**, which is the release carrying the two operations
+  rules above and the two localization rules.
+
+### Fixed
+
+- **A request whose method was in neither method set could write at the read tier.** The
+  read/write split decided authority by membership in one list, with no answer for a method in
+  neither, and an unrecognised method fell through to the read tier while still reaching a write.
+  Its sibling: the two sets disagreed about case, which reopened the same gap the first fix closed.
+
+- **A WebSocket route escaped both halves of the operations control.** `iter_route_registrations`
+  yielded the HTTP verbs and not `@router.websocket(...)`, so a websocket handler was structurally
+  invisible to the build-time rule even though the boot check had always covered it — strict
+  coverage would have refused a boot the gate called clean.
+
+- **`WARN` coverage was `OFF` wearing a different name**, and the operations catalog carried four
+  members nothing read.
+
+- **The CRUD factory named every module's routes after its own closures**, so two modules built by
+  the factory produced colliding `operation_id`s in the generated client.
+
+- **`path_id_params_are_uuid` missed an imperative route and any keyword-only parameter.** Found
+  while migrating the last three route rules onto the one shared route walk that replaced the same
+  traversal written out six times.
+
+- **A generated app could not boot**, and the example app could not import in production and only
+  in production: its operations catalog folded in capabilities the production image does not
+  install, so the import failed before the app served a request while running fine in the workspace
+  where every package is present.
+
+- **`env-seams` now reads `.app.env.example`** — the one file in that seam a human maintains was the
+  only one nothing validated.
+
+- **The ownership refusal names routes that exist.** It pointed at a "reviewed maintenance-authority
+  capability" that does not ship. It now names the two routes that do work, and states plainly that
+  the build half and the composition half are **not equally escapable**: the budgeted
+  `# arch-allow-no-manual-ownership-checks` marker clears the gate, and `create_app` cannot read a
+  source comment, so taking the marker alone leaves an app that passes `terp check` and then refuses
+  to boot. Genuine cross-owner maintenance has no supported route through either half today; that
+  gap is now stated rather than papered over with an opt-out that does not reach.
+
+- **`terp env` writes `.app.env` owner-only.** It is the one file in that seam holding real secret
+  values — the example is committed with them blank, and every deployed environment keeps its own in
+  a sealed store — and it was being written at default permissions, readable by every other account
+  on the machine. The deploy path already held itself to owner-only for the same content.
+
+- **A throttled conformance run says so**, instead of failing as a timeout on an unrelated locator.
+
 ## 0.11.0 — 2026-08-25
 
 ### Added

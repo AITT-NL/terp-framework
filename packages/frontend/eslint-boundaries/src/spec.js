@@ -16,7 +16,7 @@
  * NOT by this package's own suite, which certification runs against candidate spec releases
  * whose version is allowed to be newer).
  */
-export const SPEC_VERSION = "0.29.0";
+export const SPEC_VERSION = "0.29.1";
 
 export const BOUNDARY_SPEC = {
   /** Every app-authored TypeScript source file whose user-facing copy must be cataloged. */

@@ -296,8 +296,9 @@ cannot be deferred behind a marker and are done first.
 
 - [x] **6.1 `operations_reference_catalog`** (no-drift) and **`routes_declare_operation`** (coverage)
       in `terp-spec`: catalog entry, corpus cases, generated rule docs, guide topic, and the parity
-      tests. Shipped as terp-spec 0.29.0 (committed to that repo's `main`; not yet released — see
-      the note below). `operations_reference_catalog` mirrors `events_reference_catalog` exactly:
+      tests. Shipped in terp-spec 0.29.1 — the catalog entries were committed to that repo's
+      `main` as 0.29.0, which was never published; see the note below.
+      `operations_reference_catalog` mirrors `events_reference_catalog` exactly:
       a bare string or an inline `OperationDefinition(...)` is drift wherever an operation is
       named (the `operation(...)` marker, or a CRUD factory's five `*_operation=` keywords).
       `routes_declare_operation` mirrors `routes_declare_response_model`'s coverage shape, but with
@@ -333,21 +334,26 @@ cannot be deferred behind a marker and are done first.
       successfully under it — measured directly, not inferred from phase 5's own bookkeeping — which
       is the actual proof phase 5's annotation work was complete, not merely believed to be.
 
-**A structural blocker, worth recording precisely rather than working around silently:** the two
-new rules are implemented, tested, and registered in terp-framework's source, verified correct by
-locally substituting the terp-spec checkout for the pinned release (`uv pip install -e ../terp-spec`,
-the same substitution terp-spec's own CI does before a release) — but the *committed* dependency
-pins (`pyproject.toml`'s `terp-spec==0.27.0`, `package.json`'s `"@terpjs/spec": "0.27.0"`) stay at the
-last real release. Bumping them to `0.29.0` was tried and reverted: `uv.lock` cannot resolve a version
-that has not been published (`uv lock` would fail outright), so a phantom pin bump only traded one
-kind of inconsistency for another. The one consequence, left as a single clearly-named red test rather
-than hidden: `test_backend_catalog_matches_the_rule_registry` fails against the real 0.27.0 catalog
-with `rules shipped without a spec/catalog/backend entry: ['operations_reference_catalog',
-'routes_declare_operation']` — an accurate description of the actual state (the code is ready; the
-release is not), not a regression. It resolves itself the moment terp-spec 0.29.0 is tagged and
-published and terp-framework's pins are bumped to match — the one remaining step, and it needs a
-human's authorization (pushing a tag is what triggers terp-spec's `release.yml` to publish to PyPI
-and npm, an outward-facing, effectively irreversible action once a package version ships).
+**The structural blocker recorded here is closed, and how it played out is worth keeping.** The two
+rules were implemented, tested and registered in terp-framework's source, verified by locally
+substituting the terp-spec checkout for the pinned release (`uv pip install -e ../terp-spec`, the
+same substitution terp-spec's own CI does before a release), while the *committed* pins stayed at
+0.27.0 — because `uv.lock` cannot resolve a version that has not been published, and the tag push
+that publishes one needs a human's authorization. The consequence was left as one clearly-named red
+test: `test_backend_catalog_matches_the_rule_registry`, failing against the real 0.27.0 catalog with
+`rules shipped without a spec/catalog/backend entry: ['operations_reference_catalog',
+'routes_declare_operation']`.
+
+A later commit bumped the pins to 0.29.0 regardless, to stop that test masking everything behind it.
+That was the right trade and it had a cost worth naming: `uv sync` could no longer resolve at all, so
+every CI job — gate, frontend, conformance, prod-smoke — failed before running a single check, and
+the coverage gate's own four-line shortfall in `arch/rules/operations.py` sat undetected behind it
+until a pre-release review ran `coverage report` by hand. A pin naming an unpublished version does
+not fail where you are looking; it fails everywhere at once, which is quieter than it sounds.
+
+terp-spec 0.29.1 is now published on PyPI and npm (0.28.0 was never tagged and 0.29.0's release run
+stopped at the publish approval gate, so 0.29.1 carries both of their catalog changes), the pins name
+it, and both lockfiles resolve it.
 
 ## Open questions
 

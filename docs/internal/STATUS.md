@@ -509,8 +509,8 @@ endpoint *does* and the platform can guarantee every route is explained.
       framework-level equivalent an app built on top of Terp could inherit. Neither is
       phase 6's job; both are open.
 - [x] Phase 6 — `operations_reference_catalog` (no-drift) and `routes_declare_operation`
-      (coverage) shipped in terp-spec as 0.29.0 (committed there; not yet released — see
-      below), their `terp.arch` checks implemented, registered, and mutation-checked,
+      (coverage) shipped in terp-spec 0.29.1 (committed there as 0.29.0, a version that was
+      never published — see below), their `terp.arch` checks implemented, registered, and mutation-checked,
       a new `operations` guide topic, and the example app flipped to `strict` — both
       `build()` and `build_base_profile()` boot clean under it, the actual proof phase
       5's annotation was complete. Fixed one gap phase 6 surfaced immediately: the
@@ -518,18 +518,16 @@ endpoint *does* and the platform can guarantee every route is explained.
       wrong assumption that operations were HTTP-only; the runtime coverage check
       already covered WebSocket routes, so strict would have refused the boot without
       this fix. No escape-hatch budget update was needed anywhere.
-      **One structural blocker, recorded rather than routed around:** the new rules are
-      implemented and verified (via a local terp-spec checkout substituted for the
-      pinned release, the same substitution terp-spec's own CI uses pre-release), but
-      the committed dependency pins stay at the last real release (0.27.0) — bumping
-      them to 0.29.0 was tried and reverted, because `uv.lock` cannot resolve a version
-      that has not been published. The one consequence:
-      `test_backend_catalog_matches_the_rule_registry` fails with `rules shipped
-      without a spec/catalog/backend entry: ['operations_reference_catalog',
-      'routes_declare_operation']` — accurate, not a regression, and it resolves the
-      moment terp-spec 0.29.0 is tagged, published, and the pins bumped to match. That
-      tag push is a human decision (it triggers an outward-facing, effectively
-      irreversible PyPI/npm publish) and is the one step this session did not take.
+      **The structural blocker this phase recorded is closed.** The new rules were
+      implemented against a local terp-spec checkout substituted for the pinned release
+      (the same substitution terp-spec's own CI uses pre-release), while the committed
+      pins stayed at 0.27.0 — because `uv.lock` cannot resolve a version that has not
+      been published, and the tag push that would publish one is a human decision.
+      A later commit bumped the pins to 0.29.0 anyway, trading the masking failure
+      (`test_backend_catalog_matches_the_rule_registry`, which could not see the two
+      new rules in a 0.27.0 catalog) for an honest one: `uv sync` then could not
+      resolve at all, so every CI job failed before running. terp-spec 0.29.1 is now
+      published on both registries, the pins name it, and both lockfiles resolve it.
 - [x] **Phase 6 review pass.** A code-review scoped to phase 6's diff (the only part of
       this effort not yet through a dedicated review) found and fixed five real issues.
       `iter_route_registrations` — the shared helper `routes_declare_operation` builds

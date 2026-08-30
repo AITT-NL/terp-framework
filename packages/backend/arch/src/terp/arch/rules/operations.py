@@ -1,5 +1,5 @@
 """Operation rules: a route's declared operation is a typed catalog constant,
-declared once coverage requires one (ADR 0102, terp-spec 0.29.0).
+declared once coverage requires one (ADR 0102, terp-spec 0.29.1).
 
 Two rules, sharing one runtime enforcement seam
 (``terp.core.app._validate_declared_operations``) exactly the way the event bus's
