@@ -40,6 +40,17 @@ Set `TERP_DEV_FORCE_POLLING=true` to make the watcher poll instead (300ms; `vite
 reads it, and the Compose workbench sets it already). Polling costs some CPU and is the
 right trade whenever the alternative is not noticing.
 
+**The dev server refuses to be embedded in an iframe unless you say who may embed it.**
+`vite.config.ts` serves the same origin rules as production, including
+`frame-ancestors 'none'` — so a page that tries to frame the dev server gets a blank pane and
+Chromium's "localhost refused to connect.", which describes a network failure this is not. If
+you are viewing this app inside a workbench that previews it in a pane, that workbench sets
+`TERP_DEV_FRAME_ANCESTORS` to its own browser origin (for example `http://localhost:8420`)
+before starting the stack, and there is nothing for you to configure. Set it yourself only if
+you are embedding the dev server in something of your own: one origin, no list and no `*`, and
+anything malformed falls back to `'none'`. Production is unaffected — `nginx.conf` says
+`frame-ancestors 'none'` with no knob.
+
 ## Upgrading Terp
 
 Terp releases in lockstep: every `terp-*` pin and every `@terpjs/*` dependency moves to the

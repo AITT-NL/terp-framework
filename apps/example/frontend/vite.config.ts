@@ -12,12 +12,51 @@ const apiProxyTarget = process.env.TERP_API_PROXY ?? "http://localhost:8000";
 // the compose file sets TERP_DEV_FORCE_POLLING so HMR polls instead of missing.
 const usePolling = process.env.TERP_DEV_FORCE_POLLING === "true";
 
-// The dev server's Content-Security-Policy (ADR 0104 §4). The production nginx
-// config serves a strict policy; this keeps development on the same *origin*
-// rules so a third-party resource fails the moment it is added rather than at
-// deploy. Measured against a running dev server in Chromium: a CDN script, an
-// external stylesheet and a fetch to another origin are each refused here, while
-// HMR still connects and the chrome renders fully styled.
+// Who may embed this dev server in an iframe. Production's answer is `'none'`,
+// and so is the default here: a Terp app is not framed. The one legitimate
+// embedder is the workbench that previews an app while it is being built, and
+// its origin cannot be written into this file — it is a deployment fact, a
+// laptop's `http://localhost:8420` or a client's `https://workbench.example.nl`
+// behind a reverse proxy. So the embedder is DECLARED at runtime through
+// TERP_DEV_FRAME_ANCESTORS, and every other case — unset, blank, malformed —
+// stays `'none'`. Nothing here is quietly permitted: an undeclared embedder is
+// a refused embedder.
+//
+// One origin, never a list and never a wildcard. A preview pane has exactly one
+// embedder, so a list buys no capability, and `*` would let any page on the
+// network frame a dev server that is holding a signed-in session. A value that
+// is not a bare scheme://host[:port] is refused back to `'none'` rather than
+// forwarded: the policy below is assembled by joining on "; ", so a value
+// carrying a semicolon would otherwise append directives of its own and rewrite
+// the entire thing.
+const FRAME_ANCESTOR_ORIGIN = /^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/;
+
+function declaredFrameAncestors(declared: string | undefined): string {
+  const origin = (declared ?? "").trim();
+  if (!origin) return "'none'";
+  if (!FRAME_ANCESTOR_ORIGIN.test(origin)) {
+    // Loud on purpose. The symptom otherwise is a blank preview pane and a CSP
+    // violation in a console nobody is looking at.
+    console.warn(
+      "[terp] TERP_DEV_FRAME_ANCESTORS is not a bare scheme://host[:port] " +
+        `origin (${JSON.stringify(origin)}); frame-ancestors stays 'none' and ` +
+        "this app cannot be embedded in a preview.",
+    );
+    return "'none'";
+  }
+  return origin;
+}
+
+// The dev server's Content-Security-Policy (ADR 0104 §4, ADR 0107). The
+// production nginx config serves a strict policy; this keeps development on the
+// same *origin* rules so a third-party resource fails the moment it is added
+// rather than at deploy. Measured against a running dev server in Chromium: a
+// CDN script, an external stylesheet and a fetch to another origin are each
+// refused here, while HMR still connects and the chrome renders fully styled.
+//
+// `frame-ancestors` is the one directive that may differ from production, and
+// only by declaration — production is served to browsers, development is served
+// to a workbench that has to show it.
 //
 // Two relaxations are dev-only and unavoidable, both from Vite's own machinery
 // rather than from app code: the React Fast Refresh preamble is an inline
@@ -37,7 +76,8 @@ const devContentSecurityPolicy = [
   "connect-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
-  "frame-ancestors 'none'",
+  // 'none' unless a preview workbench declares its origin (see above).
+  `frame-ancestors ${declaredFrameAncestors(process.env.TERP_DEV_FRAME_ANCESTORS)}`,
   "form-action 'self'",
 ].join("; ");
 

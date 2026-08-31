@@ -149,6 +149,16 @@ occurs.
 socket to any host. The gate asserts the narrower form, because the broader one is the plausible
 thing to reach for when HMR misbehaves for an unrelated reason.
 
+**One directive is no longer identical — amended 2026-08-31.** `frame-ancestors` was copied here
+with the rest of the policy, and it is the one directive whose correct value differs between the
+two audiences: production's document is served to a browser, development's is served to a browser
+inside a workbench preview pane. The literal `'none'` therefore refused the only thing that ever
+embeds a dev server, and did so behind Chromium's "localhost refused to connect." page. In the dev
+server it is now *declared* — one origin, via `TERP_DEV_FRAME_ANCESTORS`, defaulting to `'none'`
+— while the production policy above keeps `frame-ancestors 'none'` with no knob at all. See
+[ADR 0107](0107-the-dev-server-names-who-may-frame-it.md); the parity claim in this section should
+be read as covering every directive except that one.
+
 ## Consequences
 
 - **Every newly scaffolded app is hardened by default**, with no action by an app author who could

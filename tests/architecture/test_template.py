@@ -711,9 +711,17 @@ def test_dev_server_holds_the_same_origin_rules_as_production() -> None:
             '"default-src \'self\'"',
             '"connect-src \'self\'"',
             '"object-src \'none\'"',
-            '"frame-ancestors \'none\'"',
         ):
             assert directive in policy, f"{config}: dev policy is missing {directive}"
+
+        # `frame-ancestors` is the one directive that is not a literal here, because
+        # it is the one a preview workbench may be granted (ADR 0107). It still has
+        # to arrive through the validating helper rather than from a literal or a
+        # raw read — test_the_dev_server_is_framed_only_by_a_declared_origin is
+        # where that is held.
+        assert "frame-ancestors ${declaredFrameAncestors(" in policy, (
+            f"{config}: frame-ancestors is not the declared-origin form"
+        )
 
         # `connect-src` must not widen to a scheme: 'self' already covers the HMR
         # socket, and `ws:` would allow a socket to any host.
@@ -737,6 +745,87 @@ def test_dev_server_holds_the_same_origin_rules_as_production() -> None:
             "style-src 'self' 'unsafe-inline'",
         ], f"{config}: 'unsafe-inline' reaches directives beyond script/style: {relaxed}"
         assert "'unsafe-eval'" not in policy, f"{config}: 'unsafe-eval' is never needed here"
+
+
+#: The two renderings of one dev-server decision. Kept in lockstep by
+#: test_both_dev_server_policies_are_the_same_bytes.
+_VITE_CONFIGS = (
+    _PROJECT / "frontend" / "vite.config.ts",
+    pathlib.Path(__file__).resolve().parents[2] / "apps/example/frontend/vite.config.ts",
+)
+
+
+def _framing_region(source: str) -> str:
+    """The framing helper plus the policy array — everything that decides the header."""
+    start = source.index("const FRAME_ANCESTOR_ORIGIN")
+    end = source.index('].join("; ");') + len('].join("; ");')
+    return source[start:end]
+
+
+def test_the_dev_server_is_framed_only_by_a_declared_origin() -> None:
+    # A Terp app is not framed: production says `frame-ancestors 'none'` and so
+    # does this dev server, until a workbench DECLARES the origin that previews it
+    # (ADR 0107). The declaration exists because that origin is a deployment fact
+    # — a laptop's http://localhost:8420, a client's https://workbench.example.nl —
+    # so it can never be a literal in a template; and a hardcoded 'none' locks
+    # every workbench out with a blank pane, which is the regression that put this
+    # test here.
+    #
+    # Chromium's half was MEASURED against a real dev-server header rather than
+    # reasoned about: unset gives ERR_BLOCKED_BY_RESPONSE, the declared origin
+    # frames, and a DIFFERENT declared origin is still blocked. ADR 0107 records
+    # the run and its numbers.
+    for config in _VITE_CONFIGS:
+        source = config.read_text(encoding="utf-8")
+        region = _framing_region(source)
+
+        # Fails closed twice over: no value at all, and a value that is not an origin.
+        assert "if (!origin) return \"'none'\";" in region, (
+            f"{config}: an unset TERP_DEV_FRAME_ANCESTORS no longer defaults to 'none'"
+        )
+        refusal = region[region.index("if (!FRAME_ANCESTOR_ORIGIN.test(origin))") :]
+        assert "return \"'none'\";" in refusal, (
+            f"{config}: a malformed origin is not refused back to 'none'"
+        )
+
+        # Anchored at both ends. Unanchored, a value carrying a trailing
+        # "; script-src *" would match and be forwarded into a header this file
+        # assembles by joining on "; " — the injected directive would land whole.
+        pattern = region[region.index("/^") : region.index("$/") + 2]
+        assert pattern.startswith("/^") and pattern.endswith("$/"), (
+            f"{config}: the origin pattern is not anchored: {pattern}"
+        )
+        for forbidden in (" ", "*", ";"):
+            assert forbidden not in pattern, (
+                f"{config}: the origin pattern admits {forbidden!r}, so a list, a "
+                f"wildcard or a second directive can reach the header: {pattern}"
+            )
+
+        # The raw variable reaches the header ONLY through the helper. A second,
+        # unvalidated read is how this gets bypassed while everything above passes.
+        assert source.count("process.env.TERP_DEV_FRAME_ANCESTORS") == 1, (
+            f"{config}: TERP_DEV_FRAME_ANCESTORS is read more than once — one of "
+            "those reads does not go through the validating helper"
+        )
+        assert "declaredFrameAncestors(process.env.TERP_DEV_FRAME_ANCESTORS)" in source, (
+            f"{config}: the variable does not pass through declaredFrameAncestors"
+        )
+
+
+def test_both_dev_server_policies_are_the_same_bytes() -> None:
+    # Two renderings of one decision, and only one of them can be measured in a
+    # browser: the example app is a workspace member with vite installed, while the
+    # template is a copier source whose imports do not resolve. Byte identity is
+    # what turns the measurement of the one into an assertion about the other —
+    # without it the template could drift back to a hardcoded 'none' and every
+    # other test here would still pass on the example.
+    template, example = (
+        _framing_region(config.read_text(encoding="utf-8")) for config in _VITE_CONFIGS
+    )
+    assert template == example, (
+        "the template and example dev-server policies have drifted; they must stay "
+        "byte-identical so one measured run covers both"
+    )
 
 
 def test_the_style_cascade_is_three_layers_in_one_order() -> None:

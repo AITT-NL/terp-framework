@@ -111,6 +111,12 @@ services:
       TERP_API_PROXY: http://api:8000
       # Poll the bind-mounted source (no inotify across Desktop mounts).
       TERP_DEV_FORCE_POLLING: "true"
+      # Who may embed this dev server in an iframe (frontend/vite.config.ts).
+      # Empty — the default, and what a hand-run `terp docker dev` gets — means
+      # `frame-ancestors 'none'`. A workbench that shows this app in a preview
+      # pane exports its OWN browser origin here before starting the stack;
+      # nothing inside the app can grant it, and nothing else needs to.
+      TERP_DEV_FRAME_ANCESTORS: ${TERP_DEV_FRAME_ANCESTORS:-}
     ports:
       - "${WEB_PORT:-5173}:5173"
     volumes:
