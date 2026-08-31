@@ -64,11 +64,25 @@ console warning. The compose workbench passes `${TERP_DEV_FRAME_ANCESTORS:-}` in
 service. **Production is untouched:** the nginx policy of ADR 0104 still says
 `frame-ancestors 'none'`, unconditionally and with no knob.
 
-### One origin — never a list, never a wildcard
+### Exact origins — a list is fine, a wildcard is not (revised 2026-08-31)
 
-A preview pane has exactly one embedder, so a list buys no capability that anyone can name, and
-`*` would let any page on the network frame a dev server that is holding a signed-in session.
-Both are refused by the pattern rather than by convention.
+**This shipped as one origin, and that premise was wrong.** The reasoning was "a preview pane has
+exactly one embedder" — true of a *pane*, false of a *workbench*. One workbench answers on several
+names: the same machine is `localhost`, `127.0.0.1`, its own hostname and a LAN address, and a
+browser's `frame-ancestors` check compares exact strings. So a correctly configured app, granted
+the "right" origin, still showed a blank pane to anyone whose address bar said a different
+spelling of the same machine — and the blank pane was indistinguishable from the bug this ADR was
+written to remove. It cost a second afternoon.
+
+`TERP_DEV_FRAME_ANCESTORS` therefore takes a whitespace-separated **list of exact origins**
+(CSP's own syntax). Every element is validated against the anchored pattern, the count is capped
+at eight, duplicates collapse, and **one bad element refuses the whole value** — dropping the bad
+one and applying the rest is the failure mode that looks fine until the origin you needed is the
+one that was silently skipped.
+
+A bounded list of exact origins is not what the wildcard ban was about. `*` would let any page on
+the network frame a dev server holding a signed-in session; naming the four addresses of one
+developer machine does not. The wildcard stays refused, by the pattern rather than by convention.
 
 The validation is not decoration. The policy is assembled by joining directives on `"; "`, so a
 value carrying a semicolon would append directives of its own and rewrite the entire policy —
@@ -149,8 +163,13 @@ from a page on another, with `@playwright/test` driving Chromium.
 | a different origin | `frame-ancestors http://127.0.0.1:19999` | no — `ERR_BLOCKED_BY_RESPONSE` |
 | `*` | `frame-ancestors 'none'` | no — `ERR_BLOCKED_BY_RESPONSE` |
 
-The third row is the one worth keeping: the declaration is scoped to the origin named, not a
-blanket "may be framed". Config resolution was measured through Vite's own
+The third row is the one worth keeping: the declaration is scoped to the origins named, not a
+blanket "may be framed". The list was measured the same way — with two of three embedder origins
+declared, **both listed origins frame and the third is still blocked** — so a list does not
+degrade into "anyone". The validator was measured through Vite's own `loadConfigFromFile` across
+the list cases too: duplicates collapse, newline separation works, and a wildcard anywhere, a
+malformed element anywhere, a directive injection, or a ninth origin each resolve the whole value
+to `'none'`. Config resolution was measured through Vite's own
 `loadConfigFromFile`, so the values above are the header the real dev server sets, not a
 reimplementation of the logic; a blank value, whitespace, a bare host with no scheme, a
 `javascript:` URL, two space-separated origins and a trailing `; script-src *` all resolved to

@@ -26,29 +26,52 @@ const usePolling = process.env.TERP_DEV_FORCE_POLLING === "true";
 // stays `'none'`. Nothing here is quietly permitted: an undeclared embedder is
 // a refused embedder.
 //
-// One origin, never a list and never a wildcard. A preview pane has exactly one
-// embedder, so a list buys no capability, and `*` would let any page on the
-// network frame a dev server that is holding a signed-in session. A value that
-// is not a bare scheme://host[:port] is refused back to `'none'` rather than
-// forwarded: the policy below is assembled by joining on "; ", so a value
-// carrying a semicolon would otherwise append directives of its own and rewrite
-// the entire thing.
+// A LIST of exact origins, and never a wildcard. This started as one origin, on
+// the reasoning that a preview pane has exactly one embedder — and that premise
+// was wrong in a way that cost real time. One WORKBENCH has several names: the
+// same machine answers as `localhost`, as `127.0.0.1`, as its hostname and as a
+// LAN address, and a browser's CSP check compares exact strings. Whoever's
+// address bar said the other spelling got a blank pane, from an app that was
+// correctly configured, with a policy that named the "right" origin. Every name
+// the workbench legitimately answers on has to be in the list.
+//
+// A bounded list of exact origins is not the thing the wildcard ban was about.
+// `*` would let any page on the network frame a dev server that is holding a
+// signed-in session; naming the four addresses of one developer machine does
+// not. So: whitespace-separated (CSP's own syntax), every element validated,
+// count capped, and one bad element refuses the WHOLE value rather than being
+// quietly dropped — a partially applied security header is the kind of thing
+// that looks fine until the one origin you needed is the one that was skipped.
+//
+// The policy below is assembled by joining on "; ", so a value carrying a
+// semicolon would otherwise append directives of its own and rewrite the entire
+// thing. That is what the anchors on each element are for.
 const FRAME_ANCESTOR_ORIGIN = /^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/;
+//: Enough for every name one workbench answers on, few enough that a runaway
+//: value cannot turn the header into a page of origins.
+const FRAME_ANCESTOR_LIMIT = 8;
 
 function declaredFrameAncestors(declared: string | undefined): string {
-  const origin = (declared ?? "").trim();
-  if (!origin) return "'none'";
-  if (!FRAME_ANCESTOR_ORIGIN.test(origin)) {
+  const value = (declared ?? "").trim();
+  if (!value) return "'none'";
+  const origins = [...new Set(value.split(/\s+/))];
+  const refuse = (why: string): string => {
     // Loud on purpose. The symptom otherwise is a blank preview pane and a CSP
     // violation in a console nobody is looking at.
     console.warn(
-      "[terp] TERP_DEV_FRAME_ANCESTORS is not a bare scheme://host[:port] " +
-        `origin (${JSON.stringify(origin)}); frame-ancestors stays 'none' and ` +
-        "this app cannot be embedded in a preview.",
+      `[terp] TERP_DEV_FRAME_ANCESTORS ${why} (${JSON.stringify(value)}); ` +
+        "frame-ancestors stays 'none' and this app cannot be embedded in a preview.",
     );
     return "'none'";
+  };
+  if (origins.length > FRAME_ANCESTOR_LIMIT) {
+    return refuse(`lists more than ${FRAME_ANCESTOR_LIMIT} origins`);
   }
-  return origin;
+  const bad = origins.find((origin) => !FRAME_ANCESTOR_ORIGIN.test(origin));
+  if (bad !== undefined) {
+    return refuse(`contains ${JSON.stringify(bad)}, which is not a bare scheme://host[:port]`);
+  }
+  return origins.join(" ");
 }
 
 // The dev server's Content-Security-Policy (ADR 0104 §4, ADR 0107). The

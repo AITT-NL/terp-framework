@@ -717,10 +717,10 @@ def test_dev_server_holds_the_same_origin_rules_as_production() -> None:
         # `frame-ancestors` is the one directive that is not a literal here, because
         # it is the one a preview workbench may be granted (ADR 0107). It still has
         # to arrive through the validating helper rather than from a literal or a
-        # raw read — test_the_dev_server_is_framed_only_by_a_declared_origin is
+        # raw read — test_the_dev_server_is_framed_only_by_declared_origins is
         # where that is held.
         assert "frame-ancestors ${declaredFrameAncestors(" in policy, (
-            f"{config}: frame-ancestors is not the declared-origin form"
+            f"{config}: frame-ancestors is not the declared-origins form"
         )
 
         # `connect-src` must not widen to a scheme: 'self' already covers the HMR
@@ -769,43 +769,59 @@ def _headers_region(source: str) -> str:
     return source[start : source.index("}", start) + 1]
 
 
-def test_the_dev_server_is_framed_only_by_a_declared_origin() -> None:
+def test_the_dev_server_is_framed_only_by_declared_origins() -> None:
     # A Terp app is not framed: production says `frame-ancestors 'none'` and so
-    # does this dev server, until a workbench DECLARES the origin that previews it
-    # (ADR 0107). The declaration exists because that origin is a deployment fact
-    # — a laptop's http://localhost:8420, a client's https://workbench.example.nl —
-    # so it can never be a literal in a template; and a hardcoded 'none' locks
-    # every workbench out with a blank pane, which is the regression that put this
-    # test here.
+    # does this dev server, until a workbench DECLARES the origins that preview it
+    # (ADR 0107). They can never be literals in a template — they are deployment
+    # facts, a laptop's http://localhost:8420, a client's proxied HTTPS name — and
+    # a hardcoded 'none' locks every workbench out with a blank pane, which is the
+    # regression that put this test here.
     #
-    # Chromium's half was MEASURED against a real dev-server header rather than
-    # reasoned about: unset gives ERR_BLOCKED_BY_RESPONSE, the declared origin
-    # frames, and a DIFFERENT declared origin is still blocked. ADR 0107 records
-    # the run and its numbers.
+    # A LIST, deliberately, and that is a revision: this shipped accepting one
+    # origin, on the reasoning that a preview has one embedder. One WORKBENCH has
+    # several names — the same machine is `localhost`, `127.0.0.1`, its hostname
+    # and a LAN address — and a browser compares exact strings, so a correctly
+    # configured app still refused whoever's address bar said another spelling.
+    #
+    # Chromium's half was MEASURED, not reasoned about: with two of three embedder
+    # origins listed, both listed ones frame and the third is still blocked; unset
+    # gives ERR_BLOCKED_BY_RESPONSE. ADR 0107 records the runs.
     for config in _VITE_CONFIGS:
         source = config.read_text(encoding="utf-8")
         region = _framing_region(source)
 
-        # Fails closed twice over: no value at all, and a value that is not an origin.
-        assert "if (!origin) return \"'none'\";" in region, (
+        # Fails closed on nothing at all...
+        assert 'if (!value) return "\'none\'";' in region, (
             f"{config}: an unset TERP_DEV_FRAME_ANCESTORS no longer defaults to 'none'"
         )
-        refusal = region[region.index("if (!FRAME_ANCESTOR_ORIGIN.test(origin))") :]
-        assert "return \"'none'\";" in refusal, (
-            f"{config}: a malformed origin is not refused back to 'none'"
+        # ...and refuses the WHOLE value when any single element is bad. Dropping
+        # the bad one and applying the rest is the failure that looks fine until
+        # the origin you needed is the one silently skipped.
+        assert "const bad = origins.find(" in region and "if (bad !== undefined)" in region, (
+            f"{config}: a bad element no longer refuses the whole value"
+        )
+        assert "refuse(" in region, f"{config}: the refusal path is gone"
+
+        # Bounded, so a runaway value cannot become a page of origins.
+        assert "FRAME_ANCESTOR_LIMIT" in region, f"{config}: the list is unbounded"
+        assert "origins.length > FRAME_ANCESTOR_LIMIT" in region, (
+            f"{config}: nothing enforces the cap"
         )
 
-        # Anchored at both ends. Unanchored, a value carrying a trailing
-        # "; script-src *" would match and be forwarded into a header this file
-        # assembles by joining on "; " — the injected directive would land whole.
+        # Each element anchored at both ends. Unanchored, an element carrying a
+        # trailing "; script-src *" would match and be forwarded into a header
+        # this file assembles by joining on "; " — the directive would land whole.
         pattern = region[region.index("/^") : region.index("$/") + 2]
         assert pattern.startswith("/^") and pattern.endswith("$/"), (
             f"{config}: the origin pattern is not anchored: {pattern}"
         )
+        # The pattern matches ONE origin; the split is what makes a list. A space
+        # or a wildcard inside the pattern would let one element be several, or
+        # any origin at all.
         for forbidden in (" ", "*", ";"):
             assert forbidden not in pattern, (
-                f"{config}: the origin pattern admits {forbidden!r}, so a list, a "
-                f"wildcard or a second directive can reach the header: {pattern}"
+                f"{config}: the per-element pattern admits {forbidden!r}, so one "
+                f"element could be a list, a wildcard or a directive: {pattern}"
             )
 
         # The raw variable reaches the header ONLY through the helper. A second,
