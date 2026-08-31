@@ -10,6 +10,43 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.13.1 — 2026-08-31
+
+### Fixed
+
+- **The dev server's framing declaration reached the wrong browsers, twice.** 0.13.0 let a
+  workbench declare itself as a project dev server's one permitted embedder. Two things about
+  that were wrong, and both presented identically: a blank preview pane behind Chromium's
+  `localhost refused to connect.`, on an app that was correctly configured.
+
+  **It accepted one origin, and a workbench has several names.** The reasoning was "a preview
+  pane has exactly one embedder" — true of a pane, false of a workbench. The same machine
+  answers as `localhost`, as `127.0.0.1`, as its own hostname and as a LAN address, and a
+  browser's `frame-ancestors` check compares exact strings. Whoever's address bar said a
+  different spelling was refused. `TERP_DEV_FRAME_ANCESTORS` now takes a whitespace-separated
+  **list of exact origins** (CSP's own syntax): each element validated against the same
+  anchored pattern, duplicates collapsed, the count capped at eight, and one bad element
+  refusing the whole value rather than being silently dropped. The wildcard ban is unchanged —
+  a bounded list of exact origins is not what it was about.
+
+  **And the policy was cacheable.** The document went out with `Cache-Control: no-cache`, which
+  means "revalidate before reusing", not "do not reuse". Vite answers a revalidation with a bare
+  `304`, RFC 9111 keeps the headers a 304 omits, and the ETag is derived from the document body
+  — which does not change when the policy does. So a browser that had visited before an upgrade
+  went on enforcing the policy from before it, indefinitely. The dev document now sends
+  `Cache-Control: no-store`: a security header whose cache key does not include the header must
+  not be cacheable at all.
+
+  Both halves were measured rather than reasoned about, and ADR 0107 records the runs. With two
+  of three embedder origins declared, both listed origins frame and the third is still blocked.
+  With the policy flipped from deny to allow while the body stayed byte-identical, `no-cache`
+  left the frame **blocked** and `no-store` framed it.
+
+  Worth knowing for anyone diagnosing the same symptom: no server-side check can see the cache
+  case. A workbench reading the app's header over HTTP gets the fresh policy while the browser
+  holds a stale one, so there is nothing to compare — which is why the fix is to make the header
+  uncacheable rather than to detect the divergence.
+
 ## 0.13.0 — 2026-08-31
 
 ### Added

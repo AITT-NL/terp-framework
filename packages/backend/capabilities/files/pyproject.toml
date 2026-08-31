@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-files"
-version = "0.13.0"
+version = "0.13.1"
 description = "Terp files capability — owner-scoped file objects with metadata in the platform database and bytes behind a pluggable storage backend."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.13.0",
+    "terp-core==0.13.1",
     # FastAPI parses the multipart upload body through this (UploadFile); the byte
     # stream never touches app code — it flows metadata->DB, bytes->StorageBackend.
     "python-multipart>=0.0.30",

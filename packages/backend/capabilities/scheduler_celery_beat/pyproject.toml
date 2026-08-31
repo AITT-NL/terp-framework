@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-scheduler-celery-beat"
-version = "0.13.0"
+version = "0.13.1"
 description = "Terp Celery-beat adapter — drive catalog schedules from Celery beat, through the jobs seam."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.13.0",
+    "terp-core==0.13.1",
     "celery>=5.3",
 ]
 
