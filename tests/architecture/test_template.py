@@ -762,6 +762,13 @@ def _framing_region(source: str) -> str:
     return source[start:end]
 
 
+def _headers_region(source: str) -> str:
+    """The dev server's response headers: the policy, and the rule that stops a
+    browser reusing it after it changes."""
+    start = source.index("headers: {")
+    return source[start : source.index("}", start) + 1]
+
+
 def test_the_dev_server_is_framed_only_by_a_declared_origin() -> None:
     # A Terp app is not framed: production says `frame-ancestors 'none'` and so
     # does this dev server, until a workbench DECLARES the origin that previews it
@@ -819,13 +826,56 @@ def test_both_dev_server_policies_are_the_same_bytes() -> None:
     # what turns the measurement of the one into an assertion about the other —
     # without it the template could drift back to a hardcoded 'none' and every
     # other test here would still pass on the example.
-    template, example = (
-        _framing_region(config.read_text(encoding="utf-8")) for config in _VITE_CONFIGS
-    )
-    assert template == example, (
-        "the template and example dev-server policies have drifted; they must stay "
-        "byte-identical so one measured run covers both"
-    )
+    # Both regions that decide what a browser enforces: the policy itself, and the
+    # header block that carries it plus the cache rule. The cache rule was outside
+    # this check when it landed, and a mutation that changed it in ONE copy passed —
+    # which is the whole failure this test exists to prevent, one directive over.
+    for region in (_framing_region, _headers_region):
+        template, example = (
+            region(config.read_text(encoding="utf-8")) for config in _VITE_CONFIGS
+        )
+        assert template == example, (
+            f"the template and example dev-server configs have drifted in "
+            f"{region.__name__}; they must stay byte-identical so one measured run "
+            "covers both"
+        )
+
+
+def test_the_dev_policy_is_never_served_from_cache() -> None:
+    # `no-store`, and specifically not `no-cache`. This was a live defect, not a
+    # theoretical one: `no-cache` means "revalidate before reusing", so the browser
+    # stores the response, Vite answers the revalidation with a bare 304, and RFC
+    # 9111 keeps the headers a 304 omits — so the browser keeps enforcing the CSP
+    # it saved earlier. The ETag comes from the document body, which does not change
+    # when the policy does, so the stale policy is reused indefinitely.
+    #
+    # MEASURED, both ways, against a server reproducing Vite's shape (body-derived
+    # ETag, bare 304) with the policy flipped from deny to allow while the body
+    # stayed identical:
+    #
+    #   Cache-Control: no-cache  -> after the change, STILL BLOCKED
+    #   Cache-Control: no-store  -> after the change, framed
+    #
+    # That first row is a person having upgraded their app and still being told the
+    # preview cannot be embedded, in one browser and not another. A security header
+    # whose cache key does not include the header must not be cacheable at all.
+    for config in _VITE_CONFIGS:
+        source = config.read_text(encoding="utf-8")
+        headers = source[source.index("headers: {") :]
+        headers = headers[: headers.index("}")]
+        assert '"Cache-Control": "no-store"' in headers, (
+            f"{config}: the dev server must send Cache-Control: no-store, or a "
+            "policy change is not seen by a browser that visited before it"
+        )
+        assert "no-cache" not in headers, (
+            f"{config}: no-cache still stores the response — that is the defect, "
+            "not the fix"
+        )
+        # Same header block carries the policy, so neither can be moved out from
+        # under the other without this failing.
+        assert '"Content-Security-Policy": devContentSecurityPolicy' in headers, (
+            f"{config}: the policy left the header block the cache rule guards"
+        )
 
 
 def test_the_style_cascade_is_three_layers_in_one_order() -> None:

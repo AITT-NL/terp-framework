@@ -90,7 +90,22 @@ export default defineConfig({
   server: {
     // Same policy every dev session, so a CSP-incompatible pattern cannot be
     // introduced unnoticed and discovered only in production.
-    headers: { "Content-Security-Policy": devContentSecurityPolicy },
+    //
+    // `no-store`, not `no-cache`. The two are easy to mix up and the difference
+    // was a live defect: `no-cache` means "revalidate before reusing", so the
+    // browser still STORES the response, and Vite answers a revalidation with a
+    // bare `304 Not Modified` carrying no headers. RFC 9111 keeps the stored
+    // headers that a 304 omits — so the browser goes on enforcing the CSP it
+    // saved earlier. The ETag is computed from the document body, which does not
+    // change when this policy does, so the stale policy is reused indefinitely:
+    // measured, an app upgraded to a template that permits framing was still
+    // refusing it in a browser that had visited before the upgrade, while a
+    // fresh browser worked. A security header whose cache key does not include
+    // the header must not be cacheable at all.
+    headers: {
+      "Content-Security-Policy": devContentSecurityPolicy,
+      "Cache-Control": "no-store",
+    },
     // The Docker workbench publishes this dev server on a host port behind a reverse
     // proxy / port-forward whose hostname Vite cannot predict (the operator's own host,
     // not localhost) — Vite's DNS-rebinding guard (server.allowedHosts) would otherwise

@@ -104,6 +104,39 @@ the pane the workbench is built around, along with the click-to-select bridge th
   workspace member with vite installed), so byte identity is what makes one measured run an
   assertion about both.
 
+## The policy must not be cacheable — amended 2026-08-31
+
+Shipping the declaration was not enough, and the gap was found by a person who had done
+everything right: they upgraded their app to a template that permits framing, and their
+browser went on refusing it. Another browser, freshly opened, worked.
+
+The dev server sent `Cache-Control: no-cache` with an ETag derived from the document body.
+`no-cache` does not mean "do not reuse" — it means "revalidate before reusing", so the
+response is *stored*. Vite answers a revalidation with a bare `304 Not Modified`, and
+RFC 9111 keeps the headers a 304 omits, so the browser goes on enforcing the
+`Content-Security-Policy` it saved earlier. The body does not change when this policy does,
+so the ETag matches and the stale policy is reused indefinitely.
+
+**The dev document therefore sends `Cache-Control: no-store`.** A security header whose
+cache key does not include the header must not be cacheable at all. The rule lives in the
+same `server.headers` block as the policy, and the gate asserts both are there and
+byte-identical across the template and example copies — a one-sided drift in the cache rule
+passed the first version of that check, which is the same failure this ADR is about, one
+directive over.
+
+Measured against a server reproducing Vite's shape (body-derived ETag, bare 304), with the
+policy flipped from deny to allow while the body stayed identical:
+
+| dev document sends | after the policy changes |
+| --- | --- |
+| `Cache-Control: no-cache` | **still blocked** — the stale policy is still enforced |
+| `Cache-Control: no-store` | framed |
+
+The first row is the bug as it was experienced. Note what no amount of server-side
+diagnosis could have done here: a workbench reading the app's header over HTTP gets the
+*fresh* policy while the browser holds a stale one, so the two cannot be compared. That is
+the argument for making the header uncacheable rather than for detecting the divergence.
+
 ## Measurement
 
 Chromium's half was measured, not reasoned about: a real dev-server header on one origin, framed
