@@ -10,6 +10,74 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.13.0 — 2026-08-31
+
+### Added
+
+- **ADR 0107 — the dev server names who may frame it.** 0.12.0 mirrored production's origin
+  rules into the Vite dev server so that a CDN script fails on the first run rather than at
+  deploy. It copied `frame-ancestors 'none'` along with the rest, and that is the one
+  directive whose correct value differs between the two audiences: production's document is
+  served to a browser, development's is served to a browser *inside a workbench preview
+  pane*. So the dev server refused the only thing that ever embeds it.
+
+  The failure was unreadable, which is the worse half. Chromium blocks the frame with
+  `ERR_BLOCKED_BY_RESPONSE` and paints `localhost refused to connect.` — a sentence about a
+  network failure, over a healthy stack on a published port that opens perfectly in a new
+  tab. The directive also bought nothing the mirror was for: a CDN script is caught by
+  `script-src`, an external stylesheet by `style-src`, a cross-origin fetch by `connect-src`.
+
+  **`frame-ancestors` in the dev server is now declared rather than literal.**
+  `TERP_DEV_FRAME_ANCESTORS` carries exactly one origin; unset, blank or malformed keeps
+  `'none'`, so a hand-run `terp docker dev` still gets the strict posture and the escape is
+  a visible, greppable declaration (ADR 0103's shape, not a relaxation). The origin cannot
+  be a literal in a template — it is a deployment fact, `http://localhost:8420` on a laptop
+  and an HTTPS name behind a reverse proxy — so it arrives at runtime. The compose
+  workbench passes `${TERP_DEV_FRAME_ANCESTORS:-}` into the `web` service.
+
+  One origin, never a list and never a wildcard: a preview pane has exactly one embedder, so
+  a list buys no capability, and `*` would let any page on the network frame a dev server
+  holding a signed-in session. The value is validated against an anchored
+  `^https?://host[:port]$` rather than forwarded, because the policy is assembled by joining
+  on `"; "` — an unanchored value carrying a trailing `; script-src *` would append its own
+  directives and rewrite the whole policy.
+
+  **Production is untouched:** the nginx policy of ADR 0104 still says
+  `frame-ancestors 'none'`, unconditionally and with no knob. ADR 0104 §4's claim of exact
+  origin parity now carries this one named exception.
+
+  Measured in Chromium rather than reasoned about: unset gives `ERR_BLOCKED_BY_RESPONSE`,
+  the declared origin frames, and a *different* declared origin is still blocked — the
+  declaration is scoped to the origin named, not a blanket permission. ADR 0107 records the
+  run.
+
+- **A house style gets an address of its own.** A styling tool that manages several apps had
+  nowhere to write: both files it needs — `frontend/src/theme.css` and
+  `frontend/layout-contract.json` — are handed to the app as its own, and the rulebook sends
+  every agent there to change how the app looks. So an organisation-wide rollout and an
+  app's own tweak were the same bytes, and one of them always lost.
+
+  `frontend/src/house-style.css` is that address: empty, tool-owned, imported between the
+  framework's tokens and the app's own `theme.css`, so the cascade is tokens → house → app
+  and the app's layer wins per token. A house can restyle every app it manages without
+  touching a file the app owns, and an app that must differ says so in `theme.css` and keeps
+  saying it, because nothing writes there any more.
+
+  The rulebook and `terp guide theming` gain the one sentence an agent needs: never edit
+  `house-style.css`, and to depart from a house style declare the token in `theme.css`. The
+  agent writes most of the code, and a rule it cannot read is not a rule.
+
+### Fixed
+
+- **`copier recopy --overwrite` silently reverted an app's whole appearance.**
+  `copier.yml`'s `_skip_if_exists` listed neither stylesheet nor the layout contract, so a
+  re-render — which a legacy-migration path runs — restored the template's empty overlay and
+  its `{"contract": "standard"}` declaration, undoing every token and every shell key the app
+  had chosen. Silently: no error, and nothing in the diff explaining why the app went back to
+  the default palette. All three are skipped now, and `terp version` no longer lists
+  `theme.css` and `layout-contract.json` among the files a re-render owns, because it no
+  longer does.
+
 ## 0.12.0 — 2026-08-30
 
 ### Added
