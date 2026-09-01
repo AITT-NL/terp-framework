@@ -755,38 +755,129 @@ def _git(root: pathlib.Path, *args: str) -> None:
     )
 
 
+def _tracked_api_docs(root: pathlib.Path, **content: str) -> pathlib.Path:
+    """A git repo whose committed ``docs/`` carries the generated pair."""
+    docs = root / "docs"
+    docs.mkdir(exist_ok=True)
+    (docs / "platform-api.md").write_text(
+        content.get("markdown", "old\n"), encoding="utf-8"
+    )
+    (docs / "terp_core.pyi").write_text(content.get("stub", "old\n"), encoding="utf-8")
+    _git(root, "init", "-b", "main")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-m", "committed api reference")
+    return docs
+
+
+def _fake_api_docs(**content: str):
+    """Stand in for the real generator, which boots the project's kernel."""
+
+    def generate(out: str) -> list[pathlib.Path]:
+        directory = pathlib.Path(out)
+        markdown = directory / "platform-api.md"
+        stub = directory / "terp_core.pyi"
+        markdown.write_text(content.get("markdown", "old\n"), encoding="utf-8")
+        stub.write_text(content.get("stub", "old\n"), encoding="utf-8")
+        return [markdown, stub]
+
+    return generate
+
+
 def test_api_docs_drift_check_detects_a_stale_committed_copy(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
-    # The release-profile drift pair: regenerate docs/ (in the project root)
-    # and fail when the committed copy differs. api_docs itself boots the
-    # project's kernel — faked here; the check's own contract is the chdir +
-    # regenerate + `git diff --exit-code -- docs` choreography.
+    # The release-profile drift pair: regenerate the two artifacts and fail when the
+    # committed copy differs. api_docs itself boots the project's kernel — faked here;
+    # the check's own contract is the tracked-ness test + chdir + regenerate + diff.
+    import terp.cli
+
+    root = tmp_path
+    docs = _tracked_api_docs(root)
+
+    monkeypatch.setattr(terp.cli, "api_docs", _fake_api_docs(markdown="regenerated\n"))
+    exit_code, output = _run_api_docs_drift(root)
+    assert exit_code != 0
+    assert "wrote" in output and "drifted from the committed copy" in output
+
+    # And the clean case: regenerating exactly the committed content passes.
+    (docs / "platform-api.md").write_text("old\n", encoding="utf-8")
+    monkeypatch.setattr(terp.cli, "api_docs", _fake_api_docs())
+    exit_code, output = _run_api_docs_drift(root)
+    assert exit_code == 0
+
+
+def test_api_docs_drift_skips_when_the_pair_is_untracked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A docs/ directory is not adoption; tracking the generated pair is.
+
+    The regression this pins: the check used to ask "does docs/ exist", then compare with
+    `git diff`, which reports nothing for an untracked file. So an app with documentation
+    of its own got a permanent green over a comparison that could not fail — and two
+    untracked files after every run. Both halves are asserted, because writing the files
+    into a project that never asked for them is the part a reader would notice first.
+    """
+    import terp.cli
+
+    from terp.cli.verify import NOTE_PREFIX
+
+    root = tmp_path
+    (root / "docs").mkdir()
+    (root / "docs" / "handbook.md").write_text("ours\n", encoding="utf-8")
+    _git(root, "init", "-b", "main")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-m", "our own docs")
+
+    monkeypatch.setattr(terp.cli, "api_docs", _fake_api_docs())
+    exit_code, output = _run_api_docs_drift(root)
+
+    assert exit_code == 0
+    assert output.startswith(NOTE_PREFIX)
+    assert "not tracked" in output
+    assert not (root / "docs" / "platform-api.md").exists(), (
+        "an unadopted project must not be littered with the artifact it did not ask for"
+    )
+
+
+def test_api_docs_drift_refuses_a_half_tracked_pair(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Half-adopted is red: a diff over one of the two silently checks half the surface."""
     import terp.cli
 
     root = tmp_path
     docs = root / "docs"
     docs.mkdir()
-    (docs / "api.md").write_text("old\n", encoding="utf-8")
+    (docs / "platform-api.md").write_text("old\n", encoding="utf-8")
     _git(root, "init", "-b", "main")
     _git(root, "add", "-A")
-    _git(root, "commit", "-m", "committed docs")
+    _git(root, "commit", "-m", "half the pair")
 
-    def fake_api_docs(out: str) -> list[pathlib.Path]:
-        target = pathlib.Path(out) / "api.md"
-        target.write_text("regenerated\n", encoding="utf-8")
-        return [target]
+    monkeypatch.setattr(terp.cli, "api_docs", _fake_api_docs())
+    exit_code, output = _run_api_docs_drift(root)
 
-    monkeypatch.setattr(terp.cli, "api_docs", fake_api_docs)
-    exit_code, output = _run_api_docs_drift(root)
-    assert exit_code != 0
-    assert "wrote" in output and "drifted from the committed copy" in output
-    # And the clean case: regenerating exactly the committed content passes.
-    (docs / "api.md").write_text("old\n", encoding="utf-8")
-    monkeypatch.setattr(
-        terp.cli, "api_docs", lambda out: [pathlib.Path(out) / "api.md"]
-    )
-    exit_code, output = _run_api_docs_drift(root)
+    assert exit_code == 1
+    assert "half-tracked" in output
+    assert "terp_core.pyi" in output
+
+
+def test_api_docs_drift_ignores_the_project_own_documentation_edits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The diff names the two artifacts, not docs/.
+
+    Diffing the whole directory meant an app's uncommitted edit to any of its own
+    documentation was reported as API drift — a red with nothing to do with the API.
+    """
+    import terp.cli
+
+    root = tmp_path
+    docs = _tracked_api_docs(root)
+    (docs / "handbook.md").write_text("a draft in progress\n", encoding="utf-8")
+
+    monkeypatch.setattr(terp.cli, "api_docs", _fake_api_docs())
+    exit_code, _ = _run_api_docs_drift(root)
+
     assert exit_code == 0
 
 

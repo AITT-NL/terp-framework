@@ -460,6 +460,39 @@ def test_an_over_large_request_body_is_a_typed_413() -> None:
     assert store._entries == {}
 
 
+def test_the_body_cap_follows_a_mount_declared_request_size() -> None:
+    """A mount that declares a larger ``max_request_bytes`` raises this cap with it.
+
+    The defect this pins: the buffer's cap was a constructor default of 1 MiB that the
+    composition root never passed, so an endpoint whose declared allowance was larger
+    passed the outer size limiter and was then refused one layer in — the documented
+    lever appeared to work and the request still failed. Now both bounds resolve the
+    same prefix map, so the declaration means one thing.
+    """
+    store = InMemoryIdempotencyStore()
+    middleware = IdempotencyMiddleware(
+        _echo_app(),
+        store=store,
+        max_body_bytes=4,
+        overrides={"/api/v1/probe": 64},
+    )
+
+    # The mount's own allowance applies: a body over the global cap is accepted.
+    sent = _run_middleware(
+        middleware, _http_scope(), [{"type": "http.request", "body": b"well over four"}]
+    )
+    assert sent[0]["status"] == 200
+
+    # A path outside the mount keeps the global cap, and the 413 names that cap.
+    outside = _http_scope()
+    outside["path"] = "/api/v1/other/things"
+    sent = _run_middleware(
+        middleware, outside, [{"type": "http.request", "body": b"well over four"}]
+    )
+    assert sent[0]["status"] == 413
+    assert b"4 bytes" in sent[1]["body"]
+
+
 def test_a_disconnect_mid_body_passes_through_unprocessed() -> None:
     store = InMemoryIdempotencyStore()
     middleware = IdempotencyMiddleware(_echo_app(), store=store)

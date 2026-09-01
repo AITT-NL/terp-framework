@@ -19,6 +19,7 @@ from terp.arch.rules._support import (
     ArchViolation,
     _file_comments,
     _rel,
+    _rule_token,
 )
 
 #: The ``review-by:<YYYY-MM-DD>`` metadata token in a marker's reason (the Terp
@@ -37,7 +38,6 @@ def _governed_tokens() -> set[str]:
     their tokens are invalid budget keys and invalid markers.
     """
     from terp.arch.rules import GUIDE_TOPIC_BY_RULE
-    from terp.arch.rules._support import _rule_token
 
     ungoverned = {"escape_hatch_budget", "ungoverned_escape_hatch"}
     return {_rule_token(rule) for rule in GUIDE_TOPIC_BY_RULE if rule not in ungoverned}
@@ -130,6 +130,24 @@ def check_escape_hatch_budget(
     violations: list[ArchViolation] = []
     for marker in sorted(set(budget) | set(actual)):
         if marker not in governed:
+            # A budget keyed on the RULE NAME rather than its marker token is the common
+            # way to get here, and the generic message below reads as "this rule has no
+            # hatch" — which has already sent a careful reader off to redesign around a
+            # rule that ships a working opt-out. So when the key is a governed rule's
+            # name, say which key was wanted instead of what is missing.
+            wanted = _rule_token(marker)
+            if wanted in governed:
+                violations.append(
+                    ArchViolation(
+                        "escape_hatch_budget",
+                        where,
+                        0,
+                        f"{marker!r} is the rule name; the budget is keyed on the "
+                        f"MARKER TOKEN - use {wanted!r} (the rule does have a governed "
+                        "opt-out)",
+                    )
+                )
+                continue
             violations.append(
                 ArchViolation(
                     "escape_hatch_budget",
