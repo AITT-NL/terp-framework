@@ -191,6 +191,13 @@
       "layer": "semantic"
     },
     {
+      "id": "muted-on-selection",
+      "label": "muted text on a selected row",
+      "fg": "--color-fg-muted",
+      "bg": "--color-interactive-selected",
+      "layer": "semantic"
+    },
+    {
       "id": "sidebar-nav-link-hover",
       "label": "a hovered sidebar navigation link",
       "fg": "--color-sidebar-fg",

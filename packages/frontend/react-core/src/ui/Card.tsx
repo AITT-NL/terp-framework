@@ -21,7 +21,7 @@ export interface CardProps
    * loses its full width.
    *
    * It is a variant rather than a `Section` component of its own, and that is a decision worth
-   * knowing. A chrome-less titled region is exactly this element with three declarations
+   * knowing. A chrome-less titled region is exactly this element with two declarations
    * removed: `Card` already renders a `<section>` with an `<h3>` and stacks its children on
    * the token scale. A second component would have meant six more markers describing the same
    * DOM, and a `Surface` — the third name the diagnosis suggested — is a `Card` with no title,
@@ -53,10 +53,11 @@ export interface CardProps
 }
 
 /**
- * A token-styled surface that groups one block of a page — the sanctioned way to give
- * sections visual separation (border + background + padding) without module CSS, and
+ * A token-styled frame that groups one block of a page — the sanctioned way to give
+ * sections visual separation (a border, a radius and padding) without module CSS, and
  * allowed directly in `OverviewPage` / `DetailPage` body slots under the `standard`
- * layout contract. An optional header row carries a semantic `<h3>` title, a muted
+ * layout contract. It carries no fill: what shows through a card is the page's own
+ * canvas, so a card sits on a themed background instead of repainting it. An optional header row carries a semantic `<h3>` title, a muted
  * description and an `actions` slot; the body stacks its children on the token
  * spacing scale.
  */

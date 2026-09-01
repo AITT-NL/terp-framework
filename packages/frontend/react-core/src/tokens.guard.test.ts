@@ -84,21 +84,24 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   "--shell-": [],
   "--color-sidebar-": [],
   // The whole semantic colour layer, which the comment above admitted was untracked and then
-  // left untracked. Seventeen of the forty-eight published `--color-` tokens have no `var()`
-  // reader anywhere in the sheet, and until now nothing said so — the exact `--color-fg-on-brand`
-  // shape that comment describes, seventeen times over.
+  // left untracked. Booked at seventeen of the forty-eight published `--color-` tokens with no
+  // `var()` reader anywhere in the sheet — the exact `--color-fg-on-brand` shape that comment
+  // describes, seventeen times over. Fifteen now: the flat-card change wired
+  // `--color-interactive-hover` (the table row's hover, which had been spelling that value as a
+  // ramp step) and `--color-interactive-selected` (the selected row and the selection band,
+  // which had no colour of their own at all).
   //
   // Booked as one family rather than four narrower ones on purpose. `--color-bg-`,
-  // `--color-border-`, `--color-interactive-` and `--color-chart-` are each read by NOTHING, and
-  // the assertion below requires a tracked family to publish more than it books — a deliberate
-  // "is the prefix right?" check that a wholly-unread family would trip. The broader prefix
-  // subsumes them and still catches the eighteenth. `--color-sidebar-` stays above because it
-  // makes a narrower claim worth keeping: that family is read in full.
+  // `--color-border-` and `--color-chart-` are each STILL read by nothing, and the assertion
+  // below requires a tracked family to publish more than it books — a deliberate "is the prefix
+  // right?" check that a wholly-unread family would trip. The broader prefix subsumes them and
+  // still catches the sixteenth. `--color-sidebar-` stays above because it makes a narrower
+  // claim worth keeping: that family is read in full.
   //
-  // None of these seventeen is a defect on its own. They are a published vocabulary that shipped
-  // ahead of its consumers — four surface tokens, three borders, three interactive states, a
+  // None of these fifteen is a defect on its own. They are a published vocabulary that shipped
+  // ahead of its consumers — four surface tokens, three borders, one interactive state, a
   // five-step chart ramp and two neutrals — and the point of booking them is that the list can
-  // only shrink from here, so wiring one is visible and adding an eighteenth has to argue.
+  // only shrink from here, so wiring one is visible and adding a sixteenth has to argue.
   "--color-": [
     "--color-bg-canvas",
     "--color-bg-inset",
@@ -113,8 +116,6 @@ const UNREAD_TOKENS: Record<string, string[]> = {
     "--color-chart-4",
     "--color-chart-5",
     "--color-interactive-active",
-    "--color-interactive-hover",
-    "--color-interactive-selected",
     "--color-neutral-500",
     "--color-neutral-800",
   ],

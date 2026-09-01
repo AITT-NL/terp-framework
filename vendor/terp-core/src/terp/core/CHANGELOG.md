@@ -104,6 +104,50 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **A card painted a second colour to say what its border already said.** `Card` filled itself
+  with `--color-neutral-0` over a canvas of `--color-neutral-50`, and six more in-flow blocks did
+  the same: `HubCard`'s body, the profile card, a `ResourceList` row, an `EmptyState`, a
+  `DataView` row rendered as a card, and the full `DataView`'s table frame. Two consequences, and
+  neither was a matter of taste. A card dropped onto something that is itself a surface — a
+  dialog, another card's body, a page whose canvas an app had themed — repainted it rather than
+  sitting on it, which is the frame-inside-a-frame `variant="plain"` exists to escape. And an app
+  that themed the canvas found that its blocks did not follow, because their fill named the other
+  end of the ramp: the one token an app is most likely to set reached the page and nothing on it.
+
+  An in-flow block is a frame now. Border, radius and padding are the whole of its chrome, and
+  what shows through it is the canvas the page already paints — so a themed canvas reaches every
+  block, and `variant="plain"` is the base rule minus a border and a padding rather than minus
+  three declarations. Three kinds of element deliberately keep a fill, and the line between them
+  is what makes the rest legible: an overlay has to be opaque over whatever it covers (`Dialog`,
+  `Popover`, toasts, the `Combobox` list), a control needs a surface of its own to read as a
+  control against the page (`Input`, `Select`, the secondary `Button`), and the login card is the
+  one object on an otherwise empty canvas, where the fill IS the object.
+
+  Every wash that was painting the canvas value moved with it, because on a block with no fill it
+  painted nothing. The table's hover and its expanded panel, a code block, a neutral `Alert` and a
+  disabled control step one place along the ramp to `--color-neutral-100` — already this sheet's
+  hover wash for every control, and already inline `code`'s background, which the block form had
+  been disagreeing with. One step along the ramp rather than a value per rule, because the dark
+  themes invert it: the same step is darker than the canvas in light and lighter in dark, midnight
+  and twilight, which is the direction a recess wants in each. `--color-bg-inset` cannot do that
+  job — in those three themes it is declared AS the canvas value, so an inset named from it is the
+  one thing that would disappear.
+
+  Selection was the case with a real defect behind it. The band above a table and a selected row
+  both painted `--color-neutral-50`, so the band that floats on the canvas painted a rectangle
+  nobody could see, and a selected row was the same colour as a hovered one — the checkbox was
+  carrying the whole signal. Both now read `--color-interactive-selected`: one mode, one colour,
+  top to bottom. With the table's hover reading `--color-interactive-hover`, that family has its
+  first two consumers and the unread-token ratchet in `tokens.guard.test.ts` drops from seventeen
+  to fifteen. A new declared pairing (`muted-on-selection`) holds muted ink on the tint at AA in
+  all five themes — **5.19:1** at its narrowest, in midnight — so the gate measures a surface no
+  specimen may ever paint.
+
+  One cost, recorded rather than discovered later: the hover wash and a neutral row tone now share
+  `--color-neutral-100`, so hovering a neutral-toned row shows no change of wash. The pointer is
+  what says the row is hoverable there. Every specimen that paints one of these blocks re-recorded
+  in both platform baseline sets.
+
 - **The type scale was flat at the top, where it matters most.** The single `<h1>` of a view
   rendered at `--font-size-lg` (**18px**) against a card title at `--font-size-base`
   (**16px**) against 16px body copy — one step from the page title to a section heading, and a

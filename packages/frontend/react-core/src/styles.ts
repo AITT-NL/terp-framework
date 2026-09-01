@@ -391,9 +391,12 @@ html {
   border: 1px solid;
   border-radius: var(--radius-md);
 }
+/* The neutral tone's wash is --color-neutral-100, the value Badge and a neutral-toned
+   row already spell for the same tone. It was --color-neutral-50, which is the canvas: on
+   a card with no fill the alert kept its border and lost its wash entirely. */
 [data-terp="alert"][data-tone="neutral"] {
   color: var(--color-neutral-600);
-  background: var(--color-neutral-50);
+  background: var(--color-neutral-100);
 }
 [data-terp="alert"][data-tone="info"] {
   color: var(--color-status-info);
@@ -798,11 +801,42 @@ textarea[data-terp="input"] {
 }
 
 /* Cards -------------------------------------------------------------------- */
+/* The surface model, and this is the rule that states it: an in-flow block declares a
+   FRAME and no fill. Border, radius and padding are the whole of a card's chrome, and
+   what shows through it is the canvas the page already paints.
+
+   It used to paint --color-neutral-0 over a --color-neutral-50 canvas — a second colour
+   saying what the border already says, and it cost twice. A card dropped onto anything
+   that is itself a surface repainted it rather than sitting on it, which is the
+   frame-inside-a-frame the plain variant exists to escape; and an app that themed the
+   canvas found that its cards did not follow, because the fill named the OTHER end of
+   the ramp. Both go away with the declaration: the plain variant is now the base rule
+   minus a border and a padding, and a themed canvas reaches every block on the page.
+
+   Six rules follow the same line, and they are the framework's other in-flow blocks:
+   hubcard-body, profile-card, resource-list-row, empty-state, dataview-card and the full
+   DataView's table frame — whose header cells carried the same fill, invisibly, since a
+   filled frame sat directly behind them. Three kinds of element deliberately do NOT. An
+   overlay has to be opaque over whatever it covers (dialog, popover-panel, toast, the
+   combobox list, and appshell-header, which the page scrolls under); a control needs a
+   surface of its own to read as a control against the page (input, select, the secondary
+   button); and login-card is the one object on an otherwise empty canvas, where the fill
+   IS the object.
+
+   The washes moved with it, because a wash that painted --color-neutral-50 was painting
+   the canvas and on a card with no fill it painted nothing: the table's hover and
+   selection, the expanded row's panel, a code block, a neutral alert and a disabled
+   control each step one place along the ramp to --color-neutral-100 — which is already
+   this sheet's hover wash for every control — or to the --color-interactive-* token that
+   names the state. One step along the ramp rather than a value per rule, because the dark
+   themes invert it: the same step is darker than the canvas in light and lighter in dark,
+   midnight and twilight, which is the direction a recess and a wash want in each.
+   --color-bg-inset cannot do that job — in those three themes it is declared AS the
+   canvas value, so an inset named from it would be the one thing that disappears. */
 [data-terp="card"] {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
   padding: var(--space-4);
@@ -851,16 +885,19 @@ textarea[data-terp="input"] {
   flex: 1 1 0;
   min-width: 0;
 }
-/* Chrome off, heading kept. Three declarations removed rather than a second component
+/* Chrome off, heading kept. Two declarations removed rather than a second component
    with six markers of its own describing the same DOM: a titled region inside something
    that is already a surface wants no second border, and the commonest instance is a
    section whose body is a DataView — boxed, the table gets a border inside a border and
    loses the full width its own scroll container gives it.
 
+   Two, and it was three: background: none went with the base rule's fill. Un-declaring
+   what nothing declares is the shape ADR 0094 exists to avoid, and here it would also
+   have been the only line in the sheet still implying a card has a colour of its own.
+
    padding: 0 rather than dropping the declaration, because the base rule sets it and an
    absent value inherits nothing useful. */
 [data-terp="card"][data-variant="plain"] {
-  background: none;
   border-color: transparent;
   padding: 0;
 }
@@ -934,12 +971,16 @@ textarea[data-terp="input"] {
   background: var(--color-neutral-100);
   color: var(--color-fg-default);
 }
+/* The same wash as inline code, and that is new: the block was --color-neutral-50 while
+   the chip above it was --color-neutral-100, so two renderings of one thing disagreed —
+   and the block's half was the canvas, which a card with no fill would have shown
+   through. One value now, for both. */
 [data-terp="code-block"] {
   margin: 0;
   padding: var(--space-3);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-md);
-  background: var(--color-neutral-50);
+  background: var(--color-neutral-100);
   overflow-x: auto;
   font-size: var(--font-size-sm);
   line-height: var(--font-line-height-base);
@@ -1846,7 +1887,6 @@ textarea[data-terp="input"] {
   gap: var(--space-4);
   padding: var(--space-4);
   max-width: 32rem;
-  background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
 }
@@ -1992,7 +2032,6 @@ textarea[data-terp="input"] {
   padding: var(--space-4);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  background: var(--color-neutral-0);
   color: var(--color-neutral-900);
   box-sizing: border-box;
   transition: border-color var(--motion-duration-fast) var(--motion-easing-standard);
@@ -2102,6 +2141,11 @@ textarea[data-terp="input"] {
    leaves the toolbar inside a surface, and leaves two nested frames whenever the view
    is empty (the empty state's dashed frame inside the card's solid one).
 
+   What the slot carries is now a FRAME rather than a fill — border and radius, with the
+   page showing through, per the card rule's note on the surface model. That changes the
+   sentence above by one word and not the ownership it settles: the frame is the table's,
+   not the view's.
+
    Keyed on [data-variant="full"] rather than the bare marker for the reason the
    previous rule gave and which still holds: [data-variant="embedded"] must declare
    nothing, and un-declaring a surface with background: transparent / border: 0 is the
@@ -2109,7 +2153,6 @@ textarea[data-terp="input"] {
 [data-terp="dataview"][data-variant="full"] > [data-terp="dataview-scroll"],
 [data-terp="dataview"][data-variant="full"] > [data-terp="dataview-error"],
 [data-terp="dataview"][data-variant="full"] > [data-terp="dataview-skeleton"] {
-  background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
 }
@@ -2216,10 +2259,15 @@ textarea[data-terp="input"] {
 [data-terp="dataview-toolbar"][data-variant="selection"] {
   /* Still a filled surface, because it marks a MODE and losing that would make
      selection invisible — but now it is a surface of its own rather than a band of the
-     card, so it takes the padding and radius that make it read as one. */
+     card, so it takes the padding and radius that make it read as one.
+
+     And the fill is the SELECTION token now, not --color-neutral-50: that value is the
+     canvas, so the strip that floats on the canvas was painting a rectangle nobody could
+     see. --color-interactive-selected is what the selected rows below it carry, which is
+     the pairing this band wanted anyway — one mode, one colour, top to bottom. */
   padding-inline: var(--density-cell-pad-x);
   border-radius: var(--radius-md);
-  background: var(--color-neutral-50);
+  background: var(--color-interactive-selected);
 }
 [data-terp="dataview-toolbar-count"] {
   font-weight: var(--font-weight-medium);
@@ -2397,7 +2445,6 @@ input[data-terp="input"][type="password"]::-ms-reveal {
   letter-spacing: 0.04em;
   border-bottom: 1px solid var(--color-neutral-200);
   white-space: nowrap;
-  background: var(--color-neutral-0);
 }
 /* A column's declared track. A MINIMUM rather than a width, because a specified width is only a
    preference under table-layout: auto and the algorithm shrinks it to fit — which is why the pixel
@@ -2455,9 +2502,16 @@ input[data-terp="input"][type="password"]::-ms-reveal {
    A row's own state outranks the selection tint, and the :not() is what says so
    without depending on source order — both selectors weigh (0,2,0) otherwise,
    which is precisely the trap the layer comment at the top of this file
-   describes. Selection stays legible through the checkbox and data-selected. */
+   describes. Selection stays legible through the checkbox and data-selected.
+
+   The tint is --color-interactive-selected, the token's first reader. It was
+   --color-neutral-50 — the canvas — which read as a tint only while the table sat on a
+   filled card, and equalled the hover wash exactly, so a selected row and a pointed-at
+   row looked the same. A brand-tinted row now says selected in every theme, and holds
+   muted ink at AA there (5.19 at its narrowest, in midnight; declared as
+   muted-on-selection so the gate measures it). */
 [data-terp="dataview-row"][data-selected="true"]:not([data-tone]) {
-  background: var(--color-neutral-50);
+  background: var(--color-interactive-selected);
 }
 [data-terp="dataview-row"][data-tone="neutral"] {
   background: var(--color-neutral-100);
@@ -2571,7 +2625,6 @@ th[data-terp="dataview-actions-cell"] > span {
   display: grid;
   gap: var(--space-2);
   padding: var(--density-cell-pad-y) var(--density-cell-pad-x);
-  background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -2703,7 +2756,7 @@ th[data-terp="dataview-actions-cell"] > span {
    "this belongs to the row above" rather than as another row. */
 [data-terp="dataview-expanded-cell"] {
   padding: var(--density-cell-pad-y) var(--space-4);
-  background: var(--color-neutral-50);
+  background: var(--color-neutral-100);
   border-block-end: 1px solid var(--color-neutral-200);
 }
 
@@ -2887,13 +2940,13 @@ th[data-terp="dataview-actions-cell"] > span {
   padding: var(--space-3);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-md);
-  background: var(--color-neutral-0);
 }
 
 /* Empty / error / loading states ------------------------------------------- */
 /* Same centred block, opposite messages: empty is a dashed outline on the page
    surface because nothing is wrong, error is a filled danger wash because
-   something is. */
+   something is. Which is now literal — the outline is all of it, and the surface
+   underneath is whatever the block was dropped on. */
 [data-terp="empty-state"] {
   display: grid;
   justify-items: center;
@@ -2903,7 +2956,6 @@ th[data-terp="dataview-actions-cell"] > span {
   color: var(--color-neutral-600);
   border: 1px dashed var(--color-neutral-300);
   border-radius: var(--radius-lg);
-  background: var(--color-neutral-0);
 }
 /* Compact: a section's emptiness rather than the page's. Same frame and same words,
    laid out as a row — the glyph beside the text instead of above it — so two of
@@ -3895,8 +3947,12 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 [data-terp="input"]:disabled {
   /* background-color (not the background shorthand) so the Select's chevron,
-     drawn as a background-image, survives the disabled state. */
-  background-color: var(--color-neutral-50);
+     drawn as a background-image, survives the disabled state.
+
+     --color-neutral-100 rather than the canvas value it used to carry: a disabled field
+     on a card with no fill would have been a hole in the page rather than a control with
+     a wash, and the enabled field beside it paints the other end of the ramp. */
+  background-color: var(--color-neutral-100);
   color: var(--color-fg-subtle);
   cursor: not-allowed;
 }
@@ -4194,8 +4250,14 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="dataview-table"] tbody tr {
   transition: background-color var(--motion-duration-fast) var(--motion-easing-standard);
 }
+/* --color-interactive-hover, which is the semantic name for the value every control's
+   hover in this sheet already spells, and the token's first reader. The row was one step
+   lighter, on the canvas value, so once the table frame stopped painting a fill there was
+   nothing for a hover to differ from. It shares that value with a neutral-toned row: a
+   hovered neutral row shows no wash change, and the cursor is what says it is hoverable
+   there. */
 [data-terp="dataview-table"] tbody tr:hover td {
-  background: var(--color-neutral-50);
+  background: var(--color-interactive-hover);
 }
 /* The row containing keyboard focus, highlighted because it is the one Enter would
    open. Guarded on data-clickable, and the guard is not decoration: the row marker

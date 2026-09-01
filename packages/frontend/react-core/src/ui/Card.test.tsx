@@ -81,7 +81,7 @@ describe("Card", () => {
   });
   it("names the plain variant and leaves the boxed default unmarked", () => {
     // The chrome-less titled region. A variant rather than a `Section` component of its own,
-    // because a chrome-less region is this element with three declarations removed — a second
+    // because a chrome-less region is this element with two declarations removed — a second
     // component would have meant six more markers describing the same DOM, and a `Surface` is
     // a Card with no title, which this already is.
     const { rerender } = render(<Card variant="plain" title="Plain">body</Card>);
