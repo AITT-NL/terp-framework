@@ -73,4 +73,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=10s \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
 # No --reload: production serves immutable code.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --timeout-graceful-shutdown bounds the wait for in-flight tasks; unset, uvicorn waits
+# forever, and a realtime stream never ends on its own. Eight seconds sits under Compose's
+# ten-second default stop grace, so the process exits on its own terms instead of being killed.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "8"]

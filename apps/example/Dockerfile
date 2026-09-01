@@ -48,4 +48,7 @@ RUN useradd --create-home --uid 10001 terp && chown -R terp /workspace
 USER terp
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --timeout-graceful-shutdown bounds the wait for in-flight tasks; unset, uvicorn waits
+# forever, and a realtime stream never ends on its own. Eight seconds sits under Compose's
+# ten-second default stop grace, so the process exits on its own terms instead of being killed.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "8"]

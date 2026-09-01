@@ -48,6 +48,34 @@ apps wire a shared broker and `RedisConnectionTicketStore` (atomic GET+DEL),
 shipped behind the `terp-cap-redis[realtime]` extra
 (`terp.capabilities.redis.realtime`).
 
+## Serving an app that has channels
+
+**Mounting this capability changes how the app must be served.** A channel's
+stream is a task with no end condition of its own: it closes when the client
+goes away, and until then it keeps the connection open on purpose. uvicorn's
+`timeout_graceful_shutdown` is unset by default, and unset means *wait for
+in-flight tasks* — so with one browser tab subscribed, a shutdown never
+completes. In the dev loop that is a reloader that never restarts; in
+production it is a container that stops only when the orchestrator kills it.
+
+So bound it, explicitly, in every invocation:
+
+```
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 8
+```
+
+The template and the example app ship this bound already (ADR 0108): **3**
+seconds wherever `--reload` is on, because the reload loop pays the wait on
+every backend edit, and **8** seconds in both images, which sits under Compose's
+ten-second default `stop_grace_period` so the process exits on its own terms
+rather than being killed mid-write. `terp dev` carries the same 3-second bound
+and takes `--shutdown-timeout` to change it.
+
+Pick your own number by the same two questions: how long a genuine in-flight
+request may need, and how long the thing that stops your container waits before
+it stops asking. The value has to be under the second one, or the bound never
+takes effect.
+
 ## Frontend
 
 App modules use the package-root hook, never raw transports:

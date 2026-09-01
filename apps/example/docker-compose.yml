@@ -77,7 +77,10 @@ services:
     build:
       context: ../..
       dockerfile: apps/example/Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    # --timeout-graceful-shutdown: a realtime stream ends when its client goes away and not
+    # otherwise, and uvicorn waits for in-flight tasks forever by default, so one open tab
+    # would hold every reload. Three seconds, because the reload loop pays it per edit.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--timeout-graceful-shutdown", "3"]
     environment:
       <<: *backend-env
       # Bind-mounted source can live on a filesystem without inotify (Docker

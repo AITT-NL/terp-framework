@@ -19,7 +19,7 @@ from terp.cli.access import (
 )
 from terp.cli.apidocs import api_docs
 from terp.cli.capabilities import render_capabilities
-from terp.cli.dev import dev_plan, run_dev_command
+from terp.cli.dev import SHUTDOWN_TIMEOUT_SECONDS, dev_plan, run_dev_command
 from terp.cli.docker import run_docker_dev_command
 from terp.cli.fmt import changed_python_files, run_fmt_command
 from terp.cli.leases import reap_leases_command, render_leases
@@ -1016,6 +1016,15 @@ Realtime push (realtime capability)
 - Inbound (websocket) messages are size-capped, validated against inbound_model, gated by
   inbound_requirement, and handled by on_message with a real session - so a client message
   goes through the same audited service path as an HTTP write.
+- MOUNTING THIS CHANGES HOW THE APP MUST BE SERVED. A stream ends when its client goes
+  away and not otherwise, and uvicorn waits for in-flight tasks FOREVER unless told not
+  to - so one subscribed browser tab means a reloader that never restarts and a container
+  that stops only when the orchestrator kills it. Every invocation carries a bound:
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 8
+  The template and the example ship it (3s where --reload is on, since the reload loop
+  pays it per edit; 8s in the images, under Compose's 10s default stop grace). terp dev
+  carries 3s and takes --shutdown-timeout. Yours must be under whatever stops your
+  container, or the bound never takes effect. ADR 0108.
 """,
     "files": """\
 File objects (files capability, ADR 0056/0057)
@@ -2664,6 +2673,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--port", type=int, default=8000, help="Backend port (default: 8000)"
     )
     dev_parser.add_argument(
+        "--shutdown-timeout",
+        type=int,
+        default=SHUTDOWN_TIMEOUT_SECONDS,
+        help=(
+            "Seconds to wait for in-flight work before cancelling it on restart "
+            f"(default: {SHUTDOWN_TIMEOUT_SECONDS}); a realtime stream never ends on its own"
+        ),
+    )
+    dev_parser.add_argument(
         "--openapi-out",
         default="openapi.json",
         help="Preflight OpenAPI output path, relative to root (default: openapi.json)",
@@ -3064,6 +3082,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 frontend_dir=args.frontend_dir,
                 host=args.host,
                 port=args.port,
+                shutdown_timeout=args.shutdown_timeout,
                 openapi_out=args.openapi_out,
                 preflight=not args.no_preflight,
             )
