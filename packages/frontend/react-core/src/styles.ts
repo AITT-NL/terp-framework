@@ -181,6 +181,20 @@ export const TERP_STYLES_CSS = `
   --density-cell-pad-y: var(--density-compact-cell-pad-y);
   --density-cell-pad-x: var(--density-compact-cell-pad-x);
 }
+/* The content column's gutter, tightened for a phone. One remap, and it replaces the two
+   base-plus-variant pairs the header and main each used to carry: everything that has to
+   start on the same vertical line now reads --shell-gutter and the variant moves the value
+   once. The band the page header renders also reads it as a NEGATIVE margin to bleed to the
+   column's edge, so a fourth and fifth copy of the same measure would have arrived with it —
+   which is what turned this from a nice-to-have into the mechanism.
+
+   UNLAYERED, beside the density remap, for the reason recorded there and not by analogy:
+   tokens.css declares --shell-gutter on :root and ships as an extracted <link> that PRECEDES
+   the injected sheet, so a layered copy of this rule would lose to it in a production build
+   while winning in dev. (0,2,0) against :root's (0,1,0) settles it here in either. */
+[data-terp="appshell"][data-variant="mobile"] {
+  --shell-gutter: var(--space-4);
+}
 
 @layer terp.reset {
 /* Document reset: the app shell owns the full canvas. Without this the
@@ -1437,29 +1451,25 @@ textarea[data-terp="input"] {
   min-width: 0;
 }
 /* The header's INLINE padding is the content column's gutter, and it is a shared measure
-   rather than a value this rule is free to pick. Three boxes stack in the column — this
-   header, appshell-main and appshell-footer — and whatever the topmost thing in the page
-   is starts at main's padding edge. On a routed view that thing is the breadcrumb trail,
-   which is the first child of Page's header, so the trail's left edge IS main's gutter.
+   rather than a value this rule is free to pick. Four boxes have to start on the same
+   vertical line — this header, appshell-main, appshell-footer, and the band the page header
+   renders, which reaches the column's edge by reading the same value as a negative margin.
 
    It was var(--space-4) here against var(--space-6) on main and on the footer, which put
-   the trail 0.5rem right of the header's own toggle on every desktop shell and lined it up
-   with nothing: two of the three boxes already agreed and the header was the outlier. Not a
-   clean indent either, which is why it read as broken rather than deliberate — the toggle
-   is a 2.25rem box centring a 1em glyph at font-size-sm, so its BOX sat 8px left of the
-   trail while its GLYPH sat 3px right of it. On mobile it happened to be correct, because
-   main steps down to var(--space-4) there and met the header's fixed value by accident.
+   the breadcrumb trail 0.5rem right of the header's own toggle on every desktop shell and
+   lined it up with nothing: two of the three boxes already agreed and the header was the
+   outlier. Not a clean indent either, which is why it read as broken rather than deliberate
+   — the toggle is a 2.25rem box centring a 1em glyph at font-size-sm, so its BOX sat 8px
+   left of the trail while its GLYPH sat 3px right of it. On mobile it happened to be
+   correct, because main stepped down to var(--space-4) and met the header's fixed value by
+   accident.
 
-   So the two agree at both variants now, deliberately: var(--space-6) here and the mobile
-   override below, mirroring main's own base-plus-variant pair. The block padding is
-   untouched and stays var(--space-2) under the min-height floor.
-
-   Not unified into one custom property, which was tried first: tokens.guard.test.ts refuses
-   a fallback-less var() against anything tokens.css does not declare, so --shell-gutter
-   would have to be published as a contract token. That is shell geometry under ADR 0097 §1
-   and a new public knob, so it is a decision with a record rather than the fix for this. The
-   three values are held equal by a test instead — styles.test.ts, "keeps the content
-   column's gutter one measure" — which is what was missing rather than the abstraction.
+   Every reader now names --shell-gutter and the variant moves the value once, at the remap
+   above. That is a published contract token rather than a private property because
+   tokens.guard.test.ts refuses a fallback-less var() against anything tokens.css does not
+   declare — and a shell measure an app may want to move is what ADR 0097 §1 says a contract
+   token is for. The block padding is untouched and stays var(--space-2) under the
+   min-height floor.
 
    No backticks anywhere above, and that is not a style preference: one here terminates
    TERP_STYLES_CSS and the parse then fails somewhere else entirely with "try inserting a
@@ -1473,16 +1483,11 @@ textarea[data-terp="input"] {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-6);
+  padding: var(--space-2) var(--shell-gutter);
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   background: var(--color-neutral-0);
   border-block-end: 1px solid var(--color-neutral-200);
-}
-/* The mobile half of that pair. padding-inline only — the block padding is the same at both
-   variants, and restating it here would be a second owner for a value that never varies. */
-[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-header"] {
-  padding-inline: var(--space-4);
 }
 [data-terp="appshell-header-group"] {
   display: flex;
@@ -1531,19 +1536,17 @@ textarea[data-terp="input"] {
 [data-terp="appshell-brand-row"] > [data-terp="iconbutton"] {
   color: var(--color-sidebar-muted);
 }
-/* Main and the footer below carry the same inline gutter as the header — see that rule for
-   why the three are one measure. Moving this one without moving those two is what put the
-   breadcrumb trail 0.5rem off the header for every desktop shell. */
+/* Main, the footer and the page band all read the same gutter as the header — see that rule
+   for why they are one measure. The mobile override this pair used to carry is gone into the
+   remap: --shell-gutter is 1.5rem on desktop and 1rem on a phone, which is exactly what the
+   two rules computed, so nothing moves and there is one owner instead of two. */
 [data-terp="appshell-main"] {
   flex-grow: 1;
-  padding: var(--space-6);
+  padding: var(--shell-gutter);
   min-width: 0;
 }
-[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-main"] {
-  padding: var(--space-4);
-}
 [data-terp="appshell-footer"] {
-  padding: var(--space-3) var(--space-6);
+  padding: var(--space-3) var(--shell-gutter);
   border-block-start: 1px solid var(--color-neutral-200);
   color: var(--color-fg-subtle);
   font-size: var(--font-size-xs);
@@ -1655,46 +1658,123 @@ textarea[data-terp="input"] {
 [data-terp="page"][data-measure="narrow"] {
   max-width: 32rem;
 }
+/* The page band (ADR 0097 §2, amended by building it).
+
+   ONE row, and the row IS the title. The frame used to spend two: a crumb row with a 2rem
+   floor, then an h1 row at font-size-xl. Those two rows said the same thing twice, and the
+   duplication was in the component rather than in the eye of a reviewer — Page built its
+   trail as [...breadcrumbs, { label: title }] and then rendered <h1>{title}</h1>, so every
+   DetailPage in every app printed its own name as the leaf crumb and again 24px below it.
+   Removing one of the two was therefore the whole design question, and the answer is that
+   the TRAIL survives: it carries the path back up, which an h1 cannot, and its leaf is a
+   heading, which a crumb need not be. So the leaf is the h1 (see page-title below) and the
+   band is the trail with the page's badges, its lead line and its actions on the same line.
+
+   xl retires from page-title with it, and that is a reversal of 4b's type-scale decision
+   rather than a side effect. That decision was right for the shape it was made in: when the
+   title is the page's masthead, 24 / 18 / 16 / 14 is a scale and 18 / 16 / 16 / 14 is a
+   list. In a band the title is CHROME — it names where you are, above content that starts
+   immediately under a border — and a 24px leaf on a trail of 14px ancestors reads as
+   small-small-BIG rather than as one trail. It also does not fit: the band is
+   shell-header-height with space-2 of block padding, which leaves 2rem, and xl at
+   line-height 1.3 is 1.95rem of it before a badge or a lead line asks for room.
+   --font-size-xl keeps two readers (heading[data-size="xl"], login-title), so the top of the
+   scale is still wired; an app that wants the masthead back redefines the marker from its own
+   unlayered theme.css, exactly as the retired comment here said.
+
+   align-items: center rather than baseline, because the row mixes a heading, pill badges and
+   a button cluster: baseline alignment lines up the text and leaves the pills sitting low.
+   Wrapping is kept from the old heading row for the same reason it was there — a long title
+   meeting a wide action cluster takes a second line instead of overflowing — and the band
+   grows past its floor when it does. */
 [data-terp="page-header"] {
-  display: grid;
-  gap: var(--space-2);
-}
-/* The crumb row keeps a 2rem floor, and it is doing work rather than reserving
-   space for its own sake: the trail is shorter than 2rem at font-size-sm, so
-   dropping the floor closes the gap under the trail on every page that has one.
-   Measured — removing it moves all six baselines with a trail and nothing else. */
-[data-terp="page-breadcrumbs"] {
   display: flex;
-  align-items: center;
-  min-height: 2rem;
-}
-/* Title left, the actions slot right, wrapping rather than overflowing when a long
-   title meets a wide action cluster. */
-[data-terp="page-heading"] {
-  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
 }
-/* The single h1 of the view. margin: 0 is load-bearing — the browser default h1
-   margin would otherwise fight the header's own gap. */
-/* xl, not lg, and the scale is the reason. At lg the single h1 of a view rendered 18px
-   against a 16px card title and 16px body copy — one step from a section heading, and a
-   section heading the same size as prose. --font-size-xl (24px) was published with one
-   reader (heading[data-size="xl"]), so the top of the scale existed and the page that most
-   needs it was not using it. 24 / 18 / 16 / 14 is a scale; 18 / 16 / 16 / 14 is a list.
+/* The band's left group: the trail (whose leaf is the h1), then badges, then the lead line.
+   flex: 1 1 auto with min-width: 0 is what lets the lead line truncate instead of pushing
+   the action cluster off the row. */
+[data-terp="page-heading"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* The single h1 of the view, and now also the trail's current crumb: one node instead of two
+   copies of one string. margin: 0 is load-bearing twice over — the browser default h1 margin
+   would fight the band's own gap, and an h1 inside the trail's <li> would otherwise break the
+   row. font-size is declared rather than inherited because the UA sheet sets h1 { font-size:
+   2em } ON the element, and a declaration on the element beats an inherited value however
+   specific the ancestor rule is: without this the leaf renders at twice the trail.
 
-   No prop, and no per-app knob: an app that wants otherwise redefines the marker from its
-   own unlayered theme.css, which is what the cascade-layer architecture is for (ADR 0094 —
-   this sheet carries no !important, so the app wins without one). */
+   Semibold at the trail's own size, which is the whole "the trail is the title" idea in one
+   declaration — heavier than its ancestors, not larger. */
 [data-terp="page-title"] {
   margin: 0;
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0;
   color: var(--color-neutral-900);
   line-height: 1.3;
+}
+/* Status pills next to the title. A row of its own so a page passing several keeps them
+   together when the band wraps, rather than letting one pill orphan onto the second line. */
+[data-terp="page-badges"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+/* The lead line: one short sentence about the page, truncated rather than wrapped, because
+   the band has a height and prose that wraps would set it. A page whose explanation does not
+   fit on one line is describing its body, and that belongs in the body. */
+[data-terp="page-description"] {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-fg-subtle);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The chrome, and it is deliberately gated on being inside a shell rather than declared on
+   the band outright. The band bleeds to the content column's edge with the negative-margin
+   idiom, which is only correct when the box it is escaping is appshell-main and that box
+   pads by exactly --shell-gutter. The workbench renders Page standalone inside a specimen
+   card and so do the unit tests, and there the same declarations would drag the band out of
+   its container: 0097 §2 kept "it works with no shell above it at all" as a property of the
+   mechanism, and this keeps it. Standalone, the band is still a bordered row at the header's
+   height; it just does not bleed.
+
+   ONE rule for both variants, which is the payoff of the token rather than a tidy-up. As two
+   literals this needed a mobile twin, and a negative margin whose sign has to agree with a
+   padding declared three rules away is exactly the drift that put the trail 8px off the
+   header in the first place.
+
+   :not([data-measure="narrow"]) because a form is capped WITH its header (ADR 0098 §3) — a
+   Save button a screen-width from its field is worse than one over it — so a form gets the
+   one-row band with no bleed, no border and no floor: a title row, which is what it wants.
+
+   box-sizing: border-box so the floor counts the padding, matching appshell-header, whose
+   height this is reading. Without it the two are a padding apart and the "same height as the
+   header above it" claim is off by 1rem. */
+[data-terp="appshell-main"]
+  > [data-terp="page"]:not([data-measure="narrow"])
+  > [data-terp="page-header"] {
+  margin: calc(-1 * var(--shell-gutter)) calc(-1 * var(--shell-gutter)) 0;
+  padding: var(--space-2) var(--shell-gutter);
+  min-height: var(--shell-header-height);
+  box-sizing: border-box;
+  background: var(--color-neutral-0);
+  border-block-end: 1px solid var(--color-neutral-200);
 }
 /* The content measure, and the subheader band, which are ONE declaration rather than two
    features (ADR 0097 §2). A full-width band only means anything once the column beside it is

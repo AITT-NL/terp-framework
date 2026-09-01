@@ -347,12 +347,6 @@ describe("cascade structure", () => {
     for (const selector of [
       '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-sidebar"]',
       '[data-terp="appshell-backdrop"]',
-      '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-main"]',
-      // The header's half of the gutter pair, and it is mobile-only for the same reason
-      // main's is: the phone bar takes the tighter inline padding so the trail below it
-      // still starts on the same edge. `the content column's gutter is one measure` is the
-      // gate on the two agreeing; this loop is the gate on the rule existing at all.
-      '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-header"]',
     ]) {
       expect(
         declaresRuleFor(base, selector),
@@ -360,24 +354,39 @@ describe("cascade structure", () => {
           "pictures of it",
       ).toBe(true);
     }
+    // The gutter's phone value is ONE rule where the header and main used to carry a mobile
+    // override each, and it is asserted against the UNLAYERED prelude rather than terp.base
+    // because that is where it has to live: tokens.css declares --shell-gutter on :root and
+    // ships as an extracted <link> ahead of this sheet, so a layered copy would lose to it
+    // in a production build while winning in dev — the exposure the density remap beside it
+    // records. app-shell-mobile is still its only picture.
+    const prelude = css.slice(0, css.indexOf("@layer terp.reset {"));
+    expect(
+      declaresRuleFor(prelude, '[data-terp="appshell"][data-variant="mobile"]'),
+      "the phone gutter must be remapped in the unlayered prelude, or tokens.css outranks it",
+    ).toBe(true);
+    expect(
+      declaresRuleFor(layerBody("terp.base"), '[data-terp="appshell"][data-variant="mobile"]'),
+      "a layered copy of the remap loses to tokens.css in a production build",
+    ).toBe(false);
   });
 
   it("keeps the content column's gutter one measure", () => {
     // The bug this exists for: appshell-header carried padding-inline var(--space-4) while
     // appshell-main and appshell-footer carried var(--space-6), so the breadcrumb trail —
     // the first thing inside main on every routed view — sat 0.5rem right of the header's
-    // own toggle. Three boxes stack in that column and the topmost content in each starts
-    // at its inline padding edge, so the three values are ONE measure and any two of them
-    // disagreeing is the defect.
+    // own toggle. Boxes stack in that column and the topmost content in each starts at its
+    // inline padding edge, so their gutters are ONE measure and any two disagreeing is the
+    // defect.
     //
     // No baseline caught it, and could not have: every app-shell specimen recorded the
     // misalignment as its expected picture from the first run. A screenshot says "this is
-    // what it looks like", never "these two edges are meant to be the same edge" — so the
-    // fact needs stating here or it drifts back the next time one of the three is tuned.
+    // what it looks like", never "these two edges are meant to be the same edge".
     //
-    // Read out of the rule BODIES rather than as substrings of the layer, so a declaration
-    // that moved onto some neighbouring rule during a consolidation fails instead of
-    // passing on a coincidental match elsewhere in 180 KB of sheet.
+    // It is now a published token with one remap rather than a literal repeated per box,
+    // which stopped being a preference when the page band arrived: the band reads the same
+    // measure as a NEGATIVE margin to reach the column's edge, so a literal would have had
+    // to agree in sign across rules three hundred lines apart.
     const base = layerBody("terp.base");
     const bodyFor = (selector: string): string => {
       for (const match of base.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
@@ -388,8 +397,8 @@ describe("cascade structure", () => {
     };
     /**
      * The inline padding a rule sets, from either the shorthand's second value or an
-     * explicit `padding-inline`. Both spellings are in play on purpose: the header sets
-     * block and inline together, and its mobile override touches inline alone.
+     * explicit `padding-inline`. Both spellings are in play on purpose: the header and the
+     * footer set block and inline together, main sets one value for all four sides.
      */
     const gutterOf = (selector: string): string => {
       const declarations = bodyFor(selector);
@@ -403,47 +412,62 @@ describe("cascade structure", () => {
       // than being read wrong.
       if (parts.length === 1) return parts[0]!;
       if (parts.length === 2) return parts[1]!;
-      throw new Error(`${selector} writes a ${parts.length}-value padding this reader cannot split`);
+      throw new Error(
+        `${selector} writes a ${parts.length}-value padding this reader cannot split`,
+      );
     };
 
-    const desktop = [
+    const column = [
       '[data-terp="appshell-header"]',
       '[data-terp="appshell-main"]',
       '[data-terp="appshell-footer"]',
     ].map((selector) => [selector, gutterOf(selector)] as const);
     expect(
-      new Set(desktop.map(([, gutter]) => gutter)).size,
-      `the column's three boxes must share one inline gutter, got ${desktop
+      new Set(column.map(([, gutter]) => gutter)).size,
+      `the column's boxes must share one inline gutter, got ${column
         .map(([selector, gutter]) => `${selector} = ${gutter}`)
         .join(", ")}`,
     ).toBe(1);
-    // And it stays on the spacing scale rather than becoming a literal, which is the other
-    // way a shared measure rots: three rules agreeing on `24px` agree until one is nudged.
-    expect(desktop[0]![1], "the gutter must name a spacing token").toMatch(
-      /^var\(--space-\d+\)$/,
+    // And it is the published token, not a spacing step restated three times. A literal here
+    // is the exact state the defect was in, and a literal passes the check above.
+    expect(column[0]![1], "the gutter must read the shell's own token").toBe(
+      "var(--shell-gutter)",
     );
 
-    // The mobile pair. The footer has no mobile override and inherits the desktop value,
-    // which is a real difference rather than an omission — the footer sits below the fold of
-    // a phone screen and nothing aligns to it — so only the two boxes the trail is measured
-    // against are held equal here.
-    const mobile = [
-      '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-header"]',
-      '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-main"]',
-    ].map((selector) => [selector, gutterOf(selector)] as const);
-    expect(
-      new Set(mobile.map(([, gutter]) => gutter)).size,
-      `the phone bar and the page below it must share one inline gutter, got ${mobile
-        .map(([selector, gutter]) => `${selector} = ${gutter}`)
-        .join(", ")}`,
-    ).toBe(1);
-    // The step itself is the point of the mobile pair existing, so assert there IS one: two
-    // overrides that resolved back to the desktop value would satisfy every check above
-    // while making both rules dead weight.
-    expect(
-      mobile[0]![1],
-      "the mobile override must tighten the gutter, or neither override earns its rule",
-    ).not.toBe(desktop[0]![1]);
+    // The band reaches the column's edge by negating that same token, so the sign agreement
+    // is a fact about two declarations in ONE rule rather than a coincidence between rules.
+    const band = bodyFor(
+      '[data-terp="appshell-main"] > [data-terp="page"]:not([data-measure="narrow"])'
+        + ' > [data-terp="page-header"]',
+    );
+    expect(band, "the band must bleed by negating the gutter it pads by").toContain(
+      "margin: calc(-1 * var(--shell-gutter)) calc(-1 * var(--shell-gutter)) 0",
+    );
+    expect(band, "the band must restore the gutter as its own padding").toContain(
+      "padding: var(--space-2) var(--shell-gutter)",
+    );
+    // Same height as the app header, by reading the header's own token rather than restating
+    // 3rem — and border-box, or the two are a padding apart and the claim is off by 1rem.
+    expect(band, "the band takes the app header's height").toContain(
+      "min-height: var(--shell-header-height)",
+    );
+    expect(band, "without border-box the floor excludes the padding").toContain(
+      "box-sizing: border-box",
+    );
+    expect(band, "the band is what separates chrome from content").toContain(
+      "border-block-end: 1px solid var(--color-neutral-200)",
+    );
+    // The chrome is keyed on being INSIDE a shell, and that is load-bearing rather than
+    // defensive: the workbench renders Page standalone in a specimen card and so do the unit
+    // tests, and there a negative margin would drag the band out of its container. ADR 0097
+    // section 2 kept "it works with no shell above it at all" as a property of the mechanism.
+    const bare = bodyFor('[data-terp="page-header"]');
+    for (const declaration of ["margin", "border-block-end", "min-height"]) {
+      expect(
+        bare.includes(declaration),
+        `the bare band must not declare ${declaration}: standalone Page has no main to bleed into`,
+      ).toBe(false);
+    }
   });
 
   it("keeps the hub-card declarations the lanes cannot explain", () => {
@@ -907,7 +931,12 @@ describe("cascade structure", () => {
     // one published scale rather than four sizes that happen to differ.
     const base = layerBody("terp.base");
     for (const [selector, step] of [
-      ['[data-terp="page-title"]', "xl"],
+      // page-title is deliberately NOT here any more. It left the top step when the header
+      // became a band: there the title is chrome, semibold at the trail's own size, because
+      // it IS the trail's leaf. The page-band block in styles.ts carries the reasoning.
+      // The top step keeps two readers (heading[data-size="xl"], login-title), which is what
+      // stops the token going unread — tokens.guard.test.ts holds that end.
+      ['[data-terp="heading"][data-size="xl"]', "xl"],
       ['[data-terp="card-title"]', "lg"],
       ['[data-terp="card-description"]', "sm"],
     ] as const) {
@@ -1559,8 +1588,9 @@ describe("cascade structure", () => {
       "appshell-footer",
       "page",
       "page-header",
-      "page-breadcrumbs",
       "page-heading",
+      "page-badges",
+      "page-description",
       "page-title",
       "resource-list",
       "resource-list-create",

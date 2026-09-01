@@ -105,6 +105,7 @@
   --shell-header-height: 3rem;
   --shell-content-max-width: 80rem;
   --shell-brand-size: 1.75rem;
+  --shell-gutter: 1.5rem;
   --breakpoint-sm: 480px;
   --breakpoint-md: 768px;
   --breakpoint-lg: 1024px;

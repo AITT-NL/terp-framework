@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useContext, useEffect, useRef, useState } from "react";
+import { Fragment, useContext, useEffect, useRef, useState } from "react";
 
 import { Breadcrumbs } from "./Breadcrumbs";
 import type { BreadcrumbItem, RenderBreadcrumbLink } from "./Breadcrumbs";
@@ -21,8 +21,25 @@ export interface PageProps {
   breadcrumbs?: readonly BreadcrumbItem[];
   /** Link renderer for ancestor crumbs; defaults to the surrounding router's `Link` (see {@link Breadcrumbs}). */
   renderLink?: RenderBreadcrumbLink;
-  /** Optional page-level actions, rendered on the heading row (e.g. a primary `Button`). */
+  /** Optional page-level actions, rendered at the band's right edge (e.g. a primary `Button`). */
   actions?: ReactNode;
+  /**
+   * Status pill(s) for the page's subject, shown next to the title — an entity's state, a
+   * visibility marker. Pass a `Badge` (or several) so the tone is the caller's choice; a
+   * bare string is not accepted, because "which tone" is a decision this frame cannot make.
+   *
+   * Keep it to a handful of short labels. This is a badge row on a bounded band, not a place
+   * for prose — that is what `description` is, and neither is a place for a paragraph.
+   */
+  badges?: ReactNode | readonly ReactNode[];
+  /**
+   * One short line about the page, shown after the badges and truncated to a single line.
+   *
+   * It is chrome, not content: the band has a height, so a lead line that would wrap is
+   * clipped rather than allowed to set it. An explanation that does not fit is describing the
+   * body and belongs in the body.
+   */
+  description?: ReactNode;
   /**
    * Cap the whole frame — header included — at a readable measure (default `"full"`).
    *
@@ -58,11 +75,27 @@ export interface PageProps {
 }
 
 /**
- * The base content-page frame: every routed view is constructed the same way — one
- * header holding the breadcrumb trail (when there is a path back up through the
- * layers), then one row with the single `h1` title on the left and the page's
- * `actions` slot on the right, then the body. A root page omits the redundant
- * current-page-only crumb. Title-first DOM order keeps narrow layouts natural.
+ * The base content-page frame: every routed view is constructed the same way — one band
+ * carrying the page's identity and its actions, then the body.
+ *
+ * **The band is one row, the row is the title, and the title is the trail's leaf.** Every
+ * page renders a trail: its ancestors link up through the layers and its leaf is the view's
+ * single `h1` (see `Breadcrumbs`' `currentAs`). An overview with no parents is a trail of
+ * one, which is deliberately the same node in the same boxes as a detail's leaf — so
+ * opening a record slides the name right behind its new parents instead of moving it between
+ * two different layouts.
+ *
+ * The page's name therefore appears exactly ONCE, which is the defect this shape fixed: the
+ * frame used to append `title` to the trail *and* render it as an `h1`, so every `DetailPage`
+ * printed its own name twice, a couple of dozen pixels apart.
+ *
+ * `badges` and `description` sit after the title and `actions` at the right edge, all on that
+ * one line. Inside a shell the band bleeds to the content column's edge and takes the app
+ * header's own height and a bottom border, so the two read as one piece of chrome; standalone
+ * — the workbench, the unit tests — it is the same row without the bleed. A `measure="narrow"`
+ * frame (`FormPage`, `SettingsPage`) keeps the row and drops the chrome, because a form is
+ * capped with its header (ADR 0098 §3).
+ *
  * `OverviewPage` and `DetailPage` specialise it for the standard overview -> detail
  * layering; a bespoke screen composes `Page` directly.
  *
@@ -78,6 +111,8 @@ export function Page({
   breadcrumbs,
   renderLink,
   actions,
+  badges,
+  description,
   measure = "full",
   isLoading,
   loadingState,
@@ -115,8 +150,17 @@ export function Page({
   if (slotViolation !== null) {
     throw new Error(slotViolation);
   }
-  const hasAncestors = breadcrumbs !== undefined && breadcrumbs.length > 0;
-  const trail: BreadcrumbItem[] = hasAncestors ? [...breadcrumbs, { label: title }] : [];
+  // ALWAYS a trail, even of one, and that is the point rather than a simplification.
+  // An overview's title has to be the same node in the same boxes as a detail's, or the name
+  // moves the moment you open a record: one path rendered a bare h1 and the other rendered
+  // the h1 inside nav > ol > li, so the text sat at two slightly different places and the
+  // transition showed it. A trail of one is the overview's title; append an ancestor and the
+  // same leaf slides right behind its parents, which is the only motion there should be.
+  const trail: BreadcrumbItem[] = [...(breadcrumbs ?? []), { label: title }];
+  // Normalised rather than branched at the site, so one badge and several take the same path
+  // and the row exists or does not exist for one reason.
+  const badgeList: readonly ReactNode[] =
+    badges === undefined || badges === null ? [] : ([] as ReactNode[]).concat(badges);
   const body =
     error !== null && error !== undefined ? (
       (errorState ?? <ErrorState error={error} />)
@@ -138,15 +182,23 @@ export function Page({
           wrapper of its own — not even a display: contents one, since article.children is a
           DOM traversal and would see it. */}
       <header data-terp="page-header">
-        {hasAncestors && (
-          <div data-terp="page-breadcrumbs">
-            <Breadcrumbs items={trail} renderLink={renderLink} />
-          </div>
-        )}
         <div data-terp="page-heading">
-          <h1 data-terp="page-title">{resolve(title)}</h1>
-          {actions}
+          {/* The trail carries the h1 as its leaf. No wrapper of its own any more: the crumb
+              row it used to sit in existed to hold a 2rem floor above the title row, and
+              there is no title row to be above. */}
+          <Breadcrumbs items={trail} renderLink={renderLink} currentAs="h1" />
+          {badgeList.length > 0 && (
+            <div data-terp="page-badges">
+              {badgeList.map((badge, index) => (
+                <Fragment key={index}>{badge}</Fragment>
+              ))}
+            </div>
+          )}
+          {description !== undefined && description !== null && (
+            <p data-terp="page-description">{description}</p>
+          )}
         </div>
+        {actions}
       </header>
       {/* Reset the slot for the body's own subtree, so nested content is never judged
           by an ancestor archetype's slot. */}

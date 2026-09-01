@@ -257,13 +257,29 @@ test("the content measure caps the body and leaves the header on the full track"
       token: getComputedStyle(document.documentElement)
         .getPropertyValue("--shell-content-max-width")
         .trim(),
+      gutter: Math.round(
+        Number.parseFloat(
+          getComputedStyle(document.documentElement).fontSize,
+        ) *
+          Number.parseFloat(
+            getComputedStyle(document.documentElement)
+              .getPropertyValue("--shell-gutter")
+              .trim(),
+          ),
+      ),
     };
   });
 
   expect(measured.token).toBe("80rem");
-  // The header spans the track, and the track is genuinely wider than the measure — assert
-  // that rather than a bare inequality, or the test passes on a page too narrow to cap.
-  expect(measured.header).toBe(measured.article);
+  // The band reaches PAST the track, by exactly the gutter it bleeds into on each side,
+  // and that is the assertion rather than header === article. It used to be equality,
+  // which was the whole truth while the header could at most fill the article's track; the
+  // band now escapes appshell-main's padding so the two read as one piece of chrome with
+  // the app header above it. Stated as a relation to the live gutter rather than as 1586,
+  // so moving --shell-gutter moves the expectation with it instead of reddening this.
+  expect(measured.gutter, "the gutter must resolve, or the arithmetic below is vacuous")
+    .toBeGreaterThan(0);
+  expect(measured.header).toBe(measured.article + 2 * measured.gutter);
   expect(
     measured.article,
     "the specimen's viewport must leave a track wider than the measure, or nothing is capped",

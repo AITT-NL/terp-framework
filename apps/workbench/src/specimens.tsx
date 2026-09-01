@@ -2298,12 +2298,76 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       },
       {
         id: "page-header",
-        title: "Page — breadcrumbs, title and actions",
+        title: "Page — the band: trail, badges, lead line and actions",
         node: (
           <Page
             title="Customer master"
             breadcrumbs={[{ label: "Records", to: "/records" }]}
+            badges={[
+              <Badge key="state" tone="success">
+                Published
+              </Badge>,
+              <Badge key="scope" tone="neutral">
+                All regions
+              </Badge>,
+            ]}
+            description="Every account the ERP will accept an order against."
             actions={<Button variant="primary">Publish</Button>}
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // The band with nothing but a title, which is the shape most pages have and the one
+        // the slots must not cost anything: no badge row, no lead line, no reserved gap. Read
+        // beside page-header, this pair is the only picture of "absent is absent".
+        id: "page-header-bare",
+        title: "Page — the band with a title and nothing else",
+        node: (
+          <Page title="Customer master" breadcrumbs={[{ label: "Records", to: "/records" }]}>
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // A root page: the h1 alone, and deliberately NO Breadcrumb landmark, because a trail
+        // of one is not navigation. The band chrome is identical either way, which is what
+        // this picture is for.
+        id: "page-header-root",
+        title: "Page — a root page, heading with no trail",
+        node: (
+          <Page
+            title="Customer master"
+            badges={<Badge tone="neutral">Read only</Badge>}
+            actions={<Button variant="primary">Publish</Button>}
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // A long title meeting a wide action cluster: the band wraps rather than overflowing,
+        // and grows past its floor when it does. The lead line truncates instead of wrapping,
+        // which is the declaration a screenshot can actually hold.
+        id: "page-header-crowded",
+        title: "Page — a long title, a lead line and a wide action cluster",
+        node: (
+          <Page
+            title="Customer master data, consolidated across every operating company"
+            breadcrumbs={[
+              { label: "Records", to: "/records" },
+              { label: "Master data", to: "/records/master" },
+            ]}
+            badges={<Badge tone="warning">Review</Badge>}
+            description="A lead line long enough that it has to be cut off rather than allowed to wrap onto a second line and set the band's height."
+            actions={
+              <PageActions
+                primary={<Button variant="primary">Publish</Button>}
+                secondary={<Button>Discard</Button>}
+                overflow={[{ label: "Delete", variant: "destructive", onSelect: () => {} }]}
+              />
+            }
           >
             <p style={{ margin: 0 }}>Body content below the header.</p>
           </Page>

@@ -104,6 +104,69 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **The page header said the same thing twice, and neither copy was chrome.** Reported from
+  building an app whose page chrome puts the breadcrumb where the eye lands first. Two
+  defects, one shape.
+
+  *The name was printed twice.* The frame spent two rows: a crumb row with a 2rem floor,
+  then an `h1`. `Page` built its trail as `[...breadcrumbs, { label: title }]` and then
+  rendered `<h1>{title}</h1>`, so every `DetailPage` in every app showed its own name as the
+  leaf crumb and again a couple of dozen pixels below it. That is a duplication in the
+  component, not a matter of taste, and removing one of the two was the whole design
+  question. The **trail** survives: it carries the path back up, which an `h1` cannot, and
+  its leaf is a heading, which a crumb need not be. So `Breadcrumbs` takes `currentAs`, the
+  leaf renders as the view's single `h1`, and the page's name appears exactly once.
+
+  *And the band was a width, not chrome.* ADR 0097 §2 shipped "the band" as the page header
+  keeping the article's full grid track while the body is capped at a measure. A header at
+  track width with no border, no height and no slots is indistinguishable from a title row,
+  so the shape that section's own first paragraph describes — a full-width band reading as
+  one piece with the app header — was never actually available. It is now four declarations
+  on the page header: a negative margin of one gutter each side so it reaches the content
+  column's edge, that gutter back as padding, `min-height: var(--shell-header-height)` with
+  `box-sizing: border-box`, and a bottom border. The band is the app header's height by
+  *reading the app header's own token* rather than by agreeing with it.
+
+  `badges` and `description` fill the room the second row used to take: status pills next to
+  the title, then one short lead line, truncated rather than wrapped because the band has a
+  height and prose that wraps would set it. Both render nothing when absent — a band that
+  reserved space for slots no page filled would put a gap beside every title in every app.
+
+  **Every page renders a trail, even one of a single crumb**, and that is the requirement
+  rather than a simplification. An overview's title has to sit in the same boxes as a
+  detail's or the name moves the moment you open a record: one code path rendering a bare
+  `h1` and another rendering the `h1` inside `nav > ol > li` put the text at two slightly
+  different places, and the transition showed it. A trail of one is the overview's title;
+  append an ancestor and the same leaf slides right behind its parents, which is the only
+  motion there should be. A unit test compares the heading's ancestor chain between the two.
+
+  **`--shell-gutter` is published with it, and that was forced rather than chosen.** 0097 §2
+  claimed a bleed "would need a negative margin and therefore an inline site". The negative
+  margin is right; the inline site is not, because the sheet knows both variants. But the
+  margin and the padding have to agree in sign across rules three hundred lines apart, and
+  this release had just fixed a defect of exactly that species — the shell header at
+  `--space-4` against main at `--space-6`, which put the trail 8px off the header on every
+  desktop shell. So the gutter is a contract token under 0097 §1, one remap moves it for a
+  phone (retiring the two base-plus-variant pairs the header and main each carried), and the
+  header, main, the footer and the band all read it.
+
+  **The chrome is keyed on being inside `appshell-main`,** which preserves 0097 §2's third
+  consequence rather than trading it away: "it works with no shell above it at all" is still
+  true and still tested. Standalone — the workbench, the unit tests — `Page` renders the
+  same one-row band without the bleed, because a negative margin with no `main` to escape
+  would drag it out of its container. A `measure="narrow"` frame (`FormPage`,
+  `SettingsPage`) keeps the row and drops the chrome, because a form is capped with its
+  header (ADR 0098 §3): a Save button a screen-width from its field is worse than one over
+  it.
+
+  0097 §2 is amended in place, by building it, which is this repo's convention for an ADR
+  whose shape turned out to be narrower than the need. Seventy-two baselines: sixty
+  re-recorded and twelve new, both platforms, covering the band with every slot filled, with
+  a title alone, on a root page, and crowded by a long title against a wide action cluster.
+  The measure lane's assertion changed from `header === article` to `header === article + 2 *
+  gutter`, read from the live token rather than pinned at 1586, and that failing was the
+  bleed's first proof.
+
 - **A card painted a second colour to say what its border already said.** `Card` filled itself
   with `--color-neutral-0` over a canvas of `--color-neutral-50`, and six more in-flow blocks did
   the same: `HubCard`'s body, the profile card, a `ResourceList` row, an `EmptyState`, a
@@ -153,9 +216,16 @@ decision, 0001 onwards.
   (**16px**) against 16px body copy — one step from the page title to a section heading, and a
   section heading the same size as the prose beneath it. `--font-size-xl` (**24px**) had shipped
   with exactly one reader, so the top of the scale existed and the page that most needs it was
-  not using it. The page title now takes `xl` and a card title takes `lg`, which yields
-  24 / 18 / 16 / 14 across page title, section heading, body and description — four steps of one
-  published scale rather than four sizes that happen to differ.
+  not using it. A card title takes `lg`, which with 16px body copy and a 14px description
+  yields three steps of one published scale rather than three sizes that happen to differ.
+
+  **The page title is the exception, and it is one this entry originally did not make.** It
+  took `xl` here, and then the page header became a band later in this same release — see
+  *The page header said the same thing twice* below. In a band the title is chrome rather
+  than a masthead: it is the breadcrumb trail's leaf, so it renders semibold at the trail's
+  own size. `xl` therefore keeps the two readers it had beside the page title
+  (`heading[data-size="xl"]`, `login-title`), which is what stops the top of the scale from
+  going unread, and `tokens.guard.test.ts` holds that end.
 
   No prop, and no per-app knob. An app that wants otherwise redefines the two markers from its
   own unlayered `theme.css`, which is what the cascade-layer architecture exists to allow: this

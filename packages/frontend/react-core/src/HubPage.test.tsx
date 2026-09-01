@@ -15,15 +15,26 @@ describe("HubPage", () => {
       </HubPage>,
     );
 
-    expect(screen.getByRole("heading", { level: 1, name: "Administration" })).toBeInTheDocument();
-    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+    const heading = screen.getByRole("heading", { level: 1, name: "Administration" });
+    expect(heading).toBeInTheDocument();
+    // A parentless hub is a trail of ONE, not a bare heading, so its title sits exactly where
+    // an overview's and a detail's do and does not move when you descend. The trail is
+    // therefore present and has nothing to link to yet.
+    expect(heading).toHaveAttribute("data-terp", "page-title");
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeInTheDocument();
     expect(screen.getAllByText("Administration")).toHaveLength(1);
     // The marker, not the declaration. jsdom does not compute the cascade, so toHaveStyle
     // can only ever see an inline style — asserting gridAutoRows here was asserting that the
     // grid is styled from a style object, which is the thing ADR 0094 removes. What a test
     // should assert is the fact the sheet keys on; the geometry is gated by styles.test.ts
     // (the rule exists) and by the hub-page baselines (it does what it says).
-    expect(screen.getByRole("list")).toHaveAttribute("data-terp", "hubpage-grid");
+    // getByRole("list") would be ambiguous now that the trail renders an <ol> of its own, and
+    // the ambiguity is the assertion's own fault rather than the trail's: what it means is
+    // "the grid is the marked element", so it asks for the grid.
+    expect(
+      screen.getAllByRole("list").find((list) => list.dataset.terp === "hubpage-grid"),
+      "the card grid must be the marked list",
+    ).toBeDefined();
     expect(screen.getByRole("link", { name: /Users/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Roles/ })).toBeInTheDocument();
     expect(screen.getByText("Manage accounts")).toBeInTheDocument();

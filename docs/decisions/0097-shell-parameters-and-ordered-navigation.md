@@ -110,6 +110,49 @@ because with the attribute absent not one declaration applies. `Page` keeps its 
 element, so the slot check is untouched. And it works with no shell above it at all, which a
 portal would not — the workbench renders `Page` standalone, and so do the tests.
 
+**Amended in 0.14.0, by building the band this decision only reserved room for.** The
+rejection of the portal stands and every fact behind it still holds. What was wrong is the
+implicit claim that the grid trick was the *whole* feature: this section shipped a header
+that keeps the full track, and called that "the band". It was a width, not chrome. A reader
+asking for the shape described in the first paragraph — a full-width band above a
+constrained column, reading as one piece with the app header — did not get it, because a
+header at track width with no border, no height and no slots is indistinguishable from a
+title row.
+
+*The band is chrome now, and it still needs no portal.* Four declarations on the page
+header, keyed on being inside `appshell-main`: a negative margin of one gutter each side so
+it reaches the column's edge, that same gutter back as padding, `min-height:
+var(--shell-header-height)` with `border-box`, and a bottom border. So it is the app
+header's own height by reading the app header's own token, rather than by agreeing with it.
+
+*The gutter became a token, and that was forced rather than chosen.* This section's own
+comment claimed a bleed "would need a negative margin and therefore an inline site". The
+negative margin is right; the inline site is not — the sheet knows both variants. But it
+does need the padding and the margin to agree in sign across rules three hundred lines
+apart, and the release that built this had just fixed a defect of exactly that species (the
+shell header at `--space-4` against main at `--space-6`, which put the breadcrumb trail 8px
+off the header on every desktop shell). So `--shell-gutter` is published under decision 1,
+one remap moves it for a phone, and the header, main, the footer and the band all read it.
+
+*The keying on `appshell-main` is what preserves this section's third consequence.*
+"It works with no shell above it at all" is still true and is still tested: standalone —
+the workbench, the unit tests — `Page` renders the same one-row band without the bleed,
+because a negative margin with no `main` to escape would drag it out of its container.
+
+*And the row absorbed the title, which is the part this section did not anticipate.* The
+frame used to spend two rows: a crumb row, then an `h1`. They said the same thing twice, and
+the duplication was in the component rather than in a reviewer's eye — `Page` built its
+trail as `[...breadcrumbs, { label: title }]` and then rendered `<h1>{title}</h1>`. So the
+trail's leaf **is** the `h1` (`Breadcrumbs`' `currentAs`), and every page renders a trail,
+even one of a single crumb: an overview's title has to sit in the same boxes as a detail's
+or the name moves when you open a record. `badges` and `description` fill the room the
+second row used to take.
+
+That last part reverses 4b's type-scale decision for `page-title` specifically, and the
+reversal is narrow. `xl` was right when the title was a masthead; in a band the title is
+chrome, so it is semibold at the trail's own size, because it is the trail's leaf. The
+scale's top step keeps its other readers and `tokens.guard.test.ts` holds that end.
+
 ### 3. Responsive layout props key on media queries against the token breakpoint scale
 
 The sheet contains exactly one `@media` block today (`prefers-reduced-motion`). The shell's

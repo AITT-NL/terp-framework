@@ -985,6 +985,14 @@
       "themeable": false
     },
     {
+      "name": "--shell-gutter",
+      "category": "shell",
+      "values": {
+        "light": "1.5rem"
+      },
+      "themeable": false
+    },
+    {
       "name": "--breakpoint-sm",
       "category": "breakpoint",
       "values": {
