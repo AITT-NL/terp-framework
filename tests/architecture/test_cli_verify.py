@@ -1079,6 +1079,35 @@ def test_verify_dispatches_env_seams_through_its_own_runner(
     assert "not applicable" in json.dumps(envelope)
 
 
+def test_verify_dispatches_workbench_through_its_own_runner(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`workbench` is an in-process runner like `env-seams`, so it needs its own
+    dispatch branch. Everything about the check itself is proven in
+    test_workbench_declaration.py against the function; this proves `terp verify`
+    reaches that function instead of shelling out to a command that does not exist.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "quick",
+                "--root",
+                str(tmp_path),
+                "--only",
+                "workbench",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is True
+    # The no-op success shape for an app that has not adopted the file.
+    assert "not declared" in json.dumps(envelope)
+
+
 # --------------------------------------------------------------------------- #
 # the api-client runner
 #
