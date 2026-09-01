@@ -286,11 +286,6 @@ class RequestSizeLimitMiddleware:
         self.app = app
         self._caps = _RequestSizeCaps(max_bytes, overrides)
 
-    @property
-    def max_bytes(self) -> int:
-        """The global cap, for callers that ask without a path in hand."""
-        return self._caps.max_bytes
-
     def _cap_for(self, path: str) -> int:
         """The effective byte cap for *path*: its longest override prefix, else the global cap."""
         return self._caps.for_path(path)
