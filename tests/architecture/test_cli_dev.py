@@ -188,6 +188,8 @@ def test_cli_dev_dispatch(
             "127.0.0.9",
             "--port",
             "9000",
+            "--shutdown-timeout",
+            "12",
             "--openapi-out",
             "web/openapi.json",
             "--no-preflight",
@@ -200,6 +202,7 @@ def test_cli_dev_dispatch(
         "frontend_dir": "web",
         "host": "127.0.0.9",
         "port": 9000,
+        "shutdown_timeout": 12,
         "openapi_out": "web/openapi.json",
         "preflight": False,
     }

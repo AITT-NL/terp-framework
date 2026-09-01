@@ -26,6 +26,16 @@ from terp.cli.routes import run_routes_command
 
 _POLL_SECONDS = 0.2
 
+#: Seconds uvicorn waits for in-flight work before cancelling it, at shutdown.
+#:
+#: Unset, uvicorn waits forever, and "forever" is the literal outcome for an app serving a
+#: realtime channel: an SSE or WebSocket stream is a task that ends when the client goes away
+#: and not otherwise, so one open browser tab holds the reload loop until someone kills the
+#: process by hand. The reload loop pays this cost on every backend edit, which is why the
+#: bound here is shorter than the one the served images carry (ADR 0108): a dev request that
+#: needs more than three seconds is not worth holding the restart for.
+SHUTDOWN_TIMEOUT_SECONDS = 3
+
 
 @dataclass(frozen=True)
 class DevCommand:
@@ -43,13 +53,26 @@ def dev_plan(
     frontend_dir: str = "frontend",
     host: str = "127.0.0.1",
     port: int = 8000,
+    shutdown_timeout: int = SHUTDOWN_TIMEOUT_SECONDS,
 ) -> tuple[DevCommand, DevCommand]:
     """Pure: the ``(backend, frontend)`` commands ``terp dev`` runs.
 
     Backend = ``uvicorn <app_ref> --reload`` from the project root; frontend = ``npm run dev``
     from ``<root>/<frontend_dir>`` (the copier template + example layout). The frontend command
     is returned unconditionally; the executor runs it only when its directory exists.
+
+    The backend argv carries an explicit ``--timeout-graceful-shutdown``: an app serving a
+    realtime channel has tasks that never end on their own, and uvicorn's own default is to
+    wait for them indefinitely (ADR 0108). This is the one invocation an app cannot edit —
+    the compose files and images are its own — so *shutdown_timeout* is the escape, surfaced
+    as ``terp dev --shutdown-timeout``. A non-positive value is refused rather than passed
+    through: uvicorn reads ``0`` as "cancel in-flight work immediately", which is a different
+    decision from the one this argument names, and a negative one is meaningless.
     """
+    if shutdown_timeout <= 0:
+        raise ValueError(
+            f"shutdown_timeout must be a positive number of seconds, got {shutdown_timeout}"
+        )
     root_path = pathlib.Path(root).resolve()
     backend = DevCommand(
         label="backend",
@@ -63,6 +86,8 @@ def dev_plan(
             host,
             "--port",
             str(port),
+            "--timeout-graceful-shutdown",
+            str(shutdown_timeout),
         ),
         cwd=root_path,
     )
@@ -108,6 +133,7 @@ def run_dev_command(
     frontend_dir: str = "frontend",
     host: str = "127.0.0.1",
     port: int = 8000,
+    shutdown_timeout: int = SHUTDOWN_TIMEOUT_SECONDS,
     openapi_out: str = "openapi.json",
     preflight: bool = True,
     export: Callable[..., pathlib.Path] = export_openapi,
@@ -129,7 +155,12 @@ def run_dev_command(
     """
     root_path = pathlib.Path(root).resolve()
     backend, frontend = dev_plan(
-        app_ref=app_ref, root=root_path, frontend_dir=frontend_dir, host=host, port=port
+        app_ref=app_ref,
+        root=root_path,
+        frontend_dir=frontend_dir,
+        host=host,
+        port=port,
+        shutdown_timeout=shutdown_timeout,
     )
     if preflight:
         destination = export(app_ref, out=root_path / openapi_out, app_root=root_path)

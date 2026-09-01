@@ -117,7 +117,13 @@ replacement for `dispatch_in_process`: a durable dispatcher writes rows on the
   reference `notes` service overrides that hook instead of `create`. Cross-process
   delivery, retries, and a dead-letter queue arrive with the deferred durable outbox.
 - The realtime/websocket subsystem (Phase E) is designed to be **driven by this
-  bus** (a registered topic subscribes to catalog events); it remains future work.
+  bus** (a registered topic subscribes to catalog events). It **ships** as
+  `terp-cap-realtime` — typed SSE and WebSocket channels behind one
+  generated-client handshake; this line said "it remains future work" for
+  several releases after that stopped being true. See
+  [ADR 0108](0108-a-stream-has-no-end-so-the-shutdown-needs-one.md), which is
+  the record the capability went without, and the capability's own README for
+  the surface.
 
 ## Decision
 
