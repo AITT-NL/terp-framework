@@ -2547,6 +2547,131 @@ def test_background_job_cannot_trade_away_owned_rows(tmp_path: pathlib.Path) -> 
     assert check_no_manual_ownership_checks(app) == []
 
 
+def test_background_job_clause_matches_the_composition_twin(tmp_path: pathlib.Path) -> None:
+    """The build half must not be a weaker approximation of the boot-time gate (ADR 0109).
+
+    Three limits were recorded as residuals and each produced the same bad ordering: the
+    cheap check passes, the expensive one refuses to boot. ``issubclass`` follows the MRO and
+    reads real objects; this clause used to match a direct base name and a literal, inside one
+    directory. Where they disagreed the app found out at startup.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/models.py",
+        "class Note(BaseTable, ActorStampedMixin, table=True):\n"
+        "    title: str = Field(max_length=200)\n",
+    )
+    _write(
+        app,
+        "modules/notes/service.py",
+        "class NoteService(BaseService[Note, NoteCreate, NoteUpdate]):\n"
+        "    model = Note\n",
+    )
+
+    # A jobs declaration bound to a NAME is still a jobs declaration. `spec.jobs` is a
+    # sequence by the time the composition twin sees it, so requiring a literal here made
+    # `terp check` green on an app that could not start.
+    _write(
+        app,
+        "modules/notes/module.py",
+        "module = ModuleSpec(name='notes', services=(NoteService,), jobs=MODULE_JOBS)\n",
+    )
+    assert _rule_names(check_no_manual_ownership_checks(app)) == {
+        "no_manual_ownership_checks"
+    }
+
+    # An explicitly empty declaration is still no jobs, in either spelling.
+    for empty in ("jobs=[]", "jobs=()", "jobs=None"):
+        _write(
+            app,
+            "modules/notes/module.py",
+            f"module = ModuleSpec(name='notes', services=(NoteService,), {empty})\n",
+        )
+        assert check_no_manual_ownership_checks(app) == [], empty
+
+    # OwnedMixin reached through an intermediate base is ownership. `issubclass` has always
+    # said so; matching a direct base name made this clause fire on an owned model.
+    _write(
+        app,
+        "modules/notes/module.py",
+        "module = ModuleSpec(name='notes', services=(NoteService,), jobs=MODULE_JOBS)\n",
+    )
+    _write(
+        app,
+        "modules/notes/models.py",
+        "class OwnedRecord(BaseTable, OwnedMixin):\n    pass\n\n\n"
+        "class Note(OwnedRecord, table=True):\n"
+        "    title: str = Field(max_length=200)\n",
+    )
+    assert check_no_manual_ownership_checks(app) == []
+
+
+def test_background_job_clause_follows_a_declared_edge(tmp_path: pathlib.Path) -> None:
+    """Reach, not packaging. The remedy both messages give is only sound without an edge.
+
+    Splitting the job away from the unowned service severs the reach — modules are
+    independent by default (ADR 0087) — but `requires=` puts it back in one line, and the
+    clause used to look no further than the module a service was declared in. So the
+    platform's own advice was also the way through the gate.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/docs/models.py",
+        "class Doc(BaseTable, ActorStampedMixin, table=True):\n"
+        "    title: str = Field(max_length=200)\n",
+    )
+    _write(
+        app,
+        "modules/docs/service.py",
+        "class DocService(BaseService[Doc, DocCreate, DocUpdate]):\n    model = Doc\n",
+    )
+    _write(app, "modules/docs/module.py", "module = ModuleSpec(name='docs')\n")
+
+    # The legitimate split: two modules, no edge, and the job cannot call the service.
+    _write(
+        app,
+        "modules/maintenance/module.py",
+        "module = ModuleSpec(name='maintenance', jobs=[PURGE])\n",
+    )
+    assert check_no_manual_ownership_checks(app) == []
+
+    # One line restores the reach, and the clause follows it.
+    _write(
+        app,
+        "modules/maintenance/module.py",
+        "module = ModuleSpec(name='maintenance', jobs=[PURGE], requires=('docs',))\n",
+    )
+    violations = check_no_manual_ownership_checks(app)
+    assert _rule_names(violations) == {"no_manual_ownership_checks"}
+    assert "requires" in violations[0].message, "the finding must name the edge it followed"
+
+    # And transitively, or an intermediate module launders the reach.
+    _write(
+        app,
+        "modules/maintenance/module.py",
+        "module = ModuleSpec(name='maintenance', jobs=[PURGE], requires=('middle',))\n",
+    )
+    _write(
+        app,
+        "modules/middle/module.py",
+        "module = ModuleSpec(name='middle', requires=('docs',))\n",
+    )
+    assert _rule_names(check_no_manual_ownership_checks(app)) == {
+        "no_manual_ownership_checks"
+    }
+
+    # Owning the model closes it however the edge runs.
+    _write(
+        app,
+        "modules/docs/models.py",
+        "class Doc(BaseTable, OwnedMixin, table=True):\n"
+        "    title: str = Field(max_length=200)\n",
+    )
+    assert check_no_manual_ownership_checks(app) == []
+
+
 def test_no_raw_file_references(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     # A bare uuid file pointer on a table model is an undeclared reference: nothing ties

@@ -579,6 +579,60 @@ def test_create_app_refuses_background_job_that_drops_row_ownership() -> None:
     create_app([safe], control_plane=plane)
 
 
+def test_create_app_follows_a_requires_edge_to_an_unowned_service() -> None:
+    """The gate is about reach, not packaging (ADR 0109).
+
+    Modules are independent by default, so splitting the job away from the unowned service
+    really does sever the reach — and that is what both refusal messages tell an app to do.
+    But the split holds only while no edge is declared: ``requires=("docs",)`` restores the
+    call in one line. The check used to look no further than its own ``spec.services``, so
+    the platform's own remedy was also the way through the gate, and following the advice to
+    the letter and then discovering you need the service after all produced a green boot with
+    the authority the gate exists to withhold.
+
+    The control is the same two modules with the edge removed: that must still boot, or this
+    would be refusing the legitimate split rather than the dodge.
+    """
+    job = _doc_job()
+    plane = ControlPlane(jobs=JobCatalog([job]))
+    unowned = ModuleSpec(name="docs", policy=Policy.default(), services=(_DocService,))
+    scheduler = ModuleSpec(
+        name="maintenance",
+        policy=Policy.default(),
+        jobs=(job,),
+        requires=("docs",),
+    )
+
+    with pytest.raises(BootError) as refusal:
+        create_app([unowned, scheduler], control_plane=plane)
+    message = str(refusal.value)
+    assert "requires" in message, "the refusal must name the edge it followed"
+    assert "docs" in message and "maintenance" in message, (
+        "the refusal must name BOTH modules, or an app cannot tell which edge to cut"
+    )
+
+    # The same pair without the edge is the legitimate split, and it boots.
+    detached = ModuleSpec(name="maintenance", policy=Policy.default(), jobs=(job,))
+    create_app([unowned, detached], control_plane=plane)
+
+
+def test_create_app_follows_the_edge_transitively() -> None:
+    """One hop is not the property; reach is. An intermediate module must not launder it."""
+    job = _doc_job()
+    plane = ControlPlane(jobs=JobCatalog([job]))
+    unowned = ModuleSpec(name="docs", policy=Policy.default(), services=(_DocService,))
+    middle = ModuleSpec(name="middle", policy=Policy.default(), requires=("docs",))
+    scheduler = ModuleSpec(
+        name="maintenance",
+        policy=Policy.default(),
+        jobs=(job,),
+        requires=("middle",),
+    )
+
+    with pytest.raises(BootError, match="maintenance-authority"):
+        create_app([unowned, middle, scheduler], control_plane=plane)
+
+
 class _MarkedDocService(BaseService[_JobDoc, _DocCreate, _DocUpdate]):  # arch-allow-no-manual-ownership-checks: pins that the marker does NOT reach the composition half
     model = _JobDoc
 

@@ -845,6 +845,13 @@ def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) ->
     at composition makes the ownership choice structural; an app module cannot make a
     purge "work" by dropping ``OwnedMixin`` from the model its declared service binds.
 
+    **Reach follows declared edges, not packaging** (ADR 0109). Modules are independent by
+    default, so putting the job and the unowned service in different modules does sever the
+    reach — but only while no edge is declared. ``ModuleSpec(requires=("other",))`` restores
+    it in one line, and this check used to look no further than ``spec.services``, so the
+    platform's own remedy for the gate was also the way through it. The closure below asks
+    what a job-declaring module can actually reach.
+
     This is the composition half of ``backend/no_manual_ownership_checks``; the build
     half is :func:`terp.arch.check_no_manual_ownership_checks`. The two halves are NOT
     equally escapable, and the difference is load-bearing for the message below: the
@@ -856,29 +863,59 @@ def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) ->
     ships; ``tests/architecture/test_jobs.py`` pins that the marker does not silence
     this check and that neither message promises it does.
     """
+    by_name = {spec.name: spec for spec in specs}
+
+    def reachable(start: str) -> set[str]:
+        """*start* and every module it can reach across declared ``requires`` edges."""
+        seen: set[str] = set()
+        stack = [start]
+        while stack:
+            name = stack.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            spec = by_name.get(name)
+            if spec is not None:
+                # A `requires` entry naming a capability rather than a sibling module is
+                # the boot-time presence declaration, not an edge; by_name filters those
+                # out by construction, exactly as the build half's graph does.
+                stack.extend(str(dep) for dep in spec.requires)
+        return seen
+
     for spec in specs:
         if not spec.jobs:
             continue
-        for service in spec.services:
-            model = getattr(service, "model", None)
-            if not isinstance(model, type) or issubclass(model, OwnedMixin):
+        for name in sorted(reachable(spec.name)):
+            reached = by_name.get(name)
+            if reached is None:
                 continue
-            raise BootError(
-                f"module {spec.name!r} declares background jobs and service "
-                f"{service.__name__!r} binds unowned model {model.__name__!r}; "
-                "scheduled work runs as the system actor, which is not an ownership "
-                "bypass. Two routes out: (1) the rows belong to users -> compose "
-                "OwnedMixin on the model; (2) the work is lease-shaped (reclaiming "
-                "what a dead worker held) -> register_lease_reaper does it without a "
-                "job declaration, firing per LAPSED lease only. For genuine "
-                "cross-owner maintenance there is no supported route yet: no "
-                "maintenance-authority capability ships, and the budgeted "
-                "`# arch-allow-no-manual-ownership-checks: <reason>` marker clears "
-                "the BUILD gate only — this check runs at composition and reads no "
-                "source markers, which is why you are seeing it. Declare the job and "
-                "the unowned service on different modules, or raise the gap "
-                "(backend/no_manual_ownership_checks)."
-            )
+            for service in reached.services:
+                model = getattr(service, "model", None)
+                if not isinstance(model, type) or issubclass(model, OwnedMixin):
+                    continue
+                where = (
+                    "and service"
+                    if reached.name == spec.name
+                    else f"and reaches module {reached.name!r} across a declared "
+                    f"`requires` edge, whose service"
+                )
+                raise BootError(
+                    f"module {spec.name!r} declares background jobs {where} "
+                    f"{service.__name__!r} binds unowned model {model.__name__!r}; "
+                    "scheduled work runs as the system actor, which is not an ownership "
+                    "bypass. Two routes out: (1) the rows belong to users -> compose "
+                    "OwnedMixin on the model; (2) the work is lease-shaped (reclaiming "
+                    "what a dead worker held) -> register_lease_reaper does it without a "
+                    "job declaration, firing per LAPSED lease only. For genuine "
+                    "cross-owner maintenance there is no supported route yet: no "
+                    "maintenance-authority capability ships, and the budgeted "
+                    "`# arch-allow-no-manual-ownership-checks: <reason>` marker clears "
+                    "the BUILD gate only — this check runs at composition and reads no "
+                    "source markers, which is why you are seeing it. Put the job and the "
+                    "unowned service in different modules with NO `requires` edge between "
+                    "them — an edge restores the reach and this check follows it "
+                    "(ADR 0109) — or raise the gap (backend/no_manual_ownership_checks)."
+                )
 
 
 def _validate_shared_throttle_store(

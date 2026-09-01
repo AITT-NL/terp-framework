@@ -14,6 +14,44 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **The remedy for the background-job ownership gate was also the way through it.** Scheduled
+  work runs as the system actor, which is deliberately not an ownership bypass, so a module
+  that declares `jobs` may not bind a service over a model without `OwnedMixin`. Both
+  refusals — the build check and the composition check — ended on the same advice:
+  *declare the job and the unowned service on different modules*.
+
+  That advice is sound exactly once. Modules are independent by default (ADR 0087), so the
+  split really does sever the reach — **while no edge is declared**. One
+  `ModuleSpec(requires=("docs",))` restores the call, reads like ordinary coupling, and
+  neither check looked past its own module: the composition twin iterated `spec.services`, and
+  the build clause matched a base name inside one directory. So an app that followed the
+  message to the letter, then found it needed the service after all, added a line and got back
+  exactly the authority the gate exists to withhold.
+
+  Both halves now resolve the declared `requires` closure and ask what a job-declaring module
+  can actually **reach**, transitively, so an intermediate module cannot launder it. The
+  legitimate split — two modules, no edge — still passes, and both messages now say
+  *with NO `requires` edge between them*, which is true for the first time.
+
+  **The build half also stopped being a weaker approximation of the boot gate**, which is the
+  other half of the same defect: where the two disagreed, the cheap check passed and the
+  expensive one refused to start. `issubclass` follows the MRO and reads real objects; the
+  static clause matched a **direct base name** and a **list-or-tuple literal**. So
+  `class Doc(OwnedRecord)` over `OwnedRecord(OwnedMixin)` read as unowned and fired on an owned
+  model, and `jobs=MODULE_JOBS` bound to a name was invisible while `spec.jobs` saw it
+  perfectly. Ownership now resolves through the AST class graph, and any non-empty `jobs=`
+  declares work (an empty literal and `None` still do not). Two of the three residuals recorded
+  in terp-spec are thereby exceeded; they stay recorded, because a residual says what the
+  corpus does not require and a reference implementation may be stricter. The third — a
+  `ModuleSpec` that omits `services=` — is untouched.
+
+  Cross-owner maintenance is still unsupported, and ADR 0109 makes that a position rather than
+  an omission: the system actor will not become an implicit escalation, the
+  `# arch-allow-no-manual-ownership-checks` marker will not be extended to the composition half
+  (a comment cannot survive to where the property is checked), and the shape a supported route
+  would take — an audited, scoped, time-bounded maintenance authority the write
+  chokepoint recognises — is named there so it is not reinvented.
+
 - **A hovered row painted over what the row was telling you.** A row's tone and its selection
   tint are painted on the `tr`; the table's hover wash is painted on the `td`, and a cell
   background paints *above* its row's. So pointing at a selected row repainted it

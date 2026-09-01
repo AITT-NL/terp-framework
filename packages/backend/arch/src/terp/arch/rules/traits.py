@@ -11,6 +11,7 @@ import ast
 import pathlib
 
 from terp.arch._ast import base_name, iter_python_files, parse
+from terp.arch.rules.dependencies import declared_dependency_graph
 from terp.arch.rules._support import (
     ArchViolation,
     _HANDROLLED_LEASE_COLUMNS,
@@ -158,6 +159,32 @@ def check_no_manual_ownership_checks(
     trees = {path: parse(path) for path in iter_python_files(root)}
     violations: list[ArchViolation] = []
 
+    # Every class the tree declares, by NAME, with the base names it composes. Ownership is
+    # then resolved through this graph rather than by looking for `OwnedMixin` in a class's
+    # own bases, which is what the composition twin does with `issubclass` and what this half
+    # used to approximate badly: `class Doc(OwnedRecord)` where `OwnedRecord(OwnedMixin)` read
+    # as unowned, so the clause fired on a model that is owned. Keyed on the bare class name
+    # because an AST cannot resolve an import to a definition — a base named `X` is taken to
+    # be any class named `X` in the scanned tree. That is an approximation in the widening
+    # direction (it can only ever find MORE ownership, never invent a violation), which is the
+    # safe way for a static check to be wrong about a gate whose runtime twin is exact.
+    bases_by_name: dict[str, set[str]] = {}
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                bases_by_name.setdefault(node.name, set()).update(
+                    base_name(base) for base in node.bases
+                )
+
+    def composes_ownership(class_name: str, seen: frozenset[str] = frozenset()) -> bool:
+        """Whether *class_name* reaches ``OwnedMixin`` through any chain of bases."""
+        if class_name in seen:
+            return False
+        bases = bases_by_name.get(class_name, set())
+        if "OwnedMixin" in bases:
+            return True
+        return any(composes_ownership(base, seen | {class_name}) for base in bases)
+
     owned_models: set[tuple[str, str]] = set()
     service_models: dict[tuple[str, str], tuple[str, str, int]] = {}
     for path, tree in trees.items():
@@ -167,8 +194,7 @@ def check_no_manual_ownership_checks(
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
-            bases = {base_name(base) for base in node.bases}
-            if "OwnedMixin" in bases:
+            if composes_ownership(node.name):
                 owned_models.add((module_name, node.name))
             model = _service_model(node)
             if model is not None:
@@ -190,8 +216,19 @@ def check_no_manual_ownership_checks(
                 (keyword.value for keyword in node.keywords if keyword.arg == "jobs"),
                 None,
             )
-            if isinstance(jobs, ast.List | ast.Tuple) and jobs.elts:
-                job_modules.add(module_name)
+            # ANY non-empty jobs value declares background work, not only a literal. The
+            # clause used to require a list or tuple with elements, so `jobs=MODULE_JOBS`
+            # bound to a name was invisible here while the composition twin — which reads
+            # `spec.jobs` on the built object — saw it perfectly. That disagreement is the
+            # worst possible ordering: the cheap check passes and the expensive one refuses
+            # to boot. Only an explicitly empty literal and `None` still mean "no jobs".
+            if jobs is None:
+                continue
+            if isinstance(jobs, ast.Constant) and jobs.value is None:
+                continue
+            if isinstance(jobs, ast.List | ast.Tuple) and not jobs.elts:
+                continue
+            job_modules.add(module_name)
 
     for path, tree in trees.items():
         rel = _rel(path, root)
@@ -210,15 +247,44 @@ def check_no_manual_ownership_checks(
                         "object-authz predicate for a richer policy",
                     )
                 )
+    # Which job-declaring modules can REACH each module, following the edges an app
+    # declared with `ModuleSpec(requires=(...))` (ADR 0087). Co-location was the old test and
+    # it made the platform's own remedy the way through the gate: both messages say "declare
+    # the job and the unowned service on different modules", which severs the reach only
+    # while no edge is declared — add `requires=` and the job can call the service again,
+    # with nothing to notice. ADR 0109.
+    graph = declared_dependency_graph(root, package=package)
+
+    def reaches(source: str, target: str, seen: frozenset[str] = frozenset()) -> bool:
+        if source == target:
+            return True
+        if source in seen:
+            return False
+        return any(
+            reaches(edge, target, seen | {source}) for edge in graph.get(source, frozenset())
+        )
+
     for (module_name, service_name), (model_name, rel, line) in service_models.items():
-        if module_name not in job_modules or (module_name, model_name) in owned_models:
+        if (module_name, model_name) in owned_models:
             continue
+        reaching = sorted(job for job in job_modules if reaches(job, module_name))
+        if not reaching:
+            continue
+        via = (
+            "declares background jobs"
+            if reaching == [module_name]
+            else (
+                "is reachable from job-declaring module(s) "
+                + ", ".join(repr(name) for name in reaching)
+                + " across a declared `requires` edge"
+            )
+        )
         violations.append(
             ArchViolation(
                 "no_manual_ownership_checks",
                 rel,
                 line,
-                f"module declares background jobs while service "
+                f"module {via} while service "
                 f"{service_name!r} binds model {model_name!r} without "
                 "OwnedMixin; a system actor is not an ownership bypass. "
                 "Two routes out: (1) the rows belong to users -> compose "
@@ -232,9 +298,10 @@ def check_no_manual_ownership_checks(
                 "marker clears THIS gate, but create_app applies the same rule "
                 "at composition and reads no source markers, so the app would "
                 "pass `terp check` and then refuse to boot. No "
-                "maintenance-authority capability ships either. Restructure so "
-                "the job and the unowned service are in different modules, or "
-                "raise the gap",
+                "maintenance-authority capability ships either. Put the job and "
+                "the unowned service in different modules with NO `requires` edge "
+                "between them — an edge restores the reach and this check follows "
+                "it (ADR 0109) — or raise the gap",
             )
         )
     return violations
