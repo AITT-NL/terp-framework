@@ -14,6 +14,76 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **One subscribed tab held every shutdown open forever.** A realtime channel's stream is a
+  task with no end condition of its own — it closes when the client goes away, and staying
+  open until then is the feature. `uvicorn`'s `timeout_graceful_shutdown` defaults to `None`,
+  and `None` means wait for in-flight tasks. Nothing in the platform connected those two
+  facts: the flag appeared in no file in the repository and all **seven** invocations that
+  start a server were bare — the example's compose file, dev image and production image, the
+  template's three counterparts, and `terp dev` itself. The example app registers two
+  channels, so the reference implementation shipped the defect it demonstrates.
+
+  The cost is ordinary rather than dramatic, which is why it survived. With one tab open the
+  first backend edit hangs the reloader until someone restarts the container by hand — a
+  symptom that reads as "the reloader is flaky", not as "the shutdown is unbounded". In
+  production a restart blocks until the orchestrator gives up and sends `SIGKILL`, so the
+  process is killed mid-write instead of closing its work.
+
+  Every invocation now carries an explicit bound: **3 seconds** wherever `--reload` is on,
+  because the reload loop pays the wait on every backend edit, and **8 seconds** in the four
+  images, which sits under Compose's ten-second default `stop_grace_period` so the process
+  exits on its own terms. `terp dev` is the one argv an app cannot edit, so it takes
+  `--shutdown-timeout`; a non-positive value is refused rather than passed through, since
+  uvicorn reads `0` as "cancel in-flight work immediately" and taking that silently would let
+  an app think it had set a bound when it had disabled one.
+
+  No runtime check can see an argv, so the control is a test. `test_serving_shutdown.py` pins
+  each site and each value, and its last test greps every candidate file for an argv that
+  starts a server without the flag — so a **new** way to serve fails even though the test
+  never named it. That is the half that matters: the defect was never a wrong value, it was
+  that nothing noticed there was no value.
+
+  The same change records the capability, because that omission is why this went unnoticed.
+  `terp-cap-realtime` ships in every tagged release and is exported from react-core's public
+  surface, but no decision record described it, the word did not occur in this changelog once,
+  and ADR 0008 still called the subsystem "future work". ADR 0108 is the record it never had,
+  0008's sentence is corrected, the capability README gains a Serving section, and
+  `terp guide realtime` — which did already cover the component — now says that mounting it
+  changes how the app must be served.
+
+- **Three checks reported success without doing the work.** Three defects of one species:
+  something answers "fine" while the thing it names did not happen. Each was found by reading
+  the code that produces the answer rather than by a failing run, because none of them could
+  fail.
+
+  **`api-docs-drift` was green while inert.** It asked whether a `docs/` directory existed,
+  then compared with `git diff`, which reports nothing for an untracked file. Every app with
+  documentation of its own — which is most of them — got a permanent green over a comparison
+  that could not fail, plus two untracked files after every run. The adoption test is now
+  whether the generated pair is **tracked**, answered before regenerating so an unadopted
+  project is not littered with artifacts it never asked for. A half-tracked pair is a **red**
+  rather than a skip: a diff over one of the two is the same failure in miniature. The diff
+  also names the two artifacts instead of `docs/`, which fixes a second defect in the same
+  function — an app's uncommitted edit to any of its own documentation was being reported as
+  API drift.
+
+  **The idempotency buffer enforced a second body cap that no declaration could raise.** The
+  platform documents a per-mount `max_request_bytes` (ADR 0067) as the way to accept a larger
+  body. `IdempotencyMiddleware` took its own `max_body_bytes` with a fixed 1 MiB default and
+  `install_security_stack` never passed it — three lines under a docstring describing the very
+  override map it was not forwarding. So a mount that raised its declared allowance passed the
+  outer size limiter and was refused one layer in: the documented lever appeared to work and
+  the endpoint still rejected real traffic. The prefix-to-cap resolution moves into one shared
+  `_RequestSizeCaps` that both body-bounding middlewares hold, the composition root passes the
+  map to both, and the 413 names the cap that actually applied.
+
+  **The escape-hatch budget told a rule with a working opt-out that it had none.** The budget
+  is keyed on the marker token (`arch-allow-<rule-with-hyphens>`) and the obvious mistake is to
+  key it on the catalog rule name; that answered with "names no rule with a governed opt-out",
+  a sentence describing a rule that ships no escape at all. It is how a careful reader came to
+  believe a rule refused their design and set out to redesign around it. The message now
+  recognises a rule name and states the key it wanted.
+
 - **The breadcrumb trail lined up with nothing, on every desktop shell.** Reported from
   building an app whose chrome puts the trail where the eye lands first, and the complaint
   was not that it was indented but that it looked *wrong* — half a step off the header above
