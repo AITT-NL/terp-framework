@@ -1296,6 +1296,34 @@ textarea[data-terp="input"] {
   flex-grow: 1;
   min-width: 0;
 }
+/* The header's INLINE padding is the content column's gutter, and it is a shared measure
+   rather than a value this rule is free to pick. Three boxes stack in the column — this
+   header, appshell-main and appshell-footer — and whatever the topmost thing in the page
+   is starts at main's padding edge. On a routed view that thing is the breadcrumb trail,
+   which is the first child of Page's header, so the trail's left edge IS main's gutter.
+
+   It was var(--space-4) here against var(--space-6) on main and on the footer, which put
+   the trail 0.5rem right of the header's own toggle on every desktop shell and lined it up
+   with nothing: two of the three boxes already agreed and the header was the outlier. Not a
+   clean indent either, which is why it read as broken rather than deliberate — the toggle
+   is a 2.25rem box centring a 1em glyph at font-size-sm, so its BOX sat 8px left of the
+   trail while its GLYPH sat 3px right of it. On mobile it happened to be correct, because
+   main steps down to var(--space-4) there and met the header's fixed value by accident.
+
+   So the two agree at both variants now, deliberately: var(--space-6) here and the mobile
+   override below, mirroring main's own base-plus-variant pair. The block padding is
+   untouched and stays var(--space-2) under the min-height floor.
+
+   Not unified into one custom property, which was tried first: tokens.guard.test.ts refuses
+   a fallback-less var() against anything tokens.css does not declare, so --shell-gutter
+   would have to be published as a contract token. That is shell geometry under ADR 0097 §1
+   and a new public knob, so it is a decision with a record rather than the fix for this. The
+   three values are held equal by a test instead — styles.test.ts, "keeps the content
+   column's gutter one measure" — which is what was missing rather than the abstraction.
+
+   No backticks anywhere above, and that is not a style preference: one here terminates
+   TERP_STYLES_CSS and the parse then fails somewhere else entirely with "try inserting a
+   semicolon". This comment cost that mistake once too, which is twice in one sheet. */
 [data-terp="appshell-header"] {
   position: sticky;
   top: 0;
@@ -1305,11 +1333,16 @@ textarea[data-terp="input"] {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-6);
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   background: var(--color-neutral-0);
   border-block-end: 1px solid var(--color-neutral-200);
+}
+/* The mobile half of that pair. padding-inline only — the block padding is the same at both
+   variants, and restating it here would be a second owner for a value that never varies. */
+[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-header"] {
+  padding-inline: var(--space-4);
 }
 [data-terp="appshell-header-group"] {
   display: flex;
@@ -1358,6 +1391,9 @@ textarea[data-terp="input"] {
 [data-terp="appshell-brand-row"] > [data-terp="iconbutton"] {
   color: var(--color-sidebar-muted);
 }
+/* Main and the footer below carry the same inline gutter as the header — see that rule for
+   why the three are one measure. Moving this one without moving those two is what put the
+   breadcrumb trail 0.5rem off the header for every desktop shell. */
 [data-terp="appshell-main"] {
   flex-grow: 1;
   padding: var(--space-6);

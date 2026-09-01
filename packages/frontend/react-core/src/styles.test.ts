@@ -348,6 +348,11 @@ describe("cascade structure", () => {
       '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-sidebar"]',
       '[data-terp="appshell-backdrop"]',
       '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-main"]',
+      // The header's half of the gutter pair, and it is mobile-only for the same reason
+      // main's is: the phone bar takes the tighter inline padding so the trail below it
+      // still starts on the same edge. `the content column's gutter is one measure` is the
+      // gate on the two agreeing; this loop is the gate on the rule existing at all.
+      '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-header"]',
     ]) {
       expect(
         declaresRuleFor(base, selector),
@@ -355,6 +360,90 @@ describe("cascade structure", () => {
           "pictures of it",
       ).toBe(true);
     }
+  });
+
+  it("keeps the content column's gutter one measure", () => {
+    // The bug this exists for: appshell-header carried padding-inline var(--space-4) while
+    // appshell-main and appshell-footer carried var(--space-6), so the breadcrumb trail —
+    // the first thing inside main on every routed view — sat 0.5rem right of the header's
+    // own toggle. Three boxes stack in that column and the topmost content in each starts
+    // at its inline padding edge, so the three values are ONE measure and any two of them
+    // disagreeing is the defect.
+    //
+    // No baseline caught it, and could not have: every app-shell specimen recorded the
+    // misalignment as its expected picture from the first run. A screenshot says "this is
+    // what it looks like", never "these two edges are meant to be the same edge" — so the
+    // fact needs stating here or it drifts back the next time one of the three is tuned.
+    //
+    // Read out of the rule BODIES rather than as substrings of the layer, so a declaration
+    // that moved onto some neighbouring rule during a consolidation fails instead of
+    // passing on a coincidental match elsewhere in 180 KB of sheet.
+    const base = layerBody("terp.base");
+    const bodyFor = (selector: string): string => {
+      for (const match of base.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const selectors = match[1].split(",").map((part) => part.trim().replace(/\s+/g, " "));
+        if (selectors.includes(selector)) return match[2];
+      }
+      throw new Error(`the sheet declares no rule for exactly ${selector}`);
+    };
+    /**
+     * The inline padding a rule sets, from either the shorthand's second value or an
+     * explicit `padding-inline`. Both spellings are in play on purpose: the header sets
+     * block and inline together, and its mobile override touches inline alone.
+     */
+    const gutterOf = (selector: string): string => {
+      const declarations = bodyFor(selector);
+      const inline = /padding-inline:\s*([^;]+);/.exec(declarations);
+      if (inline) return inline[1]!.trim();
+      const shorthand = /padding:\s*([^;]+);/.exec(declarations);
+      if (!shorthand) throw new Error(`${selector} declares no padding at all`);
+      const parts = shorthand[1]!.trim().split(/\s+(?![^(]*\))/);
+      // One value pads every side, two are block-then-inline. Nothing in this column writes
+      // the three- or four-value form, and a rule that started to would land here rather
+      // than being read wrong.
+      if (parts.length === 1) return parts[0]!;
+      if (parts.length === 2) return parts[1]!;
+      throw new Error(`${selector} writes a ${parts.length}-value padding this reader cannot split`);
+    };
+
+    const desktop = [
+      '[data-terp="appshell-header"]',
+      '[data-terp="appshell-main"]',
+      '[data-terp="appshell-footer"]',
+    ].map((selector) => [selector, gutterOf(selector)] as const);
+    expect(
+      new Set(desktop.map(([, gutter]) => gutter)).size,
+      `the column's three boxes must share one inline gutter, got ${desktop
+        .map(([selector, gutter]) => `${selector} = ${gutter}`)
+        .join(", ")}`,
+    ).toBe(1);
+    // And it stays on the spacing scale rather than becoming a literal, which is the other
+    // way a shared measure rots: three rules agreeing on `24px` agree until one is nudged.
+    expect(desktop[0]![1], "the gutter must name a spacing token").toMatch(
+      /^var\(--space-\d+\)$/,
+    );
+
+    // The mobile pair. The footer has no mobile override and inherits the desktop value,
+    // which is a real difference rather than an omission — the footer sits below the fold of
+    // a phone screen and nothing aligns to it — so only the two boxes the trail is measured
+    // against are held equal here.
+    const mobile = [
+      '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-header"]',
+      '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-main"]',
+    ].map((selector) => [selector, gutterOf(selector)] as const);
+    expect(
+      new Set(mobile.map(([, gutter]) => gutter)).size,
+      `the phone bar and the page below it must share one inline gutter, got ${mobile
+        .map(([selector, gutter]) => `${selector} = ${gutter}`)
+        .join(", ")}`,
+    ).toBe(1);
+    // The step itself is the point of the mobile pair existing, so assert there IS one: two
+    // overrides that resolved back to the desktop value would satisfy every check above
+    // while making both rules dead weight.
+    expect(
+      mobile[0]![1],
+      "the mobile override must tighten the gutter, or neither override earns its rule",
+    ).not.toBe(desktop[0]![1]);
   });
 
   it("keeps the hub-card declarations the lanes cannot explain", () => {

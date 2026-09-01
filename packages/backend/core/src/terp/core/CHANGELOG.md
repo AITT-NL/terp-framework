@@ -10,6 +10,60 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.13.2 — 2026-09-01
+
+### Fixed
+
+- **The breadcrumb trail lined up with nothing, on every desktop shell.** Reported from
+  building an app whose chrome puts the trail where the eye lands first, and the complaint
+  was not that it was indented but that it looked *wrong* — half a step off the header above
+  it, close enough to read as a mistake rather than a margin.
+
+  Three boxes stack in the shell's content column — `appshell-header`, `appshell-main` and
+  `appshell-footer` — and the topmost content inside each starts at that box's inline
+  padding edge. On a routed view the topmost content in `main` is `Page`'s breadcrumb trail,
+  so the trail's left edge **is** main's gutter. The header declared `var(--space-4)` against
+  `var(--space-6)` on the other two: two of the three already agreed and the header was the
+  outlier, so the trail sat 8px right of the header's own sidebar toggle.
+
+  Not a clean 8px either, which is why it read as broken rather than deliberate. The toggle is
+  a 2.25rem box centring a `1em` glyph at `--font-size-sm`, so its **box** sat 8px left of the
+  trail while its **glyph** sat 3px right of it: three edges in one column, no two of them
+  agreeing. On a phone it was correct by coincidence — `main` steps down to `var(--space-4)`
+  below the mobile breakpoint and met the header's fixed value there, which is also why the
+  report only ever described desktop.
+
+  The header now takes `var(--space-6)` with a mobile override back to `var(--space-4)`,
+  mirroring main's own base-plus-variant pair, so the two agree at both variants deliberately
+  instead of at one by accident. Block padding is untouched and stays under the
+  `--shell-header-height` floor.
+
+  **No baseline caught this and none could have**, which is the more useful half of the
+  report. Every `app-shell` specimen recorded the misalignment as its expected picture on its
+  first run: a screenshot says "this is what it looks like", never "these two edges are meant
+  to be the same edge". So the fact is stated where a fact belongs — `keeps the content
+  column's gutter one measure` reads the inline padding out of all three rule bodies (the
+  shorthand's second value or an explicit `padding-inline`, since both spellings are in play),
+  holds the desktop three and the mobile pair each to one value, names all of them in the
+  failure message, refuses a literal in place of a spacing token, and refuses a mobile
+  override that resolved back to the desktop value and left both rules dead weight.
+  Reintroducing the old padding fails it with `appshell-header = var(--space-4),
+  appshell-main = var(--space-6), appshell-footer = var(--space-6)`.
+
+  Folding the three into one `--shell-gutter` was tried first and is deliberately not this
+  fix. `tokens.guard.test.ts` refuses a fallback-less `var()` against anything `tokens.css`
+  does not declare, so the property would have to be **published** as a contract token —
+  which is shell geometry under ADR 0097 §1 and a new public knob, and wants a record of its
+  own rather than arriving as the side effect of an alignment fix. What was missing here was
+  the test, not the abstraction.
+
+  Thirty baselines re-recorded, twenty linux and ten win32: the five desktop shell specimens
+  in both themes on each platform, plus the five that exist for linux only. Nothing else in
+  262 specimens moved, and the mobile shells are among the ones that did not — which is the
+  fix's own evidence rather than a gap in it, since below the breakpoint the two gutters
+  already agreed and there was nothing to correct. The win32 pairs moved by 459 and 463
+  pixels against a `maxDiffPixels` of 0.
+
 ## 0.13.1 — 2026-08-31
 
 ### Fixed
