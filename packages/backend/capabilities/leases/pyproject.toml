@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-leases"
-version = "0.13.1"
+version = "0.14.0"
 description = "Terp lease capability — durable, fenced, expiring custody of work, with a reaper that recovers a crashed worker's claim."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.13.1",
+    "terp-core==0.14.0",
 ]
 
 # A LIBRARY capability (like terp-cap-sync): it owns a table, the durable LeaseStore, the

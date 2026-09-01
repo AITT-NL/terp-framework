@@ -146,6 +146,127 @@ decision, 0001 onwards.
   for a fixed `columns` count — `Grid` publishes `columns="auto"` as its responsive answer, and
   a closed one-or-two has no such escape.
 
+
+- **One subscribed tab held every shutdown open forever.** A realtime channel's stream is a
+  task with no end condition of its own — it closes when the client goes away, and staying
+  open until then is the feature. `uvicorn`'s `timeout_graceful_shutdown` defaults to `None`,
+  and `None` means wait for in-flight tasks. Nothing in the platform connected those two
+  facts: the flag appeared in no file in the repository and all **seven** invocations that
+  start a server were bare — the example's compose file, dev image and production image, the
+  template's three counterparts, and `terp dev` itself. The example app registers two
+  channels, so the reference implementation shipped the defect it demonstrates.
+
+  The cost is ordinary rather than dramatic, which is why it survived. With one tab open the
+  first backend edit hangs the reloader until someone restarts the container by hand — a
+  symptom that reads as "the reloader is flaky", not as "the shutdown is unbounded". In
+  production a restart blocks until the orchestrator gives up and sends `SIGKILL`, so the
+  process is killed mid-write instead of closing its work.
+
+  Every invocation now carries an explicit bound: **3 seconds** wherever `--reload` is on,
+  because the reload loop pays the wait on every backend edit, and **8 seconds** in the four
+  images, which sits under Compose's ten-second default `stop_grace_period` so the process
+  exits on its own terms. `terp dev` is the one argv an app cannot edit, so it takes
+  `--shutdown-timeout`; a non-positive value is refused rather than passed through, since
+  uvicorn reads `0` as "cancel in-flight work immediately" and taking that silently would let
+  an app think it had set a bound when it had disabled one.
+
+  No runtime check can see an argv, so the control is a test. `test_serving_shutdown.py` pins
+  each site and each value, and its last test greps every candidate file for an argv that
+  starts a server without the flag — so a **new** way to serve fails even though the test
+  never named it. That is the half that matters: the defect was never a wrong value, it was
+  that nothing noticed there was no value.
+
+  The same change records the capability, because that omission is why this went unnoticed.
+  `terp-cap-realtime` ships in every tagged release and is exported from react-core's public
+  surface, but no decision record described it, the word did not occur in this changelog once,
+  and ADR 0008 still called the subsystem "future work". ADR 0108 is the record it never had,
+  0008's sentence is corrected, the capability README gains a Serving section, and
+  `terp guide realtime` — which did already cover the component — now says that mounting it
+  changes how the app must be served.
+
+- **Three checks reported success without doing the work.** Three defects of one species:
+  something answers "fine" while the thing it names did not happen. Each was found by reading
+  the code that produces the answer rather than by a failing run, because none of them could
+  fail.
+
+  **`api-docs-drift` was green while inert.** It asked whether a `docs/` directory existed,
+  then compared with `git diff`, which reports nothing for an untracked file. Every app with
+  documentation of its own — which is most of them — got a permanent green over a comparison
+  that could not fail, plus two untracked files after every run. The adoption test is now
+  whether the generated pair is **tracked**, answered before regenerating so an unadopted
+  project is not littered with artifacts it never asked for. A half-tracked pair is a **red**
+  rather than a skip: a diff over one of the two is the same failure in miniature. The diff
+  also names the two artifacts instead of `docs/`, which fixes a second defect in the same
+  function — an app's uncommitted edit to any of its own documentation was being reported as
+  API drift.
+
+  **The idempotency buffer enforced a second body cap that no declaration could raise.** The
+  platform documents a per-mount `max_request_bytes` (ADR 0067) as the way to accept a larger
+  body. `IdempotencyMiddleware` took its own `max_body_bytes` with a fixed 1 MiB default and
+  `install_security_stack` never passed it — three lines under a docstring describing the very
+  override map it was not forwarding. So a mount that raised its declared allowance passed the
+  outer size limiter and was refused one layer in: the documented lever appeared to work and
+  the endpoint still rejected real traffic. The prefix-to-cap resolution moves into one shared
+  `_RequestSizeCaps` that both body-bounding middlewares hold, the composition root passes the
+  map to both, and the 413 names the cap that actually applied.
+
+  **The escape-hatch budget told a rule with a working opt-out that it had none.** The budget
+  is keyed on the marker token (`arch-allow-<rule-with-hyphens>`) and the obvious mistake is to
+  key it on the catalog rule name; that answered with "names no rule with a governed opt-out",
+  a sentence describing a rule that ships no escape at all. It is how a careful reader came to
+  believe a rule refused their design and set out to redesign around it. The message now
+  recognises a rule name and states the key it wanted.
+
+- **The breadcrumb trail lined up with nothing, on every desktop shell.** Reported from
+  building an app whose chrome puts the trail where the eye lands first, and the complaint
+  was not that it was indented but that it looked *wrong* — half a step off the header above
+  it, close enough to read as a mistake rather than a margin.
+
+  Three boxes stack in the shell's content column — `appshell-header`, `appshell-main` and
+  `appshell-footer` — and the topmost content inside each starts at that box's inline
+  padding edge. On a routed view the topmost content in `main` is `Page`'s breadcrumb trail,
+  so the trail's left edge **is** main's gutter. The header declared `var(--space-4)` against
+  `var(--space-6)` on the other two: two of the three already agreed and the header was the
+  outlier, so the trail sat 8px right of the header's own sidebar toggle.
+
+  Not a clean 8px either, which is why it read as broken rather than deliberate. The toggle is
+  a 2.25rem box centring a `1em` glyph at `--font-size-sm`, so its **box** sat 8px left of the
+  trail while its **glyph** sat 3px right of it: three edges in one column, no two of them
+  agreeing. On a phone it was correct by coincidence — `main` steps down to `var(--space-4)`
+  below the mobile breakpoint and met the header's fixed value there, which is also why the
+  report only ever described desktop.
+
+  The header now takes `var(--space-6)` with a mobile override back to `var(--space-4)`,
+  mirroring main's own base-plus-variant pair, so the two agree at both variants deliberately
+  instead of at one by accident. Block padding is untouched and stays under the
+  `--shell-header-height` floor.
+
+  **No baseline caught this and none could have**, which is the more useful half of the
+  report. Every `app-shell` specimen recorded the misalignment as its expected picture on its
+  first run: a screenshot says "this is what it looks like", never "these two edges are meant
+  to be the same edge". So the fact is stated where a fact belongs — `keeps the content
+  column's gutter one measure` reads the inline padding out of all three rule bodies (the
+  shorthand's second value or an explicit `padding-inline`, since both spellings are in play),
+  holds the desktop three and the mobile pair each to one value, names all of them in the
+  failure message, refuses a literal in place of a spacing token, and refuses a mobile
+  override that resolved back to the desktop value and left both rules dead weight.
+  Reintroducing the old padding fails it with `appshell-header = var(--space-4),
+  appshell-main = var(--space-6), appshell-footer = var(--space-6)`.
+
+  Folding the three into one `--shell-gutter` was tried first and is deliberately not this
+  fix. `tokens.guard.test.ts` refuses a fallback-less `var()` against anything `tokens.css`
+  does not declare, so the property would have to be **published** as a contract token —
+  which is shell geometry under ADR 0097 §1 and a new public knob, and wants a record of its
+  own rather than arriving as the side effect of an alignment fix. What was missing here was
+  the test, not the abstraction.
+
+  Thirty baselines re-recorded, twenty linux and ten win32: the five desktop shell specimens
+  in both themes on each platform, plus the five that exist for linux only. Nothing else in
+  262 specimens moved, and the mobile shells are among the ones that did not — which is the
+  fix's own evidence rather than a gap in it, since below the breakpoint the two gutters
+  already agreed and there was nothing to correct. The win32 pairs moved by 459 and 463
+  pixels against a `maxDiffPixels` of 0.
+
 ### Added
 
 - **`DetailList` takes a `gap`,** as a step on the token spacing scale, like `Stack`, `Grid` and
@@ -317,130 +438,6 @@ decision, 0001 onwards.
   The `line-height` literals on both rules are untouched. Converting them to the published
   scale changes rendered metrics across a dozen components and is a typography pass with its own
   baselines — the ratchet in `tokens.guard.test.ts` holds the count in the meantime.
-
-## 0.13.2 — 2026-09-01
-
-### Fixed
-
-- **One subscribed tab held every shutdown open forever.** A realtime channel's stream is a
-  task with no end condition of its own — it closes when the client goes away, and staying
-  open until then is the feature. `uvicorn`'s `timeout_graceful_shutdown` defaults to `None`,
-  and `None` means wait for in-flight tasks. Nothing in the platform connected those two
-  facts: the flag appeared in no file in the repository and all **seven** invocations that
-  start a server were bare — the example's compose file, dev image and production image, the
-  template's three counterparts, and `terp dev` itself. The example app registers two
-  channels, so the reference implementation shipped the defect it demonstrates.
-
-  The cost is ordinary rather than dramatic, which is why it survived. With one tab open the
-  first backend edit hangs the reloader until someone restarts the container by hand — a
-  symptom that reads as "the reloader is flaky", not as "the shutdown is unbounded". In
-  production a restart blocks until the orchestrator gives up and sends `SIGKILL`, so the
-  process is killed mid-write instead of closing its work.
-
-  Every invocation now carries an explicit bound: **3 seconds** wherever `--reload` is on,
-  because the reload loop pays the wait on every backend edit, and **8 seconds** in the four
-  images, which sits under Compose's ten-second default `stop_grace_period` so the process
-  exits on its own terms. `terp dev` is the one argv an app cannot edit, so it takes
-  `--shutdown-timeout`; a non-positive value is refused rather than passed through, since
-  uvicorn reads `0` as "cancel in-flight work immediately" and taking that silently would let
-  an app think it had set a bound when it had disabled one.
-
-  No runtime check can see an argv, so the control is a test. `test_serving_shutdown.py` pins
-  each site and each value, and its last test greps every candidate file for an argv that
-  starts a server without the flag — so a **new** way to serve fails even though the test
-  never named it. That is the half that matters: the defect was never a wrong value, it was
-  that nothing noticed there was no value.
-
-  The same change records the capability, because that omission is why this went unnoticed.
-  `terp-cap-realtime` ships in every tagged release and is exported from react-core's public
-  surface, but no decision record described it, the word did not occur in this changelog once,
-  and ADR 0008 still called the subsystem "future work". ADR 0108 is the record it never had,
-  0008's sentence is corrected, the capability README gains a Serving section, and
-  `terp guide realtime` — which did already cover the component — now says that mounting it
-  changes how the app must be served.
-
-- **Three checks reported success without doing the work.** Three defects of one species:
-  something answers "fine" while the thing it names did not happen. Each was found by reading
-  the code that produces the answer rather than by a failing run, because none of them could
-  fail.
-
-  **`api-docs-drift` was green while inert.** It asked whether a `docs/` directory existed,
-  then compared with `git diff`, which reports nothing for an untracked file. Every app with
-  documentation of its own — which is most of them — got a permanent green over a comparison
-  that could not fail, plus two untracked files after every run. The adoption test is now
-  whether the generated pair is **tracked**, answered before regenerating so an unadopted
-  project is not littered with artifacts it never asked for. A half-tracked pair is a **red**
-  rather than a skip: a diff over one of the two is the same failure in miniature. The diff
-  also names the two artifacts instead of `docs/`, which fixes a second defect in the same
-  function — an app's uncommitted edit to any of its own documentation was being reported as
-  API drift.
-
-  **The idempotency buffer enforced a second body cap that no declaration could raise.** The
-  platform documents a per-mount `max_request_bytes` (ADR 0067) as the way to accept a larger
-  body. `IdempotencyMiddleware` took its own `max_body_bytes` with a fixed 1 MiB default and
-  `install_security_stack` never passed it — three lines under a docstring describing the very
-  override map it was not forwarding. So a mount that raised its declared allowance passed the
-  outer size limiter and was refused one layer in: the documented lever appeared to work and
-  the endpoint still rejected real traffic. The prefix-to-cap resolution moves into one shared
-  `_RequestSizeCaps` that both body-bounding middlewares hold, the composition root passes the
-  map to both, and the 413 names the cap that actually applied.
-
-  **The escape-hatch budget told a rule with a working opt-out that it had none.** The budget
-  is keyed on the marker token (`arch-allow-<rule-with-hyphens>`) and the obvious mistake is to
-  key it on the catalog rule name; that answered with "names no rule with a governed opt-out",
-  a sentence describing a rule that ships no escape at all. It is how a careful reader came to
-  believe a rule refused their design and set out to redesign around it. The message now
-  recognises a rule name and states the key it wanted.
-
-- **The breadcrumb trail lined up with nothing, on every desktop shell.** Reported from
-  building an app whose chrome puts the trail where the eye lands first, and the complaint
-  was not that it was indented but that it looked *wrong* — half a step off the header above
-  it, close enough to read as a mistake rather than a margin.
-
-  Three boxes stack in the shell's content column — `appshell-header`, `appshell-main` and
-  `appshell-footer` — and the topmost content inside each starts at that box's inline
-  padding edge. On a routed view the topmost content in `main` is `Page`'s breadcrumb trail,
-  so the trail's left edge **is** main's gutter. The header declared `var(--space-4)` against
-  `var(--space-6)` on the other two: two of the three already agreed and the header was the
-  outlier, so the trail sat 8px right of the header's own sidebar toggle.
-
-  Not a clean 8px either, which is why it read as broken rather than deliberate. The toggle is
-  a 2.25rem box centring a `1em` glyph at `--font-size-sm`, so its **box** sat 8px left of the
-  trail while its **glyph** sat 3px right of it: three edges in one column, no two of them
-  agreeing. On a phone it was correct by coincidence — `main` steps down to `var(--space-4)`
-  below the mobile breakpoint and met the header's fixed value there, which is also why the
-  report only ever described desktop.
-
-  The header now takes `var(--space-6)` with a mobile override back to `var(--space-4)`,
-  mirroring main's own base-plus-variant pair, so the two agree at both variants deliberately
-  instead of at one by accident. Block padding is untouched and stays under the
-  `--shell-header-height` floor.
-
-  **No baseline caught this and none could have**, which is the more useful half of the
-  report. Every `app-shell` specimen recorded the misalignment as its expected picture on its
-  first run: a screenshot says "this is what it looks like", never "these two edges are meant
-  to be the same edge". So the fact is stated where a fact belongs — `keeps the content
-  column's gutter one measure` reads the inline padding out of all three rule bodies (the
-  shorthand's second value or an explicit `padding-inline`, since both spellings are in play),
-  holds the desktop three and the mobile pair each to one value, names all of them in the
-  failure message, refuses a literal in place of a spacing token, and refuses a mobile
-  override that resolved back to the desktop value and left both rules dead weight.
-  Reintroducing the old padding fails it with `appshell-header = var(--space-4),
-  appshell-main = var(--space-6), appshell-footer = var(--space-6)`.
-
-  Folding the three into one `--shell-gutter` was tried first and is deliberately not this
-  fix. `tokens.guard.test.ts` refuses a fallback-less `var()` against anything `tokens.css`
-  does not declare, so the property would have to be **published** as a contract token —
-  which is shell geometry under ADR 0097 §1 and a new public knob, and wants a record of its
-  own rather than arriving as the side effect of an alignment fix. What was missing here was
-  the test, not the abstraction.
-
-  Thirty baselines re-recorded, twenty linux and ten win32: the five desktop shell specimens
-  in both themes on each platform, plus the five that exist for linux only. Nothing else in
-  262 specimens moved, and the mobile shells are among the ones that did not — which is the
-  fix's own evidence rather than a gap in it, since below the breakpoint the two gutters
-  already agreed and there was nothing to correct. The win32 pairs moved by 459 and 463
-  pixels against a `maxDiffPixels` of 0.
 
 ## 0.13.1 — 2026-08-31
 
