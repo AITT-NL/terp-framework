@@ -3709,6 +3709,35 @@ def test_escape_hatch_budget_rejects_an_unknown_marker_name(tmp_path: pathlib.Pa
     assert len(violations) == 2
 
 
+def test_escape_hatch_budget_names_the_key_it_wanted(tmp_path: pathlib.Path) -> None:
+    """Keying the budget on the RULE NAME must not read as "this rule has no hatch".
+
+    The budget is keyed on the marker token (`arch-allow-<rule-with-hyphens>`), and the
+    obvious mistake is to key it on the catalog rule name. That used to answer with the
+    generic "names no rule with a governed opt-out", which describes a rule that ships no
+    escape at all — and a careful reader took it exactly that way and set out to redesign
+    around a rule whose marker works fine. The message now names the key that was wanted.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/service.py",
+        "from terp.core import BaseService\n",
+    )
+    budget = tmp_path / "escape-hatch-budget.json"
+    budget.write_text(json.dumps({"no_manual_actor_stamping": 0}), encoding="utf-8")
+
+    violations = check_escape_hatch_budget(app, budget_path=budget)
+
+    assert _rule_names(violations) == {"escape_hatch_budget"}
+    message = violations[0].message
+    assert "is the rule name" in message
+    assert "arch-allow-no-manual-actor-stamping" in message
+    assert "does have a governed opt-out" in message
+    # The generic wording is what this replaces, so it must be gone from this case.
+    assert "names no rule with a governed opt-out" not in message
+
+
 def test_markers_require_a_budget_to_be_clean(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     _write(

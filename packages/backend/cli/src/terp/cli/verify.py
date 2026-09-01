@@ -1029,11 +1029,48 @@ def _run_routes_drift(root: pathlib.Path) -> tuple[int, str]:
     return completed.returncode, f"{completed.stdout}{completed.stderr}"
 
 
+#: What ``terp api-docs`` writes, relative to the output directory. Named here because the
+#: adoption test below has to answer "is the generated pair tracked" BEFORE regenerating —
+#: both so an unadopted project is not littered with two files it never asked for, and so
+#: the diff can name them instead of the whole directory.
+_API_DOCS_ARTIFACTS = ("platform-api.md", "terp_core.pyi")
+
+_API_DOCS_ADOPT_HINT = "commit docs/platform-api.md + docs/terp_core.pyi to enable"
+
+
+def _tracked(root: pathlib.Path, relative: str) -> bool:
+    """Whether *relative* is a file git is tracking in *root*."""
+    git = shutil.which("git") or "git"
+    completed = subprocess.run(  # noqa: S603 - fixed argv, shell=False
+        [git, "ls-files", "--error-unmatch", "--", relative],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    return completed.returncode == 0
+
+
 def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
     """Regenerate the API reference and fail on drift from the committed copy.
 
-    A no-op success until the project commits ``docs/`` (the template CI pair
-    behaves identically: the diff of an untracked directory is empty).
+    A no-op success until the project **tracks** the generated pair — the same adoption
+    shape ``routes-drift`` has, and for the same reason: upgrading the framework must not
+    turn an app's gate red for a feature it never wired.
+
+    "Tracked", specifically, and not "``docs/`` exists". The first version asked the
+    directory question, then compared with ``git diff``, which reports nothing for an
+    untracked file. Every app with a ``docs/`` directory of its own — which is most of
+    them — therefore got a permanent green over a comparison that could not fail, plus
+    two untracked files after every run. A check that cannot go red is worse than no
+    check, because the profile counts it as evidence.
+
+    Half-adopted is a **RED**, not a skip: with one of the pair tracked the diff silently
+    covers half the surface, which is the same lie in miniature. And the diff names the
+    two artifacts rather than ``docs/``, so an app's own uncommitted documentation edit is
+    no longer reported as API drift.
     """
     from terp.cli import api_docs
 
@@ -1041,8 +1078,24 @@ def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
     if not docs.is_dir():
         return (
             0,
-            f"{NOTE_PREFIX}docs/ not committed - drift check skipped "
-            "(commit docs/ to enable)",
+            f"{NOTE_PREFIX}no docs/ - api reference not adopted, drift check skipped "
+            f"({_API_DOCS_ADOPT_HINT})",
+        )
+    relatives = [f"docs/{name}" for name in _API_DOCS_ARTIFACTS]
+    tracked = [relative for relative in relatives if _tracked(root, relative)]
+    if not tracked:
+        return (
+            0,
+            f"{NOTE_PREFIX}api reference not tracked - drift check skipped "
+            f"({_API_DOCS_ADOPT_HINT})",
+        )
+    if len(tracked) != len(relatives):
+        missing = sorted(set(relatives) - set(tracked))
+        return (
+            1,
+            "the api reference is half-tracked, so the drift check would cover half "
+            f"the surface: {', '.join(missing)} is untracked. Commit it, or remove "
+            f"{', '.join(tracked)} to opt out of the check entirely.",
         )
     previous = pathlib.Path.cwd()
     try:
@@ -1053,7 +1106,7 @@ def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
         os.chdir(previous)
     git = shutil.which("git") or "git"
     completed = subprocess.run(  # noqa: S603 - fixed argv, shell=False
-        [git, "diff", "--exit-code", "--", "docs"],
+        [git, "diff", "--exit-code", "--", *relatives],
         cwd=root,
         capture_output=True,
         text=True,
@@ -1066,7 +1119,8 @@ def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
     )
     if completed.returncode != 0:
         output += (
-            "\napi docs drifted from the committed copy - commit the regenerated docs/"
+            "\napi docs drifted from the committed copy - commit the regenerated "
+            f"{' + '.join(relatives)}"
         )
     return completed.returncode, output
 
