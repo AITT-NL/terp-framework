@@ -256,6 +256,12 @@ def check_no_manual_ownership_checks(
     graph = declared_dependency_graph(root, package=package)
 
     def reaches(source: str, target: str, seen: frozenset[str] = frozenset()) -> bool:
+        """Whether *target* is *source* or is reachable from it across declared edges.
+
+        The ``seen`` guard is not only for a cycle — ``module_dependency_graph_is_acyclic``
+        already refuses those. It is for a DIAMOND, where two modules require the same
+        third and the naive walk visits it twice.
+        """
         if source == target:
             return True
         if source in seen:

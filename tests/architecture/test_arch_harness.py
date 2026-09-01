@@ -2662,6 +2662,24 @@ def test_background_job_clause_follows_a_declared_edge(tmp_path: pathlib.Path) -
         "no_manual_ownership_checks"
     }
 
+    # A diamond: two modules requiring the same third. The walk arrives at `docs` twice,
+    # and without the `seen` guard it recurses through it twice — silent and exponential
+    # rather than wrong, which is why it needs a case built on purpose.
+    _write(
+        app,
+        "modules/maintenance/module.py",
+        "module = ModuleSpec(name='maintenance', jobs=[PURGE], "
+        "requires=('middle', 'other'))\n",
+    )
+    _write(
+        app,
+        "modules/other/module.py",
+        "module = ModuleSpec(name='other', requires=('docs',))\n",
+    )
+    assert _rule_names(check_no_manual_ownership_checks(app)) == {
+        "no_manual_ownership_checks"
+    }
+
     # Owning the model closes it however the edge runs.
     _write(
         app,
@@ -2670,6 +2688,84 @@ def test_background_job_clause_follows_a_declared_edge(tmp_path: pathlib.Path) -
         "    title: str = Field(max_length=200)\n",
     )
     assert check_no_manual_ownership_checks(app) == []
+
+
+def test_ownership_clause_terminates_on_a_malformed_tree(tmp_path: pathlib.Path) -> None:
+    """Neither walk may hang on input another rule would reject.
+
+    Both the edge closure and the base-chain resolution are recursive, and both carry a
+    `seen` guard whose only job is to stop a cycle. A diamond does NOT exercise them —
+    `any()` short-circuits on the first path that reaches the target, so the second arm is
+    never walked — which is why a check for them has to be built out of genuinely malformed
+    input rather than merely complicated input.
+
+    That input is writable by a user. `module_dependency_graph_is_acyclic` refuses a cyclic
+    `requires`, and Python refuses a cyclic base chain at class-creation time, but this rule
+    is a separate check over a source tree that may contain either while the author is still
+    fixing it. A checker that hangs on a half-written app is worse than one that reports the
+    wrong thing: there is nothing to read.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/docs/models.py",
+        "class Doc(BaseTable, ActorStampedMixin, table=True):\n"
+        "    title: str = Field(max_length=200)\n",
+    )
+    _write(
+        app,
+        "modules/docs/service.py",
+        "class DocService(BaseService[Doc, DocCreate, DocUpdate]):\n    model = Doc\n",
+    )
+    # A requires CYCLE: a needs b, b needs a, and the job module reaches both.
+    _write(
+        app,
+        "modules/a/module.py",
+        "module = ModuleSpec(name='a', requires=('b',))\n",
+    )
+    _write(
+        app,
+        "modules/b/module.py",
+        "module = ModuleSpec(name='b', requires=('a',))\n",
+    )
+    _write(
+        app,
+        "modules/docs/module.py",
+        "module = ModuleSpec(name='docs', services=(DocService,), requires=('a',))\n",
+    )
+    _write(
+        app,
+        "modules/maintenance/module.py",
+        "module = ModuleSpec(name='maintenance', jobs=[PURGE], requires=('a',))\n",
+    )
+
+    # Terminates, and still answers: `docs` is not reachable from `maintenance` here
+    # (the cycle runs a -> b -> a and never reaches docs), so there is nothing to report.
+    assert check_no_manual_ownership_checks(app) == []
+
+    # Close the loop onto docs and the same cyclic graph still terminates, now reporting.
+    _write(
+        app,
+        "modules/b/module.py",
+        "module = ModuleSpec(name='b', requires=('a', 'docs'))\n",
+    )
+    assert _rule_names(check_no_manual_ownership_checks(app)) == {
+        "no_manual_ownership_checks"
+    }
+
+    # A cyclic BASE chain resolves without recursing forever, and reads as unowned —
+    # which is the safe answer: a class whose ancestry cannot be resolved has not been
+    # shown to compose OwnedMixin.
+    _write(
+        app,
+        "modules/docs/models.py",
+        "class Doc(Spiral, table=True):\n"
+        "    title: str = Field(max_length=200)\n\n\n"
+        "class Spiral(Doc):\n    pass\n",
+    )
+    assert _rule_names(check_no_manual_ownership_checks(app)) == {
+        "no_manual_ownership_checks"
+    }
 
 
 def test_no_raw_file_references(tmp_path: pathlib.Path) -> None:

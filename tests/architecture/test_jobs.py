@@ -616,6 +616,35 @@ def test_create_app_follows_a_requires_edge_to_an_unowned_service() -> None:
     create_app([unowned, detached], control_plane=plane)
 
 
+def test_reach_walks_a_diamond_once() -> None:
+    """A shape the straight-line cases never produce, and it is silent when wrong.
+
+    A DIAMOND — two modules requiring the same third — makes the walk arrive at a node it
+    has already visited. Without the guard it revisits, which on a wide graph is
+    exponential rather than incorrect: nothing fails, it just gets slow. So the guard has
+    no failing test unless a diamond is built on purpose.
+    """
+    job = _doc_job()
+    plane = ControlPlane(jobs=JobCatalog([job]))
+    owned = ModuleSpec(name="docs", policy=Policy.default(), services=(_OwnedDocService,))
+    left = ModuleSpec(name="left", policy=Policy.default(), requires=("docs",))
+    right = ModuleSpec(name="right", policy=Policy.default(), requires=("docs",))
+    scheduler = ModuleSpec(
+        name="maintenance",
+        policy=Policy.default(),
+        jobs=(job,),
+        requires=("left", "right"),
+    )
+
+    create_app([owned, left, right, scheduler], control_plane=plane)
+
+    # The same diamond over an UNOWNED model still refuses, so the guard skips revisits
+    # without skipping the finding.
+    unowned = ModuleSpec(name="docs", policy=Policy.default(), services=(_DocService,))
+    with pytest.raises(BootError, match="maintenance-authority"):
+        create_app([unowned, left, right, scheduler], control_plane=plane)
+
+
 def test_create_app_follows_the_edge_transitively() -> None:
     """One hop is not the property; reach is. An intermediate module must not launder it."""
     job = _doc_job()

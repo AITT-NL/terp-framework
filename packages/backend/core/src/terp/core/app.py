@@ -865,8 +865,21 @@ def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) ->
     """
     by_name = {spec.name: spec for spec in specs}
 
+    # The declared edges, restricted to modules that exist — the same restriction, for the
+    # same reason, that `declared_dependency_graph` applies in the build half: a `requires`
+    # entry naming a capability is the boot-time presence declaration, not an edge, and
+    # `create_app` has already validated that every entry is one or the other. Filtering
+    # once here means the walk below can trust every name it handles.
+    edges = {
+        spec.name: tuple(dep for dep in spec.requires if dep in by_name) for spec in specs
+    }
+
     def reachable(start: str) -> set[str]:
-        """*start* and every module it can reach across declared ``requires`` edges."""
+        """*start* and every module it can reach across declared ``requires`` edges.
+
+        The `seen` guard is for a DIAMOND — two modules requiring the same third — not only
+        for a cycle, which `requires` validation already refuses.
+        """
         seen: set[str] = set()
         stack = [start]
         while stack:
@@ -874,21 +887,14 @@ def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) ->
             if name in seen:
                 continue
             seen.add(name)
-            spec = by_name.get(name)
-            if spec is not None:
-                # A `requires` entry naming a capability rather than a sibling module is
-                # the boot-time presence declaration, not an edge; by_name filters those
-                # out by construction, exactly as the build half's graph does.
-                stack.extend(str(dep) for dep in spec.requires)
+            stack.extend(edges[name])
         return seen
 
     for spec in specs:
         if not spec.jobs:
             continue
         for name in sorted(reachable(spec.name)):
-            reached = by_name.get(name)
-            if reached is None:
-                continue
+            reached = by_name[name]
             for service in reached.services:
                 model = getattr(service, "model", None)
                 if not isinstance(model, type) or issubclass(model, OwnedMixin):
