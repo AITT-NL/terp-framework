@@ -182,7 +182,7 @@ class VerifyCheck:
     #: subprocess — same verdict surface, no interpreter round-trip.
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
-    # | "dependency-hygiene"
+    # | "dependency-hygiene" | "workbench"
     runner: str = "subprocess"
 
 
@@ -217,6 +217,21 @@ _ENV_SEAMS = VerifyCheck(
         "docker-compose*.yml",
     ),
     runner="env-seams",
+)
+
+# Costs a file read, and answers "can a workbench still find its way around this
+# app". The compose file is edited constantly, increasingly by agents, and a small
+# part of it is load-bearing: which service serves the interface, which serves the
+# API, and through which variables the host ports arrive. Nothing recorded that,
+# so nothing could tell an agent it had just broken it -- the symptom showed up
+# much later as a preview that would not start. Checks the declaration against
+# reality and nothing else: a service nobody declared is nobody's business.
+_WORKBENCH = VerifyCheck(
+    id="workbench",
+    category="architecture",
+    command="terp verify --only workbench",
+    scope=("workbench.json", "docker-compose*.yml"),
+    runner="workbench",
 )
 
 _ARCHITECTURE = VerifyCheck(
@@ -374,6 +389,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
     "quick": (
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
+        _WORKBENCH,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _FRONTEND_BOUNDARIES,
@@ -384,6 +400,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
     "full": (
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
+        _WORKBENCH,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _DEPENDENCY_HYGIENE,
@@ -398,6 +415,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
     "release": (
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
+        _WORKBENCH,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _DEPENDENCY_HYGIENE,
@@ -1398,6 +1416,10 @@ def run_verify_command(
             from terp.cli.envseams import run_env_seams_check
 
             exit_code, output = run_env_seams_check(project_root)
+        elif check.runner == "workbench":
+            from terp.cli.workbench import run_workbench_check
+
+            exit_code, output = run_workbench_check(project_root)
         else:
             exit_code, output = _run_subprocess(check, project_root)
             reports = _reports_in(output)

@@ -144,6 +144,24 @@ services:
       TERP_DEV_FRAME_ANCESTORS: ${TERP_DEV_FRAME_ANCESTORS:-}
     ports:
       - "${WEB_PORT:-5173}:5173"
+    healthcheck:
+      # Vite answers its root as soon as the port binds — which is BEFORE
+      # dependency pre-bundling settles, and a request during that window can
+      # still 504. This is therefore the LIVENESS question ("is a dev server
+      # there?"), not a readiness one; a workbench that has to know the page
+      # will actually render asks the app, which answers only once it has
+      # mounted. What this buys is what compose itself needs: `up --wait` and
+      # `depends_on: service_healthy` get a signal for the frontend, exactly as
+      # they already have for `db` and `api`.
+      #
+      # Node, not wget or curl: this image is `node:24-slim`, which ships
+      # neither. Using the runtime that is guaranteed present is the same
+      # reasoning that has the `api` healthcheck reach for `python`.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5173/').then(() => process.exit(0), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     volumes:
       # Live frontend source (see the api service's note on TERP_DEV_HOST_ROOT).
       - ${TERP_DEV_HOST_ROOT:-.}/frontend/src:/app/frontend/src

@@ -75,6 +75,39 @@ def test_database_has_a_healthcheck() -> None:
     assert "healthcheck" in _compose()["services"]["db"]
 
 
+def test_every_long_running_service_has_a_healthcheck() -> None:
+    """`db` and `api` had one; `web` did not, and nothing said so.
+
+    Without it `docker compose up --wait` returns before the frontend is
+    listening and `depends_on: service_healthy` cannot name it — so the one
+    service a person actually looks at was the one compose could say nothing
+    about. The one-shots are excluded on purpose: `migrate` and `seed` are
+    finished when they exit, and health is not a question about them.
+    """
+    services = _compose()["services"]
+    long_running = {"db", "api", "web"}
+
+    missing = [name for name in sorted(long_running) if "healthcheck" not in services[name]]
+
+    assert missing == []
+
+
+def test_the_frontend_healthcheck_uses_a_binary_its_image_actually_has() -> None:
+    """`node:24-slim` ships neither wget nor curl.
+
+    A healthcheck naming one of them does not fail loudly — the probe just
+    never succeeds, and the service sits permanently unhealthy while serving
+    perfectly well. Node is the runtime the image is built on, so it is the one
+    thing guaranteed to be there.
+    """
+    for compose in (_compose(), _template_compose()):
+        command = compose["services"]["web"]["healthcheck"]["test"]
+
+        assert command[0] == "CMD"
+        assert command[1] == "node"
+        assert not any(part in ("wget", "curl") for part in command)
+
+
 def test_api_waits_for_a_healthy_db_and_a_completed_migrate() -> None:
     deps = _compose()["services"]["api"]["depends_on"]
     assert deps["db"]["condition"] == "service_healthy"
@@ -217,6 +250,12 @@ def test_example_and_template_workbenches_share_a_topology() -> None:
     assert any("${API_PORT" in port for port in template["api"]["ports"])
     assert any("${WEB_PORT" in port for port in example["web"]["ports"])
     assert any("${WEB_PORT" in port for port in template["web"]["ports"])
+    # Same health signal on both sides: a probe added to one workbench and not
+    # the other is exactly the drift this parity test exists to catch.
+    assert (
+        example["web"]["healthcheck"]["test"]
+        == template["web"]["healthcheck"]["test"]
+    )
 
 
 def test_example_and_template_backend_images_share_the_security_invariants() -> None:

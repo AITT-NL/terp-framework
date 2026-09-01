@@ -77,6 +77,13 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
     assert ids == {
         "platform-install",
         "env-seams",
+        # Can a tool still navigate this app? The compose file is edited
+        # constantly, increasingly by an agent, and a small part of it is
+        # load-bearing (which service serves what, and through which port
+        # variables). On the merge bar rather than beside it because the
+        # failure it catches is silent: the app builds, runs and passes
+        # everything else while no workbench can find its way around it.
+        "workbench",
         "architecture",
         "backend-tests",
         "appsec-baseline",

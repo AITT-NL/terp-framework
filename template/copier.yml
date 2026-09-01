@@ -32,6 +32,11 @@ _skip_if_exists:
   - frontend/src/routes.gen.d.ts
   - environment.schema.json
   - escape-hatch-budget.json
+  # Seeded once, then the app's. An app with a topology of its own has to be
+  # able to say so and keep saying it -- overwriting this on every upgrade
+  # would make the declaration a description of the template rather than of
+  # the app, which is the opposite of its purpose.
+  - workbench.json
   - frontend/src/theme.css
   - frontend/src/house-style.css
   - frontend/layout-contract.json
