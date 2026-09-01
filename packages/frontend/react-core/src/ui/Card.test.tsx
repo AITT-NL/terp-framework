@@ -36,6 +36,44 @@ describe("Card", () => {
     expect(screen.getByRole("button", { name: "Nieuw" })).toBeInTheDocument();
   });
 
+  it("keeps the actions slot a sibling of the heading, description or not", () => {
+    // The DOM half of a defect whose visible half was CSS. `actions` is documented as a slot in
+    // the header ROW, and it stopped being one the moment `description` was set: the heading was
+    // sized from its content, a block holding a title and a sentence is as wide as the sentence,
+    // and flex breaks lines on that width before it shrinks anything — so the header wrapped and
+    // the control landed underneath. Measured 103px against 48px for the same component one prop
+    // apart.
+    //
+    // What the sheet's fix needs from the markup is exactly this shape: the description inside
+    // the heading (so :has() can find it and so the two lines stay one block) and the actions
+    // slot OUTSIDE it, as a sibling. Nesting the slot in the heading, or lifting the description
+    // out of it, would each render plausibly and defeat the rule silently — which is why this is
+    // asserted structurally rather than left to a screenshot.
+    for (const description of [undefined, "Wat dit blok beschrijft."]) {
+      cleanup();
+      render(
+        <Card
+          title="Projecten"
+          description={description}
+          actions={<button type="button">Nieuw</button>}
+        >
+          inhoud
+        </Card>,
+      );
+      const header = screen
+        .getByRole("heading", { level: 3, name: "Projecten" })
+        .closest('[data-terp="card-header"]') as HTMLElement;
+      const heading = header.querySelector('[data-terp="card-heading"]') as HTMLElement;
+      const actions = header.querySelector('[data-terp="card-actions"]') as HTMLElement;
+      expect(actions.parentElement, "the actions slot is the heading's sibling").toBe(header);
+      expect(heading.contains(actions)).toBe(false);
+      expect(
+        heading.querySelector('[data-terp="card-description"]') !== null,
+        "the description lives inside the heading, which is what the :has() rule reads",
+      ).toBe(description !== undefined);
+    }
+  });
+
   it("renders headerless with children only", () => {
     render(<Card>alleen inhoud</Card>);
     const card = screen.getByText("alleen inhoud").closest('[data-terp="card"]');

@@ -743,6 +743,183 @@ describe("cascade structure", () => {
     }
   });
 
+  it("puts the DetailList gap rules after the layout rules they override", () => {
+    // The same tie as the responsive Stack rules above, on a different component.
+    // [data-terp="detail-list"][data-gap="3"] and [data-terp="detail-list"][data-layout="aligned"]
+    // both weigh (0,2,0), so nothing but source order decides which row-gap a list carrying both
+    // attributes renders. Backwards, the layout default wins and the prop silently does nothing
+    // — which reads as a broken prop rather than as a misplaced rule, and no baseline can say
+    // which of the two it is looking at.
+    const base = layerBody("terp.base");
+    const layoutAt = base.indexOf('[data-terp="detail-list"][data-layout="stacked"] {');
+    expect(layoutAt, "the layouts' default row gap should have a rule").toBeGreaterThan(-1);
+    for (const token of [0, 1, 2, 3, 4, 6, 8]) {
+      const at = base.indexOf(`[data-terp="detail-list"][data-gap="${token}"]`);
+      expect(at, `detail-list has no rule for gap ${token}`).toBeGreaterThan(-1);
+      expect(at, `gap ${token} must be declared after the layout default it overrides`).toBeGreaterThan(
+        layoutAt,
+      );
+    }
+  });
+
+  it("wins DetailList's wide rules on specificity, not on where they sit", () => {
+    // The mirror of the test above, and the opposite hazard. The sheet has exactly ONE
+    // wide-viewport block and DetailList's base rules are declared roughly a hundred lines
+    // BELOW it, so source order settles these the wrong way round and cannot be relied on.
+    // Specificity is what makes them apply, which is precisely how splitpage-panes already
+    // works from this same block — and it is invisible to a reader of either rule.
+    //
+    // Asserted as a property rather than as a list of pixel values: every selector in here
+    // carries the marker plus at least one attribute, so it out-weighs the (0,1,0) base rule
+    // it overrides. These selectors are attribute-only, so counting `[` counts specificity's
+    // b-component exactly.
+    const base = layerBody("terp.base");
+    const wideAt = base.indexOf("@media not all and (max-width: 768px)");
+    expect(wideAt, "the wide block should be in terp.base").toBeGreaterThan(-1);
+    let depth = 0;
+    let end = base.length;
+    for (let i = base.indexOf("{", wideAt); i < base.length; i += 1) {
+      if (base[i] === "{") depth += 1;
+      else if (base[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    const wide = base.slice(wideAt, end);
+    for (const selector of [
+      '[data-terp="detail-list"][data-columns="2"]',
+      '[data-terp="detail-list"][data-layout="aligned"]',
+      '[data-terp="detail-list"][data-layout="aligned"][data-columns="2"]',
+      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"]',
+    ]) {
+      expect(
+        declaresRuleFor(wide, selector),
+        `${selector} belongs inside the wide block — narrow is one column`,
+      ).toBe(true);
+      expect(
+        (selector.match(/\[/g) ?? []).length,
+        `${selector} must out-specify the base rule it overrides, which is declared later`,
+      ).toBeGreaterThan(1);
+    }
+    // And the base rules really are declared after it, or none of the above is load-bearing.
+    for (const selector of ['[data-terp="detail-list"] {', '[data-terp="detail-list-row"] {']) {
+      expect(base.indexOf(selector), `${selector} should exist`).toBeGreaterThan(-1);
+      expect(
+        base.indexOf(selector),
+        `${selector} is declared before the wide block, so order — not specificity — would settle it`,
+      ).toBeGreaterThan(wideAt);
+    }
+    // The one property the wide block must NOT declare: row-gap belongs to the gap prop, whose
+    // roll-call weighs the same (0,2,0) and is declared later on purpose. A row-gap in here
+    // would out-order it and the prop would stop working above the cutover only.
+    expect(wide, "row-gap in the wide block would silently disable the gap prop").not.toContain(
+      "row-gap",
+    );
+  });
+
+  it("mutes the DetailList label in both non-inline layouts, and in neither sentence", () => {
+    // The defect this closes was a divergence: `stacked` muted its term and `aligned` never
+    // got the rule, so an aligned label rendered at the VALUE's size, weight and ink — 16px,
+    // 500, near-black — and a card of five labelled values read as a wall of bold text with
+    // nothing saying which half of a pair to read first.
+    //
+    // `inline` is deliberately excluded, and that is the half worth pinning: there the term is
+    // part of a sentence (the colon comes from a ::after) and muting half a sentence is a
+    // different defect. So this asserts the selector list exactly, in both directions.
+    // Anchored on the RULES rather than on the section comment, because `css` above has its
+    // comments stripped — prose must not satisfy a structural assertion, so prose cannot
+    // delimit one either.
+    const base = layerBody("terp.base");
+    const muting = [...base.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((match) => ({
+        selectors: match[1].split(",").map((part) => part.trim().replace(/\s+/g, " ")),
+        body: match[2],
+      }))
+      .filter(
+        (rule) =>
+          rule.selectors.some((selector) => selector.includes('[data-terp="detail-list-term"]')) &&
+          rule.body.includes("--color-fg-muted"),
+      );
+    expect(muting, "one shared rule mutes the label, not one per layout").toHaveLength(1);
+    expect(muting[0]!.selectors).toEqual([
+      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"]',
+      '[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"]',
+    ]);
+    expect(muting[0]!.body).toContain("var(--font-size-xs)");
+    expect(muting[0]!.body).toContain("var(--font-weight-normal)");
+    // And the base term rule — the one the inline layout renders — carries no colour of its own.
+    const termAt = base.indexOf('[data-terp="detail-list-term"] {');
+    expect(termAt, "the base term rule should exist").toBeGreaterThan(-1);
+    expect(base.slice(termAt, base.indexOf("}", termAt))).not.toContain("color:");
+  });
+
+  it("keeps a Card's actions slot on the title's line, description or not", () => {
+    // The measured inconsistency: `actions` is documented as a header-row slot and delivered
+    // one only while `description` was unset. The heading declared min-width: 0 alone, so it
+    // computed flex: 0 1 auto and its hypothetical main size was the max-content width of a
+    // block holding a title AND a sentence — and flex breaks lines on hypothetical main sizes
+    // BEFORE it shrinks anything, so with the header's flex-wrap the heading took the line and
+    // the control wrapped underneath. 103px against 48px for the same component, one prop apart.
+    //
+    // A base size of 0 is what makes both fit by construction. min-width: 0 stays for the other
+    // half: a flex item's automatic minimum is its content's, so a long unbreakable title would
+    // otherwise refuse to shrink past it. Both are asserted, because dropping either brings a
+    // different half of the bug back.
+    const base = layerBody("terp.base");
+    const headingAt = base.indexOf('[data-terp="card-heading"] {');
+    expect(headingAt, "card-heading should have a base rule").toBeGreaterThan(-1);
+    const heading = base.slice(headingAt, base.indexOf("}", headingAt));
+    expect(heading, "a content-sized heading wraps the actions slot onto its own line").toContain(
+      "flex: 1 1 0",
+    );
+    expect(heading, "min-width: 0 is what lets an unbreakable title shrink").toContain(
+      "min-width: 0",
+    );
+    // The conditional half. `center` is right for a title alone — the slot is a control, so its
+    // box is taller than one line box — and wrong the moment a description makes the heading a
+    // block, where it floats the control in the middle instead of beside the title.
+    expect(
+      declaresRuleFor(base, '[data-terp="card-header"]:has([data-terp="card-description"])'),
+      "the header's alignment must depend on whether there is a description",
+    ).toBe(true);
+    const conditionalAt = base.indexOf(
+      '[data-terp="card-header"]:has([data-terp="card-description"])',
+    );
+    expect(base.slice(conditionalAt, base.indexOf("}", conditionalAt))).toContain(
+      "align-items: start",
+    );
+    // And the base rule still centres, or the title rides above the control in the common case.
+    const headerAt = base.indexOf('[data-terp="card-header"] {');
+    expect(base.slice(headerAt, base.indexOf("}", headerAt))).toContain("align-items: center");
+  });
+
+  it("gives the page title, a card title and body copy three different steps", () => {
+    // The scale was flat: the single h1 of a view rendered at lg (18px) against a card title at
+    // base (16px) against 16px prose — one step from the h1 to a section heading, and a section
+    // heading the same size as the text under it. --font-size-xl was published with exactly one
+    // reader, so the top of the scale existed and the page that most needs it was not using it.
+    //
+    // Pinned here rather than left to the baselines because a screenshot cannot say WHICH step a
+    // rendered size came from, and the point of the change is that these four are four steps of
+    // one published scale rather than four sizes that happen to differ.
+    const base = layerBody("terp.base");
+    for (const [selector, step] of [
+      ['[data-terp="page-title"]', "xl"],
+      ['[data-terp="card-title"]', "lg"],
+      ['[data-terp="card-description"]', "sm"],
+    ] as const) {
+      const at = base.indexOf(`${selector} {`);
+      expect(at, `${selector} should have a rule`).toBeGreaterThan(-1);
+      expect(
+        base.slice(at, base.indexOf("}", at)),
+        `${selector} should render the ${step} step of the published scale`,
+      ).toContain(`font-size: var(--font-size-${step})`);
+    }
+  });
+
   it("declares a wide-half gap rule for every step SpaceToken allows", () => {
     // The narrow half is covered by the roll-call below; this is its counterpart. A responsive
     // gap whose wide step has no rule silently renders the narrow gap at every width — which
@@ -941,7 +1118,12 @@ describe("cascade structure", () => {
     // silently fall back to the default gap rather than fail.
     const base = layerBody("terp.base");
     for (const token of [0, 1, 2, 3, 4, 6, 8]) {
-      for (const marker of ["stack", "card", "grid"]) {
+      // `detail-list` joined the three late, and its absence is why the value it now takes was
+      // unreachable: every other layout primitive published a gap on this scale, so a detail
+      // list wanting looser rows had nowhere to say so — and app modules may write neither
+      // `style` nor `className`. Its rules set `row-gap` rather than the shorthand, for the
+      // reason the sheet gives there: the column gap is the layout's, not the caller's.
+      for (const marker of ["stack", "card", "grid", "detail-list"]) {
         expect(
           declaresRuleFor(base, `[data-terp="${marker}"][data-gap="${token}"]`),
           `${marker} has no rule for gap ${token}`,

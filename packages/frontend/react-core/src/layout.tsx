@@ -241,6 +241,22 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
   layout?: DetailListLayout;
   /** Pairs per row (default `1`). */
   columns?: 1 | 2;
+  /**
+   * Distance **between pairs**, as a step on the token spacing scale.
+   *
+   * Defaults to the layout's own: `--space-3` for `aligned` and `stacked`, `--space-1` for
+   * `inline`, where a pair is one line of a paragraph rather than a block of its own.
+   *
+   * It sets the ROW gap only, and that is a guarantee rather than an implementation detail. The
+   * column gap is the label-to-value distance in `aligned` and the space between pair groups at
+   * `columns={2}`, so a caller who could set it would be reaching past the layout into its
+   * internals; a `gap` shorthand from here would reset both.
+   *
+   * The prop exists because its absence was the reason the value was unreachable: `Stack`,
+   * `Grid` and `Card` all take a `gap` on this scale, and app modules may write neither `style`
+   * nor `className` (ADR 0059), so a detail list needing looser rows had nowhere to say so.
+   */
+  gap?: SpaceToken;
 }
 
 /**
@@ -263,11 +279,30 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
  * layout alone — `aligned` and `stacked` must not have one, and a text node cannot be
  * withdrawn by a rule. It is decorative either way: the `<dt>` / `<dd>` pairing is what carries
  * the relationship to assistive tech.
+ *
+ * Three later corrections are worth knowing, because each was measured rather than reasoned:
+ *
+ * - **The label is muted, and `aligned` shares that rule with `stacked`.** It did not, and the
+ *   gap was the whole legibility complaint: an aligned `<dt>` rendered at the value's own size,
+ *   weight and ink, so a card of five labelled values was a wall of bold text with nothing
+ *   saying which half to read first. `inline` keeps its plain term deliberately — there the
+ *   label is half a sentence.
+ * - **Rows are `--space-3` apart in both non-inline layouts.** At the old `--space-1` the
+ *   distance within a pair equalled the distance between pairs, so nothing grouped. {@link
+ *   DetailListProps.gap} makes it a caller's choice on the same scale as every other primitive.
+ * - **It reflows to one column below the framework's viewport cutover**, where `Grid`
+ *   deliberately does not for a fixed `columns` count. The asymmetry is a decision: `Grid`
+ *   publishes `columns="auto"` as its responsive answer and this component's closed `1 | 2` has
+ *   no such escape, so the reflow has to be its own. Above the cutover the shape is what it
+ *   was, bar a label column now capped at `max-content` rather than floored at min-content;
+ *   below it, four tracks in a phone's width met `overflow-wrap: anywhere` — correct for an
+ *   unbreakable digest, wrong as a way to fit a label — and broke ordinary values mid-word.
  */
 export function DetailList({
   items,
   layout = "inline",
   columns = 1,
+  gap,
   ...rest
 }: DetailListProps) {
   const text = useUiText();
@@ -278,6 +313,10 @@ export function DetailList({
       // `inline` and one column are the base rule, so neither stamps an attribute.
       data-layout={layout === "inline" ? undefined : layout}
       data-columns={columns === 1 ? undefined : String(columns)}
+      // No default to compare against: the default row gap is the LAYOUT's, so an unset gap
+      // must stamp no attribute at all and leave the layout rule standing. Stack's and Grid's
+      // gaps stamp unconditionally because their defaults are one value, not three.
+      data-gap={gap === undefined ? undefined : String(gap)}
     >
       {items.map((item, index) => (
         <div key={index} data-terp="detail-list-row">

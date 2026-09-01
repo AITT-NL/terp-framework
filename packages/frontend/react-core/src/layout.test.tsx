@@ -259,6 +259,42 @@ describe("DetailList", () => {
     expect(el).toHaveAttribute("data-columns", "2");
   });
 
+  it("stamps a gap only when one was asked for, because the default is the layout's", () => {
+    // Unlike Stack's and Grid's, this attribute is conditional, and the condition is the point:
+    // the default row gap differs per layout — --space-3 for aligned and stacked, --space-1 for
+    // inline, where a pair is one line of a paragraph rather than a block. There is no single
+    // default to compare against, so an unset gap must stamp NOTHING and leave the layout rule
+    // standing. Stamping a default here would silently flatten all three back to one value,
+    // which is the grouping defect the layouts' own gap was added to fix.
+    const { rerender } = render(
+      <DetailList data-testid="dl" layout="aligned" items={[{ label: "Owner", value: "Ada" }]} />,
+    );
+    expect(screen.getByTestId("dl").hasAttribute("data-gap")).toBe(false);
+    rerender(
+      <DetailList
+        data-testid="dl"
+        layout="aligned"
+        gap={6}
+        items={[{ label: "Owner", value: "Ada" }]}
+      />,
+    );
+    expect(screen.getByTestId("dl")).toHaveAttribute("data-gap", "6");
+    // Step 0 is a real step and must survive the conditional — a falsy-check rather than an
+    // undefined-check would drop it, and "no gap between pairs" would silently render the
+    // layout's default instead.
+    rerender(
+      <DetailList
+        data-testid="dl"
+        layout="aligned"
+        gap={0}
+        items={[{ label: "Owner", value: "Ada" }]}
+      />,
+    );
+    expect(screen.getByTestId("dl")).toHaveAttribute("data-gap", "0");
+    // And still no inline style: every step is a rule the sheet keys on (ADR 0097).
+    expect(screen.getByTestId("dl").getAttribute("style")).toBeNull();
+  });
+
   it("puts no colon in the markup, because two layouts must not have one", () => {
     // The colon is a rule on the inline layout, not a text node — `aligned` and `stacked` must
     // not carry one, and no rule can withdraw a text node. It is decorative either way: the

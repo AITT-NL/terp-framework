@@ -32,7 +32,18 @@ export interface CardProps
   title?: UiText;
   /** Optional muted one-liner under the title (what this block is about). */
   description?: UiText;
-  /** Optional right-hand slot in the header row (filters, a legend, an action). */
+  /**
+   * Optional right-hand slot in the header row (filters, a legend, an action).
+   *
+   * It stays on the title's line whether or not there is a {@link CardProps.description}, and
+   * that took a rule rather than coming for free: the header wraps, and a heading block sized
+   * from its content is as wide as its longest line — a description sentence — so flex broke
+   * the line before it shrank anything and the slot landed underneath. Measured at a 103px
+   * header against 48px for the same component with the description removed. The heading's
+   * flex base is 0 now, so both fit on one line by construction, and the header aligns to
+   * `start` once a description is present so the control sits beside the title rather than
+   * floating in the middle of the block.
+   */
   actions?: ReactNode;
   /** The rendered element — `"section"` by default (a titled block of a page). */
   as?: "section" | "article" | "div" | "aside";

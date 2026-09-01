@@ -848,6 +848,48 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The pairing, and its absence is why a header defect shipped: `card-titled` has a title
+        // and a description, the shells' cards carry titles and actions, and nothing anywhere put
+        // all three in one picture — so the one arrangement in which the actions slot did not
+        // behave was the one nothing was looking at. Both cards are here because the bug was the
+        // INCONSISTENCY rather than either result: same prop, inline above, wrapped below, and
+        // only the pair says so.
+        //
+        // The description has to be long enough to WRAP at the gallery's width, and that is a
+        // constraint rather than a flourish. The old heading computed flex: 0 1 auto, so its
+        // hypothetical main size was the description's *max-content* width — one unwrapped line.
+        // While that fits beside the control the old sheet painted this correctly, so a short
+        // description makes the specimen prove nothing. Two lines means max-content exceeds the
+        // header, which is exactly the condition under which flex broke the line.
+        id: "card-title-description-actions",
+        title: "Card — an action beside a title, with and without a description",
+        node: (
+          <Stack gap={4}>
+            <Card
+              title="Connection profile"
+              description="How this app reaches the source system, which credential it presents, the window it is allowed to run in, and what a run does when it overlaps the one before it. Every value here is read from the profile rather than from the connection."
+              actions={
+                <Button type="button" variant="secondary">
+                  Edit
+                </Button>
+              }
+            >
+              <p style={{ margin: 0 }}>Body content sits below the header.</p>
+            </Card>
+            <Card
+              title="Connection profile"
+              actions={
+                <Button type="button" variant="secondary">
+                  Edit
+                </Button>
+              }
+            >
+              <p style={{ margin: 0 }}>The same header with the description removed.</p>
+            </Card>
+          </Stack>
+        ),
+      },
+      {
         id: "card-bare",
         title: "Card — no header",
         node: (
@@ -957,6 +999,46 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         id: "detail-list-two-column",
         title: "DetailList — two aligned pairs per row",
         node: <DetailList layout="aligned" columns={2} items={RECORD_PAIRS} />,
+      },
+      {
+        // The other half of DetailList's cutover, and it needs a viewport of its own for the
+        // reason `split-page-narrow` does: the aligned and two-column tracks live in the sheet's
+        // single wide-viewport block, so at the lane's pinned 1280 they always apply and the
+        // one-column shape is unreachable. 430x900 is a phone, well below the 768px breakpoint.
+        //
+        // What the picture is FOR is that a value gets its own line. Four tracks in ~370px met
+        // `overflow-wrap: anywhere` — correct for an unbreakable digest, wrong as a way to fit a
+        // label — and broke ordinary words mid-token. All three layouts are in one shot because
+        // narrow they converge, which is the claim: below the cutover a labelled pair reads the
+        // same way whatever the caller asked for above it.
+        id: "detail-list-narrow",
+        title: "DetailList — one column below the breakpoint",
+        viewport: { width: 430, height: 900 },
+        node: (
+          // gap={8} rather than the usual 4: the rows inside each list are --space-3 apart, so at
+          // a smaller step the three lists run together and a reader cannot see where one ends.
+          <Stack gap={8}>
+            {(["aligned", "stacked"] as const).map((layout) => (
+              <DetailList key={layout} layout={layout} items={RECORD_PAIRS} />
+            ))}
+            <DetailList layout="aligned" columns={2} items={RECORD_PAIRS} />
+          </Stack>
+        ),
+      },
+      {
+        // The gap prop, against the layout default it overrides. Two steps rather than all seven:
+        // the roll-call in styles.test.ts holds every step, the same division the Stack and Grid
+        // padding specimens already use. It is a ROW gap — the column gap is the label-to-value
+        // distance and stays the layout's — so the picture to read is the vertical rhythm.
+        id: "detail-list-gap",
+        title: "DetailList — the distance between pairs",
+        node: (
+          <Stack gap={6}>
+            {([1, 6] as const).map((step) => (
+              <DetailList key={step} layout="aligned" gap={step} items={RECORD_PAIRS} />
+            ))}
+          </Stack>
+        ),
       },
       {
         // The defect rather than the feature, and it needs the narrow box: an implicit grid

@@ -10,6 +10,117 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.14.0 — 2026-09-01
+
+### Fixed
+
+- **A card's `actions` slot stopped being a header slot the moment the card had a
+  description.** `Card` documents `actions` as "Optional right-hand slot in the header row" and
+  delivered one only while `description` was unset. The heading declared `min-width: 0` and
+  nothing else, so it computed `flex: 0 1 auto` and its hypothetical main size was the
+  *max-content* width of a block holding a title **and** a sentence. Flex does line-breaking on
+  hypothetical main sizes **before** it shrinks anything, so with the header's `flex-wrap` the
+  heading claimed the whole line and the control wrapped underneath it. Measured on a screen
+  whose cards each carry a title, a sentence and one button: a **103px** header with the button
+  below the description, where the same component with the description removed rendered inline
+  at **48px**. Same prop, two results, one sibling prop apart — and that inconsistency was the
+  complaint rather than either result.
+
+  The heading's flex base is `0` now, so both items fit on one line by construction and the
+  heading grows into whatever the slot does not use. `min-width: 0` stays, because it answers a
+  different half: a flex item's automatic minimum size is its content's, so a long unbreakable
+  title would otherwise refuse to shrink past it.
+
+  The header's `align-items` is now conditional, and the condition is deliberate. With a title
+  alone `center` is right — the slot holds a control, so its box is a density step tall against
+  a single line box, and `start` would leave the title riding above it. With two or three lines
+  of description the same declaration floats the control in the middle of the block instead of
+  beside the title it belongs to. So the alignment keys on `:has([data-terp="card-description"])`,
+  the mechanism the disabled control-label states already use, rather than on a prop describing
+  the DOM back to the sheet.
+
+  No specimen paired a description with an action, which is why this shipped: one specimen had a
+  title and a description, the page archetypes carry titles and actions, and nothing put all
+  three in one picture. The gallery now does, both arrangements in one shot, because the pair is
+  what makes the inconsistency legible.
+
+- **In `layout="aligned"`, a label was typographically identical to its value.** The term
+  measured **16px / weight 500 / near-black** — the value's own size, weight and ink.
+  `layout="stacked"` had muted its term to the small step and the muted ink from the start;
+  `aligned` never got the rule. So a card of four or five short labelled values rendered as a
+  wall of bold text with nothing telling a reader which half of a pair to read first, which was
+  the single biggest reason those screens read badly. Both non-inline layouts now share one
+  rule: the small step, regular weight, muted ink.
+
+  The default `inline` layout is deliberately excluded. There the term is half a sentence — the
+  colon comes from a `::after`, not from the markup — and muting half a sentence is a different
+  defect from the one this closes. Two layouts diverging was the bug; three converging would be
+  another.
+
+- **Every detail list spaced its rows at 4px, so nothing grouped.** `--space-1` between rows
+  made the distance *within* a pair and the distance *between* pairs indistinguishable: five
+  pairs read as ten equally-spaced lines. `aligned` and `stacked` now open to `--space-3`.
+  `inline` keeps `--space-1` and no existing inline list moves — there a pair genuinely is one
+  line of a paragraph, and 4px is the leading between lines of one block.
+
+- **`DetailList` had no responsive behaviour at all.** No media query went anywhere near it, so
+  `columns={2}` and `aligned` rendered the same tracks at every width. Two consequences, both
+  measured. In a 565px card the aligned two-column form resolved to
+  `70.7px 191px 76.3px 191px` — the two label tracks are independent `auto` tracks, so they
+  sized 5.6px apart and nothing aligned with anything. At a 430px viewport the same list put
+  four tracks in ~370px, and the value's `overflow-wrap: anywhere` then broke ordinary words
+  mid-token: a parenthesised identifier came out over three lines, and a scheme-prefixed value
+  split across two. The `anywhere` is right — it is what stops an unbreakable digest overflowing
+  its column — so the fix was to stop asking a phone to hold four tracks.
+
+  It is mobile-first now, through the framework's **one** existing cutover: one column with the
+  term as a block above its value is the base rule and needs no query, and the shared label
+  column and the two-pairs-per-row tracks live in the sheet's single wide-viewport block. The
+  aligned label track is also capped — `minmax(0, max-content)` rather than a bare `auto`,
+  which floored at min-content and made it the one track in this component that had never been
+  floored at zero.
+
+  Two notes for anyone extending it. A container query would be the more nearly right
+  instrument and was declined on purpose: `@container` appears nowhere in this sheet, so
+  introducing one for a single component is a mechanism change that wants its own record rather
+  than a line in a defect fix, and the existing cutover covers the width the failure was
+  measured at. And this is why `DetailList` reflows itself while `Grid` deliberately refuses to
+  for a fixed `columns` count — `Grid` publishes `columns="auto"` as its responsive answer, and
+  a closed one-or-two has no such escape.
+
+### Added
+
+- **`DetailList` takes a `gap`,** as a step on the token spacing scale, like `Stack`, `Grid` and
+  `Card` already did. Its absence is why the row distance above was unreachable rather than
+  merely wrong: app modules may write neither `style` nor `className` (ADR 0059), so a detail
+  list wanting looser rows had nowhere to say so.
+
+  It sets the **row** gap only, and that is a guarantee rather than an implementation detail.
+  The column gap is the label-to-value distance in `aligned` and the space between pair groups
+  at two pairs per row, both owned by the layout — a caller who could set it would be reaching
+  past the layout into its internals, and a `gap` shorthand would reset both. Unset stamps no
+  attribute at all, so the layout's own default stands; there is no single default to compare
+  against, unlike `Stack`'s and `Grid`'s.
+
+### Changed
+
+- **The type scale was flat at the top, where it matters most.** The single `<h1>` of a view
+  rendered at `--font-size-lg` (**18px**) against a card title at `--font-size-base`
+  (**16px**) against 16px body copy — one step from the page title to a section heading, and a
+  section heading the same size as the prose beneath it. `--font-size-xl` (**24px**) had shipped
+  with exactly one reader, so the top of the scale existed and the page that most needs it was
+  not using it. The page title now takes `xl` and a card title takes `lg`, which yields
+  24 / 18 / 16 / 14 across page title, section heading, body and description — four steps of one
+  published scale rather than four sizes that happen to differ.
+
+  No prop, and no per-app knob. An app that wants otherwise redefines the two markers from its
+  own unlayered `theme.css`, which is what the cascade-layer architecture exists to allow: this
+  sheet carries no `!important`, so an app beats it without one (ADR 0094).
+
+  The `line-height` literals on both rules are untouched. Converting them to the published
+  scale changes rendered metrics across a dozen components and is a typography pass with its own
+  baselines — the ratchet in `tokens.guard.test.ts` holds the count in the meantime.
+
 ## 0.13.2 — 2026-09-01
 
 ### Fixed

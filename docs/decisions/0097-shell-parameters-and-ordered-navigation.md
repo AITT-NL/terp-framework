@@ -150,6 +150,34 @@ which makes an element's inline size independent of its contents; putting that o
 article or on `Card` is a layout change to be measured, not assumed, and it is not the change
 this phase is making. Recorded as the option, with the measurement it owes.
 
+**Amended again in 0.14.0, by a component that does need the block.** `DetailList` joined the
+wide block, and the reason is the shape of the escape rather than a change of position. The
+paragraph above says `Grid` needs no responsive prop because `columns="auto"` reflows to the
+container — true, and it is the better answer wherever it is available. It is not available
+here: `DetailList`'s `columns` is a closed `1 | 2` and its `aligned` layout is a track pair, so
+there is no `auto` for a caller to reach for, and a component with no escape has to do the
+reflow itself. So the rule stands as *`auto` where a track floor can express the intent, the
+cutover where it cannot* — which is narrower than "primitives do not use media queries" and is
+what was actually meant.
+
+What it cost to have shipped without one was measured rather than argued. At a 430px viewport a
+two-pairs-per-row aligned list put four tracks in ~370px, and the value's `overflow-wrap:
+anywhere` — correct, and the declaration that stops an unbreakable digest overflowing its
+column — then broke ordinary words mid-token. The container-query note above is unchanged and
+was re-declined here on its own terms: `@container` still appears nowhere in the sheet, so
+introducing it for one component is the mechanism change that paragraph says wants its own
+measurement, and the existing cutover covers the width the failure was found at.
+
+One consequence is worth recording because it is invisible in the rules themselves. The sheet
+has exactly one wide block and it sits near the top, so a component whose base rules are
+declared *below* it cannot rely on source order — the wide rules win on **specificity**, every
+one of them carrying the marker plus at least one attribute against the base rule's marker
+alone. `splitpage-panes` already worked this way; `detail-list` now does too, and
+`styles.test.ts` pins the property in both directions, since a reader of either rule cannot see
+it. The mirror hazard is the same tie in the other direction: a per-step `gap` rule and a
+per-layout default weigh the same, so the gap rules are declared *after* the layout rules and
+that order is pinned as well.
+
 ### 4. New primitives are enumerable-only, so the inline-style ledger stays at nine
 
 `INLINE_STYLE_SITES` is exact-equality per file, so every new component fails the gate on a

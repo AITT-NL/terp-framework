@@ -546,6 +546,56 @@ textarea[data-terp="input"] {
   [data-terp="splitpage-panes"][data-list-width="lg"] {
     grid-template-columns: minmax(0, 32rem) minmax(0, 1fr);
   }
+  /* DetailList's multi-column half. Mobile-first, like SplitPage's panes above: the narrow
+     shape is one column with the term as a block above its value, which is the BASE rule and
+     therefore needs no query at all — this block is only the widths at which a shared label
+     column, or two pairs per row, fit.
+
+     They ran at every width before, and 430px is where that showed: four tracks in ~370px, and
+     detail-list-value's overflow-wrap: anywhere then broke words mid-token rather than letting
+     a value have its own line. The anywhere is right — it is what stops an unbreakable digest
+     overflowing its column — so the fix is to stop asking a phone to hold four tracks.
+
+     Why a viewport query and not a container query, which would be the more nearly right
+     instrument: container queries appear nowhere in this sheet, so introducing one for a single
+     component is a mechanism change that wants its own record rather than a line in a defect
+     fix, and the cutover the framework already has covers the width the failure was measured
+     at. It is also why DetailList reflows itself while Grid deliberately refuses to for a fixed
+     column count — Grid publishes columns="auto" as its responsive answer, and DetailList's
+     closed one-or-two has no such escape, so the reflow has to be the component's own.
+
+     PLACEMENT: the detail-list base rules are declared ~100 lines BELOW this block, so source
+     order cannot settle these. Specificity does, and deliberately: every selector here carries
+     the marker plus at least one attribute (0,2,0) against the base rule's (0,1,0). That is
+     exactly how splitpage-panes above already wins over its own base rule further down, and
+     styles.test.ts pins the property, because a reader cannot see it from the rule. The one
+     thing this block must NOT declare is row-gap: that belongs to the gap prop, whose roll-call
+     weighs the same (0,2,0) and is therefore declared later on purpose. */
+  [data-terp="detail-list"][data-columns="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--space-4);
+  }
+  /* minmax(0, max-content) rather than a bare auto for the label track. An auto track floors
+     at min-content, which makes it the one track in this component that was never floored at
+     zero — so a label with nothing to break on widened the column and pushed the list past its
+     container, the same failure the value track's minmax(0, 1fr) was written to stop. Capping at
+     max-content also stops the label column claiming width no label is using: measured in a
+     565px card, two independently-sized auto label tracks left a value track of ~400px holding
+     ~60px of text. */
+  [data-terp="detail-list"][data-layout="aligned"] {
+    grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+    column-gap: var(--space-3);
+  }
+  [data-terp="detail-list"][data-layout="aligned"][data-columns="2"] {
+    grid-template-columns: repeat(2, minmax(0, max-content) minmax(0, 1fr));
+  }
+  /* display: contents is what makes the dt and dd grid items of the dl itself, so labels align
+     ACROSS rows without a DOM change — and it belongs in here rather than in the base rules
+     because it is the mechanism of the shared column, which exists only above the cutover.
+     Narrow, the row wrapper stays a block and each pair reads as two lines. */
+  [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"] {
+    display: contents;
+  }
 }
 
 /* Grids -------------------------------------------------------------------- */
@@ -645,26 +695,22 @@ textarea[data-terp="input"] {
      the mechanism anywhere in the suite. */
   overflow-wrap: anywhere;
 }
-/* Two pairs per row. minmax(0, 1fr) rather than 1fr for the reason Grid's fixed counts need
-   it: a bare 1fr floors at min-content, and a 64-character digest with nothing to break on
-   then widens its column and pushes the list past its container — which is the defect the
-   diagnosis was describing, rather than the missing alignment it named. */
-[data-terp="detail-list"][data-columns="2"] {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: var(--space-4);
-}
-/* Aligned: every label in a shared column. The row wrapper becomes display: contents so the
-   dt and dd are grid items of the dl itself — the only way to align across rows without
-   changing the DOM, and the reason the wrapper needed a marker at all. */
-[data-terp="detail-list"][data-layout="aligned"] {
-  grid-template-columns: auto minmax(0, 1fr);
-  column-gap: var(--space-3);
-}
-[data-terp="detail-list"][data-layout="aligned"][data-columns="2"] {
-  grid-template-columns: repeat(2, auto minmax(0, 1fr));
-}
-[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"] {
-  display: contents;
+/* The tracks for two pairs per row, and for aligned, live in the wide-viewport block above
+   rather than here: one column is the narrow shape and therefore the base. What stays here is
+   everything that holds at every width.
+
+   Both non-inline layouts open their rows to --space-3. At the base --space-1 the distance
+   WITHIN a pair and the distance BETWEEN pairs were the same 4px, so a card of five labelled
+   values had nothing grouping it — five pairs read as ten equally-spaced lines. inline keeps
+   --space-1, because there a pair IS one line of a paragraph and 4px is the leading between
+   lines of one block; opening it would space out a run of sentences.
+
+   row-gap rather than gap, and the distinction is load-bearing: the column gap in aligned is
+   the label-to-value distance, and at two pairs per row it is the space between pair groups —
+   both owned by the rules in the wide block. A shorthand here would silently reset them. */
+[data-terp="detail-list"][data-layout="aligned"],
+[data-terp="detail-list"][data-layout="stacked"] {
+  row-gap: var(--space-3);
 }
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"],
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-value"],
@@ -672,12 +718,37 @@ textarea[data-terp="input"] {
 [data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-value"] {
   display: block;
 }
-/* Stacked: label above value. The label takes the muted step so the pair reads as one unit
-   rather than two lines of equal weight. */
+/* The label takes the muted, smaller, regular step so a pair reads as one unit rather than two
+   lines of equal weight — and aligned shares the rule rather than getting a second treatment
+   of its own. It did not, and that was the defect: an aligned term measured 16px / weight 500 /
+   near-black, which is the value's own typography, so a card of five labelled values rendered
+   as a wall of bold text with nothing telling a reader which half to read first.
+
+   inline is deliberately NOT here. There the term is half a sentence — the colon comes from
+   the ::after above — and muting half a sentence is a different defect from the one this fixes.
+   Two layouts diverging was the bug; three converging would be another. */
+[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"],
 [data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"] {
   font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
   color: var(--color-fg-muted);
 }
+/* The gap prop, and this block must stay AFTER the layout rules above. Both
+   [data-terp="detail-list"][data-gap="3"] and [data-terp="detail-list"][data-layout="aligned"]
+   weigh (0,2,0), so nothing but source order decides which row-gap a list carrying both
+   attributes renders — backwards, the prop silently does nothing, which looks like the prop not
+   working rather than like a cascade mistake. The same tie the responsive Stack rules turn on,
+   pinned the same way in styles.test.ts.
+
+   row-gap only, for the reason the layout rules above give. The prop is documented as the
+   distance BETWEEN pairs, and the column gap stays the layout's. */
+[data-terp="detail-list"][data-gap="0"] { row-gap: var(--space-0); }
+[data-terp="detail-list"][data-gap="1"] { row-gap: var(--space-1); }
+[data-terp="detail-list"][data-gap="2"] { row-gap: var(--space-2); }
+[data-terp="detail-list"][data-gap="3"] { row-gap: var(--space-3); }
+[data-terp="detail-list"][data-gap="4"] { row-gap: var(--space-4); }
+[data-terp="detail-list"][data-gap="6"] { row-gap: var(--space-6); }
+[data-terp="detail-list"][data-gap="8"] { row-gap: var(--space-8); }
 
 /* Checkboxes / radios / switches ------------------------------------------- */
 /* One label shape for all three, so the marker is shared: the control differs,
@@ -751,7 +822,33 @@ textarea[data-terp="input"] {
   flex-wrap: wrap;
   gap: var(--space-3);
 }
+/* start rather than center once there is a description, and the condition is the whole point.
+   With a title alone, center is right: the actions slot is a control, so its box is
+   --density-control-min-height tall against a single line box, and start would leave the title
+   riding above it. With two or three lines of description the same declaration floats the
+   control in the middle of the block instead of beside the title it belongs to.
+
+   :has() rather than an attribute Card could stamp, for the reason control-label's disabled
+   states use it (see the note there): the header has no idea what its heading holds, and the
+   alternative is a prop describing the DOM back to the sheet. Specificity (0,2,0) beats the
+   base rule above, so this does not depend on its position. */
+[data-terp="card-header"]:has([data-terp="card-description"]) {
+  align-items: start;
+}
+/* flex: 1 1 0, and the base size is the load-bearing half. Left at the initial 0 1 auto, the
+   heading's hypothetical main size is the max-content width of a block holding a title AND a
+   sentence of description — and flex breaks lines on hypothetical main sizes BEFORE it shrinks
+   anything, so with flex-wrap above the heading claimed the whole line and the actions slot
+   wrapped underneath it. Measured: a 103px header with the button below the description, where
+   the same component with no description rendered inline at 48px. Same prop, two results,
+   depending on whether a sibling prop was set.
+
+   A base size of 0 means both items fit on one line by construction, and the heading then grows
+   into whatever the actions slot does not use. min-width: 0 stays for the other half of that
+   story: a flex item's automatic minimum size is its content's, so a long unbreakable word in a
+   title would otherwise refuse to shrink past it. */
 [data-terp="card-heading"] {
+  flex: 1 1 0;
   min-width: 0;
 }
 /* Chrome off, heading kept. Three declarations removed rather than a second component
@@ -892,9 +989,11 @@ textarea[data-terp="input"] {
 [data-terp="card-actions"] {
   flex-shrink: 0;
 }
+/* lg, the step below the page title, for the same reason page-title moved up: at base a
+   section heading was typographically indistinguishable from the prose underneath it. */
 [data-terp="card-title"] {
   margin: 0;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
   line-height: 1.3;
 }
@@ -1539,9 +1638,18 @@ textarea[data-terp="input"] {
 }
 /* The single h1 of the view. margin: 0 is load-bearing — the browser default h1
    margin would otherwise fight the header's own gap. */
+/* xl, not lg, and the scale is the reason. At lg the single h1 of a view rendered 18px
+   against a 16px card title and 16px body copy — one step from a section heading, and a
+   section heading the same size as prose. --font-size-xl (24px) was published with one
+   reader (heading[data-size="xl"]), so the top of the scale existed and the page that most
+   needs it was not using it. 24 / 18 / 16 / 14 is a scale; 18 / 16 / 16 / 14 is a list.
+
+   No prop, and no per-app knob: an app that wants otherwise redefines the marker from its
+   own unlayered theme.css, which is what the cascade-layer architecture is for (ADR 0094 —
+   this sheet carries no !important, so the app wins without one). */
 [data-terp="page-title"] {
   margin: 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0;
   color: var(--color-neutral-900);
