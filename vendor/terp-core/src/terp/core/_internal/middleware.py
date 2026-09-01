@@ -235,6 +235,35 @@ async def _send_json_error(
     await send({"type": "http.response.body", "body": body})
 
 
+class _RequestSizeCaps:
+    """The effective request-body cap for a path: a global cap plus per-mount overrides.
+
+    *overrides* maps a path prefix (a module mount, e.g. ``/api/v1/files``) to its
+    own cap (ADR 0067): a request whose path equals the prefix or lives under it
+    is bounded by that cap instead of the global one — the longest matching prefix
+    wins, and every unmatched path keeps the global cap (deny-by-default).
+
+    Shared by the two middlewares that bound a body, so the documented per-mount
+    allowance means the same thing to both. It used to live only on the size limiter,
+    which is how the idempotency buffer came to enforce a second, fixed cap that no
+    declaration could raise.
+    """
+
+    def __init__(self, max_bytes: int, overrides: Mapping[str, int] | None = None) -> None:
+        self.max_bytes = max_bytes
+        # Longest prefix first, so the most specific mount decides.
+        self._overrides = tuple(
+            sorted((overrides or {}).items(), key=lambda item: len(item[0]), reverse=True)
+        )
+
+    def for_path(self, path: str) -> int:
+        """The effective byte cap for *path*: its longest override prefix, else the global cap."""
+        for prefix, cap in self._overrides:
+            if path == prefix or path.startswith(prefix + "/"):
+                return cap
+        return self.max_bytes
+
+
 class RequestSizeLimitMiddleware:
     """Reject over-large request bodies before they tie up a worker.
 
@@ -243,10 +272,8 @@ class RequestSizeLimitMiddleware:
     and the connection is dropped once the cap is exceeded, so an unbounded upload
     cannot exhaust the worker.
 
-    *overrides* maps a path prefix (a module mount, e.g. ``/api/v1/files``) to its
-    own cap (ADR 0067): a request whose path equals the prefix or lives under it
-    is bounded by that cap instead of the global one — the longest matching prefix
-    wins, and every unmatched path keeps the global cap (deny-by-default).
+    The cap for a given path comes from :class:`_RequestSizeCaps` — the global
+    ``max_bytes`` unless a longer mount prefix declares its own (ADR 0067).
     """
 
     def __init__(
@@ -257,18 +284,16 @@ class RequestSizeLimitMiddleware:
         overrides: Mapping[str, int] | None = None,
     ) -> None:
         self.app = app
-        self.max_bytes = max_bytes
-        # Longest prefix first, so the most specific mount decides.
-        self._overrides = tuple(
-            sorted((overrides or {}).items(), key=lambda item: len(item[0]), reverse=True)
-        )
+        self._caps = _RequestSizeCaps(max_bytes, overrides)
+
+    @property
+    def max_bytes(self) -> int:
+        """The global cap, for callers that ask without a path in hand."""
+        return self._caps.max_bytes
 
     def _cap_for(self, path: str) -> int:
         """The effective byte cap for *path*: its longest override prefix, else the global cap."""
-        for prefix, cap in self._overrides:
-            if path == prefix or path.startswith(prefix + "/"):
-                return cap
-        return self.max_bytes
+        return self._caps.for_path(path)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -318,11 +343,20 @@ class IdempotencyMiddleware:
       guarantee the mutation is refused, never silently double-executable.
 
     The middleware sits innermost (inside the request-size cap, so buffering the body
-    for fingerprinting is bounded — and independently capped by *max_body_bytes*,
-    refused with a typed 413 beyond it, so an over-sized upload never buffers in
-    memory). Being innermost also means the stored response carries only the
-    application's own headers; request-scoped headers (request id, rate-limit
-    counters, security headers) are re-added fresh by the outer stack on a replay.
+    for fingerprinting is bounded). Being innermost also means the stored response
+    carries only the application's own headers; request-scoped headers (request id,
+    rate-limit counters, security headers) are re-added fresh by the outer stack on a
+    replay.
+
+    **The buffer follows the request-size cap rather than setting a second one.**
+    *max_body_bytes* and *overrides* are the same pair the size limiter gets, resolved
+    the same way (:class:`_RequestSizeCaps`), so a mount that declares
+    ``max_request_bytes`` raises this ceiling with it. It did not always: this cap was a
+    constructor default of 1 MiB that the composition root never passed, so an endpoint
+    whose declared allowance was larger accepted the body at the outer layer and then
+    refused it here — the documented lever appeared to work and the request still failed.
+    A body over the effective cap is refused with a typed 413 naming that cap, so an
+    over-sized upload never buffers in memory.
     """
 
     _VALID_KEY = re.compile(r"^[A-Za-z0-9._~-]{1,128}$")
@@ -335,13 +369,14 @@ class IdempotencyMiddleware:
         replay_ttl_seconds: int = 24 * 60 * 60,
         execution_ttl_seconds: int = 300,
         max_body_bytes: int = 1 * 1024 * 1024,
+        overrides: Mapping[str, int] | None = None,
         max_stored_response_bytes: int = 256 * 1024,
     ) -> None:
         self.app = app
         self._store = store
         self._replay_ttl = replay_ttl_seconds
         self._execution_ttl = execution_ttl_seconds
-        self._max_body_bytes = max_body_bytes
+        self._caps = _RequestSizeCaps(max_body_bytes, overrides)
         self._max_stored_response_bytes = max_stored_response_bytes
 
     @staticmethod
@@ -399,6 +434,9 @@ class IdempotencyMiddleware:
 
         # Buffer the (already size-capped) body to fingerprint the request before
         # claiming the key; the buffered messages are replayed to the app verbatim.
+        # The cap is this path's effective request-size cap, so a mount that declares
+        # a larger max_request_bytes is not refused here after passing the outer limit.
+        cap = self._caps.for_path(scope.get("path", ""))
         buffered: list[Message] = []
         body = bytearray()
         while True:
@@ -410,13 +448,13 @@ class IdempotencyMiddleware:
                 await self.app(scope, _replay_receive(buffered, receive), send)
                 return
             body.extend(message.get("body", b"") or b"")
-            if len(body) > self._max_body_bytes:
+            if len(body) > cap:
                 await _send_json_error(
                     send,
                     413,
                     "idempotency_body_too_large",
                     f"Idempotent processing buffers the request body; bodies over "
-                    f"{self._max_body_bytes} bytes cannot use an Idempotency-Key.",
+                    f"{cap} bytes cannot use an Idempotency-Key.",
                 )
                 return
             if not message.get("more_body", False):
@@ -556,9 +594,17 @@ def install_security_middleware(
     per-request headers (so a replayed response gets fresh ones) — keeping its state in
     *idempotency_store*. *request_size_overrides* is the
     prefix→cap map the composition root derives from each mounted spec's declared
-    ``max_request_bytes`` (ADR 0067); unmatched paths keep the global cap.
+    ``max_request_bytes`` (ADR 0067); unmatched paths keep the global cap. **Both**
+    body-bounding middlewares receive it: the idempotency buffer used to carry its own
+    fixed 1 MiB default that nothing here passed, so a mount raising its declared
+    allowance was still refused one layer in.
     """
-    app.add_middleware(IdempotencyMiddleware, store=idempotency_store)
+    app.add_middleware(
+        IdempotencyMiddleware,
+        store=idempotency_store,
+        max_body_bytes=config.max_request_bytes,
+        overrides=request_size_overrides,
+    )
     app.add_middleware(
         RequestSizeLimitMiddleware,
         max_bytes=config.max_request_bytes,
