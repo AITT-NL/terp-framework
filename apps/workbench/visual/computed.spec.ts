@@ -257,15 +257,18 @@ test("the content measure caps the body and leaves the header on the full track"
       token: getComputedStyle(document.documentElement)
         .getPropertyValue("--shell-content-max-width")
         .trim(),
+      // The RESOLVED inline padding of the box the band escapes, in px, rather than the
+            // token's text off :root. getPropertyValue returns the specified value, so the
+            // first version of this only produced a number while --shell-gutter happened to
+            // be authored in rem: as `24px` it returned 24 and got multiplied by the root
+            // font size again, and as `var(--space-6)` — which is already how the phone remap
+            // spells it — it returned NaN. Reading appshell-main also means the probe sees
+            // whatever variant is actually in force, which :root never would.
       gutter: Math.round(
         Number.parseFloat(
-          getComputedStyle(document.documentElement).fontSize,
-        ) *
-          Number.parseFloat(
-            getComputedStyle(document.documentElement)
-              .getPropertyValue("--shell-gutter")
-              .trim(),
-          ),
+          getComputedStyle(document.querySelector('[data-terp="appshell-main"]')!)
+            .paddingInlineStart,
+        ),
       ),
     };
   });
@@ -287,6 +290,73 @@ test("the content measure caps the body and leaves the header on the full track"
   // Every body child sits at the measure, not at the track.
   expect(measured.body.length).toBeGreaterThan(0);
   expect(measured.body).toEqual(measured.body.map(() => 1280));
+});
+
+test("a hovered row keeps the colour it is carrying", async ({ page }) => {
+  // The bug this exists for: a row's tone and its selection tint paint on the tr, the
+  // table's hover wash paints on the td, and a cell background paints above its row's. So an
+  // unguarded wash repaints a selected row over its tint and reads as unselected.
+  //
+  // No baseline can hold it, in either direction. The selection tint had no picture at all
+  // (dataview-selection renders enableSelection and selects nothing, because selectedIds is
+  // internal state with no seeding prop), and no specimen renders a hovered row, because a
+  // screenshot lane does not move the pointer. Both halves need a browser that can click and
+  // hover, which is this lane.
+  // Reduced motion, because the sheet transitions a row's background-color and this test
+  // samples it twice: without this the first read catches the selection tint mid-fade (alpha
+  // 0.114) and the second catches it further along (0.74), and the assertion fails on the
+  // animation rather than on the collision. The lane's other tests use the same emulation for
+  // the same reason.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/?theme=light&only=dataview-selection");
+  const table = page.locator('[data-terp="dataview-table"]');
+  await table.waitFor({ state: "visible" });
+
+  const row = page.locator('[data-terp="dataview-row"]').first();
+  await row.getByRole("checkbox").check();
+  await expect(row).toHaveAttribute("data-selected", "true");
+
+  const tint = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue("--color-interactive-selected").trim(),
+  );
+  const wash = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue("--color-interactive-hover").trim(),
+  );
+  // The two must differ, or this test cannot fail: they spelled the same value until
+  // --color-interactive-selected split away from --color-neutral-50, and that is exactly why
+  // the collision shipped unnoticed.
+  expect(tint, "the tint and the wash must differ, or the assertion below is vacuous").not.toBe(
+    wash,
+  );
+
+  const painted = async () => {
+    return page.evaluate(() => {
+      const selected = document.querySelector('[data-terp="dataview-row"][data-selected="true"]')!;
+      const cell = selected.querySelector("td:last-child")!;
+      const of = (element: Element) => getComputedStyle(element).backgroundColor;
+      return { row: of(selected), cell: of(cell) };
+    });
+  };
+
+  // check() clicks, which leaves the pointer ON the row — so "at rest" has to be arranged
+  // rather than assumed. Without this the first sample is already a hovered sample and the
+  // test still catches the collision, but by the wrong assertion and with a message that
+  // describes a state it never observed.
+  await page.mouse.move(0, 0);
+  const atRest = await painted();
+  expect(atRest.row, "a selected row carries the selection tint").not.toBe("rgba(0, 0, 0, 0)");
+  expect(atRest.cell, "the cell paints nothing at rest, so the row's tint shows through").toBe(
+    "rgba(0, 0, 0, 0)",
+  );
+
+  await row.hover();
+  const hovered = await painted();
+  expect(hovered.row, "hovering must not change what the row itself paints").toBe(atRest.row);
+  expect(
+    hovered.cell,
+    "a hovered cell may not paint over its row's selection tint — the wash is an affordance " +
+      "and the tint is data",
+  ).toBe("rgba(0, 0, 0, 0)");
 });
 
 test("the measure applies to nothing until the shell asks for it", async ({ page }) => {

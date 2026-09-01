@@ -1044,8 +1044,12 @@ textarea[data-terp="input"] {
 [data-terp="card-actions"] {
   flex-shrink: 0;
 }
-/* lg, the step below the page title, for the same reason page-title moved up: at base a
-   section heading was typographically indistinguishable from the prose underneath it. */
+/* lg, and it is no longer "the step below the page title" — page-title moved DOWN to sm in
+   0.14.0 when the header became a band, so a section heading is now two steps above the view's
+   own h1. That inversion is deliberate and belongs to the band: a page title there is chrome
+   naming where you are, not the largest thing on the page, while a card title is the heading
+   of content you are reading. The original reasoning for lg is unchanged: at base a section
+   heading was typographically indistinguishable from the prose underneath it. */
 [data-terp="card-title"] {
   margin: 0;
   font-size: var(--font-size-lg);
@@ -1538,8 +1542,17 @@ textarea[data-terp="input"] {
 }
 /* Main, the footer and the page band all read the same gutter as the header — see that rule
    for why they are one measure. The mobile override this pair used to carry is gone into the
-   remap: --shell-gutter is 1.5rem on desktop and 1rem on a phone, which is exactly what the
-   two rules computed, so nothing moves and there is one owner instead of two. */
+   remap: --shell-gutter is 1.5rem on desktop and 1rem on a phone, which is exactly what main's
+   two rules computed, so main does not move and it has one owner instead of two.
+
+   THE FOOTER DOES MOVE, and it is the one thing here that is a change rather than a
+   refactor. It carried var(--space-6) with no mobile override, so its inline padding stayed
+   1.5rem at every width while main stepped down to 1rem beside it; reading the gutter now
+   tightens it to 1rem on a phone, 8px left of where it was. That is the point of the measure
+   rather than a casualty of it — a footer indented past the content above it was the same
+   disagreement this token exists to end — but no baseline covers it, because the 420x900
+   phone specimens put the footer below the fold. Stated here because it is invisible to the
+   lanes and would otherwise read as an accident to whoever finds it. */
 [data-terp="appshell-main"] {
   flex-grow: 1;
   padding: var(--shell-gutter);
@@ -1745,36 +1758,52 @@ textarea[data-terp="input"] {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* The chrome, and it is deliberately gated on being inside a shell rather than declared on
-   the band outright. The band bleeds to the content column's edge with the negative-margin
-   idiom, which is only correct when the box it is escaping is appshell-main and that box
-   pads by exactly --shell-gutter. The workbench renders Page standalone inside a specimen
-   card and so do the unit tests, and there the same declarations would drag the band out of
-   its container: 0097 §2 kept "it works with no shell above it at all" as a property of the
-   mechanism, and this keeps it. Standalone, the band is still a bordered row at the header's
-   height; it just does not bleed.
+/* The band's CHROME, which needs no shell above it and so is not gated on one. Its height
+   and its border are what make the row a band rather than a title line, and they are correct
+   wherever Page renders — the workbench's specimen cards and the unit tests included. That
+   split is the repair of a real contradiction: these declarations used to sit inside the
+   shell-gated rule below while the comment claimed "standalone, the band is still a bordered
+   row at the header's height", which the rule made false and a test fifteen lines away in
+   styles.test.ts pinned as false. The three page-header specimens were pictures of a plain
+   flex row that the comment described as chrome.
+
+   box-sizing: border-box so the floor counts the padding, matching appshell-header, whose
+   height this is reading. Without it the two are a padding apart and the "same height as the
+   header above it" claim is off by 1rem.
+
+   :not([data-measure="narrow"]) because a form is capped WITH its header (ADR 0098 §3) — a
+   Save button a screen-width from its field is worse than one over it — so a form gets the
+   one-row band with no chrome at all: a title row, which is what it wants.
+
+   padding-BLOCK only. The inline gutter belongs to the bleed below, because standalone there
+   is nothing to bleed into and an inline pad with no negative margin would inset the band's
+   content from the body beneath it for no reason. */
+[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] {
+  padding-block: var(--space-2);
+  min-height: var(--shell-header-height);
+  box-sizing: border-box;
+  border-block-end: 1px solid var(--color-neutral-200);
+}
+/* The BLEED, which does need a shell, because the negative-margin idiom is only correct when
+   the box being escaped is appshell-main and that box pads by exactly --shell-gutter. ADR
+   0097 §2 kept "it works with no shell above it at all" as a property of the mechanism, and
+   keying this half on the shell is what keeps it: standalone the band is the same bordered
+   row at the same height, it simply does not reach past its container.
+
+   The surface comes with the bleed rather than with the chrome, and that is deliberate under
+   0.14.0's surface model: a block paints no fill of its own, and this one is only chrome —
+   the app header's companion — once there is an app header above it to pair with.
 
    ONE rule for both variants, which is the payoff of the token rather than a tidy-up. As two
    literals this needed a mobile twin, and a negative margin whose sign has to agree with a
    padding declared three rules away is exactly the drift that put the trail 8px off the
-   header in the first place.
-
-   :not([data-measure="narrow"]) because a form is capped WITH its header (ADR 0098 §3) — a
-   Save button a screen-width from its field is worse than one over it — so a form gets the
-   one-row band with no bleed, no border and no floor: a title row, which is what it wants.
-
-   box-sizing: border-box so the floor counts the padding, matching appshell-header, whose
-   height this is reading. Without it the two are a padding apart and the "same height as the
-   header above it" claim is off by 1rem. */
+   header in the first place. */
 [data-terp="appshell-main"]
   > [data-terp="page"]:not([data-measure="narrow"])
   > [data-terp="page-header"] {
   margin: calc(-1 * var(--shell-gutter)) calc(-1 * var(--shell-gutter)) 0;
-  padding: var(--space-2) var(--shell-gutter);
-  min-height: var(--shell-header-height);
-  box-sizing: border-box;
+  padding-inline: var(--shell-gutter);
   background: var(--color-neutral-0);
-  border-block-end: 1px solid var(--color-neutral-200);
 }
 /* The content measure, and the subheader band, which are ONE declaration rather than two
    features (ADR 0097 §2). A full-width band only means anything once the column beside it is
@@ -4333,10 +4362,25 @@ button[data-terp="input"][data-placeholder="true"] {
 /* --color-interactive-hover, which is the semantic name for the value every control's
    hover in this sheet already spells, and the token's first reader. The row was one step
    lighter, on the canvas value, so once the table frame stopped painting a fill there was
-   nothing for a hover to differ from. It shares that value with a neutral-toned row: a
-   hovered neutral row shows no wash change, and the cursor is what says it is hoverable
-   there. */
-[data-terp="dataview-table"] tbody tr:hover td {
+   nothing for a hover to differ from.
+
+   THE ROW'S OWN COLOUR WINS, and the two :not() clauses are the whole of that rather than
+   defensive noise. A row's tone and its selection tint are painted on the tr; this wash is
+   painted on the td, and a cell background paints ABOVE its row's. So without the guards,
+   pointing at a selected row repaints it #f1f5f9 over #eff6ff and it reads as unselected,
+   and pointing at a danger-toned row erases the tone entirely. Both are data; the wash is
+   an affordance, and an affordance may not overwrite what the row is telling you.
+
+   The selection half only became visible when --color-interactive-selected split away from
+   --color-neutral-50: while both spelled the same value the collision painted identically
+   and no baseline could have shown it. The tone half was live before that and equally
+   unpicturable, because no specimen renders a hovered row at all.
+
+   A guarded row therefore shows no wash change and the cursor is what says it is hoverable
+   there — which is exactly what this comment already claimed for the neutral tone, whose
+   --color-neutral-100 happens to equal this token in every theme. That was true by
+   coincidence for one tone; it is true by construction for all of them now. */
+[data-terp="dataview-table"] tbody tr:not([data-tone]):not([data-selected="true"]):hover td {
   background: var(--color-interactive-hover);
 }
 /* The row containing keyboard focus, highlighted because it is the one Enter would

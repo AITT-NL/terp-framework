@@ -104,7 +104,15 @@ interface AppShellBaseProps {
    *
    * "Full width" means the full width of the article's own track. `appshell-main`'s padding
    * sits outside it, so this is a measure within the content column rather than a bleed to the
-   * window edge — which would need a negative margin, and therefore an inline site.
+   * window edge.
+   *
+   * The page's header does reach past that padding, to the content column's edge, and it does
+   * it with a negative margin of one `--shell-gutter` per side — so a band and the app
+   * header above it read as one piece of chrome. This paragraph used to say such a bleed
+   * "would need a negative margin, and therefore an inline site"; the margin is right and the
+   * inline site is not, because the sheet knows both viewport variants and the gutter is a
+   * published token. ADR 0097 §2 carries the amendment. Nothing here needs the app's help:
+   * the band is `Page`'s own header, not something `contentWidth` switches on.
    */
   contentWidth?: "full" | "measured";
   /**

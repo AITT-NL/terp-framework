@@ -2319,9 +2319,14 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
-        // The band with nothing but a title, which is the shape most pages have and the one
-        // the slots must not cost anything: no badge row, no lead line, no reserved gap. Read
+        // The band with nothing but a title, which is the shape most pages have and the one the
+        // slots must not cost anything: no badge row, no lead line, no reserved gap. Read
         // beside page-header, this pair is the only picture of "absent is absent".
+        //
+        // Absent here is `undefined`. The falsy cases a caller actually writes —
+        // `badges={isPublished && <Badge/>}` handing this `false` — are held by Page.test.tsx
+        // instead, because `false` and `undefined` render identically and a screenshot cannot
+        // tell one empty band from another.
         id: "page-header-bare",
         title: "Page — the band with a title and nothing else",
         node: (
@@ -2331,9 +2336,11 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
-        // A root page: the h1 alone, and deliberately NO Breadcrumb landmark, because a trail
-        // of one is not navigation. The band chrome is identical either way, which is what
-        // this picture is for.
+        // A root page, which is a trail of ONE rather than a bare heading: an overview's title
+        // has to sit in the same boxes as a detail's or the name moves the moment you open a
+        // record, so the Breadcrumb landmark is present here with nothing to link to yet.
+        // What this picture is for is that the band's chrome — the border and the header's
+        // height — is identical whether or not there are ancestors in front of the leaf.
         id: "page-header-root",
         title: "Page — a root page, heading with no trail",
         node: (

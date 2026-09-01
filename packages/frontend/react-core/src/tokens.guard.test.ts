@@ -229,6 +229,45 @@ describe("design tokens", () => {
     }
   });
 
+  it("tightens the shell gutter for a phone rather than remapping it to itself", () => {
+    // --shell-gutter is published once and remapped once, on the shell root under
+    // data-variant="mobile". Existence is not the property worth holding: a remap that
+    // resolved back to the published value would leave every structural check green while
+    // the phone silently kept the desktop measure, and the whole reason the token exists is
+    // that the header, main, the footer and the page band all read it.
+    //
+    // Here rather than in styles.test.ts because the control is the PUBLISHED value, which
+    // means reading tokens.css — this file's subject, and this file runs in node where
+    // that read works.
+    const published = /--shell-gutter:\s*([^;]+);/.exec(tokensCss);
+    expect(published, "tokens.css must publish --shell-gutter").not.toBeNull();
+    const remap = /\[data-terp="appshell"\]\[data-variant="mobile"\] \{([^}]*)\}/.exec(sheet);
+    expect(remap, "the sheet must remap the gutter for a phone").not.toBeNull();
+    const remapped = /--shell-gutter:\s*([^;]+);/.exec(remap![1]!);
+    expect(remapped, "the remap must move --shell-gutter, not something else").not.toBeNull();
+    // It must stay on the spacing scale rather than becoming a literal, which is one way a
+    // shared measure rots.
+    expect(remapped![1]!.trim(), "the phone gutter must name a spacing token").toMatch(
+      /^var\(--space-\d+\)$/,
+    );
+    // RESOLVED, not spelled. Comparing the two strings was the first version of this and it
+    // could not fail the way that matters: `var(--space-4)` and `1rem` are different text and
+    // the same length, so publishing the gutter at the phone's own value passed while the
+    // remap became a no-op. Both sides resolve through tokens.css before they are compared.
+    const resolve = (value: string): string => {
+      const reference = /^var\((--[a-z0-9-]+)\)$/.exec(value.trim());
+      if (reference === null) return value.trim();
+      const declared = new RegExp(`${reference[1]!}:\\s*([^;]+);`).exec(tokensCss);
+      expect(declared, `${reference[1]!} must be declared in tokens.css`).not.toBeNull();
+      return declared![1]!.trim();
+    };
+    expect(
+      resolve(remapped![1]!),
+      "a remap that resolves to the published gutter is dead weight, and the phone silently "
+        + "keeps the desktop measure",
+    ).not.toBe(resolve(published![1]!));
+  });
+
   it("holds the bare type literals at their recorded count", () => {
     // The debt the type scale's arrival did not clear, as a ratchet. See BARE_TYPE_LITERALS:
     // most of these map onto no step in the published scale, so converting them changes

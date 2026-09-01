@@ -140,12 +140,16 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   against what `/me` returns. A function on the manifest would not survive the boundary: it is
   stack-agnostic, serialisable, and a generator emits it.
 - **The shell's geometry is tokens, not props** — `--shell-sidebar-width-expanded`,
-  `--shell-sidebar-width-collapsed`, `--shell-header-height`, `--shell-content-max-width`
-  and `--shell-brand-size`
+  `--shell-sidebar-width-collapsed`, `--shell-header-height`, `--shell-content-max-width`,
+  `--shell-brand-size` and `--shell-gutter`
   are published, so an app moves any of them from its own unlayered `theme.css` with no prop
-  and no shell edit. Capping content at the measure is the one part that is a prop, because
-  it is a choice rather than a length: `contentWidth: "measured"` on `renderTerpApp` leaves
-  each page's own header spanning the full track above the capped column. The default changes
+  and no shell edit. `--shell-gutter` is the content column's inline gutter and the newest of
+  them: the app header, `main`, the footer and the page band all read it, and one remap
+  tightens it a step below the mobile breakpoint, so the things that must start on the same
+  vertical line cannot drift apart. Capping content at the measure is the one part that is a
+  prop, because it is a choice rather than a length: `contentWidth: "measured"` on
+  `renderTerpApp` leaves each page's own header spanning the full track above the capped
+  column. The default changes
   nothing. Where the navigation *sits* is the other prop of that kind:
   `navPlacement: "header"` drops the sidebar on desktop and runs the nav as a horizontal row in
   the header, for an app whose destinations are few enough that permanent chrome is a tax. The

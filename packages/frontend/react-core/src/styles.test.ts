@@ -369,6 +369,16 @@ describe("cascade structure", () => {
       declaresRuleFor(layerBody("terp.base"), '[data-terp="appshell"][data-variant="mobile"]'),
       "a layered copy of the remap loses to tokens.css in a production build",
     ).toBe(false);
+    // That the remap actually TIGHTENS is asserted in tokens.guard.test.ts, not here: it
+    // compares the remapped value against the one tokens.css publishes, and this file runs
+    // in jsdom where import.meta.url is not a file URL. The guard file already reads the
+    // token sheet for exactly this kind of claim.
+    const remap = /\[data-terp="appshell"\]\[data-variant="mobile"\] \{([^}]*)\}/.exec(prelude);
+    expect(remap, "the phone remap should be one rule").not.toBeNull();
+    expect(
+      remap![1]!,
+      "the remap must move --shell-gutter, not something else",
+    ).toContain("--shell-gutter:");
   });
 
   it("keeps the content column's gutter one measure", () => {
@@ -434,39 +444,72 @@ describe("cascade structure", () => {
       "var(--shell-gutter)",
     );
 
-    // The band reaches the column's edge by negating that same token, so the sign agreement
-    // is a fact about two declarations in ONE rule rather than a coincidence between rules.
-    const band = bodyFor(
-      '[data-terp="appshell-main"] > [data-terp="page"]:not([data-measure="narrow"])'
-        + ' > [data-terp="page-header"]',
-    );
-    expect(band, "the band must bleed by negating the gutter it pads by").toContain(
-      "margin: calc(-1 * var(--shell-gutter)) calc(-1 * var(--shell-gutter)) 0",
-    );
-    expect(band, "the band must restore the gutter as its own padding").toContain(
-      "padding: var(--space-2) var(--shell-gutter)",
+    // The band splits in two, and which half is gated on the shell is the whole point.
+    //
+    // CHROME is ungated: a bordered row at the app header's height is correct wherever Page
+    // renders, the workbench's specimen cards and these tests included. It used to sit in the
+    // shell-gated rule while the comment beside it claimed the opposite, so the three
+    // page-header specimens pictured a plain flex row that the prose called chrome.
+    const chrome = bodyFor(
+      '[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"]',
     );
     // Same height as the app header, by reading the header's own token rather than restating
     // 3rem — and border-box, or the two are a padding apart and the claim is off by 1rem.
-    expect(band, "the band takes the app header's height").toContain(
+    expect(chrome, "the band takes the app header's height").toContain(
       "min-height: var(--shell-header-height)",
     );
-    expect(band, "without border-box the floor excludes the padding").toContain(
+    expect(chrome, "without border-box the floor excludes the padding").toContain(
       "box-sizing: border-box",
     );
-    expect(band, "the band is what separates chrome from content").toContain(
+    expect(chrome, "the band is what separates chrome from content").toContain(
       "border-block-end: 1px solid var(--color-neutral-200)",
     );
-    // The chrome is keyed on being INSIDE a shell, and that is load-bearing rather than
-    // defensive: the workbench renders Page standalone in a specimen card and so do the unit
-    // tests, and there a negative margin would drag the band out of its container. ADR 0097
-    // section 2 kept "it works with no shell above it at all" as a property of the mechanism.
-    const bare = bodyFor('[data-terp="page-header"]');
-    for (const declaration of ["margin", "border-block-end", "min-height"]) {
+    expect(
+      /padding-inline|padding:/.test(chrome),
+      "an inline pad with no bleed would inset the band from the body beneath it",
+    ).toBe(false);
+
+    // THE BLEED is gated, because the negative-margin idiom is only correct against a box
+    // that pads by exactly this token. ADR 0097 section 2 kept "it works with no shell above
+    // it at all" as a property of the mechanism, and this keying is what keeps it. The sign
+    // agreement is a fact about two declarations in ONE rule rather than between rules.
+    const bleed = bodyFor(
+      '[data-terp="appshell-main"] > [data-terp="page"]:not([data-measure="narrow"])'
+        + ' > [data-terp="page-header"]',
+    );
+    expect(bleed, "the band must bleed by negating the gutter it pads by").toContain(
+      "margin: calc(-1 * var(--shell-gutter)) calc(-1 * var(--shell-gutter)) 0",
+    );
+    expect(bleed, "the band must restore the gutter as its own padding").toContain(
+      "padding-inline: var(--shell-gutter)",
+    );
+    expect(
+      bleed.includes("margin") && !/margin:[^;]*calc\(-1/.test(bleed),
+      "a bleed whose margin is not negative escapes nothing",
+    ).toBe(false);
+  });
+
+  it("keeps a row's own colour out of the hover wash's reach", () => {
+    // A row's tone and its selection tint paint on the tr; the table's hover wash paints on
+    // the td, and a cell background paints ABOVE its row's. So an unguarded wash repaints a
+    // selected row over its tint and a danger row over its tone: the affordance overwrites
+    // the data. The selection half only became visible when --color-interactive-selected
+    // split away from --color-neutral-50 — while the two spelled one value the collision was
+    // pixel-identical — and the tone half was live before that. Neither is picturable: no
+    // specimen renders a hovered row, so this assertion is the only gate.
+    // terp.state, not terp.base: a hover is a state, and that is where the sheet keeps it.
+    const state = layerBody("terp.state");
+    const hover = /\[data-terp="dataview-table"\][^{]*:hover td \{/.exec(state);
+    expect(hover, "the table should declare a hover wash").not.toBeNull();
+    const selector = state.slice(
+      state.lastIndexOf("}", hover!.index) + 1,
+      hover!.index + hover![0].length,
+    );
+    for (const guard of ['[data-tone]', '[data-selected="true"]']) {
       expect(
-        bare.includes(declaration),
-        `the bare band must not declare ${declaration}: standalone Page has no main to bleed into`,
-      ).toBe(false);
+        selector,
+        `the hover wash must exclude :not(${guard}), or it repaints what the row is telling you`,
+      ).toContain(`:not(${guard})`);
     }
   });
 
@@ -931,11 +974,14 @@ describe("cascade structure", () => {
     // one published scale rather than four sizes that happen to differ.
     const base = layerBody("terp.base");
     for (const [selector, step] of [
-      // page-title is deliberately NOT here any more. It left the top step when the header
-      // became a band: there the title is chrome, semibold at the trail's own size, because
-      // it IS the trail's leaf. The page-band block in styles.ts carries the reasoning.
-      // The top step keeps two readers (heading[data-size="xl"], login-title), which is what
-      // stops the token going unread — tokens.guard.test.ts holds that end.
+      // page-title left the TOP step when the header became a band, but it still has a step
+      // and this is it: sm, the trail's own size, because the title IS the trail's leaf and a
+      // 24px leaf on 14px ancestors reads as small-small-BIG rather than as one trail. Pinned
+      // rather than dropped — removing it from this loop, which is what the band change first
+      // did, left the one marker whose size the change was about free to drift.
+      ['[data-terp="page-title"]', "sm"],
+      // The top step keeps two readers, which is what stops the token going unread;
+      // tokens.guard.test.ts holds that end.
       ['[data-terp="heading"][data-size="xl"]', "xl"],
       ['[data-terp="card-title"]', "lg"],
       ['[data-terp="card-description"]', "sm"],

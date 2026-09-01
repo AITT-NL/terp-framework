@@ -14,6 +14,26 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **A hovered row painted over what the row was telling you.** A row's tone and its selection
+  tint are painted on the `tr`; the table's hover wash is painted on the `td`, and a cell
+  background paints *above* its row's. So pointing at a selected row repainted it
+  `--color-interactive-hover` over `--color-interactive-selected` and it read as unselected,
+  and pointing at a danger-toned row erased the tone outright. The wash is an affordance and
+  the tone is data; an affordance may not overwrite what the row is saying.
+
+  The selection half is this release's own doing and did not exist before it: while
+  `--color-interactive-selected` and the wash both spelled `--color-neutral-50` the collision
+  painted identically, and splitting the two apart made it visible. The tone half was live
+  before that. **Neither could be caught by a picture** — the `dataview-selection` specimen renders
+  `enableSelection` and selects nothing (`selectedIds` is internal state with no seeding prop),
+  and no specimen hovers anything, because a screenshot lane does not move the pointer. The
+  wash now excludes `:not([data-tone]):not([data-selected="true"])`, and the gate is a computed
+  test that clicks a checkbox, moves the pointer off, samples, hovers and samples again. A
+  guarded row shows no wash change and the cursor is what says it is hoverable there —
+  which is what the rule's comment already claimed for the neutral tone, whose
+  `--color-neutral-100` equals the wash in every theme. True by coincidence for one tone
+  before; true by construction for all of them now.
+
 - **A card's `actions` slot stopped being a header slot the moment the card had a
   description.** `Card` documents `actions` as "Optional right-hand slot in the header row" and
   delivered one only while `description` was unset. The heading declared `min-width: 0` and
@@ -150,6 +170,14 @@ decision, 0001 onwards.
   phone (retiring the two base-plus-variant pairs the header and main each carried), and the
   header, main, the footer and the band all read it.
 
+  **One thing genuinely moves, and it is the footer.** It carried `var(--space-6)` with no
+  mobile override, so its inline padding stayed 1.5rem at every width while `main` stepped down
+  to 1rem beside it; reading the gutter tightens it to 1rem on a phone, 8px left of where it
+  was. That is the measure doing its job rather than a casualty of it — a footer indented
+  past the content above it was the same disagreement the token exists to end — but no
+  baseline covers it, because the 420x900 phone specimens put the footer below the fold. Said
+  plainly here because it is invisible to every lane.
+
   **The chrome is keyed on being inside `appshell-main`,** which preserves 0097 §2's third
   consequence rather than trading it away: "it works with no shell above it at all" is still
   true and still tested. Standalone — the workbench, the unit tests — `Page` renders the
@@ -158,6 +186,23 @@ decision, 0001 onwards.
   `SettingsPage`) keeps the row and drops the chrome, because a form is capped with its
   header (ADR 0098 §3): a Save button a screen-width from its field is worse than one over
   it.
+
+  **The chrome is not gated on the shell; only the bleed is.** Both halves started in one
+  shell-keyed rule, which made the comment beside it ("standalone, the band is still a bordered
+  row at the header's height") false and left the three new page-header specimens picturing a
+  plain flex row that the prose called chrome. The border, the height floor and `border-box`
+  are ungated and correct wherever `Page` renders; the negative margin and the inline gutter
+  need an `appshell-main` to escape, and so does the surface, which under this release's own
+  model a block only paints once it is chrome with an app header to pair with.
+
+  `description` takes `UiTextNode` rather than `ReactNode`, like `EmptyState`'s own: it is
+  user-facing prose, so it goes through the localization seam. Typed as a bare node it accepted
+  a plain string that never reached the resolver — every other string on the band would
+  translate and the lead line would stay in the source language. `badges` and `description` are
+  filtered on renderability rather than on `undefined`, because the call a caller actually
+  writes is `badges={isPublished && <Badge/>}`: testing `!== undefined` let `false` through, so
+  the row existed, was empty, and put a gap beside the title — the exact invariant the band
+  promises.
 
   0097 §2 is amended in place, by building it, which is this repo's convention for an ADR
   whose shape turned out to be narrower than the need. Seventy-two baselines: sixty

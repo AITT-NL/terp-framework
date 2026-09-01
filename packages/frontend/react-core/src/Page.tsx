@@ -11,8 +11,8 @@ import {
 } from "./layoutContract";
 import { LoadingState } from "./LoadingState";
 import { usePageMarker } from "./pageMarker";
-import { useUiText } from "./uiText";
-import type { UiText } from "./uiText";
+import { resolveUiTextNode, useUiText } from "./uiText";
+import type { UiText, UiTextNode } from "./uiText";
 
 export interface PageProps {
   /** The page heading (rendered as the single `h1`). */
@@ -38,8 +38,14 @@ export interface PageProps {
    * It is chrome, not content: the band has a height, so a lead line that would wrap is
    * clipped rather than allowed to set it. An explanation that does not fit is describing the
    * body and belongs in the body.
+   *
+   * `UiTextNode`, like `EmptyState`'s own description, rather than a bare `ReactNode`: this is
+   * user-facing prose, so it goes through the localization seam. Typed as `ReactNode` it took
+   * a plain string that never reached the resolver, which is the failure that does not
+   * announce itself — every other string on the band translates and the lead line stays in the
+   * source language.
    */
-  description?: ReactNode;
+  description?: UiTextNode;
   /**
    * Cap the whole frame — header included — at a readable measure (default `"full"`).
    *
@@ -159,8 +165,21 @@ export function Page({
   const trail: BreadcrumbItem[] = [...(breadcrumbs ?? []), { label: title }];
   // Normalised rather than branched at the site, so one badge and several take the same path
   // and the row exists or does not exist for one reason.
-  const badgeList: readonly ReactNode[] =
-    badges === undefined || badges === null ? [] : ([] as ReactNode[]).concat(badges);
+  //
+  // Filtered on RENDERABILITY, not on undefined, and the difference is the whole bug it fixes:
+  // the idiomatic call is `badges={isPublished && <Badge/>}`, which hands this `false` when the
+  // condition fails. Testing `!== undefined` let `[false]` through, so the row existed, was
+  // empty, and put a gap beside the title — the exact "absent is not an empty row"
+  // invariant the band promises. `false`, `null`, `undefined` and `""` all mean absent here.
+  const badgeList: readonly ReactNode[] = ([] as ReactNode[])
+    .concat(badges ?? [])
+    .filter((badge) => badge !== false && badge !== null && badge !== undefined && badge !== "");
+  // Same test for the lead line, for the same reason: `description={error && error.message}`.
+  const hasDescription =
+    description !== undefined &&
+    description !== null &&
+    description !== false &&
+    description !== "";
   const body =
     error !== null && error !== undefined ? (
       (errorState ?? <ErrorState error={error} />)
@@ -194,8 +213,8 @@ export function Page({
               ))}
             </div>
           )}
-          {description !== undefined && description !== null && (
-            <p data-terp="page-description">{description}</p>
+          {hasDescription && (
+            <p data-terp="page-description">{resolveUiTextNode(description, resolve)}</p>
           )}
         </div>
         {actions}
