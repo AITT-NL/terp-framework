@@ -15,7 +15,10 @@ never *are you built the approved way*. Concretely:
 
 * Red: a declared role points at a service that does not exist; a declared
   service publishes a hard-coded host port instead of the variable it declared
-  (which is what breaks running two projects at once).
+  (which is what breaks running two projects at once); a declared environment
+  seam the compose file never reads (which is how live source and the framing
+  grant arrive, so a stale name breaks hot reload while everything still
+  builds, runs and passes).
 * **Never** red: a service nobody declared — Redis, a worker, a virus scanner, a
   second frontend, whatever the app needs; the *absence* of a service we happen
   to know about; three APIs; no frontend at all; an optional container from the
@@ -31,16 +34,21 @@ A workbench then falls back to its configured commands and says honestly that it
 cannot determine the app's status. Per the ideology (ADR 0103): one pattern,
 enforced, escapable by proof — and the escape is greppable.
 
-**Dev only.** This describes ``docker-compose.yml``, the inner loop. It must
-never be consulted for, validated against, or extended to the production
-profile: that is where the freedom real deployments need lives, and gate-enforcing
-it would take that freedom away.
+**Dev only, and that is enforced rather than asked for.** This describes
+``docker-compose.yml``, the inner loop. A declaration aimed at a deployment
+profile is refused outright (``PRODUCTION_PROFILE_INFIX``), because that is
+where the freedom real deployments need lives — an external managed database, a
+shared estate, a client's own cluster — and gate-enforcing it would take that
+freedom away. Stating the rule in prose was not enough: in a codebase written
+by agents, a boundary that only a document defends is a boundary the next agent
+walks through.
 """
 
 from __future__ import annotations
 
 import json
 import pathlib
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -56,10 +64,15 @@ WORKBENCH_FILE = "workbench.json"
 #: verdict about fields we cannot read.
 SUPPORTED_VERSIONS = frozenset({1})
 
-#: Roles with a defined meaning to a workbench. A role outside this set is not
-#: an error — it is simply information no workbench acts on yet, and refusing it
-#: would make adding one a breaking change for every existing app.
-KNOWN_ROLES = frozenset({"web", "api", "one-shot", "database", "worker"})
+#: Filename infix of the production profile. The declaration describes the
+#: inner loop and must never be pointed at a deploy profile: that is where the
+#: freedom real deployments need lives (an external managed database, a shared
+#: estate, a client's own cluster), and it lives there precisely because no gate
+#: reaches it. Decision 5 of ADR 0110 said so in prose, which for an
+#: agent-written codebase is not a control — nothing stopped the next agent from
+#: aiming ``compose.file`` at the deploy profile and quietly turning this check
+#: into a gate on how people deploy. So it is a rule with a message instead.
+PRODUCTION_PROFILE_INFIX = ".prod."
 
 
 @dataclass(frozen=True)
@@ -144,17 +157,47 @@ def load(project_root: pathlib.Path) -> tuple[Declaration | None, list[Finding]]
 
 
 def _published_host_ports(service: dict[str, Any]) -> list[str]:
-    """The host side of each published port, as written."""
+    """The host side of each *fixed* published port, as written.
+
+    A short-syntax entry with no colon (``"5173"``) names a container port and
+    leaves the host one to the daemon. An ephemeral port cannot collide, so it
+    is not a fixed host port and must not read as one — flagging it would fail
+    an app over the very thing that makes running two projects at once safe.
+    The long syntax says the same by omitting ``published``.
+    """
     ports = service.get("ports")
     if not isinstance(ports, list):
         return []
     published: list[str] = []
     for entry in ports:
-        if isinstance(entry, str):
-            published.append(entry.rsplit(":", 1)[0] if ":" in entry else entry)
+        if isinstance(entry, str) and ":" in entry:
+            published.append(entry.rsplit(":", 1)[0])
         elif isinstance(entry, dict) and "published" in entry:
             published.append(str(entry["published"]))
     return published
+
+
+def _strings(node: Any) -> Iterator[str]:
+    """Every string anywhere in the parsed compose file."""
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for value in node.values():
+            yield from _strings(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _strings(value)
+
+
+def _interpolates(compose: dict[str, Any], name: str) -> bool:
+    """Does the compose file read ``${name}`` anywhere at all?
+
+    Deliberately not "in the right place". Which service needs the source root
+    mounted, and which needs the framing grant, is the app's business; that the
+    variable it *declared* is read somewhere is the claim being checked.
+    """
+    needle = "${" + name
+    return any(needle in value for value in _strings(compose))
 
 
 def audit(declared: Declaration, compose: dict[str, Any]) -> list[Finding]:
@@ -200,11 +243,30 @@ def audit(declared: Declaration, compose: dict[str, Any]) -> list[Finding]:
                 Finding(
                     f"Service {name!r} publishes host port {published[0]!r}, but "
                     f"{WORKBENCH_FILE} says its host port comes from ${{{port_env}}}.",
-                    "A fixed host port means two projects cannot run at once — "
+                    "A fixed host port means two projects cannot run at once -- "
                     f'use "${{{port_env}:-<default>}}:<container port>" in the '
                     "compose file, or correct the declaration.",
                 )
             )
+    # The `env` half of the declaration is load-bearing in exactly the way the
+    # `services` half is, and it went unchecked: the source root is how live
+    # source reaches the containers and the framing grant is how the preview is
+    # allowed to embed the app, so a name the compose file stopped reading is a
+    # seam that silently is not there. Hot reload dies and the app still builds,
+    # still runs, and still passes every other check — which is the whole class
+    # of failure this file exists to make visible.
+    for label, name in sorted(declared.env.items()):
+        if not name or _interpolates(compose, name):
+            continue
+        findings.append(
+            Finding(
+                f'{WORKBENCH_FILE} declares "{label}" as ${{{name}}}, but '
+                f"{declared.compose_file} never reads it.",
+                f"Reference ${{{name}}} in the compose file where that value "
+                "has to arrive, or drop the entry: a declared seam the compose "
+                "file does not read is a seam that does not exist.",
+            )
+        )
     return findings
 
 
@@ -225,6 +287,22 @@ def run_workbench_check(project_root: pathlib.Path) -> tuple[int, str]:
             f"{WORKBENCH_FILE} declares this app unmanaged: {declared.reason}\n"
             "A workbench will fall back to its configured commands and report "
             "that it cannot determine this app's status."
+        )
+    if PRODUCTION_PROFILE_INFIX in declared.compose_file:
+        return 1, _render(
+            [
+                Finding(
+                    f"{WORKBENCH_FILE} points at {declared.compose_file!r}, "
+                    "which is a deployment profile.",
+                    "This declaration describes the development loop only. How "
+                    "an app deploys is deliberately ungated — an external "
+                    "managed database, a shared estate, a client's own cluster, "
+                    "and checking it here would take that freedom away. Point "
+                    '"compose.file" at the development compose file, or set '
+                    '{"unmanaged": true, "reason": "..."} if this app has no '
+                    "development compose file at all.",
+                )
+            ]
         )
     compose_path = project_root / declared.compose_file
     if not compose_path.is_file():

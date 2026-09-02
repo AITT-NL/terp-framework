@@ -59,10 +59,21 @@ Otherwise adding a role becomes a breaking change for every app that already shi
 ### 3. The rule is *truth about self*, never *conformance*
 
 Red: a declared role points at a service that does not exist; a service that declared a host-port
-variable publishes a fixed port instead. Both are the declaration lying about the app.
+variable publishes a fixed port instead; a declared environment seam the compose file never reads.
+All three are the declaration lying about the app.
+
+The third arrived late and matters as much as the other two. The `env` block names how the source
+root and the framing grant reach the containers, and it was the half nobody checked — so an agent
+could rename `TERP_DEV_HOST_ROOT` in the compose file, leave the declaration behind, and hot reload
+would die while the app still built, still ran and still passed every other check. That is the
+silent class this ADR exists for, in the one place the first draft left uncovered. It is checked as
+*read somewhere*, never *read by a particular service*: which container needs the value is the
+app's business, and requiring one would be conformance.
 
 Never red: an undeclared service; the absence of a service we happen to know about; three APIs;
-two frontends; no frontend; a service that publishes nothing; a role we have never heard of.
+two frontends; no frontend; a service that publishes nothing; a role we have never heard of; an
+app that declares no `env` seam at all; a port published on an ephemeral host port (`ports:
+["5173"]`), which cannot collide and so cannot break the thing the fixed-port rule protects.
 
 ### 4. The escape ships in the same change as the rule
 
@@ -73,13 +84,20 @@ commands and reports honestly that it cannot determine the app's status.
 This is ADR 0103's shape, and it is deliberately available on day one rather than added later when
 somebody hits the wall. Without it, this ADR would be a restriction on what may be built.
 
-### 5. Development only
+### 5. Development only, and the boundary is a control rather than a sentence
 
 The declaration describes `docker-compose.yml`. It must never be consulted for, validated against,
 or extended to the production profile. Real deployments differ in ways this platform has already
 had to accommodate — an external managed database, a shared estate, a client's own cluster — and
 that freedom lives in the production profile precisely because nothing gates it. Extending this
 check there would take it away.
+
+So a declaration whose `compose.file` names a deployment profile is **refused**, and that refusal
+is the decision rather than a note under it. Writing "never the production profile" in this
+document was not enough: `compose.file` accepted any path, so a single edit could aim the check at
+a deploy profile and quietly convert it into a gate on deployment topology. In a codebase whose
+changes are written by agents, a boundary defended only by prose is a boundary the next agent walks
+through — the same reasoning that puts every other rule here behind a check.
 
 ### 6. The template seeds it once; the app owns it afterwards
 
@@ -109,6 +127,13 @@ app's gate red over a file it has not adopted.
 - The declaration is a second place the topology is written down, and a second place is a place
   that can drift. That is the trade being made: drift between the file and the compose file is now
   *checked*, where drift between the compose file and a tool's assumptions was not.
+- The check found its first real defect in this repository: `apps/example` declared a
+  `sourceRoot` seam its compose file does not use (the in-repo example mounts `./app` directly and
+  has no host-root indirection). The declaration was corrected. A rule that catches something on
+  the day it lands is the cheapest kind of evidence that it was worth adding.
+- Only what a declaration *claims* carries a checked field. `containerPort` was seeded and read by
+  nothing in this toolchain or in a workbench, so it is gone: a declared fact nobody consumes is a
+  fact that can rot unnoticed, which is the opposite of the point.
 
 ## Alternatives considered
 

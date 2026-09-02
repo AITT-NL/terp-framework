@@ -247,13 +247,16 @@ def test_the_declaration_never_TARGETS_the_production_profile() -> None:
     assert "prod" not in seeded["compose"]["file"]
 
 
-def test_a_declaration_pointing_at_the_production_profile_finds_nothing_to_check(
+def test_a_declaration_aimed_at_the_production_profile_is_refused(
     tmp_path,
 ) -> None:
     """The check must not become a gate on how anyone deploys.
 
-    Nothing here reads the production profile, so aiming a declaration at one
-    finds no compose file to audit rather than quietly starting to police it.
+    ADR 0110 decision 5 said "never the production profile" in prose, and prose
+    is not a control in a codebase written by agents: `compose.file` accepted
+    any path, so aiming it at a deploy profile quietly turned this check into a
+    gate on deployment topology — the one freedom the platform deliberately
+    leaves ungated. It is refused with a message instead.
     """
     root = tmp_path / "app"
     root.mkdir()
@@ -267,6 +270,8 @@ def test_a_declaration_pointing_at_the_production_profile_finds_nothing_to_check
         ),
         encoding="utf-8",
     )
+    # Present and internally consistent: the refusal is about WHICH file was
+    # named, never about anything being wrong with it.
     (root / "docker-compose.prod.yml").write_text(
         yaml.safe_dump({"services": {"api": {"ports": ["8000:8000"]}}}),
         encoding="utf-8",
@@ -274,11 +279,9 @@ def test_a_declaration_pointing_at_the_production_profile_finds_nothing_to_check
 
     code, output = run_workbench_check(root)
 
-    # It reads whatever file it is pointed at — but the SHIPPED declaration
-    # never points there, and no rule in this module treats a prod profile
-    # specially. The guarantee is the absence of such a rule.
-    assert code == 0
-    assert "prod" not in output.replace("docker-compose.prod.yml", "")
+    assert code == 1
+    assert "deployment profile" in output
+    assert "unmanaged" in output
 
 
 def test_audit_reads_a_declaration_without_touching_the_filesystem() -> None:
@@ -365,3 +368,115 @@ def test_a_compose_file_with_no_services_block_is_refused(tmp_path) -> None:
 
     assert len(findings) == 1
     assert "no services" in findings[0].message
+
+
+# --- the env seam ----------------------------------------------------------
+
+
+def test_a_declared_env_seam_the_compose_file_never_reads_is_a_lie(tmp_path) -> None:
+    """The load-bearing half nobody was checking.
+
+    The source root is how live source reaches the containers. Rename the
+    variable in the compose file and leave the declaration behind, and hot
+    reload dies while the app still builds, still runs, and still passes every
+    other check — exactly the silent class this file exists to catch.
+    """
+    root = _app(
+        tmp_path,
+        {
+            "schemaVersion": 1,
+            "services": [{"role": "web", "service": "web"}],
+            "env": {"sourceRoot": "TERP_DEV_HOST_ROOT"},
+        },
+        {"services": {"web": {"volumes": ["${SOMETHING_ELSE:-.}/src:/app/src"]}}},
+    )
+
+    code, output = run_workbench_check(root)
+
+    assert code == 1
+    assert "TERP_DEV_HOST_ROOT" in output
+
+
+def test_a_declared_env_seam_the_compose_file_does_read_passes(tmp_path) -> None:
+    root = _app(
+        tmp_path,
+        {
+            "schemaVersion": 1,
+            "services": [{"role": "web", "service": "web"}],
+            "env": {"sourceRoot": "TERP_DEV_HOST_ROOT"},
+        },
+        {
+            "services": {
+                "web": {"volumes": ["${TERP_DEV_HOST_ROOT:-.}/frontend/src:/app/src"]}
+            }
+        },
+    )
+
+    assert run_workbench_check(root)[0] == 0
+
+
+def test_the_env_seam_may_be_read_by_any_service(tmp_path) -> None:
+    """Which service needs the value is the app's business, not ours.
+
+    Only that the declared variable is read *somewhere* is the claim being
+    checked; requiring a particular service would be conformance.
+    """
+    root = _app(
+        tmp_path,
+        {
+            "schemaVersion": 1,
+            "services": [{"role": "web", "service": "web"}],
+            "env": {"frameAncestors": "TERP_DEV_FRAME_ANCESTORS"},
+        },
+        {
+            "services": {
+                "web": {},
+                "some-other-thing": {
+                    "environment": {"X": "${TERP_DEV_FRAME_ANCESTORS:-}"}
+                },
+            }
+        },
+    )
+
+    assert run_workbench_check(root)[0] == 0
+
+
+def test_an_app_that_declares_no_env_seam_is_not_asked_for_one(tmp_path) -> None:
+    """The env block is optional: an app with no host-root seam just has none."""
+    root = _app(
+        tmp_path,
+        _declaring({"role": "web", "service": "web"}),
+        {"services": {"web": {}}},
+    )
+
+    assert run_workbench_check(root)[0] == 0
+
+
+# --- ephemeral ports -------------------------------------------------------
+
+
+def test_an_ephemeral_host_port_is_not_a_fixed_host_port(tmp_path) -> None:
+    """`ports: ["5173"]` lets the daemon pick the host port.
+
+    An ephemeral port cannot collide, so it does not break running two projects
+    at once — which is the entire reason the fixed-port rule exists. Reading it
+    as a hard-coded port failed an app over the very thing that makes it safe.
+    """
+    root = _app(
+        tmp_path,
+        _declaring({"role": "web", "service": "web", "hostPortEnv": "WEB_PORT"}),
+        {"services": {"web": {"ports": ["5173"]}}},
+    )
+
+    assert run_workbench_check(root)[0] == 0
+
+
+def test_a_fixed_host_port_written_with_an_interface_is_still_caught(tmp_path) -> None:
+    """`127.0.0.1:5173:5173` is a fixed host port with an address in front."""
+    root = _app(
+        tmp_path,
+        _declaring({"role": "web", "service": "web", "hostPortEnv": "WEB_PORT"}),
+        {"services": {"web": {"ports": ["127.0.0.1:5173:5173"]}}},
+    )
+
+    assert run_workbench_check(root)[0] == 1

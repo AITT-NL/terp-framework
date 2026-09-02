@@ -285,3 +285,34 @@ def test_example_and_template_dev_proxies_forward_websocket_upgrades() -> None:
     ):
         text = vite_config.read_text(encoding="utf-8")
         assert "ws: true" in text, f"{vite_config} must proxy WebSocket upgrades"
+
+
+def test_the_template_declaration_tells_the_truth_about_the_template_compose() -> None:
+    """The seeded `workbench.json` is audited against the compose it describes.
+
+    `terp verify --only workbench` cannot be run against `template/project`:
+    the compose file there is Jinja and does not parse as YAML, so the one
+    declaration every new app starts from was the one nobody checked. That is
+    not hypothetical — the same gap let `apps/example` ship a declaration
+    naming a `sourceRoot` seam its compose file does not use. This audits the
+    template's declaration against the template's own default render, which is
+    the only place the pairing can be verified before an app exists.
+    """
+    from terp.cli.workbench import Declaration, audit
+
+    declared = json.loads(
+        (_REPO_ROOT / "template" / "project" / "workbench.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    findings = audit(
+        Declaration(
+            compose_file="docker-compose.yml",
+            services=tuple(declared["services"]),
+            env=declared.get("env", {}),
+        ),
+        _template_compose(),
+    )
+
+    assert [f.message for f in findings] == []

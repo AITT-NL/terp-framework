@@ -30,13 +30,11 @@
     {
       "role": "web",
       "service": "web",
-      "containerPort": 5173,
       "hostPortEnv": "WEB_PORT"
     },
     {
       "role": "api",
       "service": "api",
-      "containerPort": 8000,
       "hostPortEnv": "API_PORT",
       "readinessPath": "/health/ready"
     },
