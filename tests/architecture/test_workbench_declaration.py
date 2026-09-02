@@ -480,3 +480,161 @@ def test_a_fixed_host_port_written_with_an_interface_is_still_caught(tmp_path) -
     )
 
     assert run_workbench_check(root)[0] == 1
+
+
+# --- an app that drives its own development loop ---------------------------
+
+
+def test_an_app_may_declare_its_own_development_loop(tmp_path) -> None:
+    """The difference between losing a workbench and configuring one.
+
+    Before this, an app whose inner loop was not Compose had exactly one
+    option: `unmanaged: true`, which turns every managed feature off at once.
+    Declaring how to start and stop instead keeps the app managed — the state
+    machine only ever needed *observe* and *apply*, never Compose specifically.
+    """
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / WORKBENCH_FILE).write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "services": [],
+                "commands": {"start": "tilt up", "stop": "tilt down"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    code, output = run_workbench_check(root)
+
+    assert code == 0
+    assert "own development loop" in output
+
+
+def test_an_app_with_its_own_loop_is_not_asked_for_a_compose_file(tmp_path) -> None:
+    """It has just said it does not have one."""
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / WORKBENCH_FILE).write_text(
+        json.dumps(
+            {"schemaVersion": 1, "services": [], "commands": {"start": "make dev"}}
+        ),
+        encoding="utf-8",
+    )
+
+    assert not (root / "docker-compose.yml").exists()
+    assert run_workbench_check(root)[0] == 0
+
+
+def test_naming_a_compose_file_is_a_claim_even_with_commands(tmp_path) -> None:
+    """Commands do not excuse a declaration from the file it pointed at.
+
+    Three separate ways to claim a compose file — name it, declare a service in
+    it, declare an env seam through it — and any one of them has to hold.
+    """
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / WORKBENCH_FILE).write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "compose": {"file": "gone.yml"},
+                "services": [],
+                "commands": {"start": "make dev"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    code, output = run_workbench_check(root)
+
+    assert code == 1
+    assert "gone.yml" in output
+
+
+def test_an_app_may_declare_a_loop_AND_a_compose_topology(tmp_path) -> None:
+    """A Compose app with a wrapper script is an ordinary case, not a conflict."""
+    root = _app(
+        tmp_path,
+        {
+            "schemaVersion": 1,
+            "services": [{"role": "web", "service": "web", "hostPortEnv": "WEB_PORT"}],
+            "commands": {"start": "./scripts/dev.sh", "stop": "docker compose stop"},
+        },
+        _standard(),
+    )
+
+    code, output = run_workbench_check(root)
+
+    assert code == 0
+    assert "drives its own loop" in output
+
+
+def test_a_commands_block_that_cannot_start_the_app_is_refused(tmp_path) -> None:
+    """A block with only repairs offers a workbench nothing to do."""
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / WORKBENCH_FILE).write_text(
+        json.dumps(
+            {"schemaVersion": 1, "services": [], "commands": {"rebuild": "make build"}}
+        ),
+        encoding="utf-8",
+    )
+
+    code, output = run_workbench_check(root)
+
+    assert code == 1
+    assert "start" in output
+
+
+def test_a_command_slot_this_toolchain_does_not_know_is_information(tmp_path) -> None:
+    """Same rule as roles, for the same reason: adding a slot must not break an
+    app that already shipped one."""
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / WORKBENCH_FILE).write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "services": [],
+                "commands": {"start": "make dev", "reticulate": "make splines"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert run_workbench_check(root)[0] == 0
+
+
+def test_a_command_that_is_not_a_string_is_refused(tmp_path) -> None:
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / WORKBENCH_FILE).write_text(
+        json.dumps(
+            {"schemaVersion": 1, "services": [], "commands": {"start": ["make", "dev"]}}
+        ),
+        encoding="utf-8",
+    )
+
+    assert run_workbench_check(root)[0] == 1
+
+
+def test_the_commands_block_content_is_never_judged(tmp_path) -> None:
+    """Shape only. Whether this is the right way to start the app is not
+    something a file read can know, and checking it would be the conformance
+    this module refuses."""
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / WORKBENCH_FILE).write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "services": [],
+                "commands": {"start": "nonsense --that --will --never --run"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert run_workbench_check(root)[0] == 0

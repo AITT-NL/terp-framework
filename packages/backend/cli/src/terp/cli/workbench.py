@@ -28,6 +28,17 @@ The declaration is a **partial** description. Services it does not mention are
 not the workbench's business, and an exhaustive list here would be exactly the
 restriction this file exists not to impose.
 
+**An app may drive its own loop.** The optional ``commands`` block names how to
+start, stop and observe this app when it is not the Compose shape a workbench
+assumes — Tilt, a devcontainer, a Makefile, bare processes. Only the *shape* of
+those commands is checked: whether ``tilt up`` is the right way to start this app
+is not something a file read can know. Declaring the block is what turns "this
+app is unmanageable" into "this app is managed differently", which is the
+difference between losing a workbench and configuring one. A slot left out is
+not filled in from the Compose defaults: an app that has told us it is not
+Compose must never have ``docker compose down --volumes`` run against it because
+a repair button wanted to exist.
+
 **The escape ships with the rule.** ``{"unmanaged": true, "reason": "..."}``
 turns the check off for an app whose dev loop does not fit this shape at all.
 A workbench then falls back to its configured commands and says honestly that it
@@ -83,6 +94,18 @@ class Finding:
     remedy: str = ""
 
 
+#: Command slots a workbench understands. ``start`` is the only one that makes
+#: the block meaningful; the rest are offers, and a workbench must not invent
+#: one that is missing. That last point is the whole safety argument for this
+#: block: an app that declares its own loop has told us it is not the standard
+#: Compose shape, so falling back to ``docker compose down --volumes`` for a
+#: repair it never declared would run a destructive command nobody asked for
+#: against a stack we do not understand.
+COMMAND_SLOTS = frozenset(
+    {"start", "stop", "status", "rebuild", "resetData", "destroy", "migrate"}
+)
+
+
 @dataclass(frozen=True)
 class Declaration:
     """A parsed ``workbench.json``."""
@@ -92,6 +115,27 @@ class Declaration:
     compose_file: str = "docker-compose.yml"
     services: tuple[dict[str, Any], ...] = field(default=())
     env: dict[str, str] = field(default_factory=dict)
+    #: How a workbench drives this app's development loop, when the app is not
+    #: the Compose shape a workbench assumes by default. Empty means "assume
+    #: the default", which is what every app rendered from the template wants.
+    commands: dict[str, str] = field(default_factory=dict)
+    #: Was ``compose.file`` written down, or is :attr:`compose_file` just the
+    #: default this reader supplies? Naming a file is itself a claim that it
+    #: exists, and an app that named one has to be held to it even when it
+    #: declares nothing else.
+    compose_declared: bool = False
+
+    @property
+    def describes_a_compose_file(self) -> bool:
+        """Does this declaration make a claim a compose file has to settle?
+
+        Three ways to make one: name the file, declare a service, or declare an
+        env seam. A declaration with commands and none of those describes an app
+        whose development loop is not a compose stack at all — demanding a
+        compose file from it would be demanding the one thing it has just said
+        it does not have.
+        """
+        return bool(self.compose_declared or self.services or self.env)
 
 
 def load(project_root: pathlib.Path) -> tuple[Declaration | None, list[Finding]]:
@@ -140,9 +184,14 @@ def load(project_root: pathlib.Path) -> tuple[Declaration | None, list[Finding]]
         ]
     compose = raw.get("compose")
     compose_file = "docker-compose.yml"
+    compose_declared = False
     if isinstance(compose, dict) and isinstance(compose.get("file"), str):
         compose_file = compose["file"]
+        compose_declared = True
     env = raw.get("env")
+    commands, defects = _commands(raw.get("commands"))
+    if defects:
+        return None, defects
     return (
         Declaration(
             compose_file=compose_file,
@@ -151,9 +200,52 @@ def load(project_root: pathlib.Path) -> tuple[Declaration | None, list[Finding]]
                 str(key): str(value)
                 for key, value in (env.items() if isinstance(env, dict) else ())
             },
+            commands=commands,
+            compose_declared=compose_declared,
         ),
         [],
     )
+
+
+def _commands(raw: Any) -> tuple[dict[str, str], list[Finding]]:
+    """Parse and shape-check the ``commands`` block.
+
+    Shape only. Whether ``tilt up`` is the right way to start this app is not
+    something a file read can know, and pretending to check it would be the
+    conformance this module refuses. What *can* be checked is that a slot names
+    a command at all, and that a block claiming to drive a loop can start it.
+    """
+    if raw is None:
+        return {}, []
+    if not isinstance(raw, dict):
+        return {}, [Finding(f'{WORKBENCH_FILE} "commands" must be an object.')]
+    parsed: dict[str, str] = {}
+    for slot, value in raw.items():
+        name = str(slot)
+        if name not in COMMAND_SLOTS:
+            # An unrecognised slot is information, not an error — the same rule
+            # roles get, for the same reason: adding one must not break an app
+            # that already shipped it.
+            continue
+        if not isinstance(value, str):
+            return {}, [
+                Finding(
+                    f'{WORKBENCH_FILE} command "{name}" must be a string.',
+                    "One command line per slot, as you would type it.",
+                )
+            ]
+        if value.strip():
+            parsed[name] = value.strip()
+    if parsed and "start" not in parsed:
+        return {}, [
+            Finding(
+                f'{WORKBENCH_FILE} declares commands but no "start".',
+                "A workbench that cannot start this app has nothing to offer. "
+                'Name a "start" command, or drop the block to use the standard '
+                "Compose loop.",
+            )
+        ]
+    return parsed, []
 
 
 def _published_host_ports(service: dict[str, Any]) -> list[str]:
@@ -306,6 +398,14 @@ def run_workbench_check(project_root: pathlib.Path) -> tuple[int, str]:
         )
     compose_path = project_root / declared.compose_file
     if not compose_path.is_file():
+        if not declared.describes_a_compose_file:
+            # Commands and nothing else: an app whose development loop is not a
+            # compose stack. There is no file to audit, and that is the answer
+            # rather than a failure.
+            return 0, (
+                f"{WORKBENCH_FILE}: this app drives its own development loop "
+                f"({', '.join(sorted(declared.commands))})"
+            )
         return 1, _render(
             [
                 Finding(
@@ -320,9 +420,14 @@ def run_workbench_check(project_root: pathlib.Path) -> tuple[int, str]:
         return 1, _render([Finding(f"{declared.compose_file} is unreadable: {exc}")])
     findings = audit(declared, compose)
     if not findings:
+        loop = (
+            f"; drives its own loop ({', '.join(sorted(declared.commands))})"
+            if declared.commands
+            else ""
+        )
         return 0, (
             f"{WORKBENCH_FILE}: {len(declared.services)} declared service(s) match "
-            f"{declared.compose_file}"
+            f"{declared.compose_file}{loop}"
         )
     return 1, _render(findings)
 
