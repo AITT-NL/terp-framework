@@ -23,7 +23,7 @@ rule, so an unauthenticated mutation needs a budgeted opt-out (ADR 0040).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -31,6 +31,7 @@ from fastapi import APIRouter
 
 from terp.core.events import EventDefinition
 from terp.core.jobs import JobDefinition
+from terp.core.routing import MUTATING_METHODS
 from terp.core.permissions import (
     AuthorizationRequirement,
     Permission,
@@ -145,6 +146,81 @@ class Policy:
     @property
     def allows_public_writes(self) -> bool:
         return self.public_write_reason is not None
+
+
+@dataclass(frozen=True)
+class AccessDecision:
+    """One authorization outcome, as data rather than as a raised exception.
+
+    ``reason`` is a stable slug, not prose: the guard maps it to an exception and a view
+    maps it to a cell, and neither should be matching on an English sentence.
+    """
+
+    #: Whether the caller may proceed.
+    allowed: bool
+    #: Why, as a slug: ``allowed``, ``public``, ``no_policy``, ``unauthenticated``,
+    #: ``unregistered_role``, ``rank`` (below the floor) or ``grant`` (clears the floor,
+    #: lacks the named permission).
+    reason: str
+    #: The requirement that applied, or ``None`` where the decision was reached before one
+    #: was selected (no policy, public, unauthenticated, unregistered role).
+    requirement: AuthorizationRequirement | None = None
+
+
+def decide(
+    policy: Policy | None,
+    *,
+    method: str,
+    role: Role | None,
+    role_is_registered: bool = True,
+    holds_permission: Callable[[str], bool] | None = None,
+) -> AccessDecision:
+    """The authorization decision for one policy, method and role — the single copy.
+
+    This existed twice, which is the reason it now exists once. ``build_guard`` chose the
+    read or the write requirement by testing the method against ``MUTATING_METHODS``, and
+    the access-graph projection chose it again, independently, from the same inputs. Two
+    copies of one decision is exactly the shape ADR 0102's own first phase had to repair
+    after the copies "had already drifted into a reachable privilege-tier escape" — and here
+    the consequence would be worse than a wrong label, because the drifting copy is the one
+    a permission editor shows an administrator while the other one is the gate.
+
+    So a view does not describe enforcement any more, it **replays** it: same function, same
+    order, same answer. ``holds_permission=None`` is what a view passes, because it has no
+    subject in hand — the decision then comes back ``reason="grant"``, meaning *this rank
+    clears the floor and would need the named grant*, which is precisely the
+    "…-grant" cell a matrix wants to render. The guard passes a real check.
+
+    ``holds_permission`` is a **callable**, not a bool, and that is not stylistic: the guard
+    has always issued the grant query only when a permission requirement is actually
+    reached, so a role-only route never touches the database. An eagerly-evaluated argument
+    would have moved that query onto every guarded request in the framework.
+
+    Order matters and is the guard's, unchanged: a public policy admits before
+    authentication is considered, an unregistered role is refused before any requirement is
+    selected, and the rank floor is checked before the grant — which is why a grant can
+    never lift a caller over a floor (ADR 0016 §2, ADR 0089 §4).
+    """
+    if policy is None:
+        return AccessDecision(allowed=False, reason="no_policy")
+    if policy.is_public:
+        return AccessDecision(allowed=True, reason="public")
+    if role is None:
+        return AccessDecision(allowed=False, reason="unauthenticated")
+    if not role_is_registered:
+        return AccessDecision(allowed=False, reason="unregistered_role")
+    required = (
+        policy.write_requirement
+        if method.upper() in MUTATING_METHODS
+        else policy.read_requirement
+    )
+    if role.rank < required.min_rank:
+        return AccessDecision(allowed=False, reason="rank", requirement=required)
+    if required.kind == "permission" and (
+        holds_permission is None or not holds_permission(required.name)
+    ):
+        return AccessDecision(allowed=False, reason="grant", requirement=required)
+    return AccessDecision(allowed=True, reason="allowed", requirement=required)
 
 
 @dataclass(frozen=True)
@@ -268,4 +344,12 @@ class ModuleSpec:
             )
 
 
-__all__ = ["AuthzRef", "ModuleAccess", "ModuleSpec", "Policy", "Roles"]
+__all__ = [
+    "AccessDecision",
+    "AuthzRef",
+    "ModuleAccess",
+    "ModuleSpec",
+    "Policy",
+    "Roles",
+    "decide",
+]

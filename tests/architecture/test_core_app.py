@@ -32,6 +32,7 @@ from terp.core import (
     PermissionModel,
     Policy,
     Principal,
+    Role,
     SecurityConfig,
     VIEWER,
     create_app,
@@ -508,6 +509,60 @@ def test_an_undeclared_route_boots_with_coverage_off_and_is_refused_under_strict
     )
     with pytest.raises(BootError, match="coverage is STRICT"):
         create_app([spec], control_plane=strict)
+
+
+def test_decide_answers_every_branch_the_guard_used_to_answer_inline() -> None:
+    """`decide` is the single copy of the guard's decision (ADR 0112 §4).
+
+    Each reason is a stable slug rather than prose because two consumers dispatch on it: the
+    guard maps it to an exception, and a view maps it to a matrix cell. The order is the
+    guard's, unchanged — public admits before authentication is considered, an unregistered
+    role is refused before a requirement is selected, and the rank floor is checked before
+    the grant, which is what makes a grant unable to lift a caller over a floor
+    (ADR 0016 §2).
+    """
+    from terp.core.module_spec import decide
+
+    publish = Permission("widgets.publish", min_role=EDITOR, label="Publish a widget")
+    policy = Policy(read=VIEWER, write=publish)
+    editor = Role("editor", rank=20)
+    viewer = Role("viewer", rank=10)
+
+    assert decide(None, method="GET", role=editor).reason == "no_policy"
+    assert decide(Policy.public(reason="probe"), method="GET", role=None).allowed is True
+    assert decide(policy, method="GET", role=None).reason == "unauthenticated"
+    assert (
+        decide(policy, method="GET", role=editor, role_is_registered=False).reason
+        == "unregistered_role"
+    )
+    # Below the floor: refused on rank, before the grant is ever consulted.
+    assert decide(policy, method="POST", role=viewer).reason == "rank"
+    # Clears the floor with no check supplied — what a view passes, having no subject.
+    assert decide(policy, method="POST", role=editor).reason == "grant"
+    # Clears the floor and holds it.
+    assert decide(policy, method="POST", role=editor, holds_permission=lambda _n: True).allowed
+    # A role requirement never consults the grant at all.
+    assert decide(policy, method="GET", role=viewer).reason == "allowed"
+
+
+def test_decide_does_not_consult_the_grant_for_a_role_only_requirement() -> None:
+    """The check is a callable so a role-only route still never touches the database.
+
+    The guard has always been careful about this; an eagerly-evaluated argument would have
+    moved the grant query onto every guarded request in the framework. Counted rather than
+    asserted structurally, because a signature says nothing about when it is called.
+    """
+    from terp.core.module_spec import decide
+
+    calls: list[str] = []
+    policy = Policy(read=VIEWER, write=EDITOR)  # roles only, no permission anywhere
+    decide(
+        policy,
+        method="POST",
+        role=Role("admin", rank=30),
+        holds_permission=lambda name: calls.append(name) or True,
+    )
+    assert calls == []
 
 
 def test_a_route_may_not_require_a_permission_the_control_plane_does_not_declare() -> None:

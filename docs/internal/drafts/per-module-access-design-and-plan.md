@@ -391,8 +391,8 @@ exists and is already enforced:
 enforcement, because it *is* the enforcement data — the same property the reference application gets
 by deriving its rollup from live route gates, reached here without a second endpoint to maintain.
 
-**One correction to that claim, from the design panel (§9, design C).** "It is the enforcement data"
-was true of the *inputs* and false of the *reasoning*. `build_access_graph`'s `_endpoint_json` picks
+**One correction to that claim, from the design panel (§9, design C) — shipped in phase 3.**
+"It is the enforcement data" was true of the *inputs* and false of the *reasoning*. `build_access_graph`'s `_endpoint_json` picks
 the read or write requirement by testing the method against `MUTATING_METHODS` itself, and
 `build_guard` picks it again independently — two copies of the same decision, which is exactly the
 shape that produced the drift ADR 0102's own phase 1.1 had to fix ("the copies had already drifted
@@ -404,6 +404,26 @@ decision becomes a pure function
 that **`build_guard` and the projection both call**. The viewer then does not describe enforcement,
 it replays it, and a change to the rule can only change both at once. This is the single most
 valuable idea the panel produced and it is adopted wholesale.
+
+Two things the implementation added that the sketch did not carry:
+
+- **The permission check is a callable, not a `bool`.** The guard has always issued the grant
+  query only when a permission requirement is actually reached, so a role-only route never
+  touches the database. An eagerly-evaluated argument would have moved that query onto every
+  guarded request in the framework. A test counts the calls, because a signature says nothing
+  about *when* it is invoked.
+- **A route-level `require_permission` is folded into the per-rung answer.** `decide` answers
+  for the module `Policy`, which is the only authority the kernel guard applies; a route-level
+  dependency is a second requirement the policy does not carry. Replaying only the guard
+  reported an editor as *allowed* on the example app's `DELETE /notes/{id}` — a route an editor
+  without the grant gets a 403 from. That was caught by reading the projection's output, and it
+  is precisely the pane-disagrees-with-the-gate failure this section exists to prevent, so the
+  extra requirement is folded in and such a rung is reported `grant` instead.
+
+The projection now carries `by_role` per endpoint — one entry per declared rung with the
+outcome and its reason slug — so whatever renders the matrix stops re-deriving allowance from
+rank comparisons. That is what makes the duplication genuinely gone rather than merely
+consolidated on the server: `accessMatrix.ts` computes today what the server can now state.
 
 Two honesty rules carry over, and both are already latent in the graph:
 

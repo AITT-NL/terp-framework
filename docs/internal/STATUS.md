@@ -620,8 +620,14 @@ one global rank and a group carries none.
       `groups`, `access` and `audit` all carry it, because per-module `admin` in `access` would
       hand out every other authority. The access graph reports the module edge and the access
       declaration, so the pane's data model is complete for the permission axis.
-- [ ] Phase 3 `decide()` extracted so the guard and the projection share one decision, then the
-      in-app introspection endpoints — which is also where `roles.ts` gets its ladder.
+- [~] Phase 3. Done: `decide()` extracted, so `build_guard` and the access-graph projection
+      share one decision instead of each testing the method against `MUTATING_METHODS` — the
+      guard's existing tests passed unchanged, which is what a refactor with no behaviour change
+      looks like. The projection now carries `by_role` per endpoint, folding in a route-level
+      `require_permission` that the module `Policy` does not carry (found by reading the output:
+      it had reported an editor as allowed on a route an editor without the grant gets a 403
+      from). Left: the in-app introspection endpoints served from `app.state`, and `roles.ts`
+      reading the ladder from them.
 - [ ] Phase 4 `ModuleRole` + the resolver seam + the guard change.
 - [ ] Phase 5 the pane — viewer lenses first, then assignment.
 - [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.

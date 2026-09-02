@@ -208,6 +208,15 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
     (module,) = graph["modules"]
     (endpoint,) = module["endpoints"]
     assert endpoint["extra_permissions"] == ["widgets.approve"]
+    # And the per-rung outcome folds that route-level requirement in. The module `Policy`
+    # here is `Policy.default()`, so an editor clears the write tier — but the route also
+    # carries `require_permission`, and a view has no subject, so no rung may be reported
+    # as plainly allowed. Reporting `allowed` would be the pane disagreeing with the gate.
+    assert endpoint["by_role"] == [
+        {"role": "viewer", "allowed": False, "reason": "rank"},
+        {"role": "editor", "allowed": False, "reason": "grant"},
+        {"role": "admin", "allowed": False, "reason": "grant"},
+    ]
 
 
 def test_access_graph_renders_public_policy() -> None:

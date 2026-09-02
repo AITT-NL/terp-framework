@@ -35,12 +35,15 @@ from starlette.routing import Mount, Route
 
 from terp.core import (
     ActorStampedMixin,
+    Policy,
+    Role,
     ControlPlane,
     ModuleSpec,
     OwnedMixin,
     SoftDeleteMixin,
 )
 from terp.core.object_authz import registered_object_authz_predicates
+from terp.core.module_spec import decide
 from terp.core.routing import (
     MUTATING_METHODS,
     declared_operation,
@@ -48,6 +51,13 @@ from terp.core.routing import (
 )
 from terp.core.scoping import registered_scope_predicates
 
+
+# A role below every rank a real ladder can hold, used only to read *which* requirement a
+# policy applies to a method. `decide` returns the applied requirement even when it denies at
+# the floor, so probing with a rank nothing can be declared at yields the requirement without
+# this module re-deriving the read-or-write choice the guard already makes. It is never
+# reported and never compared against a real principal.
+_FLOOR_PROBE = Role("floor_probe", rank=-1)
 
 # Every module mounts under this prefix (``create_app``); a served path outside it is a
 # kernel / open route (e.g. health), not part of any module's policy surface.
@@ -95,7 +105,9 @@ def _route_permissions(route: APIRoute) -> list[str]:
     return found
 
 
-def _endpoint_json(spec: ModuleSpec, route: APIRoute) -> dict[str, object]:
+def _endpoint_json(
+    spec: ModuleSpec, route: APIRoute, ladder: Sequence[Role] = ()
+) -> dict[str, object]:
     """The endpoint-access layer: one mounted route + its effective requirement.
 
     No read/write field is emitted. One used to be, computed from the HTTP method
@@ -108,21 +120,29 @@ def _endpoint_json(spec: ModuleSpec, route: APIRoute) -> dict[str, object]:
     """
     methods = sorted(route.methods or ())
     is_write = any(method in MUTATING_METHODS for method in methods)
+    # One representative method, so `decide` makes the read-or-write choice rather than this
+    # projection making it again. That second copy is what ADR 0112 §4 removed: the guard and
+    # this function each tested the method against MUTATING_METHODS, and the copy that drifts
+    # is the one an administrator is shown.
+    probe = "POST" if is_write else "GET"
     policy = spec.policy
     if policy is None:
         requirement = "denied (no policy declared)"
     elif policy.is_public:
         requirement = "public"
     else:
-        requirement = (
-            policy.write_requirement.label if is_write else policy.read_requirement.label
-        )
+        applied = decide(policy, method=probe, role=_FLOOR_PROBE).requirement
+        # `_FLOOR_PROBE` sits below every real rank, so the decision stops at the floor with
+        # the applied requirement in hand — which is the label, read off the same call the
+        # guard makes rather than recomputed here.
+        requirement = "denied (no policy declared)" if applied is None else applied.label
     declared = declared_operation(route.endpoint)
+    extra_permissions = _route_permissions(route)
     return {
         "path": f"/api/v1/{spec.name}{route.path}",
         "methods": methods,
         "requirement": requirement,
-        "extra_permissions": _route_permissions(route),
+        "extra_permissions": extra_permissions,
         "name": route.name,
         # The declared operation (ADR 0102), or null where the route declares none.
         # A view that renders "what this endpoint does" needs the authored answer when
@@ -134,7 +154,41 @@ def _endpoint_json(spec: ModuleSpec, route: APIRoute) -> dict[str, object]:
             if declared is None
             else {"id": declared.id, "label": declared.label}
         ),
+        # What each declared rung gets on this route, replayed through the guard's own
+        # decision rather than re-derived from ranks by whatever renders the matrix. A view
+        # has no subject, so a permission requirement comes back as ``grant`` — "clears the
+        # floor, still needs the named grant" — which is the distinction a cell has to draw
+        # and the one a client-side rank comparison cannot.
+        "by_role": [
+            _by_role_json(role, spec.policy, probe, extra_permissions)
+            for role in ladder
+        ],
     }
+
+
+def _by_role_json(
+    role: Role,
+    policy: Policy | None,
+    probe: str,
+    extra_permissions: Sequence[str],
+) -> dict[str, object]:
+    """One rung's outcome on one route — the module guard *and* the route's own dependency.
+
+    ``decide`` answers for the module ``Policy``, which is the only authority the kernel
+    guard applies. A route-level ``require_permission`` is a **second** requirement, added by
+    the access capability on top, and the ``Policy`` does not carry it — so replaying only
+    the guard would report an editor as allowed on a route an editor without the grant gets a
+    403 from. That is the exact class of disagreement between a pane and the gate that
+    ADR 0112 exists to prevent, so the extra requirement is folded in here.
+
+    A view has no subject, so it cannot know whether the grant is held: a rung that clears
+    the policy but faces a route-level permission is reported ``grant``, on the same terms
+    ``decide`` reports a permission requirement it was given no check for.
+    """
+    outcome = decide(policy, method=probe, role=role)
+    if outcome.allowed and extra_permissions and outcome.reason != "public":
+        return {"role": role.name, "allowed": False, "reason": "grant"}
+    return {"role": role.name, "allowed": outcome.allowed, "reason": outcome.reason}
 
 
 def _mro_names(model: type) -> set[str]:
@@ -203,11 +257,13 @@ def _module_warnings(
     return warnings
 
 
-def _module_access_json(spec: ModuleSpec) -> dict[str, object]:
+def _module_access_json(
+    spec: ModuleSpec, ladder: Sequence[Role] = ()
+) -> dict[str, object]:
     endpoints: list[dict[str, object]] = []
     if spec.router is not None:
         endpoints = [
-            _endpoint_json(spec, route)
+            _endpoint_json(spec, route, ladder)
             for route in spec.router.routes
             if isinstance(route, APIRoute)
         ]
@@ -265,6 +321,7 @@ def build_access_graph(
     are supplied by :func:`build_access_graph_for_app`, which reconciles the graph
     against the composed app; both are empty for a hand-passed module list.
     """
+    ladder = tuple(sorted(plane.permissions.roles, key=lambda item: item.rank))
     return {
         "roles": [
             {"name": role.name, "rank": role.rank}
@@ -285,7 +342,8 @@ def build_access_graph(
             )
         ],
         "modules": [
-            _module_access_json(spec) for spec in sorted(specs, key=lambda s: s.name)
+            _module_access_json(spec, ladder)
+            for spec in sorted(specs, key=lambda s: s.name)
         ],
         "scope_predicates": [
             f"{predicate.__module__}.{predicate.__qualname__}"

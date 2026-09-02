@@ -72,7 +72,7 @@ from terp.core._internal.discovery import iter_capability_specs
 from terp.core._internal.engine import get_engine
 from terp.core._internal.middleware import install_security_middleware
 from terp.core._internal.session_guard import read_only_request
-from terp.core.module_spec import ModuleSpec, Policy
+from terp.core.module_spec import ModuleSpec, Policy, decide
 from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
 from terp.core.routing import (
@@ -188,28 +188,32 @@ def build_guard(
         principal: Principal | None = Depends(principal_provider),
         session: Session = Depends(get_session),
     ) -> None:
-        if policy.is_public:
-            return
-        if principal is None:
-            raise AuthenticationError()
-        if permission_model is not None and not permission_model.has_role(principal.role):
-            raise PermissionDeniedError()
         # ``HTTPConnection`` is the common Starlette base of Request and
         # WebSocket, so the SAME deny-by-default module guard protects both
         # transports. A WebSocket has no HTTP method after upgrade and defaults
         # to the write tier; a capability may apply finer per-message authority.
-        required = (
-            policy.write_requirement
-            if request_method(connection) in MUTATING_METHODS
-            else policy.read_requirement
+        decision = decide(
+            policy,
+            method=request_method(connection),
+            role=None if principal is None else principal.role,
+            role_is_registered=(
+                permission_model is None
+                or principal is None
+                or permission_model.has_role(principal.role)
+            ),
+            # A callable, so the grant query is issued only if a permission requirement is
+            # actually reached: a role-only route still never touches the database.
+            holds_permission=(
+                None
+                if principal is None or permission_enforcer is None
+                else lambda name: permission_enforcer(session, principal.id, name)
+            ),
         )
-        if principal.role.rank < required.min_rank:
-            raise PermissionDeniedError()
-        if required.kind == "permission" and (
-            permission_enforcer is None
-            or not permission_enforcer(session, principal.id, required.name)
-        ):
-            raise PermissionDeniedError()
+        if decision.allowed:
+            return
+        if decision.reason == "unauthenticated":
+            raise AuthenticationError()
+        raise PermissionDeniedError()
 
     return guard
 
