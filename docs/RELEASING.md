@@ -123,7 +123,17 @@ create packages.
 
 1. Confirm every manifest carries the release version and `CHANGELOG.md` records it —
    `uv run pytest tests/architecture/test_release_versions.py` proves the lockstep.
-2. Confirm CI is green on `main` at the release commit.
+2. Confirm CI is green on `main` at the release commit — and if you check locally first,
+   run the command the workflow runs, not an approximation of it:
+
+   ```bash
+   uv run coverage run -m pytest && uv run coverage report
+   ```
+
+   `pytest` alone is not the gate. Coverage is `fail_under = 100`, so a passing suite and a
+   passing gate are different claims: 0.15.0's first tag failed on six uncovered statements
+   with every test green. Nothing published (the publish jobs skip when `verify` fails, so
+   the version was not burned), but the tag had to be moved and re-pushed.
 3. Tag and push (do **not** pre-create a GitHub Release in the UI — the workflow
    creates it after all three publishes succeed):
 
@@ -136,8 +146,14 @@ create packages.
    fans out to `build-pypi` and `publish-images`, and `publish-npm` runs **after**
    `publish-pypi` rather than beside it — the serialization is deliberate and the reason is
    below. Then `github-release` attaches the conformance scorecards.
-   Both publish jobs enter the `release` environment, so the run parks once on the reviewer
-   gate; the approval is per run, not per job.
+   Both publish jobs enter the `release` environment, and the run parks **twice** — once
+   before `publish-pypi` and again before `publish-npm`. Expect to approve two deployments
+   for one release. GitHub shares an approval between jobs that enter a protected
+   environment *together*, and `publish-npm` needs `publish-pypi`, so it enters later and
+   counts as its own deployment. This runbook said "the approval is per run, not per job"
+   until 0.15.0 released and it parked the second time; the sentence mattered because the
+   warning below is that a version only one registry accepted can neither be completed nor
+   withdrawn, and approving once then walking away lands in exactly that state.
 5. Verify installability from a clean project: `uv add terp-core terp-cli` and
    `npm install @terpjs/react-core` resolve at the new version.
 
