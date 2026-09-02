@@ -1,7 +1,8 @@
 # 0111 — Flexibility is bounded by legibility, not by capability
 
-- **Status:** Proposed — the decisions below are ready to accept, the open question at the end is
-  not mine to settle
+- **Status:** Proposed — decisions 1-5 are ready to accept; decision 6 names the one place
+  flexibility must give way to control, and which invariants go in its envelope is not mine to
+  settle
 - **Date:** 2026-09-02
 - **Relates:** [ADR 0103](0103-the-ideology-one-pattern-enforced-escapable-by-proof.md) (the
   ideology this generalises), [ADR 0110](0110-an-app-declares-which-parts-of-its-dev-topology-are-load-bearing.md)
@@ -162,34 +163,83 @@ discovered afterwards: *this app is one Studio can manage and diagnose* versus *
 Studio can run, and when it breaks the agent handles it*. Both are supported. Only the second is
 a second-class citizen, and only in the one respect named here.
 
-## Open question — the deployment declaration
+This holds for the inner loop, where every failure is retryable. It does **not** transfer to
+infrastructure, where the trade is irreversibility rather than recovery — see decision 6, which is
+the one place in this document where flexibility really does give way to control.
 
-This is the fork I cannot settle, and it is the one the original question is really about.
+### 6. Infrastructure is the exception, and it needs a third layer
 
-ADR 0110 decision 5 forbids the workbench declaration from reaching the production profile, and
-that ADR is right for the reason it gives: deployment freedom survives because nothing gates it,
-and Studio's ADR 0013 made one instance of it explicit: a deployed app's database may be the
-built-in one, a client's own PostgreSQL cluster, or a managed cloud service. But "Studio can drive a deploy" and "verify judges your
-deployment topology" are not the same act, and the current rule blocks both because there was no
-reason to separate them yet.
+Deployment **is** partly a control-versus-flexibility question, and the first draft of this
+document denied it by filing the whole deploy surface under legibility. That was wrong. Two things
+make infrastructure different in kind from the dev loop, and both cut against the argument above.
 
-The two readings, and what each costs:
+**The failure mode inverts.** A misconfigured dev stack does not come up, and you find out in
+seconds. A misconfigured deployment comes up perfectly and you find out from a bill, a breach
+notification, or a column that is no longer there. Legibility catches "this does not work". Only
+conformance catches "this works, dangerously" — and a declaration cannot help here, because the
+danger is not a lie. "The database is published on 0.0.0.0" can be a completely truthful,
+checkable declaration of a catastrophe. Decision 2 asks whether a constraint removes capability or
+removes silence; for infrastructure that question is not sufficient, because the harm does not come
+from silence.
 
-**A. Deployment stays undeclared.** ADR 0110 holds as written. Studio can only manage deploys that
-happen to match the shape it assumes, and every client with a different architecture is outside
-the managed path entirely — the exact lock-out the original question worries about.
+**The open exit stops being capable.** The trade in the previous section rests on "let the agent
+look at it" being a genuinely good fallback, and it is — for a stack that will not start. It is
+not a fallback for a storage account that was public for six hours, or a migration that has
+already run against customer data. Dev failures are retryable. Some infrastructure failures are
+not, and irreversibility is the property that makes conformance the right instrument.
 
-**B. Deployment gains an optional, non-gating declaration.** The same document shape, describing
-the deploy profile, with two differences from `workbench.json`: it is **optional by default**
-(absence is normal and costs nothing) and **`terp verify` never fails an app over it**. Studio
-reads it when present and degrades honestly when absent. Deployment freedom is preserved not by
-forbidding description, but by never gating it.
+The audience settles it. Networking, secrets, blast radius, data residency and backup are
+precisely the trade-offs someone with little development knowledge cannot evaluate, which is the
+justification decision 1 already gives for conformance in security. Infrastructure *is* security.
+The three-way split in decision 1 still holds; what changes is the assignment — for a deployment,
+security invariants cover far more of the surface than they do for the inner loop.
 
-I lean to **B**, because it satisfies every test above — it removes silence rather than capability,
-the tool is what loses when the declaration is missing, and it converts "different architecture" 
-from unsupported into merely undescribed. But B needs ADR 0110 decision 5 rewritten from "never
-describe the deploy profile" to "never *gate* the deploy profile", and that sentence is load-bearing
-enough that it should be changed deliberately rather than as a consequence of this document.
+So a deployment has three layers, each with its own rule, instead of one dial.
+
+**Layer 1 — the safety envelope. Conformance, enforced at the deploy boundary.** A small closed
+set of properties that must hold of *any* deployment whatever its shape: no datastore reachable
+from a public network; secrets arrive from a secret store and never from a file in the repository;
+TLS terminated at the edge; every stateful resource names a backup; a destructive scope requires
+explicit confirmation. These constrain **properties, not topologies** — an app may use any
+containers, any networking, any provider and still satisfy every one of them. That is what makes
+the envelope compatible with maximum flexibility rather than a contradiction of it, and it is the
+real answer to "is it even possible": yes, for whatever can be stated as an invariant over any
+topology. Escapable only by an explicit, greppable, budgeted declaration with a reason — and for
+the invariants that can lose customer data, the escape should require a person rather than an
+agent.
+
+The enforcement point has to move, and this is the expensive part. For the inner loop a build-time
+file check suffices, because the blast radius is one laptop. For infrastructure it does not: an
+agent can pass `terp verify` and still deploy something dangerous, because the danger is in the
+rendered result rather than in the source. So the envelope is checked against the **resolved plan**
+at deploy time, and where a provider allows it, asserted against what actually exists afterwards.
+
+**Layer 2 — legibility. Declaration, truth-checked, never gating.** Which unit is the app, how to
+health-check it, where migrations run, what a rollback is. Optional: absence means a workbench
+cannot drive the deploy and says so, and the app still deploys by its own means. This is the part
+the first draft had right, and decision 3 applies to it unchanged.
+
+**Layer 3 — topology. Free.** Service count, images, languages, extra containers, network
+arrangement, provider. No rule at all. This is where the freedom Studio's ADR 0013 protects
+actually lives, and nothing here touches it.
+
+This makes the consequence for ADR 0110 decision 5 sharper than the "never describe versus never
+gate" fork the first draft offered. That decision's reasoning — deployment freedom survives
+because nothing gates it — is a claim about *topology*, and about topology it is correct. It does
+not follow that *safety properties* should be ungated, and reading it that way is why the deploy
+surface has no envelope today. Decision 5 should be **split** along these layers, not reworded.
+
+**What stays genuinely open, and needs a person.** Which invariants belong in the first envelope,
+and what the enforcement point is for each provider. The five above are a starting proposal, not a
+decision: an envelope drawn too wide becomes the permitted-topology gate this whole document
+argues against, and one drawn too narrow is theatre. This is the question to answer before any of
+it is built.
+
+**And the concession this forces.** For the safety envelope, some things really are impossible
+until the framework implements them. A client needing a shape the envelope cannot yet express
+safely waits, or takes a reviewed escape with a human signature. That is the one place where "not
+yet" is the right answer — and it is a much smaller place than "not until we ship the capability",
+because an envelope constrains properties rather than shapes.
 
 ## Consequences
 
@@ -201,6 +251,10 @@ enough that it should be changed deliberately rather than as a consequence of th
 - The capability socket (decision 4) is the largest piece of new work the platform has in front of
   it, and nothing here specifies it. What this ADR does is say that it is the right work — and
   that shipping more capabilities is not a substitute for it.
+- The deploy-time safety envelope (decision 6) is the second largest, and the one with a deadline
+  attached, because every deployment made before it exists is one that nothing checked. It also
+  introduces a kind of gate this platform does not have yet: one that runs against a resolved plan
+  rather than a file, at the moment of deploying rather than at build time.
 - A tiering of manageability becomes describable in the product, which is a change to how Studio
   talks about an app and not only to how it manages one.
 
