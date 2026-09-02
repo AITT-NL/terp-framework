@@ -4,18 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cli"
-version = "0.14.0"
+version = "0.15.0"
 description = "Terp command-line tool — inspect, scaffolding, migrations, checks, api-docs."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.14.0",
+    "terp-core==0.15.0",
     # `terp migrate` delegates to terp-migrations (lazily imported), keeping Alembic
     # off the path for `terp inspect` / `terp guide` while making migrations work.
-    "terp-migrations==0.14.0",
+    "terp-migrations==0.15.0",
     # `terp guide rules` projects the live rule registry; terp-arch is imported lazily
     # (only when that topic is rendered), so it stays off the common `terp guide` path.
-    "terp-arch==0.14.0",
+    "terp-arch==0.15.0",
     # `terp verify --only env-seams` and `terp smoke` read the compose profiles as data
     # (anchors and `<<:` merge keys resolved), so both answer without a Docker daemon or
     # even the `docker` binary. Declared explicitly rather than leant on: every app
@@ -29,11 +29,11 @@ dependencies = [
 # or a scheduler engine into apps that only use inspect/check/migrate. Deployments can select
 # one process role, while `jobs` is the convenient complete jobs-process bundle.
 [project.optional-dependencies]
-worker = ["terp-cap-outbox==0.14.0"]
-scheduler = ["terp-cap-scheduler-apscheduler==0.14.0"]
+worker = ["terp-cap-outbox==0.15.0"]
+scheduler = ["terp-cap-scheduler-apscheduler==0.15.0"]
 jobs = [
-    "terp-cap-outbox==0.14.0",
-    "terp-cap-scheduler-apscheduler==0.14.0",
+    "terp-cap-outbox==0.15.0",
+    "terp-cap-scheduler-apscheduler==0.15.0",
 ]
 
 [project.scripts]

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-core"
-version = "0.14.0"
+version = "0.15.0"
 description = "Terp platform kernel — base classes, ModuleSpec, errors, pagination, DB session seam, secure-by-default config."
 requires-python = ">=3.13"
 license = "Apache-2.0"

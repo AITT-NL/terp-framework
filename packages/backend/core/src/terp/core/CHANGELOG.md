@@ -10,6 +10,68 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.15.0 — 2026-09-02
+
+### Added
+
+- **An app declares which parts of its development topology are load-bearing.** A
+  `docker-compose.yml` is edited constantly, increasingly by an agent, and a small part of
+  it is load-bearing: which service serves the interface, which serves the API, and through
+  which variables the host ports arrive. Change those and the app still builds, still runs
+  and still passes every check — while no tool can find its way around it. `workbench.json`
+  records that, `terp verify --only workbench` checks the record against reality, and the
+  rule is *did you tell the truth about yourself*, never *are you built the approved way*.
+  A service nobody declared, three APIs, no frontend, an optional container replaced by the
+  app's own equivalent: all pass untouched. The escape ships with the rule —
+  `{"unmanaged": true, "reason": "…"}` turns the check off and a workbench falls back to its
+  configured commands. An app with no declaration passes as a no-op. (ADR 0110)
+- **An app may drive its own development loop.** The declaration's optional `commands` block
+  names how to start, stop and observe an app that is not the Compose shape a workbench
+  assumes — Tilt, a devcontainer, a Makefile, bare processes. Only the shape is checked:
+  whether `tilt up` is the right way to start this app is not something a file read can
+  know. Before this, such an app had one option, `unmanaged: true`, which turns off every
+  managed feature at once to buy the freedom to start differently; the difference now is
+  between losing a workbench and configuring one. A slot left out is deliberately not
+  filled in from the Compose defaults — an app that has said it is not Compose must never
+  have `docker compose down --volumes` run against it because a repair button wanted to
+  exist.
+- **`terp verify --only deploy-safety`: a deployment safety envelope.** The inner loop and a
+  deployment fail in opposite directions. A misconfigured dev stack does not come up and you
+  find out in seconds; a misconfigured deployment comes up perfectly and you find out from a
+  bill, a breach notification, or a column that is no longer there. A declaration cannot help
+  when the danger is not a lie, so this enforces two properties instead: no datastore
+  publishes a host port, and no credential is literal — including `${SECRET_KEY:-changeme}`,
+  which reads as an interpolation and ships a known secret whenever the variable is unset.
+  It constrains properties and never topology: any containers, any networking, any provider,
+  any architecture passes, and nothing in the check asks how the app is built or where it
+  deploys. The escape is a Compose `x-terp-allow` field on the service it excuses, with a
+  required reason. Two invariants rather than five, because only two are decidable from a
+  compose file and inventing checks for the rest would be theatre. (ADR 0111)
+- **A healthcheck on the `web` service.** `db` and `api` had one and the frontend did not, so
+  `docker compose up --wait` returned before the one service a person actually looks at was
+  listening, and `depends_on: service_healthy` could not name it. It answers the liveness
+  question — Vite binds its port before dependency pre-bundling settles — and it uses `node`
+  rather than `wget` or `curl`, which `node:24-slim` does not ship.
+
+### Changed
+
+- **`terp verify`'s standard profiles gained two checks.** `workbench` is a no-op success for
+  an app without a declaration, so adopting this release cannot redden a gate over a file the
+  app has not got. `deploy-safety` reads `docker-compose.prod.yml`, which every templated app
+  has — the template's own profile satisfies the envelope, so an app that has not introduced
+  a published datastore or a literal credential is unaffected, and an app that has is being
+  told something it needs to know.
+
+### Upgrade notes
+
+- `workbench.json` is seeded once and then owned by the app (copier `_skip_if_exists`),
+  alongside `environment.schema.json` and `layout-contract.json`. `docker-compose.yml` is
+  template-owned and three-way merged, so a merge that moves the app away from what its
+  declaration says turns the check red and leaves the upgrade visibly unfinished rather than
+  silently producing an app no tool can navigate.
+- Existing apps have no `workbench.json` until they adopt one; every workbench-shaped feature
+  degrades to the conventions the template has always used.
+
 ## 0.14.0 — 2026-09-01
 
 ### Fixed
