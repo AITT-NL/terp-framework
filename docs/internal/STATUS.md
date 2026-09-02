@@ -626,8 +626,12 @@ one global rank and a group carries none.
       looks like. The projection now carries `by_role` per endpoint, folding in a route-level
       `require_permission` that the module `Policy` does not carry (found by reading the output:
       it had reported an editor as allowed on a route an editor without the grant gets a 403
-      from). Left: the in-app introspection endpoints served from `app.state`, and `roles.ts`
-      reading the ladder from them.
+      from). And the shared projection moved into the kernel as
+      `terp.core.authz.build_access_model`, because a capability cannot import `terp.cli` —
+      the CLI now composes it with the parts only an audit wants (model traits, predicates,
+      kernel routes, the `app.openapi()` reconciliation). Left: the access capability's
+      `GET /api/v1/access/model` endpoint over that builder, and `roles.ts` reading the
+      ladder from it.
 - [ ] Phase 4 `ModuleRole` + the resolver seam + the guard change.
 - [ ] Phase 5 the pane — viewer lenses first, then assignment.
 - [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.

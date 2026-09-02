@@ -90,6 +90,55 @@ def test_control_plane_validates_policy_references() -> None:
     )
 
 
+def test_build_access_model_carries_the_pane_surface_and_not_the_audit_extras() -> None:
+    """The boundary between the two consumers, pinned.
+
+    `build_access_model` answers "who may do what" — the ladder, the permissions with their
+    labels, and every module with its policy, its claimed permissions, its access
+    declaration and its endpoints with a per-rung outcome. `terp inspect access` composes
+    that with what only an audit needs: model traits, registered predicates, kernel and
+    schema-hidden routes, undeclared subscribers, and the reconciliation against
+    `app.openapi()`.
+
+    Asserting the absence matters as much as the presence. Without it the two would drift
+    back together, and the reason this projection moved into the kernel at all is that a
+    capability cannot import the CLI — so the model has to stand on its own.
+    """
+    from terp.core import build_access_model
+
+    declared = Permission("notes.delete", min_role=EDITOR, label="Delete a note")
+    plane = ControlPlane(permissions=PermissionModel(permissions=[declared]))
+    spec = ModuleSpec(
+        name="notes",
+        policy=Policy.default(),
+        permissions=(declared,),
+        access=ModuleAccess(label="Notes", assignable=True),
+    )
+
+    model = build_access_model(plane, [spec])
+    assert set(model) == {"roles", "permissions", "modules"}
+    assert model["roles"] == [
+        {"name": "viewer", "rank": 10},
+        {"name": "editor", "rank": 20},
+        {"name": "admin", "rank": 30},
+    ]
+    assert model["permissions"] == [
+        {"name": "notes.delete", "min_role": "editor", "label": "Delete a note"}
+    ]
+    (module,) = model["modules"]
+    assert set(module) == {
+        "name",
+        "prefix",
+        "policy",
+        "permissions",
+        "access",
+        "endpoints",
+    }
+    assert "models" not in module and "warnings" not in module
+    assert module["permissions"] == ["notes.delete"]
+    assert module["access"]["assignable"] is True
+
+
 def test_module_access_is_absent_by_default_and_refuses_a_contradiction() -> None:
     """Secure by default through absence, and the invariants that keep a pane honest.
 

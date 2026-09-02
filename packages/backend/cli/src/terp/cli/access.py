@@ -35,29 +35,15 @@ from starlette.routing import Mount, Route
 
 from terp.core import (
     ActorStampedMixin,
-    Policy,
-    Role,
     ControlPlane,
     ModuleSpec,
     OwnedMixin,
     SoftDeleteMixin,
 )
+from terp.core.authz import build_access_model
 from terp.core.object_authz import registered_object_authz_predicates
-from terp.core.module_spec import decide
-from terp.core.routing import (
-    MUTATING_METHODS,
-    declared_operation,
-    required_permission,
-)
 from terp.core.scoping import registered_scope_predicates
 
-
-# A role below every rank a real ladder can hold, used only to read *which* requirement a
-# policy applies to a method. `decide` returns the applied requirement even when it denies at
-# the floor, so probing with a rank nothing can be declared at yields the requirement without
-# this module re-deriving the read-or-write choice the guard already makes. It is never
-# reported and never compared against a real principal.
-_FLOOR_PROBE = Role("floor_probe", rank=-1)
 
 # Every module mounts under this prefix (``create_app``); a served path outside it is a
 # kernel / open route (e.g. health), not part of any module's policy surface.
@@ -68,127 +54,6 @@ _API_PREFIX = "/api/v1/"
 _HTTP_METHODS = frozenset(
     {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 )
-
-
-def _policy_json(spec: ModuleSpec) -> dict[str, object] | None:
-    """The module-access layer: the spec's declared ``Policy`` as plain data."""
-    policy = spec.policy
-    if policy is None:
-        return None
-    if policy.is_public:
-        return {
-            "public": True,
-            "public_reason": policy.public_reason,
-            "allows_public_writes": policy.allows_public_writes,
-        }
-    return {
-        "public": False,
-        "authenticated": policy.authenticated,
-        "read": policy.read_requirement.label,
-        "write": policy.write_requirement.label,
-    }
-
-
-def _route_permissions(route: APIRoute) -> list[str]:
-    """Route-level ``require_permission`` names, where the dependency is marked.
-
-    The marker is stamped by the access capability and named in
-    ``terp.core.routing`` — this reads it through that module's accessor rather
-    than knowing the attribute name, which used to be declared here in the
-    reader rather than beside the writer.
-    """
-    found: list[str] = []
-    for depends in route.dependencies:
-        name = required_permission(getattr(depends, "dependency", None))
-        if name is not None:
-            found.append(name)
-    return found
-
-
-def _endpoint_json(
-    spec: ModuleSpec, route: APIRoute, ladder: Sequence[Role] = ()
-) -> dict[str, object]:
-    """The endpoint-access layer: one mounted route + its effective requirement.
-
-    No read/write field is emitted. One used to be, computed from the HTTP method
-    alone, which meant it restated the ``methods`` beside it and carried no authority
-    of its own — and it invited a false reading, because a module may require the same
-    tier for both (the boot check permits exactly that, and the files capability does
-    it), so "read" never meant "cannot write". ``requirement`` is the honest field:
-    the kernel guard has already chosen the read or write requirement for this
-    method, so it is the authority that actually applies to this one route.
-    """
-    methods = sorted(route.methods or ())
-    is_write = any(method in MUTATING_METHODS for method in methods)
-    # One representative method, so `decide` makes the read-or-write choice rather than this
-    # projection making it again. That second copy is what ADR 0112 §4 removed: the guard and
-    # this function each tested the method against MUTATING_METHODS, and the copy that drifts
-    # is the one an administrator is shown.
-    probe = "POST" if is_write else "GET"
-    policy = spec.policy
-    if policy is None:
-        requirement = "denied (no policy declared)"
-    elif policy.is_public:
-        requirement = "public"
-    else:
-        applied = decide(policy, method=probe, role=_FLOOR_PROBE).requirement
-        # `_FLOOR_PROBE` sits below every real rank, so the decision stops at the floor with
-        # the applied requirement in hand — which is the label, read off the same call the
-        # guard makes rather than recomputed here.
-        requirement = "denied (no policy declared)" if applied is None else applied.label
-    declared = declared_operation(route.endpoint)
-    extra_permissions = _route_permissions(route)
-    return {
-        "path": f"/api/v1/{spec.name}{route.path}",
-        "methods": methods,
-        "requirement": requirement,
-        "extra_permissions": extra_permissions,
-        "name": route.name,
-        # The declared operation (ADR 0102), or null where the route declares none.
-        # A view that renders "what this endpoint does" needs the authored answer when
-        # there is one and must fall back to the route name when there is not, so the
-        # absence is reported as null rather than omitted — a missing key and a
-        # declined declaration would otherwise be indistinguishable.
-        "operation": (
-            None
-            if declared is None
-            else {"id": declared.id, "label": declared.label}
-        ),
-        # What each declared rung gets on this route, replayed through the guard's own
-        # decision rather than re-derived from ranks by whatever renders the matrix. A view
-        # has no subject, so a permission requirement comes back as ``grant`` — "clears the
-        # floor, still needs the named grant" — which is the distinction a cell has to draw
-        # and the one a client-side rank comparison cannot.
-        "by_role": [
-            _by_role_json(role, spec.policy, probe, extra_permissions)
-            for role in ladder
-        ],
-    }
-
-
-def _by_role_json(
-    role: Role,
-    policy: Policy | None,
-    probe: str,
-    extra_permissions: Sequence[str],
-) -> dict[str, object]:
-    """One rung's outcome on one route — the module guard *and* the route's own dependency.
-
-    ``decide`` answers for the module ``Policy``, which is the only authority the kernel
-    guard applies. A route-level ``require_permission`` is a **second** requirement, added by
-    the access capability on top, and the ``Policy`` does not carry it — so replaying only
-    the guard would report an editor as allowed on a route an editor without the grant gets a
-    403 from. That is the exact class of disagreement between a pane and the gate that
-    ADR 0112 exists to prevent, so the extra requirement is folded in here.
-
-    A view has no subject, so it cannot know whether the grant is held: a rung that clears
-    the policy but faces a route-level permission is reported ``grant``, on the same terms
-    ``decide`` reports a permission requirement it was given no check for.
-    """
-    outcome = decide(policy, method=probe, role=role)
-    if outcome.allowed and extra_permissions and outcome.reason != "public":
-        return {"role": role.name, "allowed": False, "reason": "grant"}
-    return {"role": role.name, "allowed": outcome.allowed, "reason": outcome.reason}
 
 
 def _mro_names(model: type) -> set[str]:
@@ -257,50 +122,6 @@ def _module_warnings(
     return warnings
 
 
-def _module_access_json(
-    spec: ModuleSpec, ladder: Sequence[Role] = ()
-) -> dict[str, object]:
-    endpoints: list[dict[str, object]] = []
-    if spec.router is not None:
-        endpoints = [
-            _endpoint_json(spec, route, ladder)
-            for route in spec.router.routes
-            if isinstance(route, APIRoute)
-        ]
-        endpoints.sort(key=lambda item: (item["path"], item["methods"]))
-    models = [
-        entry
-        for entry in (_model_json(service) for service in spec.services)
-        if entry is not None
-    ]
-    return {
-        "name": spec.name,
-        "prefix": f"/api/v1/{spec.name}" if spec.router is not None else None,
-        "policy": _policy_json(spec),
-        # The permissions this module claims (``ModuleSpec.permissions``), by name. The
-        # module edge is what lets a permission editor render one row per module instead of
-        # inferring ownership from a dotted prefix; the names resolve against the graph's
-        # top-level ``permissions`` list, which carries each floor and label.
-        "permissions": sorted(permission.name for permission in spec.permissions),
-        # Whether this module takes part in per-module role assignment, and what it is
-        # called (ADR 0112). ``null`` where the module has not declared — which is the
-        # secure default, not a gap: absence means global rank only, as before.
-        "access": (
-            None
-            if spec.access is None
-            else {
-                "assignable": spec.access.assignable,
-                "label": spec.access.label or None,
-                "summary": spec.access.summary or None,
-                "platform_reason": spec.access.platform_reason,
-            }
-        ),
-        "endpoints": endpoints,
-        "models": models,
-        "warnings": _module_warnings(spec, models),
-    }
-
-
 def build_access_graph(
     plane: ControlPlane,
     specs: Sequence[ModuleSpec],
@@ -321,30 +142,22 @@ def build_access_graph(
     are supplied by :func:`build_access_graph_for_app`, which reconciles the graph
     against the composed app; both are empty for a hand-passed module list.
     """
-    ladder = tuple(sorted(plane.permissions.roles, key=lambda item: item.rank))
+    model = build_access_model(plane, specs)
+    by_name = {spec.name: spec for spec in specs}
+    for module in model["modules"]:
+        # The two fields only an audit wants, merged onto the shared projection rather than
+        # computed by a second one: a module's declared services and the honest gaps that
+        # follow from them. `build_access_model` deliberately does not know about either.
+        spec = by_name[module["name"]]
+        models = [
+            entry
+            for entry in (_model_json(service) for service in spec.services)
+            if entry is not None
+        ]
+        module["models"] = models
+        module["warnings"] = _module_warnings(spec, models)
     return {
-        "roles": [
-            {"name": role.name, "rank": role.rank}
-            for role in sorted(plane.permissions.roles, key=lambda item: item.rank)
-        ],
-        "permissions": [
-            {
-                "name": permission.name,
-                "min_role": permission.min_role.name,
-                # What holding it buys, in the source language, or null where the app has
-                # not said. Reported as null rather than omitted for the same reason a
-                # route's declined operation is (see ``_endpoint_json``): a missing key and
-                # an undeclared label would otherwise be indistinguishable to a viewer.
-                "label": permission.label or None,
-            }
-            for permission in sorted(
-                plane.permissions.permissions, key=lambda item: item.name
-            )
-        ],
-        "modules": [
-            _module_access_json(spec, ladder)
-            for spec in sorted(specs, key=lambda s: s.name)
-        ],
+        **model,
         "scope_predicates": [
             f"{predicate.__module__}.{predicate.__qualname__}"
             for predicate in registered_scope_predicates()

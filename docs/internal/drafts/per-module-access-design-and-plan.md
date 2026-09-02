@@ -443,7 +443,13 @@ GET  /api/v1/access/operations/{id}  -> who can perform this operation, and how
 POST /api/v1/access/preview          -> the delta a proposed assignment would produce, committing nothing
 ```
 
-`/model` is derivation over `app.state` with no database read, so it is cacheable per boot.
+`/model` is derivation over `app.state` with no database read, so it is cacheable per boot. It is
+served over `terp.core.authz.build_access_model`, which is where the shared projection now lives:
+the access capability cannot import `terp.cli`, so the alternative to moving it was a second
+projection — the thing §4.3 exists to prevent. `terp inspect access` composes that same builder
+with the parts only an audit wants (model traits, registered predicates, kernel and schema-hidden
+routes, undeclared subscribers, and the reconciliation against `app.openapi()`), and a test pins
+the boundary in both directions so the two cannot drift back together.
 `/subjects/{id}` is the one that must carry **provenance**: every right comes back tagged with where
 it came from — global rank, a module role held directly, a module role held through a named group, a
 permission grant held directly, a permission grant through a named group — plus the scope and

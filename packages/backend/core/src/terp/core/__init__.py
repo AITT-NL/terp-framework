@@ -123,7 +123,15 @@ from terp.core.migrations import (
     resolve_migration_target,
     resolve_migration_trees,
 )
-from terp.core.module_spec import ModuleAccess, ModuleSpec, Policy, Roles
+from terp.core.authz import build_access_model
+from terp.core.module_spec import (
+    AccessDecision,
+    ModuleAccess,
+    ModuleSpec,
+    Policy,
+    Roles,
+    decide,
+)
 from terp.core.object_authz import (
     ObjectAuthzPredicate,
     register_object_authz_predicate,
@@ -195,6 +203,7 @@ from terp.core.throttling import (
 
 __all__ = [
     "ADMIN",
+    "AccessDecision",
     "ActorStampedMixin",
     "AppError",
     "AuditAction",
@@ -300,6 +309,7 @@ __all__ = [
     "active_lease_store",
     "as_role",
     "bind_audit_actor",
+    "build_access_model",
     "build_crud_router",
     "build_error_envelope",
     "client_ip",
@@ -307,6 +317,7 @@ __all__ = [
     "configure_logging",
     "create_app",
     "current_actor_id",
+    "decide",
     "declared_operation",
     "decrypt_config",
     "emit",
