@@ -84,6 +84,11 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # failure it catches is silent: the app builds, runs and passes
         # everything else while no workbench can find its way around it.
         "workbench",
+        # Would this deployment ship something that cannot be taken back? A
+        # dev stack that is wrong does not come up; a deployment that is wrong
+        # comes up perfectly, so this one belongs on the merge bar rather than
+        # beside it. It checks safety only, never shape.
+        "deploy-safety",
         "architecture",
         "backend-tests",
         "appsec-baseline",

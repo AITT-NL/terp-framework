@@ -1,8 +1,8 @@
 # 0111 — Flexibility is bounded by legibility, not by capability
 
-- **Status:** Proposed — decisions 1-5 are ready to accept; decision 6 names the one place
-  flexibility must give way to control, and which invariants go in its envelope is not mine to
-  settle
+- **Status:** Partly implemented — decisions 1-3 are the working tests, decision 6's layers 2
+  and 3 exist and its layer 1 ships two of five invariants (see "Where this stands").
+  Decisions 4 and 5 are unbuilt and unscoped.
 - **Date:** 2026-09-02
 - **Relates:** [ADR 0103](0103-the-ideology-one-pattern-enforced-escapable-by-proof.md) (the
   ideology this generalises), [ADR 0110](0110-an-app-declares-which-parts-of-its-dev-topology-are-load-bearing.md)
@@ -229,11 +229,28 @@ because nothing gates it — is a claim about *topology*, and about topology it 
 not follow that *safety properties* should be ungated, and reading it that way is why the deploy
 surface has no envelope today. Decision 5 should be **split** along these layers, not reworded.
 
-**What stays genuinely open, and needs a person.** Which invariants belong in the first envelope,
-and what the enforcement point is for each provider. The five above are a starting proposal, not a
-decision: an envelope drawn too wide becomes the permitted-topology gate this whole document
-argues against, and one drawn too narrow is theatre. This is the question to answer before any of
-it is built.
+**Where this stands.** Layers 2 and 3 exist. Layer 1 has been started with **two** invariants
+rather than five, and the gap is deliberate rather than partial delivery: of the five proposed
+above, only "no datastore reachable from a public network" and "secrets never from a file in the
+repository" are decidable from the artifact an app actually checks in. A named backup and TLS
+termination live in infrastructure a compose file does not describe, and confirmation for a
+destructive scope is a property of a workbench's own screens. Inventing checks for those three
+here would be theatre, and a gate that appears to cover what it does not is worse than an honest
+gap — so `terp verify --only deploy-safety` enforces the two it can and says plainly that it is
+the two.
+
+The escape is a Compose `x-terp-allow` extension field on the service it excuses, with a required
+reason. Compose ignores `x-` fields, so it costs nothing at runtime; it is greppable; it sits on
+the thing it forgives rather than in a distant allowlist; and it arrives in the same diff as the
+risk it accepts.
+
+**What stays genuinely open, and needs a person.** Whether the remaining three invariants are
+worth reaching for at all, and where each would be enforced — the ones that matter most are
+exactly the ones a source file cannot answer, which is the same argument for moving enforcement to
+the resolved plan. An envelope drawn too wide becomes the permitted-topology gate this whole
+document argues against, and one drawn too narrow is theatre; the two shipped are the ones I am
+confident sit on the right side of that line, and the rest is a decision rather than an
+implementation.
 
 **And the concession this forces.** For the safety envelope, some things really are impossible
 until the framework implements them. A client needing a shape the envelope cannot yet express

@@ -93,7 +93,24 @@ that freedom lives in the production profile precisely because nothing gates it.
 check there would take it away.
 
 So a declaration whose `compose.file` names a deployment profile is **refused**, and that refusal
-is the decision rather than a note under it. Writing "never the production profile" in this
+is the decision rather than a note under it.
+
+**One sentence here has since been split, because half of it stopped being true.** The reasoning
+above said the freedom real deployments need "lives in the production profile precisely because
+nothing gates it". Something gates it now: `terp verify --only deploy-safety` refuses a datastore
+published on the host and a credential written into the file. That check reads the deployment
+profile and this declaration still never does, so the decision below is unchanged — but the
+*rationale* needed correcting, because it conflated two freedoms that turn out to be separable.
+
+**Topology stays ungated.** How many services, what they run, how they are wired, which provider
+carries them, whether the platform's own images are among them: no check asks, and none should.
+That is the freedom ADR 0013 protects and the one an app actually needs.
+
+**Safety does not.** A datastore reachable from outside and a credential in version control are
+irreversible, and irreversibility is what makes conformance the right instrument — see ADR 0111
+decision 6. Enforcing those two properties takes away no topology at all: any architecture can
+satisfy both. So the correct claim is not "nothing gates the deploy profile" but "nothing gates
+*how you deploy*", which is the part worth defending. Writing "never the production profile" in this
 document was not enough: `compose.file` accepted any path, so a single edit could aim the check at
 a deploy profile and quietly convert it into a gate on deployment topology. In a codebase whose
 changes are written by agents, a boundary defended only by prose is a boundary the next agent walks

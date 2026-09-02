@@ -182,7 +182,7 @@ class VerifyCheck:
     #: subprocess — same verdict surface, no interpreter round-trip.
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
-    # | "dependency-hygiene" | "workbench"
+    # | "dependency-hygiene" | "workbench" | "deploy-safety"
     runner: str = "subprocess"
 
 
@@ -238,6 +238,25 @@ _WORKBENCH = VerifyCheck(
     # errs toward triggering. Do not "tidy" this to `docker-compose.yml`.
     scope=("workbench.json", "docker-compose*.yml"),
     runner="workbench",
+)
+
+# The deployment safety envelope. Separate from `workbench` because the two
+# fail in opposite directions: a broken dev stack does not come up and you know
+# at once, while a broken deployment comes up perfectly and you find out from a
+# bill or a breach. So this one enforces PROPERTIES rather than checking a
+# declaration for truthfulness -- a declaration cannot help when the danger is
+# not a lie. It constrains nothing about shape: any containers, any networking,
+# any provider, any architecture passes, which is what keeps an enforced
+# envelope compatible with the deployment freedom the platform protects.
+_DEPLOY_SAFETY = VerifyCheck(
+    id="deploy-safety",
+    # "architecture" is where this profile puts security checks (the AppSec
+    # baseline is filed the same way); the category vocabulary is a governed
+    # surface and not worth widening for one entry.
+    category="architecture",
+    command="terp verify --only deploy-safety",
+    scope=("docker-compose.prod.yml",),
+    runner="deploy-safety",
 )
 
 _ARCHITECTURE = VerifyCheck(
@@ -396,6 +415,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _WORKBENCH,
+        _DEPLOY_SAFETY,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _FRONTEND_BOUNDARIES,
@@ -407,6 +427,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _WORKBENCH,
+        _DEPLOY_SAFETY,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _DEPENDENCY_HYGIENE,
@@ -422,6 +443,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _WORKBENCH,
+        _DEPLOY_SAFETY,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _DEPENDENCY_HYGIENE,
@@ -1426,6 +1448,10 @@ def run_verify_command(
             from terp.cli.workbench import run_workbench_check
 
             exit_code, output = run_workbench_check(project_root)
+        elif check.runner == "deploy-safety":
+            from terp.cli.deploy_safety import run_deploy_safety_check
+
+            exit_code, output = run_deploy_safety_check(project_root)
         else:
             exit_code, output = _run_subprocess(check, project_root)
             reports = _reports_in(output)
