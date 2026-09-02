@@ -1,9 +1,9 @@
 """Example-app control plane: the single authority surface.
 
-Phase A starts with the default permission model; Phase C adds the security
-declaration; Phase D adds the audit policy and the event catalog. Later slices add
-realtime and database registries here instead of scattering cross-cutting
-decisions through modules.
+Every cross-cutting decision this app makes is declared here rather than scattered
+through its modules: the role ladder and named permissions, the security posture, the
+audit policy, and the event, job and operation catalogs. Later slices add the realtime
+and database registries in the same place.
 """
 
 from __future__ import annotations
@@ -14,10 +14,11 @@ from control_plane.audit import audit
 from control_plane.events import event_catalog
 from control_plane.jobs import job_catalog
 from control_plane.operations import operation_catalog
+from control_plane.permissions import permission_model
 from control_plane.security import security
 
 control_plane = ControlPlane(
-    permissions=PermissionModel.default(),
+    permissions=permission_model,
     security=security,
     audit=audit,
     events=event_catalog,
@@ -26,6 +27,11 @@ control_plane = ControlPlane(
 )
 
 base_control_plane = ControlPlane(
+    # The bare ladder, deliberately: unlike the operations catalog below, a superset
+    # permission model would be a claim rather than a harmless spare. The base profile
+    # mounts no module that checks a named permission — `notes` is not in it — so
+    # declaring `notes.delete` here would put a permission in `terp inspect access` and
+    # in `terp grant`'s catalog that nothing in this profile could ever enforce.
     permissions=PermissionModel.default(),
     security=security,
     audit=audit,

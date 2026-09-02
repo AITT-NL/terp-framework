@@ -122,6 +122,26 @@ applications actually reach for — the ladder — rather than over the one that
 It also means the example app currently has nothing a per-module pane could show. Phase 5 has to
 add a genuinely grantable module to it, or the feature ships undemonstrable.
 
+**2.8 A route can enforce a permission the control plane never declared.** Found while adding
+the catalog check to the grants endpoint, and deliberately *not* fixed there. Two facts
+combine: `require_permission` accepts a `str` as well as a typed `Permission`, and
+constructing a `Permission` object does not register it — only membership in
+`PermissionModel(permissions=…)` does. So a route may require `reports.export` while the
+control plane declares nothing of the sort, and nothing refuses that at boot.
+
+The consequence lands on ADR 0089, which says the grant command "can only ever offer
+permissions this app really enforces". That is the intent, but the code guarantees the
+converse and not the claim: everything offered is declared, while something enforced may be
+undeclared — and is then unreachable through the sanctioned write path, because `terp grant`
+and now the endpoint both refuse it.
+
+Deferred rather than fixed because closing it properly is a boot check ("every permission
+named at a route is declared") that would refuse the boot of any app relying on the loose
+form, and that belongs with the phase-2 declaration work where the same validation pass
+already runs — not smuggled into a cleanup commit. It matters for this design because the
+viewer's whole promise is that what it shows is what is enforced; an undeclared enforced
+permission is invisible to it.
+
 ## 3. The fork
 
 **The decision to make: who is allowed to change what a role means?**
@@ -419,14 +439,21 @@ expected output.
 ## 5. The plan, in phases that each end somewhere shippable
 
 1. **Cleanups that stand alone**, none of which need any of the design below:
-   - `roles.ts` reads the app's declared ladder instead of the `10 / 20 / 30` literals (§2.4).
-   - the access capability's docstrings stop teaching a permission shape the typed path rejects
-     (§2.6).
-   - `POST /api/v1/access/grants` validates against the declared catalog the way `terp grant`
-     already does (§2.5), so an undeclared permission is refused rather than stored as a no-op.
-   - `apps/example/control_plane/operations.py`'s docstring points at a `control_plane/permissions.py`
-     that does not exist in that app — the example declares `PermissionModel.default()` instead.
-   Each is a bug fix on its own terms and each ships independently.
+   - [x] the access capability's docstrings stop teaching a permission shape the typed path
+         rejects (§2.6), and the colon form is now pinned as rejected in
+         `test_role_and_permission_reject_bad_tokens`.
+   - [x] the example app declares its first named permission, `notes.delete`, in a real
+         `control_plane/permissions.py`, and `DELETE /api/v1/notes/{id}` requires it on top of
+         the module's write tier — closing §2.7 for the example app and, incidentally, making
+         `control_plane/operations.py`'s docstring reference to that file true.
+   - [x] `POST /api/v1/access/grants` validates against the declared catalog the way
+         `terp grant` already does (§2.5), returning the catalog in the error `details` so a
+         permission editor can offer the valid choices rather than asking someone to retype a
+         name it has already rejected.
+   - [ ] `roles.ts` reads the app's declared ladder instead of the `10 / 20 / 30` literals
+         (§2.4). **Moved to phase 3**: the honest fix needs a source for the ladder, and that
+         source is the introspection endpoint. Doing it now would only trade hardcoded literals
+         in one file for a hardcoded default in another.
 2. **`ModuleAccess` on `ModuleSpec`** — `grantable` / `platform_only`, labels, boot validation,
    `OperationCoverage`-shaped label coverage. Declaration only; nothing reads it yet, so nothing
    changes behaviour. The platform capabilities get their `platform_only` declaration here, before

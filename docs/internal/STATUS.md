@@ -420,7 +420,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 
 ## Open work — queued, in order
 
-Two threads are in flight. Detail lives in the linked plan and ADRs; this is the
+Three threads are in flight. Detail lives in the linked plan and ADRs; this is the
 index, so nothing is tracked only in a commit message.
 
 All six phases are implemented; phase 6's terp-spec dependency pin bump awaits an
@@ -591,6 +591,33 @@ implemented only in the backend is half-built".
   the Studio does not yet read this file — its viewer renders the English label
   regardless of locale, and ADR 0102's amendment now says so plainly instead of
   implying otherwise.
+
+**Per-module access** — proposed in
+[per-module-access-design-and-plan.md](drafts/per-module-access-design-and-plan.md);
+no ADR yet, because §3's fork is still open. The goal is the per-module permission
+editor *and* viewer in the packaged `terp-admin` area: these are the roles, and this is
+what each role gets in this module. The one capability gap it rests on is that Terp
+cannot currently express "editor in one module, viewer everywhere else" — a user carries
+one global rank and a group carries none.
+
+- [x] Phase 1 cleanups, less the frontend ladder: one permission-name shape (the colon
+      form the access docstrings taught is rejected by `Permission`'s own validator), the
+      example app's first declared named permission (`notes.delete`, gating note deletion
+      on top of the write tier), and catalog validation on `POST /api/v1/access/grants`
+      with the catalog returned in the error `details`.
+- [ ] Phase 1 remainder: `react-core`'s `roles.ts` reads the app's declared ladder instead
+      of the `10 / 20 / 30` literals. Moved into phase 3, which supplies the source.
+- [ ] Phase 2 `ModuleAccess` on `ModuleSpec` — `grantable` / `platform_only` + labels.
+- [ ] Phase 3 the in-app introspection endpoints, derived from `app.state`.
+- [ ] Phase 4 `ModuleRole` + the resolver seam + the guard change.
+- [ ] Phase 5 the pane — viewer lenses first, then assignment.
+- [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.
+
+**Findings recorded, not fixed** (both in the plan, §2.7 and §2.8): a route can enforce a
+permission the control plane never declared, which makes ADR 0089's "can only ever offer
+permissions this app really enforces" stronger than the code guarantees; and nothing in
+the repository declared a named `Permission` at all before this thread, so the
+fine-grained half of the authorization model had no consumer.
 
 ## Active execution track
 

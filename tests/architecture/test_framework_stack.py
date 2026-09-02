@@ -23,10 +23,13 @@ from sqlmodel import Session, SQLModel, create_engine
 from starlette.middleware import Middleware
 
 from terp.core import (
+    VIEWER,
     AuthenticationError,
     ControlPlane,
     OperationCatalog,
+    Permission,
     PermissionDeniedError,
+    PermissionModel,
     Roles,
     create_app,
     get_session,
@@ -93,6 +96,12 @@ _OPERATIONS = OperationCatalog(
     )
 )
 
+# The one permission this suite grants over HTTP. The grants endpoint refuses a
+# permission the app does not declare, so the fixture declares it -- that is the
+# contract rather than a workaround: a grant of a string nothing checks is a silent
+# no-op. The floor is VIEWER, which makes it grant-only (ADR 0016).
+_REPORTS_EXPORT = Permission("reports.export", min_role=VIEWER)
+
 _PASSWORD = "correct horse battery"  # 12+ chars, 2 classes; satisfies the default policy
 settings.SECRET_KEY = "terp-framework-stack-secret-key-0123456789ab"
 
@@ -131,7 +140,10 @@ def app(engine: Engine) -> Iterator[FastAPI]:
         audit_sink=persist_audit,
         permission_enforcer=enforce_permission,
         middleware=[Middleware(TenantMiddleware, resolve_tenant=tenant_from_bearer)],
-        control_plane=ControlPlane(operations=_OPERATIONS),
+        control_plane=ControlPlane(
+            operations=_OPERATIONS,
+            permissions=PermissionModel(permissions=(_REPORTS_EXPORT,)),
+        ),
     )
 
     def _session() -> Iterator[Session]:
@@ -220,6 +232,20 @@ def test_access_grants_and_audit_log(app: FastAPI, engine: Engine) -> None:
     created = c.post("/api/v1/access/grants", json={"subject_id": str(subject), "permission": "reports.export"})
     assert created.status_code == 201
     grant_id = created.json()["id"]
+    assert c.get("/api/v1/access/grants", params={"subject_id": str(subject)}).json()["total"] == 1
+    # A permission this app does not declare is refused, not stored: the endpoint makes
+    # the same check `terp grant add` has made since ADR 0089, and answers with the
+    # catalog so a permission editor can offer the real choices.
+    refused = c.post(
+        "/api/v1/access/grants",
+        json={"subject_id": str(subject), "permission": "reports.exprot"},
+    )
+    assert refused.status_code == 400
+    codes = {detail["code"] for detail in refused.json()["details"]}
+    assert codes == {"undeclared_permission", "declared_permission"}
+    assert any(
+        detail["loc"] == "reports.export" for detail in refused.json()["details"]
+    )
     assert c.get("/api/v1/access/grants", params={"subject_id": str(subject)}).json()["total"] == 1
     assert c.delete(f"/api/v1/access/grants/{grant_id}").status_code == 204
     assert c.get("/api/v1/audit/").json()["total"] >= 1  # grant + provision were audited
