@@ -50,8 +50,17 @@ _service = AccessService()
 def require_permission(permission: str | Permission) -> Callable[..., None]:
     """Build a dependency requiring *permission* (deny-by-default).
 
-    ``Permission`` is the Phase-A typed path. ``str`` remains for compatibility
-    until the architecture rule can guide modules to the control plane.
+    ``Permission`` is the path an app should take, and the one the guide now teaches: the
+    ``no_adhoc_permission_literals`` rule refuses a bare literal at a ``require_permission``
+    call in app code, so the typed constant from the control plane is the only form that
+    passes the gate.
+
+    ``str`` stays in the signature because two callers legitimately have only a name: the
+    kernel guard's enforcer seam, which is handed the name the ``Policy`` resolved, and an
+    operator revoking a permission the app has since stopped declaring. It is not a second
+    authoring style — the rule already closed that — and this note used to say the rule
+    could not yet guide modules to the control plane, which stopped being true when it
+    started refusing the literal.
     """
 
     permission_name = permission.name if isinstance(permission, Permission) else permission

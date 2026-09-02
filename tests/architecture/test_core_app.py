@@ -5,6 +5,7 @@ Pure-kernel unit checks (no app), complementing the reference-app end-to-end tes
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 import pytest
@@ -19,6 +20,7 @@ from terp.core import (
     ControlPlane,
     EDITOR,
     InMemoryThrottleStore,
+    LabelCoverage,
     ModuleSpec,
     OperationCatalog,
     OperationCoverage,
@@ -506,6 +508,66 @@ def test_an_undeclared_route_boots_with_coverage_off_and_is_refused_under_strict
     )
     with pytest.raises(BootError, match="coverage is STRICT"):
         create_app([spec], control_plane=strict)
+
+
+def test_an_unlabelled_permission_boots_with_coverage_off_and_is_refused_under_strict() -> None:
+    """The permission half of ADR 0102's promise, staged the same way.
+
+    Both halves in one test for the same reason the operation-coverage case gives: each is
+    only meaningful against the other. If OFF refused, adding the field would break every
+    app that already declares a permission; if STRICT accepted, there would be no state in
+    which "every row the permission editor shows is explained" is true.
+    """
+    spec = ModuleSpec(name="notes", policy=Policy.default())
+    unlabelled = Permission("notes.delete", min_role=EDITOR)
+
+    off = ControlPlane(permissions=PermissionModel(permissions=(unlabelled,)))
+    assert create_app([spec], control_plane=off).title == "Terp app"
+
+    strict = ControlPlane(
+        permissions=PermissionModel(
+            permissions=(unlabelled,), label_coverage=LabelCoverage.STRICT
+        )
+    )
+    with pytest.raises(BootError, match="label coverage is STRICT"):
+        create_app([spec], control_plane=strict)
+
+
+def test_a_labelled_permission_satisfies_strict_label_coverage() -> None:
+    # The other side of the gate: STRICT is satisfiable, not merely refusing. Without this,
+    # the test above passes just as well against a validator that refuses STRICT outright.
+    labelled = Permission(
+        "notes.delete", min_role=EDITOR, label="Delete a note someone else wrote"
+    )
+    plane = ControlPlane(
+        permissions=PermissionModel(
+            permissions=(labelled,), label_coverage=LabelCoverage.STRICT
+        )
+    )
+    spec = ModuleSpec(name="notes", policy=Policy.default())
+    assert create_app([spec], control_plane=plane).title == "Terp app"
+
+
+def test_warn_label_coverage_names_what_strict_would_refuse(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WARN has to say *which* permissions, or it is indistinguishable from OFF.
+
+    The same defect the operation-coverage WARN branch already carries a comment about: a
+    staging setting that documents a behaviour it does not have. Asserting the name appears
+    is what separates "it warned" from "it warned usefully".
+    """
+    plane = ControlPlane(
+        permissions=PermissionModel(
+            permissions=(Permission("notes.delete", min_role=EDITOR),),
+            label_coverage=LabelCoverage.WARN,
+        )
+    )
+    spec = ModuleSpec(name="notes", policy=Policy.default())
+    with caplog.at_level(logging.WARNING, logger="terp.core"):
+        assert create_app([spec], control_plane=plane).title == "Terp app"
+    assert "notes.delete" in caplog.text
+    assert "WARN" in caplog.text
 
 
 def test_strict_coverage_reaches_a_route_on_an_included_sub_router() -> None:

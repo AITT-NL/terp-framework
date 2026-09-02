@@ -352,8 +352,9 @@ Authorization (Policy)
   Wire create_app(..., permission_enforcer=terp.capabilities.access.enforce_permission)
   or boot fails closed. Grant via the access capability; the caller must clear the
   min_role floor AND hold the grant.
-- Route-level extra check: dependencies=[Depends(require_permission("invoices.approve"))].
-- Authority is always a typed object (Role / Permission), never a bare string.
+- Route-level extra check: dependencies=[Depends(require_permission(APPROVE))].
+- Authority is always a typed object (Role / Permission), never a bare string — pass the
+  declared constant, not its name. no_adhoc_permission_literals refuses the literal.
 - Choosing between a role and a permission, and the grant lifecycle: `terp guide permissions`.
 """,
     "permissions": """\
@@ -372,13 +373,25 @@ WHEN A PERMISSION IS THE RIGHT ANSWER
   comparable; a bag of permissions cannot answer "is this account privileged?".
 
 DECLARE IT
-      from terp.core import EDITOR, Permission
-      APPROVE = Permission("invoices.approve", min_role=EDITOR)
+      from terp.core import EDITOR, LabelCoverage, Permission, PermissionModel
+      APPROVE = Permission(
+          "invoices.approve",
+          min_role=EDITOR,
+          label="Approve an invoice for payment",
+      )
   min_role is a FLOOR, not a shortcut: the caller must clear it AND hold the grant.
   Both checks are real - the floor stops a grant from smuggling authority to a
   subject the app never intended to trust that far.
+- label says what HOLDING it buys, in one sentence, in the source language. It is the
+  text a permission editor puts beside the row it asks an administrator to tick, and
+  "invoices.approve" is an identifier that happens to be readable, not an explanation.
+  Optional today; gated by LabelCoverage on the permission model, the same OFF / WARN /
+  STRICT staging operation coverage uses (`terp guide operations`). STRICT is the
+  destination - set it once your permissions carry labels:
+      PermissionModel(permissions=(APPROVE,), label_coverage=LabelCoverage.STRICT)
 - Enforce it on the module (Policy(write=APPROVE)) or on one route
-  (dependencies=[Depends(require_permission("invoices.approve"))]).
+  (dependencies=[Depends(require_permission(APPROVE))]) - the declared constant, never
+  the name as a string: no_adhoc_permission_literals refuses that.
 - Wire the enforcer once, or the app refuses to boot (fail closed - a Permission
   requirement with nothing to enforce it would silently pass):
       create_app(..., permission_enforcer=terp.capabilities.access.enforce_permission)
@@ -389,7 +402,9 @@ GRANT IT
       terp grant list ops@acme.test                   # "why can it do that?"
       terp grant revoke ops@acme.test invoices.approve
   A subject is named the way you name it - a user email, a service-account name, or
-  a subject UUID. An unknown permission is refused WITH the app's catalog printed,
+  a subject UUID. POST /api/v1/access/grants makes the same check and returns the
+  catalog in the error details, so both write paths agree about the same table.
+  An unknown permission is refused WITH the app's catalog printed,
   because a grant of a string the app never checks is a silent no-op, not a lenient
   grant. Grants are stored per subject id with no foreign key, which is what lets a
   user, a service account and a group all be granted the same way; a group grant

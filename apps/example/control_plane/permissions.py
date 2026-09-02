@@ -22,11 +22,23 @@ never fire.
 
 from __future__ import annotations
 
-from terp.core import EDITOR, Permission, PermissionModel
+from terp.core import EDITOR, LabelCoverage, Permission, PermissionModel
 
 #: Deleting a note — the destructive half of ``notes``, separated from "may write".
-NOTES_DELETE_PERMISSION = Permission("notes.delete", min_role=EDITOR)
+NOTES_DELETE_PERMISSION = Permission(
+    "notes.delete",
+    min_role=EDITOR,
+    label="Delete a note someone else wrote",
+)
 
-permission_model = PermissionModel(permissions=(NOTES_DELETE_PERMISSION,))
+permission_model = PermissionModel(
+    permissions=(NOTES_DELETE_PERMISSION,),
+    # STRICT from the start, which this app can afford because it declares one permission
+    # and that permission is labelled. The framework default is OFF for the reason ADR 0102
+    # gives about its own coverage flip — turning it on before declarations carry labels
+    # refuses the boot of every app that has any — but the app that has to demonstrate the
+    # control is the wrong place to leave it off.
+    label_coverage=LabelCoverage.STRICT,
+)
 
 __all__ = ["NOTES_DELETE_PERMISSION", "permission_model"]

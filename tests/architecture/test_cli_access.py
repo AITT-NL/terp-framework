@@ -160,7 +160,13 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
         Policy,
     )
 
-    approve = Permission("widgets.approve", min_role=EDITOR)
+    approve = Permission(
+        "widgets.approve", min_role=EDITOR, label="Approve a widget for release"
+    )
+    # Declared without a label, to pin the null branch: a viewer must be able to tell an
+    # unlabelled permission from a missing key, which is why the projection emits null
+    # rather than omitting the field.
+    retire = Permission("widgets.retire", min_role=EDITOR)
     router = APIRouter()
 
     @router.post("/approve", dependencies=[Depends(require_permission("widgets.approve"))])
@@ -169,9 +175,16 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
 
     spec = ModuleSpec(name="widgets", router=router, policy=Policy.default())
     graph = build_access_graph(
-        ControlPlane(permissions=PermissionModel(permissions=(approve,))), [spec]
+        ControlPlane(permissions=PermissionModel(permissions=(approve, retire))), [spec]
     )
-    assert graph["permissions"] == [{"name": "widgets.approve", "min_role": "editor"}]
+    assert graph["permissions"] == [
+        {
+            "name": "widgets.approve",
+            "min_role": "editor",
+            "label": "Approve a widget for release",
+        },
+        {"name": "widgets.retire", "min_role": "editor", "label": None},
+    ]
     (module,) = graph["modules"]
     (endpoint,) = module["endpoints"]
     assert endpoint["extra_permissions"] == ["widgets.approve"]

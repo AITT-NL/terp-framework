@@ -253,7 +253,15 @@ def build_access_graph(
             for role in sorted(plane.permissions.roles, key=lambda item: item.rank)
         ],
         "permissions": [
-            {"name": permission.name, "min_role": permission.min_role.name}
+            {
+                "name": permission.name,
+                "min_role": permission.min_role.name,
+                # What holding it buys, in the source language, or null where the app has
+                # not said. Reported as null rather than omitted for the same reason a
+                # route's declined operation is (see ``_endpoint_json``): a missing key and
+                # an undeclared label would otherwise be indistinguishable to a viewer.
+                "label": permission.label or None,
+            }
             for permission in sorted(
                 plane.permissions.permissions, key=lambda item: item.name
             )
@@ -424,7 +432,8 @@ def _render_access_text(graph: dict[str, object]) -> str:
     if not permissions:
         lines.append("  <none declared>")
     for permission in permissions:  # type: ignore[union-attr]
-        lines.append(f"  {permission['name']}  {permission['min_role']}+")
+        label = f"  {permission['label']}" if permission.get("label") else ""
+        lines.append(f"  {permission['name']}  {permission['min_role']}+{label}")
     for module in graph["modules"]:  # type: ignore[index, union-attr]
         lines.append("")
         prefix = module["prefix"] or "<no router>"

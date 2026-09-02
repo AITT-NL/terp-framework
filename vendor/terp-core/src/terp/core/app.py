@@ -86,7 +86,7 @@ from terp.core.throttling import (
     ThrottleStore,
     is_shared_throttle_store,
 )
-from terp.core.permissions import PermissionModel, Role, as_role
+from terp.core.permissions import LabelCoverage, PermissionModel, Role, as_role
 
 _logger = logging.getLogger("terp.core")
 
@@ -764,6 +764,40 @@ def _validate_declared_operations(
             "operation coverage is WARN: %d mounted route(s) declare no operation: %s",
             len(undeclared),
             sorted(undeclared),
+        )
+
+
+def _validate_permission_labels(plane: ControlPlane) -> None:
+    """Fail closed on a declared permission carrying no label, under STRICT coverage.
+
+    The permission half of the same promise ADR 0102 makes for routes. A permission editor
+    renders one row per declared permission to someone deciding whether to grant it, and
+    ``notes.delete`` is not an explanation of what granting it does — it is an identifier
+    that happens to be readable. ``STRICT`` is the state in which the pane can promise every
+    row is explained.
+
+    Staged exactly like operation coverage, and for the same reason its own docstring gives:
+    ``OFF`` is the default so an app that has declared permissions without labels boots
+    unchanged, and ``WARN`` says what ``STRICT`` would refuse rather than being
+    indistinguishable from ``OFF``.
+    """
+    unlabelled = plane.permissions.unlabelled_permissions()
+    if not unlabelled:
+        return
+    names = sorted(permission.name for permission in unlabelled)
+    if plane.permissions.label_coverage is LabelCoverage.STRICT:
+        raise BootError(
+            "permission label coverage is STRICT but these declared permissions carry no "
+            f"label: {names}. Give each a label saying what holding it buys (e.g. "
+            'Permission("notes.delete", min_role=EDITOR, label="Delete a note someone '
+            'else wrote")), or set label_coverage on the permission model to WARN '
+            "while they are written."
+        )
+    if plane.permissions.label_coverage is LabelCoverage.WARN:
+        _logger.warning(
+            "permission label coverage is WARN: %d declared permission(s) carry no label: %s",
+            len(names),
+            names,
         )
 
 
@@ -1565,6 +1599,7 @@ def create_app(
     _validate_public_modules_read_only(collected)
     _validate_declared_operations(collected, resolved_plane.operations)
     _apply_declared_operations(collected)
+    _validate_permission_labels(resolved_plane)
     _validate_background_jobs_preserve_ownership(collected)
     _validate_shared_throttle_store(throttle_store, require_shared_throttle_store)
     _validate_durable_jobs(job_queue, require_durable_jobs)

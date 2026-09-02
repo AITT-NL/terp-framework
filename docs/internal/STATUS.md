@@ -592,9 +592,9 @@ implemented only in the backend is half-built".
   regardless of locale, and ADR 0102's amendment now says so plainly instead of
   implying otherwise.
 
-**Per-module access** — proposed in
-[per-module-access-design-and-plan.md](drafts/per-module-access-design-and-plan.md);
-no ADR yet, because §3's fork is still open. The goal is the per-module permission
+**Per-module access** — decided in
+[ADR 0112](../decisions/0112-a-module-role-is-an-assignment-not-a-policy.md), sequenced in
+[per-module-access-design-and-plan.md](drafts/per-module-access-design-and-plan.md). The goal is the per-module permission
 editor *and* viewer in the packaged `terp-admin` area: these are the roles, and this is
 what each role gets in this module. The one capability gap it rests on is that Terp
 cannot currently express "editor in one module, viewer everywhere else" — a user carries
@@ -607,8 +607,12 @@ one global rank and a group carries none.
       with the catalog returned in the error `details`.
 - [ ] Phase 1 remainder: `react-core`'s `roles.ts` reads the app's declared ladder instead
       of the `10 / 20 / 30` literals. Moved into phase 3, which supplies the source.
-- [ ] Phase 2 the declarations — `ModuleAccess` on `ModuleSpec`, a module claiming its
-      permissions, a required `Permission.label`, and the §2.8 boot check.
+- [~] Phase 2 the declarations. Done: `Permission.label` plus a `LabelCoverage`
+      (`OFF`/`WARN`/`STRICT`) boot gate staged exactly like `OperationCoverage`, with the label
+      carried into the access graph and the example app running `STRICT`. The plan had called for
+      a *required* label; staged coverage is the right shape and §4.1 now records why. Left:
+      `ModuleAccess` on `ModuleSpec` (held until §3's fork is answered — it presupposes
+      assignment), a module claiming its permissions, and the §2.8 boot check.
 - [ ] Phase 3 `decide()` extracted so the guard and the projection share one decision, then the
       in-app introspection endpoints — which is also where `roles.ts` gets its ladder.
 - [ ] Phase 4 `ModuleRole` + the resolver seam + the guard change.

@@ -1,13 +1,13 @@
 # Per-module access — design notes and the sequenced plan
 
-> **Status:** proposal, with phase 1 shipped. §3 is the fork that still needs an answer before the
-> declarations in phase 2 harden. When an ADR lands, the ADR wins and this file becomes the
-> execution tracker.
+> **Decision:** [ADR 0112](../../decisions/0112-a-module-role-is-an-assignment-not-a-policy.md) —
+> §3's fork is settled as option (A), the model is code and the pane assigns. This file is now the
+> execution tracker; when it disagrees with the ADR, the ADR wins.
 >
-> **Audience:** platform/core team + agents.
+> **Status:** phase 1 and phase 2a shipped. **Audience:** platform/core team + agents.
 >
 > §9 records a three-design panel run against this plan and the four mechanisms adopted from it.
-> Its adversarial judges did **not** run, so nothing here has been independently scored.
+> Its adversarial judges did **not** run, so no design here has been independently scored.
 
 The ask, in one line: give a Terp app the per-module permission editor and viewer that an existing
 production application has — *these are the roles, and this is what each role gets in this module* —
@@ -108,6 +108,19 @@ form can be *granted* while being impossible to *declare*: it can never appear i
 the arch rule `no_adhoc_permission_literals` pushes authors onto the typed path anyway, the fix is
 to correct the docstrings — but a pane that renders permission names cannot present a vocabulary
 with two mutually exclusive shapes, so this is in the way and belongs in phase 1.
+
+**2.6b The agent-facing guide taught a form the gate refuses.** The same class of defect as §2.6,
+found while adding the label to `terp guide permissions`, and worse because of where it lived. Both
+the `policy` and `permissions` topics showed the route-level check as
+`dependencies=[Depends(require_permission("invoices.approve"))]` — a bare string literal, which is
+exactly what the `no_adhoc_permission_literals` architecture rule exists to refuse. The `policy`
+topic even said "Authority is always a typed object (Role / Permission), never a bare string" four
+lines below its own counter-example.
+
+This matters more than the docstring in §2.6 did. The guide is the surface an agent reads first, and
+under the ideology a machine-readable failure message and a fix recipe are the framework's primary
+interface — so a recipe that produces a violation is not a typo, it is the interface being wrong.
+Fixed to pass the declared constant, with the rule named in the line so the reason travels with it.
 
 **2.7 Named permissions have no consumer anywhere in the repository.** This is the finding that
 most shapes the recommendation, so it is worth being exact about. Searching `apps/`, `template/`
@@ -228,7 +241,8 @@ dangerous by omission.
 
 Coverage of the labels follows the `OperationCoverage` pattern exactly (ADR 0102): the feature is
 optional, the no-drift guarantee is not, and `STRICT` — every mounted, grantable module answers what
-it is called — is the destination default, flipped after annotation rather than before.
+it is called — is the intended end state, flipped after annotation rather than before, on the same
+open question as permission labels (ADR 0112).
 
 **Two additions from the design panel (§9, design A), both adopted.** A named permission is
 currently orphaned in two ways this design would otherwise have had to work around:
@@ -246,11 +260,24 @@ currently orphaned in two ways this design would otherwise have had to work arou
   reader and no such field. So `Permission` gains a `label` — one sentence saying what holding it
   buys — which is what the editor puts next to a row it is asking someone to tick.
 
-Making `label` **required** is the honest choice by the same argument ADR 0102 makes, but it is a
-breaking change to a public constructor. It lands in phase 2 with the rest of the declaration work
-and with the one call site in this repository (`notes.delete`) updated in the same commit; an app
-on the current signature gets a clear failure at construction rather than a silent unlabelled row
-in someone's permission editor.
+**Shipped, and not as first written.** This section originally called for making `label`
+**required**. That was wrong on the repository's own terms: there are 28 live `Permission(...)`
+call sites, nothing renders a label until phase 5, and "no field without a reader" cuts against
+imposing a required field ahead of its consumer — ADR 0099's name-a-consumer test says the
+consumer is phase 5, not now.
+
+So it ships the way ADR 0102 already stages exactly this requirement: `label` is optional on the
+constructor, and a new `LabelCoverage` (`OFF` / `WARN` / `STRICT`, the same three states and the
+same reasoning as `OperationCoverage`) decides whether an unlabelled declaration is tolerated,
+reported, or refused at boot. `OFF` is the framework default for the reason ADR 0102 gives about
+its own flip — turning it on before declarations carry labels refuses the boot of every app that
+has any. Whether `STRICT` becomes the default is an open question, not a decision this section
+gets to make (ADR 0112). The example app runs `STRICT` from the start, because
+the app whose job is to demonstrate the control is the wrong place to leave it off.
+
+`LabelCoverage` is named for one thing rather than two on purpose: phase 2's module labels want the
+same staging, so the enum has a second consumer waiting rather than being a general-purpose knob
+invented for one.
 
 ### 4.2 What is persisted
 
@@ -551,8 +578,11 @@ value arrives before anything can go wrong at runtime.
 
 ## 6. Decisions to record
 
-- **A per-module role is an assignment, not a policy.** Rungs and what they grant are code; who
-  holds them is data. Supersedes nothing; makes explicit what ADR 0016 and ADR 0089 imply.
+- ~~**A per-module role is an assignment, not a policy.**~~ **Recorded as ADR 0112**, together with
+  the additive `max` rule, the not-grantable default, the platform-module refusal, the derived
+  explanation and the shared `decide()`, the operator-command boundary, the staged label, and both
+  write paths agreeing. Its five open questions are the live ones; §8 below is now a duplicate of
+  that list and defers to it.
 - **Per-module authority is additive and resolves to `max`.** No per-module deny, ever.
 - **A module is not grantable until it says so, and the platform's own modules say they never are.**
 - **What a rung grants is derived, never declared.** Amends ADR 0102's boundary note: the operation
@@ -578,19 +608,18 @@ value arrives before anything can go wrong at runtime.
 
 ## 8. Open questions
 
-1. **Does a per-module `admin` rung mean anything?** For a module whose `Policy` requires `EDITOR`
-   to write, the `ADMIN` rung buys nothing extra unless the module declares an admin-only route. The
-   pane can render the rung as a no-op with a reason, or the ladder shown per module can be trimmed
-   to the rungs that actually differ. The second is more honest and slightly more work.
-2. **Should the ladder be per module or per app?** Per app is what exists and is simpler. A module
-   with genuinely different tiers is a real case, but nothing in the framework needs it yet, so
-   ADR 0099's name-a-consumer test says no for now.
-3. **Where does the tenancy axis sit?** With `tenant_scoped` modules, is a module role per tenant?
-   Today `subject_id` is tenant-agnostic. Answerable later, but it should not be *foreclosed* — the
-   unique constraint may want a tenant column from the start.
-4. **How does the preview endpoint stay honest under concurrency?** The delta is computed against
-   state that can change before the commit. Optimistic concurrency on the assignment row is the
-   obvious answer and matches the users capability's existing `version` discipline.
+The decision's own open questions live in
+[ADR 0112](../../decisions/0112-a-module-role-is-an-assignment-not-a-policy.md) and are not
+repeated here — two copies of one list is how a list rots. They are: whether strict label
+coverage becomes the default; whether a per-module `admin` rung means anything for a module
+whose policy only distinguishes read from write; whether the ladder is per app or per module;
+where tenancy sits; and the undeclared-route-permission hole from §2.8.
+
+One question belongs to the build rather than the decision, so it stays here:
+
+1. **How does the preview endpoint stay honest under concurrency?** The delta is computed
+   against state that can change before the commit. Optimistic concurrency on the assignment
+   row is the obvious answer and matches the users capability's existing `version` discipline.
 
 ## 9. The design panel, and what it changed
 

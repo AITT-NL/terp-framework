@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import Enum, IntEnum
 
 from sqlmodel import Session
 
@@ -32,16 +32,64 @@ class Role:
             raise ValueError(f"Role.name must be a simple token, got {self.name!r}")
 
 
+class LabelCoverage(str, Enum):
+    """How strictly an app requires its declarations to carry a human label.
+
+    The same three-state shape as :class:`~terp.core.operations.OperationCoverage`, and for
+    the same reason. A permission name is a dotted token addressed to a machine:
+    ``notes.delete`` tells a person who already knows the codebase what holding it buys and
+    tells everyone else nothing. ADR 0102 solved that for routes by giving each one a
+    source-language sentence, and a permission has exactly the same reader — the
+    administrator deciding whether to tick it — with no such field until now.
+
+    ``STRICT`` is the state in which a permission editor can promise that every row it shows
+    is explained. ``OFF`` is the default because turning the requirement on before
+    declarations carry labels would refuse the boot of every app that has any — the same
+    reason ADR 0102 gives about its own coverage flip. ``WARN`` is the staging step and
+    afterwards the documented escape; ``OFF`` is honest about offering no guarantee at all.
+
+    Whether ``STRICT`` should become the default is deliberately **not** claimed here.
+    ADR 0102 only calls strict *its* destination default because that was settled and
+    recorded as an amendment; the same question for labels is open, and is listed as such in
+    ADR 0112. A docstring is the wrong place to decide it.
+    """
+
+    #: Labels are honored where present and never required (the default).
+    OFF = "off"
+    #: Unlabelled declarations are reported for a view to surface; the boot proceeds.
+    WARN = "warn"
+    #: A declared permission with no label fails the boot.
+    STRICT = "strict"
+
+
 @dataclass(frozen=True)
 class Permission:
-    """A named capability guarded by the minimum role that implies it."""
+    """A named capability guarded by the minimum role that implies it.
+
+    ``label`` is one sentence saying what *holding* this permission buys, in the source
+    language — the text a permission editor puts beside the row it is asking an administrator
+    to tick. It is optional in the constructor and gated by :class:`LabelCoverage` instead,
+    which is deliberate on two counts: requiring it outright would break every existing call
+    site for a field nothing renders yet, and the framework already has one proven way to
+    stage exactly this kind of requirement (ADR 0102).
+
+    It is a different question from an ``OperationDefinition`` label, which says what one
+    *route* does. A permission is usually the authority behind several routes, and "Delete a
+    note" is not an answer to "what does holding ``notes.delete`` mean".
+    """
 
     name: str
     min_role: Role
+    label: str = ""
 
     def __post_init__(self) -> None:
         if not self.name or any(not _is_token(part) for part in self.name.split(".")):
             raise ValueError(f"Permission.name must be a dotted token, got {self.name!r}")
+        if self.label != self.label.strip():
+            raise ValueError(
+                f"Permission.label must not be padded with whitespace, got {self.label!r} "
+                f"for {self.name!r}"
+            )
 
 
 @dataclass(frozen=True)
@@ -91,6 +139,7 @@ class PermissionModel:
 
     roles: Sequence[Role] = field(default_factory=lambda: (VIEWER, EDITOR, ADMIN))
     permissions: Sequence[Permission] = field(default_factory=tuple)
+    label_coverage: LabelCoverage = LabelCoverage.OFF
 
     def __post_init__(self) -> None:
         roles = tuple(self.roles)
@@ -138,6 +187,17 @@ class PermissionModel:
     ) -> tuple[AuthorizationRequirement, ...]:
         """Every requirement not registered in this model."""
         return tuple(req for req in requirements if not self.has_requirement(req))
+
+    def unlabelled_permissions(self) -> tuple[Permission, ...]:
+        """Every declared permission carrying no label, in declaration order.
+
+        The input to the boot-time coverage check. Roles are deliberately not included: a
+        role name is already a word a person reads (``viewer``), and the packaged ladder is
+        localized through the frontend catalog rather than declared here.
+        """
+        return tuple(
+            permission for permission in self.permissions if not permission.label
+        )
 
     def role_for_rank(self, rank: int) -> Role:
         """Return the registered role with *rank*, or fail closed."""
@@ -245,6 +305,7 @@ __all__ = [
     "ADMIN",
     "AuthorizationRequirement",
     "EDITOR",
+    "LabelCoverage",
     "Permission",
     "PermissionModel",
     "PermissionProjector",
