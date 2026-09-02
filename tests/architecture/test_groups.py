@@ -25,9 +25,13 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from terp.core import (
+    VIEWER,
     ConflictError,
+    ControlPlane,
     ModuleSpec,
     NotFoundError,
+    Permission,
+    PermissionModel,
     Policy,
     Roles,
     create_app,
@@ -300,10 +304,19 @@ def gated_app() -> Iterator[tuple[FastAPI, Engine]]:
 
     gated = APIRouter(tags=["gated"])
 
+    # Declared and claimed, because a route may not enforce a permission the control plane
+    # does not declare: a permission only a route knows about cannot be granted through
+    # `terp grant` or the access API either, so the route would be closed rather than
+    # fine-grained. The group grant this suite is about still names it by string, which is
+    # the point — a grant row is an open token, the *declaration* is what has to resolve.
+    widgets_write = Permission(
+        "widgets.write", min_role=VIEWER, label="Change a widget"
+    )
+
     @gated.post(
         "/act",
         response_model=str,
-        dependencies=[Depends(require_permission("widgets.write"))],
+        dependencies=[Depends(require_permission(widgets_write))],
     )
     async def act() -> str:
         return "ok"
@@ -311,11 +324,18 @@ def gated_app() -> Iterator[tuple[FastAPI, Engine]]:
     spec = ModuleSpec(
         name="gated",
         router=gated,
+        permissions=(widgets_write,),
         policy=Policy.public_write(
             reason="action is gated by a fine-grained grant, not a role"
         ),
     )
-    application = create_app([spec], principal_provider=auth_get_principal)
+    application = create_app(
+        [spec],
+        principal_provider=auth_get_principal,
+        control_plane=ControlPlane(
+            permissions=PermissionModel(permissions=(widgets_write,))
+        ),
+    )
 
     def _session_override() -> Iterator[Session]:
         with Session(engine) as active:

@@ -170,7 +170,7 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
     retire = Permission("widgets.retire", min_role=EDITOR)
     router = APIRouter()
 
-    @router.post("/approve", dependencies=[Depends(require_permission("widgets.approve"))])
+    @router.post("/approve", dependencies=[Depends(require_permission(approve))])
     def approve_widget() -> dict:  # pragma: no cover - never called
         return {}
 
