@@ -159,6 +159,44 @@ already runs — not smuggled into a cleanup commit. It matters for this design 
 viewer's whole promise is that what it shows is what is enforced; an undeclared enforced
 permission is invisible to it.
 
+**2.9 A policy could cite a same-name authority at a different rank, and did not have to say
+so.** Found by reviewing the work above rather than by reading the original code, and fixed
+immediately because it is a privilege discrepancy rather than a tidiness one.
+
+`Policy` keeps the rank floor of whichever object it is handed — `AuthorizationRequirement.from_role`
+and `from_permission` read it straight off — while `ControlPlane._policy_errors` only checked that
+the *name* was registered. Every view reports the floor the control plane declares. So
+`Policy(read=Role("admin", rank=1))` booted clean, admitted every viewer, and was displayed as
+admin-only; measured, not reasoned:
+
+```
+boot errors: ()
+enforced floor: 1 (declared admin is 30)
+```
+
+The permission form is the same defect with a `min_role`: a module citing
+`Permission("invoices.approve", min_role=VIEWER)` against a control plane declaring it at `ADMIN`
+enforced rank 10 and reported rank 30. Studio's matrix would have shaded that column from the
+declared floor, so the pane would have disagreed with the guard — exactly the failure this whole
+design exists to make impossible, sitting in the code the design was going to build on.
+
+Authority turned out to be the *only* control-plane registry matched by name alone. Events, jobs
+and operations are each matched **by value**, and all three docstrings name this exact hazard —
+accepting a same-id definition "would let a route present one wording while the catalog documents
+another". An authority shadow is that with a rank attached, which is why it earns a boot error
+rather than a warning. `PermissionModel.shadowed_requirements` reports it separately from an
+undeclared reference, because the two have different fixes.
+
+**The rule is narrower than "the ranks differ", and the narrowing is the point.** A first pass
+flagged every rank mismatch, and that refused a configuration ADR 0022 explicitly blesses: every
+bundled capability pins `Policy(read_role=Roles.ADMIN)` at rank 30, so an app declaring its own
+`admin` at 40 would have been unable to mount the framework's own routers. With no role occupying
+30–39 those two floors are the same gate by different numbers. So a shadow is reported only when
+**some declared role sits in the gap** — which is precisely when the policy admits or refuses
+someone the declaration does not. Add a `manager` at 35 to that same app and it is refused, because
+the capability router would then let a manager into an admin-only surface. That case was silent
+before, in a ladder shape the framework encourages.
+
 ## 3. The fork
 
 **The decision to make: who is allowed to change what a role means?**

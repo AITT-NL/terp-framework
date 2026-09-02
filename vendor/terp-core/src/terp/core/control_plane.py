@@ -52,16 +52,36 @@ class ControlPlane:
         return tuple(errors)
 
     def _policy_errors(self, spec: ModuleSpec) -> list[str]:
-        """Policy references must resolve to a declared role/permission."""
+        """Policy references must resolve to the declared role/permission, by value.
+
+        Two different failures, reported differently because the fix differs. An
+        *undeclared* reference is a name the model does not register. A *shadow* is a name
+        it does register, cited with a different rank floor — which boots clean, enforces
+        the floor the policy carries, and is displayed everywhere as the floor that was
+        declared.
+        """
         if spec.policy is None or spec.policy.is_public:
             return []
-        missing = self.permissions.missing_requirements(
-            (spec.policy.read_requirement, spec.policy.write_requirement)
-        )
-        return [
+        requirements = (spec.policy.read_requirement, spec.policy.write_requirement)
+        errors = [
             f"module {spec.name!r} policy references undeclared {requirement.label!r}"
-            for requirement in missing
+            for requirement in self.permissions.missing_requirements(requirements)
         ]
+        # Deduplicated because a policy very commonly cites the same authority for both
+        # reads and writes, and this message is long enough that saying it twice in one
+        # semicolon-joined BootError buries the second half of the error.
+        shadowed = dict.fromkeys(self.permissions.shadowed_requirements(requirements))
+        errors.extend(
+            f"module {spec.name!r} policy cites {requirement.label!r} with rank floor "
+            f"{requirement.min_rank}, but the control plane declares it at "
+            f"{self.permissions.declared_rank(requirement)}. At least one declared role "
+            "sits between the two, so the policy admits or refuses someone the "
+            "declaration does not — it would be enforced at the floor it carries while "
+            "every view reports the declared one. Reference the declared object from the "
+            "control plane rather than constructing another."
+            for requirement in shadowed
+        )
+        return errors
 
     def _event_errors(self, spec: ModuleSpec) -> list[str]:
         """Every emitted/subscribed event must be the registered catalog entry (no drift)."""

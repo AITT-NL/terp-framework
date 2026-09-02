@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -249,6 +250,28 @@ def test_access_grants_and_audit_log(app: FastAPI, engine: Engine) -> None:
     assert c.get("/api/v1/access/grants", params={"subject_id": str(subject)}).json()["total"] == 1
     assert c.delete(f"/api/v1/access/grants/{grant_id}").status_code == 204
     assert c.get("/api/v1/audit/").json()["total"] >= 1  # grant + provision were audited
+
+
+def test_refusing_a_grant_fails_closed_when_the_app_exposes_no_control_plane() -> None:
+    """The defensive half of the catalog check, on the ADR 0016 pattern.
+
+    `create_app` always records the control plane on `app.state`, so no composed app can
+    reach this branch — which is exactly why it needs a test rather than a comment. The
+    equivalent guard branch for a missing `permission_enforcer` is tested the same way
+    (`test_permission_write_denied_when_no_enforcer_installed`) and for the same reason:
+    fail-closed code nothing exercises is fail-closed code nobody knows still works.
+
+    Called directly rather than over HTTP because a bare app has no `AppError` handler
+    either — the refusal would surface as a 500 and the test would be asserting the wrong
+    thing.
+    """
+    from terp.core import ValidationFailedError
+    from terp.capabilities.access.router import _refuse_undeclared
+
+    planeless = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    with pytest.raises(ValidationFailedError) as caught:
+        _refuse_undeclared(planeless, "anything.at.all")
+    assert [detail.code for detail in caught.value.details] == ["no_control_plane"]
 
 
 def test_unauthenticated_is_denied(app: FastAPI) -> None:

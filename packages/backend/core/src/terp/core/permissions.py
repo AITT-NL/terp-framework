@@ -185,8 +185,51 @@ class PermissionModel:
     def missing_requirements(
         self, requirements: Iterable[AuthorizationRequirement]
     ) -> tuple[AuthorizationRequirement, ...]:
-        """Every requirement not registered in this model."""
+        """Every requirement whose *name* this model does not register at all."""
         return tuple(req for req in requirements if not self.has_requirement(req))
+
+    def shadowed_requirements(
+        self, requirements: Iterable[AuthorizationRequirement]
+    ) -> tuple[AuthorizationRequirement, ...]:
+        """Every requirement whose name is registered but whose rank floor disagrees.
+
+        A registered *name* is not the same as the registered *entry*, and the difference is
+        a privilege discrepancy rather than a tidiness one. ``Policy`` keeps the rank floor
+        of whichever object it was handed (``AuthorizationRequirement.from_role`` /
+        ``from_permission`` read it straight off), while every view — the access graph, the
+        grant catalog, the Studio matrix — reports the floor of the entry this model
+        registers. So a policy citing ``Role("admin", rank=1)``, or a same-name
+        ``Permission`` declared with a lower ``min_role``, is enforced at the floor it
+        carries and displayed at the floor that was declared.
+
+        Authority was the only control-plane registry matched by name alone. Events, jobs and
+        operations are each matched **by value**, and all three docstrings name this exact
+        hazard — accepting a same-id definition "would let a route present one wording while
+        the catalog documents another". An authority shadow is that with a rank attached,
+        which is why it is the one worth a boot error rather than a warning.
+
+        The comparison is on the rank floor only, not the whole object: an
+        :class:`AuthorizationRequirement` carries ``kind`` / ``name`` / ``min_rank`` and not
+        the ``Permission`` it came from, so a shadow differing *only* in ``label`` passes
+        here. That one is caught where the module claims its permissions on its spec and the
+        boot cross-checks those by value; it is harmless in the meantime, because every view
+        projects the registered entry's label rather than the policy's copy.
+        """
+        shadows: list[AuthorizationRequirement] = []
+        for requirement in requirements:
+            declared_rank = self.declared_rank(requirement)
+            if declared_rank is None or declared_rank == requirement.min_rank:
+                continue
+            low, high = sorted((declared_rank, requirement.min_rank))
+            # Only a rank some registered role actually occupies makes the two floors
+            # behave differently. Without this window the check refuses a configuration
+            # ADR 0022 blesses: every bundled capability pins ``Policy(read_role=Roles.ADMIN)``
+            # at rank 30, so an app declaring its own ``admin`` at 40 would be refused even
+            # when it has no role in 30..39 for the gap to admit — the two floors are then
+            # the same gate by different numbers, and refusing that is a false positive.
+            if any(low <= role.rank < high for role in self.roles):
+                shadows.append(requirement)
+        return tuple(shadows)
 
     def unlabelled_permissions(self) -> tuple[Permission, ...]:
         """Every declared permission carrying no label, in declaration order.
@@ -198,6 +241,15 @@ class PermissionModel:
         return tuple(
             permission for permission in self.permissions if not permission.label
         )
+
+    def declared_rank(self, requirement: AuthorizationRequirement) -> int | None:
+        """The rank floor this model declares for *requirement*, or ``None`` if unregistered."""
+        if requirement.kind == "role":
+            return getattr(self._roles_by_name.get(requirement.name), "rank", None)
+        if requirement.kind == "permission":
+            permission = self._permissions_by_name.get(requirement.name)
+            return None if permission is None else permission.min_role.rank
+        return None
 
     def role_for_rank(self, rank: int) -> Role:
         """Return the registered role with *rank*, or fail closed."""

@@ -13,6 +13,8 @@ from sqlmodel import Field
 
 import terp.core as core
 from terp.core import (
+    ADMIN,
+    EDITOR,
     AppError,
     BaseTable,
     BaseUpdateSchema,
@@ -85,6 +87,87 @@ def test_control_plane_validates_policy_references() -> None:
     assert plane.validation_errors([bad]) == (
         "module 'billing' policy references undeclared 'permission:billing.write'",
     )
+
+
+def test_control_plane_refuses_a_policy_citing_a_same_name_authority_at_another_rank() -> None:
+    """A registered *name* is not the registered *entry* — and the gap is a privilege one.
+
+    `Policy` keeps the rank floor of whichever object it was handed, while every view (the
+    access graph, `terp grant`'s catalog, the Studio matrix) reports the floor the control
+    plane declares. So before this check, `Policy(read=Role("admin", rank=1))` booted clean,
+    admitted every viewer, and was displayed as admin-only. The permission form is the same
+    defect with a `min_role` instead of a rank.
+
+    This is the check `OperationCatalog.has_operation` already makes by matching an
+    operation by value rather than by id, for the reason its docstring gives: accepting a
+    same-id definition "would let a route present one wording while the catalog documents
+    another". An authority shadow is that with a rank attached.
+    """
+    plane = ControlPlane(permissions=PermissionModel.default())
+
+    # The role form. rank=1 is far below the declared admin (30), so viewer (10) and editor
+    # (20) both sit in the gap and clear a floor the declaration would have refused them.
+    weak_admin = Role("admin", rank=1)
+    spec = ModuleSpec(name="billing", policy=Policy(read=weak_admin, write=weak_admin))
+    (error,) = plane.validation_errors([spec])
+    assert "cites 'role:admin' with rank floor 1" in error
+    assert "declares it at 30" in error
+
+    # The permission form, against a model that declares it at ADMIN.
+    declared = Permission("invoices.approve", min_role=ADMIN)
+    shadow = Permission("invoices.approve", min_role=VIEWER)
+    declaring = ControlPlane(permissions=PermissionModel(permissions=[declared]))
+    shadowing = ModuleSpec(name="invoices", policy=Policy(write=shadow))
+    (permission_error,) = declaring.validation_errors([shadowing])
+    assert "cites 'permission:invoices.approve' with rank floor 10" in permission_error
+
+    # Referencing the declared object is what the message asks for, and it passes. Without
+    # this half, the assertions above hold just as well against a check that refuses every
+    # permission requirement outright.
+    honest = ModuleSpec(name="invoices", policy=Policy(write=declared))
+    assert declaring.validation_errors([honest]) == ()
+
+
+def test_a_shadow_is_only_a_shadow_when_a_declared_role_sits_in_the_gap() -> None:
+    """The window is the whole rule, and it is what keeps ADR 0022 true.
+
+    Every bundled capability pins ``Policy(read_role=Roles.ADMIN)`` at rank 30. ADR 0022
+    says the role model is the app's, so an app may declare its own ``admin`` at 40 — and
+    then the cited floor (30) and the declared floor (40) are the *same gate by different
+    numbers* as long as no role occupies 30..39. Refusing that is a false positive, and a
+    check that refused it would make the framework's own capabilities unmountable by any app
+    that re-ranked the tier.
+
+    Put a role inside the gap and the two floors stop agreeing: `manager` clears 30 but not
+    40, so the capability router admits someone the declaration excludes. That is the defect,
+    and the gap is how it is told apart from the harmless case.
+    """
+    capability_like = ModuleSpec(
+        name="users", policy=Policy(read_role=Roles.ADMIN, write_role=Roles.ADMIN)
+    )
+
+    sparse = ControlPlane(
+        permissions=PermissionModel(roles=(VIEWER, EDITOR, Role("admin", rank=40)))
+    )
+    assert sparse.validation_errors([capability_like]) == ()
+
+    dense = ControlPlane(
+        permissions=PermissionModel(
+            roles=(VIEWER, EDITOR, Role("manager", rank=35), Role("admin", rank=40))
+        )
+    )
+    (error,) = dense.validation_errors([capability_like])
+    assert "cites 'role:admin' with rank floor 30" in error
+    assert "declares it at 40" in error
+
+
+def test_a_shadowed_authority_is_reported_once_not_per_requirement() -> None:
+    # A policy naming the same authority for reads and writes is the common case, so the
+    # semicolon-joined BootError would otherwise carry the same long sentence twice.
+    plane = ControlPlane(permissions=PermissionModel.default())
+    weak = Role("editor", rank=2)
+    spec = ModuleSpec(name="billing", policy=Policy(read=weak, write=weak))
+    assert len(plane.validation_errors([spec])) == 1
 
 
 def test_policy_public_requires_justification() -> None:

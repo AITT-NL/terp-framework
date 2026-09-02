@@ -623,6 +623,12 @@ A three-design panel was run against the plan; §9 there records the four mechan
 it, the one genuine alternative to the new table and why it is still not preferred, and the fact
 that its adversarial judges never ran — so the fork has not been independently scored.
 
+**Due at release, not now** (the changelog carries no Unreleased section): the authority-shadow
+boot check is a **breaking change** for any app that constructs a `Role` or `Permission` at a
+policy call site instead of referencing the declared object. Such an app boots today, enforces the
+floor it wrote and displays the declared one; after this it refuses to boot with a message naming
+both floors. That needs a changelog entry and a line in the release notes.
+
 **Findings recorded, not fixed** (both in the plan, §2.7 and §2.8): a route can enforce a
 permission the control plane never declared, which makes ADR 0089's "can only ever offer
 permissions this app really enforces" stronger than the code guarantees; and nothing in
