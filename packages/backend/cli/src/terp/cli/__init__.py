@@ -40,6 +40,11 @@ from terp.cli.schema import (
     scan_declared_table_models,
 )
 from terp.cli.seed import run_seed_command
+from terp.cli.module_roles import (
+    module_role_add_command,
+    module_role_list_command,
+    module_role_revoke_command,
+)
 from terp.cli.grants import (
     grant_add_command,
     grant_list_command,
@@ -411,6 +416,34 @@ GRANT IT
   reaches every member (`terp guide access`).
 - Mind the floor: granting a permission to a subject BELOW its min_role stores a row
   that the rank check will shadow. `terp grant add` warns when it sees this.
+
+A ROLE INSIDE ONE MODULE (a different question)
+- A permission is "may you do this ONE thing". A module role is "which tier are you
+  in HERE" - editor in one module, viewer everywhere else. Neither is expressible as
+  the other, which is why both exist.
+- Reach for it when the answer differs per module rather than per action. Raising
+  someone's global rank to let them write in one place is the workaround this
+  replaces.
+- The module opts in, and must say what it is called:
+      ModuleSpec(..., access=ModuleAccess(label="Invoices", assignable=True))
+  A module that says nothing takes no part - that is the secure default. A module
+  that administers the platform's own authority refuses outright:
+      access=ModuleAccess.platform_only(reason="...")
+  because per-module admin THERE is a way around the ladder, not a use of it.
+- Wire the resolver once, or the app refuses to boot (the same fail-closed shape as
+  permission_enforcer - a rung nobody can resolve would be assigned and do nothing):
+      create_app(..., module_rank_resolver=terp.capabilities.access.resolve_module_rank)
+- Assign it:
+      terp module-role add ops@acme.test invoices editor
+      terp module-role list ops@acme.test
+      terp module-role revoke ops@acme.test invoices
+  Same subject naming as `terp grant`. An unknown role is refused WITH the app's
+  ladder; a module that has not opted in is refused with the ones that have.
+- ADDITIVE ONLY. The effective rank in a module is the HIGHEST of the global role and
+  every module role the subject holds (directly or through a group). There is no
+  per-module deny, ever - assigning `viewer` in a module to an admin does not demote
+  them. A system where authority can be subtracted somewhere is one where nobody can
+  answer "why can this person do that?".
 - See the whole declared catalog and every module's policy:
       terp inspect control-plane --app app.main:build
 
@@ -2860,6 +2893,45 @@ def _build_parser() -> argparse.ArgumentParser:
             "--app-root", default=".", help="App root placed first on sys.path (default: .)"
         )
 
+    module_role_parser = subcommands.add_parser(
+        "module-role",
+        help="Assign, list and revoke a subject's role inside one module (raises their "
+        "authority there and nowhere else)",
+    )
+    module_role_subcommands = module_role_parser.add_subparsers(
+        dest="module_role_command", required=True
+    )
+    for _name, _help in (
+        ("add", "Assign a role to a subject inside one module (idempotent, audited)"),
+        ("revoke", "Remove a subject's role in one module"),
+    ):
+        _mp = module_role_subcommands.add_parser(_name, help=_help)
+        _mp.add_argument("subject", help=_SUBJECT_HELP)
+        _mp.add_argument("module", help="The module the role applies inside")
+        if _name == "add":
+            _mp.add_argument("role", help="A role name the app's ladder declares")
+        _mp.add_argument(
+            "--app",
+            default="app.main:app",
+            help="Dotted module:attribute of the FastAPI app (default: app.main:app)",
+        )
+        _mp.add_argument(
+            "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+        )
+
+    module_role_list_parser = module_role_subcommands.add_parser(
+        "list", help="List the per-module roles assigned to a subject"
+    )
+    module_role_list_parser.add_argument("subject", help=_SUBJECT_HELP)
+    module_role_list_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app (default: app.main:app)",
+    )
+    module_role_list_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+
     grant_list_parser = grant_subcommands.add_parser(
         "list", help="List every permission a subject holds, including via groups"
     )
@@ -3180,6 +3252,34 @@ def main(argv: Sequence[str] | None = None) -> None:
             _commands[args.grant_command](
                 args.subject,
                 args.permission,
+                app_ref=args.app,
+                app_root=args.app_root,
+            )
+        )
+        return
+    if args.command == "module-role":
+        if args.module_role_command == "list":
+            print(
+                module_role_list_command(
+                    args.subject, app_ref=args.app, app_root=args.app_root
+                )
+            )
+            return
+        if args.module_role_command == "revoke":
+            print(
+                module_role_revoke_command(
+                    args.subject,
+                    args.module,
+                    app_ref=args.app,
+                    app_root=args.app_root,
+                )
+            )
+            return
+        print(
+            module_role_add_command(
+                args.subject,
+                args.module,
+                args.role,
                 app_ref=args.app,
                 app_root=args.app_root,
             )

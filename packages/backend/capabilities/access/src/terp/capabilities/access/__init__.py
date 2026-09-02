@@ -9,6 +9,13 @@ capability adds **fine-grained, per-permission** authorization on top:
 * a fail-closed :func:`require_permission` dependency modules mount on a route,
 * a **self-registering**, admin-only ``access`` router to administer grants.
 
+It also owns the other half of "who may do what": a :class:`ModuleRole` records that a
+subject holds a rung *inside one module*, and :func:`resolve_module_rank` fills the kernel's
+``module_rank_resolver`` seam so the guard can let that rung raise the caller's authority in
+that module and nowhere else (ADR 0112). The two halves answer different questions — a grant
+is a named capability, a module role is a tier within a boundary — and neither is expressible
+as the other, which is why both exist.
+
 It depends only on ``terp-core``: it reads the caller through the kernel's public
 ``get_principal`` seam (which ``create_app`` points at the configured provider),
 so it never imports the auth capability.
@@ -27,7 +34,13 @@ from terp.capabilities.access.expansion import (
     reset_subject_expanders,
     subject_ids_for,
 )
-from terp.capabilities.access.models import Grant
+from terp.capabilities.access.models import Grant, ModuleRole
+from terp.capabilities.access.module_roles import (
+    ModuleRoleService,
+    assignable_modules,
+    resolve_module_rank,
+    validate_assignment,
+)
 from terp.capabilities.access.operations import (
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
@@ -54,13 +67,18 @@ __all__ = [
     "GrantCreate",
     "GrantRead",
     "GrantUpdate",
+    "ModuleRole",
+    "ModuleRoleService",
     "SubjectExpander",
+    "assignable_modules",
     "enforce_permission",
     "project_granted_permissions",
     "module",
     "register_subject_expander",
     "require_permission",
     "reset_subject_expanders",
+    "resolve_module_rank",
     "router",
     "subject_ids_for",
+    "validate_assignment",
 ]

@@ -645,6 +645,19 @@ expected output.
 4. **`ModuleRole` + the resolver seam + the guard change.** Per-module authority becomes real and
    enforced, with the CLI (`terp module-role add/list/revoke`) as the first writer — an operator
    seam before a UI, on the ADR 0089 pattern. Ends shippable: the capability exists and is auditable.
+   - [x] The table, the service, the seam, the guard change and the boot refusal. §2.1 is closed.
+   - [x] The CLI writer over `validate_assignment`'s three refusals, plus a fourth for an
+         unknown role name that prints the app's own ladder. `terp grant`'s subject resolution
+         moved to a shared `_subjects.py` rather than being copied — ADR 0089's argument is
+         that the UUID stops being the interface, and two commands drifting on that would put
+         the cost straight back.
+   Two properties turned out to need a specific fixture to observe at all, and a mutation found
+   both. `max` over the expanded subject set reads as obviously right but is indistinguishable
+   from `min` while there is one row per subject per module — which the unique constraint
+   guarantees — so only a subject holding one rung directly *and* another through a group can
+   tell them apart. And "a module role never lowers a global rank" cannot be observed by a
+   caller whose global rank already clears the floor, because the resolver is never consulted
+   for them; the fixture has to be an admin holding the *lowest* rung in the module.
 5. **The pane**, viewer lenses first, then assignment. Template and example app pick it up — and
    the example app needs a second grantable module whose rows genuinely diverge from `notes`, or the
    first screenshot of this feature is three identical columns (§9, design C).

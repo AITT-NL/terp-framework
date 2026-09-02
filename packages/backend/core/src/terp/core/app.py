@@ -95,6 +95,12 @@ _logger = logging.getLogger("terp.core")
 # real per-subject grant: (session, subject_id, permission_name) -> holds it?
 PermissionEnforcer = Callable[[Session, uuid.UUID, str], bool]
 
+# The seam the access capability fills so a per-module role can raise a caller's authority
+# inside one module (ADR 0112): (session, subject_id, module_name) -> the highest rank that
+# subject holds in that module, over the expanded subject set, or 0 for none. Shaped like
+# ``PermissionEnforcer`` and wired the same way, so the kernel never imports the capability.
+ModuleRankResolver = Callable[[Session, uuid.UUID, str], int]
+
 
 class BootError(RuntimeError):
     """Raised when a module is misconfigured at composition time (fail closed)."""
@@ -167,6 +173,8 @@ def build_guard(
     principal_provider: Callable[..., Principal | None] = get_principal,
     permission_enforcer: PermissionEnforcer | None = None,
     permission_model: PermissionModel | None = None,
+    module_name: str | None = None,
+    module_rank_resolver: ModuleRankResolver | None = None,
 ) -> Callable[..., None]:
     """Build a FastAPI dependency enforcing *policy* (deny-by-default).
 
@@ -207,6 +215,16 @@ def build_guard(
                 None
                 if principal is None or permission_enforcer is None
                 else lambda name: permission_enforcer(session, principal.id, name)
+            ),
+            # Also a callable, and consulted only when the global rank falls short — a
+            # per-module role adds authority and never removes it, so a caller who already
+            # clears the floor cannot be changed by one and is not queried for.
+            module_rank=(
+                None
+                if principal is None
+                or module_rank_resolver is None
+                or module_name is None
+                else lambda: module_rank_resolver(session, principal.id, module_name)
             ),
         )
         if decision.allowed:
@@ -769,6 +787,34 @@ def _validate_declared_operations(
             "operation coverage is WARN: %d mounted route(s) declare no operation: %s",
             len(undeclared),
             sorted(undeclared),
+        )
+
+
+def _validate_module_rank_resolution(
+    specs: Sequence[ModuleSpec], resolver: ModuleRankResolver | None
+) -> None:
+    """Fail closed when a module declares itself assignable and nothing can resolve a rank.
+
+    The same shape and the same reasoning as the ``permission_enforcer`` check (ADR 0016 §3):
+    a declaration the runtime cannot act on is worse than no declaration, because the pane
+    would offer an administrator a rung to assign and every assignment would silently do
+    nothing. Caught at composition time rather than discovered when someone wonders why the
+    access they granted had no effect.
+    """
+    if resolver is not None:
+        return
+    assignable = sorted(
+        spec.name
+        for spec in specs
+        if spec.access is not None and spec.access.assignable
+    )
+    if assignable:
+        raise BootError(
+            f"modules {assignable} declare themselves assignable per module, but no "
+            "module_rank_resolver is installed, so a per-module role could be stored and "
+            "would never take effect. Pass module_rank_resolver=... (e.g. "
+            "terp.capabilities.access.resolve_module_rank), or drop the assignable "
+            "declaration from those modules."
         )
 
 
@@ -1461,6 +1507,7 @@ def create_app(
     audit_sink: AuditSink | None = None,
     event_dispatcher: EventDispatcher | None = None,
     permission_enforcer: PermissionEnforcer | None = None,
+    module_rank_resolver: ModuleRankResolver | None = None,
     middleware: Sequence[Middleware] | None = None,
     migration_check: Callable[[Engine], None] | None = None,
     require_token_revocation: bool = False,
@@ -1648,6 +1695,7 @@ def create_app(
     _validate_declared_operations(collected, resolved_plane.operations)
     _apply_declared_operations(collected)
     _validate_route_permissions_are_declared(collected, resolved_plane)
+    _validate_module_rank_resolution(collected, module_rank_resolver)
     _validate_permission_labels(resolved_plane)
     _validate_background_jobs_preserve_ownership(collected)
     _validate_shared_throttle_store(throttle_store, require_shared_throttle_store)
@@ -1737,6 +1785,8 @@ def create_app(
                             principal_provider,
                             permission_enforcer,
                             resolved_plane.permissions,
+                            spec.name,
+                            module_rank_resolver,
                         )
                     ),
                     audit_actor_binder,

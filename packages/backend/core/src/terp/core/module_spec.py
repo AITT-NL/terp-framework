@@ -158,9 +158,10 @@ class AccessDecision:
 
     #: Whether the caller may proceed.
     allowed: bool
-    #: Why, as a slug: ``allowed``, ``public``, ``no_policy``, ``unauthenticated``,
-    #: ``unregistered_role``, ``rank`` (below the floor) or ``grant`` (clears the floor,
-    #: lacks the named permission).
+    #: Why, as a slug: ``allowed``, ``allowed_in_module`` (cleared the floor only because of
+    #: a per-module role, which is what an explanation of an effective right needs to say),
+    #: ``public``, ``no_policy``, ``unauthenticated``, ``unregistered_role``, ``rank`` (below
+    #: the floor) or ``grant`` (clears the floor, lacks the named permission).
     reason: str
     #: The requirement that applied, or ``None`` where the decision was reached before one
     #: was selected (no policy, public, unauthenticated, unregistered role).
@@ -174,6 +175,7 @@ def decide(
     role: Role | None,
     role_is_registered: bool = True,
     holds_permission: Callable[[str], bool] | None = None,
+    module_rank: Callable[[], int] | None = None,
 ) -> AccessDecision:
     """The authorization decision for one policy, method and role — the single copy.
 
@@ -200,6 +202,13 @@ def decide(
     authentication is considered, an unregistered role is refused before any requirement is
     selected, and the rank floor is checked before the grant — which is why a grant can
     never lift a caller over a floor (ADR 0016 §2, ADR 0089 §4).
+
+    ``module_rank`` is the one thing that *can* lift a caller over a floor, and only upward:
+    it is consulted solely when the global rank falls short, because a per-module role adds
+    authority and never removes it (ADR 0112), so a caller who already clears the floor
+    cannot be changed by one. Clearing this way is reported as ``allowed_in_module`` rather
+    than ``allowed``, because "why can this person do that?" has a different answer in the
+    two cases and a viewer has to be able to give it.
     """
     if policy is None:
         return AccessDecision(allowed=False, reason="no_policy")
@@ -214,13 +223,26 @@ def decide(
         if method.upper() in MUTATING_METHODS
         else policy.read_requirement
     )
+    elevated_by_module = False
     if role.rank < required.min_rank:
-        return AccessDecision(allowed=False, reason="rank", requirement=required)
+        # Only now, and only for a caller who does not already clear the floor: a per-module
+        # rank can raise authority and never lower it (ADR 0112), so someone whose global
+        # rank already suffices cannot be changed by one — and a lookup on their behalf would
+        # be a query that could not affect the answer. Lazy for the same reason
+        # ``holds_permission`` is.
+        in_module = None if module_rank is None else module_rank()
+        if in_module is None or in_module < required.min_rank:
+            return AccessDecision(allowed=False, reason="rank", requirement=required)
+        elevated_by_module = True
     if required.kind == "permission" and (
         holds_permission is None or not holds_permission(required.name)
     ):
         return AccessDecision(allowed=False, reason="grant", requirement=required)
-    return AccessDecision(allowed=True, reason="allowed", requirement=required)
+    return AccessDecision(
+        allowed=True,
+        reason="allowed_in_module" if elevated_by_module else "allowed",
+        requirement=required,
+    )
 
 
 @dataclass(frozen=True)

@@ -8,7 +8,7 @@ import pathlib
 from fastapi import FastAPI
 from starlette.middleware import Middleware
 
-from terp.capabilities.access import enforce_permission
+from terp.capabilities.access import enforce_permission, resolve_module_rank
 from terp.capabilities.audit import persist_audit
 from terp.capabilities.auth import tenant_from_bearer
 from terp.capabilities.eventbus import dispatch_in_process
@@ -79,6 +79,10 @@ def _create(
         event_dispatcher=dispatch_in_process,
         job_queue=job_queue,
         permission_enforcer=enforce_permission,
+        # `notes` declares itself per-module assignable (ADR 0112), so the boot refuses this
+        # app without a resolver: a declaration the runtime cannot act on would let an
+        # administrator assign a rung that silently did nothing.
+        module_rank_resolver=resolve_module_rank,
         middleware=[Middleware(TenantMiddleware, resolve_tenant=tenant_from_bearer)],
         require_token_revocation=True,
         throttle_store=throttle_store,

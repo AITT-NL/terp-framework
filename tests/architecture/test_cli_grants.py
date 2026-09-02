@@ -227,10 +227,10 @@ def _seed_stale_grant(app_module: str, tmp_path: pathlib.Path, permission: str):
     import uuid
 
     from terp.capabilities.access import AccessService
-    from terp.cli.grants import _load
+    from terp.cli._subjects import load_app_for_cli
     from terp.core.db import get_session
 
-    _load(f"{app_module}:build", tmp_path)
+    load_app_for_cli(f"{app_module}:build", tmp_path)
     subject_id = uuid.uuid4()
     gen = get_session()
     session = next(gen)

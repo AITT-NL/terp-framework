@@ -637,7 +637,17 @@ one global rank and a group carries none.
       rungs the *app* declares, label a rung the framework has no translation for under the
       name its author gave it, and start a new account on the lowest declared rank rather
       than a hardcoded 10. Phase 3 complete, and with it the last phase-1 item.
-- [ ] Phase 4 `ModuleRole` + the resolver seam + the guard change.
+- [~] Phase 4. Done: `ModuleRole` (subject, module, rank) with its migration, a
+      `ModuleRoleService` whose `highest_rank` is one aggregate over the *expanded* subject set
+      so a rung assigned to a group reaches its members, the `module_rank_resolver` seam on
+      `create_app`, `decide` consulting it lazily and only when the global rank falls short,
+      and a boot refusal for an assignable module with no resolver installed. **The capability
+      gap in §2.1 is closed**: a viewer assigned editor in one module writes there and still
+      nowhere else. And `terp module-role add/list/revoke`, the first writer — an operator
+      seam before a UI (ADR 0089), refusing through the capability's own `validate_assignment`
+      so an HTTP surface added later cannot disagree with it. `terp guide permissions` teaches
+      the distinction between a permission and a module role. **Phase 4 complete.** Left:
+      phase 5 (the pane) and phase 6 (the spec rules).
 - [ ] Phase 5 the pane — viewer lenses first, then assignment.
 - [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.
 

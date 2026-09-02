@@ -1,4 +1,4 @@
-"""The persisted access-grant table (RBAC permission grants).
+"""The persisted access tables: permission grants, and per-module role assignments.
 
 A :class:`Grant` is a single, immutable fact: *subject ``subject_id`` holds the
 named ``permission``*. Permissions are open, app-defined tokens (e.g.
@@ -40,3 +40,42 @@ class Grant(BaseTable, table=True):
 
     subject_id: uuid.UUID = Field(index=True)
     permission: str = Field(max_length=128, index=True)
+
+
+class ModuleRole(BaseTable, table=True):
+    """A single fact: *subject ``subject_id`` holds rank ``role_rank`` in module ``module``*.
+
+    The row that makes "editor in one module, viewer everywhere else" expressible. Before it,
+    a user carried exactly one rank and a group carried none, so the only way to grant write
+    access in one module was to raise the rank everywhere — the ten-second workaround ADR 0089
+    was written about, one level up (ADR 0112).
+
+    ``subject_id`` is an FK-less UUID for exactly the reason :class:`Grant`'s is, and it buys
+    the same thing: a group's id is a subject, so a per-module role for a whole group needs no
+    new machinery at all — the existing subject-expansion seam already maps a user to the
+    groups they belong to.
+
+    **Additive only.** The effective rank in a module is ``max`` of the caller's global rank
+    and every module role over the expanded subject set. There is no per-module *deny*, ever:
+    a system where authority can be subtracted somewhere is one where no pane can honestly
+    answer "why can this person do that?", and being able to answer that is the only defence
+    an administrator has against an over-broad grant.
+
+    ``role_rank`` is stored rather than the role's name because rank is what the guard
+    compares, and a name would need resolving against a ladder that may have changed since.
+    The writer validates the rank against the app's declared ladder, so a row can only ever
+    name a rung the app declared *at the time* — and a rung the app later drops leaves a
+    stale row, which is shown rather than hidden, on the same reasoning ``terp grant list``
+    gives for a stale grant.
+    """
+
+    __tablename__ = "access_module_role"
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_id", "module", name="uq_access_module_role_subject_module"
+        ),
+    )
+
+    subject_id: uuid.UUID = Field(index=True)
+    module: str = Field(max_length=64, index=True)
+    role_rank: int = Field(index=True)

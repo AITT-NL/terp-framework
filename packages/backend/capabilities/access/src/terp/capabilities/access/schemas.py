@@ -39,6 +39,33 @@ class GrantRead(BaseSchema):
     updated_at: datetime.datetime
 
 
+class ModuleRoleCreate(BaseSchema):
+    subject_id: uuid.UUID
+    module: str = Field(max_length=64)
+    role_rank: int
+
+
+class ModuleRoleUpdate(BaseUpdateSchema):
+    """A module role's rank *is* editable, unlike a grant.
+
+    A subject moving from editor to admin inside one module is the same fact with a new
+    value, not a second fact — the unique constraint on ``(subject_id, module)`` says so —
+    so this carries the one field that can change.
+    """
+
+    role_rank: int | None = None
+
+
+class ModuleRoleRead(BaseSchema):
+    id: uuid.UUID
+    subject_id: uuid.UUID
+    module: str
+    role_rank: int
+    version: int
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
 class AccessRoleRead(BaseSchema):
     """One rung of the app's declared ladder."""
 
