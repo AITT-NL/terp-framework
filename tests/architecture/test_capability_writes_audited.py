@@ -79,8 +79,8 @@ def test_access_grant_and_revoke_are_audited(session: Session) -> None:
     records = _capture_audit()
     service = AccessService()
     subject = uuid.uuid4()
-    service.grant(session, subject, "billing:write")
-    service.revoke(session, subject, "billing:write")
+    service.grant(session, subject, "billing.write")
+    service.revoke(session, subject, "billing.write")
     assert [record.action for record in records] == [
         AuditAction.CREATED,
         AuditAction.DELETED,
@@ -92,6 +92,6 @@ def test_idempotent_grant_is_audited_once(session: Session) -> None:
     records = _capture_audit()
     service = AccessService()
     subject = uuid.uuid4()
-    service.grant(session, subject, "billing:write")
-    service.grant(session, subject, "billing:write")  # re-grant: returns existing
+    service.grant(session, subject, "billing.write")
+    service.grant(session, subject, "billing.write")  # re-grant: returns existing
     assert [record.action for record in records] == [AuditAction.CREATED]

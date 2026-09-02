@@ -172,8 +172,8 @@ def test_deleting_a_group_cascades_members_and_grants(session: Session) -> None:
     group = service.create(session, GroupCreate(name="Finance"))
     member = uuid.uuid4()
     service.add_member(session, group.id, member)
-    access.grant(session, group.id, "reports:export")
-    assert access.has_permission(session, member, "reports:export")
+    access.grant(session, group.id, "reports.export")
+    assert access.has_permission(session, member, "reports.export")
 
     records = _capture_audit()
     service.delete(session, group.id)
@@ -182,7 +182,7 @@ def test_deleting_a_group_cascades_members_and_grants(session: Session) -> None:
         service.get(session, group.id)
     assert service.group_ids_for(session, member) == set()
     assert access.permissions_for(session, group.id) == set()
-    assert access.has_permission(session, member, "reports:export") is False
+    assert access.has_permission(session, member, "reports.export") is False
     # One atomic unit: the group's DELETED record, then the cascaded rows'.
     assert [record.target_type for record in records] == [
         "Group",
@@ -199,7 +199,7 @@ def test_a_failing_cascade_rolls_back_the_whole_delete(session: Session) -> None
     group = service.create(session, GroupCreate(name="Finance"))
     member = uuid.uuid4()
     service.add_member(session, group.id, member)
-    access.grant(session, group.id, "reports:export")
+    access.grant(session, group.id, "reports.export")
 
     def _sink(_session: Session, record: AuditRecord, _policy: object) -> None:
         if record.target_type == "Grant":  # the last cascaded write
@@ -213,7 +213,7 @@ def test_a_failing_cascade_rolls_back_the_whole_delete(session: Session) -> None
     session.rollback()
     assert service.get(session, group.id).id == group.id
     assert service.group_ids_for(session, member) == {group.id}
-    assert access.has_permission(session, member, "reports:export")
+    assert access.has_permission(session, member, "reports.export")
 
 
 def test_the_cascade_drains_past_the_batch_size(
@@ -303,7 +303,7 @@ def gated_app() -> Iterator[tuple[FastAPI, Engine]]:
     @gated.post(
         "/act",
         response_model=str,
-        dependencies=[Depends(require_permission("widgets:write"))],
+        dependencies=[Depends(require_permission("widgets.write"))],
     )
     async def act() -> str:
         return "ok"
@@ -346,7 +346,7 @@ def test_a_group_grant_authorizes_members_and_only_members(
         group = service.create(setup, GroupCreate(name="Widget makers"))
         group_id = group.id
         service.add_member(setup, group_id, member)
-        AccessService().grant(setup, group_id, "widgets:write")
+        AccessService().grant(setup, group_id, "widgets.write")
 
     assert _bearer(app, member).post("/api/v1/gated/act").status_code == 200
     assert _bearer(app, outsider).post("/api/v1/gated/act").status_code == 403

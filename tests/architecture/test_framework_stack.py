@@ -217,7 +217,7 @@ def test_access_grants_and_audit_log(app: FastAPI, engine: Engine) -> None:
     admin = _provision(engine, "admin@x.test", Roles.ADMIN)
     c = _client(app, admin, Roles.ADMIN)
     subject = uuid.uuid4()
-    created = c.post("/api/v1/access/grants", json={"subject_id": str(subject), "permission": "reports:export"})
+    created = c.post("/api/v1/access/grants", json={"subject_id": str(subject), "permission": "reports.export"})
     assert created.status_code == 201
     grant_id = created.json()["id"]
     assert c.get("/api/v1/access/grants", params={"subject_id": str(subject)}).json()["total"] == 1
@@ -237,9 +237,9 @@ def test_access_service_revoke_and_permissions(engine: Engine) -> None:
         service = AccessService()
         subject = uuid.uuid4()
         assert service.revoke(session, subject, "absent") is False  # nothing to remove
-        service.grant(session, subject, "a:b")
-        assert service.permissions_for(session, subject) == {"a:b"}
-        dep = require_permission("a:b")
+        service.grant(session, subject, "a.b")
+        assert service.permissions_for(session, subject) == {"a.b"}
+        dep = require_permission("a.b")
         with pytest.raises(AuthenticationError):
             dep(session=session, principal=None)
         from terp.core import Principal
@@ -247,7 +247,7 @@ def test_access_service_revoke_and_permissions(engine: Engine) -> None:
         with pytest.raises(PermissionDeniedError):
             dep(session=session, principal=Principal(id=uuid.uuid4(), role=Roles.EDITOR))
         dep(session=session, principal=Principal(id=subject, role=Roles.EDITOR))  # holds it -> no raise
-        assert enforce_permission(session, subject, "a:b") is True
+        assert enforce_permission(session, subject, "a.b") is True
 
 
 # --------------------------------------------------------------------------- #

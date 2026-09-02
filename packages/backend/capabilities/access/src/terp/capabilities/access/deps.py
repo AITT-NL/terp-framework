@@ -6,10 +6,17 @@ of (or instead of) a role. It is the runtime half of access's two-layer control:
 deny-by-default — an unauthenticated caller gets 401, an authenticated caller
 without the grant gets 403::
 
+    from control_plane.permissions import REPORTS_EXPORT
     from terp.capabilities.access import require_permission
 
-    @router.post("/export", dependencies=[Depends(require_permission("reports:export"))])
+    @router.post("/export", dependencies=[Depends(require_permission(REPORTS_EXPORT))])
     def export(...): ...
+
+The reference is a typed :class:`~terp.core.Permission` from the app's control plane,
+not a bare string: the ``no_adhoc_permission_literals`` architecture rule refuses the
+literal, and a declared permission is the only kind ``terp grant`` can offer or a
+``Policy`` can name. Permission names are dotted (``reports.export``); the colon form
+this docstring once showed is rejected by ``Permission``'s own validator.
 
 It reads the caller through the kernel's public ``get_principal`` seam, which
 ``create_app`` points at the configured provider (e.g. the auth capability), so

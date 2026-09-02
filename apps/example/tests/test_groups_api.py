@@ -102,14 +102,14 @@ def test_a_group_grant_authorizes_members(
     # Granting to the group is an ordinary access grant naming the group's id.
     grant = admin.post(
         "/api/v1/access/grants",
-        json={"subject_id": group["id"], "permission": "reports:export"},
+        json={"subject_id": group["id"], "permission": "reports.export"},
     )
     assert grant.status_code == 201
 
     access = AccessService()
-    assert access.has_permission(db_session, member, "reports:export") is True
+    assert access.has_permission(db_session, member, "reports.export") is True
     admin.delete(f"{_GROUPS}/{group['id']}/members/{member}")
-    assert access.has_permission(db_session, member, "reports:export") is False
+    assert access.has_permission(db_session, member, "reports.export") is False
 
 
 def test_deleting_a_group_cascades_over_http(
@@ -121,7 +121,7 @@ def test_deleting_a_group_cascades_over_http(
     admin.post(f"{_GROUPS}/{group['id']}/members", json={"user_id": str(member)})
     admin.post(
         "/api/v1/access/grants",
-        json={"subject_id": group["id"], "permission": "doomed:permission"},
+        json={"subject_id": group["id"], "permission": "doomed.permission"},
     )
 
     assert admin.delete(f"{_GROUPS}/{group['id']}").status_code == 204
@@ -131,7 +131,7 @@ def test_deleting_a_group_cascades_over_http(
     ).json()
     assert grants["items"] == []
     assert AccessService().has_permission(
-        db_session, member, "doomed:permission"
+        db_session, member, "doomed.permission"
     ) is False
 
 
