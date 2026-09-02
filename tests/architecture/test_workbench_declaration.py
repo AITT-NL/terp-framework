@@ -638,3 +638,23 @@ def test_the_commands_block_content_is_never_judged(tmp_path) -> None:
     )
 
     assert run_workbench_check(root)[0] == 0
+
+
+def test_a_commands_block_that_is_not_an_object_is_refused(tmp_path) -> None:
+    """`"commands": "tilt up"` is a plausible thing to write and means nothing.
+
+    Refused rather than ignored: silently dropping it would leave an app
+    believing it had declared a loop while the workbench used the Compose
+    defaults against it.
+    """
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / WORKBENCH_FILE).write_text(
+        json.dumps({"schemaVersion": 1, "services": [], "commands": "tilt up"}),
+        encoding="utf-8",
+    )
+
+    code, output = run_workbench_check(root)
+
+    assert code == 1
+    assert "must be an object" in output

@@ -386,3 +386,85 @@ def test_the_refusal_says_it_is_not_about_shape(tmp_path) -> None:
     assert code == 1
     assert "never shape" in output
     assert ALLOW_FIELD in output, "the escape has to be discoverable from the failure"
+
+
+# --- a profile that is not shaped like a compose file ----------------------
+#
+# These are the branches that decide what happens when the YAML parses but is
+# not what it claims to be. A deployment gate that raises on a malformed file
+# tells somebody their app is broken in a way it is not, so each one is a
+# deliberate "nothing to say" rather than an error — and each needs a case,
+# because an unexercised branch in a security check is a branch nobody has
+# ever seen run.
+
+
+def test_a_profile_with_no_services_block_has_nothing_to_check() -> None:
+    assert audit({"version": "3.9"}) == []
+    assert audit({"services": "not a mapping"}) == []
+
+
+def test_a_service_that_is_not_a_mapping_is_skipped_not_crashed_on() -> None:
+    """`services: {db: null}` parses fine and describes nothing."""
+    compose = {
+        "services": {
+            "db": None,
+            "cache": {"image": "redis:7", "ports": ["6379:6379"]},
+        }
+    }
+
+    assert _invariants(compose) == ["published-datastore"]
+
+
+def test_an_escape_whose_reason_is_not_text_is_not_an_escape() -> None:
+    """`published-datastore: true` is somebody agreeing with themselves.
+
+    A reason has to be reviewable, and a boolean reviews as nothing — so this
+    takes the same path as a blank one rather than being read as consent.
+    """
+    compose = {
+        "services": {
+            "db": {
+                "image": "postgres:17-alpine",
+                "ports": ["5432:5432"],
+                ALLOW_FIELD: {"published-datastore": True},
+            }
+        }
+    }
+
+    assert _invariants(compose) == ["published-datastore"]
+
+
+def test_an_allow_field_that_is_not_a_mapping_excuses_nothing() -> None:
+    compose = {
+        "services": {
+            "db": {
+                "image": "postgres:17-alpine",
+                "ports": ["5432:5432"],
+                ALLOW_FIELD: "published-datastore",
+            }
+        }
+    }
+
+    assert _invariants(compose) == ["published-datastore"]
+
+
+def test_a_service_built_from_a_dockerfile_names_no_image_family() -> None:
+    """`build:` without `image:` is an ordinary way to write a service.
+
+    Nothing can be concluded about what such a service runs, so it is not a
+    datastore as far as this check is concerned — the honest reading, and the
+    one that keeps the envelope from guessing. Its credentials are still
+    checked, which is what distinguishes "we cannot identify this" from "we are
+    not looking at this."
+    """
+    compose = {
+        "services": {
+            "api": {
+                "build": {"context": ".", "dockerfile": "Dockerfile"},
+                "ports": ["8000:8000"],
+                "environment": {"SECRET_KEY": "hunter2"},
+            }
+        }
+    }
+
+    assert _invariants(compose) == ["literal-secret"]

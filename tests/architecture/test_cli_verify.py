@@ -1113,6 +1113,37 @@ def test_verify_dispatches_workbench_through_its_own_runner(
     assert "not declared" in json.dumps(envelope)
 
 
+def test_verify_dispatches_deploy_safety_through_its_own_runner(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`deploy-safety` is an in-process runner, so it needs its own dispatch.
+
+    Everything about the envelope itself is proven in test_deploy_safety.py
+    against the function; this proves `terp verify` reaches that function rather
+    than shelling out to a command that does not exist.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "quick",
+                "--root",
+                str(tmp_path),
+                "--only",
+                "deploy-safety",
+                "--format",
+                "json",
+            ]
+        )
+
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is True
+    # The no-op success shape for an app with no deployment profile.
+    assert "nothing to check" in json.dumps(envelope)
+
+
 # --------------------------------------------------------------------------- #
 # the api-client runner
 #
