@@ -4,9 +4,14 @@ A Terp module exposes exactly one :class:`ModuleSpec`. This is the entire public
 extension surface: discovery collects every spec and the composition root wires
 routers (behind a policy-derived guard), services, event ``emits`` / ``subscribes``,
 and declared ``jobs`` with no central edits. Cross-cutting references —
-``policy``, the event ``emits`` / ``subscribes``, and ``jobs`` — are typed
-control-plane objects, never bare strings, and the boot validates them against the
-control plane.
+``policy``, the event ``emits`` / ``subscribes``, ``jobs`` and the ``permissions``
+the module claims — are typed control-plane objects, never bare strings, and the
+boot validates every one of them against the control plane, by value.
+
+``access`` is the exception to that pattern, and deliberately: it is the module's
+own answer to whether it takes part in per-module role assignment and what it is
+called (:class:`ModuleAccess`, ADR 0112). There is no registry to validate it
+against, because nothing outside the module owns that answer.
 
 Secure-by-default: a module's security posture is **declared** as a
 :class:`Policy`. The composition root denies any router whose spec declares no
@@ -143,6 +148,70 @@ class Policy:
 
 
 @dataclass(frozen=True)
+class ModuleAccess:
+    """Whether a module takes part in per-module role assignment, and what it is called.
+
+    Secure by default through absence: a ``ModuleSpec`` with no ``access`` declaration does
+    not take part, which is today's behaviour — global rank only (ADR 0112). Opting in is a
+    deliberate, greppable line, and a capability that never considered the question is safe
+    by omission rather than dangerous by omission.
+
+    ``label`` and ``summary`` exist because the pane renders them to an administrator who
+    cannot read the source, the same reason ADR 0102 gives every route a sentence. A module
+    that opts in **must** carry a label: not a coverage-gated requirement like a permission's
+    label, but a constructor invariant, because the field is new and has no existing call
+    sites to break — a module cannot ask to appear in an editor and decline to say what it
+    is called.
+
+    ``platform_only`` is the refusal. Per-module ``admin`` in the wrong module is a way
+    around the ladder rather than a use of it: admin in ``users`` provisions users, and
+    admin in ``access`` grants anything to anyone. The four capabilities that administer the
+    platform's own authority declare it, with a reason, in the shape ``Policy.public``
+    already uses for its own justified exception.
+
+    It is a **declaration**, not yet an enforced gate: nothing assigns a per-module role
+    until that lands, so there is nothing for it to refuse today. It is declared first on
+    purpose — the alternative is shipping assignment and the refusal in one change, where a
+    capability nobody remembered to annotate is assignable the moment assignment exists.
+    """
+
+    label: str = ""
+    summary: str = ""
+    assignable: bool = False
+    platform_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.platform_reason is not None:
+            if not self.platform_reason.strip():
+                raise ValueError(
+                    "ModuleAccess.platform_only(reason=...) requires a non-empty "
+                    "justification (fix recipe: terp guide permissions)"
+                )
+            if self.assignable:
+                raise ValueError(
+                    "ModuleAccess cannot be both assignable and platform_only — a module "
+                    "that administers the platform's own authority is never a per-module "
+                    "role (fix recipe: terp guide permissions)"
+                )
+        if self.assignable and not self.label.strip():
+            raise ValueError(
+                "an assignable ModuleAccess requires a label: the permission editor renders "
+                "it to someone who cannot read the source, so a module cannot ask to appear "
+                "there and decline to say what it is called "
+                "(fix recipe: terp guide permissions)"
+            )
+
+    @classmethod
+    def platform_only(cls, *, reason: str) -> ModuleAccess:
+        """Refuse per-module assignment, with a mandatory, greppable justification."""
+        return cls(platform_reason=reason)
+
+    @property
+    def is_platform_only(self) -> bool:
+        return self.platform_reason is not None
+
+
+@dataclass(frozen=True)
 class ModuleSpec:
     """The single manifest a module exposes — the entire public extension API.
 
@@ -156,6 +225,15 @@ class ModuleSpec:
     requests under that prefix — and only there, so a body-carrying surface (a
     file upload) can accept more than the global cap without widening it for
     every other endpoint (ADR 0067). ``None`` (the default) keeps the global cap.
+
+    ``permissions`` is the module's claim on the named permissions it owns, and it stands to
+    the control plane's ``PermissionModel`` exactly as ``emits`` stands to the
+    ``EventCatalog``: the module lists typed objects, the app registry declares them, and the
+    boot cross-checks the two **by value**. It is what gives a permission a module — without
+    it the only way to attribute ``notes.delete`` to ``notes`` is to read its dotted prefix,
+    which is a convention no gate enforces and which says nothing at all about a permission
+    two modules share. A permission editor renders one row per module, so the edge has to be
+    declared rather than inferred.
 
     ``requires`` is this module's **declared dependency edges** (ADR 0087). Naming
     a capability says "this must be installed"; naming a sibling module says that
@@ -172,6 +250,8 @@ class ModuleSpec:
     emits: Sequence[EventDefinition] = field(default_factory=tuple)
     subscribes: Sequence[EventDefinition] = field(default_factory=tuple)
     jobs: Sequence[JobDefinition] = field(default_factory=tuple)
+    permissions: Sequence[Permission] = field(default_factory=tuple)
+    access: ModuleAccess | None = None
     policy: Policy | None = None
     tenant_scoped: bool = False
     max_request_bytes: int | None = None
@@ -188,4 +268,4 @@ class ModuleSpec:
             )
 
 
-__all__ = ["AuthzRef", "ModuleSpec", "Policy", "Roles"]
+__all__ = ["AuthzRef", "ModuleAccess", "ModuleSpec", "Policy", "Roles"]

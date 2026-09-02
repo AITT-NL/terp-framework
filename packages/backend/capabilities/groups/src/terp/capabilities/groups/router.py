@@ -17,6 +17,7 @@ import uuid
 from fastapi import APIRouter
 
 from terp.core import (
+    ModuleAccess,
     ModuleSpec,
     Page,
     PaginationDep,
@@ -145,5 +146,8 @@ def remove_member(
 module = ModuleSpec(
     name="groups",
     router=router,
+    access=ModuleAccess.platform_only(
+        reason="group membership decides what grants reach whom, so it sits above any single module's roles",
+    ),
     policy=Policy(read_role=Roles.ADMIN, write_role=Roles.ADMIN),
 )

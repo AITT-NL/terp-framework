@@ -609,10 +609,17 @@ one global rank and a group carries none.
       of the `10 / 20 / 30` literals. Moved into phase 3, which supplies the source.
 - [~] Phase 2 the declarations. Done: `Permission.label` plus a `LabelCoverage`
       (`OFF`/`WARN`/`STRICT`) boot gate staged exactly like `OperationCoverage`, with the label
-      carried into the access graph and the example app running `STRICT`. The plan had called for
-      a *required* label; staged coverage is the right shape and §4.1 now records why. Left:
-      `ModuleAccess` on `ModuleSpec` (held until §3's fork is answered — it presupposes
-      assignment), a module claiming its permissions, and the §2.8 boot check.
+      carried into the access graph and the example app running `STRICT` — the plan had called for
+      a *required* label and §4.1 now records why staged coverage is the right shape.
+      `ModuleSpec(permissions=…)` claiming a module's permissions, cross-checked by value, emitted
+      on the module row of the access graph. And the §2.8 boot check: a route may not enforce a
+      permission the control plane does not declare, which caught the example app's own
+      `gated_app` fixture first. `ModuleAccess` on `ModuleSpec` — absent by default, so a module
+      takes no part until it says so; `assignable` requires a label as a constructor invariant
+      rather than a coverage knob; `platform_only(reason=…)` is the refusal, and `users`,
+      `groups`, `access` and `audit` all carry it, because per-module `admin` in `access` would
+      hand out every other authority. The access graph reports the module edge and the access
+      declaration, so the pane's data model is complete for the permission axis.
 - [ ] Phase 3 `decide()` extracted so the guard and the projection share one decision, then the
       in-app introspection endpoints — which is also where `roles.ts` gets its ladder.
 - [ ] Phase 4 `ModuleRole` + the resolver seam + the guard change.

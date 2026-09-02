@@ -152,12 +152,15 @@ converse and not the claim: everything offered is declared, while something enfo
 undeclared — and is then unreachable through the sanctioned write path, because `terp grant`
 and now the endpoint both refuse it.
 
-Deferred rather than fixed because closing it properly is a boot check ("every permission
-named at a route is declared") that would refuse the boot of any app relying on the loose
-form, and that belongs with the phase-2 declaration work where the same validation pass
-already runs — not smuggled into a cleanup commit. It matters for this design because the
-viewer's whole promise is that what it shows is what is enforced; an undeclared enforced
-permission is invisible to it.
+**Closed in phase 2b**, as a boot check in the same validation pass as the declarations, which
+is where it was deferred to. It is unconditional, like the no-drift half of every other
+catalog: what is tunable elsewhere is *coverage* — whether a declaration may be declined —
+never whether a declaration that exists has to resolve.
+
+The first thing it caught was the example app's own `gated_app` test fixture, which enforced
+`widgets.write` as a literal against an empty control plane: the exact shape described above,
+in this repository, in the file that teaches `require_permission`. The fixture now declares
+the permission and claims it on the spec.
 
 **2.9 A policy could cite a same-name authority at a different rank, and did not have to say
 so.** Found by reviewing the work above rather than by reading the original code, and fixed
@@ -250,13 +253,23 @@ module = ModuleSpec(
     name="notes",
     router=router,
     services=(NotesService,),
-    policy=Policy.default(),
-    access=ModuleAccess.grantable(
-        label="Notities",
-        summary="Losse aantekeningen bij een project.",
+    requires=("access",),
+    permissions=(NOTES_DELETE_PERMISSION,),
+    access=ModuleAccess(
+        label="Notes",
+        summary="Free-form notes, with deletion held behind a named grant.",
+        assignable=True,
     ),
+    policy=Policy.default(),
 )
 ```
+
+*(Shipped in phase 2b-ii, with one naming change from this section as first written.*
+`ModuleAccess.grantable(...)` *would have collided with the field it sets, and ADR 0112's own
+sentence is "a per-module role is an **assignment**", so the field is* `assignable` *and the only
+classmethod is the refusal —* `ModuleAccess.platform_only(reason=...)` *— exactly the shape*
+`Policy` *uses, where the ordinary case is constructed directly and the justified exception gets a
+named constructor.)*
 
 That is the whole authoring surface, and it is deliberately *not* a per-rung permission table: what
 each rung may do is **derived** (§4.3), so there is nothing to keep in sync and no way for a module
@@ -273,26 +286,32 @@ access=ModuleAccess.platform_only(
 )
 ```
 
-`users`, `groups`, `access` and `audit` ship with that declaration. Because the default is
-not-grantable, a new capability that forgets to think about this is safe by omission rather than
-dangerous by omission.
+`users`, `groups`, `access` and `audit` ship with that declaration, each with its own reason.
+Because the default is absence, a new capability that never considered the question is safe by
+omission rather than dangerous by omission — and one test asserts that *none* of the four is
+missing, which is the property that matters rather than any one of them individually.
 
-Coverage of the labels follows the `OperationCoverage` pattern exactly (ADR 0102): the feature is
-optional, the no-drift guarantee is not, and `STRICT` — every mounted, grantable module answers what
-it is called — is the intended end state, flipped after annotation rather than before, on the same
-open question as permission labels (ADR 0112).
+A module label needs no coverage knob, unlike a permission's. The requirement is a **constructor
+invariant** instead: an assignable `ModuleAccess` with no label raises. That is free where a
+permission's was not — the field is new, so there are no existing call sites to break — and it is
+the stronger control of the two, since it cannot be staged off. A module cannot ask to appear in
+an editor and decline to say what it is called.
 
 **Two additions from the design panel (§9, design A), both adopted.** A named permission is
 currently orphaned in two ways this design would otherwise have had to work around:
 
-- **It belongs to no module.** `Permission(name, min_role)` sits in one flat app-level tuple, so a
-  route-level `require_permission` extra has no module row to appear on except by parsing its
-  dotted prefix, which is a convention no gate enforces. Design A's mechanism is better than
-  guessing from the name: the module *claims* its permissions on the spec,
+- **It belongs to no module.** *(Shipped in phase 2b.)* `Permission(name, min_role)` sat in one
+  flat app-level tuple, so a route-level `require_permission` extra had no module row to appear on
+  except by parsing its dotted prefix — a convention no gate enforces, and one that says nothing
+  at all about a permission two modules share. Design A's mechanism is better than guessing from
+  the name: the module *claims* its permissions on the spec,
   `ModuleSpec(permissions=(NOTES_DELETE_PERMISSION,))`, standing to `PermissionModel` exactly as
   `emits=` stands to the `EventCatalog` — the module lists typed objects, the app registry declares
   them, and boot cross-checks by value. That is the repository's established no-drift shape, already
-  used three times (events, jobs, operations), so it costs no new pattern.
+  used three times (events, jobs, operations), so it costs no new pattern. The by-value half also
+  catches the *label* shadow that `shadowed_requirements` cannot see, since an
+  `AuthorizationRequirement` carries only a rank floor. The access graph now emits the edge, so a
+  module row and its permissions resolve without inference.
 - **It has no human label.** `OperationDefinition` carries one because ADR 0102 was written for a
   reader who cannot translate `DELETE /api/v1/files/{file_id}`; a permission has exactly the same
   reader and no such field. So `Permission` gains a `label` — one sentence saying what holding it

@@ -48,6 +48,7 @@ class ControlPlane:
             errors.extend(self._policy_errors(spec))
             errors.extend(self._event_errors(spec))
             errors.extend(self._job_errors(spec))
+            errors.extend(self._permission_errors(spec))
         errors.extend(self._schedule_errors())
         return tuple(errors)
 
@@ -94,6 +95,22 @@ class ControlPlane:
                     "reference the existing catalog constant"
                 )
         return errors
+
+    def _permission_errors(self, spec: ModuleSpec) -> list[str]:
+        """Every permission a module claims must be the registered entry (no drift).
+
+        The same guarantee, in the same words, that ``_event_errors`` and ``_job_errors``
+        already make for their catalogs. Matched by value, so a module cannot claim
+        ``notes.delete`` with a floor or a label the control plane does not declare and then
+        have a permission editor render its version of the row.
+        """
+        return [
+            f"module {spec.name!r} claims permission {permission.name!r} that is not "
+            "registered in the control plane's PermissionModel, or is registered with a "
+            "different minimum role or label; declare it there or reference the existing "
+            "constant"
+            for permission in self.permissions.missing_permissions(spec.permissions)
+        ]
 
     def _job_errors(self, spec: ModuleSpec) -> list[str]:
         """Every declared job must be the registered catalog entry (no drift, like events)."""

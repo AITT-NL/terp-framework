@@ -80,6 +80,7 @@ from terp.core.routing import (
     declared_operation,
     is_read_only,
     request_method,
+    required_permission,
 )
 from terp.core.throttling import (
     InMemoryThrottleStore,
@@ -764,6 +765,49 @@ def _validate_declared_operations(
             "operation coverage is WARN: %d mounted route(s) declare no operation: %s",
             len(undeclared),
             sorted(undeclared),
+        )
+
+
+def _validate_route_permissions_are_declared(
+    specs: Sequence[ModuleSpec], plane: ControlPlane
+) -> None:
+    """Fail closed on a route requiring a permission the control plane never declared.
+
+    ``require_permission`` accepts a name as well as a typed ``Permission``, and
+    constructing a ``Permission`` does not register it — only membership in
+    ``PermissionModel(permissions=…)`` does. So a route could enforce ``reports.export``
+    while the control plane declared nothing of the sort, and two things followed that
+    nobody chose:
+
+    * ``terp grant add`` and the grants endpoint both validate against the declared
+      catalog, so the permission the route enforces could not be granted through either
+      sanctioned path — the route was permanently closed rather than fine-grained;
+    * every view of the access surface projects the declared catalog, so the requirement
+      was invisible to the permission viewer that exists to explain it.
+
+    ADR 0089 says its command "can only ever offer permissions this app really enforces".
+    That was the intent and the converse of the guarantee: everything offered was declared,
+    while something enforced could be undeclared. This closes it from the other side.
+
+    Unconditional, like the no-drift half of every other catalog: what is tunable elsewhere
+    is *coverage* (whether a declaration may be declined), never whether a declaration that
+    exists has to resolve.
+    """
+    undeclared: list[str] = []
+    for spec in specs:
+        if spec.router is None:
+            continue
+        for route in _iter_declaring_routes(spec.router.routes):
+            for depends in getattr(route, "dependencies", ()) or ():
+                name = required_permission(getattr(depends, "dependency", None))
+                if name is not None and not plane.permissions.declares(name):
+                    undeclared.append(f"{_route_label(spec, route)} requires {name!r}")
+    if undeclared:
+        raise BootError(
+            "these routes require a permission the control plane does not declare: "
+            f"{sorted(undeclared)}. Declare each in the PermissionModel and reference the "
+            "constant at the route; a permission nothing declares cannot be granted through "
+            "terp grant or the access API, so the route is closed rather than fine-grained."
         )
 
 
@@ -1599,6 +1643,7 @@ def create_app(
     _validate_public_modules_read_only(collected)
     _validate_declared_operations(collected, resolved_plane.operations)
     _apply_declared_operations(collected)
+    _validate_route_permissions_are_declared(collected, resolved_plane)
     _validate_permission_labels(resolved_plane)
     _validate_background_jobs_preserve_ownership(collected)
     _validate_shared_throttle_store(throttle_store, require_shared_throttle_store)

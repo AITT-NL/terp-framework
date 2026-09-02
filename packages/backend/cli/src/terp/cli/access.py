@@ -221,6 +221,24 @@ def _module_access_json(spec: ModuleSpec) -> dict[str, object]:
         "name": spec.name,
         "prefix": f"/api/v1/{spec.name}" if spec.router is not None else None,
         "policy": _policy_json(spec),
+        # The permissions this module claims (``ModuleSpec.permissions``), by name. The
+        # module edge is what lets a permission editor render one row per module instead of
+        # inferring ownership from a dotted prefix; the names resolve against the graph's
+        # top-level ``permissions`` list, which carries each floor and label.
+        "permissions": sorted(permission.name for permission in spec.permissions),
+        # Whether this module takes part in per-module role assignment, and what it is
+        # called (ADR 0112). ``null`` where the module has not declared — which is the
+        # secure default, not a gap: absence means global rank only, as before.
+        "access": (
+            None
+            if spec.access is None
+            else {
+                "assignable": spec.access.assignable,
+                "label": spec.access.label or None,
+                "summary": spec.access.summary or None,
+                "platform_reason": spec.access.platform_reason,
+            }
+        ),
         "endpoints": endpoints,
         "models": models,
         "warnings": _module_warnings(spec, models),
@@ -460,6 +478,15 @@ def _render_access_text(graph: dict[str, object]) -> str:
                 f"  {','.join(endpoint['methods']):8} {endpoint['path']:40} "
                 f"{endpoint['requirement']}{extra}{does}"
             )
+        access = module.get("access")
+        if access is not None:
+            if access["platform_reason"]:
+                lines.append(f"  access platform-only ({access['platform_reason']})")
+            elif access["assignable"]:
+                lines.append(f"  access assignable as {access['label']!r}")
+        claimed = module.get("permissions") or []
+        if claimed:
+            lines.append(f"  permissions {', '.join(claimed)}")
         for model in module["models"]:
             read_scope = ", ".join(model["read_scope"]) or "none"
             write_authority = ", ".join(model["write_authority"]) or "role tier only"

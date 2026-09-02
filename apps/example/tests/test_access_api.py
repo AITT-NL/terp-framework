@@ -21,7 +21,18 @@ from sqlmodel import Session, SQLModel, create_engine
 from terp.capabilities.access import AccessService, require_permission
 from terp.capabilities.auth import create_access_token
 from terp.capabilities.auth import get_principal as auth_get_principal
-from terp.core import ModuleSpec, Policy, Principal, Roles, create_app, get_session
+from terp.core import (
+    VIEWER,
+    ControlPlane,
+    ModuleSpec,
+    Permission,
+    PermissionModel,
+    Policy,
+    Principal,
+    Roles,
+    create_app,
+    get_session,
+)
 
 
 # --- the service: the grant algebra ----------------------------------------- #
@@ -64,10 +75,18 @@ def gated_app() -> Iterator[tuple[FastAPI, Engine]]:
 
     gated = APIRouter(tags=["gated"])
 
+    # Declared, and claimed by the module that enforces it. This fixture used to pass the
+    # name as a literal against an empty control plane, which is exactly the hole the boot
+    # check now closes: a permission nothing declares cannot be granted through `terp grant`
+    # or the access API, so the route was closed rather than fine-grained.
+    widgets_write = Permission(
+        "widgets.write", min_role=VIEWER, label="Change a widget"
+    )
+
     @gated.post(
         "/act",
         response_model=str,
-        dependencies=[Depends(require_permission("widgets.write"))],
+        dependencies=[Depends(require_permission(widgets_write))],
     )
     async def act() -> str:
         return "ok"
@@ -75,11 +94,18 @@ def gated_app() -> Iterator[tuple[FastAPI, Engine]]:
     spec = ModuleSpec(
         name="gated",
         router=gated,
+        permissions=(widgets_write,),
         policy=Policy.public_write(
             reason="action is gated by a fine-grained grant, not a role"
         ),
     )
-    application = create_app([spec], principal_provider=auth_get_principal)
+    application = create_app(
+        [spec],
+        principal_provider=auth_get_principal,
+        control_plane=ControlPlane(
+            permissions=PermissionModel(permissions=(widgets_write,))
+        ),
+    )
 
     def _session_override() -> Iterator[Session]:
         with Session(engine) as session:

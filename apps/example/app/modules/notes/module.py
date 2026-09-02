@@ -10,21 +10,32 @@ capability: the route imports ``require_permission`` from it, and the declared e
 (ADR 0087) is what says out loud that this module does not work without it. The boot
 refuses to mount a module whose declared dependency is not installed, so the
 requirement cannot silently degrade into an unguarded delete.
+
+``permissions`` claims that permission for this module, which is what puts it on the
+``notes`` row of a permission editor rather than leaving its module to be guessed from the
+dotted prefix. The boot cross-checks the claim against the control plane by value.
 """
 
 from __future__ import annotations
 
-from terp.core import ModuleSpec, Policy
+from terp.core import ModuleAccess, ModuleSpec, Policy
 
 from app.modules.notes.router import router
 from app.modules.notes.service import NoteService
 from control_plane.events import NOTE_CREATED
+from control_plane.permissions import NOTES_DELETE_PERMISSION
 
 module = ModuleSpec(
     name="notes",
     router=router,
     services=(NoteService,),
     requires=("access",),
+    permissions=(NOTES_DELETE_PERMISSION,),
+    access=ModuleAccess(
+        label="Notes",
+        summary="Free-form notes, with deletion held behind a named grant.",
+        assignable=True,
+    ),
     policy=Policy.default(),
     emits=[NOTE_CREATED],
 )

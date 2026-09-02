@@ -9,7 +9,7 @@ import logging
 import uuid
 
 import pytest
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.testclient import TestClient
 from starlette.middleware import Middleware
 
@@ -508,6 +508,43 @@ def test_an_undeclared_route_boots_with_coverage_off_and_is_refused_under_strict
     )
     with pytest.raises(BootError, match="coverage is STRICT"):
         create_app([spec], control_plane=strict)
+
+
+def test_a_route_may_not_require_a_permission_the_control_plane_does_not_declare() -> None:
+    """§2.8: `require_permission` took a name, and a name did not have to be declared.
+
+    Two consequences nobody chose. The sanctioned write paths — `terp grant add` and
+    `POST /api/v1/access/grants` — both validate against the declared catalog, so a
+    permission only a route knew about could not be granted through either: the route was
+    permanently closed rather than fine-grained. And every view of the access surface
+    projects the declared catalog, so the requirement was invisible to the viewer that
+    exists to explain it.
+
+    Marked through the kernel's own `mark_required_permission` rather than the access
+    capability's `require_permission`, because the marker is the contract the boot check
+    reads and this keeps a core test core-only.
+    """
+    from terp.core import mark_required_permission
+
+    def holds_it() -> None:  # pragma: no cover - never called; only its marker is read
+        return None
+
+    router = APIRouter()
+
+    @router.post("/act", response_model=str, dependencies=[Depends(mark_required_permission(holds_it, "widgets.write"))])
+    def act() -> str:  # pragma: no cover - never called
+        return "ok"
+
+    spec = ModuleSpec(name="gated", router=router, policy=Policy.default())
+
+    with pytest.raises(BootError, match="does not declare"):
+        create_app([spec], control_plane=ControlPlane())
+
+    # Declared: it boots. Without this half the assertion above holds just as well against
+    # a check that refuses every marked route.
+    declared = Permission("widgets.write", min_role=VIEWER, label="Change a widget")
+    plane = ControlPlane(permissions=PermissionModel(permissions=(declared,)))
+    assert create_app([spec], control_plane=plane).title == "Terp app"
 
 
 def test_an_unlabelled_permission_boots_with_coverage_off_and_is_refused_under_strict() -> None:

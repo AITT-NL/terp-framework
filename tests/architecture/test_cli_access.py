@@ -155,6 +155,7 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
         ControlPlane,
         EDITOR,
         ModuleSpec,
+        ModuleAccess,
         Permission,
         PermissionModel,
         Policy,
@@ -173,7 +174,15 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
     def approve_widget() -> dict:  # pragma: no cover - never called
         return {}
 
-    spec = ModuleSpec(name="widgets", router=router, policy=Policy.default())
+    spec = ModuleSpec(
+        name="widgets",
+        router=router,
+        policy=Policy.default(),
+        permissions=(approve,),
+        access=ModuleAccess(
+            label="Widgets", summary="Things that get approved.", assignable=True
+        ),
+    )
     graph = build_access_graph(
         ControlPlane(permissions=PermissionModel(permissions=(approve, retire))), [spec]
     )
@@ -185,6 +194,17 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
         },
         {"name": "widgets.retire", "min_role": "editor", "label": None},
     ]
+    # The module edge, so a permission editor can put the row under `widgets` rather than
+    # inferring ownership from the dotted prefix. `retire` is declared but unclaimed, which
+    # is what makes this an assertion about the claim and not about the catalog.
+    assert graph["modules"][0]["permissions"] == ["widgets.approve"]
+    # And whether the module takes part at all, with the text a pane renders.
+    assert graph["modules"][0]["access"] == {
+        "assignable": True,
+        "label": "Widgets",
+        "summary": "Things that get approved.",
+        "platform_reason": None,
+    }
     (module,) = graph["modules"]
     (endpoint,) = module["endpoints"]
     assert endpoint["extra_permissions"] == ["widgets.approve"]

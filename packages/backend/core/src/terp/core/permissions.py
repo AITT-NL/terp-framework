@@ -231,6 +231,30 @@ class PermissionModel:
                 shadows.append(requirement)
         return tuple(shadows)
 
+    def has_permission(self, permission: Permission) -> bool:
+        """Whether *permission* is the canonical entry registered for its name.
+
+        Matched by **value**, exactly as the event, job and operation catalogs match theirs,
+        and for the reason all three docstrings give: a same-name declaration carrying a
+        different floor or a different label is a *shadow*, and accepting it would let a
+        module claim one thing while the control plane documents another.
+        """
+        return self._permissions_by_name.get(permission.name) == permission
+
+    def missing_permissions(
+        self, permissions: Iterable[Permission]
+    ) -> tuple[Permission, ...]:
+        """Every permission that is not this model's registered entry, by value."""
+        return tuple(p for p in permissions if not self.has_permission(p))
+
+    def declares(self, name: str) -> bool:
+        """Whether a permission called *name* is declared at all.
+
+        The name-only question, for the one caller that has only a name: a route-level
+        ``require_permission`` marker records the permission's name, not the object.
+        """
+        return name in self._permissions_by_name
+
     def unlabelled_permissions(self) -> tuple[Permission, ...]:
         """Every declared permission carrying no label, in declaration order.
 

@@ -123,7 +123,7 @@ from terp.core.migrations import (
     resolve_migration_target,
     resolve_migration_trees,
 )
-from terp.core.module_spec import ModuleSpec, Policy, Roles
+from terp.core.module_spec import ModuleAccess, ModuleSpec, Policy, Roles
 from terp.core.object_authz import (
     ObjectAuthzPredicate,
     register_object_authz_predicate,
@@ -254,6 +254,7 @@ __all__ = [
     "LeaseStore",
     "MigrationDiscoveryError",
     "MigrationTree",
+    "ModuleAccess",
     "ModuleSpec",
     "NotFoundError",
     "ObjectAuthzPredicate",

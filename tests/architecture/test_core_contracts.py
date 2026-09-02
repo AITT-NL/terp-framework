@@ -19,6 +19,7 @@ from terp.core import (
     BaseTable,
     BaseUpdateSchema,
     ControlPlane,
+    ModuleAccess,
     Permission,
     PermissionModel,
     ModuleSpec,
@@ -87,6 +88,84 @@ def test_control_plane_validates_policy_references() -> None:
     assert plane.validation_errors([bad]) == (
         "module 'billing' policy references undeclared 'permission:billing.write'",
     )
+
+
+def test_module_access_is_absent_by_default_and_refuses_a_contradiction() -> None:
+    """Secure by default through absence, and the invariants that keep a pane honest.
+
+    A `ModuleSpec` with no `access` declaration does not take part in per-module assignment
+    (ADR 0112) — which is today's behaviour, so a capability that never considered the
+    question is safe by omission. Opting in requires a label as a *constructor* invariant
+    rather than a coverage-gated one: the field is new and has no call sites to break, and a
+    module cannot ask to appear in an editor and decline to say what it is called.
+    """
+    assert ModuleSpec(name="notes").access is None
+
+    opted_in = ModuleAccess(label="Notes", summary="Free-form notes.", assignable=True)
+    assert opted_in.is_platform_only is False
+
+    refused = ModuleAccess.platform_only(reason="grants hand out every other authority")
+    assert refused.is_platform_only is True
+    assert refused.assignable is False
+
+    with pytest.raises(ValueError, match="requires a label"):
+        ModuleAccess(assignable=True)
+    with pytest.raises(ValueError, match="non-empty justification"):
+        ModuleAccess.platform_only(reason="   ")
+    # Both at once is the contradiction that matters: it would put a module that administers
+    # the platform's own authority into the editor as an assignable row.
+    with pytest.raises(ValueError, match="both assignable and platform_only"):
+        ModuleAccess(label="Users", assignable=True, platform_reason="also platform")
+
+
+def test_the_platform_capabilities_refuse_per_module_assignment() -> None:
+    """Per-module `admin` in the wrong module is a way around the ladder, not a use of it.
+
+    `admin` in `users` provisions accounts and `admin` in `access` grants anything to
+    anyone, so the four capabilities that administer the platform's own authority declare
+    that they are never assignable — each with a reason, in the shape `Policy.public` uses
+    for its own justified exception. Asserted here rather than in each capability's own
+    tests because the property that matters is that *none* of them is missing.
+    """
+    from terp.capabilities.access.router import module as access_module
+    from terp.capabilities.audit.router import module as audit_module
+    from terp.capabilities.groups.router import module as groups_module
+    from terp.capabilities.users.router import module as users_module
+
+    for module in (users_module, groups_module, access_module, audit_module):
+        assert module.access is not None, module.name
+        assert module.access.is_platform_only, module.name
+        assert module.access.platform_reason
+        assert module.access.assignable is False, module.name
+
+
+def test_a_module_may_only_claim_the_registered_permission_by_value() -> None:
+    """`ModuleSpec.permissions` stands to the model as `emits` stands to the event catalog.
+
+    Matched by value, which is what the event, job and operation catalogs all do and all
+    say why: a same-name claim carrying a different floor or a different label would let a
+    module present its version of a row while the control plane documents another. This is
+    also where a *label* shadow is caught — `shadowed_requirements` compares only rank
+    floors, because an `AuthorizationRequirement` does not carry the label.
+    """
+    declared = Permission("notes.delete", min_role=EDITOR, label="Delete a note")
+    plane = ControlPlane(permissions=PermissionModel(permissions=[declared]))
+
+    def claiming(permission: Permission) -> ModuleSpec:
+        return ModuleSpec(
+            name="notes", policy=Policy.default(), permissions=(permission,)
+        )
+
+    assert plane.validation_errors([claiming(declared)]) == ()
+
+    for wrong, why in (
+        (Permission("notes.delete", min_role=VIEWER, label="Delete a note"), "floor"),
+        (Permission("notes.delete", min_role=EDITOR, label="Remove a note"), "label"),
+        (Permission("notes.archive", min_role=EDITOR, label="Archive a note"), "name"),
+    ):
+        (error,) = plane.validation_errors([claiming(wrong)])
+        assert "claims permission" in error, why
+        assert wrong.name in error, why
 
 
 def test_control_plane_refuses_a_policy_citing_a_same_name_authority_at_another_rank() -> None:

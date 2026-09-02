@@ -20,6 +20,7 @@ from fastapi import APIRouter, Request
 
 from terp.core import (
     ErrorDetail,
+    ModuleAccess,
     ModuleSpec,
     Page,
     PaginationDep,
@@ -125,5 +126,8 @@ def delete_grant(grant_id: uuid.UUID, session: SessionDep) -> None:
 module = ModuleSpec(
     name="access",
     router=router,
+    access=ModuleAccess.platform_only(
+        reason="administering grants is the authority that hands out every other authority; a per-module admin here would be a way around the ladder",
+    ),
     policy=Policy(read_role=Roles.ADMIN, write_role=Roles.ADMIN),
 )
