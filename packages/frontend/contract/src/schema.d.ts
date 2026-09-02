@@ -39,6 +39,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/access/model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * See which roles exist and what each one may do
+         * @description The declared authority surface: the ladder, the permissions, and every module.
+         *
+         *     The read half of a permission editor, and the reason the projection it is built on moved
+         *     into the kernel: this capability cannot import ``terp.cli``, where ``terp inspect access``
+         *     lives. One builder, so the pane and the audit view cannot disagree about who may do what.
+         *
+         *     Derivation over what ``create_app`` recorded on ``app.state`` — no database read at all,
+         *     which is why it says nothing about *who holds* anything. That question needs the grant
+         *     rows and is a different endpoint.
+         *
+         *     Admin-only, through this module's own ``Policy``. The permission topology is a map of
+         *     where the doors are, so it is not something an under-privileged caller should be able to
+         *     enumerate; a caller asking what *they themselves* may do is answered by ``GET /me``
+         *     (ADR 0096), which needs no privilege because it only ever reports the caller's own.
+         */
+        get: operations["access.get_model"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit/": {
         parameters: {
             query?: never;
@@ -327,6 +360,115 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AccessEndpointRead
+         * @description One mounted route and the authority that applies to it.
+         */
+        AccessEndpointRead: {
+            /** By Role */
+            by_role: components["schemas"]["AccessRoleOutcomeRead"][];
+            /** Extra Permissions */
+            extra_permissions: string[];
+            /** Methods */
+            methods: string[];
+            /** Name */
+            name: string;
+            operation: components["schemas"]["AccessOperationRead"] | null;
+            /** Path */
+            path: string;
+            /** Requirement */
+            requirement: string;
+        };
+        /**
+         * AccessModelRead
+         * @description The declared authority surface: the ladder, the permissions, and every module.
+         */
+        AccessModelRead: {
+            /** Modules */
+            modules: components["schemas"]["AccessModuleRead"][];
+            /** Permissions */
+            permissions: components["schemas"]["AccessPermissionRead"][];
+            /** Roles */
+            roles: components["schemas"]["AccessRoleRead"][];
+        };
+        /**
+         * AccessModuleRead
+         * @description One module's declared authority.
+         */
+        AccessModuleRead: {
+            access: components["schemas"]["ModuleAccessRead"] | null;
+            /** Endpoints */
+            endpoints: components["schemas"]["AccessEndpointRead"][];
+            /** Name */
+            name: string;
+            /** Permissions */
+            permissions: string[];
+            policy: components["schemas"]["AccessPolicyRead"] | null;
+            /** Prefix */
+            prefix: string | null;
+        };
+        /**
+         * AccessOperationRead
+         * @description What a route does, in the source language (ADR 0102).
+         */
+        AccessOperationRead: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+        };
+        /**
+         * AccessPermissionRead
+         * @description One declared permission: its name, its rank floor, and what holding it buys.
+         */
+        AccessPermissionRead: {
+            /** Label */
+            label: string | null;
+            /** Min Role */
+            min_role: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * AccessPolicyRead
+         * @description A module's declared posture. ``public`` decides which of the other fields apply.
+         */
+        AccessPolicyRead: {
+            /** Allows Public Writes */
+            allows_public_writes?: boolean | null;
+            /** Authenticated */
+            authenticated?: boolean | null;
+            /** Public */
+            public: boolean;
+            /** Public Reason */
+            public_reason?: string | null;
+            /** Read */
+            read?: string | null;
+            /** Write */
+            write?: string | null;
+        };
+        /**
+         * AccessRoleOutcomeRead
+         * @description What one rung gets on one route, replayed through the kernel guard's own decision.
+         */
+        AccessRoleOutcomeRead: {
+            /** Allowed */
+            allowed: boolean;
+            /** Reason */
+            reason: string;
+            /** Role */
+            role: string;
+        };
+        /**
+         * AccessRoleRead
+         * @description One rung of the app's declared ladder.
+         */
+        AccessRoleRead: {
+            /** Name */
+            name: string;
+            /** Rank */
+            rank: number;
+        };
         /** AccessToken */
         AccessToken: {
             /** Access Token */
@@ -521,6 +663,20 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * ModuleAccessRead
+         * @description Whether a module takes part in per-module role assignment (ADR 0112).
+         */
+        ModuleAccessRead: {
+            /** Assignable */
+            assignable: boolean;
+            /** Label */
+            label: string | null;
+            /** Platform Reason */
+            platform_reason: string | null;
+            /** Summary */
+            summary: string | null;
         };
         /** Page[AuditEventRead] */
         Page_AuditEventRead_: {
@@ -764,6 +920,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "access.get_model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessModelRead"];
                 };
             };
         };

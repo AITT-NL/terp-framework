@@ -18,7 +18,8 @@ import { useStrings } from "../uiText";
 import { unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
-import { adminRoleLabel, adminRoleOptions } from "./roles";
+import { adminRoleLabel } from "./roles";
+import { useAccessLadder } from "./useAccessLadder";
 
 type UserRead = components["schemas"]["UserRead"];
 
@@ -38,7 +39,7 @@ export function UserDetail() {
   const [resetOpen, setResetOpen] = useState(false);
   const [resetPassword, setResetPassword] = useState("");
   const [resetting, setResetting] = useState(false);
-  const roles = adminRoleOptions(strings);
+  const { rungs } = useAccessLadder(strings);
 
   useEffect(() => {
     setPendingLifecycle(null);
@@ -114,7 +115,7 @@ export function UserDetail() {
   }
 
   const pendingRole = pendingLifecycle?.kind === "role"
-    ? adminRoleLabel(strings, pendingLifecycle.rank)
+    ? adminRoleLabel(rungs, pendingLifecycle.rank)
     : "";
   const lifecycleDescription = pendingLifecycle?.kind === "role"
     ? strings.changeRoleConfirm.replace("{role}", pendingRole)
@@ -144,7 +145,7 @@ export function UserDetail() {
             </Button>
           }
           overflow={[
-            ...roles
+            ...rungs
               .filter((option) => option.rank !== record.role)
               .map((option) => ({
                 label: strings.makeRole.replace("{role}", option.label.toLowerCase()),
@@ -170,7 +171,7 @@ export function UserDetail() {
         <DetailList
           items={[
             { label: strings.email, value: record.email },
-            { label: strings.role, value: adminRoleLabel(strings, record.role) },
+            { label: strings.role, value: adminRoleLabel(rungs, record.role) },
             {
               label: strings.statusColumn,
               value: record.is_active ? strings.statusActive : strings.statusDeactivated,

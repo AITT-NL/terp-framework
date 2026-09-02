@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import { Field } from "../Field";
@@ -17,7 +17,8 @@ import { unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
 import { routeFieldErrors } from "./fieldErrors";
-import { adminRoleOptions } from "./roles";
+import { lowestRank } from "./roles";
+import { useAccessLadder } from "./useAccessLadder";
 
 const FORM_ID = "terp-admin-user-create";
 
@@ -32,10 +33,19 @@ export function UserCreate() {
   const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("10");
+  // Empty until the declared ladder arrives. The literal "10" this replaced was the
+  // packaged viewer rank, so an app whose lowest rung is 5 was provisioning accounts a tier
+  // above its own floor — and one that does not declare 10 at all was provisioning at a rank
+  // the server would refuse.
+  const [role, setRole] = useState("");
   const [creating, setCreating] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({});
-  const roles = adminRoleOptions(strings);
+  const { rungs, loading: ladderLoading } = useAccessLadder(strings);
+
+  useEffect(() => {
+    const lowest = lowestRank(rungs);
+    if (role === "" && lowest !== null) setRole(String(lowest));
+  }, [rungs, role]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -90,7 +100,7 @@ export function UserCreate() {
               type="submit"
               form={FORM_ID}
               icon={<Icon name="plus" />}
-              disabled={creating}
+              disabled={creating || ladderLoading || role === ""}
             >
               {creating ? strings.working : strings.provisionUser}
             </Button>
@@ -129,7 +139,7 @@ export function UserCreate() {
                 `String(rank)` is the option value and `role` stays a string until the POST body
                 coerces it. The typed half has its exhibit in an app that owns an enum. */}
             <Select
-              options={roles.map((option) => ({
+              options={rungs.map((option) => ({
                 value: String(option.rank),
                 label: option.label,
               }))}

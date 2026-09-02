@@ -18,6 +18,7 @@ from terp.core import OperationCatalog, OperationCoverage, OperationDefinition
 from terp.capabilities.access import (
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
+    ACCESS_GET_MODEL,
     ACCESS_LIST_GRANTS,
 )
 from terp.capabilities.audit import AUDIT_LIST_EVENTS
@@ -131,6 +132,7 @@ operation_catalog = OperationCatalog(
         ACCESS_LIST_GRANTS,
         ACCESS_CREATE_GRANT,
         ACCESS_DELETE_GRANT,
+        ACCESS_GET_MODEL,
         AUDIT_LIST_EVENTS,
         AUTH_LOGIN,
         AUTH_TOKEN,

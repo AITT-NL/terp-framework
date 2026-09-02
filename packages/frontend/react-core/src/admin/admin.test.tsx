@@ -156,6 +156,22 @@ function stubAdminFetch() {
         role_name: "admin",
       });
     }
+    if (path.endsWith("/api/v1/access/model")) {
+      // The admin screens read the role ladder from the access model rather than from three
+      // literals in `roles.ts`, so the mock has to answer it. Declaring a fourth rung here is
+      // deliberate: it is what proves the screens render the ladder the *app* declares, which
+      // a viewer/editor/admin fixture could never observe.
+      return jsonResponse({
+        roles: [
+          { name: "viewer", rank: 10 },
+          { name: "editor", rank: 20 },
+          { name: "approver", rank: 25 },
+          { name: "admin", rank: 30 },
+        ],
+        permissions: [],
+        modules: [],
+      });
+    }
     if (path.endsWith("/api/v1/users/u1")) {
       if (request.method === "PATCH") {
         return jsonResponse({
@@ -459,6 +475,51 @@ describe("the packaged admin area", () => {
       const request = input as Request;
       return request.method === "POST" && request.url.endsWith("/api/v1/users/");
     })).toBe(true);
+  });
+
+  it("offers the ladder the app declares, not the three ranks the framework ships", async () => {
+    // `roles.ts` used to return ranks 10/20/30 as literals, so an app that declared a fourth
+    // rung got a three-rung admin UI while ADR 0022 promised the role model was the app's.
+    // The ladder now comes from `GET /api/v1/access/model`, and the fixture declares
+    // `approver` at 25 precisely so this can observe it: a viewer/editor/admin fixture would
+    // pass against the old literals too.
+    const { fetchMock } = renderAdminApp("/admin/users/new");
+    await screen.findByRole("heading", { level: 1, name: "Provision user" });
+
+    // Waited on the rung itself, not the heading: the heading resolves before the model
+    // fetch settles, and asserting then would have been asserting on an empty ladder.
+    await screen.findByRole("option", { name: "approver" });
+    const select = screen.getByLabelText("Role") as HTMLSelectElement;
+    const offered = [...select.options].map((option) => [option.value, option.textContent]);
+    expect(offered).toEqual([
+      ["10", "Viewer"],
+      ["20", "Editor"],
+      // No framework translation exists for a rung the app invented, so it renders under the
+      // name its author gave it — which beats the `rank 25` the old rank-only fallback showed.
+      ["25", "approver"],
+      ["30", "Administrator"],
+    ]);
+
+    // And the form starts on the least privileged *declared* rung. Asserted through the
+    // request body rather than `select.value`, which cannot observe it: with no option
+    // matching the state, HTML's own selectedness algorithm shows the first one anyway, so a
+    // value assertion passed even against a default of 99. The posted rank is the thing that
+    // decides what the account actually gets.
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "new.account@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "strong-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+    await screen.findByRole("heading", { level: 1, name: "new.account@example.com" });
+
+    const posted = fetchMock.mock.calls.find(([input]) => {
+      const request = input as Request;
+      return request.method === "POST" && request.url.endsWith("/api/v1/users/");
+    });
+    const body = (await (posted![0] as Request).json()) as { role: number };
+    expect(body.role).toBe(10);
   });
 
   it("puts a 422's reason under the field it names instead of floating it in a toast", async () => {

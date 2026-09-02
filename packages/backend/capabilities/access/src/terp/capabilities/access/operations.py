@@ -18,5 +18,13 @@ ACCESS_CREATE_GRANT = OperationDefinition(
 ACCESS_DELETE_GRANT = OperationDefinition(
     id="access.delete_grant", label="Remove a granted permission"
 )
+ACCESS_GET_MODEL = OperationDefinition(
+    id="access.get_model", label="See which roles exist and what each one may do"
+)
 
-__all__ = ["ACCESS_CREATE_GRANT", "ACCESS_DELETE_GRANT", "ACCESS_LIST_GRANTS"]
+__all__ = [
+    "ACCESS_CREATE_GRANT",
+    "ACCESS_DELETE_GRANT",
+    "ACCESS_GET_MODEL",
+    "ACCESS_LIST_GRANTS",
+]

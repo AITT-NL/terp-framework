@@ -437,11 +437,16 @@ Two honesty rules carry over, and both are already latent in the graph:
 The graph becomes readable inside the app, admin-only, from the data already on `app.state`:
 
 ```
-GET  /api/v1/access/model            -> the declared model: ladder, grantable modules, per-rung operations
+GET  /api/v1/access/model            -> the declared model: ladder, permissions, modules, per-rung outcomes
 GET  /api/v1/access/subjects/{id}    -> one subject's effective access, with the provenance of every right
 GET  /api/v1/access/operations/{id}  -> who can perform this operation, and how
 POST /api/v1/access/preview          -> the delta a proposed assignment would produce, committing nothing
 ```
+
+*(`/model` shipped in phase 3, admin-only and typed end to end — the DTOs are not ceremony but
+the pane's types, since the frontend contract is generated from this app's OpenAPI document
+(ADR 0041). The other three need the assignment rows or the subject seams, so they move to
+phase 4 with the machinery they depend on.)*
 
 `/model` is derivation over `app.state` with no database read, so it is cacheable per boot. It is
 served over `terp.core.authz.build_access_model`, which is where the shared projection now lives:
@@ -618,10 +623,11 @@ expected output.
          `terp grant` already does (§2.5), returning the catalog in the error `details` so a
          permission editor can offer the valid choices rather than asking someone to retype a
          name it has already rejected.
-   - [ ] `roles.ts` reads the app's declared ladder instead of the `10 / 20 / 30` literals
-         (§2.4). **Moved to phase 3**: the honest fix needs a source for the ladder, and that
-         source is the introspection endpoint. Doing it now would only trade hardcoded literals
-         in one file for a hardcoded default in another.
+   - [x] `roles.ts` reads the app's declared ladder instead of the `10 / 20 / 30` literals
+         (§2.4). Deferred to phase 3 and landed there, because the honest fix needed a source
+         for the ladder and that source is the introspection endpoint — doing it in phase 1
+         would only have traded hardcoded literals in one file for a hardcoded default in
+         another. `UserCreate`'s `useState("10")` was the second half of the same defect.
 2. **The declarations** — all of it declaration-only, so nothing changes behaviour yet:
    `ModuleAccess.grantable` / `platform_only` on `ModuleSpec` with labels, boot validation and
    `OperationCoverage`-shaped label coverage; `ModuleSpec(permissions=(…))` cross-checked against

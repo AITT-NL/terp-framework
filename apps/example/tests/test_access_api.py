@@ -234,6 +234,71 @@ def test_deleting_a_note_needs_the_grant_on_top_of_the_write_tier(
     assert client.get(f"/api/v1/notes/{note_id}").status_code == 404
 
 
+def test_the_access_model_is_served_to_an_admin_and_refused_to_everyone_else(
+    client_factory,
+) -> None:
+    """`GET /model` is the read half of a permission editor, and it is admin-only.
+
+    The permission topology is a map of where the doors are, so an under-privileged caller
+    should not be able to enumerate it. A caller asking what *they themselves* may do is a
+    different question, answered by `GET /me` (ADR 0096), which needs no privilege because
+    it only ever reports the caller's own.
+    """
+    admin = client_factory(Principal(id=uuid.uuid4(), role=Roles.ADMIN))
+    model = admin.get("/api/v1/access/model")
+    assert model.status_code == 200
+    body = model.json()
+
+    # The ladder comes from the app's own PermissionModel, rank-ascending.
+    assert [role["name"] for role in body["roles"]] == ["viewer", "editor", "admin"]
+    # The catalog carries the label, which is the text a pane puts beside the row.
+    assert body["permissions"] == [
+        {
+            "name": "notes.delete",
+            "min_role": "editor",
+            "label": "Delete a note someone else wrote",
+        }
+    ]
+
+    notes = next(module for module in body["modules"] if module["name"] == "notes")
+    assert notes["access"] == {
+        "assignable": True,
+        "label": "Notes",
+        "summary": "Free-form notes, with deletion held behind a named grant.",
+        "platform_reason": None,
+    }
+    assert notes["permissions"] == ["notes.delete"]
+
+    # The route that needs the grant reports every rung as needing it: the module policy
+    # lets an editor write, and the route-level requirement is the second gate. A pane that
+    # showed `allowed` here would be disagreeing with the guard.
+    delete = next(
+        endpoint
+        for endpoint in notes["endpoints"]
+        if endpoint["methods"] == ["DELETE"]
+    )
+    assert delete["extra_permissions"] == ["notes.delete"]
+    assert delete["operation"] == {"id": "notes.delete_note", "label": "Delete a note"}
+    assert delete["by_role"] == [
+        {"role": "viewer", "allowed": False, "reason": "rank"},
+        {"role": "editor", "allowed": False, "reason": "grant"},
+        {"role": "admin", "allowed": False, "reason": "grant"},
+    ]
+
+    # The platform's own modules say they are never per-module assignable (ADR 0112).
+    users = next(module for module in body["modules"] if module["name"] == "users")
+    assert users["access"]["assignable"] is False
+    assert users["access"]["platform_reason"]
+
+    assert (
+        client_factory(Principal(id=uuid.uuid4(), role=Roles.EDITOR))
+        .get("/api/v1/access/model")
+        .status_code
+        == 403
+    )
+    assert client_factory(None).get("/api/v1/access/model").status_code == 401
+
+
 def test_an_unauthenticated_caller_cannot_read_grants(client_factory) -> None:
     client = client_factory(None)
     response = client.get("/api/v1/access/grants", params={"subject_id": str(uuid.uuid4())})

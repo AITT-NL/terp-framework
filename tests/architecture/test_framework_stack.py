@@ -44,6 +44,7 @@ import terp.capabilities.identity.models  # noqa: F401  (register User table)
 from terp.capabilities.access import (
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
+    ACCESS_GET_MODEL,
     ACCESS_LIST_GRANTS,
     AccessService,
     enforce_permission,
@@ -93,6 +94,7 @@ _OPERATIONS = OperationCatalog(
         ACCESS_LIST_GRANTS,
         ACCESS_CREATE_GRANT,
         ACCESS_DELETE_GRANT,
+        ACCESS_GET_MODEL,
         AUDIT_LIST_EVENTS,
     )
 )

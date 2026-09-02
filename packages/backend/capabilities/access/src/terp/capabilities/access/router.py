@@ -21,6 +21,7 @@ from fastapi import APIRouter, Request
 from terp.core import (
     ErrorDetail,
     ModuleAccess,
+    build_access_model,
     ModuleSpec,
     Page,
     PaginationDep,
@@ -34,9 +35,10 @@ from terp.core import (
 from terp.capabilities.access.operations import (
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
+    ACCESS_GET_MODEL,
     ACCESS_LIST_GRANTS,
 )
-from terp.capabilities.access.schemas import GrantCreate, GrantRead
+from terp.capabilities.access.schemas import AccessModelRead, GrantCreate, GrantRead
 from terp.capabilities.access.service import AccessService
 
 router = APIRouter(tags=["access"])
@@ -91,6 +93,35 @@ def _refuse_undeclared(request: Request, permission: str) -> None:
             ),
         ),
     )
+
+
+@router.get("/model", response_model=AccessModelRead)
+@operation(ACCESS_GET_MODEL)
+def get_access_model(request: Request) -> AccessModelRead:
+    """The declared authority surface: the ladder, the permissions, and every module.
+
+    The read half of a permission editor, and the reason the projection it is built on moved
+    into the kernel: this capability cannot import ``terp.cli``, where ``terp inspect access``
+    lives. One builder, so the pane and the audit view cannot disagree about who may do what.
+
+    Derivation over what ``create_app`` recorded on ``app.state`` — no database read at all,
+    which is why it says nothing about *who holds* anything. That question needs the grant
+    rows and is a different endpoint.
+
+    Admin-only, through this module's own ``Policy``. The permission topology is a map of
+    where the doors are, so it is not something an under-privileged caller should be able to
+    enumerate; a caller asking what *they themselves* may do is answered by ``GET /me``
+    (ADR 0096), which needs no privilege because it only ever reports the caller's own.
+    """
+    plane = getattr(request.app.state, "terp_control_plane", None)
+    specs = getattr(request.app.state, "terp_module_specs", None)
+    if plane is None or specs is None:
+        raise ValidationFailedError(
+            "this app exposes no control plane, so its authority surface cannot be "
+            "projected; compose it with create_app",
+            details=(ErrorDetail(code="no_control_plane"),),
+        )
+    return AccessModelRead.model_validate(build_access_model(plane, specs))
 
 
 @router.get("/grants", response_model=Page[GrantRead])

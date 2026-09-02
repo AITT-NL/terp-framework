@@ -1,6 +1,324 @@
 {
   "components": {
     "schemas": {
+      "AccessEndpointRead": {
+        "description": "One mounted route and the authority that applies to it.",
+        "properties": {
+          "by_role": {
+            "items": {
+              "$ref": "#/components/schemas/AccessRoleOutcomeRead"
+            },
+            "title": "By Role",
+            "type": "array"
+          },
+          "extra_permissions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extra Permissions",
+            "type": "array"
+          },
+          "methods": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Methods",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessOperationRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "requirement": {
+            "title": "Requirement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "methods",
+          "requirement",
+          "extra_permissions",
+          "name",
+          "operation",
+          "by_role"
+        ],
+        "title": "AccessEndpointRead",
+        "type": "object"
+      },
+      "AccessModelRead": {
+        "description": "The declared authority surface: the ladder, the permissions, and every module.",
+        "properties": {
+          "modules": {
+            "items": {
+              "$ref": "#/components/schemas/AccessModuleRead"
+            },
+            "title": "Modules",
+            "type": "array"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/AccessPermissionRead"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/AccessRoleRead"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "roles",
+          "permissions",
+          "modules"
+        ],
+        "title": "AccessModelRead",
+        "type": "object"
+      },
+      "AccessModuleRead": {
+        "description": "One module's declared authority.",
+        "properties": {
+          "access": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModuleAccessRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endpoints": {
+            "items": {
+              "$ref": "#/components/schemas/AccessEndpointRead"
+            },
+            "title": "Endpoints",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessPolicyRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix"
+          }
+        },
+        "required": [
+          "name",
+          "prefix",
+          "policy",
+          "permissions",
+          "access",
+          "endpoints"
+        ],
+        "title": "AccessModuleRead",
+        "type": "object"
+      },
+      "AccessOperationRead": {
+        "description": "What a route does, in the source language (ADR 0102).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "AccessOperationRead",
+        "type": "object"
+      },
+      "AccessPermissionRead": {
+        "description": "One declared permission: its name, its rank floor, and what holding it buys.",
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "min_role": {
+            "title": "Min Role",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "min_role",
+          "label"
+        ],
+        "title": "AccessPermissionRead",
+        "type": "object"
+      },
+      "AccessPolicyRead": {
+        "description": "A module's declared posture. ``public`` decides which of the other fields apply.",
+        "properties": {
+          "allows_public_writes": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allows Public Writes"
+          },
+          "authenticated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authenticated"
+          },
+          "public": {
+            "title": "Public",
+            "type": "boolean"
+          },
+          "public_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Reason"
+          },
+          "read": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read"
+          },
+          "write": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Write"
+          }
+        },
+        "required": [
+          "public"
+        ],
+        "title": "AccessPolicyRead",
+        "type": "object"
+      },
+      "AccessRoleOutcomeRead": {
+        "description": "What one rung gets on one route, replayed through the kernel guard's own decision.",
+        "properties": {
+          "allowed": {
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "allowed",
+          "reason"
+        ],
+        "title": "AccessRoleOutcomeRead",
+        "type": "object"
+      },
+      "AccessRoleRead": {
+        "description": "One rung of the app's declared ladder.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "rank"
+        ],
+        "title": "AccessRoleRead",
+        "type": "object"
+      },
       "AccessToken": {
         "properties": {
           "access_token": {
@@ -634,6 +952,56 @@
           "password"
         ],
         "title": "LoginRequest",
+        "type": "object"
+      },
+      "ModuleAccessRead": {
+        "description": "Whether a module takes part in per-module role assignment (ADR 0112).",
+        "properties": {
+          "assignable": {
+            "title": "Assignable",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "platform_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Reason"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "assignable",
+          "label",
+          "summary",
+          "platform_reason"
+        ],
+        "title": "ModuleAccessRead",
         "type": "object"
       },
       "NoteCreate": {
@@ -1964,6 +2332,28 @@
           }
         },
         "summary": "Remove a granted permission",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/model": {
+      "get": {
+        "description": "The declared authority surface: the ladder, the permissions, and every module.\n\nThe read half of a permission editor, and the reason the projection it is built on moved\ninto the kernel: this capability cannot import ``terp.cli``, where ``terp inspect access``\nlives. One builder, so the pane and the audit view cannot disagree about who may do what.\n\nDerivation over what ``create_app`` recorded on ``app.state`` \u2014 no database read at all,\nwhich is why it says nothing about *who holds* anything. That question needs the grant\nrows and is a different endpoint.\n\nAdmin-only, through this module's own ``Policy``. The permission topology is a map of\nwhere the doors are, so it is not something an under-privileged caller should be able to\nenumerate; a caller asking what *they themselves* may do is answered by ``GET /me``\n(ADR 0096), which needs no privilege because it only ever reports the caller's own.",
+        "operationId": "access.get_model",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessModelRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "See which roles exist and what each one may do",
         "tags": [
           "access"
         ]

@@ -605,8 +605,9 @@ one global rank and a group carries none.
       example app's first declared named permission (`notes.delete`, gating note deletion
       on top of the write tier), and catalog validation on `POST /api/v1/access/grants`
       with the catalog returned in the error `details`.
-- [ ] Phase 1 remainder: `react-core`'s `roles.ts` reads the app's declared ladder instead
-      of the `10 / 20 / 30` literals. Moved into phase 3, which supplies the source.
+- [x] Phase 1 remainder: `react-core`'s `roles.ts` reads the app's declared ladder instead
+      of the `10 / 20 / 30` literals. Landed in phase 3, which supplied the source.
+      `UserCreate`'s `useState("10")` was the second half of the same defect.
 - [~] Phase 2 the declarations. Done: `Permission.label` plus a `LabelCoverage`
       (`OFF`/`WARN`/`STRICT`) boot gate staged exactly like `OperationCoverage`, with the label
       carried into the access graph and the example app running `STRICT` — the plan had called for
@@ -629,9 +630,13 @@ one global rank and a group carries none.
       from). And the shared projection moved into the kernel as
       `terp.core.authz.build_access_model`, because a capability cannot import `terp.cli` —
       the CLI now composes it with the parts only an audit wants (model traits, predicates,
-      kernel routes, the `app.openapi()` reconciliation). Left: the access capability's
-      `GET /api/v1/access/model` endpoint over that builder, and `roles.ts` reading the
-      ladder from it.
+      kernel routes, the `app.openapi()` reconciliation). And `GET /api/v1/access/model`,
+      admin-only, typed end to end — the DTOs are the pane's types because the frontend
+      contract is generated from OpenAPI, so `@terpjs/contract` now carries the shape.
+      And `roles.ts` reads the ladder from it: the packaged admin screens now offer the
+      rungs the *app* declares, label a rung the framework has no translation for under the
+      name its author gave it, and start a new account on the lowest declared rank rather
+      than a hardcoded 10. Phase 3 complete, and with it the last phase-1 item.
 - [ ] Phase 4 `ModuleRole` + the resolver seam + the guard change.
 - [ ] Phase 5 the pane — viewer lenses first, then assignment.
 - [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.
