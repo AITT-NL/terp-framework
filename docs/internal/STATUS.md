@@ -607,11 +607,17 @@ one global rank and a group carries none.
       with the catalog returned in the error `details`.
 - [ ] Phase 1 remainder: `react-core`'s `roles.ts` reads the app's declared ladder instead
       of the `10 / 20 / 30` literals. Moved into phase 3, which supplies the source.
-- [ ] Phase 2 `ModuleAccess` on `ModuleSpec` — `grantable` / `platform_only` + labels.
-- [ ] Phase 3 the in-app introspection endpoints, derived from `app.state`.
+- [ ] Phase 2 the declarations — `ModuleAccess` on `ModuleSpec`, a module claiming its
+      permissions, a required `Permission.label`, and the §2.8 boot check.
+- [ ] Phase 3 `decide()` extracted so the guard and the projection share one decision, then the
+      in-app introspection endpoints — which is also where `roles.ts` gets its ladder.
 - [ ] Phase 4 `ModuleRole` + the resolver seam + the guard change.
 - [ ] Phase 5 the pane — viewer lenses first, then assignment.
 - [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.
+
+A three-design panel was run against the plan; §9 there records the four mechanisms adopted from
+it, the one genuine alternative to the new table and why it is still not preferred, and the fact
+that its adversarial judges never ran — so the fork has not been independently scored.
 
 **Findings recorded, not fixed** (both in the plan, §2.7 and §2.8): a route can enforce a
 permission the control plane never declared, which makes ADR 0089's "can only ever offer

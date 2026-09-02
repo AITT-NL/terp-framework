@@ -1,9 +1,13 @@
 # Per-module access — design notes and the sequenced plan
 
-> **Status:** proposal. Nothing here is decided; §3 is the fork that needs an answer before any
-> code is written. When an ADR lands, the ADR wins and this file becomes the execution tracker.
+> **Status:** proposal, with phase 1 shipped. §3 is the fork that still needs an answer before the
+> declarations in phase 2 harden. When an ADR lands, the ADR wins and this file becomes the
+> execution tracker.
 >
 > **Audience:** platform/core team + agents.
+>
+> §9 records a three-design panel run against this plan and the four mechanisms adopted from it.
+> Its adversarial judges did **not** run, so nothing here has been independently scored.
 
 The ask, in one line: give a Terp app the per-module permission editor and viewer that an existing
 production application has — *these are the roles, and this is what each role gets in this module* —
@@ -226,6 +230,28 @@ Coverage of the labels follows the `OperationCoverage` pattern exactly (ADR 0102
 optional, the no-drift guarantee is not, and `STRICT` — every mounted, grantable module answers what
 it is called — is the destination default, flipped after annotation rather than before.
 
+**Two additions from the design panel (§9, design A), both adopted.** A named permission is
+currently orphaned in two ways this design would otherwise have had to work around:
+
+- **It belongs to no module.** `Permission(name, min_role)` sits in one flat app-level tuple, so a
+  route-level `require_permission` extra has no module row to appear on except by parsing its
+  dotted prefix, which is a convention no gate enforces. Design A's mechanism is better than
+  guessing from the name: the module *claims* its permissions on the spec,
+  `ModuleSpec(permissions=(NOTES_DELETE_PERMISSION,))`, standing to `PermissionModel` exactly as
+  `emits=` stands to the `EventCatalog` — the module lists typed objects, the app registry declares
+  them, and boot cross-checks by value. That is the repository's established no-drift shape, already
+  used three times (events, jobs, operations), so it costs no new pattern.
+- **It has no human label.** `OperationDefinition` carries one because ADR 0102 was written for a
+  reader who cannot translate `DELETE /api/v1/files/{file_id}`; a permission has exactly the same
+  reader and no such field. So `Permission` gains a `label` — one sentence saying what holding it
+  buys — which is what the editor puts next to a row it is asking someone to tick.
+
+Making `label` **required** is the honest choice by the same argument ADR 0102 makes, but it is a
+breaking change to a public constructor. It lands in phase 2 with the rest of the declaration work
+and with the one call site in this repository (`notes.delete`) updated in the same commit; an app
+on the current signature gets a clear failure at construction rather than a silent unlabelled row
+in someone's permission editor.
+
 ### 4.2 What is persisted
 
 One table, in the `access` capability, shaped like `Grant` for the same reasons:
@@ -281,6 +307,20 @@ exists and is already enforced:
 enforcement, because it *is* the enforcement data — the same property the reference application gets
 by deriving its rollup from live route gates, reached here without a second endpoint to maintain.
 
+**One correction to that claim, from the design panel (§9, design C).** "It is the enforcement data"
+was true of the *inputs* and false of the *reasoning*. `build_access_graph`'s `_endpoint_json` picks
+the read or write requirement by testing the method against `MUTATING_METHODS` itself, and
+`build_guard` picks it again independently — two copies of the same decision, which is exactly the
+shape that produced the drift ADR 0102's own phase 1.1 had to fix ("the copies had already drifted
+into a reachable privilege-tier escape"). So the projection adopts design C's mechanism: the guard's
+decision becomes a pure function
+
+    decide(policy, method, rank, holds_permission) -> Decision
+
+that **`build_guard` and the projection both call**. The viewer then does not describe enforcement,
+it replays it, and a change to the rule can only change both at once. This is the single most
+valuable idea the panel produced and it is adopted wholesale.
+
 Two honesty rules carry over, and both are already latent in the graph:
 
 - Counts and lists cover **module-gated routes only**. A public or kernel route belongs to no
@@ -310,14 +350,32 @@ where to fix it.
 `POST /preview` exists so the pane can show the delta before committing, using the same code path
 that computes the answer afterwards, rather than a second implementation that can disagree with it.
 
-**The layering constraint on the reverse lookup.** "Who can perform this operation" wants to answer
-with *names*, but the `access` capability deliberately cannot see them: its whole premise is that
-`subject_id` is FK-less so it stays a leaf the identity and app modules depend on, never the
-reverse. So `/operations/{id}` returns subject ids tagged with what confers the right, and the pane
-resolves the names through the users and groups endpoints it already calls for its other screens.
-The alternative — reaching into `users` from `access` — would invert the dependency the capability
-is built around; `terp grant`'s lazy in-function imports of `UsersService` are the CLI's own
-exception to that, and are not a precedent for the capability itself.
+**The layering constraint on the reverse lookup, and the better answer.** "Who can perform this
+operation" wants to answer with *names*, but the `access` capability deliberately cannot see them:
+its whole premise is that `subject_id` is FK-less so it stays a leaf the identity and app modules
+depend on, never the reverse. Reaching into `users` from `access` would invert exactly that;
+`terp grant`'s lazy in-function imports of `UsersService` are the CLI's own exception and are not a
+precedent for the capability.
+
+This plan first proposed returning bare subject ids and letting the pane resolve the names itself.
+The design panel (§9, design A) found the better shape, and it is adopted — two additive seams in
+the direction the repository already sanctions, where a lower layer owns a registry and a higher
+layer plugs into it at import time (ADR 0017's scope predicates, and the existing
+`register_subject_expander`):
+
+- **`SubjectExpander` returns an attributed `SubjectRef`, not a bare `UUID`.** The groups capability
+  already answers "which subjects does this caller speak for"; it simply throws away *why* on the
+  way out. Returning `(id, kind, name)` lets a report say "via the group Engineering" while
+  `subject_ids_for` keeps projecting plain ids for the decision, so the hot path is unchanged and
+  the provenance the whole viewer rests on stops being something the pane has to reconstruct by
+  cross-referencing a second and third request.
+- **A `SubjectDirectory` seam** lets `access` name one subject and enumerate the holders at a rank
+  without importing identity — the same plug-in direction, filled by whichever capability owns
+  users.
+
+The second is what makes the reverse lookup answerable at all rather than merely renderable: a pane
+resolving ids client-side can only name subjects it has already listed, so "who can perform this
+operation" would silently omit service accounts, or any subject the pane had not fetched.
 
 Writes stay on the existing admin-only surface, extended to assignments and — this is a bug fix, not
 a feature — validated against the declared catalog the way `terp grant` already is, so an HTTP grant
@@ -454,17 +512,26 @@ expected output.
          (§2.4). **Moved to phase 3**: the honest fix needs a source for the ladder, and that
          source is the introspection endpoint. Doing it now would only trade hardcoded literals
          in one file for a hardcoded default in another.
-2. **`ModuleAccess` on `ModuleSpec`** — `grantable` / `platform_only`, labels, boot validation,
-   `OperationCoverage`-shaped label coverage. Declaration only; nothing reads it yet, so nothing
-   changes behaviour. The platform capabilities get their `platform_only` declaration here, before
-   anything can assign a rung.
-3. **The introspection endpoints**, derived from `app.state`. The graph becomes readable in-app;
-   `terp inspect access` and Studio keep working off the same builder. Ends shippable: a real viewer
-   with no writes.
+2. **The declarations** — all of it declaration-only, so nothing changes behaviour yet:
+   `ModuleAccess.grantable` / `platform_only` on `ModuleSpec` with labels, boot validation and
+   `OperationCoverage`-shaped label coverage; `ModuleSpec(permissions=(…))` cross-checked against
+   `PermissionModel` by value; a required `label` on `Permission` (§4.1, breaking, with this
+   repository's one call site updated in the same commit); and the boot check §2.8 defers here —
+   every permission named at a route is declared — since it is the same validation pass. The
+   platform capabilities get their `platform_only` declaration in this phase, before anything can
+   assign a rung.
+3. **`decide()` and the introspection endpoints.** Extract the guard's decision into the pure
+   function `build_guard` and the projection both call (§4.3) — a refactor with no behaviour change,
+   provable by the existing guard tests — then serve the model from `app.state`.
+   `terp inspect access` and Studio keep working off the same builder, and `roles.ts` finally has a
+   source for the ladder, so phase 1's remaining item lands here. Ends shippable: a real viewer with
+   no writes.
 4. **`ModuleRole` + the resolver seam + the guard change.** Per-module authority becomes real and
    enforced, with the CLI (`terp module-role add/list/revoke`) as the first writer — an operator
    seam before a UI, on the ADR 0089 pattern. Ends shippable: the capability exists and is auditable.
-5. **The pane**, viewer lenses first, then assignment. Template and example app pick it up.
+5. **The pane**, viewer lenses first, then assignment. Template and example app pick it up — and
+   the example app needs a second grantable module whose rows genuinely diverge from `notes`, or the
+   first screenshot of this feature is three identical columns (§9, design C).
 6. **terp-spec rules and the violation corpus**, once the declarations are stable. The catalog
    already has the precedents to copy — `backend/modules_declare_policy` for a required module
    declaration, `backend/routes_declare_operation` for a coverage-gated one, and
@@ -524,3 +591,71 @@ value arrives before anything can go wrong at runtime.
 4. **How does the preview endpoint stay honest under concurrency?** The delta is computed against
    state that can change before the commit. Optimistic concurrency on the assignment row is the
    obvious answer and matches the users capability's existing `version` discipline.
+
+## 9. The design panel, and what it changed
+
+**What was actually run, and what it does not establish.** Seven readers mapped the subsystems (the
+reference application's editor UI and its authorization backend; Terp's backend authz seams, its
+binding ADRs, and its admin frontend; terp-spec; terp-studio), and three agents each designed the
+whole surface from a *different assigned stance*: (A) the model is a declared artifact and the pane
+edits only who holds what; (B) roles are runtime-composable bundles over a declared vocabulary;
+(C) nothing new is declared and the matrix is derived. Three adversarial judges and a synthesis pass
+were also queued and **did not run** — they died on a session limit. So what follows is three
+independent designs, not a verdict: nothing here has been adversarially scored, and §3's fork has
+not been externally reviewed.
+
+The stance assignment also has to be read carefully. Each design's concessions are partly artifacts
+of the stance it was told to defend, so their agreement is weaker evidence than it looks. What is
+worth noting is narrower and still useful: **none of the three delivers per-module elevation, and
+each says so in its own terms.** A concedes an administrator cannot "move a floor". B leaves the
+rank comparison at `app.py:205` untouched by design and refuses an ordered ladder over bundles.
+C states that a principal holds exactly one global role and a grant has no module column, so
+"nothing on a module × role grid is an assignment". That is §2.1 restated three ways, which is why
+the fork in §3 and the recommendation stand unchanged.
+
+**Four mechanisms adopted**, each better than what this plan had:
+
+1. **The guard's decision becomes a pure function both the guard and the projection call** (C, §4.3).
+   This plan claimed the explanation "is the enforcement data"; that was true of the inputs and
+   false of the reasoning, since `_endpoint_json` and `build_guard` each pick the read-or-write
+   requirement independently. The viewer should replay the decision, not describe it. The most
+   valuable single idea the panel produced.
+2. **A module claims its permissions on the spec** (A, §4.1) — `ModuleSpec(permissions=(…))`
+   cross-checked against `PermissionModel` at boot, exactly as `emits=` is against the event
+   catalog. Better than deriving a permission's module from its dotted prefix, which no gate
+   enforces.
+3. **`Permission` gains a `label`** (A, §4.1). ADR 0102 gave every route a sentence for a reader who
+   cannot translate an HTTP verb; a permission has the same reader and had no such field.
+4. **`SubjectExpander` returns an attributed ref, and a `SubjectDirectory` seam names subjects**
+   (A, §4.4). Replaces this plan's weaker answer — bare ids resolved client-side — and is what makes
+   the reverse lookup answerable rather than merely renderable.
+
+**The one genuine alternative to §4.2, and why it is still not preferred.** Design B observed that a
+runtime bundle of permissions is *already persisted*: a `Group` is a named subject, and granting to
+it is an ordinary grant (ADR 0074), so composable bundles need **no new table and no migration** —
+materially cheaper than the `access_module_role` table in §4.2. It is a real finding and it should be
+on the record. It is still not the recommendation, for two reasons. It does not solve elevation: a
+bundle of grants cannot lift a subject over a module's `Policy` rank floor, so "editor in notes for
+a viewer" remains unreachable unless every module's write requirement is redeclared as a
+`Permission` with a `VIEWER` floor — a per-module redesign in code, which is the thing an
+administrator was supposed to be spared. And it makes the editor's unit wrong: "editor in notes"
+becomes N ticked permissions rather than one rung, which is precisely the decision an administrator
+cannot reason about and the reference application's tier strip exists to collapse.
+
+**Design C's sharpest critique, which is about the ask itself.** For a scaffolded app on
+`PermissionModel.default()` and `Policy.default()`, *every* module row of a module × role grid is
+identical — viewer reads, editor writes, admin writes — so the grid carries almost no information
+and the real content sits one level down, at the operation rows. This is correct, and it is the best
+argument in the whole panel *for* §4.2 rather than against the request: what makes the rows differ
+is a per-module assignment that the framework cannot currently express. Without it the pane is a
+legend for code; with it the pane is the control the ask describes. It is also a warning about
+phase 5's demo — the example app needs at least two modules whose rows genuinely diverge, or the
+first screenshot of this feature will show three identical columns.
+
+**One idea considered and refused.** Design A gates the access capability's own write routes on a
+declared permission it owns (`access.grants.write`), so the feature names an in-framework consumer.
+Refused on bootstrap grounds: the route that creates grants would itself require a grant, and the
+first administrator on a fresh deployment has none. ADR 0089's out-of-band operator seam exists for
+exactly that moment. §2.7 is answered instead by the example app's `notes.delete`, which has a real
+consumer and no bootstrap cycle.
+
