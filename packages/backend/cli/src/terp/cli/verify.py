@@ -230,6 +230,12 @@ _WORKBENCH = VerifyCheck(
     id="workbench",
     category="architecture",
     command="terp verify --only workbench",
+    # The glob deliberately over-matches: it catches `docker-compose.prod.yml`
+    # too, even though this check refuses to read a deploy profile at all. A
+    # scope that triggers a check needlessly wastes a file read; a scope that
+    # fails to trigger one lets drift land unnoticed until the next full run,
+    # and an app may name its development compose file whatever it likes. So it
+    # errs toward triggering. Do not "tidy" this to `docker-compose.yml`.
     scope=("workbench.json", "docker-compose*.yml"),
     runner="workbench",
 )
