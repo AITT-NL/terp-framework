@@ -15,7 +15,7 @@ from sqlmodel import Session, col, func, select
 
 from terp.core import AuditAction, BaseService, BaseUpdateSchema, NotFoundError
 
-from terp.capabilities.access import AccessService
+from terp.capabilities.access import AccessService, ModuleRoleService
 from terp.capabilities.identity import User
 
 from terp.capabilities.groups.models import Group, GroupMember
@@ -138,14 +138,19 @@ class GroupsService(BaseService[Group, GroupCreate, GroupUpdate]):
     # -- cascade -----------------------------------------------------------------
 
     def _after_write(self, session: Session, entity: Group, action: AuditAction) -> None:
-        """Deleting a group cascades to its memberships and its grants, atomically.
+        """Deleting a group cascades to its memberships, grants and module roles, atomically.
 
         Runs inside the same write unit as the group's own ``DELETED`` record
         (ADR 0038): the nested audited removals join the transaction and flush
         before the group row is deleted, so the FK holds and a failure anywhere
         rolls back the whole cascade. Grants naming the group as subject are
         revoked through the access service, so a deleted group cannot keep
-        authorizing its former members via a dangling subject id.
+        authorizing its former members via a dangling subject id. Per-module roles naming
+        the group are removed on the same terms and for the same reason: a group is a subject
+        in both access tables, and a cascade that knew about only one of them would leave the
+        other's rows behind — reported by ``terp module-role list`` for a group that no longer
+        exists, and ready to authorize again the moment anything re-created a membership row
+        pointing at that id.
         """
         super()._after_write(session, entity, action)
         if action is not AuditAction.DELETED:
@@ -173,6 +178,15 @@ class GroupsService(BaseService[Group, GroupCreate, GroupUpdate]):
                 break
             for grant in grants:
                 access.delete(session, grant.id)
+        module_roles = ModuleRoleService()
+        while True:
+            assigned, _role_total = module_roles.list_for(
+                session, entity.id, skip=0, limit=_CASCADE_BATCH
+            )
+            if not assigned:
+                break
+            for assignment in assigned:
+                module_roles.delete(session, assignment.id)
 
 
 # Rows fetched per cascade pass (the loop above drains every pass until empty,

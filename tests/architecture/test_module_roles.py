@@ -330,3 +330,34 @@ def test_assigning_the_same_subject_twice_updates_the_one_fact(engine: Engine) -
         rows, total = service.list_for(session, subject, skip=0, limit=10)
         assert total == 1
         assert rows[0].role_rank == ADMIN.rank
+
+
+def test_deleting_a_group_takes_its_module_roles_with_it(engine: Engine) -> None:
+    """A group is a subject in *both* access tables, so the cascade has to know both.
+
+    The grants cascade has existed since groups did, with a docstring arguing that a deleted
+    group must not keep authorizing its former members through a dangling subject id. This
+    branch added a second table the cascade did not know about — so a deleted group's rungs
+    stayed behind, reported by `terp module-role list` for a group that no longer exists and
+    ready to authorize again the moment anything re-created a membership row pointing at that
+    id. Asserted on both tables together, because the point is that they agree.
+    """
+    from terp.capabilities.access import AccessService
+    from terp.capabilities.groups import GroupsService
+    from terp.capabilities.groups.schemas import GroupCreate
+
+    groups = GroupsService()
+    roles = ModuleRoleService()
+    access = AccessService()
+
+    with Session(engine) as session:
+        group = groups.create(session, GroupCreate(name="Doomed"))
+        roles.assign(session, group.id, "notes", EDITOR.rank)
+        access.grant(session, group.id, "notes.delete")
+        assert roles.highest_rank(session, group.id, "notes") == EDITOR.rank
+
+        groups.delete(session, group.id)
+
+        assert roles.highest_rank(session, group.id, "notes") == 0
+        assert access.permissions_for(session, group.id) == set()
+
