@@ -361,3 +361,29 @@ def test_deleting_a_group_takes_its_module_roles_with_it(engine: Engine) -> None
         assert roles.highest_rank(session, group.id, "notes") == 0
         assert access.permissions_for(session, group.id) == set()
 
+
+def test_clearing_the_floor_by_module_role_is_reported_distinctly(engine: Engine) -> None:
+    """`allowed_in_module` is not decoration: it is the answer to "why can they do that?".
+
+    Both outcomes are `allowed`, so nothing about the decision changes — which is exactly why
+    this needed its own test. A leftover mutation collapsing the two reasons into `allowed`
+    broke no test at all, and the field is the one a provenance view uses to distinguish "this
+    person's own rank was enough" from "a rung somebody assigned in this module was".
+    """
+    from terp.core.module_spec import decide
+
+    policy = Policy(read=VIEWER, write=EDITOR)
+    viewer = Role("viewer", rank=10)
+
+    # Cleared by the global rank alone.
+    assert decide(policy, method="GET", role=viewer).reason == "allowed"
+    # Cleared only because of the module rung — same `allowed`, different answer.
+    elevated = decide(policy, method="POST", role=viewer, module_rank=lambda: 20)
+    assert elevated.allowed is True
+    assert elevated.reason == "allowed_in_module"
+    # And an editor writing needs no rung at all, so it stays the plain reason.
+    assert (
+        decide(policy, method="POST", role=Role("editor", rank=20), module_rank=lambda: 30).reason
+        == "allowed"
+    )
+

@@ -795,6 +795,60 @@ textarea[data-terp="input"] {
   cursor: pointer;
   transition: background-color var(--motion-duration-fast) var(--motion-easing-standard);
 }
+[data-terp="tile-group"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-2);
+}
+[data-terp="tile"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-0);
+  cursor: pointer;
+  transition: border-color var(--motion-duration-fast) var(--motion-easing-standard);
+}
+[data-terp="tile"]:hover:not([aria-disabled="true"]) {
+  border-color: var(--color-neutral-600);
+}
+[data-terp="tile"][data-selected] {
+  border-color: var(--color-fg-accent);
+  background: var(--color-neutral-100);
+}
+/* The floor: a rung already reached some other way (an inherited rung, say). Marked so the
+   reader can see that the tier in force is not the one they picked, without it looking
+   selected — those are different facts and a single visual state would conflate them. */
+[data-terp="tile"][data-floor] {
+  border-style: dashed;
+  border-color: var(--color-fg-accent);
+}
+/* Deliberately not the visual gravity a plan picker gives its top tier. This control exists to
+   bias downward, so the most privileged tile reads as a decision rather than a recommendation:
+   the danger colour is on the border and the label, and there is no fill to make it inviting. */
+[data-terp="tile"][data-tone="danger"] {
+  border-color: var(--color-status-danger);
+}
+[data-terp="tile"][data-tone="danger"] [data-terp="tile-label"] {
+  color: var(--color-status-danger);
+}
+[data-terp="tile"][aria-disabled="true"] {
+  cursor: not-allowed;
+  color: var(--color-fg-subtle);
+  background: var(--color-neutral-100);
+}
+[data-terp="tile-label"] {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+}
+[data-terp="tile-body"] {
+  font-size: var(--font-size-xs);
+  color: var(--color-fg-subtle);
+  display: grid;
+  gap: var(--space-1);
+}
 [data-terp="radio-group"] {
   display: grid;
   gap: var(--space-2);

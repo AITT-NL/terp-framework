@@ -162,11 +162,15 @@ function stubAdminFetch() {
       // deliberate: it is what proves the screens render the ladder the *app* declares, which
       // a viewer/editor/admin fixture could never observe.
       return jsonResponse({
+        // Deliberately NOT in rank order. The endpoint sorts, and the hook sorts again — so a
+        // pre-sorted fixture cannot observe either, and removing the hook's sort broke no test
+        // at all until this fixture was scrambled. A ladder rendered out of order is a real
+        // defect: the strip's whole legibility comes from authority reading left to right.
         roles: [
-          { name: "viewer", rank: 10 },
-          { name: "editor", rank: 20 },
-          { name: "approver", rank: 25 },
           { name: "admin", rank: 30 },
+          { name: "viewer", rank: 10 },
+          { name: "approver", rank: 25 },
+          { name: "editor", rank: 20 },
         ],
         permissions: [],
         modules: [],

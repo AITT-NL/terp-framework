@@ -136,6 +136,8 @@ export { Checkbox } from "./ui/Checkbox";
 export type { CheckboxProps } from "./ui/Checkbox";
 export { Radio, RadioGroup } from "./ui/Radio";
 export type { RadioGroupProps, RadioOption, RadioProps } from "./ui/Radio";
+export { TileGroup } from "./ui/TileGroup";
+export type { Tile, TileGroupProps } from "./ui/TileGroup";
 export { Switch } from "./ui/Switch";
 export type { SwitchProps } from "./ui/Switch";
 export { Tabs } from "./ui/Tabs";
