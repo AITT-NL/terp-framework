@@ -685,6 +685,89 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HeldModuleRoleRead": {
+        "description": "One per-module rung a subject holds, and why.",
+        "properties": {
+          "effective": {
+            "title": "Effective",
+            "type": "boolean"
+          },
+          "module": {
+            "title": "Module",
+            "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "role_rank": {
+            "title": "Role Rank",
+            "type": "integer"
+          },
+          "stale": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stale",
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/SubjectRefRead"
+          }
+        },
+        "required": [
+          "module",
+          "role_rank",
+          "role",
+          "effective",
+          "stale",
+          "via"
+        ],
+        "title": "HeldModuleRoleRead",
+        "type": "object"
+      },
+      "HeldPermissionRead": {
+        "description": "One permission a subject holds, and why.",
+        "properties": {
+          "declared": {
+            "title": "Declared",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/components/schemas/SubjectRefRead"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "declared",
+          "via"
+        ],
+        "title": "HeldPermissionRead",
+        "type": "object"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -908,6 +991,77 @@
           "limit"
         ],
         "title": "Page[UserRead]",
+        "type": "object"
+      },
+      "SubjectAccessRead": {
+        "description": "One subject's effective access, with the provenance of every right.\n\nThe answer to \"why can this person do that?\", which is the only defence an administrator\nhas against an over-broad grant. It reports what is *held*; what that lets someone do on a\ngiven route is the declared model's question (``GET /model``), and a pane joins the two.\n\nIt deliberately does **not** carry the subject's global rank. That lives in the users\ntable, which this capability cannot import \u2014 its whole premise is being a leaf the\nidentity modules depend on rather than the reverse \u2014 and a field nothing here could ever\nfill would be structurally null. A pane already fetches the account to show its detail\nscreen, so it has the rank; adding a seam to duplicate it here would be a second source\nof truth for one integer.",
+        "properties": {
+          "module_roles": {
+            "items": {
+              "$ref": "#/components/schemas/HeldModuleRoleRead"
+            },
+            "title": "Module Roles",
+            "type": "array"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/HeldPermissionRead"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "via": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectRefRead"
+            },
+            "title": "Via",
+            "type": "array"
+          }
+        },
+        "required": [
+          "subject_id",
+          "via",
+          "permissions",
+          "module_roles"
+        ],
+        "title": "SubjectAccessRead",
+        "type": "object"
+      },
+      "SubjectRefRead": {
+        "description": "Where a right came from: the caller themselves, or a group they belong to.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name"
+        ],
+        "title": "SubjectRefRead",
         "type": "object"
       },
       "UserAdminUpdate": {
@@ -1248,6 +1402,50 @@
           }
         },
         "summary": "See which roles exist and what each one may do",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/subjects/{subject_id}": {
+      "get": {
+        "description": "One subject's effective access, with the provenance of every right.\n\n\"Why can this person do that?\" is the question an administrator has to be able to answer\nbefore any of this is safe, and it is the one a matrix of effective answers cannot answer\non its own. Every row here names the subject it came from \u2014 the person themselves, or a\ngroup they belong to \u2014 because a right whose origin is unknown is a right nobody can\nremove with confidence.\n\nTwo things are reported rather than filtered. A grant naming a permission the app no\nlonger declares comes back with ``declared: false``, and a module role at an undeclared\nrank or in a module that no longer accepts them comes back with its reason in ``stale`` \u2014\non the reasoning ``terp grant list`` gives, that a filtered row is a right nobody can\nexplain. And where several module rows exist for one module, only the highest is marked\n``effective``, which is the thing most often misread: assigning a lower rung alongside a\nhigher one changes nothing at all.",
+        "operationId": "access.get_subject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subject_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Subject Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubjectAccessRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "See what someone can do, and where each right comes from",
         "tags": [
           "access"
         ]

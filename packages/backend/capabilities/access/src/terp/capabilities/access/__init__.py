@@ -30,9 +30,11 @@ from terp.capabilities.access.deps import (
 )
 from terp.capabilities.access.expansion import (
     SubjectExpander,
+    SubjectRef,
     register_subject_expander,
     reset_subject_expanders,
     subject_ids_for,
+    subject_refs_for,
 )
 from terp.capabilities.access.models import Grant, ModuleRole
 from terp.capabilities.access.module_roles import (
@@ -45,11 +47,13 @@ from terp.capabilities.access.operations import (
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
     ACCESS_GET_MODEL,
+    ACCESS_GET_SUBJECT,
     ACCESS_LIST_GRANTS,
 )
 from terp.capabilities.access.router import module, router
 from terp.capabilities.access.schemas import (
     AccessModelRead,
+    SubjectAccessRead,
     GrantCreate,
     GrantRead,
     GrantUpdate,
@@ -60,6 +64,7 @@ __all__ = [
     "ACCESS_CREATE_GRANT",
     "ACCESS_DELETE_GRANT",
     "ACCESS_GET_MODEL",
+    "ACCESS_GET_SUBJECT",
     "ACCESS_LIST_GRANTS",
     "AccessModelRead",
     "AccessService",
@@ -70,6 +75,8 @@ __all__ = [
     "ModuleRole",
     "ModuleRoleService",
     "SubjectExpander",
+    "SubjectAccessRead",
+    "SubjectRef",
     "assignable_modules",
     "enforce_permission",
     "project_granted_permissions",
@@ -80,5 +87,6 @@ __all__ = [
     "resolve_module_rank",
     "router",
     "subject_ids_for",
+    "subject_refs_for",
     "validate_assignment",
 ]

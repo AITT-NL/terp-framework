@@ -299,6 +299,104 @@ def test_the_access_model_is_served_to_an_admin_and_refused_to_everyone_else(
     assert client_factory(None).get("/api/v1/access/model").status_code == 401
 
 
+def test_the_subject_endpoint_says_where_every_right_came_from(
+    client_factory, make_user, db_session: Session
+) -> None:
+    """"Why can this person do that?" — the question that makes the rest of this safe.
+
+    A matrix of effective answers cannot answer it: it can say someone may delete a note and
+    not that they may because of a group somebody added them to in March. So every row names
+    the subject it came from, and where several module rows exist for one module only the
+    highest is marked effective — which is the thing most often misread, because assigning a
+    lower rung alongside a higher one changes nothing at all.
+    """
+    from terp.capabilities.access import ModuleRoleService
+    from terp.capabilities.groups import GroupsService
+    from terp.capabilities.groups.schemas import GroupCreate
+
+    admin = client_factory(Principal(id=uuid.uuid4(), role=Roles.ADMIN))
+    member = make_user("provenance@acme.test", "correct horse battery staple")
+
+    groups = GroupsService()
+    group = groups.create(db_session, GroupCreate(name="Note keepers"))
+    groups.add_member(db_session, group.id, member)
+
+    # The grant is held by the *group*, not the person.
+    AccessService().grant(db_session, group.id, "notes.delete")
+    # Two rungs in one module: the higher one is what actually decides.
+    roles = ModuleRoleService()
+    roles.assign(db_session, member, "notes", int(Roles.VIEWER))
+    roles.assign(db_session, group.id, "notes", int(Roles.EDITOR))
+
+    body = admin.get(f"/api/v1/access/subjects/{member}").json()
+
+    assert body["subject_id"] == str(member)
+    # The expanded set is reported, and the group is *named* — which is what the attributed
+    # expander bought: before it, a report could only show the group's id.
+    assert {(ref["kind"], ref["name"]) for ref in body["via"]} == {
+        ("self", None),
+        ("group", "Note keepers"),
+    }
+
+    (permission,) = body["permissions"]
+    assert permission["name"] == "notes.delete"
+    assert permission["label"] == "Delete a note someone else wrote"
+    assert permission["declared"] is True
+    assert permission["via"]["name"] == "Note keepers"  # not held directly
+
+    # Both rungs are shown; exactly one is effective, and it is the group's.
+    assert [(r["role"], r["effective"], r["via"]["kind"]) for r in body["module_roles"]] == [
+        ("editor", True, "group"),
+        ("viewer", False, "self"),
+    ]
+    assert all(row["stale"] == [] for row in body["module_roles"])
+
+
+def test_the_subject_endpoint_shows_a_stale_right_rather_than_hiding_it(
+    client_factory, make_user, db_session: Session
+) -> None:
+    """A filtered row is a right nobody can explain, so nothing is filtered.
+
+    Both stale shapes at once: a grant naming a permission the app does not declare, and a
+    module role in a module that never opted in. These are exactly the rows an administrator
+    is hunting for when something looks wrong, and the ones a tidy-looking view would drop.
+    """
+    from terp.capabilities.access import ModuleRoleService
+
+    admin = client_factory(Principal(id=uuid.uuid4(), role=Roles.ADMIN))
+    subject = make_user("stale@acme.test", "correct horse battery staple")
+
+    AccessService().grant(db_session, subject, "retired.capability")
+    ModuleRoleService().assign(db_session, subject, "tasks", int(Roles.EDITOR))
+
+    body = admin.get(f"/api/v1/access/subjects/{subject}").json()
+
+    (permission,) = body["permissions"]
+    assert permission["name"] == "retired.capability"
+    assert permission["declared"] is False
+    assert permission["label"] is None
+
+    (role,) = body["module_roles"]
+    assert role["module"] == "tasks"
+    assert role["stale"] == ["this app no longer declares the module assignable"]
+    # Still reported as effective: it is the highest row for that module, and whether it
+    # *applies* is what `stale` says. Conflating the two would hide one of the two facts.
+    assert role["effective"] is True
+
+
+def test_the_subject_endpoint_is_admin_only(client_factory) -> None:
+    subject = uuid.uuid4()
+    assert (
+        client_factory(Principal(id=uuid.uuid4(), role=Roles.EDITOR))
+        .get(f"/api/v1/access/subjects/{subject}")
+        .status_code
+        == 403
+    )
+    assert (
+        client_factory(None).get(f"/api/v1/access/subjects/{subject}").status_code == 401
+    )
+
+
 def test_an_unauthenticated_caller_cannot_read_grants(client_factory) -> None:
     client = client_factory(None)
     response = client.get("/api/v1/access/grants", params={"subject_id": str(uuid.uuid4())})

@@ -96,6 +96,22 @@ class ModuleRoleService(BaseService[ModuleRole, ModuleRoleCreate, ModuleRoleUpda
         ).one()
         return int(highest or 0)
 
+    def held_with_subjects(
+        self, session: Session, subject_ids: set[uuid.UUID]
+    ) -> list[tuple[str, int, uuid.UUID]]:
+        """Every assignment over *subject_ids*, as ``(module, rank, holder)``.
+
+        Unlike :meth:`highest_rank` this keeps every row rather than collapsing to the winner,
+        because an explanation has to be able to say that a rung came from a group even when a
+        direct assignment also exists.
+        """
+        rows = session.exec(
+            select(
+                ModuleRole.module, ModuleRole.role_rank, ModuleRole.subject_id
+            ).where(col(ModuleRole.subject_id).in_(subject_ids))
+        ).all()
+        return [(row[0], row[1], row[2]) for row in rows]
+
     def list_for(
         self, session: Session, subject_id: uuid.UUID, *, skip: int, limit: int
     ) -> tuple[list[ModuleRole], int]:

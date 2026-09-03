@@ -72,6 +72,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/access/subjects/{subject_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * See what someone can do, and where each right comes from
+         * @description One subject's effective access, with the provenance of every right.
+         *
+         *     "Why can this person do that?" is the question an administrator has to be able to answer
+         *     before any of this is safe, and it is the one a matrix of effective answers cannot answer
+         *     on its own. Every row here names the subject it came from — the person themselves, or a
+         *     group they belong to — because a right whose origin is unknown is a right nobody can
+         *     remove with confidence.
+         *
+         *     Two things are reported rather than filtered. A grant naming a permission the app no
+         *     longer declares comes back with ``declared: false``, and a module role at an undeclared
+         *     rank or in a module that no longer accepts them comes back with its reason in ``stale`` —
+         *     on the reasoning ``terp grant list`` gives, that a filtered row is a right nobody can
+         *     explain. And where several module rows exist for one module, only the highest is marked
+         *     ``effective``, which is the thing most often misread: assigning a lower rung alongside a
+         *     higher one changes nothing at all.
+         */
+        get: operations["access.get_subject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit/": {
         parameters: {
             query?: never;
@@ -657,6 +691,36 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * HeldModuleRoleRead
+         * @description One per-module rung a subject holds, and why.
+         */
+        HeldModuleRoleRead: {
+            /** Effective */
+            effective: boolean;
+            /** Module */
+            module: string;
+            /** Role */
+            role: string | null;
+            /** Role Rank */
+            role_rank: number;
+            /** Stale */
+            stale: string[];
+            via: components["schemas"]["SubjectRefRead"];
+        };
+        /**
+         * HeldPermissionRead
+         * @description One permission a subject holds, and why.
+         */
+        HeldPermissionRead: {
+            /** Declared */
+            declared: boolean;
+            /** Label */
+            label: string | null;
+            /** Name */
+            name: string;
+            via: components["schemas"]["SubjectRefRead"];
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Email */
@@ -732,6 +796,49 @@ export interface components {
             skip: number;
             /** Total */
             total: number;
+        };
+        /**
+         * SubjectAccessRead
+         * @description One subject's effective access, with the provenance of every right.
+         *
+         *     The answer to "why can this person do that?", which is the only defence an administrator
+         *     has against an over-broad grant. It reports what is *held*; what that lets someone do on a
+         *     given route is the declared model's question (``GET /model``), and a pane joins the two.
+         *
+         *     It deliberately does **not** carry the subject's global rank. That lives in the users
+         *     table, which this capability cannot import — its whole premise is being a leaf the
+         *     identity modules depend on rather than the reverse — and a field nothing here could ever
+         *     fill would be structurally null. A pane already fetches the account to show its detail
+         *     screen, so it has the rank; adding a seam to duplicate it here would be a second source
+         *     of truth for one integer.
+         */
+        SubjectAccessRead: {
+            /** Module Roles */
+            module_roles: components["schemas"]["HeldModuleRoleRead"][];
+            /** Permissions */
+            permissions: components["schemas"]["HeldPermissionRead"][];
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            /** Via */
+            via: components["schemas"]["SubjectRefRead"][];
+        };
+        /**
+         * SubjectRefRead
+         * @description Where a right came from: the caller themselves, or a group they belong to.
+         */
+        SubjectRefRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string | null;
         };
         /**
          * UserAdminUpdate
@@ -940,6 +1047,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccessModelRead"];
+                };
+            };
+        };
+    };
+    "access.get_subject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubjectAccessRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

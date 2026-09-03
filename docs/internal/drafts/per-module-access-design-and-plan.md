@@ -478,6 +478,13 @@ the direction the repository already sanctions, where a lower layer owns a regis
 layer plugs into it at import time (ADR 0017's scope predicates, and the existing
 `register_subject_expander`):
 
+*(Both shipped in phase 5a — the expander additively, so an app's existing bare-UUID
+expander keeps working and `subject_ids_for` still projects ids for the decision path. The
+`SubjectDirectory` half is **not** built: its only consumer is the reverse lookup
+`/operations/{id}`, which is deferred, and ADR 0099's name-a-consumer test says a seam waits
+for one. The subject endpoint needs no directory, because its caller already named the
+subject.)*
+
 - **`SubjectExpander` returns an attributed `SubjectRef`, not a bare `UUID`.** The groups capability
   already answers "which subjects does this caller speak for"; it simply throws away *why* on the
   way out. Returning `(id, kind, name)` lets a report say "via the group Engineering" while

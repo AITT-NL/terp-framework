@@ -21,10 +21,15 @@ ACCESS_DELETE_GRANT = OperationDefinition(
 ACCESS_GET_MODEL = OperationDefinition(
     id="access.get_model", label="See which roles exist and what each one may do"
 )
+ACCESS_GET_SUBJECT = OperationDefinition(
+    id="access.get_subject",
+    label="See what someone can do, and where each right comes from",
+)
 
 __all__ = [
     "ACCESS_CREATE_GRANT",
     "ACCESS_DELETE_GRANT",
     "ACCESS_GET_MODEL",
+    "ACCESS_GET_SUBJECT",
     "ACCESS_LIST_GRANTS",
 ]

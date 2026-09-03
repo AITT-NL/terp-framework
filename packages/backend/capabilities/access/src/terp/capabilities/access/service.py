@@ -82,6 +82,22 @@ class AccessService(BaseService[Grant, GrantCreate, GrantUpdate]):
         ).all()
         return set(rows)
 
+    def held_with_subjects(
+        self, session: Session, subject_ids: set[uuid.UUID]
+    ) -> list[tuple[str, uuid.UUID]]:
+        """Every grant over *subject_ids*, as ``(permission, the subject that holds it)``.
+
+        The explanation path's counterpart to :meth:`permissions_for`, which returns names and
+        discards *which* subject each came from — so a report could say what someone can do
+        and not why. One query over the whole expanded set rather than one per subject.
+        """
+        rows = session.exec(
+            select(Grant.permission, Grant.subject_id).where(
+                col(Grant.subject_id).in_(subject_ids)
+            )
+        ).all()
+        return [(row[0], row[1]) for row in rows]
+
     def list_for(
         self, session: Session, subject_id: uuid.UUID, *, skip: int, limit: int
     ) -> tuple[list[Grant], int]:

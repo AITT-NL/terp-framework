@@ -184,7 +184,7 @@ def test_deleting_a_group_cascades_members_and_grants(session: Session) -> None:
 
     with pytest.raises(NotFoundError):
         service.get(session, group.id)
-    assert service.group_ids_for(session, member) == set()
+    assert service.groups_for(session, member) == []
     assert access.permissions_for(session, group.id) == set()
     assert access.has_permission(session, member, "reports.export") is False
     # One atomic unit: the group's DELETED record, then the cascaded rows'.
@@ -216,7 +216,7 @@ def test_a_failing_cascade_rolls_back_the_whole_delete(session: Session) -> None
     set_audit_sink(lambda _session, _record, _policy: None)
     session.rollback()
     assert service.get(session, group.id).id == group.id
-    assert service.group_ids_for(session, member) == {group.id}
+    assert [g[0] for g in service.groups_for(session, member)] == [group.id]
     assert access.has_permission(session, member, "reports.export")
 
 
@@ -246,7 +246,7 @@ def test_the_cascade_drains_past_the_batch_size(
     with pytest.raises(NotFoundError):
         service.get(session, group.id)
     for member in members:
-        assert service.group_ids_for(session, member) == set()
+        assert service.groups_for(session, member) == []
     assert access.permissions_for(session, group.id) == set()
 
 

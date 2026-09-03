@@ -45,6 +45,7 @@ from terp.capabilities.access import (
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
     ACCESS_GET_MODEL,
+    ACCESS_GET_SUBJECT,
     ACCESS_LIST_GRANTS,
     AccessService,
     enforce_permission,
@@ -95,6 +96,7 @@ _OPERATIONS = OperationCatalog(
         ACCESS_CREATE_GRANT,
         ACCESS_DELETE_GRANT,
         ACCESS_GET_MODEL,
+        ACCESS_GET_SUBJECT,
         AUDIT_LIST_EVENTS,
     )
 )

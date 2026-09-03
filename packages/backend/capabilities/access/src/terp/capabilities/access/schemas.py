@@ -156,3 +156,66 @@ class AccessModelRead(BaseSchema):
     roles: list[AccessRoleRead]
     permissions: list[AccessPermissionRead]
     modules: list[AccessModuleRead]
+
+
+class SubjectRefRead(BaseSchema):
+    """Where a right came from: the caller themselves, or a group they belong to."""
+
+    id: uuid.UUID
+    #: ``self`` or ``group`` today; an app's own expander may name others. Dispatched on.
+    kind: str
+    #: ``None`` when the expander did not know one, which a pane renders as the bare id
+    #: rather than inventing a label.
+    name: str | None
+
+
+class HeldPermissionRead(BaseSchema):
+    """One permission a subject holds, and why."""
+
+    name: str
+    #: What holding it buys, from the declared catalog; ``None`` if unlabelled or undeclared.
+    label: str | None
+    #: ``False`` when the app no longer declares this permission — a stale grant, shown
+    #: rather than hidden, because a filtered row is a right nobody can explain.
+    declared: bool
+    via: SubjectRefRead
+
+
+class HeldModuleRoleRead(BaseSchema):
+    """One per-module rung a subject holds, and why."""
+
+    module: str
+    role_rank: int
+    #: The declared name for that rank, or ``None`` when the app no longer declares it.
+    role: str | None
+    #: Whether this is the row that actually decides the subject's authority in the module.
+    #: Several can be held at once — one directly, one through a group — and only the highest
+    #: has any effect, which is the thing an administrator most often gets wrong.
+    effective: bool
+    #: Why this row does not apply as written, where that is so: an undeclared rank, or a
+    #: module that no longer accepts per-module roles. Empty for an ordinary row.
+    stale: list[str]
+    via: SubjectRefRead
+
+
+class SubjectAccessRead(BaseSchema):
+    """One subject's effective access, with the provenance of every right.
+
+    The answer to "why can this person do that?", which is the only defence an administrator
+    has against an over-broad grant. It reports what is *held*; what that lets someone do on a
+    given route is the declared model's question (``GET /model``), and a pane joins the two.
+
+    It deliberately does **not** carry the subject's global rank. That lives in the users
+    table, which this capability cannot import — its whole premise is being a leaf the
+    identity modules depend on rather than the reverse — and a field nothing here could ever
+    fill would be structurally null. A pane already fetches the account to show its detail
+    screen, so it has the rank; adding a seam to duplicate it here would be a second source
+    of truth for one integer.
+    """
+
+    subject_id: uuid.UUID
+    #: The caller plus every subject they speak for — the set every right below is drawn from.
+    via: list[SubjectRefRead]
+    permissions: list[HeldPermissionRead]
+    module_roles: list[HeldModuleRoleRead]
+

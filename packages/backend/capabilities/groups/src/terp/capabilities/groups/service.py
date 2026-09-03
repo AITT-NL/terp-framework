@@ -88,12 +88,21 @@ class GroupsService(BaseService[Group, GroupCreate, GroupUpdate]):
             limit=limit,
         )
 
-    def group_ids_for(self, session: Session, user_id: uuid.UUID) -> set[uuid.UUID]:
-        """The ids of every group *user_id* belongs to (the subject-expansion source)."""
+    def groups_for(self, session: Session, user_id: uuid.UUID) -> list[tuple[uuid.UUID, str]]:
+        """Every group *user_id* belongs to, as ``(id, name)`` — the attributed source.
+
+        One join, because this backs both the subject expansion on the request path and the
+        explanation of an effective right: "why can this person do that?" answered with a
+        query per group would be answered slowly enough that nobody asks it twice. It replaced
+        an ids-only helper that returned the same rows and discarded the names, which left the
+        explanation to re-derive a membership the lookup had already seen.
+        """
         rows = session.exec(
-            select(GroupMember.group_id).where(GroupMember.user_id == user_id)
+            select(Group.id, Group.name)
+            .join(GroupMember, GroupMember.group_id == Group.id)  # type: ignore[arg-type]
+            .where(GroupMember.user_id == user_id)
         ).all()
-        return set(rows)
+        return [(row[0], row[1]) for row in rows]
 
     def member_emails(
         self, session: Session, user_ids: list[uuid.UUID]

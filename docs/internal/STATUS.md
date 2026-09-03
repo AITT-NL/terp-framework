@@ -646,9 +646,16 @@ one global rank and a group carries none.
       nowhere else. And `terp module-role add/list/revoke`, the first writer — an operator
       seam before a UI (ADR 0089), refusing through the capability's own `validate_assignment`
       so an HTTP surface added later cannot disagree with it. `terp guide permissions` teaches
-      the distinction between a permission and a module role. **Phase 4 complete.** Left:
-      phase 5 (the pane) and phase 6 (the spec rules).
-- [ ] Phase 5 the pane — viewer lenses first, then assignment.
+      the distinction between a permission and a module role. **Phase 4 complete.**
+- [~] Phase 5. Done (5a, the data the pane needs): `SubjectExpander` may return an attributed
+      `SubjectRef` — additively, so an existing bare-UUID expander keeps working and the
+      decision path is untouched — and the groups expander now names the group it found.
+      `GET /api/v1/access/subjects/{id}` answers "why can this person do that?": every right
+      tagged with the subject it came from, a stale grant or module role reported rather than
+      filtered, and only the highest of several rungs in one module marked `effective`. The
+      subject's global rank is deliberately absent, because it lives in a table this
+      capability cannot import and a pane already has it. Left: 5b, the pane itself — the
+      tier strip, the delta split by verb, the viewer lenses.
 - [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.
 
 A three-design panel was run against the plan; §9 there records the four mechanisms adopted from

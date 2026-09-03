@@ -32,13 +32,24 @@ from terp.core import (
     operation,
 )
 
+from terp.capabilities.access.expansion import subject_refs_for
+from terp.capabilities.access.module_roles import ModuleRoleService
 from terp.capabilities.access.operations import (
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
     ACCESS_GET_MODEL,
+    ACCESS_GET_SUBJECT,
     ACCESS_LIST_GRANTS,
 )
-from terp.capabilities.access.schemas import AccessModelRead, GrantCreate, GrantRead
+from terp.capabilities.access.schemas import (
+    AccessModelRead,
+    GrantCreate,
+    GrantRead,
+    HeldModuleRoleRead,
+    HeldPermissionRead,
+    SubjectAccessRead,
+    SubjectRefRead,
+)
 from terp.capabilities.access.service import AccessService
 
 router = APIRouter(tags=["access"])
@@ -122,6 +133,102 @@ def get_access_model(request: Request) -> AccessModelRead:
             details=(ErrorDetail(code="no_control_plane"),),
         )
     return AccessModelRead.model_validate(build_access_model(plane, specs))
+
+
+@router.get("/subjects/{subject_id}", response_model=SubjectAccessRead)
+@operation(ACCESS_GET_SUBJECT)
+def get_subject_access(
+    subject_id: uuid.UUID, request: Request, session: SessionDep
+) -> SubjectAccessRead:
+    """One subject's effective access, with the provenance of every right.
+
+    "Why can this person do that?" is the question an administrator has to be able to answer
+    before any of this is safe, and it is the one a matrix of effective answers cannot answer
+    on its own. Every row here names the subject it came from — the person themselves, or a
+    group they belong to — because a right whose origin is unknown is a right nobody can
+    remove with confidence.
+
+    Two things are reported rather than filtered. A grant naming a permission the app no
+    longer declares comes back with ``declared: false``, and a module role at an undeclared
+    rank or in a module that no longer accepts them comes back with its reason in ``stale`` —
+    on the reasoning ``terp grant list`` gives, that a filtered row is a right nobody can
+    explain. And where several module rows exist for one module, only the highest is marked
+    ``effective``, which is the thing most often misread: assigning a lower rung alongside a
+    higher one changes nothing at all.
+    """
+    plane = getattr(request.app.state, "terp_control_plane", None)
+    specs = getattr(request.app.state, "terp_module_specs", None)
+    if plane is None or specs is None:
+        raise ValidationFailedError(
+            "this app exposes no control plane, so its declarations cannot be consulted; "
+            "compose it with create_app",
+            details=(ErrorDetail(code="no_control_plane"),),
+        )
+
+    refs = subject_refs_for(session, subject_id)
+    by_id = {ref.id: ref for ref in refs}
+    declared_permissions = {p.name: p for p in plane.permissions.permissions}
+    ranks = {role.rank: role.name for role in plane.permissions.roles}
+    assignable = {
+        spec.name
+        for spec in specs
+        if spec.access is not None and spec.access.assignable
+    }
+
+    def _ref(holder: uuid.UUID) -> SubjectRefRead:
+        ref = by_id.get(holder)
+        if ref is None:  # pragma: no cover - holders come from the expanded set itself
+            return SubjectRefRead(id=holder, kind="subject", name=None)
+        return SubjectRefRead(id=ref.id, kind=ref.kind, name=ref.name)
+
+    held = _service.held_with_subjects(session, set(by_id))
+    permissions = [
+        HeldPermissionRead(
+            name=name,
+            label=(
+                declared_permissions[name].label or None
+                if name in declared_permissions
+                else None
+            ),
+            declared=name in declared_permissions,
+            via=_ref(holder),
+        )
+        for name, holder in sorted(held, key=lambda row: (row[0], str(row[1])))
+    ]
+
+    assignments = ModuleRoleService().held_with_subjects(session, set(by_id))
+    winning = {}
+    for module, rank, _holder in assignments:
+        if rank > winning.get(module, -1):
+            winning[module] = rank
+    module_roles = []
+    for module, rank, holder in sorted(
+        assignments, key=lambda row: (row[0], -row[1], str(row[2]))
+    ):
+        stale = []
+        if rank not in ranks:
+            stale.append("this app no longer declares a role at this rank")
+        if module not in assignable:
+            stale.append("this app no longer declares the module assignable")
+        module_roles.append(
+            HeldModuleRoleRead(
+                module=module,
+                role_rank=rank,
+                role=ranks.get(rank),
+                effective=winning[module] == rank,
+                stale=stale,
+                via=_ref(holder),
+            )
+        )
+
+    return SubjectAccessRead(
+        subject_id=subject_id,
+        via=[
+            SubjectRefRead(id=ref.id, kind=ref.kind, name=ref.name) for ref in refs
+        ],
+        permissions=permissions,
+        module_roles=module_roles,
+    )
 
 
 @router.get("/grants", response_model=Page[GrantRead])
