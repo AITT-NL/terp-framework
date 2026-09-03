@@ -99,6 +99,32 @@ def test_a_role_this_toolchain_does_not_know_is_information_not_an_error(tmp_pat
     assert run_workbench_check(root)[0] == 0
 
 
+def test_an_unknown_role_may_carry_anything_a_workbench_never_asks_for(
+    tmp_path,
+) -> None:
+    """The rule is narrow, and this is the case that keeps it narrow.
+
+    Fields nobody resolves by role — a comment, a note to the next reader, a
+    key some other tool invented — travel under any role at all. Only a field
+    a workbench looks up BY role is a claim that a name it does not know
+    silently voids.
+    """
+    root = _app(
+        tmp_path,
+        _declaring(
+            {
+                "role": "message-bus",
+                "service": "nats",
+                "$comment": "the queue every module publishes through",
+                "containerPort": 4222,
+            }
+        ),
+        _standard(nats={"image": "nats:2"}),
+    )
+
+    assert run_workbench_check(root)[0] == 0
+
+
 def test_an_app_with_no_declaration_at_all_passes(tmp_path) -> None:
     """Upgrading the toolchain must never redden a gate over an unadopted file."""
     root = _app(tmp_path, None, _standard())
@@ -133,6 +159,67 @@ def test_a_role_pointing_at_a_service_that_does_not_exist_is_a_lie(tmp_path) -> 
 
     assert code == 1
     assert "frontend" in output
+
+
+def test_a_port_variable_under_a_role_no_workbench_reads_is_a_dead_letter(
+    tmp_path,
+) -> None:
+    """The declaration is honest and the tool will never see it.
+
+    A workbench resolves ``hostPortEnv`` by asking for the ``web`` role, so the
+    identical line under ``frontend`` is not a near-miss — it is a field with no
+    reader. Nothing shows: the check passed, the workbench used its own default,
+    and the two agreed for as long as the declared name happened to equal it.
+    The day the app renames the variable, the workbench sets the old name and
+    starts a stack it can no longer find.
+
+    This is the only defect in this file with no symptom before that day, which
+    is exactly why it needs a check rather than a convention.
+    """
+    root = _app(
+        tmp_path,
+        _declaring(
+            {"role": "frontend", "service": "web", "hostPortEnv": "WEB_PORT"}
+        ),
+        _standard(),
+    )
+
+    code, output = run_workbench_check(root)
+
+    assert code == 1
+    assert "hostPortEnv" in output
+    assert "frontend" in output
+    # The remedy has to name the vocabulary, or the reader is told they are
+    # wrong without being told what is right.
+    assert "web" in output
+
+
+def test_a_readiness_path_under_an_unread_role_is_the_same_dead_letter(
+    tmp_path,
+) -> None:
+    """Same rule, the other role-addressed field.
+
+    Where the API answers the readiness question is looked up by the ``api``
+    role. Declared under anything else, a workbench keeps probing the path it
+    assumed — and an app that moved that endpoint is then previewed against a
+    404 it was told about.
+    """
+    root = _app(
+        tmp_path,
+        _declaring(
+            {
+                "role": "backend",
+                "service": "api",
+                "readinessPath": "/internal/ready",
+            }
+        ),
+        _standard(),
+    )
+
+    code, output = run_workbench_check(root)
+
+    assert code == 1
+    assert "readinessPath" in output
 
 
 def test_a_hard_coded_host_port_breaks_running_two_projects_at_once(tmp_path) -> None:
