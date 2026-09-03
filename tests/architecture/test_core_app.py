@@ -15,8 +15,10 @@ from starlette.middleware import Middleware
 from terp.core.app import build_guard
 from terp.core import (
     ADMIN,
+    AuditPolicy,
     BootError,
     ControlPlane,
+    CorsPolicy,
     EDITOR,
     InMemoryThrottleStore,
     ModuleSpec,
@@ -109,6 +111,81 @@ def test_create_app_middleware_parameter_remains_the_sanctioned_seam() -> None:
     response = TestClient(app).get("/health/live")
     assert response.status_code == 200
     assert response.headers["x-composed"] == "yes"
+
+
+# --- the API root is a signpost, not a dead end ------------------------------
+
+
+def test_the_api_root_says_what_it_is_instead_of_answering_not_found() -> None:
+    """A Terp app is two addresses, and this is the one people open by mistake.
+
+    No module can claim `/` (every module router is prefixed `/api/v1/<name>`)
+    and route registration is frozen after composition, so nothing else ever
+    will. FastAPI therefore answered the most reliably reachable address the
+    platform has with a bare not-found document, which reads to somebody who
+    opened the wrong port as an application that is broken.
+    """
+    client = TestClient(create_app([], title="Acme"))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Acme" in response.text
+    # The two things the reader came for: this is not the interface, and where
+    # the machine-readable surface is.
+    assert "user interface is served separately" in response.text
+    assert "/docs" in response.text
+
+
+def test_the_signpost_is_not_part_of_the_contract() -> None:
+    """A landing page for a human is not API surface.
+
+    In the document it would become a route in every generated client, for
+    something no client calls -- and would move two committed OpenAPI artifacts
+    on a change that adds no capability.
+    """
+    app = create_app([], title="Acme")
+
+    assert "/" not in app.openapi()["paths"]
+
+
+def test_the_signpost_never_points_at_docs_that_are_hidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production hides /docs unless the security config opts in.
+
+    Linking it anyway would make this page a second dead end, which is the
+    defect it exists to remove rather than to relocate.
+    """
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    plane = ControlPlane(
+        security=SecurityConfig(cors=CorsPolicy.disabled(reason="api only")),
+        audit=AuditPolicy.disabled(reason="not required for this test"),
+    )
+
+    app = create_app([], title="Acme", control_plane=plane)
+    response = TestClient(app).get("/")
+
+    assert response.status_code == 200
+    assert app.docs_url is None  # the premise: there is nothing to link to
+    assert "/docs" not in response.text
+    # Still a signpost: health is public in every environment.
+    assert "/health/live" in response.text
+    assert "Acme" in response.text
+
+
+def test_a_title_that_contains_markup_is_escaped() -> None:
+    """The title is app-supplied text landing in a document.
+
+    It is not attacker-controlled in any deployment worth naming, but "the
+    input is trusted" is the assumption that ages worst, and escaping costs
+    nothing.
+    """
+    response = TestClient(create_app([], title="<script>x</script>")).get("/")
+
+    assert "<script>x</script>" not in response.text
+    assert "&lt;script&gt;" in response.text
 
 
 def test_dependency_overrides_stay_writable_in_the_local_environment() -> None:

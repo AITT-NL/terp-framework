@@ -10,6 +10,46 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.16.0 — 2026-09-03
+
+### Added
+
+- **An app's API answers its own root with a signpost instead of a dead end.** A Terp app is
+  two published addresses in development and an interface in front of an API in production,
+  and `GET /` on the API belonged to nobody: no module can claim it (every module router is
+  prefixed `/api/v1/<name>`) and route registration is frozen after composition, so nothing
+  ever will. FastAPI therefore answered the most reliably reachable address the platform has
+  with `{"detail":"Not Found"}` — a correct 404 which reads, to somebody who opened the wrong
+  one of two ports in a browser, as an application that is broken. What follows is a search
+  for a bug in code the reader did not write, and then a report against whichever tool
+  started the stack. `/` now serves a small HTML page naming the app, saying that the
+  interface is served separately on its own address, and linking the health paths plus
+  `/docs` — the last only where those endpoints exist, since pointing at a hidden one
+  relocates the dead end rather than removing it. Deliberately unstyled: the security
+  middleware serves `default-src 'none'`, and weakening a real header to decorate a landing
+  page would be a poor trade. Deliberately outside the OpenAPI document: a page for a human
+  is not API surface, and including it would add a route to every generated client for
+  something no client calls.
+
+### Fixed
+
+- **A field only a workbench reads, declared under a role no workbench looks up.** The
+  declaration's `hostPortEnv` and `readinessPath` are resolved BY ROLE — a workbench asks
+  which service has role `web`, then reads the variable that entry named. So the identical
+  line under `role: "frontend"` is not a near-miss spelling, it is a field with no reader,
+  and every symptom of that is silent: the check passes, the workbench finds no entry for
+  the role it asked about, falls back to its own default, and the two agree for exactly as
+  long as the declared value happens to equal that default. The day the app renames the
+  variable, the workbench keeps setting the old name and starts a stack it can no longer
+  find — which is the failure `workbench.json` exists to prevent, arriving through
+  `workbench.json`. `terp verify --only workbench` now reports it, and names the vocabulary
+  in the remedy so the reader is not told they are wrong without being told what is right.
+  `KNOWN_ROLES` returns to carry that rule: it was dropped in 0.15.0 as a declared fact
+  nobody consumed, which was true of this toolchain and not true of a workbench. The rule
+  stays deliberately narrow — an unrecognised role on its own is still information nobody
+  acts on yet, and a role carrying only fields nothing resolves by name (a comment, a note
+  to the next reader) still passes untouched.
+
 ## 0.15.0 — 2026-09-02
 
 ### Added
