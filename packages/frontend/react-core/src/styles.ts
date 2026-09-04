@@ -397,6 +397,37 @@ html {
    and the icon inherits — so a tone is one declaration pair rather than three
    places to keep in step. The body restates the reading colour, because the
    copy must stay neutral-900 while the frame and glyph carry the tone. */
+/* Disclosure. The toggle is a text button that happens to carry a chevron, so it
+   inherits the reading colour rather than the accent -- a row of accent-coloured
+   "Technical details" links reads as navigation, and this navigates nowhere. The
+   chevron rotates by swapping the glyph rather than by transform, which keeps the
+   two states legible with animation disabled.
+
+   The panel is indented to the width of the chevron plus its gap, so the revealed
+   content lines up with the label above it instead of with the glyph. */
+[data-terp="disclosure"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+[data-terp="disclosure-toggle"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+  padding: var(--space-1) var(--space-2);
+  margin-inline-start: calc(var(--space-2) * -1);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-neutral-700);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+[data-terp="disclosure-panel"] {
+  padding-inline-start: calc(var(--space-4) + var(--space-2));
+}
 [data-terp="alert"] {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -3865,6 +3896,15 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 @layer terp.state {
+  /* Disclosure's toggle is a text button, so its hover is a quiet wash rather than a
+     fill -- the control sits inside reading content and a solid hover would read as a
+     row selection. No focus rule: the [data-terp]:focus-visible rule below already covers every
+     marked element, and restating it here would be a copy that can drift out of step. */
+  [data-terp="disclosure-toggle"]:hover {
+    background: var(--color-neutral-100);
+    color: var(--color-neutral-900);
+  }
+
 /* Shared focus-visible ring: every interactive element that opts in via
    [data-terp] shows a soft outline ring. It must stay in terp.state. It ties
    with [data-terp="button"][data-variant="primary"] on specificity — both

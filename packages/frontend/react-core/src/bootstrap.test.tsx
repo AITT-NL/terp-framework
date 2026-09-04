@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { defineModuleManifest } from "@terpjs/contract";
 
 import { collectModules, renderTerpApp } from "./bootstrap";
+import { useErrorMessage } from "./errorMessages";
 
 afterEach(() => {
   cleanup();
@@ -62,6 +63,54 @@ describe("renderTerpApp", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /sign in/i })).toBeInTheDocument(),
     );
+    root.remove();
+  });
+
+  it("registers the app's error copy, including codes it invented", async () => {
+    // Fourth instance of one shape: a seam that is exported, documented and unreachable
+    // from the one call that owns everything between the root and the router. An app that
+    // wanted its own wording -- or any wording for a code its own backend defines -- had to
+    // abandon renderTerpApp for TerpProvider + buildAppRouter.
+    //
+    // Asserted through the login fallback rather than a route, because the provider has to
+    // sit above RequireAuth to be worth anything: a signed-out screen shows errors too.
+    //
+    // Mutation: delete the ErrorMessagesProvider from bootstrap.tsx and both assertions
+    // below go red -- the first because the app code is gone, the second because the
+    // built-in default comes back.
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    function ShowsAnError() {
+      const describe = useErrorMessage();
+      return (
+        <>
+          <p>{describe({ code: "crosswalk_locked" })}</p>
+          <p>{describe({ code: "not_found" })}</p>
+        </>
+      );
+    }
+
+    renderTerpApp({
+      title: "Test",
+      modules: { "./modules/notes/module.tsx": notesModule },
+      rootElement: root,
+      login: <ShowsAnError />,
+      errorMessages: {
+        crosswalk_locked: "That value table is published and cannot be edited.",
+        not_found: "Niets gevonden.",
+      },
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("That value table is published and cannot be edited."),
+      ).toBeInTheDocument(),
+    );
+    // And an override of a built-in code wins over DEFAULT_ERROR_MESSAGES, which is the
+    // half that would still look fine if the map were merged the wrong way round.
+    expect(screen.getByText("Niets gevonden.")).toBeInTheDocument();
+    expect(screen.queryByText("This item could not be found.")).not.toBeInTheDocument();
     root.remove();
   });
 

@@ -146,9 +146,25 @@ services:
       retries: 5
       start_period: 15s
     volumes:
-      # Live frontend + package source (see the api service's note).
-      - ./frontend/src:/workspace/apps/example/frontend/src
+      # The WHOLE frontend, not just src/. `main.tsx` imports `../i18n.json`, which sits one
+      # level ABOVE src/ -- so with only src/ mounted Vite resolved it to the copy baked into
+      # the image at build time, and editing the locale set changed nothing in the running
+      # stack, with no error anywhere. `vite.config.ts` and `tsconfig.json` were frozen the
+      # same way, and the template carried the declaration too.
+      #
+      # Worse than invisible: the boundary lint reads the declaration from the CHECKOUT, so
+      # the file a check passes on and the file the app runs on could differ while the
+      # toolchain stayed green.
+      #
+      # The anonymous volumes masking node_modules are not optional. Without them the host's
+      # directories shadow the image's, and a dependency built for the developer's own
+      # platform is handed to a Linux container -- Vite then fails on a native binding with
+      # an error that names neither the mount nor the cause.
+      - ./frontend:/workspace/apps/example/frontend
+      - /workspace/apps/example/frontend/node_modules
       - ../../packages/frontend:/workspace/packages/frontend
+      - /workspace/packages/frontend/react-core/node_modules
+      - /workspace/packages/frontend/contract/node_modules
     depends_on:
       - api
     develop:

@@ -42,6 +42,7 @@ export interface DataViewTableProps<T> {
   onToggleSelectPage: () => void;
   // Expansion
   renderExpanded?: (row: T) => ReactNode;
+  isRowExpandable?: (row: T) => boolean;
   isExpanded: (rowId: string) => boolean;
   onToggleExpanded: (rowId: string) => void;
   // Actions
@@ -129,7 +130,14 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
   const stepOf = (column: DataViewColumn<T>): ColumnWidth | undefined =>
     resizedWidthOf(column) === undefined ? column.meta?.width : undefined;
 
-  const hasExpand = props.renderExpanded !== undefined;
+  // Whether the view has an expand COLUMN at all: one row with something behind it is
+  // enough, because the column has to be there for the rows that do. Which rows get a
+  // toggle inside it is a separate question, asked per row below -- collapsing the two
+  // is what put a chevron on every row of a view where only some had anything.
+  const expandableRows = props.renderExpanded === undefined
+    ? []
+    : props.rows.filter((row) => props.isRowExpandable?.(row) ?? true);
+  const hasExpand = expandableRows.length > 0;
   const hasActions = props.rowActions !== undefined;
   const columnCount =
     props.columns.length + (hasExpand ? 1 : 0) + (props.selectionEnabled ? 1 : 0) + (hasActions ? 1 : 0);
@@ -217,7 +225,8 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
       <tbody>
         {props.rows.map((row) => {
           const rowId = props.getRowId(row);
-          const expanded = props.isExpanded(rowId);
+          const expandable = props.isRowExpandable?.(row) ?? true;
+          const expanded = expandable && props.isExpanded(rowId);
           const clickable = props.onRowClick !== undefined;
           const tone = props.getRowTone?.(row) ?? null;
           return (
@@ -231,10 +240,14 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
               >
                 {hasExpand && (
                   <td data-terp="dataview-expand-cell">
-                    <DataViewExpandToggle
-                      expanded={expanded}
-                      onToggle={() => props.onToggleExpanded(rowId)}
-                    />
+                    {/* The cell is always rendered when the view has the column, so the
+                        remaining cells stay aligned; only the control is conditional. */}
+                    {expandable && (
+                      <DataViewExpandToggle
+                        expanded={expanded}
+                        onToggle={() => props.onToggleExpanded(rowId)}
+                      />
+                    )}
                   </td>
                 )}
                 {props.selectionEnabled && (

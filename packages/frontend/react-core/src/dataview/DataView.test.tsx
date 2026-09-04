@@ -350,6 +350,55 @@ describe("DataView expandable rows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Collapse row" }));
     expect(screen.queryByText("Detail: Broken printer")).not.toBeInTheDocument();
   });
+
+  it("draws a chevron only on the rows that have something behind it", async () => {
+    // `renderExpanded` is one prop for the whole view, so declaring it put a toggle on
+    // every row -- including the ones where the only honest thing left to show is a
+    // sentence saying there is nothing. Row actions, in the same interface, have taken a
+    // row all along.
+    render(
+      <DataView
+        repository={inMemoryRepo()}
+        columns={COLUMNS}
+        renderExpanded={(t) => <div>Detail: {t.title}</div>}
+        isRowExpandable={(t) => t.title === "Broken printer"}
+      />,
+    );
+    await screen.findByText("Broken printer");
+
+    expect(screen.getAllByRole("button", { name: "Expand row" })).toHaveLength(1);
+  });
+
+  it("keeps every row expandable when no predicate is given", async () => {
+    // The counter-case, so the assertion above cannot pass because the chevrons went away
+    // altogether: the default is unchanged and every row still has one.
+    render(
+      <DataView
+        repository={inMemoryRepo()}
+        columns={COLUMNS}
+        renderExpanded={(t) => <div>Detail: {t.title}</div>}
+      />,
+    );
+    await screen.findByText("Broken printer");
+
+    expect(screen.getAllByRole("button", { name: "Expand row" }).length).toBeGreaterThan(1);
+  });
+
+  it("drops the expand column when the predicate refuses every row", async () => {
+    // A column of empty cells is worse than no column: it takes width from the data and
+    // says nothing. One expandable row is enough to keep it, none is enough to lose it.
+    render(
+      <DataView
+        repository={inMemoryRepo()}
+        columns={COLUMNS}
+        renderExpanded={(t) => <div>Detail: {t.title}</div>}
+        isRowExpandable={() => false}
+      />,
+    );
+    await screen.findByText("Broken printer");
+
+    expect(screen.queryAllByRole("button", { name: "Expand row" })).toHaveLength(0);
+  });
 });
 
 describe("DataView column resizing", () => {

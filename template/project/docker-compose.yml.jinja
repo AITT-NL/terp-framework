@@ -175,8 +175,23 @@ services:
       retries: 5
       start_period: 15s
     volumes:
-      # Live frontend source (see the api service's note on TERP_DEV_HOST_ROOT).
-      - ${TERP_DEV_HOST_ROOT:-.}/frontend/src:/app/frontend/src
+      # The WHOLE frontend, not just src/. `main.tsx` imports `../layout-contract.json`
+      # and `../i18n.json`, which sit one level ABOVE src/ -- so with only src/ mounted
+      # Vite resolved both to the copies baked into the image at build time, and editing
+      # nav groups, shell density, the default theme or the locale set changed nothing in
+      # the running stack, with no error anywhere. `vite.config.ts` and `tsconfig.json`
+      # were frozen the same way.
+      #
+      # Worse than invisible: the boundary lint reads the declaration from the CHECKOUT,
+      # so the file a check passes on and the file the app runs on could differ while the
+      # toolchain stayed green.
+      #
+      # The anonymous volume masking node_modules is not optional. Without it the host's
+      # directory shadows the image's, and a dependency built for the developer's own
+      # platform is handed to a Linux container -- Vite then fails on a native binding
+      # with an error that names neither the mount nor the cause.
+      - ${TERP_DEV_HOST_ROOT:-.}/frontend:/app/frontend
+      - /app/frontend/node_modules
     depends_on:
       - api
     develop:

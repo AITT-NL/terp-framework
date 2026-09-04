@@ -74,6 +74,20 @@ interface DataViewBaseProps<T> {
   initialPageSize?: number;
   renderExpanded?: (row: T) => ReactNode;
   /**
+   * Which rows actually have something behind the chevron; default: all of them.
+   *
+   * `renderExpanded` is one prop for the whole view, so declaring it drew a toggle on
+   * every row -- including the rows with nothing to show, where the only honest thing
+   * left to put behind it is a sentence saying so. Row actions, four lines up, have been
+   * `(row) => ...` all along; this closes an asymmetry that was in one interface rather
+   * than adding a new idea.
+   *
+   * A predicate rather than "call `renderExpanded` and see if it returns null": that
+   * would build a subtree, for every row, on every render, to answer a boolean -- and
+   * would run whatever the caller does in there as a side effect of drawing a chevron.
+   */
+  isRowExpandable?: (row: T) => boolean;
+  /**
    * Row-level status tone: the *row* is in that state (a refused link, a failed run),
    * not one of its cells — the right altitude for a validation-driven table, where a
    * Badge cell would misattribute the verdict to a column. Tints the row/card with the
@@ -348,6 +362,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
           isSelected={(id) => selectedIds.has(id)}
           onToggleSelected={toggleSelected}
           renderExpanded={props.renderExpanded}
+          isRowExpandable={props.isRowExpandable}
           isExpanded={(id) => expandedIds.has(id)}
           onToggleExpanded={toggleExpanded}
           rowActions={props.rowActions}
@@ -375,6 +390,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
           somePageSelected={somePageSelected}
           onToggleSelectPage={toggleSelectPage}
           renderExpanded={props.renderExpanded}
+          isRowExpandable={props.isRowExpandable}
           isExpanded={(id) => expandedIds.has(id)}
           onToggleExpanded={toggleExpanded}
           rowActions={props.rowActions}

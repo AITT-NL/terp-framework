@@ -51,6 +51,43 @@ decision, 0001 onwards.
   the virtualenv and the developer's own proxy settings). The literal in the config is now
   the last resort for a bare `npm run dev`, not a value either supported loop depends on.
 
+- **The dev stack mounts the whole frontend, so the app's declarations are live again.**
+  `frontend/src/main.tsx` imports `../layout-contract.json` and `../i18n.json` — one level
+  *above* `src/`, which was the only thing mounted. Vite therefore resolved both to the
+  copies baked into the image at build time, so editing nav groups, shell density, the
+  default theme or the locale set changed nothing in the running stack. No error, no
+  warning, no rebuild: the stack served last build's declaration and looked healthy doing
+  it, and the same froze `vite.config.ts` and `tsconfig.json`.
+
+  The half that makes it more than an inconvenience: the boundary lint reads the
+  declaration from the **checkout** while the app reads the one in the image, so a change
+  could pass every check and be absent from the thing the checks describe.
+
+  Both the template and the example now bind `frontend/` with an anonymous volume masking
+  `node_modules` — not optional, because the host's directory would otherwise shadow the
+  image's and hand a Linux container a dependency built for the developer's own platform.
+  `tests/architecture/test_dev_mounts_reach_what_is_imported.py` is the control: any import
+  in the entry point that reaches outside `src/` has to land inside a mounted path, and the
+  failure names the file.
+
+- **`DataView` asks whether a row is expandable, instead of assuming every row is.**
+  `renderExpanded` is one prop for the whole view, so declaring it drew a chevron on every
+  row — including the rows with nothing behind it, where the only honest thing left to put
+  there is a sentence saying so. `isRowExpandable` closes an asymmetry that was already
+  inside one interface: `rowActions` four lines above it has taken a row all along. A
+  predicate rather than "call `renderExpanded` and see if it returns null", which would
+  build a subtree for every row on every render to answer a boolean, and run whatever the
+  caller does in there as a side effect of drawing a chevron.
+
+- **`useResource` carries the total the server already computed.** The backend has always
+  sent it — the `Page` envelope is `{items, total, skip, limit}` — and the documented
+  recipe for `list` unwrapped `.items` and dropped the rest, so every "showing N of M" and
+  every "at least N" warning re-derived an answer with `items.length >= limit`: a heuristic
+  standing in for a number. `list` may now return the page instead of the rows (a union, so
+  every existing source keeps compiling), and `Resource.total` is `number | undefined`
+  because the cursor envelope counts only when asked — unknown is a real answer and must
+  not render as zero.
+
 - **The database hint stopped teaching a fixed host port.** The commented-out `ports:`
   line in the template's `db` service showed `"5433:5432"` — a literal, in the range this
   release is moving away from, in the one place a reader looks when they want to attach a
@@ -59,6 +96,45 @@ decision, 0001 onwards.
   required of a published port.
 
 ### Added
+
+- **A clipboard seam, because the browser's own is a trap.** `navigator.clipboard` is typed
+  by `lib.dom` as always present and is absent outside a **secure context**, so on a plain
+  http origin `navigator.clipboard.writeText(...)` is a property read on `undefined` — a
+  *synchronous* `TypeError`, thrown before any promise exists, which no `.catch` on the call
+  and no `try` around an unreached `await` will see. TypeScript reports nothing. The outcome
+  is a button that does nothing and says nothing, found by a person clicking it rather than
+  by any check, and the icon set has shipped a `clipboard` glyph the whole time.
+
+  `copyText` and `useCopyToClipboard` wrap it once, with the `execCommand` path for the
+  insecure contexts where the API is absent, and **report a refusal** — the whole defect was
+  that the failure was silent, so a caller that ignores the answer has at least been given
+  one. The hook adds the "Copied" acknowledgement, because a copy has no visible result and
+  a control that does not acknowledge is indistinguishable from a broken one. Same shape as
+  the download seam of ADR 0096 §3, for the same reason.
+
+- **`Disclosure`: one labelled toggle over one region.** ADR 0099 refused an `Accordion` and
+  a `Collapsible`, and both readings still hold — `<details>` is not a restricted element,
+  so an app was never blocked, only unstyled. What changed is the discovery that the
+  framework owned *half* of this pattern: row disclosure has a home in `DataView`, and the
+  single value beside it had none, so "Technical details" was hand-built from a `Button`
+  carrying `aria-expanded` and a body toggled next to it — twice, independently, each
+  rewiring the same three attributes. This ships that control and nothing wider: no set, no
+  policy over one. It renders a button and a region rather than `<details>`, whose open
+  state is the browser's and fights a controlled prop, and it unmounts the panel while
+  closed rather than hiding it.
+
+- **`renderTerpApp` takes `errorMessages`.** `ErrorMessagesProvider`, `useErrorMessage` and
+  `DEFAULT_ERROR_MESSAGES` were all exported and there was no way to register a map from the
+  one-call bootstrap, which owns everything between the root and the router — so an app that
+  wanted its own wording for a code, or any wording at all for a code its own backend
+  modules define, had to abandon `renderTerpApp` for `TerpProvider` + `buildAppRouter`.
+
+  Fourth instance of the shape `headerActions` and `logoDark` already name in that file, and
+  the one that makes it a class rather than three oversights: a seam that exists, is
+  documented, and cannot be reached from the entry point every app uses. A general
+  `providers` wrapper slot would end the sequence and is declined — by ADR 0111's test it
+  adds capability and removes legibility, since no tool could then know an app's provider
+  stack. The typed option is the answer, one seam at a time.
 
 - **A control that stops the ports drifting back.**
   `tests/architecture/test_dev_host_ports.py` reads every published mapping in the

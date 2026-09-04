@@ -12,6 +12,8 @@ import { AdminHub } from "./admin/AdminHub";
 import { adminModule } from "./admin/module";
 import { resolveLayoutDeclaration } from "./layoutDeclaration";
 import type { LayoutDeclaration } from "./layoutDeclaration";
+import { ErrorMessagesProvider } from "./errorMessages";
+import type { ErrorMessages } from "./errorMessages";
 import { LocaleProvider } from "./locale";
 import { installPreviewBridge } from "./previewBridge";
 import type { LocaleCatalog } from "./locale";
@@ -118,6 +120,22 @@ export interface RenderTerpAppOptions {
    * a slot that existed and was unreachable from the entry point every app uses.
    */
   headerActions?: ReactNode;
+  /**
+   * Per-code overrides and additions for the error copy an app shows
+   * ({@link ErrorMessagesProvider}), merged over {@link DEFAULT_ERROR_MESSAGES}.
+   *
+   * The provider, the hook and the default map were all exported and there was no way to
+   * register a map from the one-call bootstrap, which owns everything between the root and
+   * the router. So an app that wanted its own wording for a code -- or any wording at all
+   * for a code its own backend modules define -- had to abandon `renderTerpApp` for
+   * `TerpProvider` + `buildAppRouter`.
+   *
+   * Fourth instance of the shape `headerActions` names above, and the one that decided this
+   * is a class of defect rather than three oversights: a seam that exists, is documented,
+   * and cannot be reached from the entry point every app uses. Reaching it is not a
+   * capability an app should have to leave the front door to get.
+   */
+  errorMessages?: ErrorMessages;
   /** Footer line under the content; default: a muted line with the app title. */
   footer?: ReactNode;
   /**
@@ -367,6 +385,10 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
           sourceLocale={options.sourceLocale}
         >
           <TerpProvider baseUrl={options.baseUrl ?? ""} ssoCallbackPath={options.ssoCallbackPath}>
+            {/* Inside the locale provider, because the copy it carries is app copy and an
+                app that localises its own messages resolves them from the active locale.
+                Outside the router, because a route component is exactly what reads it. */}
+            <ErrorMessagesProvider messages={options.errorMessages ?? {}}>
             <ToastProvider>
               <RequireAuth
                 fallback={
@@ -381,6 +403,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
                 <RouterProvider router={router} />
               </RequireAuth>
             </ToastProvider>
+            </ErrorMessagesProvider>
           </TerpProvider>
         </LocaleProvider>
       </ThemeProvider>
