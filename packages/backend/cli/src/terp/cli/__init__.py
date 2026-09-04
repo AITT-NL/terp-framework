@@ -1483,10 +1483,12 @@ is NOT derivable from the variable's name or type, so the manifest records it:
 
   container   a service on the compose network dials it -> use the SERVICE NAME
               (http://api:8000). A loopback address here is the container ITSELF: the
-              classic failure is setting the host value (127.0.0.1:8000), which is right
-              for a CLI run from your shell, and watching every one-shot exit 1 with
-              "Connection refused" from inside the network.
-  host        your shell dials it, outside the network -> http://127.0.0.1:8000
+              classic failure is setting the host value (127.0.0.1:22100), which is
+              right for a CLI run from your shell, and watching every one-shot exit 1
+              with "Connection refused" from inside the network.
+  host        your shell dials it, outside the network -> http://127.0.0.1:22100
+              (the published port, ${API_PORT}; 8000 is the container's own side and
+              is not reachable from your shell)
   browser     the user's browser is sent there -> a host address. OIDC_REDIRECT_URI is
               the canonical case, and the reason it is legitimately a .env forward rather
               than a declaration: the IdP redirects a BROWSER, so localhost is correct.

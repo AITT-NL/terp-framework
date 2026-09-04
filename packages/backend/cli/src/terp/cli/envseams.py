@@ -21,8 +21,9 @@ drops the key, erasing the very distinction this check reports.)
 
 The second finding uses the manifest's ``resolvedBy`` annotation. An address is resolved
 either by the host, by a container on the compose network, or by the browser, and one
-value cannot be right for two of them: ``127.0.0.1:8000`` is the API from the host and the
-container's *own* loopback from inside the network. That distinction is not derivable from
+value cannot be right for two of them: ``127.0.0.1:22100`` is the API from the host (its
+published port) while ``127.0.0.1:8000`` from inside the network is the container's *own*
+loopback. That distinction is not derivable from
 a variable's name or type, so the manifest states it and this check enforces it.
 
 The fourth finding is the one file in this seam that a human maintains by hand.
