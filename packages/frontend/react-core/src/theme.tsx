@@ -85,6 +85,23 @@ export function ThemeProvider({ defaultTheme = "system", children }: ThemeProvid
     } else {
       root.setAttribute("data-theme", theme);
     }
+    // And the pre-paint bootstrap's bridge comes back here.
+    //
+    // A generated app serves `public/theme-bootstrap.js` blocking in the document head, so a
+    // stored choice reaches `<html>` before the first paint instead of arriving with this
+    // effect — the reason being that the body is empty until React commits, so the browser
+    // has already painted a light canvas by the time this runs. That script also declares
+    // `color-scheme` INLINE, because the token sheet is imported by the entry point and in a
+    // dev server therefore arrives with the bundle: without it the attribute is right and
+    // there is still no palette to paint from.
+    //
+    // Inline is exactly why it has to be given back. A style attribute outranks every rule
+    // in every layer, so the value the bootstrap wrote would go on governing the native
+    // chrome for the whole session: pick a light palette after loading on a dark one and the
+    // scrollbars, the caret and the select popup stay dark, against a page that is not.
+    // Removing it hands `color-scheme` back to the theme blocks in the token sheet, which is
+    // where it is declared per palette. A no-op on every load after the first.
+    root.style.removeProperty("color-scheme");
   }, [theme]);
 
   const setTheme = useCallback((next: Theme) => {

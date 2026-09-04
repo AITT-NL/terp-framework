@@ -8,6 +8,7 @@ afterEach(() => {
   cleanup();
   window.localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
+  document.documentElement.style.removeProperty("color-scheme");
 });
 
 describe("ThemeProvider + ThemeToggle", () => {
@@ -32,6 +33,35 @@ describe("ThemeProvider + ThemeToggle", () => {
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Dark" }));
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+  });
+
+  it("hands back the pre-paint bootstrap's inline color-scheme", () => {
+    // `public/theme-bootstrap.js` stamps the stored palette on <html> before the first paint
+    // and declares its appearance inline with it, because in a dev server the token sheet
+    // arrives with the bundle and the attribute alone has no palette to paint from. Inline
+    // is what makes that work and also what makes it a loan: a style attribute outranks
+    // every rule in every layer, so a viewer who loaded on a dark palette and then chose a
+    // light one would keep dark scrollbars, a dark caret and a dark select popup for the
+    // rest of the session, on a page that is no longer dark.
+    document.documentElement.setAttribute("data-theme", "dark");
+    document.documentElement.style.colorScheme = "dark";
+    window.localStorage.setItem(THEME_STORAGE_KEY, "dark");
+
+    render(
+      <ThemeProvider>
+        <ThemeToggle />
+      </ThemeProvider>,
+    );
+    // Taken back on mount, while the palette it described is still the live one — so the
+    // token sheet's own per-theme declaration is what governs from here.
+    expect(document.documentElement.style.getPropertyValue("color-scheme")).toBe("");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+
+    // And it does not come back when the choice changes, which is the case it exists for.
+    fireEvent.click(screen.getByRole("button", { name: "Theme" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Light" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(document.documentElement.style.getPropertyValue("color-scheme")).toBe("");
   });
 
   it("applies a named theme beyond light and dark", () => {

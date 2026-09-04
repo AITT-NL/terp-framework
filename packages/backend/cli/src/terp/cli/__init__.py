@@ -1356,6 +1356,19 @@ Theming and branding (design tokens, palettes, the brand mark)
   Legal values are the five above plus "system". Passing `defaultTheme` as a bootstrap
   option as well is refused (terp guide layouts). Your organisation's styling tool may
   seed this key; changing it here makes it yours and later rollouts leave it alone.
+
+  ONE more line for a palette that is dark. A person's own choice is read from
+  localStorage before the first paint by `frontend/public/theme-bootstrap.js`, which the
+  template wires into index.html — so a viewer who picks dark does not get a white flash
+  on reload. A DECLARED default is not a person's choice and that script leaves it alone,
+  so declare it on the document as well and the app opens in its own palette with no
+  flash either:
+
+      frontend/index.html -> <html lang="en" data-theme="midnight">
+
+  Both halves are the same fact, in the two places that can each answer at a different
+  moment: the attribute is there before anything runs, and the script overrides it only
+  for someone who has chosen otherwise.
 - THE BRAND MARK is a path, not JSX. Put the file in `frontend/public/` (Vite serves
   that directory at the site root) and declare it:
 

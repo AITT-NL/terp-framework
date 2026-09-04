@@ -16,6 +16,16 @@
       favicon is a separate document that never sees this page's tokens.
     -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      The palette, before the first paint. The theme is a person's own choice, so it lives in
+      localStorage and only script can read it — and the app's own bundle cannot do it in
+      time: the body is empty until React commits, so the browser has already painted a light
+      canvas by then and a viewer who chose a dark palette sees a white flash on every reload.
+      This script is deliberately BLOCKING and served from public/ verbatim; the file itself
+      records why each of those is load-bearing. An app that ships on a named palette adds
+      `data-theme` to the <html> element above rather than editing the script.
+    -->
+    <script src="/theme-bootstrap.js"></script>
     <title>{{ project_name }}</title>
   </head>
   <body>

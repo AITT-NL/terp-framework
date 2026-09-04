@@ -189,6 +189,34 @@ decision, 0001 onwards.
   the baseline. Correcting that means a nudge in `em` against ONE font's metrics, and the
   package renders `system-ui` — a correction that is right on Segoe UI is wrong on SF and on
   Roboto.
+- **No white flash on reload for a viewer who chose a dark palette (ADR 0112).** The theme is a
+  person's own choice, so it lives in `localStorage` and only script can read it — and the app's
+  own bundle cannot do it in time. `index.html` ships an empty root element, so the browser
+  paints before React has committed anything, and what it paints from is the token sheet's
+  `:root`: the light palette. The viewer who follows their platform never saw this, because the
+  sheet's `prefers-color-scheme` block is resolved before paint with no script at all, which is
+  why the defect reads as intermittent until you notice it tracks an *explicit* choice.
+
+  Every generated app now serves `frontend/public/theme-bootstrap.js`, wired into `index.html`
+  by the template: a blocking, same-origin classic script that stamps the stored palette on
+  `<html>` before the first paint and declares its `color-scheme` with it. Each of those
+  adjectives is load-bearing and none is visible in review — `defer`, `async` or `type="module"`
+  all run it after the parse and bring the flash back; an inline snippet works in the dev server
+  and is silently refused by production's `script-src 'self'`; and the `color-scheme` half is
+  what fixes *development*, where the token sheet is imported by the entry point and therefore
+  arrives with the bundle, so the attribute alone has no palette to paint from.
+  `tests/architecture/test_theme_bootstrap.py` holds all of it, including the three facts the
+  script has to duplicate — the storage key, the theme list, and which palettes are dark — each
+  against its source, so a sixth theme cannot ship without this file learning about it.
+
+  Two notes for an existing app. The fix arrives with a **template update**: the script is
+  framework-owned, so it is overwritten rather than skipped, and the `<script>` tag is added to
+  `index.html` — an app whose document has diverged adds those two lines by hand. And an app
+  that ships on a dark palette through `defaultTheme` declares the same fact on the document
+  (`<html lang="en" data-theme="midnight">`), which needs no script at all; the bootstrap leaves
+  a declared default alone and overrides it only for someone who has chosen. `terp guide theming`
+  carries the recipe. There is no server rendering to enable or disable here, and adding it would
+  not have helped: the choice is in `localStorage`, which a server cannot read.
 
 ## 0.16.0 — 2026-09-03
 
