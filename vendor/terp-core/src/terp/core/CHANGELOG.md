@@ -208,6 +208,30 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **The port move left three CI jobs dialling ports nothing was listening on.** Moving every
+  published host port into the Terp-owned range moved the publishers and not their consumers:
+  the conformance suite still drove `localhost:5173`, the production smoke test still curled
+  `localhost:8080`, and two Playwright configs still defaulted to 5173. The stacks came up
+  healthy and every request was refused at a closed port — the failure survives review exactly
+  because nothing about the workflow looks wrong.
+
+  The control that was supposed to prevent this only knew about publishing. It reads compose
+  mappings and Vite settings, so it passed: neither a workflow's base URL nor an e2e config's
+  default publishes anything. `test_nothing_dials_a_conventional_host_port` closes the other
+  side, over the workflows and the e2e configs, and it is scoped to the app's HTTP surface for
+  a reason found on its first run — a `postgresql://localhost:5432` in the gate is a runner
+  service container, out of scope by the same sentence that exempts a database client mapping.
+  The one place a `localhost` URL in a workflow is genuinely not the host is named rather than
+  pattern-matched: a readiness probe that runs through `docker compose exec`, inside the
+  container.
+
+  Also the last line of the coverage gate: `terp dev`'s environment overlay was applied by a
+  branch nothing executed, because the test beside it asserts the no-overlay half by reading
+  the plan. A real child process now reports its own environment back through a file — the seam
+  pipes no stdio, because a dev server's output belongs on the developer's terminal — and
+  proves both halves: the plan's port beats an exported `TERP_API_PROXY`, and everything else
+  the parent had survives.
+
 - **The subheader is the height its token declares, on every page.** A `min-height` is only a
   height while nothing legal can beat it, and the page band's was not: a control is
   `--density-control-min-height` (2.25rem), so 36px of control plus the row's 8px of block

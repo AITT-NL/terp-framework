@@ -5,7 +5,7 @@ import { defineConfig, devices } from "@playwright/test";
 // `terp dev`. The app-agnostic base-profile flows (auth gating, session lifecycle) live in
 // @terpjs/conformance and run separately; this suite composes that package's helpers (login, seeded
 // role credentials) with the app's own module expectations.
-const baseURL = process.env.TERP_E2E_BASE_URL ?? "http://localhost:5173";
+const baseURL = process.env.TERP_E2E_BASE_URL ?? "http://localhost:21100";
 
 export default defineConfig({
   testDir: "./e2e",

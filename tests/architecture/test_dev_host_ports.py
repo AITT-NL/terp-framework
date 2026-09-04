@@ -23,10 +23,20 @@ published ports as data and requires each to fall in range, and
 reads a list — a new file that publishes 5173 fails even though this test never
 named it.
 
+Publishing is only half of it, and the half that was checked. The other half is
+DIALLING: a CI workflow, an e2e config or a script that hard-codes the number a
+compose file used to publish. Moving the publisher then leaves the consumer pointing
+at a closed port, which is exactly what happened -- the conformance suite drove
+``localhost:5173`` and the production smoke test curled ``localhost:8080`` after both
+had moved, and nothing in this file noticed because neither of them publishes
+anything. :func:`test_nothing_dials_a_conventional_host_port` closes that side.
+
 **What is deliberately not checked.** Container-internal ports. Inside a Compose
 network 8000 and 5173 cannot collide with anything, and the app's healthchecks,
 proxy targets and process arguments are written against them; moving those would
-be churn with no beneficiary. Only the *host* side of a mapping is in scope.
+be churn with no beneficiary. Only the *host* side of a mapping is in scope -- which
+is why the dialling check has to know the one place a ``localhost`` URL in a workflow
+is NOT the host: a probe that runs through ``compose exec``, inside the container.
 """
 
 from __future__ import annotations
@@ -215,4 +225,67 @@ def test_no_conventional_host_port_is_published_anywhere() -> None:
         + "\n  ".join(offenders)
         + f"\nThe range is {TERP_PORT_FLOOR}-{TERP_PORT_CEILING} (web 21100, "
         "api 22100, deploy 23100)."
+    )
+
+
+#: Files that DIAL a published host port: the CI workflows that drive a running stack,
+#: and the e2e configs whose default base URL is what a developer gets when they run the
+#: suite by hand. Neither publishes a port, so the check above cannot see them.
+_DIALLING_FILES = (
+    *sorted((_REPO_ROOT / ".github" / "workflows").glob("*.yml")),
+    _REPO_ROOT / "apps" / "example" / "frontend" / "playwright.config.ts",
+    _REPO_ROOT / "packages" / "frontend" / "conformance" / "playwright.config.ts",
+    _REPO_ROOT / "apps" / "workbench" / "playwright.config.ts",
+)
+
+#: A ``localhost`` HTTP URL with a port, which is the shape a consumer takes.
+#:
+#: The scheme is part of the pattern rather than decoration. This control is about the
+#: app's HTTP surface -- the thing a compose file publishes and a suite drives -- and the
+#: first run of it flagged ``postgresql+psycopg://postgres:terp@localhost:5432`` in
+#: ci.yml, which is a runner SERVICE CONTAINER: its port is published by Actions on an
+#: ephemeral machine, cannot collide with a developer's, and is out of scope by the same
+#: sentence in the module docstring that exempts a database client mapping.
+_DIALLED_HOST_PORT = re.compile(r"https?://(?:localhost|127\.0\.0\.1):(\d{2,5})")
+
+#: The one line where ``localhost`` is NOT the host, named rather than pattern-matched:
+#: it runs THROUGH ``docker compose exec``, so localhost is the api container and 8000 is
+#: its internal port -- the case the module docstring exempts. A second such probe adds a
+#: line here with its reason; a pattern would quietly exempt every future host-side call
+#: that happened to look similar.
+_CONTAINER_INTERNAL_PROBES = (
+    "urllib.request.urlopen('http://localhost:8000/health/ready')",
+)
+
+
+def test_nothing_dials_a_conventional_host_port() -> None:
+    """A consumer that hard-codes a conventional port is a stack nobody can reach.
+
+    The failure is worse than a collision, because it survives review: the workflow is
+    syntactically fine, the stack comes up healthy, and every request is refused at a
+    port nothing is listening on. Measured on main, this shape cost three red jobs --
+    two Playwright suites at 5173 and four curls at 8080.
+
+    Read as text rather than parsed, for the reason the grep half above gives: a new
+    workflow that dials the wrong number fails here even though nothing names it.
+    """
+    offenders: list[str] = []
+    for path in _DIALLING_FILES:
+        if not path.is_file():
+            continue
+        relative = path.relative_to(_REPO_ROOT).as_posix()
+        for number, line in [
+            (number, line)
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+            for number in _DIALLED_HOST_PORT.findall(line)
+        ]:
+            if any(probe in line for probe in _CONTAINER_INTERNAL_PROBES):
+                continue
+            port = int(number)
+            if port in CONVENTIONAL_PORTS or not _in_range(port):
+                offenders.append(f"{relative}: {line.strip()}")
+    assert not offenders, (
+        "These dial a host port outside the Terp range, so they reach nothing once the\n"
+        "publisher moves:\n  " + "\n  ".join(offenders) + f"\nThe range is "
+        f"{TERP_PORT_FLOOR}-{TERP_PORT_CEILING} (web 21100, api 22100, deploy 23100)."
     )

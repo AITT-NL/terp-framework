@@ -56,16 +56,16 @@ jobs:
 
       - name: SPA is served with an SPA fallback (nginx)
         run: |
-          curl -fsS http://localhost:8080/ | grep -qi '<!doctype html'
-          curl -fsS http://localhost:8080/some/client/route | grep -qi '<!doctype html'
+          curl -fsS http://localhost:23100/ | grep -qi '<!doctype html'
+          curl -fsS http://localhost:23100/some/client/route | grep -qi '<!doctype html'
 
       - name: Login + authenticated round-trip through the same-origin /api proxy
         run: |
           payload=$(python3 -c 'import json,os; print(json.dumps({"email": "smoke-admin@example.test", "password": os.environ["SMOKE_ADMIN_PASSWORD"]}))')
-          token=$(curl -fsS -X POST http://localhost:8080/api/v1/auth/login \
+          token=$(curl -fsS -X POST http://localhost:23100/api/v1/auth/login \
             -H 'Content-Type: application/json' -d "$payload" \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-          curl -fsS http://localhost:8080/api/v1/me/ -H "Authorization: Bearer $token" \
+          curl -fsS http://localhost:23100/api/v1/me/ -H "Authorization: Bearer $token" \
             | grep -q 'smoke-admin@example.test'
 
       - name: WebSocket upgrade + typed frame through production nginx

@@ -102,6 +102,55 @@ def test_a_command_with_no_overlay_inherits_the_environment_untouched() -> None:
     assert backend.env == ()
 
 
+def test_an_overlay_is_layered_over_the_inherited_environment(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of the same decision, and the half that has to run a real child.
+
+    ``_spawn`` builds ``{**os.environ, **overlay}`` for a command that declares one, and
+    both halves of that expression are load-bearing: the overlay has to WIN for its own
+    name -- a developer who exported ``TERP_API_PROXY`` is overruled, because the plan
+    knows which port it just chose -- while everything else the parent had survives,
+    which is the whole reason it is an overlay rather than a replacement.
+
+    The test above proves the no-overlay half by reading the PLAN, which is why this line
+    of ``_spawn`` was the one hole in the coverage gate: nothing ever executed the branch
+    that builds the dictionary. Asserted through a real subprocess reporting its own
+    environment, because the thing under test IS the environment a child receives -- a
+    fake ``Popen`` would only prove a dictionary was built. The child is this interpreter
+    writing two values, so there is no server, no port and nothing to clean up.
+
+    Through a FILE rather than a pipe, and that is a fact about the seam rather than a
+    preference: ``_spawn`` sets no ``stdout``, because a dev server's output belongs on
+    the developer's terminal. So ``communicate()`` hands back ``None`` here and the
+    child's report has to land somewhere the test can read.
+    """
+    monkeypatch.setenv("TERP_API_PROXY", "http://the-developers-own-choice:9000")
+    monkeypatch.setenv("TERP_DEV_INHERITED_PROBE", "still here")
+    report = tmp_path / "environment.txt"
+
+    command = DevCommand(
+        label="probe",
+        argv=(
+            sys.executable,
+            "-c",
+            "import os, pathlib, sys; pathlib.Path(sys.argv[1]).write_text("
+            "os.environ['TERP_API_PROXY'] + chr(10) "
+            "+ os.environ.get('TERP_DEV_INHERITED_PROBE', 'GONE'), encoding='utf-8')",
+            str(report),
+        ),
+        cwd=tmp_path,
+        env=(("TERP_API_PROXY", "http://127.0.0.1:22100"),),
+    )
+
+    process = _spawn(command)
+    assert process.wait(timeout=60) == 0
+
+    overlaid, inherited = report.read_text(encoding="utf-8").splitlines()[:2]
+    assert overlaid == "http://127.0.0.1:22100", "the plan's value must beat the exported one"
+    assert inherited == "still here", "and everything else the parent had must survive"
+
+
 # --------------------------------------------------------------------------- #
 # run_dev_command — preflight + spawn + supervise
 # --------------------------------------------------------------------------- #
