@@ -15,6 +15,9 @@
   (the guarantees a split spends), [ADR 0088](0088-service-principal-credentials.md)
   (the sanctioned-path-must-be-easier argument, applied here to egress),
   [ADR 0062](0062-production-deployment-profile.md) (the reference hosting target)
+- **Designed in:** [docs/internal/PLATFORM_REACH.md](../internal/PLATFORM_REACH.md) —
+  decision 4's five sockets, worked through to seams, enforcement and tests, alongside
+  the application-kind gaps that turn out to have the same shape.
 
 ---
 
