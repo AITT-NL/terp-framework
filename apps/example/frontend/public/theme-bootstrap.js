@@ -30,9 +30,13 @@
  * tests/architecture/test_theme_bootstrap.py, so a sixth theme cannot ship without this file
  * learning about it.
  *
- * An app that ships on a named palette declares it on the element itself in index.html
- * (<html lang="en" data-theme="midnight">) rather than here. This script leaves a declared
- * default alone and overrides it only for someone who has actually chosen.
+ * An app that ships on a named palette declares it TWICE, and both halves are load-bearing:
+ * `defaultTheme` in frontend/layout-contract.json, which is what ThemeProvider applies, and
+ * the same name on the element in index.html (<html lang="en" data-theme="midnight">), which
+ * is what paints it before this bundle exists. The attribute alone is not enough and fails in
+ * the direction nobody expects: ThemeProvider defaults to "system", so it would REMOVE the
+ * attribute on mount and the app would open on its palette and then leave it. This script
+ * leaves a declared default alone and overrides it only for someone who has actually chosen.
  */
 (function () {
   var STORAGE_KEY = "terp.theme";
@@ -45,8 +49,12 @@
     stored = window.localStorage.getItem(STORAGE_KEY);
   } catch (error) {
     // Private mode, or storage refused by policy. ThemeProvider swallows the same throw and
-    // falls back to the app's default, so there is nothing to pre-apply.
-    return;
+    // falls back to the app's default, so there is no CHOICE to pre-apply -- and the rest of
+    // this script still has work to do, because an app that declares its palette on the
+    // document has one either way. An earlier version returned here and took the appearance
+    // with it, so a declared dark palette flashed white for exactly the viewers whose browser
+    // refuses storage.
+    stored = null;
   }
 
   if (stored === "system") {
@@ -71,12 +79,16 @@
   // A BRIDGE, and ThemeProvider takes it back on mount: an inline value outranks every rule,
   // so leaving it would pin the native chrome to whatever was stored at load and a viewer
   // who then picks a light palette would keep dark scrollbars for the session.
+  //
+  // ONLY WHEN A PALETTE IS PINNED, and the empty case is left alone rather than declared as
+  // "light dark". There is nothing to bridge there: with no attribute the token sheet's own
+  // prefers-color-scheme block is what answers, and it answers before paint with no script at
+  // all -- the one case that never flashed. Declaring the pair anyway put an inline value on
+  // the document for a palette nobody chose, and an app composing TerpProvider without a
+  // ThemeProvider would then keep it for the whole session: OS-dark native chrome on a light
+  // app, from a bridge with nothing at the other end.
   var active = root.getAttribute("data-theme");
-  if (active === null) {
-    // No palette pinned: let the platform decide, which is what "system" means and what the
-    // sheet's own media query will say a moment later.
-    root.style.colorScheme = "light dark";
-  } else {
+  if (active !== null) {
     root.style.colorScheme = DARK.indexOf(active) === -1 ? "light" : "dark";
   }
 })();

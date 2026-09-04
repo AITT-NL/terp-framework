@@ -22,8 +22,11 @@
       time: the body is empty until React commits, so the browser has already painted a light
       canvas by then and a viewer who chose a dark palette sees a white flash on every reload.
       This script is deliberately BLOCKING and served from public/ verbatim; the file itself
-      records why each of those is load-bearing. An app that ships on a named palette adds
-      `data-theme` to the <html> element above rather than editing the script.
+      records why each of those is load-bearing. An app that ships on a named palette declares
+      it in BOTH places rather than editing the script: `defaultTheme` in layout-contract.json,
+      which is what the app applies, and the same name as `data-theme` on the <html> element
+      above, which is what paints it before the bundle exists. The attribute on its own would
+      be removed on mount, because the provider's default is to follow the platform.
     -->
     <script src="/theme-bootstrap.js"></script>
     <title>{{ project_name }}</title>

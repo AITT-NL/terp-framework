@@ -68,11 +68,15 @@ Each adjective is a constraint, and naming them is most of the decision:
   no maintenance.
 - **Classic and untranspiled**, because `public/` is copied verbatim: this file is served as
   written, so it is small ES5 with no imports, no build step and no dependency on the bundle.
-- **It declares the appearance as well as the palette.** After resolving the palette the script
-  sets `color-scheme` on the root element, which is what the browser paints the canvas and the
-  native scrollbars from. This is the half that fixes development, where the sheet is not there
-  yet. It is applied through CSSOM rather than a `style` attribute, which the same CSP would
-  refuse.
+- **It declares the appearance as well as the palette** — but only when a palette is actually
+  pinned. `color-scheme` is what the browser paints the canvas and the native scrollbars from,
+  and declaring it is the half that fixes development, where the token sheet arrives with the
+  bundle and the attribute alone has nothing to paint from. It is applied through CSSOM rather
+  than a `style` attribute, which the same CSP would refuse. With no palette pinned the script
+  declares nothing: the sheet's own `prefers-color-scheme` block answers that case before paint
+  with no script at all, and an inline `light dark` written for a palette nobody chose would
+  outlive its purpose in an app that composes `TerpProvider` without a `ThemeProvider` — OS-dark
+  native chrome on a light app, from a bridge with nothing at the other end.
 
 The script does the least it can: a stored `"system"` removes the attribute (so the sheet's
 media query answers), a stored palette this build ships is stamped, and anything else — no
@@ -85,11 +89,15 @@ stored at load: a viewer who then picks a light palette would keep dark scrollba
 and a dark `<select>` popup for the rest of the session, on a page that is no longer dark. The
 effect that applies `data-theme` removes the property in the same pass.
 
-**A declared default is declared on the document, not in the script.** An app that ships on a
-palette says so in `layout-contract.json`, which the bundle reads — and the bundle is what is too
-late. So `terp guide theming` now says to put the same fact on the element as well
+**A declared default is declared TWICE, and both halves are load-bearing.** An app that ships
+on a palette says so in `layout-contract.json`, which the bundle reads — and the bundle is what
+is too late. So `terp guide theming` says to put the same name on the element as well
 (`<html lang="en" data-theme="midnight">`), which needs no script at all, and the bootstrap
-overrides it only for someone who has actually chosen otherwise.
+overrides it only for someone who has actually chosen otherwise. The attribute is not an
+alternative to the declaration: `ThemeProvider` defaults to `"system"` and REMOVES a
+`data-theme` it did not put there, so an app that declared only the attribute would paint its
+palette and then flip out of it on mount — the failure is not a flash but a wrong palette,
+which is worse.
 
 ## Consequences
 

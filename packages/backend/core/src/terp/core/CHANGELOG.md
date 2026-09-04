@@ -153,10 +153,14 @@ decision, 0001 onwards.
   **`DetailItem.full` spans one pair across every track**, label above value — the same pair's
   narrow shape, asked for at one row rather than imposed on all of them. It is for the value
   that is a paragraph rather than a field, and what it replaces is closing the `<dl>`, rendering
-  the wide thing and opening another. Two rules rather than one, and the second is the half that
-  is easy to miss: a `display: contents` box generates no box, so `grid-column` on it is dropped
-  and the span silently does not happen — the full row stops being a contents box in the one
-  place it was one.
+  the wide thing and opening another. The rules that make a row a
+  `display: contents` box exclude it by selector, and that shape is a correction rather than a
+  flourish: a contents box generates no box, so
+  `grid-column` on it is dropped and the span silently does not happen. Un-contents-ing the full
+  row in a rule of its own was the first attempt, and that rule tied with the auto list's own
+  contents rule and lost to source order — so `full` did nothing at all in an auto list, at any
+  width, while the aligned specimen said everything was fine. An exclusion cannot lose that way,
+  and a third contents rule added without one fails a test.
 
   **`DetailListGroup` shares one measured label column across several lists.** A record shown in
   sections is a list per section, because the sections have their own headings and a `<dl>`
@@ -169,7 +173,12 @@ decision, 0001 onwards.
 
   A wrapper, and explicit rather than something `Card` infers from the lists it happens to
   contain — a card that wants two different label widths has to be able to say so, and a card
-  has no business knowing about `<dl>` tracks. It shares the measure for `layout="aligned"` at
+  has no business knowing about `<dl>` tracks. The lists have to be the group's OWN children:
+  `subgrid` needs the element to be a grid item of the box that owns the tracks, so wrapping
+  each heading-and-list section in a `Stack` — the obvious tidy-up — gives the shared measure
+  back. The rule says so with a child combinator on purpose, because as a descendant selector it
+  would reach the nested list and compute to `none` for want of a parent grid, taking that
+  list's own label column with it. Nesting costs you the group; it does not break the list. It shares the measure for `layout="aligned"` at
   the default single column above the viewport cutover, and a `columns={2}` list keeps its own
   four tracks rather than being quietly folded into two. Where `subgrid` is unsupported the
   declaration is dropped and every list keeps its own tracks, which is exactly today's output —
@@ -209,9 +218,13 @@ decision, 0001 onwards.
   was 53px too and `--shell-header-height` was 5px short of the header every app reads it to
   line something up with.
 
-  Both rows now spend `--space-1` of block padding, which leaves the tallest shipped control
-  3px of headroom under the floor, so the floor decides the height instead of losing to
-  whatever landed in the row. **The app header is therefore 5px shorter than in 0.16.0** and
+  Both rows now spend **no** block padding, so the content box is the floor less its border —
+  47px, which clears every control this package ships, the 2.75rem `Button size="lg"`
+  included. `--space-1` was the first answer and cleared only the default 2.25rem one: a band
+  whose action button was large measured 53px again, the same defect four pixels away. The row
+  centres its content, so a default control still sits with 5.5px above and below it and
+  nothing about the ordinary band moves; what zero costs is the wrapped row's breathing room,
+  where the two lines stay `--space-2` apart but the first starts at the border. **The app header is therefore 5px shorter than in 0.16.0** and
   the content below it moves up with it; the band no longer moves at all. Raising the token to
   fit the old padding was the other candidate and was declined: 3rem is published geometry an
   app can already move from its own `theme.css`, and a consumer reading it is entitled to the
@@ -264,9 +277,13 @@ decision, 0001 onwards.
   Two notes for an existing app. The fix arrives with a **template update**: the script is
   framework-owned, so it is overwritten rather than skipped, and the `<script>` tag is added to
   `index.html` — an app whose document has diverged adds those two lines by hand. And an app
-  that ships on a dark palette through `defaultTheme` declares the same fact on the document
-  (`<html lang="en" data-theme="midnight">`), which needs no script at all; the bootstrap leaves
-  a declared default alone and overrides it only for someone who has chosen. `terp guide theming`
+  that ships on a named palette declares it in BOTH places, because each answers at a different
+  moment: `defaultTheme` in `layout-contract.json`, which is what the app applies, and the same
+  name as `data-theme` on the `<html>` element, which is what paints it before the bundle
+  exists. The attribute alone fails in the direction nobody expects — `ThemeProvider` defaults
+  to following the platform, so it would REMOVE the attribute on mount and the app would open on
+  its palette and then leave it. The bootstrap leaves a declared default alone and overrides it
+  only for someone who has chosen. `terp guide theming`
   carries the recipe. There is no server rendering to enable or disable here, and adding it would
   not have helped: the choice is in `localStorage`, which a server cannot read.
 

@@ -470,16 +470,20 @@ describe("cascade structure", () => {
     // 1px border is 53px against a floor of 48, so the app header (which always carries its
     // toggle) was 53px, a band with an action button was 53px, and a band with only a title
     // was 48px — the one row whose whole promise is that it matches the header above it,
-    // changing height per page. Measured in the workbench before it was cut, and the
-    // resolved heights are pinned there too, in the computed lane; what belongs here is that
-    // neither row can move its padding without the other.
+    // changing height per page.
+    //
+    // Zero, not a step: var(--space-1) leaves 39px of content box, which clears the 2.25rem
+    // control and not the 2.75rem one this package also ships, so a band with a large action
+    // button measured 53px again. Both rows spend the same value, and the resolved heights are
+    // pinned in the computed lane against the largest control there is; what belongs here is
+    // that neither row can move its padding without the other.
     expect(chrome, "the band's block padding is the app header's").toContain(
-      "padding-block: var(--space-1)",
+      "padding-block: var(--space-0)",
     );
     expect(
       bodyFor('[data-terp="appshell-header"]'),
       "both chrome rows spend the same block padding under the floor they share",
-    ).toContain("padding: var(--space-1) var(--shell-gutter)");
+    ).toContain("padding: var(--space-0) var(--shell-gutter)");
     expect(
       /padding-inline|padding:/.test(chrome),
       "an inline pad with no bleed would inset the band from the body beneath it",
@@ -876,10 +880,9 @@ describe("cascade structure", () => {
       '[data-terp="detail-list"][data-columns="2"]',
       '[data-terp="detail-list"][data-layout="aligned"]',
       '[data-terp="detail-list"][data-layout="aligned"][data-columns="2"]',
-      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"]',
-      // The full row's un-contents-ing, and the group's subgrid: both are properties of the
-      // shared column, so both belong to the width at which there IS one.
-      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"][data-full="true"]',
+      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"]:not([data-full="true"])',
+      // The group's subgrid is a property of the shared column, so it belongs to the width at
+      // which there IS one.
       '[data-terp="detail-list-group"] > [data-terp="detail-list"][data-layout="aligned"]:not([data-columns])',
     ]) {
       expect(
@@ -1025,11 +1028,25 @@ describe("cascade structure", () => {
       base.slice(spanAt, base.indexOf("}", spanAt)),
       "1 / -1, so the row need not know how many tracks the list has",
     ).toContain("grid-column: 1 / -1");
-    const unContentsAt = base.indexOf(
-      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"][data-full="true"] {',
+    // And the invariant that makes the span reach it: NO rule may turn a full row into a
+    // display: contents box. Asserted over every such rule in the sheet rather than against
+    // the two that exist, because the failure is silent and specificity-shaped — the first
+    // version un-contents-ed the full row in a rule of its own, which tied with the auto
+    // list's contents rule and lost to source order, so `full` did nothing in an auto list at
+    // any width. An exclusion in the selector cannot lose that way; a third contents rule
+    // added without one fails here.
+    const contentsRules = [...base.matchAll(/([^{}]*detail-list-row[^{}]*)\{([^{}]*)\}/g)].filter(
+      ([, , body]) => /display:\s*contents/.test(body!),
     );
-    expect(unContentsAt, "the aligned full row should be un-contents-ed").toBeGreaterThan(-1);
-    expect(base.slice(unContentsAt, base.indexOf("}", unContentsAt))).toContain("display: block");
+    expect(contentsRules.length, "the sheet should have contents rules to check").toBeGreaterThan(
+      0,
+    );
+    for (const [, selector] of contentsRules) {
+      expect(
+        selector!.includes(':not([data-full="true"])'),
+        `${selector!.trim()} would make a full row a contents box, which drops its span`,
+      ).toBe(true);
+    }
   });
 
   it("floors both tracks of an auto pair, and caps each at a share of the container", () => {
@@ -1104,6 +1121,24 @@ describe("cascade structure", () => {
     const childAt = base.indexOf('[data-terp="detail-list-group"] > * {');
     expect(childAt, "the group's children should span it").toBeGreaterThan(-1);
     expect(base.slice(childAt, base.indexOf("}", childAt))).toContain("grid-column: 1 / -1");
+    // And both of the group's rules reach its OWN children only. The child combinator looks
+    // like a tightening that could be relaxed and is the opposite: subgrid needs the element to
+    // be a grid item of the box owning the tracks, so as a descendant selector this would reach
+    // a list nested in a Stack, compute to `none` for want of a parent grid, and take that
+    // list's own label column with it. Not sharing is the correct outcome for a nested list;
+    // losing its tracks is not.
+    // Whitespace-normalised, because a selector this long is wrapped in the sheet and the
+    // wrapping is not the contract.
+    const flat = base.replace(/\s+/g, " ");
+    for (const rule of [
+      '[data-terp="detail-list-group"] > *',
+      '[data-terp="detail-list-group"] > [data-terp="detail-list"][data-layout="aligned"]:not([data-columns])',
+    ]) {
+      expect(
+        flat.includes(rule),
+        `${rule} must stay a child combinator: subgrid on a nested list computes to none`,
+      ).toBe(true);
+    }
     // The group's gap is a row gap at every step, for the list's own reason: the column gap is
     // the shared measure and is not a caller's to move.
     for (const token of [0, 1, 2, 3, 4, 6, 8]) {

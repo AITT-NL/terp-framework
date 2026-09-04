@@ -236,9 +236,11 @@ export interface DetailItem {
    * a different vertical line. One `full` row keeps one list, one measure, one column.
    *
    * It spans TRACKS, so it does nothing where there are none to span: `layout="inline"` at
-   * `columns={1}`, and every layout below the cutover, are already one full-width column. That
-   * is not a silent no-op to work around — it is the same pair rendering the same way for a
-   * different reason.
+   * `columns={1}`, and the closed counts below the viewport cutover, are already one full-width
+   * column. That is not a silent no-op to work around — it is the same pair rendering the same
+   * way for a different reason. `columns="auto"` is the exception to the second half and needs
+   * no exception in the code: it keeps its label column at every width, so a `full` row spans
+   * that column on a phone exactly as it spans four tracks on a desk.
    */
   full?: boolean;
 }
@@ -428,8 +430,26 @@ export interface DetailListGroupProps extends Omit<HTMLAttributes<HTMLDivElement
  *   which is what it renders now, so this ships with no feature query and no fallback branch.
  *   Baseline-wide since Chrome 117 / Safari 16 / Firefox 71.
  *
- * Children other than lists are welcome and span the whole group — a `Text` heading between two
- * lists, a `Divider` — which is the other half of why this is a wrapper and not a prop.
+ * Children other than lists are welcome and span the whole group — a `Heading` between two
+ * lists, a `Divider` — which is the other half of why this is a wrapper and not a prop. So the
+ * shape is flat, and it has to be:
+ *
+ * ```tsx
+ * <DetailListGroup>
+ *   <Heading level={3}>Identity</Heading>
+ *   <DetailList layout="aligned" items={identity} />
+ *   <Heading level={3}>Schedule</Heading>
+ *   <DetailList layout="aligned" items={schedule} />
+ * </DetailListGroup>
+ * ```
+ *
+ * **The lists must be the group's OWN children.** Wrapping each heading-and-list section in a
+ * `Stack` is the obvious tidy-up and it silently gives up the shared measure: `subgrid` needs
+ * the element to be a grid item of the box that owns the tracks, and a list inside a `Stack` is
+ * an item of the `Stack`. The rule is written with a child combinator for exactly that reason —
+ * as a descendant selector it would reach the nested list, compute to `none` because there is no
+ * parent grid to subgrid, and take the list's OWN label column with it, which is worse than not
+ * sharing. Nesting costs you the group; it does not break the list.
  */
 export function DetailListGroup({ gap, children, ...rest }: DetailListGroupProps) {
   return (

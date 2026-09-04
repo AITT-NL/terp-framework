@@ -652,11 +652,25 @@ async function chromeRow(
     const declared = getComputedStyle(root).getPropertyValue("--shell-header-height").trim();
     const rem = Number.parseFloat(getComputedStyle(root).fontSize);
     const element = document.querySelector(css);
+    const height = () => (element === null ? null : element.getBoundingClientRect().height);
+    // The same row again with its control at the LARGEST size the package ships, which is the
+    // composition the block padding was cut to zero for: at var(--space-1) a 2.75rem control
+    // plus the border beat the floor by five pixels, and every specimen renders the default
+    // size, so no picture in the suite could say so. Driven rather than pictured, because a
+    // second baseline of the same band would say less than this number does.
+    const control = element === null ? null : element.querySelector('[data-terp="button"]');
+    let withLargestControl = null;
+    if (control !== null) {
+      control.setAttribute("data-size", "lg");
+      withLargestControl = { control: control.getBoundingClientRect().height, row: height() };
+      control.removeAttribute("data-size");
+    }
     return {
-      height: element === null ? null : element.getBoundingClientRect().height,
+      height: height(),
       declared: declared.endsWith("rem")
         ? Number.parseFloat(declared) * rem
         : Number.parseFloat(declared),
+      withLargestControl,
     };
   }, selector);
 }
@@ -687,6 +701,18 @@ test("both chrome rows come out at the header height their shared token declares
     const row = await chromeRow(page, only, selector);
     expect(row.height, `${what} should render`).not.toBeNull();
     expect(row.height, `${what} must be the height the token declares`).toBe(row.declared);
+    if (row.withLargestControl !== null) {
+      // The headroom claim, read back: the largest control the package ships still leaves the
+      // floor deciding the height.
+      expect(
+        row.withLargestControl.control,
+        `${what}: the large control should actually be larger`,
+      ).toBeGreaterThan(36);
+      expect(
+        row.withLargestControl.row,
+        `${what} must hold the largest control without growing`,
+      ).toBe(row.declared);
+    }
   }
 
   // And the ONE composition that is meant to grow, asserted rather than assumed: a long
@@ -763,44 +789,70 @@ async function leftEdges(page: import("@playwright/test").Page, selector: string
   );
 }
 
+/** Every detail list on the page, with its rows' measured boxes. */
+async function detailLists(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const box = (el: Element) => {
+      const rect = el.getBoundingClientRect();
+      return { left: Math.round(rect.left), width: Math.round(rect.width) };
+    };
+    return [...document.querySelectorAll('[data-terp="detail-list"]')].map((list) => ({
+      box: box(list),
+      rows: [...list.querySelectorAll('[data-terp="detail-list-row"]')].map((row) => ({
+        full: row.getAttribute("data-full") === "true",
+        display: getComputedStyle(row).display,
+        term: box(row.querySelector('[data-terp="detail-list-term"]')!),
+        value: box(row.querySelector('[data-terp="detail-list-value"]')!),
+      })),
+    }));
+  });
+}
+
 test("a full row spans the list while its neighbours keep the shared column", async ({ page }) => {
   // The two halves of `full`, and the second is the one a baseline cannot state: a
   // display: contents box generates no box, so `grid-column` on it is DROPPED — the row would
   // stay in the label track and the span would silently not happen. What proves it happened is
   // that the wide value starts where its LABEL starts and runs the width of the list, while the
   // pairs above and below it still start in the value track.
-  await page.goto("/?theme=light&only=detail-list-full");
-  await page.locator('[data-terp="detail-list"]').waitFor({ state: "visible" });
-  const measured = await page.evaluate(() => {
-    const list = document.querySelector('[data-terp="detail-list"]')!;
-    const box = (el: Element) => {
-      const rect = el.getBoundingClientRect();
-      return { left: Math.round(rect.left), width: Math.round(rect.width) };
-    };
-    const rows = [...list.querySelectorAll('[data-terp="detail-list-row"]')].map((row) => ({
-      full: row.getAttribute("data-full") === "true",
-      term: box(row.querySelector('[data-terp="detail-list-term"]')!),
-      value: box(row.querySelector('[data-terp="detail-list-value"]')!),
-    }));
-    return { list: box(list), rows };
-  });
-  const full = measured.rows.filter((row) => row.full);
-  const paired = measured.rows.filter((row) => !row.full);
-  expect(full, "the specimen should carry exactly one full row").toHaveLength(1);
-  expect(paired.length, "and pairs on either side of it").toBeGreaterThan(1);
+  //
+  // Over BOTH shapes that make a row a contents box, which is a regression test rather than
+  // thoroughness: the first version of these two additions un-contents-ed the full row in a
+  // rule of its own, and that rule tied with the auto list's contents rule and lost to source
+  // order — so `full` did nothing at all in an auto list, at any width, and the aligned
+  // specimen alone said everything was fine. The sheet says it with an exclusion now, and this
+  // walks every list in both specimens.
+  for (const only of ["detail-list-full", "detail-list-auto"]) {
+    await page.goto(`/?theme=light&only=${only}`);
+    await page.locator('[data-terp="detail-list"]').first().waitFor({ state: "visible" });
+    const lists = await detailLists(page);
+    expect(lists.length, `${only} should render at least one list`).toBeGreaterThan(0);
 
-  // The full row: label above value, both starting at the list's own left edge, and the value
-  // as wide as the list. Not "wider than a normal value" — the width itself, or a span of two
-  // tracks out of four would pass.
-  expect(full[0]!.term.left).toBe(measured.list.left);
-  expect(full[0]!.value.left).toBe(measured.list.left);
-  expect(full[0]!.value.width).toBe(measured.list.width);
+    for (const list of lists) {
+      const full = list.rows.filter((row) => row.full);
+      const paired = list.rows.filter((row) => !row.full);
+      expect(full, `${only}: each list carries exactly one full row`).toHaveLength(1);
+      expect(paired.length, `${only}: and pairs beside it`).toBeGreaterThan(1);
 
-  // The neighbours are untouched, which is the half that says `full` is a row property rather
-  // than a list one: their values still sit in the value track, all on one line.
-  const trackLefts = new Set(paired.map((row) => row.value.left));
-  expect(trackLefts.size, "every ordinary pair keeps the shared value track").toBe(1);
-  expect([...trackLefts][0]!).toBeGreaterThan(measured.list.left);
+      // A grid item, never a contents box — the property the span depends on, read back rather
+      // than assumed from the selector.
+      expect(full[0]!.display, `${only}: a full row must generate a box`).not.toBe("contents");
+
+      // Label above value, both at the list's own left edge, and the value as wide as the list.
+      // Not "wider than a normal value" — the width itself, or a span of two tracks out of four
+      // would pass.
+      expect(full[0]!.term.left, `${only}: the full label starts the row`).toBe(list.box.left);
+      expect(full[0]!.value.left, `${only}: the full value starts the row`).toBe(list.box.left);
+      expect(full[0]!.value.width, `${only}: the full value spans the list`).toBe(list.box.width);
+
+      // The neighbours are untouched, which is the half that says `full` is a row property
+      // rather than a list one: their values still sit in a value track, off the left edge.
+      const trackLefts = new Set(paired.map((row) => row.value.left));
+      expect(
+        [...trackLefts].every((left) => left > list.box.left),
+        `${only}: every ordinary pair keeps its label column`,
+      ).toBe(true);
+    }
+  }
 });
 
 test("a group puts every list's values on one line, and a plain stack does not", async ({

@@ -55,12 +55,19 @@ Three additions, and each is shaped by what it must NOT quietly do.
 shape, asked for at one row rather than imposed on all of them. It is what stops a wide value
 from splitting the list, which is the first problem above and the cause of the second.
 
-Two rules, not one, and the second is the interesting half: a `display: contents` box generates
-no box, so `grid-column` on it is dropped and the span silently does not happen. The full row
-therefore stops being a contents box (`display: block`) in the one place it was one.
+A `display: contents` box generates no box, so `grid-column` on it is dropped and the span
+silently does not happen — which makes "a full row is never a contents box" the invariant, and
+every rule that turns a row into one carries `:not([data-full="true"])`.
+
+Written as an override first, and it is worth recording why that failed: a rule of its own
+un-contents-ing the full row weighs the same as the auto list's contents rule (four attributes
+each), so source order decided, and `full` did nothing at all inside a `columns="auto"` list at
+any width while the aligned specimen reported success. An exclusion in the selector cannot lose
+that way, and a test walks every contents rule in the sheet to require one.
 
 It spans *tracks*, so it does nothing where there are none: `layout="inline"` at `columns={1}`,
-and every layout below the cutover, are already one full-width column. Under ADR 0098's test
+and the closed counts below the cutover, are already one full-width column (`columns="auto"`
+keeps its label column at every width, so a full row spans it on a phone too). Under ADR 0098's test
 that would be a legal combination doing nothing — the answer here is that it is not a no-op but
 the same pair rendering identically for a different reason, and the prop's documentation says so
 rather than leaving it to be discovered.
@@ -87,7 +94,13 @@ which is a layer it has no business in. Under ADR 0111's test, the wrapper adds 
 legibility — the sharing is visible at the call site — while the inferred version adds capability
 by removing the ability to say what you mean.
 
-**Three limits, each stated rather than left to be found.** It shares the measure for
+**Four limits, each stated rather than left to be found.** The lists must be the group's OWN
+children — `subgrid` needs the element to be a grid item of the box that owns the tracks, so
+wrapping each heading-and-list section in a `Stack` gives the shared measure back. Both of the
+group's rules therefore use a child combinator, which reads like a tightening and is the
+opposite: as a descendant selector the rule would reach the nested list, compute to `none` for
+want of a parent grid, and take that list's own label column with it. Nesting costs the group;
+it does not break the list. It shares the measure for
 `layout="aligned"` at the default single column, because that is the only shape that has a shared
 label column; a `columns={2}` list keeps its own four tracks rather than being folded into two,
 which would reflow its pairs to one per row — a layout change wearing an alignment fix's clothes.

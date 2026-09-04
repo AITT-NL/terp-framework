@@ -640,18 +640,19 @@ textarea[data-terp="input"] {
   /* display: contents is what makes the dt and dd grid items of the dl itself, so labels align
      ACROSS rows without a DOM change — and it belongs in here rather than in the base rules
      because it is the mechanism of the shared column, which exists only above the cutover.
-     Narrow, the row wrapper stays a block and each pair reads as two lines. */
-  [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"] {
+     Narrow, the row wrapper stays a block and each pair reads as two lines.
+
+     EVERY ROW BUT THE FULL ONE, and the exclusion is the whole of how full works rather than
+     a special case bolted onto it. A box that generates no box has no grid area, so the
+     grid-column the full row asks for is DROPPED and its span silently does not happen. Said
+     as :not() here, the full row is simply never a contents box — in this rule, in the auto
+     rule below, and in any third one someone adds — instead of being un-contents-ed again
+     afterwards by a rule that has to out-specify each of them in turn. The first version did
+     it that way and the auto list was the case it lost: same weight, declared earlier, so
+     full did nothing there at any width. */
+  [data-terp="detail-list"][data-layout="aligned"]
+    [data-terp="detail-list-row"]:not([data-full="true"]) {
     display: contents;
-  }
-  /* The full row, which has to STOP being a contents box to span anything: a box that
-     generates no box has no grid area, so grid-column on it is dropped and the span it asks
-     for silently does not happen. As a block it is one grid item, the base rule below spans
-     it across every track, and its own dt and dd are already display: block from the aligned
-     rule above — so a full pair reads label-above-value, which is the same pair's narrow
-     shape. Four attributes against that rule's three, so this wins wherever both match. */
-  [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"][data-full="true"] {
-    display: block;
   }
   /* The shared measure across several lists (ADR 0113). The GROUP owns the track list -- see
      its base rule below -- and each aligned list inside becomes a subgrid of it, so every
@@ -758,8 +759,9 @@ textarea[data-terp="input"] {
    different vertical line from the first list's.
 
    1 / -1 rather than a span count, so it does not have to know whether the list is one pair
-   wide, two, or an auto-fit count nobody wrote down. The aligned case additionally needs the
-   row to become a block again; that rule lives in the wide block above, with the reason. */
+   wide, two, or an auto-fit count nobody wrote down. It is a grid item in every layout,
+   because the two rules that make a row a display: contents box both exclude it by
+   selector — a contents box has no grid area and would drop this declaration silently. */
 [data-terp="detail-list-row"][data-full="true"] {
   grid-column: 1 / -1;
 }
@@ -844,7 +846,7 @@ textarea[data-terp="input"] {
    BLOCK into one auto track, so the label would sit above its value in a list that had asked to
    be measured -- the reflow this prop exists to replace, arriving through the back door. */
 [data-terp="detail-list"][data-layout="aligned"][data-columns="auto"]
-  [data-terp="detail-list-row"] {
+  [data-terp="detail-list-row"]:not([data-full="true"]) {
   display: contents;
 }
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"],
@@ -1657,22 +1659,34 @@ textarea[data-terp="input"] {
    declare — and a shell measure an app may want to move is what ADR 0097 §1 says a contract
    token is for.
 
-   The BLOCK padding is var(--space-1), and that number is what makes
-   --shell-header-height mean anything. It was var(--space-2) under the min-height floor and
-   the floor never once applied: this header ALWAYS carries a control — the sidebar toggle,
-   the theme and language triggers — and a control is --density-control-min-height, 2.25rem.
-   36px of control plus 8px of padding plus the 1px border is 53px against a floor of 48, so
-   the token an app reads to line its own chrome up with this header was 5px short of the
-   header itself, and the page band below (which reads the same token, and carries a control
-   only on a page that has actions) was 48px on some pages and 53px on others. Measured, both
-   of them, in the workbench.
+   The BLOCK padding is ZERO, and that is what makes --shell-header-height mean anything. It
+   was var(--space-2) under the min-height floor and the floor never once applied: this header
+   ALWAYS carries a control — the sidebar toggle, the theme and language triggers — and a
+   control is --density-control-min-height, 2.25rem. 36px of control plus 8px of padding plus
+   the 1px border is 53px against a floor of 48, so the token an app reads to line its own
+   chrome up with this header was 5px short of the header itself, and the page band below
+   (which reads the same token, and carries a control only on a page that has actions) was 48px
+   on some pages and 53px on others. Measured, both of them, in the workbench.
 
-   Four pixels of padding leaves the tallest shipped control 3px of headroom under the floor,
-   so the FLOOR decides the height in every composition rather than losing to whatever
-   happened to land in the row. That is a headroom argument rather than a proof, so it is
-   pinned where a resolved height can be read instead of inferred: the workbench's computed
-   lane asserts both chrome rows come out at --shell-header-height, in the composition with a
-   control and the one without.
+   Zero rather than a step, and the step is what the first attempt used: var(--space-1) leaves
+   a 39px content box, which clears the 2.25rem control and NOT the 2.75rem one the package
+   also ships (Button size="lg" is --density-control-min-height plus --space-2). Measured: a
+   band whose action button was large came out at 53px again — the same defect, on a legal
+   composition, four pixels of padding away. At zero the content box is the floor less its
+   border, 47px, which clears every control this package has; the row centres its content, so
+   a 36px control sits with 5.5px above and below it either way and nothing about the ordinary
+   band moves.
+
+   What zero costs is the WRAPPED row's breathing room, and the row gap is what pays for it:
+   a band that wraps grows past the floor and its two lines stay var(--space-2) apart, but the
+   first line now starts at the border. That is the trade — a rare row a little tight against
+   its edge, against a common row whose height depended on which control the page happened to
+   put in it.
+
+   A headroom argument rather than a proof, so it is pinned where a resolved height can be read
+   instead of inferred: the workbench's computed lane asserts both chrome rows come out at
+   --shell-header-height with no control, with the default one, and with the largest one the
+   package ships.
 
    Not solved by raising the token instead, which was the other candidate. 3rem is published
    geometry an app can already move from its own theme.css, and a consumer reading it to
@@ -1691,7 +1705,7 @@ textarea[data-terp="input"] {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-1) var(--shell-gutter);
+  padding: var(--space-0) var(--shell-gutter);
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   background: var(--color-neutral-0);
@@ -1893,8 +1907,8 @@ textarea[data-terp="input"] {
    list. In a band the title is CHROME — it names where you are, above content that starts
    immediately under a border — and a 24px leaf on a trail of 14px ancestors reads as
    small-small-BIG rather than as one trail. It also does not fit: the band is
-   shell-header-height with space-1 of block padding and a 1px border, which leaves 39px, and
-   xl at the trail's line height is 2.03rem of it before a badge or a lead line asks for room —
+   shell-header-height less its 1px border, which leaves 47px, and xl at the trail's line
+   height is 2.03rem of it before a badge or a lead line asks for room —
    and the row would then be set by the title rather than by the floor, which is the defect
    the padding above was cut to end.
    --font-size-xl keeps two readers (heading[data-size="xl"], login-title), so the top of the
@@ -1981,11 +1995,12 @@ textarea[data-terp="input"] {
    height this is reading. Without it the two are a padding apart and the "same height as the
    header above it" claim is off by 1rem.
 
-   padding-block is var(--space-1) for the reason the app header's rule states in full, and
-   this row is where the symptom showed: with var(--space-2) a single action button beat the
-   floor, so the band was 53px on a page with actions and 48px on a page without — the one
-   piece of chrome whose entire promise is that it is the same height as the header above it,
-   changing height per page. It still grows past the floor when the row WRAPS, which is the
+   padding-block is ZERO for the reason the app header's rule states in full, and this row is
+   where the symptom showed: with var(--space-2) a single action button beat the floor, so the
+   band was 53px on a page with actions and 48px on a page without — the one piece of chrome
+   whose entire promise is that it is the same height as the header above it, changing height
+   per page. var(--space-1) fixed that for the default control and not for the large one, which
+   is why this is zero rather than a step. It still grows past the floor when the row WRAPS, which is the
    one case that should move it: a long title meeting a wide action cluster takes a second
    line rather than overflowing, and a band that clipped its own title to keep a height would
    be the worse trade.
@@ -1998,7 +2013,7 @@ textarea[data-terp="input"] {
    is nothing to bleed into and an inline pad with no negative margin would inset the band's
    content from the body beneath it for no reason. */
 [data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] {
-  padding-block: var(--space-1);
+  padding-block: var(--space-0);
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   border-block-end: 1px solid var(--color-neutral-200);

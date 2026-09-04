@@ -1147,6 +1147,12 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // The closed counts cannot do this. `columns={2}` is two pairs at every width above the
         // cutover, whatever the box it lands in — which is why a list inside a card inside a
         // split pane had to be told twice.
+        //
+        // The full row is in here deliberately rather than only in its own specimen: `full` and
+        // `auto` are the two additions that both decide what a row's box IS, and the first
+        // version of the pair got that wrong — the auto list made every row a contents box, a
+        // contents box has no grid area, and the span was dropped, so `full` did nothing in an
+        // auto list at any width. This is the picture that would have shown it.
         id: "detail-list-auto",
         title: "DetailList — pairs per row following the container",
         node: (
@@ -1156,7 +1162,18 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                 key={width}
                 style={{ width, border: "1px dashed var(--color-neutral-300)" }}
               >
-                <DetailList layout="aligned" columns="auto" items={RECORD_PAIRS} />
+                <DetailList
+                  layout="aligned"
+                  columns="auto"
+                  items={[
+                    ...RECORD_PAIRS,
+                    {
+                      label: "What it reported",
+                      value: "Four rows rejected, each for a missing destination account.",
+                      full: true,
+                    },
+                  ]}
+                />
               </div>
             ))}
           </Stack>
