@@ -632,3 +632,122 @@ test("a password field is named by its label alone, not by the toggle inside it"
   // The toggle keeps a name of its own; the point is that the two do not merge.
   await expect(page.getByRole("button", { name: "Show password" })).toBeVisible();
 });
+
+/**
+ * The resolved height of one chrome row, beside the height the shell's own token declares.
+ *
+ * The token is read from the document rather than restated here, so an app that moves
+ * --shell-header-height from its own theme.css moves this assertion with it instead of
+ * breaking it. rem against the root font size, because that is what the contract publishes.
+ */
+async function chromeRow(
+  page: import("@playwright/test").Page,
+  only: string,
+  selector: string,
+) {
+  await page.goto(`/?theme=light&only=${only}`);
+  await page.locator(selector).first().waitFor({ state: "visible" });
+  return page.evaluate((css) => {
+    const root = document.documentElement;
+    const declared = getComputedStyle(root).getPropertyValue("--shell-header-height").trim();
+    const rem = Number.parseFloat(getComputedStyle(root).fontSize);
+    const element = document.querySelector(css);
+    return {
+      height: element === null ? null : element.getBoundingClientRect().height,
+      declared: declared.endsWith("rem")
+        ? Number.parseFloat(declared) * rem
+        : Number.parseFloat(declared),
+    };
+  }, selector);
+}
+
+test("both chrome rows come out at the header height their shared token declares", async ({
+  page,
+}) => {
+  // The app header and the page band read one token and promise to be one height, and for
+  // two releases neither was: the token is 3rem, and a min-height is only a height while
+  // nothing legal can beat it. A control is --density-control-min-height (2.25rem), so
+  // 36px of control plus the row's 8px of block padding plus its 1px border came to 53px in
+  // any row that had a control in it. The app header always does — the sidebar toggle — so
+  // it was 53px; a page band was 53px WITH actions and 48px without. The band whose entire
+  // promise is that it continues the header above it therefore changed height per page, and
+  // an app reading the token to offset something against the header was 5px out.
+  //
+  // Unreachable from every other lane, which is why it lived so long. A screenshot cannot
+  // say whether a row is the height a token declares — only that it looks like the last
+  // picture of itself — and both of these rows had baselines the whole time. The structural
+  // half is next door in styles.test.ts: it pins that the two rules spend the same padding.
+  // This is the half that reads what the browser actually computed.
+  for (const [only, selector, what] of [
+    ["app-shell", '[data-terp="appshell-header"]', "the app header, which always has a control"],
+    ["page-header", '[data-terp="page-header"]', "a band with an action button"],
+    ["page-header-bare", '[data-terp="page-header"]', "a band with only a title"],
+    ["page-header-root", '[data-terp="page-header"]', "a band with a badge and an action"],
+  ] as const) {
+    const row = await chromeRow(page, only, selector);
+    expect(row.height, `${what} should render`).not.toBeNull();
+    expect(row.height, `${what} must be the height the token declares`).toBe(row.declared);
+  }
+
+  // And the ONE composition that is meant to grow, asserted rather than assumed: a long
+  // title meeting a wide action cluster wraps to a second line and takes the band with it.
+  // A band that clipped its own title to hold a height would be the worse trade, so the
+  // floor is a floor and not a fixed height — this is the case that says which.
+  const wrapped = await chromeRow(page, "page-header-crowded", '[data-terp="page-header"]');
+  expect(wrapped.height, "a wrapped band grows past the floor").toBeGreaterThan(
+    wrapped.declared,
+  );
+});
+
+/** The ink box of an element's text, which is where a baseline mismatch shows. */
+async function textRows(page: import("@playwright/test").Page, selectors: string[]) {
+  return page.evaluate((list) => {
+    return list.map((css) => {
+      const element = document.querySelector(css);
+      if (element === null || element.firstChild === null) {
+        return null;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const box = range.getBoundingClientRect();
+      return { top: Number(box.top.toFixed(2)), bottom: Number(box.bottom.toFixed(2)) };
+    });
+  }, selectors);
+}
+
+test("every crumb in the trail sits on one baseline, leaf included", async ({ page }) => {
+  // The trail is a row of centred items, so two line heights in it are two baselines. The
+  // leaf declared 1.3 of its own while its ancestors inherited line-height: normal, and
+  // measured here that was a 19.00px ancestor line box against an 18.19px leaf: the page's
+  // own title sat 0.59px above the crumb it hangs off, with the chevron between them centred
+  // on a third line. It reads as a trail whose end sits high, which is how it was reported.
+  //
+  // Sub-pixel, and therefore invisible to the lane that would seem to own it: the shift
+  // moves no pixel past the 0.02 colour threshold in a screenshot, so every page-header and
+  // DetailPage baseline in the suite held it. A range rect over the text is the only probe
+  // that can see it at all, and equality is the assertion — not a tolerance, because the two
+  // now inherit ONE declared value and any difference at all means a second one came back.
+  await page.goto("/?theme=light&only=page-header-bare");
+  await page.locator('[data-terp="page-title"]').waitFor({ state: "visible" });
+  const [ancestor, leaf] = await textRows(page, [
+    '[data-terp="breadcrumbs"] li a',
+    '[data-terp="page-title"]',
+  ]);
+  expect(ancestor, "the specimen should render an ancestor crumb").not.toBeNull();
+  expect(leaf, "the specimen should render the trail's leaf").not.toBeNull();
+  expect(leaf, "the h1 leaf must sit on its ancestors' baseline").toEqual(ancestor);
+
+  // The same rule, on the trail that is not a page title: three levels, a span leaf, no
+  // heading anywhere. Both spellings of the leaf go through breadcrumbs-current's own
+  // inherited line box, so a fix that only reached the h1 would pass the case above.
+  await page.goto("/?theme=light&only=breadcrumbs");
+  await page.locator('[data-terp="breadcrumbs-current"]').waitFor({ state: "visible" });
+  const [first, middle, current] = await textRows(page, [
+    '[data-terp="breadcrumbs"] li:nth-child(1) a',
+    '[data-terp="breadcrumbs"] li:nth-child(2) a',
+    '[data-terp="breadcrumbs-current"]',
+  ]);
+  expect(first, "the specimen should render three levels").not.toBeNull();
+  expect(middle, "the specimen should render three levels").toEqual(first);
+  expect(current, "the current crumb must sit on the trail's baseline").toEqual(first);
+});

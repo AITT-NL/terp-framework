@@ -464,6 +464,22 @@ describe("cascade structure", () => {
     expect(chrome, "the band is what separates chrome from content").toContain(
       "border-block-end: 1px solid var(--color-neutral-200)",
     );
+    // The block padding, and it has to be the same VALUE in both chrome rows rather than the
+    // same intention. A min-height is only a height while nothing legal can beat it, and
+    // var(--space-2) did not clear that bar: a 2.25rem control plus 8px of padding plus the
+    // 1px border is 53px against a floor of 48, so the app header (which always carries its
+    // toggle) was 53px, a band with an action button was 53px, and a band with only a title
+    // was 48px — the one row whose whole promise is that it matches the header above it,
+    // changing height per page. Measured in the workbench before it was cut, and the
+    // resolved heights are pinned there too, in the computed lane; what belongs here is that
+    // neither row can move its padding without the other.
+    expect(chrome, "the band's block padding is the app header's").toContain(
+      "padding-block: var(--space-1)",
+    );
+    expect(
+      bodyFor('[data-terp="appshell-header"]'),
+      "both chrome rows spend the same block padding under the floor they share",
+    ).toContain("padding: var(--space-1) var(--shell-gutter)");
     expect(
       /padding-inline|padding:/.test(chrome),
       "an inline pad with no bleed would inset the band from the body beneath it",
@@ -961,6 +977,32 @@ describe("cascade structure", () => {
     // And the base rule still centres, or the title rides above the control in the common case.
     const headerAt = base.indexOf('[data-terp="card-header"] {');
     expect(base.slice(headerAt, base.indexOf("}", headerAt))).toContain("align-items: center");
+  });
+
+  it("gives the breadcrumb trail one line box, leaf included", () => {
+    // The trail is a row of items that get CENTRED, so two line heights in it are two
+    // baselines. The leaf declared 1.3 while its ancestors inherited `normal`: measured at
+    // font-size-sm, a 19.00px ancestor line box against an 18.19px leaf, which left the
+    // page's own title 0.59px above the crumb it hangs off with the chevron centred on a
+    // third line. One declaration on the trail, inherited by every crumb and by the h1, is
+    // what makes the row share a baseline.
+    //
+    // The published step rather than a bare literal, and that is the second half of the fix
+    // rather than house style: `normal` is the FONT's metric, so the mismatch was as big as
+    // the app's typeface said it was, and an app on a webfont with taller natural leading got
+    // a worse one than the system stack this was measured in.
+    const base = layerBody("terp.base");
+    const trail = base.slice(base.indexOf('[data-terp="breadcrumbs"] {'));
+    expect(
+      trail.slice(0, trail.indexOf("}")),
+      "the trail declares the line box every crumb shares",
+    ).toContain("line-height: var(--font-line-height-snug)");
+    const leafAt = base.indexOf('[data-terp="page-title"] {');
+    expect(leafAt, "the trail's leaf should have a rule").toBeGreaterThan(-1);
+    expect(
+      base.slice(leafAt, base.indexOf("}", leafAt)),
+      "the leaf takes the trail's line box; a second value here is the misalignment",
+    ).not.toContain("line-height");
   });
 
   it("gives the page title, a card title and body copy three different steps", () => {

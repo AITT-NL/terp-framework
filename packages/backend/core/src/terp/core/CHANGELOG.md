@@ -145,6 +145,51 @@ decision, 0001 onwards.
   is written in the app's own compose file, its own Vite config, or a CLI default, and
   none of those routes through `create_app`.
 
+### Fixed
+
+- **The subheader is the height its token declares, on every page.** A `min-height` is only a
+  height while nothing legal can beat it, and the page band's was not: a control is
+  `--density-control-min-height` (2.25rem), so 36px of control plus the row's 8px of block
+  padding plus its 1px border came to 53px against a floor of 3rem. The visible symptom is
+  the one that was reported — a subheader that changes height from page to page, because a
+  band with an action button was 53px and a band with only a title was 48px — and the app
+  header above it was quietly in the same state: it always carries the sidebar toggle, so it
+  was 53px too and `--shell-header-height` was 5px short of the header every app reads it to
+  line something up with.
+
+  Both rows now spend `--space-1` of block padding, which leaves the tallest shipped control
+  3px of headroom under the floor, so the floor decides the height instead of losing to
+  whatever landed in the row. **The app header is therefore 5px shorter than in 0.16.0** and
+  the content below it moves up with it; the band no longer moves at all. Raising the token to
+  fit the old padding was the other candidate and was declined: 3rem is published geometry an
+  app can already move from its own `theme.css`, and a consumer reading it is entitled to the
+  number being true. A band whose row WRAPS — a long title meeting a wide action cluster —
+  still grows, which is the one case that should move it.
+
+  Pinned in the workbench's computed lane, because this is exactly the fact a screenshot
+  cannot state: a baseline can only say a row looks like the last picture of itself, never
+  that it is the height a token declares. Both rows had baselines throughout.
+
+- **Every crumb in the breadcrumb trail sits on one baseline.** The trail's leaf declared a
+  line height of its own while its ancestor crumbs inherited `normal`, so a row that centres
+  its items was centring two different line boxes — 19.00px against 18.19px at the trail's own
+  font size — and the two could not share a baseline. The page's title ended up 0.59px above
+  the crumb it hangs off, with the chevron between them centred on a third line. Sub-pixel, and
+  it reads exactly as it was reported: the arrow and the last crumb sit slightly high.
+
+  The trail now declares one line height for its whole subtree, from the published type scale,
+  and the leaf inherits it. Declared rather than inherited is the second half of the fix rather
+  than house style: `normal` is the *font's* own metric, so the size of the mismatch was
+  whatever an app's typeface happened to say, and an app on a webfont with taller natural
+  leading had a worse one than the system stack this was measured in.
+
+  What is deliberately not corrected is the chevron's optical centring, which remains half a
+  pixel high: its box centres on the line box while the crumb's ink centres a little lower,
+  because a font's ascent carries more empty space above the caps than its descent leaves below
+  the baseline. Correcting that means a nudge in `em` against ONE font's metrics, and the
+  package renders `system-ui` — a correction that is right on Segoe UI is wrong on SF and on
+  Roboto.
+
 ## 0.16.0 — 2026-09-03
 
 ### Added

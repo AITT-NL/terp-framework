@@ -1161,9 +1161,32 @@ textarea[data-terp="input"] {
 /* Breadcrumbs -------------------------------------------------------------- */
 /* The trail owns its whole subtree, so the list and its items are addressed
    structurally and the current crumb by the aria-current it already carries —
-   no marker for something the accessibility tree already states. */
+   no marker for something the accessibility tree already states.
+
+   ONE line-height for every crumb, declared here rather than left to inherit, and it is a
+   repair rather than a tidy-up. The leaf declared 1.3 of its own (see page-title) while its
+   ancestors inherited line-height: normal, so a row that centres its items was centring two
+   different line boxes and the two could not share a baseline. Measured in the workbench at
+   font-size-sm: the ancestors' line box resolved to 19.00px against the leaf's 18.19px, which
+   left the leaf's glyphs 0.59px above the crumb it hangs off, with the chevron between them
+   centred on a third line. Sub-pixel, and it reads as a trail whose end sits high.
+
+   DECLARED rather than inherited for the second half of the same defect: normal is the FONT's
+   own metric, so the size of the mismatch was whatever the app's typeface happened to say, and
+   an app on a webfont with taller natural leading got a worse one than the system stack this
+   was measured in. A published step is the one value the ancestor links and the h1 can agree
+   on without either of them asking the font.
+
+   What this does NOT fix is the chevron's optical centring, and that is a decision rather than
+   an oversight. Its box centres on the line box at 95.48px while the crumb's ink centres at
+   96.00px, because the font's ascent carries 5px of empty space above the caps against 4px of
+   descent below the baseline — so a box-centred glyph sits half a pixel high. Correcting it
+   means a nudge in em against ONE font's metrics, and this package renders system-ui: Segoe UI
+   here, SF on macOS, Roboto on Android. A correction that is right on one is wrong on the other
+   two, so the half pixel stays. */
 [data-terp="breadcrumbs"] {
   font-size: var(--font-size-sm);
+  line-height: var(--font-line-height-snug);
   color: var(--color-neutral-600);
 }
 [data-terp="breadcrumbs"] ol,
@@ -1503,8 +1526,29 @@ textarea[data-terp="input"] {
    above. That is a published contract token rather than a private property because
    tokens.guard.test.ts refuses a fallback-less var() against anything tokens.css does not
    declare — and a shell measure an app may want to move is what ADR 0097 §1 says a contract
-   token is for. The block padding is untouched and stays var(--space-2) under the
-   min-height floor.
+   token is for.
+
+   The BLOCK padding is var(--space-1), and that number is what makes
+   --shell-header-height mean anything. It was var(--space-2) under the min-height floor and
+   the floor never once applied: this header ALWAYS carries a control — the sidebar toggle,
+   the theme and language triggers — and a control is --density-control-min-height, 2.25rem.
+   36px of control plus 8px of padding plus the 1px border is 53px against a floor of 48, so
+   the token an app reads to line its own chrome up with this header was 5px short of the
+   header itself, and the page band below (which reads the same token, and carries a control
+   only on a page that has actions) was 48px on some pages and 53px on others. Measured, both
+   of them, in the workbench.
+
+   Four pixels of padding leaves the tallest shipped control 3px of headroom under the floor,
+   so the FLOOR decides the height in every composition rather than losing to whatever
+   happened to land in the row. That is a headroom argument rather than a proof, so it is
+   pinned where a resolved height can be read instead of inferred: the workbench's computed
+   lane asserts both chrome rows come out at --shell-header-height, in the composition with a
+   control and the one without.
+
+   Not solved by raising the token instead, which was the other candidate. 3rem is published
+   geometry an app can already move from its own theme.css, and a consumer reading it to
+   offset something against this header is entitled to the number being true — so the fix is
+   to make the header the height it claims, not to redefine the claim around the padding.
 
    No backticks anywhere above, and that is not a style preference: one here terminates
    TERP_STYLES_CSS and the parse then fails somewhere else entirely with "try inserting a
@@ -1518,7 +1562,7 @@ textarea[data-terp="input"] {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-2) var(--shell-gutter);
+  padding: var(--space-1) var(--shell-gutter);
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   background: var(--color-neutral-0);
@@ -1720,8 +1764,10 @@ textarea[data-terp="input"] {
    list. In a band the title is CHROME — it names where you are, above content that starts
    immediately under a border — and a 24px leaf on a trail of 14px ancestors reads as
    small-small-BIG rather than as one trail. It also does not fit: the band is
-   shell-header-height with space-2 of block padding, which leaves 2rem, and xl at
-   line-height 1.3 is 1.95rem of it before a badge or a lead line asks for room.
+   shell-header-height with space-1 of block padding and a 1px border, which leaves 39px, and
+   xl at the trail's line height is 2.03rem of it before a badge or a lead line asks for room —
+   and the row would then be set by the title rather than by the floor, which is the defect
+   the padding above was cut to end.
    --font-size-xl keeps two readers (heading[data-size="xl"], login-title), so the top of the
    scale is still wired; an app that wants the masthead back redefines the marker from its own
    unlayered theme.css, exactly as the retired comment here said.
@@ -1758,14 +1804,18 @@ textarea[data-terp="input"] {
    specific the ancestor rule is: without this the leaf renders at twice the trail.
 
    Semibold at the trail's own size, which is the whole "the trail is the title" idea in one
-   declaration — heavier than its ancestors, not larger. */
+   declaration — heavier than its ancestors, not larger.
+
+   And no line-height of its own, which is the other half of that idea: it takes the trail's
+   (see breadcrumbs, where the value and the defect are recorded). A second value here — 1.3
+   against the ancestors' inherited normal — is what left the leaf's glyphs sitting 0.59px
+   above the crumb they hang off, in the same font at the same size. */
 [data-terp="page-title"] {
   margin: 0;
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0;
   color: var(--color-neutral-900);
-  line-height: 1.3;
 }
 /* Status pills next to the title. A row of its own so a page passing several keeps them
    together when the band wraps, rather than letting one pill orphan onto the second line. */
@@ -1802,6 +1852,15 @@ textarea[data-terp="input"] {
    height this is reading. Without it the two are a padding apart and the "same height as the
    header above it" claim is off by 1rem.
 
+   padding-block is var(--space-1) for the reason the app header's rule states in full, and
+   this row is where the symptom showed: with var(--space-2) a single action button beat the
+   floor, so the band was 53px on a page with actions and 48px on a page without — the one
+   piece of chrome whose entire promise is that it is the same height as the header above it,
+   changing height per page. It still grows past the floor when the row WRAPS, which is the
+   one case that should move it: a long title meeting a wide action cluster takes a second
+   line rather than overflowing, and a band that clipped its own title to keep a height would
+   be the worse trade.
+
    :not([data-measure="narrow"]) because a form is capped WITH its header (ADR 0098 §3) — a
    Save button a screen-width from its field is worse than one over it — so a form gets the
    one-row band with no chrome at all: a title row, which is what it wants.
@@ -1810,7 +1869,7 @@ textarea[data-terp="input"] {
    is nothing to bleed into and an inline pad with no negative margin would inset the band's
    content from the body beneath it for no reason. */
 [data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] {
-  padding-block: var(--space-2);
+  padding-block: var(--space-1);
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   border-block-end: 1px solid var(--color-neutral-200);
