@@ -20,6 +20,8 @@ sys.path.insert(0, str(_CLI_SRC))
 from terp.cli import main, run_dev_command  # noqa: E402
 from terp.cli.dev import (  # noqa: E402
     _POLL_SECONDS,
+    DEFAULT_API_PORT,
+    DEFAULT_WEB_PORT,
     DevCommand,
     _spawn,
     _supervise,
@@ -44,7 +46,9 @@ class _DoneProc:
 # dev_plan — the pure command planner
 # --------------------------------------------------------------------------- #
 def test_dev_plan_builds_backend_and_frontend_commands(tmp_path: pathlib.Path) -> None:
-    backend, frontend = dev_plan(app_ref="app.main:app", root=tmp_path, port=8123)
+    backend, frontend = dev_plan(
+        app_ref="app.main:app", root=tmp_path, port=8123, web_port=8124
+    )
 
     assert backend.label == "backend"
     assert backend.argv[:4] == (sys.executable, "-m", "uvicorn", "app.main:app")
@@ -53,8 +57,49 @@ def test_dev_plan_builds_backend_and_frontend_commands(tmp_path: pathlib.Path) -
     assert backend.cwd == tmp_path.resolve()
 
     assert frontend.label == "frontend"
-    assert frontend.argv == ("npm", "run", "dev")
+    # The frontend is given its port rather than left to Vite's own 5173.
+    assert frontend.argv == ("npm", "run", "dev", "--", "--port", "8124")
     assert frontend.cwd == tmp_path.resolve() / "frontend"
+
+
+def test_the_frontend_is_told_where_the_backend_actually_is() -> None:
+    """The proxy target is derived, not repeated.
+
+    ``vite.config.ts`` falls back to a literal API address, so a moved backend
+    port and a stale proxy target would be one edit apart in two repositories --
+    and the symptom is a frontend that loads and cannot reach its own API.
+    """
+    _, frontend = dev_plan(host="127.0.0.5", port=9001)
+
+    assert dict(frontend.env)["TERP_API_PROXY"] == "http://127.0.0.5:9001"
+
+
+def test_the_default_ports_are_the_range_terp_owns() -> None:
+    """8000 and 5173 are where a developer's OTHER applications live.
+
+    Pinned as a test rather than left to the defaults because the whole point of
+    the change is that these two numbers agree with the compose files and with
+    the workbench's own allocator -- a silent drift back to a conventional port
+    is exactly the regression this guards.
+    """
+    assert (DEFAULT_API_PORT, DEFAULT_WEB_PORT) == (22100, 21100)
+
+    backend, frontend = dev_plan()
+
+    assert str(DEFAULT_API_PORT) in backend.argv
+    assert str(DEFAULT_WEB_PORT) in frontend.argv
+    assert "8000" not in backend.argv
+    assert "5173" not in frontend.argv
+
+
+def test_a_command_with_no_overlay_inherits_the_environment_untouched() -> None:
+    """The backend half declares no overlay, so ``_spawn`` must pass ``env=None``
+    rather than a reconstructed copy: a dev server needs PATH, the virtualenv and
+    the user's own proxy settings, and rebuilding that dictionary is how one of
+    them goes missing."""
+    backend, _ = dev_plan()
+
+    assert backend.env == ()
 
 
 # --------------------------------------------------------------------------- #
@@ -188,6 +233,8 @@ def test_cli_dev_dispatch(
             "127.0.0.9",
             "--port",
             "9000",
+            "--web-port",
+            "9100",
             "--shutdown-timeout",
             "12",
             "--openapi-out",
@@ -202,6 +249,7 @@ def test_cli_dev_dispatch(
         "frontend_dir": "web",
         "host": "127.0.0.9",
         "port": 9000,
+        "web_port": 9100,
         "shutdown_timeout": 12,
         "openapi_out": "web/openapi.json",
         "preflight": False,

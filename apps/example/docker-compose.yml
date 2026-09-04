@@ -87,7 +87,11 @@ services:
       # Desktop mounts) — poll instead of miss.
       WATCHFILES_FORCE_POLLING: "true"
     ports:
-      - "${API_PORT:-8000}:8000"
+      # 22100, not 8000: the host side of every published port here sits in the
+      # range Terp owns (web 21100+, api 22100+, deploy 23100+), away from the
+      # ports a developer's other applications take. The container side stays
+      # conventional -- on the Compose network it cannot collide with anything.
+      - "${API_PORT:-22100}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -121,7 +125,8 @@ services:
       # nothing inside the app can grant it, and nothing else needs to.
       TERP_DEV_FRAME_ANCESTORS: ${TERP_DEV_FRAME_ANCESTORS:-}
     ports:
-      - "${WEB_PORT:-5173}:5173"
+      # 21100, not 5173 -- see the api service's note on the port range.
+      - "${WEB_PORT:-21100}:5173"
     healthcheck:
       # Vite answers its root as soon as the port binds — which is BEFORE
       # dependency pre-bundling settles, and a request during that window can

@@ -90,7 +90,11 @@ services:
     image: {{ project_slug }}-frontend-prod
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-8080}:8080"
+      # 23100, not 8080: the same argument as the development file, one range up.
+      # A deployment sets WEB_PORT explicitly -- this default only decides what a
+      # first `docker compose -f docker-compose.prod.yml up` grabs on a machine
+      # that is also running the developer's own things.
+      - "${WEB_PORT:-23100}:8080"
     depends_on:
       api:
         condition: service_healthy

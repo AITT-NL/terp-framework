@@ -19,7 +19,13 @@ from terp.cli.access import (
 )
 from terp.cli.apidocs import api_docs
 from terp.cli.capabilities import render_capabilities
-from terp.cli.dev import SHUTDOWN_TIMEOUT_SECONDS, dev_plan, run_dev_command
+from terp.cli.dev import (
+    DEFAULT_API_PORT,
+    DEFAULT_WEB_PORT,
+    SHUTDOWN_TIMEOUT_SECONDS,
+    dev_plan,
+    run_dev_command,
+)
 from terp.cli.docker import run_docker_dev_command
 from terp.cli.fmt import changed_python_files, run_fmt_command
 from terp.cli.leases import reap_leases_command, render_leases
@@ -2670,7 +2676,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--host", default="127.0.0.1", help="Backend host (default: 127.0.0.1)"
     )
     dev_parser.add_argument(
-        "--port", type=int, default=8000, help="Backend port (default: 8000)"
+        "--port",
+        type=int,
+        default=DEFAULT_API_PORT,
+        help=(
+            f"Backend host port (default: {DEFAULT_API_PORT}) -- in the range Terp owns, "
+            "away from the 8000 another application on this machine is probably using"
+        ),
+    )
+    dev_parser.add_argument(
+        "--web-port",
+        type=int,
+        default=DEFAULT_WEB_PORT,
+        help=(
+            f"Frontend host port (default: {DEFAULT_WEB_PORT}); passed through to the "
+            "frontend dev server, which would otherwise take its own 5173"
+        ),
     )
     dev_parser.add_argument(
         "--shutdown-timeout",
@@ -3082,6 +3103,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 frontend_dir=args.frontend_dir,
                 host=args.host,
                 port=args.port,
+                web_port=args.web_port,
                 shutdown_timeout=args.shutdown_timeout,
                 openapi_out=args.openapi_out,
                 preflight=not args.no_preflight,

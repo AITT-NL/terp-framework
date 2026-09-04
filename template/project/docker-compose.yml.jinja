@@ -68,8 +68,11 @@ services:
       POSTGRES_PASSWORD: app
       POSTGRES_DB: app
     # Not published to the host: the API reaches it over the Compose network (db:5432), so the
-    # workbench never collides with a Postgres already running on the host. Add a
-    # `ports: ["5433:5432"]` here to connect a database client from the host.
+    # workbench never collides with a Postgres already running on the host. To connect a
+    # database client from the host, add `ports: ["${DB_PORT:-21400}:5432"]` and declare
+    # DB_PORT in workbench.json in the same change -- a literal host port is what stops two
+    # projects running at once, and 21400 keeps it inside the range Terp owns rather than on
+    # top of a Postgres the developer already has.
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -109,7 +112,15 @@ services:
       # Desktop mounts, the Studio's checkout volume) — poll instead of miss.
       WATCHFILES_FORCE_POLLING: "true"
     ports:
-      - "${API_PORT:-8000}:8000"
+      # 22100, not 8000. The host side of every published port in this file sits
+      # in a range Terp owns (web 21100+, api 22100+, deploy 23100+); the
+      # container side stays conventional because it is on the Compose network
+      # and cannot collide with anything. 8000 and 5173 are where OTHER
+      # applications on a developer's machine live, so a default there is a
+      # collision with something the app has never heard of -- and the workbench
+      # that assigns these ports has always allocated out of the Terp range,
+      # which made the old defaults a contradiction rather than a preference.
+      - "${API_PORT:-22100}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -143,7 +154,8 @@ services:
       # nothing inside the app can grant it, and nothing else needs to.
       TERP_DEV_FRAME_ANCESTORS: ${TERP_DEV_FRAME_ANCESTORS:-}
     ports:
-      - "${WEB_PORT:-5173}:5173"
+      # 21100, not 5173 -- see the api service's note on the port range.
+      - "${WEB_PORT:-21100}:5173"
     healthcheck:
       # Vite answers its root as soon as the port binds — which is BEFORE
       # dependency pre-bundling settles, and a request during that window can

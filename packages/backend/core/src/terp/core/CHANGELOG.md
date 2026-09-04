@@ -10,6 +10,65 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.17.0 — 2026-09-04
+
+### Changed
+
+- **Every host port Terp binds by default moved into a range Terp owns.** A development
+  stack is the one part of this framework that has to coexist with software it has never
+  heard of, and 5173, 8000, 8080 and 3000 are exactly where that software lives. The
+  defaults were therefore not a convention but a collision, and the symptom is diffuse:
+  a stack that appears to start and answers somebody else's application, or refuses to
+  bind at all with a message about an address already in use.
+
+  The framework was also contradicting itself, which is what made this worth a release
+  rather than a preference. A workbench that runs several projects at once has always
+  allocated their host ports out of a Terp-owned range — its own comment gives the reason,
+  naming those very ports as where foreign applications live — while the compose files it
+  starts carried `${WEB_PORT:-5173}`. The two agreed only while the workbench was the thing
+  doing the starting, and disagreed for every other way to run an app: a shell, an editor
+  task, an agent, `terp dev`.
+
+  So: `WEB_PORT` defaults to **21100**, `API_PORT` to **22100**, and the deployment
+  profile's `WEB_PORT` to **23100**, in the template, in the example app, in
+  `.env.example`, and in `terp dev` — which gains `--web-port` beside `--port` and now
+  passes the frontend its port explicitly rather than leaving it to take Vite's own 5173.
+  `vite.config.ts` pins `server.port` for the same reason, so a bare `npm run dev` lands
+  in range too.
+
+  **Container-internal ports are deliberately untouched.** Inside a Compose network 8000
+  and 5173 cannot collide with anything, and every healthcheck, proxy target and process
+  argument is written against them; moving those would be churn with no beneficiary. Only
+  the host side of a published mapping changed.
+
+- **`terp dev` tells the frontend where the backend is, instead of both sides
+  hard-coding it.** `vite.config.ts` falls back to a literal API address when
+  `TERP_API_PROXY` is unset, so moving the backend's port left a stale proxy target one
+  edit away in a second file — and that failure is a frontend which loads perfectly and
+  cannot reach its own API. `dev_plan` now derives `TERP_API_PROXY` from the port the
+  command actually binds and passes it to the frontend process as an environment overlay
+  (layered over the inherited environment, never replacing it: a dev server needs PATH,
+  the virtualenv and the developer's own proxy settings). The literal in the config is now
+  the last resort for a bare `npm run dev`, not a value either supported loop depends on.
+
+- **The database hint stopped teaching a fixed host port.** The commented-out `ports:`
+  line in the template's `db` service showed `"5433:5432"` — a literal, in the range this
+  release is moving away from, in the one place a reader looks when they want to attach a
+  client. It now shows `"${DB_PORT:-21400}:5432"` and says to declare `DB_PORT` in
+  `workbench.json` in the same change, which is what the workbench rule has always
+  required of a published port.
+
+### Added
+
+- **A control that stops the ports drifting back.**
+  `tests/architecture/test_dev_host_ports.py` reads every published mapping in the
+  repository as data and requires its default to fall inside the range, refuses a bare
+  literal host port outright, and greps for the conventional numbers — so a new file that
+  publishes 5173 fails even though the test never named it. The bound cannot be applied
+  centrally for the same reason ADR 0108's shutdown bound cannot: the host side of a port
+  is written in the app's own compose file, its own Vite config, or a CLI default, and
+  none of those routes through `create_app`.
+
 ## 0.16.0 — 2026-09-03
 
 ### Added
