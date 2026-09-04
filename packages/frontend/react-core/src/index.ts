@@ -171,7 +171,7 @@ export type {
 } from "./typography";
 export { Field } from "./Field";
 export type { FieldProps } from "./Field";
-export { Stack, Grid, Divider, DetailList } from "./layout";
+export { Stack, Grid, Divider, DetailList, DetailListGroup } from "./layout";
 export type {
   StackProps,
   GridProps,
@@ -180,6 +180,7 @@ export type {
   DividerProps,
   Responsive,
   DetailListProps,
+  DetailListGroupProps,
   DetailListLayout,
   DetailItem,
   SpaceToken,

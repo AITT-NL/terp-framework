@@ -1435,8 +1435,9 @@ Layout contracts (slot-typed layouts, ADR 0079)
       OverviewPage -> DataView / ResourceList / ModuleNav / Stack / Card / Divider /
                       Text + the framework states (EmptyState / ErrorState /
                       LoadingState / Alert) and ConfirmDialog
-      DetailPage   -> DetailList / Stack / Grid / Tabs / ModuleNav / DataView / Card /
-                      Divider / Text + the same framework states and ConfirmDialog
+      DetailPage   -> DetailList / DetailListGroup / Stack / Grid / Tabs / ModuleNav /
+                      DataView / Card / Divider / Text + the same framework states and
+                      ConfirmDialog
   Grid is a DETAIL-body component and not an overview one, deliberately: an overview
   body is a data collection, and a grid of summary cards is a hub — which has its own
   archetype. Heading is admitted nowhere: a heading in a governed body must OWN its

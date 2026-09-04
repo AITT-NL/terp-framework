@@ -99,6 +99,7 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
       DetailPage: {
         components: {
           DetailList: "detail-list",
+          DetailListGroup: "detail-list-group",
           Stack: "stack",
           Tabs: "tabs",
           ModuleNav: "module-nav",

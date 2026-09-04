@@ -877,6 +877,10 @@ describe("cascade structure", () => {
       '[data-terp="detail-list"][data-layout="aligned"]',
       '[data-terp="detail-list"][data-layout="aligned"][data-columns="2"]',
       '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"]',
+      // The full row's un-contents-ing, and the group's subgrid: both are properties of the
+      // shared column, so both belong to the width at which there IS one.
+      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"][data-full="true"]',
+      '[data-terp="detail-list-group"] > [data-terp="detail-list"][data-layout="aligned"]:not([data-columns])',
     ]) {
       expect(
         declaresRuleFor(wide, selector),
@@ -1003,6 +1007,116 @@ describe("cascade structure", () => {
       base.slice(leafAt, base.indexOf("}", leafAt)),
       "the leaf takes the trail's line box; a second value here is the misalignment",
     ).not.toContain("line-height");
+  });
+
+  it("spans a full row across every track, and makes it a box that can", () => {
+    // Two halves, and the second is the one that is easy to miss: a display: contents box
+    // generates no box, so grid-column on it is DROPPED and the span silently does not happen.
+    // The aligned row is a contents box above the cutover, so the full row has to become a
+    // block again there — which also gives it the label-above-value reading, the same pair's
+    // narrow shape.
+    const base = layerBody("terp.base");
+    // Anchored on the newline, because the wide block's rule ENDS with the same selector and
+    // an unanchored search finds that one first — which is how this test first passed while
+    // reading the wrong rule.
+    const spanAt = base.indexOf('\n[data-terp="detail-list-row"][data-full="true"] {');
+    expect(spanAt, "the full row should have a span rule").toBeGreaterThan(-1);
+    expect(
+      base.slice(spanAt, base.indexOf("}", spanAt)),
+      "1 / -1, so the row need not know how many tracks the list has",
+    ).toContain("grid-column: 1 / -1");
+    const unContentsAt = base.indexOf(
+      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"][data-full="true"] {',
+    );
+    expect(unContentsAt, "the aligned full row should be un-contents-ed").toBeGreaterThan(-1);
+    expect(base.slice(unContentsAt, base.indexOf("}", unContentsAt))).toContain("display: block");
+  });
+
+  it("floors both tracks of an auto pair, and caps each at a share of the container", () => {
+    // The two failures this rule is shaped by, both measured rather than reasoned:
+    //
+    // A ZERO FLOOR makes an auto-fit repetition count unbounded — 35 pair repetitions with 31
+    // collapsed to 0px, every pair on one row — so `auto` is the one place in this component
+    // where a track may not be floored at zero. Hence a rem floor per track.
+    //
+    // A 100% CAP IS NOT ENOUGH FOR A PAIR. Grid's floor is min(16rem, 100%) because one track
+    // wider than its container overflows it; two tracks at 100% each can sum to 200%, and the
+    // list scrolled sideways in a narrow panel. The percentage shares are what keep one pair
+    // inside one container, so they must stay strictly under 100% between them.
+    const base = layerBody("terp.base");
+    const at = base.indexOf('[data-terp="detail-list"][data-layout="aligned"][data-columns="auto"] {');
+    expect(at, "aligned auto should have its own track list").toBeGreaterThan(-1);
+    const body = base.slice(at, base.indexOf("}", at));
+    const floors = [...body.matchAll(/min\((\d+)rem, (\d+)%\)/g)].map((match) => ({
+      rem: Number(match[1]),
+      share: Number(match[2]),
+    }));
+    expect(floors, "both tracks of the pair carry a floor").toHaveLength(2);
+    expect(
+      floors.every((floor) => floor.rem > 0),
+      "a zero floor makes the repetition count unbounded",
+    ).toBe(true);
+    expect(
+      floors.reduce((sum, floor) => sum + floor.share, 0),
+      "the shares must leave room for the gap, or one pair overflows its container",
+    ).toBeLessThan(100);
+    // The layouts with no label column repeat ONE track, and at Grid's own floor, so a stacked
+    // auto list and a grid of cards break at the same width by construction.
+    const plainAt = base.indexOf('[data-terp="detail-list"][data-columns="auto"] {');
+    expect(plainAt, "auto should have a no-label-column track list too").toBeGreaterThan(-1);
+    expect(base.slice(plainAt, base.indexOf("}", plainAt))).toContain(
+      "repeat(auto-fit, minmax(min(16rem, 100%), 1fr))",
+    );
+    // And the shared column for an auto list is declared at EVERY width, unlike the closed
+    // counts': the cutover is what `auto` exists to not need.
+    const rowAt = base.indexOf(
+      '[data-terp="detail-list"][data-layout="aligned"][data-columns="auto"]\n  [data-terp="detail-list-row"]',
+    );
+    expect(rowAt, "the auto row rule should exist").toBeGreaterThan(-1);
+    const wideAt = base.indexOf("@media not all and (max-width: 768px)");
+    expect(
+      rowAt > wideAt && rowAt > base.indexOf("}", base.indexOf('[data-terp="detail-list"] {')),
+      "the auto row rule belongs outside the wide block, at every width",
+    ).toBe(true);
+  });
+
+  it("gives the group the aligned track list verbatim, gutter included", () => {
+    // A subgrid takes the PARENT's tracks and the parent's gutter along the axis it subgrids,
+    // so these two declarations are one measure written twice — and a group whose tracks
+    // disagreed with aligned's would line its lists up with each other and with nothing else
+    // on the card. Compared rather than described, because the failure is invisible until two
+    // cards are side by side.
+    const base = layerBody("terp.base");
+    const alignedAt = base.indexOf('[data-terp="detail-list"][data-layout="aligned"] {');
+    const aligned = base.slice(alignedAt, base.indexOf("}", alignedAt));
+    const groupAt = base.indexOf('[data-terp="detail-list-group"] {');
+    expect(groupAt, "the group should have a base rule").toBeGreaterThan(-1);
+    const group = base.slice(groupAt, base.indexOf("}", groupAt));
+    const tracks = (body: string) => /grid-template-columns:\s*([^;]+);/.exec(body)?.[1]?.trim();
+    const columnGap = (body: string) => /column-gap:\s*([^;]+);/.exec(body)?.[1]?.trim();
+    expect(tracks(aligned), "aligned declares the shared track list").toBeTruthy();
+    expect(tracks(group), "the group shares aligned's track list").toBe(tracks(aligned));
+    expect(columnGap(group), "and its gutter, which the subgrid inherits").toBe(
+      columnGap(aligned),
+    );
+    // Every child spans the group, or a subgridded list would occupy one track and its values
+    // would land in the label column.
+    const childAt = base.indexOf('[data-terp="detail-list-group"] > * {');
+    expect(childAt, "the group's children should span it").toBeGreaterThan(-1);
+    expect(base.slice(childAt, base.indexOf("}", childAt))).toContain("grid-column: 1 / -1");
+    // The group's gap is a row gap at every step, for the list's own reason: the column gap is
+    // the shared measure and is not a caller's to move.
+    for (const token of [0, 1, 2, 3, 4, 6, 8]) {
+      const stepAt = base.indexOf(`[data-terp="detail-list-group"][data-gap="${token}"]`);
+      expect(stepAt, `the group has no rule for gap ${token}`).toBeGreaterThan(-1);
+      const step = base.slice(stepAt, base.indexOf("}", stepAt));
+      expect(step, `gap ${token} must set the row gap only`).toContain(
+        `row-gap: var(--space-${token})`,
+      );
+      expect(/[^-]column-gap|^column-gap/.test(step), `gap ${token} must not touch the columns`).toBe(
+        false,
+      );
+    }
   });
 
   it("gives the page title, a card title and body copy three different steps", () => {
@@ -1567,6 +1681,7 @@ describe("cascade structure", () => {
       "splitpage-panes",
       "splitpane",
       "detail-list",
+      "detail-list-group",
       "combobox",
       "combobox-list",
       "combobox-option",

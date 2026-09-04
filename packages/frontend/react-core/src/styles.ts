@@ -644,6 +644,37 @@ textarea[data-terp="input"] {
   [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"] {
     display: contents;
   }
+  /* The full row, which has to STOP being a contents box to span anything: a box that
+     generates no box has no grid area, so grid-column on it is dropped and the span it asks
+     for silently does not happen. As a block it is one grid item, the base rule below spans
+     it across every track, and its own dt and dd are already display: block from the aligned
+     rule above — so a full pair reads label-above-value, which is the same pair's narrow
+     shape. Four attributes against that rule's three, so this wins wherever both match. */
+  [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"][data-full="true"] {
+    display: block;
+  }
+  /* The shared measure across several lists (ADR 0113). The GROUP owns the track list -- see
+     its base rule below -- and each aligned list inside becomes a subgrid of it, so every
+     label in every list is measured against one track instead of each list measuring its own.
+     Four lists on a card had four different gutters before this, none of them wrong by that
+     list's own rules, which is why it read as sloppy rather than broken.
+
+     Keyed on :not([data-columns]) rather than on the marker alone, and that exclusion is the
+     honest half: a two-pair list needs FOUR tracks and the group publishes two, so folding it
+     in would reflow its pairs to one per row -- a layout change wearing an alignment fix's
+     clothes. It keeps its own tracks and its own measure, which is what it renders today.
+
+     Inside the wide block because that is where the shared column exists at all: below the
+     cutover every list is one column with the label above its value, so there is nothing to
+     share and the group is a plain stack of lists.
+
+     No feature query, and that is a property of subgrid rather than an omission: where it is
+     unsupported the declaration is dropped and each list keeps its own tracks, which is
+     exactly today's output. Baseline-wide since Chrome 117, Safari 16, Firefox 71. */
+  [data-terp="detail-list-group"]
+    > [data-terp="detail-list"][data-layout="aligned"]:not([data-columns]) {
+    grid-template-columns: subgrid;
+  }
 }
 
 /* Grids -------------------------------------------------------------------- */
@@ -720,6 +751,18 @@ textarea[data-terp="input"] {
 [data-terp="detail-list-row"] {
   min-width: 0;
 }
+/* One pair across every track, for the value that cannot live in a column: a paragraph, a
+   payload, a code block. Declared at every width, which costs nothing where there is one track
+   to span and is the point where there are four -- and it is what stopped a wide value from
+   needing a SECOND list, whose independently measured label column put its values on a
+   different vertical line from the first list's.
+
+   1 / -1 rather than a span count, so it does not have to know whether the list is one pair
+   wide, two, or an auto-fit count nobody wrote down. The aligned case additionally needs the
+   row to become a block again; that rule lives in the wide block above, with the reason. */
+[data-terp="detail-list-row"][data-full="true"] {
+  grid-column: 1 / -1;
+}
 [data-terp="detail-list-term"] {
   display: inline;
   font-weight: var(--font-weight-medium);
@@ -760,6 +803,50 @@ textarea[data-terp="input"] {
 [data-terp="detail-list"][data-layout="stacked"] {
   row-gap: var(--space-3);
 }
+/* columns="auto", and its tracks live HERE rather than in the wide-viewport block above --
+   which is the whole of what it is for. The closed counts need a cutover because a number
+   cannot fit a phone; an auto-fit floor needs none, so this list follows its CONTAINER instead
+   of the window. That is the difference that matters for a list inside a card inside a split
+   pane, where the window says nothing about the width the list actually got.
+
+   Two published floors, and they are the behaviour rather than a detail: a pair is at least
+   9rem of label and 13rem of value. Measured across seven container widths -- three pairs at
+   1200px, two at 900px, one from 700px down.
+
+   The percentage cap is the part that is not obvious, and it is a real failure rather than
+   defensive. Grid's floor is min(16rem, 100%) because ONE track wider than its container
+   overflows it; a PAIR has two floors and 100% each lets their sum reach 200%, so a detail
+   list in a narrow panel scrolled sideways -- measured overflowing at 120px with both floors
+   capped at 100%. 30% and 60% leave the gap its share, so one pair always fits: no sideways
+   scroll at 240px.
+
+   A zero floor is not an option here even though every other track in this component takes
+   one. minmax(0, max-content) inside an auto-fit repeat makes the repetition count unbounded:
+   measured, Chromium generated 35 pair repetitions and collapsed 31 of them to 0px, putting
+   every pair on one row. Floors are what make auto-fit mean anything.
+
+   16rem for the layouts with no label column, which is Grid's own floor -- so a stacked auto
+   list and a Grid of cards break at the same width by construction rather than by coincidence,
+   the same argument the hub grid's floor already makes. */
+[data-terp="detail-list"][data-columns="auto"] {
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  column-gap: var(--space-4);
+}
+[data-terp="detail-list"][data-layout="aligned"][data-columns="auto"] {
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(9rem, 30%), max-content) minmax(min(13rem, 60%), 1fr)
+  );
+  column-gap: var(--space-3);
+}
+/* The shared column for an auto list, at EVERY width, which the aligned rule in the wide block
+   only gives above the cutover. Without it an auto list below the cutover would place each pair
+   BLOCK into one auto track, so the label would sit above its value in a list that had asked to
+   be measured -- the reflow this prop exists to replace, arriving through the back door. */
+[data-terp="detail-list"][data-layout="aligned"][data-columns="auto"]
+  [data-terp="detail-list-row"] {
+  display: contents;
+}
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"],
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-value"],
 [data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"],
@@ -797,6 +884,48 @@ textarea[data-terp="input"] {
 [data-terp="detail-list"][data-gap="4"] { row-gap: var(--space-4); }
 [data-terp="detail-list"][data-gap="6"] { row-gap: var(--space-6); }
 [data-terp="detail-list"][data-gap="8"] { row-gap: var(--space-8); }
+
+/* The detail-list group (ADR 0113): several lists, one measured label column.
+   The subgrid half is in the wide-viewport block above, where the shared column exists; this
+   is the container that owns the tracks it shares.
+
+   THE TRACK LIST IS DECLARED ONCE, HERE, AND AT EVERY WIDTH -- not split into a narrow shape
+   and a wide override, and that is a placement decision rather than a shortcut. The wide block
+   sits ~100 lines above this section, so an override there would have to out-specify a rule
+   that comes later in source; the group root has no second attribute to spend on that. It does
+   not need one: with every child spanning 1 / -1, a group whose children are NOT subgrids
+   renders exactly as a stack of full-width lists, because the label track is then sized by
+   nothing and collapses to zero. So the narrow shape needs no rule at all and the two shapes
+   cannot drift apart.
+
+   It must be the aligned track list, verbatim, and column-gap with it: a subgrid takes the
+   PARENT's gutters along the axis it subgrids, so the group's column-gap becomes the
+   label-to-value distance inside every list in it. styles.test.ts pins the two against each
+   other, because a group whose tracks disagreed with aligned's would align the lists to each
+   other and to nothing else on the card. */
+[data-terp="detail-list-group"] {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  column-gap: var(--space-3);
+  row-gap: var(--space-4);
+  min-width: 0;
+}
+/* Every child spans the group, lists and everything between them alike -- a heading, a
+   divider, a paragraph. A list that becomes a subgrid needs the span to reach both tracks;
+   a child that does not is simply full width, which is what it would have been on its own. */
+[data-terp="detail-list-group"] > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+/* The distance between the lists. row-gap only, for the reason the list's own gap prop gives:
+   the column gap is the shared measure and belongs to the group's rule above, not to a caller. */
+[data-terp="detail-list-group"][data-gap="0"] { row-gap: var(--space-0); }
+[data-terp="detail-list-group"][data-gap="1"] { row-gap: var(--space-1); }
+[data-terp="detail-list-group"][data-gap="2"] { row-gap: var(--space-2); }
+[data-terp="detail-list-group"][data-gap="3"] { row-gap: var(--space-3); }
+[data-terp="detail-list-group"][data-gap="4"] { row-gap: var(--space-4); }
+[data-terp="detail-list-group"][data-gap="6"] { row-gap: var(--space-6); }
+[data-terp="detail-list-group"][data-gap="8"] { row-gap: var(--space-8); }
 
 /* Checkboxes / radios / switches ------------------------------------------- */
 /* One label shape for all three, so the marker is shared: the control differs,

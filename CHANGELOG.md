@@ -145,6 +145,58 @@ decision, 0001 onwards.
   is written in the app's own compose file, its own Vite config, or a CLI default, and
   none of those routes through `create_app`.
 
+- **A record's labels can share one measure across several lists, and one pair can leave it
+  (ADR 0113).** `DetailList`'s aligned layout gives the labels a shared column, and three
+  things could not live in that column. All three used to be answered by splitting the list or
+  by hand-rolling a width, and each answer cost the alignment the component exists for.
+
+  **`DetailItem.full` spans one pair across every track**, label above value — the same pair's
+  narrow shape, asked for at one row rather than imposed on all of them. It is for the value
+  that is a paragraph rather than a field, and what it replaces is closing the `<dl>`, rendering
+  the wide thing and opening another. Two rules rather than one, and the second is the half that
+  is easy to miss: a `display: contents` box generates no box, so `grid-column` on it is dropped
+  and the span silently does not happen — the full row stops being a contents box in the one
+  place it was one.
+
+  **`DetailListGroup` shares one measured label column across several lists.** A record shown in
+  sections is a list per section, because the sections have their own headings and a `<dl>`
+  cannot carry a heading — and each list then measures its own label column, so three sections
+  whose labels differ in width put their values on three different vertical lines. Measured:
+  three distinct offsets on one card, none of them wrong by that list's own rules, which is why
+  it reads as sloppy rather than broken and why nothing in the suite could have caught it. The
+  group owns the track list and each aligned list inside becomes a `subgrid` of it, so every
+  label in every list is measured against the same track: one line, verified at the pixel.
+
+  A wrapper, and explicit rather than something `Card` infers from the lists it happens to
+  contain — a card that wants two different label widths has to be able to say so, and a card
+  has no business knowing about `<dl>` tracks. It shares the measure for `layout="aligned"` at
+  the default single column above the viewport cutover, and a `columns={2}` list keeps its own
+  four tracks rather than being quietly folded into two. Where `subgrid` is unsupported the
+  declaration is dropped and every list keeps its own tracks, which is exactly today's output —
+  so it ships with no feature query and nothing to remove later.
+
+  **`columns` takes `"auto"`**, which follows the CONTAINER rather than the viewport: the first
+  thing in this component that answers the width it actually got rather than the width of the
+  window, which is what a list inside a card inside a split pane needs. It closes the asymmetry
+  the component's own notes recorded — `Grid` publishes `columns="auto"` and a closed
+  one-or-two had no such escape, so the reflow had to be hand-rolled at one cutover. The closed
+  counts keep that reflow: a number that silently became three would not be a number.
+
+  Its floors are the behaviour rather than a detail, and two measurements set them. A zero floor
+  makes an `auto-fit` repetition count unbounded — Chromium produced 35 pair repetitions,
+  collapsed 31 to `0px` and put every pair on one row — so `auto` is the one place in this
+  component that needs a real floor: 9rem of label and 13rem of value, a 22rem pair. And a 100%
+  cap is not enough for a *pair*: `Grid`'s floor is `min(16rem, 100%)` because one track wider
+  than its container overflows it, and two tracks at 100% each summed past the container and
+  scrolled sideways. Each floor is therefore capped at a share of the track, measured across
+  seven widths — three pairs at 1200px, two at 900px, one from 700px down, no sideways scroll at
+  240px.
+
+  All three are pinned in the workbench's computed lane, where a resolved layout can be read
+  instead of inferred, and all three fail with the sheet reverted. The group's specimen is
+  deliberately a pair — the same three sections stacked plainly beside the same three grouped —
+  because neither half of that picture means anything alone.
+
 ### Fixed
 
 - **The subheader is the height its token declares, on every page.** A `min-height` is only a

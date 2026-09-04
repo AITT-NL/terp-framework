@@ -221,6 +221,26 @@ export interface DetailItem {
   label: UiText;
   /** The item's value (rendered as `<dd>`). */
   value: ReactNode;
+  /**
+   * Give this pair the whole row, across every track (default `false`).
+   *
+   * The escape from the shared column, for the one pair that cannot live in it: a paragraph, a
+   * payload, a code block, a value whose label is short and whose content is a screen wide. The
+   * label goes above the value and the pair spans the list, exactly as the same pair renders
+   * below the viewport cutover — so this is the narrow shape, asked for at one row rather than
+   * imposed on all of them.
+   *
+   * It exists because the alternative was a SECOND list. A card holding eight aligned pairs and
+   * one wide value had to close the `<dl>`, render the wide thing, and open another — which
+   * gives the two lists two independently measured label columns, so the values in each land on
+   * a different vertical line. One `full` row keeps one list, one measure, one column.
+   *
+   * It spans TRACKS, so it does nothing where there are none to span: `layout="inline"` at
+   * `columns={1}`, and every layout below the cutover, are already one full-width column. That
+   * is not a silent no-op to work around — it is the same pair rendering the same way for a
+   * different reason.
+   */
+  full?: boolean;
 }
 
 /** How a pair is arranged. */
@@ -239,8 +259,27 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
    * contract's detail-page slot, so every governed detail screen already renders one.
    */
   layout?: DetailListLayout;
-  /** Pairs per row (default `1`). */
-  columns?: 1 | 2;
+  /**
+   * Pairs per row: `1` (default), `2`, or `"auto"` to follow the available width.
+   *
+   * `"auto"` is the answer to the asymmetry this component's own notes below record: `Grid`
+   * publishes `columns="auto"` and a closed one-or-two had no such escape, so a detail list
+   * that wanted to be two columns on a desk and one on a phone got a hand-rolled reflow at the
+   * framework's single viewport cutover. `"auto"` needs no cutover at all — the track floor
+   * decides, so the list follows its CONTAINER rather than the window, which is the difference
+   * that matters for a list inside a card inside a split pane.
+   *
+   * The floors are published here because they are the whole behaviour: a pair is at least
+   * `9rem` of label and `13rem` of value, so 22rem, and each floor is additionally capped at a
+   * share of the track (30% and 60%) so that ONE pair always fits a narrow container instead of
+   * overflowing it. Measured across seven widths: three pairs at 1200px, two at 900px, one from
+   * 700px down, and no sideways scroll at 240px. `"auto"` on `inline` or `stacked` repeats one
+   * track per pair at `Grid`'s own `16rem` floor, since there is no label column to size.
+   *
+   * The closed counts keep the cutover reflow — `1` and `2` say a number, and a number that
+   * silently became three would not be one.
+   */
+  columns?: 1 | 2 | "auto";
   /**
    * Distance **between pairs**, as a step on the token spacing scale.
    *
@@ -291,12 +330,22 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
  *   distance within a pair equalled the distance between pairs, so nothing grouped. {@link
  *   DetailListProps.gap} makes it a caller's choice on the same scale as every other primitive.
  * - **It reflows to one column below the framework's viewport cutover**, where `Grid`
- *   deliberately does not for a fixed `columns` count. The asymmetry is a decision: `Grid`
- *   publishes `columns="auto"` as its responsive answer and this component's closed `1 | 2` has
- *   no such escape, so the reflow has to be its own. Above the cutover the shape is what it
+ *   deliberately does not for a fixed `columns` count. The asymmetry was a decision and is now
+ *   half retired: {@link DetailListProps.columns} takes `"auto"`, which follows the available
+ *   width with no cutover at all, and the closed counts keep the reflow because a number that
+ *   silently became three would not be a number. Above the cutover the shape is what it
  *   was, bar a label column now capped at `max-content` rather than floored at min-content;
  *   below it, four tracks in a phone's width met `overflow-wrap: anywhere` — correct for an
  *   unbreakable digest, wrong as a way to fit a label — and broke ordinary values mid-word.
+ *
+ * Two later additions are about the shared column rather than the pairs, and both exist because
+ * the alternative was splitting the list:
+ *
+ * - **{@link DetailItem.full} gives one pair the whole row.** A wide value — a paragraph, a
+ *   payload — used to require closing the `<dl>` and opening another, which is two measured
+ *   label columns and therefore two vertical lines for the values to land on.
+ * - **{@link DetailListGroup} shares one measure across several lists**, for the case where the
+ *   lists must stay separate: their own headings, their own order, other content between them.
  */
 export function DetailList({
   items,
@@ -319,11 +368,79 @@ export function DetailList({
       data-gap={gap === undefined ? undefined : String(gap)}
     >
       {items.map((item, index) => (
-        <div key={index} data-terp="detail-list-row">
+        <div
+          key={index}
+          data-terp="detail-list-row"
+          // Absent rather than "false", the sheet's own idiom: the default stamps nothing, so
+          // the rule needs no negative selector and the DOM says only what is true of it.
+          data-full={item.full === true ? "true" : undefined}
+        >
           <dt data-terp="detail-list-term">{text(item.label)}</dt>
           <dd data-terp="detail-list-value">{item.value}</dd>
         </div>
       ))}
     </dl>
+  );
+}
+
+export interface DetailListGroupProps extends Omit<HTMLAttributes<HTMLDivElement>, "style"> {
+  /**
+   * Distance between the lists, as a step on the token spacing scale (default `--space-4`).
+   *
+   * The ROW gap only, like {@link DetailListProps.gap} and for the same reason: the column gap
+   * is the shared label-to-value distance, and a caller who could set it here would be moving
+   * every nested list's internal measure from the outside.
+   */
+  gap?: SpaceToken;
+  /** The lists, and anything that belongs between them. */
+  children: ReactNode;
+}
+
+/**
+ * Several {@link DetailList}s that share ONE measured label column.
+ *
+ * The friction it removes: a card that shows a record in sections — "Identity", "Schedule",
+ * "What it reported" — renders a list per section, because the sections have their own headings
+ * and their own order and one `<dl>` cannot carry that. Each list then measures its own label
+ * column, so the values in each land on a different vertical line: four lists, four gutters,
+ * on one card. Nothing is misaligned by any single list's own rules, which is why it reads as
+ * sloppy rather than broken and why no test could have caught it.
+ *
+ * The mechanism is `subgrid`, and this wrapper is what makes it possible: the GROUP owns the
+ * track list, each aligned list inside becomes `grid-template-columns: subgrid`, and every
+ * label in every list is then measured against the same track. Measured: three lists whose
+ * labels differ in width put all three values at the same pixel.
+ *
+ * **Explicit rather than inferred**, which is the design decision worth stating. This could
+ * have been something `Card` did to the lists it happens to contain, and then a card that
+ * deliberately wants two differently-sized label columns would have no way to say so — and a
+ * card would know about `<dl>` tracks, which is a layer it has no business in.
+ *
+ * Three limits, each of them the honest kind:
+ *
+ * - **It shares the measure for `layout="aligned"` lists at the default single column**, since
+ *   that is the only shape that HAS a shared label column. A `columns={2}` list keeps its own
+ *   four tracks rather than being quietly folded into two — its pairs would otherwise reflow to
+ *   one per row, which is a layout change disguised as an alignment fix.
+ * - **Above the viewport cutover only.** Below it every list is one column with the label above
+ *   its value, so there is no column to share; the group is then a plain stack of lists.
+ * - **It degrades to exactly today's output.** Without `subgrid` each list keeps its own tracks,
+ *   which is what it renders now, so this ships with no feature query and no fallback branch.
+ *   Baseline-wide since Chrome 117 / Safari 16 / Firefox 71.
+ *
+ * Children other than lists are welcome and span the whole group — a `Text` heading between two
+ * lists, a `Divider` — which is the other half of why this is a wrapper and not a prop.
+ */
+export function DetailListGroup({ gap, children, ...rest }: DetailListGroupProps) {
+  return (
+    <div
+      {...rest}
+      data-terp="detail-list-group"
+      // The gap roll-call's idiom, and DetailList's: an unset gap stamps nothing and leaves the
+      // base rule standing, so there is no default to compare against.
+      data-gap={gap === undefined ? undefined : String(gap)}
+    >
+      {children}
+    </div>
   );
 }

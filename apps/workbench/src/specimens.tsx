@@ -19,6 +19,7 @@ import {
   DatePicker,
   DateRangePicker,
   DetailList,
+  DetailListGroup,
   DetailPage,
   FormPage,
   Divider,
@@ -601,6 +602,35 @@ const RECORD_PAIRS = [
   { label: "Owner", value: "Integrations team" },
 ];
 
+/**
+ * Three sections of one record, whose labels differ in width on purpose: ungrouped, each list
+ * measures its own label column, so the three sets of values land on three different lines.
+ * That is the defect the group fixes, and it needs unequal labels to be visible at all.
+ */
+const RECORD_SECTIONS = [
+  {
+    heading: "Identity",
+    items: [
+      { label: "Status", value: "Published" },
+      { label: "Revision", value: "14" },
+    ],
+  },
+  {
+    heading: "Schedule",
+    items: [
+      { label: "Scheduled run window", value: "02:00-04:00 UTC" },
+      { label: "Last completed run", value: "Today, 03:12 UTC" },
+    ],
+  },
+  {
+    heading: "What it reported",
+    items: [
+      { label: "Owner", value: "Integrations team" },
+      { label: "Rows transferred on last run", value: "9310" },
+    ],
+  },
+];
+
 /** 64 hex characters with nothing to break on — the value the old `auto` track overflowed. */
 const LONG_DIGEST = "9f2c1b7ae4d08c3f5a6b2e1d4c7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f";
 
@@ -1036,6 +1066,98 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
           <Stack gap={6}>
             {([1, 6] as const).map((step) => (
               <DetailList key={step} layout="aligned" gap={step} items={RECORD_PAIRS} />
+            ))}
+          </Stack>
+        ),
+      },
+      {
+        // The escape from the shared column, for the pair that cannot live in one. Read against
+        // `detail-list-aligned`: same list, same measure, and the one wide value takes the whole
+        // row with its label above it instead of a 60-character paragraph in a value track.
+        //
+        // What the picture is FOR is that the list did not have to SPLIT. Before this, a wide
+        // value meant closing the dl and opening another, which gives the two lists two
+        // independently measured label columns — so the values in each land on a different
+        // vertical line, which is the `detail-list-group` specimen below.
+        id: "detail-list-full",
+        title: "DetailList — one pair across every track",
+        node: (
+          <DetailList
+            layout="aligned"
+            items={[
+              { label: "Status", value: "Published" },
+              { label: "Revision", value: "14" },
+              {
+                label: "What it reported",
+                value:
+                  "The run completed with four rejected rows. Each was rejected for a missing " +
+                  "destination account, and none was retried.",
+                full: true,
+              },
+              { label: "Owner", value: "Integrations team" },
+            ]}
+          />
+        ),
+      },
+      {
+        // The pair the group exists for, in one shot, because neither half means anything alone:
+        // three sections whose labels differ in width, stacked plainly on the left and grouped on
+        // the right. Left, each list measures its own label column and the three sets of values
+        // land on three different vertical lines — four gutters on one card, none of them wrong
+        // by that list's own rules, which is why it reads as sloppy rather than broken. Right,
+        // the group owns the tracks and every list subgrids into them, so there is one line.
+        //
+        // The headings are part of the claim rather than decoration: they are why this cannot be
+        // one list with `full` rows. A section heading inside a dl is not valid content, so the
+        // lists have to stay separate — and separate is exactly what used to cost the alignment.
+        id: "detail-list-group",
+        title: "DetailList — three sections, measured apart and measured together",
+        node: (
+          <Grid columns={2} gap={6}>
+            <Stack gap={4}>
+              {RECORD_SECTIONS.map((section) => (
+                <Stack key={section.heading} gap={2}>
+                  <Heading level={3}>{section.heading}</Heading>
+                  <DetailList layout="aligned" items={section.items} />
+                </Stack>
+              ))}
+            </Stack>
+            <DetailListGroup gap={4}>
+              {RECORD_SECTIONS.flatMap((section) => [
+                <Heading key={section.heading} level={3}>
+                  {section.heading}
+                </Heading>,
+                <DetailList
+                  key={section.heading + "-list"}
+                  layout="aligned"
+                  items={section.items}
+                />,
+              ])}
+            </DetailListGroup>
+          </Grid>
+        ),
+      },
+      {
+        // columns="auto" in three containers of different widths, which is the whole behaviour
+        // in one picture: the pair count follows the CONTAINER, so no viewport is involved and
+        // the boxes are the axis. 48rem holds two pairs, 30rem one, 20rem one — and 20rem is
+        // under the 22rem a pair asks for, which is where the percentage cap earns its place:
+        // the floors shrink to a share of the box instead of overflowing it sideways.
+        //
+        // The closed counts cannot do this. `columns={2}` is two pairs at every width above the
+        // cutover, whatever the box it lands in — which is why a list inside a card inside a
+        // split pane had to be told twice.
+        id: "detail-list-auto",
+        title: "DetailList — pairs per row following the container",
+        node: (
+          <Stack gap={4}>
+            {(["48rem", "30rem", "20rem"] as const).map((width) => (
+              <div
+                key={width}
+                style={{ width, border: "1px dashed var(--color-neutral-300)" }}
+              >
+                <DetailList layout="aligned" columns="auto" items={RECORD_PAIRS} />
+              </div>
             ))}
           </Stack>
         ),

@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DetailList, Divider, Grid, Stack } from "./layout";
+import { DetailList, DetailListGroup, Divider, Grid, Stack } from "./layout";
 
 afterEach(cleanup);
 
@@ -316,5 +316,84 @@ describe("DetailList", () => {
     expect(screen.getByText(/Owner/).tagName).toBe("DT");
     expect(screen.getByText("Ada").tagName).toBe("DD");
     expect(screen.getByText(/Purchased/)).toBeInTheDocument();
+  });
+
+  it("marks the full row, and only the row that asked", () => {
+    // The escape from the shared column for one pair, and the attribute is the whole of the
+    // component's half: the span and the un-contents-ing are rules. Absent rather than "false"
+    // for the default, so the sheet needs no negative selector — the same idiom the density and
+    // collapsed attributes use, and the reason the marker scanner can read the rules at all.
+    render(
+      <DetailList
+        data-testid="dl"
+        layout="aligned"
+        items={[
+          { label: "Owner", value: "Ada" },
+          { label: "Report", value: "A paragraph too wide for a column." , full: true },
+          { label: "Revision", value: "14" },
+        ]}
+      />,
+    );
+    const rows = [...screen.getByTestId("dl").querySelectorAll('[data-terp="detail-list-row"]')];
+    expect(rows.map((row) => row.getAttribute("data-full"))).toEqual([null, "true", null]);
+  });
+
+  it("names auto as a column count, because it is one", () => {
+    // "auto" reaches the sheet through the same attribute as 1 and 2 and is a THIRD track list
+    // rather than a variant of the closed ones: it follows the container, so it needs no
+    // viewport cutover, which is the asymmetry it was added to close.
+    render(
+      <DetailList
+        data-testid="dl"
+        layout="aligned"
+        columns="auto"
+        items={[{ label: "Owner", value: "Ada" }]}
+      />,
+    );
+    expect(screen.getByTestId("dl")).toHaveAttribute("data-columns", "auto");
+  });
+});
+
+describe("DetailListGroup", () => {
+  it("wraps its lists in one marked container with no inline styling", () => {
+    // The container is the mechanism: it owns the track list the lists inside subgrid into, so
+    // every label in every list is measured against one track. Nothing here can prove the
+    // alignment — that is a resolved layout fact and lives in the workbench's computed lane —
+    // but an unmarked or restyled wrapper would make the rule unreachable, and this is that.
+    render(
+      <DetailListGroup data-testid="group">
+        <DetailList layout="aligned" items={[{ label: "Owner", value: "Ada" }]} />
+        <DetailList layout="aligned" items={[{ label: "A much longer label", value: "14" }]} />
+      </DetailListGroup>,
+    );
+    const el = screen.getByTestId("group");
+    expect(el.tagName).toBe("DIV");
+    expect(el.querySelectorAll('[data-terp="detail-list"]')).toHaveLength(2);
+    expect(el.hasAttribute("data-gap")).toBe(false);
+    expect(el.getAttribute("style")).toBeNull();
+  });
+
+  it("stamps a gap only when one was asked for, step 0 included", () => {
+    // DetailList's condition, for its reason: an unset gap must leave the base rule standing.
+    // Step 0 is a real step, so the test is a defined-check rather than a falsy-check — "no
+    // distance between these lists" is a thing a caller can mean.
+    const { rerender } = render(
+      <DetailListGroup data-testid="group">
+        <DetailList layout="aligned" items={[{ label: "Owner", value: "Ada" }]} />
+      </DetailListGroup>,
+    );
+    expect(screen.getByTestId("group").hasAttribute("data-gap")).toBe(false);
+    rerender(
+      <DetailListGroup data-testid="group" gap={0}>
+        <DetailList layout="aligned" items={[{ label: "Owner", value: "Ada" }]} />
+      </DetailListGroup>,
+    );
+    expect(screen.getByTestId("group")).toHaveAttribute("data-gap", "0");
+    rerender(
+      <DetailListGroup data-testid="group" gap={6}>
+        <DetailList layout="aligned" items={[{ label: "Owner", value: "Ada" }]} />
+      </DetailListGroup>,
+    );
+    expect(screen.getByTestId("group")).toHaveAttribute("data-gap", "6");
   });
 });

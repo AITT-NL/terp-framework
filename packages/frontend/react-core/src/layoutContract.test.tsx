@@ -397,6 +397,7 @@ describe("layout contract survives the roots the styling migration renames", () 
       "card",
       "dataview",
       "detail-list",
+      "detail-list-group",
       "dialog",
       "divider",
       "empty-state",

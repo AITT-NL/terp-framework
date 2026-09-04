@@ -751,3 +751,120 @@ test("every crumb in the trail sits on one baseline, leaf included", async ({ pa
   expect(middle, "the specimen should render three levels").toEqual(first);
   expect(current, "the current crumb must sit on the trail's baseline").toEqual(first);
 });
+
+/** The left edge of every element matching `selector`, rounded to the pixel. */
+async function leftEdges(page: import("@playwright/test").Page, selector: string) {
+  return page.evaluate(
+    (css) =>
+      [...document.querySelectorAll(css)].map((el) =>
+        Math.round(el.getBoundingClientRect().left),
+      ),
+    selector,
+  );
+}
+
+test("a full row spans the list while its neighbours keep the shared column", async ({ page }) => {
+  // The two halves of `full`, and the second is the one a baseline cannot state: a
+  // display: contents box generates no box, so `grid-column` on it is DROPPED — the row would
+  // stay in the label track and the span would silently not happen. What proves it happened is
+  // that the wide value starts where its LABEL starts and runs the width of the list, while the
+  // pairs above and below it still start in the value track.
+  await page.goto("/?theme=light&only=detail-list-full");
+  await page.locator('[data-terp="detail-list"]').waitFor({ state: "visible" });
+  const measured = await page.evaluate(() => {
+    const list = document.querySelector('[data-terp="detail-list"]')!;
+    const box = (el: Element) => {
+      const rect = el.getBoundingClientRect();
+      return { left: Math.round(rect.left), width: Math.round(rect.width) };
+    };
+    const rows = [...list.querySelectorAll('[data-terp="detail-list-row"]')].map((row) => ({
+      full: row.getAttribute("data-full") === "true",
+      term: box(row.querySelector('[data-terp="detail-list-term"]')!),
+      value: box(row.querySelector('[data-terp="detail-list-value"]')!),
+    }));
+    return { list: box(list), rows };
+  });
+  const full = measured.rows.filter((row) => row.full);
+  const paired = measured.rows.filter((row) => !row.full);
+  expect(full, "the specimen should carry exactly one full row").toHaveLength(1);
+  expect(paired.length, "and pairs on either side of it").toBeGreaterThan(1);
+
+  // The full row: label above value, both starting at the list's own left edge, and the value
+  // as wide as the list. Not "wider than a normal value" — the width itself, or a span of two
+  // tracks out of four would pass.
+  expect(full[0]!.term.left).toBe(measured.list.left);
+  expect(full[0]!.value.left).toBe(measured.list.left);
+  expect(full[0]!.value.width).toBe(measured.list.width);
+
+  // The neighbours are untouched, which is the half that says `full` is a row property rather
+  // than a list one: their values still sit in the value track, all on one line.
+  const trackLefts = new Set(paired.map((row) => row.value.left));
+  expect(trackLefts.size, "every ordinary pair keeps the shared value track").toBe(1);
+  expect([...trackLefts][0]!).toBeGreaterThan(measured.list.left);
+});
+
+test("a group puts every list's values on one line, and a plain stack does not", async ({
+  page,
+}) => {
+  // Both directions out of one specimen, which is why it renders the same three sections twice.
+  // The DEFECT: stacked plainly, each list measures its own label column, so three sections
+  // whose labels differ in width put their values on three different vertical lines. Nothing is
+  // wrong by any single list's rules, which is exactly why no test could see it before this one.
+  // The FIX: inside a group the lists subgrid into the group's tracks, so there is one line.
+  await page.goto("/?theme=light&only=detail-list-group");
+  await page.locator('[data-terp="detail-list-group"]').waitFor({ state: "visible" });
+
+  const grouped = await leftEdges(
+    page,
+    '[data-terp="detail-list-group"] [data-terp="detail-list-value"]',
+  );
+  const stacked = await leftEdges(
+    page,
+    '[data-specimen="detail-list-group"] [data-terp="stack"] [data-terp="detail-list-value"]',
+  );
+  expect(grouped.length, "the group should hold every section's values").toBeGreaterThan(4);
+  expect(stacked.length, "and the plain stack the same number").toBe(grouped.length);
+
+  expect(new Set(grouped).size, "one measure across every list in the group").toBe(1);
+  expect(
+    new Set(stacked).size,
+    "and the picture is only worth having while the plain stack still disagrees",
+  ).toBeGreaterThan(1);
+});
+
+test("an auto list takes its pair count from its container, not from the viewport", async ({
+  page,
+}) => {
+  // One viewport, three container widths, three answers — which is the whole claim, and the one
+  // the closed counts cannot make: at the lane's pinned 1280 a `columns={2}` list is two pairs
+  // in every box it lands in.
+  //
+  // Track counts rather than pixel positions, because the number of tracks IS the behaviour: a
+  // pair is two tracks, so four means two pairs. And the overflow check is not decoration — with
+  // both floors capped at 100% instead of a share, a pair's floors summed past the container and
+  // the list scrolled sideways, measured at 120px.
+  await page.goto("/?theme=light&only=detail-list-auto");
+  await page.locator('[data-terp="detail-list"]').first().waitFor({ state: "visible" });
+  const lists = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-terp="detail-list"][data-columns="auto"]')].map(
+      (list) => ({
+        container: Math.round(list.parentElement!.getBoundingClientRect().width),
+        tracks: getComputedStyle(list).gridTemplateColumns.split(" ").length,
+        overflows: list.scrollWidth > list.clientWidth,
+      }),
+    ),
+  );
+  expect(lists.length, "the specimen renders one list per container width").toBe(3);
+  // Descending container widths, so the pair counts must be non-increasing and must actually
+  // step down somewhere — three equal counts would pass a "follows the container" claim that
+  // the component was not making.
+  const [wide, mid, narrow] = lists;
+  expect(wide!.container).toBeGreaterThan(mid!.container);
+  expect(mid!.container).toBeGreaterThan(narrow!.container);
+  expect(wide!.tracks / 2, "the widest box holds more than one pair").toBeGreaterThan(1);
+  expect(mid!.tracks).toBeLessThanOrEqual(wide!.tracks);
+  expect(narrow!.tracks / 2, "the narrowest box holds exactly one").toBe(1);
+  for (const list of lists) {
+    expect(list.overflows, `a ${list.container}px container must not scroll sideways`).toBe(false);
+  }
+});

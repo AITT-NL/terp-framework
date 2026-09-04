@@ -132,6 +132,7 @@ const MARKERS = [
   "dataview-toolbar-spacer",
   "dataview-toolbar-status",
   "detail-list",
+  "detail-list-group",
   "detail-list-row",
   "detail-list-term",
   "detail-list-value",
