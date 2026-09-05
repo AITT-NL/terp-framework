@@ -103,37 +103,96 @@ def check_no_manual_scope_filtering(
     return violations
 
 
+def _managed_actor_attributes(node: ast.AST) -> list[ast.Attribute]:
+    """Every actor-stamp column access anywhere under *node*, in source order."""
+    return [
+        child
+        for child in ast.walk(node)
+        if isinstance(child, ast.Attribute) and child.attr in _MANAGED_ACTOR_COLUMNS
+    ]
+
+
+def _is_presence_test(compare: ast.Compare, holders: list[ast.expr]) -> bool:
+    """True when the stamp is only being compared with a literal.
+
+    ``row.created_by_id is None`` asks whether the row has been stamped yet. That is
+    a read wearing a comparison's syntax: no principal is named, so no decision is
+    being made about who may do what, and nothing is being written. A comparison
+    against anything else — an actor, a request field, another row's stamp — is the
+    decision this rule refuses.
+    """
+    operands = [compare.left, *compare.comparators]
+    others = [operand for operand in operands if not any(operand is held for held in holders)]
+    return bool(others) and all(isinstance(operand, ast.Constant) for operand in others)
+
+
 def check_no_manual_actor_stamping(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
-    """Modules never set the framework-managed actor-stamp columns by hand.
+    """Modules never write or gate on the framework-managed actor-stamp columns.
 
     Who created and last modified a row is **provenance**, applied **centrally**:
     ``BaseService._save`` fills ``created_by_id`` (on insert) and ``modified_by_id``
     (on every write) from the request actor (:class:`~terp.core.ActorStampedMixin`,
-    ADR 0012). A module that assigns ``<x>.created_by_id`` / ``<x>.modified_by_id``
-    is forging or clobbering that trail — the actor must come from the authenticated
-    request, never from caller-supplied data. As with the scope columns, a read DTO
-    may still *expose* the column (an annotation is fine); only attribute access
-    (set / compare) is policed.
+    ADR 0012).
+
+    Two shapes are refused, for two different reasons. **Assigning** (or deleting)
+    ``<x>.created_by_id`` / ``<x>.modified_by_id`` forges or clobbers the trail — the
+    actor must come from the authenticated request, never from caller-supplied data,
+    and a hand-written stamp is indistinguishable afterwards from one the platform
+    wrote. **Comparing** the stamp against a principal is object-level authorization
+    written inline, which belongs to the ownership seam
+    (:class:`~terp.core.OwnedMixin`) where it is applied at the write chokepoint
+    rather than wherever someone remembered it.
+
+    **Reading the stamp is not policed** (ADR 0114). A read cannot forge a trail, and
+    the ordinary uses are legitimate: exposing provenance on a read DTO, rendering it,
+    logging it, or asking whether a row has been stamped at all
+    (``row.created_by_id is None`` — a comparison against a literal, so it is a
+    presence test rather than a decision). This rule is justified by forgery; refusing
+    a plain read would refuse the very thing the trail exists to make visible.
+
+    The two sibling rules stay broader on purpose, and the asymmetry is the decision
+    rather than an inconsistency: for ``owner_id`` and the scope columns a *read* is
+    the first half of a hand-rolled gate or a hand-rolled scope filter, and no static
+    check can tell that read from a display one. For an actor stamp there is no
+    corresponding harm on the read side.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
+
+    def refuse(rel: str, line: int, column: str, what: str) -> None:
+        violations.append(
+            ArchViolation(
+                "no_manual_actor_stamping",
+                rel,
+                line,
+                f"module {what} the framework-managed actor-stamp column {column!r}; "
+                "created_by_id / modified_by_id are filled centrally by BaseService from "
+                "the request actor, and an authorization decision about who made a row "
+                "belongs to OwnedMixin — reading the stamp is fine, writing or gating on "
+                "it is not",
+            )
+        )
+
     for path in iter_python_files(root):
         tree = parse(path)
         rel = _rel(path, root)
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr in _MANAGED_ACTOR_COLUMNS:
-                violations.append(
-                    ArchViolation(
-                        "no_manual_actor_stamping",
-                        rel,
-                        node.lineno,
-                        f"module references the framework-managed actor-stamp column "
-                        f"{node.attr!r}; created_by_id / modified_by_id are filled centrally "
-                        "by BaseService from the request actor — do not set or compare them by hand",
-                    )
-                )
+                if isinstance(node.ctx, ast.Store):
+                    refuse(rel, node.lineno, node.attr, "assigns")
+                elif isinstance(node.ctx, ast.Del):
+                    refuse(rel, node.lineno, node.attr, "deletes")
+                continue
+            if not isinstance(node, ast.Compare):
+                continue
+            operands = [node.left, *node.comparators]
+            holders = [operand for operand in operands if _managed_actor_attributes(operand)]
+            if not holders or _is_presence_test(node, holders):
+                continue
+            stamp = _managed_actor_attributes(holders[0])[0]
+            refuse(rel, stamp.lineno, stamp.attr, "compares")
     return violations
 
 

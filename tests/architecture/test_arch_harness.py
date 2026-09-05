@@ -2575,6 +2575,37 @@ def test_no_manual_actor_stamping(tmp_path: pathlib.Path) -> None:
     )
     assert check_no_manual_actor_stamping(app) == []
 
+    # Deleting the stamp clobbers the trail as surely as writing one.
+    _write(app, "modules/notes/schemas.py", "")
+    _write(app, "modules/notes/service.py", "def wipe(note):\n    del note.created_by_id\n")
+    assert _rule_names(check_no_manual_actor_stamping(app)) == {"no_manual_actor_stamping"}
+
+    # Gating on the stamp is object-level authorization written inline, wherever the
+    # comparison sits -- in a predicate or inside a query's where().
+    for source in (
+        "def may_edit(note, actor):\n    return note.created_by_id == actor.id\n",
+        "def refuse(note, actor):\n    if note.modified_by_id != actor.id:\n        raise Boom()\n",
+        "def mine(actor):\n    return select(Note).where(Note.created_by_id == actor.id)\n",
+        "def same(a, b):\n    return a.created_by_id == b.created_by_id\n",
+    ):
+        _write(app, "modules/notes/service.py", source)
+        assert _rule_names(check_no_manual_actor_stamping(app)) == {
+            "no_manual_actor_stamping"
+        }, source
+
+    # Reading the stamp is NOT policed (ADR 0114). A read cannot forge a trail, and a
+    # comparison against a literal names no principal, so it decides nothing -- it asks
+    # whether the row has been stamped at all. These are the shapes a careful reader
+    # concluded the rule refused, so each one is asserted silent rather than assumed.
+    for source in (
+        "def provenance(note):\n    return {'by': note.created_by_id}\n",
+        "def unstamped(note):\n    return note.created_by_id is None\n",
+        "def unstamped(note):\n    return note.modified_by_id == None\n",
+        "def show(note):\n    return f\"made by {note.created_by_id}\"\n",
+    ):
+        _write(app, "modules/notes/service.py", source)
+        assert check_no_manual_actor_stamping(app) == [], source
+
 
 def test_no_manual_lease_columns(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"

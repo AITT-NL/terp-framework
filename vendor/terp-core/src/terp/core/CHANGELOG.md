@@ -119,6 +119,45 @@ decision, 0001 onwards.
   raises the bar for every implementation: an application that passed 0.30.x can fail
   0.31.0.
 
+- **`no_manual_actor_stamping` follows its own justification: writing a stamp is refused,
+  gating on one is refused, reading one is not** (ADR 0114). The rule's prose said, in the
+  docstring and the catalog entry both, that "only attribute access (set / compare) is
+  policed" — a sentence that contradicts itself, since attribute access is the broad thing
+  and set-or-compare the narrow one. The detector did the broad thing, so
+  `if row.created_by_id is None` was refused by a rule whose stated reason is forgery, and
+  so was returning the value in a dictionary or putting it in a log line.
+
+  The cost was never the suppression comment. It was that a careful reader, told a rule
+  forbids reading provenance and shown a sentence saying only set and compare are policed,
+  correctly concludes the rule does not mean what it says — and then designs around a wall
+  that was never there. A refusal wider than its own justification spends the credibility of
+  every refusal beside it.
+
+  The scope now follows the harm, and each of the three shapes has a one-line reason.
+  **Assigning** or deleting forges the trail, because afterwards a hand-written stamp is
+  indistinguishable from one `_save` wrote. **Comparing** against a principal is
+  object-level authorization written inline — not forgery, but the hand-rolled version of
+  what `OwnedMixin` applies at the write chokepoint, so it is refused on its own terms and
+  the same expression inside a `where(...)` with it. **Reading** does neither, and the
+  ordinary uses are what the trail is kept for. The boundary is what a comparison is
+  *against*: a literal names no principal, so `is None` is a presence test rather than a
+  decision.
+
+  **The two sibling rules keep the broad reading, and that asymmetry is the decision rather
+  than an oversight.** For `deleted_at`, `tenant_id` and `owner_id` a read is the first half
+  of the harm — `if row.deleted_at is None` in module code *is* the hand-rolled scope
+  predicate, and a load of `owner_id` is the first half of a per-row gate that leaks the day
+  someone forgets it. No static check can tell those from a display read, and the direction
+  to be wrong in differs: for a gate you must not under-refuse, for a provenance trail you
+  must not over-refuse. Both sibling catalog entries now carry that sentence, so the breadth
+  is recorded rather than inferred from a detector.
+
+  terp-spec 0.31.0 carries the catalog half and three corpus cases contracting the new
+  boundary in both directions; two residuals (a `setattr` stamp, a comparison written as
+  `.in_` / `.is_`) are recorded rather than claimed. This is a contract change in the
+  permissive direction: an application that failed on a stamp read passes, and nothing that
+  passed starts failing.
+
 ### Fixed
 
 - **Adding a rule no longer requires a main branch to be red** (ADR 0116). The two
