@@ -66,6 +66,8 @@ from terp.arch.rules import (
     check_no_manual_version_assignment,
     check_no_naive_datetime,
     check_datetime_columns_are_timezone_aware,
+    check_errors_use_the_typed_envelope,
+    check_no_exception_text_in_responses,
     check_no_oversized_python_files,
     check_no_blocking_sleep,
     check_no_empty_tests,
@@ -109,7 +111,7 @@ from terp.arch.rules import (
 #: the platform repo, not of a generated app, and the version is a property of the
 #: toolchain build. Held equal to the pinned ``terp-spec`` release by the framework
 #: gate (``tests/architecture/test_check_json.py``), so it cannot drift silently.
-SPEC_VERSION = "0.30.0"
+SPEC_VERSION = "0.31.0"
 
 __all__ = [
     "ArchViolation",
@@ -155,6 +157,8 @@ __all__ = [
     "check_no_manual_version_assignment",
     "check_no_naive_datetime",
     "check_datetime_columns_are_timezone_aware",
+    "check_errors_use_the_typed_envelope",
+    "check_no_exception_text_in_responses",
     "check_no_oversized_python_files",
     "check_no_blocking_sleep",
     "check_no_empty_tests",

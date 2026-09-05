@@ -53,6 +53,8 @@ from terp.arch import (
     check_no_manual_version_assignment,
     check_no_naive_datetime,
     check_datetime_columns_are_timezone_aware,
+    check_errors_use_the_typed_envelope,
+    check_no_exception_text_in_responses,
     check_no_oversized_python_files,
     check_no_blocking_sleep,
     check_no_empty_tests,
@@ -1180,6 +1182,131 @@ def test_no_dynamic_sql(tmp_path: pathlib.Path) -> None:
     _write(app, "modules/notes/tests/helper.py", "stmt = text(query)\n")
     assert _rule_names(check_no_dynamic_sql(app)) == {"no_dynamic_sql"}
 
+
+
+def test_errors_use_the_typed_envelope(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+
+    # Every spelling of the framework's own HTTP error leaves the same leaf name,
+    # which is what the rule matches -- an app cannot dodge it by importing the
+    # Starlette original or by qualifying the module.
+    for source in (
+        'raise HTTPException(status_code=404, detail="gone")',
+        'raise fastapi.HTTPException(status_code=404, detail="gone")',
+        'raise starlette.exceptions.HTTPException(404, "gone")',
+        "raise HTTPException",
+    ):
+        _write(app, "modules/notes/service.py", f"def run():\n    {source}\n")
+        assert _rule_names(check_errors_use_the_typed_envelope(app)) == {
+            "errors_use_the_typed_envelope"
+        }, source
+
+    # The typed error is the compliant path and must be silent, or the rule would
+    # be refusing the thing it exists to ask for.
+    _write(app, "modules/notes/service.py", 'def run():\n    raise NotFoundError("gone")\n')
+    assert check_errors_use_the_typed_envelope(app) == []
+
+    # Naming the framework's error is not raising it: an adapter that catches one
+    # and re-raises the caught exception is how a module recognises a failure the
+    # framework itself produced.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "def run():\n"
+        "    try:\n"
+        "        call()\n"
+        "    except HTTPException:\n"
+        "        raise\n",
+    )
+    assert check_errors_use_the_typed_envelope(app) == []
+
+    # A raise of anything else is not this rule's business.
+    _write(app, "modules/notes/service.py", 'def run():\n    raise ValueError("bad")\n')
+    assert check_errors_use_the_typed_envelope(app) == []
+
+
+def test_no_exception_text_in_responses(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+
+    def handler(raised: str, *, binding: str = " as exc") -> str:
+        return (
+            "def run():\n"
+            "    try:\n"
+            "        parse()\n"
+            f"    except ValueError{binding}:\n"
+            f"        raise {raised}\n"
+        )
+
+    # Every way a caught exception's text reaches the message a client reads --
+    # by conversion, by interpolation, by attribute, and through the traceback
+    # formatter, which needs no binding at all.
+    borrowed = (
+        "ValidationFailedError(str(exc))",
+        'HTTPException(status_code=400, detail=f"failed: {exc}")',
+        "ConflictError(message=repr(exc))",
+        'ValidationFailedError("failed: %s" % exc)',
+        "ValidationFailedError(str(exc.args))",
+    )
+    for raised in borrowed:
+        _write(app, "modules/notes/service.py", handler(raised))
+        assert _rule_names(check_no_exception_text_in_responses(app)) == {
+            "no_exception_text_in_responses"
+        }, raised
+
+    _write(
+        app,
+        "modules/notes/service.py",
+        handler("ValidationFailedError(traceback.format_exc())", binding=""),
+    )
+    assert _rule_names(check_no_exception_text_in_responses(app)) == {
+        "no_exception_text_in_responses"
+    }
+
+    # The compliant shape: a written message, the cause chained. `from exc` is the
+    # raise's cause and not one of its arguments, so it must not fire -- if it did,
+    # the rule would refuse the exact pattern its own message recommends.
+    _write(
+        app,
+        "modules/notes/service.py",
+        handler('ValidationFailedError("The file could not be read.") from exc'),
+    )
+    assert check_no_exception_text_in_responses(app) == []
+
+    # The other half of the compliant shape, and the reason the rule is a split
+    # rather than a prohibition: log context is never serialised, so the operator
+    # keeps the driver's message while the caller does not get it.
+    _write(
+        app,
+        "modules/notes/service.py",
+        handler('ConflictError("Refused.", log_context={"cause": str(exc)})'),
+    )
+    assert check_no_exception_text_in_responses(app) == []
+
+    # A value the caller submitted is ordinary message writing. A detector that
+    # matched f-strings inside a handler would refuse this.
+    _write(app, "modules/notes/service.py", handler('ValidationFailedError(f"{name} is bad")'))
+    assert check_no_exception_text_in_responses(app) == []
+
+    # A builtin raised inside a handler is internal control flow: it reaches a
+    # client only as a generic 500 whose message the framework writes.
+    _write(app, "modules/notes/service.py", handler("ValueError(str(exc))"))
+    assert check_no_exception_text_in_responses(app) == []
+
+    # ... and so is a name that is not error-shaped at all.
+    _write(app, "modules/notes/service.py", handler("refusal(str(exc))"))
+    assert check_no_exception_text_in_responses(app) == []
+
+    # A raised expression with no resolvable name is left alone rather than guessed at.
+    _write(app, "modules/notes/service.py", handler("(First or Second)(str(exc))"))
+    assert check_no_exception_text_in_responses(app) == []
+
+    # Re-raising the caught exception itself is not a constructed message.
+    _write(app, "modules/notes/service.py", handler("exc"))
+    assert check_no_exception_text_in_responses(app) == []
+
+    # Outside a handler there is no caught exception to borrow from.
+    _write(app, "modules/notes/service.py", 'def run(exc):\n    raise ConflictError(str(exc))\n')
+    assert check_no_exception_text_in_responses(app) == []
 
 
 def test_no_naive_datetime(tmp_path: pathlib.Path) -> None:

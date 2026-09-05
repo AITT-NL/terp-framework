@@ -75,6 +75,49 @@ decision, 0001 onwards.
   is internal: the counter key gained a bucket segment (`rl::<ip>` where it was `rl:<ip>`).
   Invisible for the in-memory default; a deployment on a shared store sees each key start
   one fresh window on the deploy that ships this, and nothing beyond that.
+- **Two rules over the error path, which was the one place an application improvises a
+  message for a client and the one place nothing looked.** Everywhere else the shape of a
+  response is declared — a response model, a schema, a serialiser — and the rules that
+  guard those declarations cannot reach a string a handler builds on the spot. The
+  clearest evidence that this was a gap rather than a preference: the security posture an
+  application had to write for itself here was ahead of the standard, while everything
+  else it enforced (naive datetimes, pagination, string caps, optimistic concurrency,
+  write-role on mutations, hardcoded credentials, dynamic SQL) was already in the catalog.
+
+  `errors_use_the_typed_envelope` refuses `raise HTTPException(...)` in an application
+  module. A platform that promises one error envelope has to be the only thing that builds
+  it: a module naming a status code and a message directly is a second, undocumented error
+  contract for that one response, and a client then receives two shapes from one API with
+  no way to tell which it is holding. Each instance is defensible on its own, which is
+  exactly why the set of them accumulates. Raise an `AppError` subclass instead.
+
+  `no_exception_text_in_responses` refuses a caught exception's own text in the message a
+  client receives — `str(exc)`, `repr(exc)`, an f-string, `exc.args`, `%`-formatting, and
+  `traceback.format_exc()`, in the positional message and in `detail=` / `message=` alike.
+  A driver names the table and often the statement; a filesystem error names an absolute
+  path and therefore the deployment layout; a connection error names an internal host.
+  None of it is chosen, reviewed or versioned — it is a diagnostic string written for an
+  operator reading a log, forwarded verbatim to whoever made the request.
+
+  **The second rule is a split, not a prohibition, and the tests are where that is
+  visible.** `raise NotFoundError("Order not found") from exc` is untouched, because the
+  cause is the raise's cause and not one of its arguments — a rule that refused its own
+  recommended remedy would be worse than no rule. `log_context={"cause": str(exc)}` is
+  untouched because `terp.core` never serialises it: the operator keeps the driver's
+  message and the caller does not get it. And a builtin raised inside a handler is left
+  alone, because it is internal control flow that reaches a client only as a generic 500
+  whose message the framework writes. Each of those is a test asserting silence, beside
+  the six asserting a finding.
+
+  Both rules look at a `raise` statement and nothing else — no cross-file resolution, no
+  data flow, no guess about what a helper returns. The forms that fall outside are
+  recorded as residuals in the standard rather than claimed: an alias-renamed HTTP error,
+  an error built into a local name and raised a statement later, and a message helper
+  called from the handler.
+
+  The catalog half is terp-spec **0.31.0**, and the four declarations move with it. This
+  raises the bar for every implementation: an application that passed 0.30.x can fail
+  0.31.0.
 
 ### Fixed
 

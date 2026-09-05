@@ -345,6 +345,27 @@ Services (BaseService)
   The sibling service is a declared edge (ModuleSpec(requires=...)), so the dependency
   is visible in the manifest. A validator that opened its own session would be
   unreviewable, untestable without a database, and outside the write chokepoint.
+- Refusing? Raise a typed AppError, never HTTPException. The envelope (status, a
+  stable machine-readable code, the body shape) belongs to terp.core, and a raise
+  that names a status and a message itself is a second error contract for that one
+  response, which no schema describes and no client can dispatch on. Refused by the
+  errors_use_the_typed_envelope rule:
+      raise NotFoundError("Order not found")
+      raise ConflictError("This order is already approved.")
+      raise ValidationFailedError("The period is closed.")
+- And never put the caught exception's own text in that message. A driver names the
+  table and often the statement, a filesystem error names an absolute path, a
+  connection error names an internal host — none of it chosen, reviewed or versioned,
+  all of it forwarded verbatim to whoever made the request. Refused by the
+  no_exception_text_in_responses rule. The split is: written message in the body,
+  exception in the log.
+      except IntegrityError as exc:
+          raise ConflictError(
+              "This code is already in use.",                  # what the caller reads
+              log_context={"cause": str(exc)},                 # never serialised
+          ) from exc                                           # keeps the traceback
+  `from exc` and `log_context=` are both untouched by the rule, on purpose: they are
+  where the diagnosis is supposed to go.
 """,
     "policy": """\
 Authorization (Policy)
