@@ -156,4 +156,4 @@ def test_create_app_accepts_a_shared_store() -> None:
     spec = ModuleSpec(name="probe", router=router, policy=Policy.public(reason="probe"))
     client = TestClient(create_app([spec], throttle_store=_SpyStore()))
     assert client.get("/api/v1/probe/ping").headers["X-RateLimit-Limit"] == "240"
-    assert seen == ["rl:testclient"]  # the supplied store actually counted the request
+    assert seen == ["rl::testclient"]  # the supplied store actually counted the request

@@ -94,6 +94,46 @@ def _rate_limit_key(request: Request) -> str:
     return client_ip(request)
 
 
+class _RateLimits:
+    """The effective request-rate cap for a path: a global limit plus per-prefix ones.
+
+    *overrides* maps a path prefix to its own ``(limit, window)`` (ADR 0115): a
+    request whose path equals the prefix or lives under it is counted against that
+    entry instead of the global one — longest matching prefix wins, and every
+    unmatched path keeps the global limit.
+
+    The prefix comes back with the numbers because it is also the **bucket**. A
+    scoped limit that shared one counter with the global one would be a second cap
+    on the same tally rather than a separate allowance, so a burst of asset reads
+    would still lock out a login. Returning the prefix is what keeps the counters
+    apart.
+
+    Deliberately the same shape as :class:`_RequestSizeCaps`: the platform already
+    resolves one per-mount allowance by longest prefix, and a second control that
+    scoped itself differently would be a second thing to learn for no reason.
+    """
+
+    def __init__(
+        self, limit: int, window: int, overrides: Mapping[str, tuple[int, int]] | None = None
+    ) -> None:
+        self._default = ("", limit, window)
+        # Longest prefix first, so the most specific declaration decides.
+        self._overrides = tuple(
+            sorted(
+                ((prefix, *value) for prefix, value in (overrides or {}).items()),
+                key=lambda item: len(item[0]),
+                reverse=True,
+            )
+        )
+
+    def for_path(self, path: str) -> tuple[str, int, int]:
+        """``(bucket, limit, window)`` for *path* — its longest override, else global."""
+        for prefix, limit, window in self._overrides:
+            if path == prefix or path.startswith(prefix + "/"):
+                return prefix, limit, window
+        return self._default
+
+
 def _forwarded_client_ip(request: Request, *, trusted_hops: int) -> str | None:
     """The client address *trusted_hops* proxies forwarded, or ``None`` if unresolvable.
 
@@ -157,38 +197,55 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
 
     def __init__(
-        self, app: ASGIApp, *, limit: int, window: int, store: ThrottleStore | None = None
+        self,
+        app: ASGIApp,
+        *,
+        limit: int,
+        window: int,
+        overrides: Mapping[str, tuple[int, int]] | None = None,
+        store: ThrottleStore | None = None,
     ) -> None:
         super().__init__(app)
-        self._limit = limit
-        self._window = window
+        self._limits = _RateLimits(limit, window, overrides)
         self._store = store if store is not None else InMemoryThrottleStore()
 
-    def _check(self, key: str) -> tuple[bool, int, int]:
-        """Register a hit; return ``(allowed, remaining, reset)``, fail-closed on error."""
+    def _check(self, bucket: str, limit: int, window: int, key: str) -> tuple[bool, int, int]:
+        """Register a hit; return ``(allowed, remaining, reset)``, fail-closed on error.
+
+        The counter key carries the bucket, so a path family with its own declared
+        limit gets its own tally rather than a second ceiling on a shared one.
+        """
         try:
-            count, reset = self._store.hit(f"rl:{key}", self._window)
+            count, reset = self._store.hit(f"rl:{bucket}:{key}", window)
         except Exception:
-            return False, 0, self._window
-        if count > self._limit:
+            return False, 0, window
+        if count > limit:
             return False, 0, reset
-        return True, self._limit - count, reset
+        return True, limit - count, reset
 
     async def dispatch(self, request: Request, call_next: _CallNext) -> Response:
-        allowed, remaining, reset = self._check(_rate_limit_key(request))
+        bucket, limit, window = self._limits.for_path(request.url.path)
+        if limit <= 0:
+            # An override may declare a path family unlimited. The production guardrail
+            # refuses that config; a development app is allowed to mean it.
+            return await call_next(request)
+        allowed, remaining, reset = self._check(bucket, limit, window, _rate_limit_key(request))
         if not allowed:
             return JSONResponse(
                 status_code=429,
                 content=_envelope("rate_limited", "Too many requests; please retry later."),
                 headers={
                     "Retry-After": str(reset),
-                    "X-RateLimit-Limit": str(self._limit),
+                    "X-RateLimit-Limit": str(limit),
                     "X-RateLimit-Remaining": "0",
                     "X-RateLimit-Reset": str(reset),
                 },
             )
         response = await call_next(request)
-        response.headers["X-RateLimit-Limit"] = str(self._limit)
+        # The headers name the limit that actually applied, not the global one: a
+        # client that reads them to pace itself must be told about the bucket it is
+        # in, or a scoped limit is invisible until it fires.
+        response.headers["X-RateLimit-Limit"] = str(limit)
         response.headers["X-RateLimit-Remaining"] = str(remaining)
         response.headers["X-RateLimit-Reset"] = str(reset)
         return response
@@ -610,6 +667,10 @@ def install_security_middleware(
             RateLimitMiddleware,
             limit=config.rate_limit.requests,
             window=config.rate_limit.window_seconds,
+            overrides={
+                prefix: (limit.requests, limit.window_seconds)
+                for prefix, limit in config.rate_limit_overrides
+            },
             store=throttle_store,
         )
     app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=config.trusted_proxy_hops)

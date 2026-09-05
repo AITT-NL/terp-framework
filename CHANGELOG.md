@@ -36,6 +36,46 @@ decision, 0001 onwards.
   harness is green on all 244 cases at 0.30.0 without touching a rule, which is the evidence
   that the pin was the whole of the gap.
 
+### Added
+
+- **A rate limit is scoped the way a body cap already is** (ADR 0115).
+  `SecurityConfig.rate_limit` was one number for the whole application, and one number
+  cannot be right for two kinds of endpoint. A credential endpoint wants single digits per
+  minute per address; a page that loads thirty assets wants a limit one screen cannot
+  exhaust. The value that ships is necessarily the loose one, because the tight one would
+  break ordinary browsing — so the control was enabled, reported in headers, and set to a
+  number chosen by whichever endpoint tolerates the least protection.
+
+  `SecurityConfig` now takes `rate_limit_overrides`: a path prefix to its own `RateLimit`,
+  longest prefix wins, everything unmatched keeps the global limit. The shape is
+  deliberately the per-mount `max_request_bytes` map (ADR 0067) and `_RateLimits` is
+  deliberately a near-copy of `_RequestSizeCaps` — the framework had already answered this
+  question once for a different limit, and two controls that scope themselves to a path in
+  two different ways would be two things to learn and two places to be wrong.
+
+  **A scoped limit gets its own counter, and that is the substance rather than a detail.**
+  The counter key carries the matched prefix. A scoped limit sharing the global counter
+  would be a second *ceiling* on one tally rather than a separate *allowance*, so a burst
+  of asset reads would still consume the budget a login needs — and the tighter you set the
+  login's limit, the easier it would become to lock logins out. A limit that is easier to
+  weaponise the more carefully it is set is worse than none.
+
+  Three details that are decisions. A prefix is a **path** prefix, so `/api/v1/authorised`
+  is not under `/api/v1/auth` (inherited from the body-cap resolver, along with its test).
+  The `X-RateLimit-*` headers report the limit that **actually applied**, because a scoped
+  limit a client cannot see is invisible until the moment it refuses — the same correction
+  the 413 got when it started naming the cap that applied. And an override may lower or
+  raise a limit but not **remove** one: `production_problems()` refuses a disabled override
+  and names the prefix, because one path family exempted is the same hole as a disabled
+  global limit and a quieter one, with the global limit still reading as enabled. A key
+  that is not a path prefix is refused at construction, since it would match nothing and
+  read to an auditor as a limit that had been applied.
+
+  **Nothing changes for an app that declares no overrides.** The one observable difference
+  is internal: the counter key gained a bucket segment (`rl::<ip>` where it was `rl:<ip>`).
+  Invisible for the in-memory default; a deployment on a shared store sees each key start
+  one fresh window on the deploy that ships this, and nothing beyond that.
+
 ### Fixed
 
 - **The release runbook now names the order the two repositories move in.** Adopting a spec
