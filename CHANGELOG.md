@@ -14,6 +14,44 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **The gate is measured against the standard it enforces.** The framework pinned
+  `terp-spec==0.29.1` while the standard was at 0.30.0, and 0.30.0 is not an unrelated
+  release: it is the one that turns two of `no_manual_ownership_checks`'s three recorded
+  residuals into **required** behaviour, each contracted by a corpus case. Being stricter
+  than the standard is allowed and the specification's changelog says so, so this was never
+  a conformance failure — it is the reference implementation not being measured against the
+  bar it had just raised.
+
+  The cost is specific rather than theoretical. `terp.arch` reads the catalog from the
+  *installed* package (ADR 0082), so the gate was certifying against the release that still
+  permits what its own implementation refuses, and the two corpus cases written to hold that
+  behaviour — a `jobs=` declaration bound to a name, and reach that follows a declared edge
+  — never ran against the implementation that shipped it. A residual recorded as a permitted
+  limit and a residual that has been closed read identically from inside a stale pin.
+
+  Four declarations move together, which is what ADR 0082 asks: the `pyproject.toml` pin, the
+  `@terpjs/spec` pin in `packages/frontend/eslint-boundaries/package.json`, and the two
+  constants that report the certified version (`terp.arch.SPEC_VERSION` and the ESLint
+  adapter's `SPEC_VERSION`). Both lockfiles are re-locked. Nothing else changed: the corpus
+  harness is green on all 244 cases at 0.30.0 without touching a rule, which is the evidence
+  that the pin was the whole of the gap.
+
+### Fixed
+
+- **The release runbook now names the order the two repositories move in.** Adopting a spec
+  release was documented as four declarations and a re-lock, which is true and is not the
+  hard part. The hard part is that the two pipelines are circularly coupled: the
+  specification's certification job runs the framework's parity tests against the new
+  catalog, so a new rule is red there until the framework carries the check, and the
+  framework installs the *published* pin, so the same rule is red here until the
+  specification version exists on the index. A pin that re-opened four days after it was
+  closed is what a procedure with no written order produces, so the order is now written
+  down beside the four declarations it applies to.
+
+## 0.17.0 — 2026-09-04
+
+### Changed
+
 - **A hub card no longer moves when the pointer crosses it.** Hovering one lifted the card a
   pixel and gave it a shadow while the body's border and the title's colour went accent —
   four declarations over three elements, all reporting the same fact. The lift is the half
@@ -37,10 +75,6 @@ decision, 0001 onwards.
   visual baseline moves and no resting pixel changes — the diff is four declarations and three
   transitions coming out. An app that wants the lift back has the marker to do it: declare
   it from `theme.css` against `[data-terp="hubcard"]:hover`.
-
-## 0.17.0 — 2026-09-04
-
-### Changed
 
 - **Every host port Terp binds by default moved into a range Terp owns.** A development
   stack is the one part of this framework that has to coexist with software it has never

@@ -78,6 +78,28 @@ the two constants that report the certified version (`terp.arch.SPEC_VERSION` an
 adapter's `SPEC_VERSION` in `packages/frontend/eslint-boundaries/src/spec.js`) — then
 re-lock both lockfiles. `test_repo_split_readiness.py` fails the build if they skew.
 
+**Adopt the spec release in the same week it is cut, and move the two repositories in this
+order.** The two pipelines are circularly coupled, which is the whole of the procedure and
+the reason a bare "bump the pin when convenient" does not survive contact with a new rule.
+terp-spec's `certify-against-reference` job checks out this repository's **main source** and
+runs its parity tests against the new catalog; this repository's gate installs the
+**published** pin. So:
+
+1. **terp-spec first.** Land the catalog entry and its corpus cases, cut and publish the
+   spec release. Its certification job stays red until step 2 lands on `main` here — that
+   red is expected and is not evidence of a bad rule.
+2. **terp-framework second.** Land the rule implementation, move the four declarations above
+   to the new spec version, re-lock, and merge to `main`.
+3. **Re-run terp-spec's CI.** It is now green against a reference implementation that carries
+   the check.
+
+A release that only *records* behaviour this repository already ships — a residual promoted
+to required, say — collapses to step 2 alone, and that is the case most likely to be
+forgotten, because nothing here goes red when it is skipped. It does not go red because the
+gate reads the catalog from the installed package (ADR 0082): a stale pin certifies against
+the old bar silently, and the corpus cases written to hold the new one never run. Treat a
+spec release as unadopted until the four declarations name its version.
+
 **Check what the spec release actually ships, not what its changelog says it ships.** A
 schema declared in the spec repository but missing from its packaging manifests installs as
 an absence, and an absence is what a skip-guarded parity test reads as a pass — terp-spec
