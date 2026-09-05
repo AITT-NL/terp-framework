@@ -1308,6 +1308,44 @@ def test_no_exception_text_in_responses(tmp_path: pathlib.Path) -> None:
     _write(app, "modules/notes/service.py", 'def run(exc):\n    raise ConflictError(str(exc))\n')
     assert check_no_exception_text_in_responses(app) == []
 
+    # Nested handlers: the outer binding is still in scope, so a raise that reaches
+    # it must be found -- and found ONCE. Visiting each handler independently sees
+    # this raise twice over, and the traceback formatter matches whatever the binding
+    # is, so one file and one line came out as two findings.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "import traceback\n"
+        "\n"
+        "def run():\n"
+        "    try:\n"
+        "        outer()\n"
+        "    except ValueError as exc:\n"
+        "        try:\n"
+        "            inner()\n"
+        "        except KeyError as other:\n"
+        "            raise ValidationFailedError(traceback.format_exc()) from other\n",
+    )
+    nested = check_no_exception_text_in_responses(app)
+    assert len(nested) == 1, nested
+    assert nested[0].line == 10
+
+    # ... and the outer handler's name reaching down into a nested handler is one
+    # finding as well, not one per enclosing handler.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "def run():\n"
+        "    try:\n"
+        "        outer()\n"
+        "    except ValueError as exc:\n"
+        "        try:\n"
+        "            inner()\n"
+        "        except KeyError:\n"
+        "            raise ValidationFailedError(str(exc)) from None\n",
+    )
+    assert len(check_no_exception_text_in_responses(app)) == 1
+
 
 def test_no_naive_datetime(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"

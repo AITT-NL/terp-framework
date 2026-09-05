@@ -24,6 +24,7 @@ from __future__ import annotations
 import ast
 import builtins
 import pathlib
+from collections.abc import Iterator
 
 from terp.arch._ast import base_name, iter_python_files, parse
 from terp.arch.rules._support import ArchViolation, _rel
@@ -124,19 +125,44 @@ def _message_expressions(call: ast.Call) -> list[ast.expr]:
     return [*call.args, *(kw.value for kw in call.keywords if kw.arg in _MESSAGE_KEYWORDS)]
 
 
-def _borrows_exception_text(expression: ast.expr, bound: str | None) -> bool:
-    """True when *expression* reads the caught exception, by name or by traceback.
+def _borrows_exception_text(expression: ast.expr, bound: tuple[str, ...]) -> bool:
+    """True when *expression* reads a caught exception, by name or by traceback.
 
-    ``bound`` is the name the handler bound (``except E as exc``), or ``None`` for
-    a handler that bound nothing -- in which case the traceback formatter is still
-    a way to reach the same text, so it is checked either way.
+    ``bound`` is every name the enclosing handlers bound (``except E as exc``), and
+    it is empty for a handler that bound nothing -- in which case the traceback
+    formatter is still a way to reach the same text, so it is checked either way.
     """
     for node in ast.walk(expression):
-        if bound is not None and isinstance(node, ast.Name) and node.id == bound:
+        if isinstance(node, ast.Name) and node.id in bound:
             return True
         if isinstance(node, ast.Call) and base_name(node.func) in _TRACEBACK_FORMATTERS:
             return True
     return False
+
+
+def _raises_inside_handlers(
+    node: ast.AST, bound: tuple[str, ...] | None = None
+) -> Iterator[tuple[ast.Raise, tuple[str, ...]]]:
+    """Yield every ``raise`` under an ``except``, once, with the names in scope.
+
+    ``bound`` is ``None`` outside a handler and a (possibly empty) tuple inside
+    one, so "in a handler that bound nothing" stays distinguishable from "not in a
+    handler at all". A nested handler does not hide the outer one's exception, so
+    the names accumulate.
+
+    Descending once and carrying the scope down is what keeps a raise from being
+    reported twice. Walking each handler independently visits a raise inside nested
+    handlers once per enclosing handler, and a raise that reaches the exception
+    through the traceback formatter -- which matches whatever the binding is --
+    then produces the same file and line as two findings.
+    """
+    if isinstance(node, ast.ExceptHandler):
+        names = () if bound is None else bound
+        bound = (*names, node.name) if node.name is not None else names
+    if bound is not None and isinstance(node, ast.Raise):
+        yield node, bound
+    for child in ast.iter_child_nodes(node):
+        yield from _raises_inside_handlers(child, bound)
 
 
 def check_no_exception_text_in_responses(
@@ -162,31 +188,28 @@ def check_no_exception_text_in_responses(
     for path in iter_python_files(root):
         tree = parse(path)
         rel = _rel(path, root)
-        for handler in ast.walk(tree):
-            if not isinstance(handler, ast.ExceptHandler):
+        for node, bound in _raises_inside_handlers(tree):
+            if not isinstance(node.exc, ast.Call):
                 continue
-            for node in ast.walk(handler):
-                if not isinstance(node, ast.Raise) or not isinstance(node.exc, ast.Call):
-                    continue
-                if not _is_response_error(base_name(node.exc.func)):
-                    continue
-                if not any(
-                    _borrows_exception_text(expression, handler.name)
-                    for expression in _message_expressions(node.exc)
-                ):
-                    continue
-                violations.append(
-                    ArchViolation(
-                        "no_exception_text_in_responses",
-                        rel,
-                        node.lineno,
-                        "the error's message is built from the caught exception, so a "
-                        "library's diagnostic text (a table, a path, an internal host) "
-                        "reaches the client verbatim; write the message and pass the "
-                        "cause instead (raise ...Error('...') from exc, or "
-                        "log_context={'cause': str(exc)}, which is never serialised)",
-                    )
+            if not _is_response_error(base_name(node.exc.func)):
+                continue
+            if not any(
+                _borrows_exception_text(expression, bound)
+                for expression in _message_expressions(node.exc)
+            ):
+                continue
+            violations.append(
+                ArchViolation(
+                    "no_exception_text_in_responses",
+                    rel,
+                    node.lineno,
+                    "the error's message is built from the caught exception, so a "
+                    "library's diagnostic text (a table, a path, an internal host) "
+                    "reaches the client verbatim; write the message and pass the "
+                    "cause instead (raise ...Error('...') from exc, or "
+                    "log_context={'cause': str(exc)}, which is never serialised)",
                 )
+            )
     return violations
 
 
