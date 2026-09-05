@@ -1446,12 +1446,18 @@ describe("cascade structure", () => {
       // and each of the six set cursor inline until it migrated. The day a calendar arrow gains
       // a min/max bound, this answer changes back.
       '[data-terp="iconbutton"]:disabled',
-      // HubPage was the condition for both of these, and it was the condition in the strongest
-      // form: hubcard-body's border and hubcard-title's colour were declared inline on the very
-      // elements these selectors match, so no layered rule could reach them at any specificity.
-      // Both surfaces come from terp.base now.
+      // HubPage was the condition for this one, and it was the condition in the strongest
+      // form: hubcard-body's border was declared inline on the very element this selector
+      // matches, so no layered rule could reach it at any specificity. That surface comes from
+      // terp.base now.
+      //
+      // Its twin was here until the hub card's hover state came down to the edge alone. The
+      // title's accent colour faced the same inline declaration and retired the same way, so it
+      // belonged in this list on the same evidence — but the selector itself is gone now, and a
+      // rule that does not exist cannot witness anything. Dropping it costs no coverage: the
+      // escalation it stood for retired for a reason this list still records once, in the entry
+      // above, since both halves faced the same inline consumer in the same file.
       '[data-terp="hubcard"]:hover [data-terp="hubcard-body"]',
-      '[data-terp="hubcard"]:hover [data-terp="hubcard-title"]',
       // AppShell's, and it blocked these two on its own: toggleStyle declared background and
       // colour inline on the shell's two toggles, the last elements wearing the icon-button
       // marker able to out-rank a layered rule. Their resting look is a scoped base rule now,

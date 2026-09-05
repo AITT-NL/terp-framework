@@ -2354,17 +2354,16 @@ textarea[data-terp="input"] {
    through an ancestor. hub-card-bare is what catches this one, and only because its full
    card is deliberately long enough to set the row height.
 
-   The transition splits three ways, and each half is declared where its property
-   lives: box-shadow and transform animate on the card, border-color on the body,
-   colour on the title. Two of those were already rules; the title's was inline until
-   this commit, which means terp.motion could not reach it and a reduced-motion user
-   watched it animate. All three are inside the block's reach now. */
+   The transition is ONE property on ONE element, and it used to be three across three.
+   box-shadow and transform animated on the card and colour on the title, because the hover
+   state lifted the card a pixel, gave it a shadow and took the title to accent alongside the
+   edge. The movement is gone (see the state rules for why), and with it both of the card's
+   transitions and the title's — a transition whose property nothing changes is dead weight
+   that reads as a live intention. What remains is the body's border-color, declared on the
+   element that owns the border. */
 [data-terp="hubcard"] {
   height: 100%;
   min-height: 0;
-  transition:
-    box-shadow var(--motion-duration-fast) var(--motion-easing-standard),
-    transform var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="hubcard-body"] {
   display: grid;
@@ -2407,7 +2406,6 @@ textarea[data-terp="input"] {
   color: var(--color-neutral-900);
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
-  transition: color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 /* neutral-600 rather than fg-muted, and it is not the tinted-surface case: this text
    sits on the card's own neutral-0 and measures 7.58 / 7.94 / 7.50 / 7.60 / 18.42. */
@@ -4494,29 +4492,41 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 /* Hub cards --------------------------------------------------------------- */
-/* The hover edge recolours hubcard-BODY, not the card.
+/* The hover state is the accent edge, and nothing else.
 
-   The rule here used to set border-color on [data-terp="hubcard"], which is the outer <li>
-   and has no border: HubPage puts the visible edge on the inner hubcard-body span. So the
-   accent edge — clearly the intent, since the title goes accent and the card lifts and gains
-   a shadow at the same moment — never painted. Measured in a browser rather than reasoned
-   about, because no baseline captures a hover: the li computed border 0px none at rest and
-   0px none in the accent colour on hover, while the shadow and the transform did apply.
+   It was four declarations over three elements: the card lifted a pixel and took a shadow,
+   the body's border went accent, the title's colour went with it. The lift is what people
+   actually noticed, and not kindly. A hub is a grid of large targets, so a pointer on its way
+   to one card sweeps across every card between here and there, and each one twitched as it
+   passed — motion reporting the cursor's position, which the cursor already reports. Movement
+   in an interface should say something the still frame cannot; this said nothing, on a surface
+   that shows several of itself at once. The shadow went with it rather than separately: a
+   1px rise and a 1px shadow are one effect, elevation, and half of an elevation reads as a
+   rendering fault rather than as restraint.
 
-   BOTH ESCALATIONS ARE GONE, and this file was the condition for both. hubcard-body's
-   border and hubcard-title's colour were declared inline in HubPage, on the very elements
-   these two selectors match, so no layered rule could reach them at any specificity. Both
-   surfaces take their base from terp.base now, so layer order alone is enough. Two of the
-   seven, and neither could have retired one commit earlier. */
-[data-terp="hubcard"]:hover {
-  box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
-}
+   That leaves the edge to carry the whole state, and it is enough to: accent against
+   neutral-200 is the same signal the rest of the sheet uses for is-this-one, it lands on the
+   element the pointer is actually over, and it moves no layout. The title's accent came off
+   with it — not because it was objectionable, but because two properties saying one thing is
+   how a hover state grows back into four.
+
+   The edge recolours hubcard-BODY, not the card, and that distinction is the reason this rule
+   was dead for as long as it was. It used to set border-color on [data-terp="hubcard"], the
+   outer <li>, which has no border at all: HubPage puts the visible edge on the inner
+   hubcard-body span. Measured in a browser rather than reasoned about, because no baseline
+   captures a hover — the li computed border 0px none at rest and 0px none in the accent colour
+   on hover, while the shadow and the transform, being on the element that could take them, did
+   apply. So through that whole period the hover was a lift with no edge, the exact inverse of
+   what it is now.
+
+   THE ESCALATION IS GONE, and this file was the condition for it. hubcard-body's border was
+   declared inline in HubPage, on the very element this selector matches, so no layered rule
+   could reach it at any specificity. That surface takes its base from terp.base now, so layer
+   order alone is enough. The title's colour was the same story and retired the same way; its
+   hover half is gone with the rest of the state, so one of the seven is now moot rather than
+   merely retired. */
 [data-terp="hubcard"]:hover [data-terp="hubcard-body"] {
   border-color: var(--color-fg-accent);
-}
-[data-terp="hubcard"]:hover [data-terp="hubcard-title"] {
-  color: var(--color-fg-accent);
 }
 
 /* Which layout is active, expressed as more than a wash. terp.state, and keyed on the
@@ -4781,14 +4791,18 @@ button[data-terp="input"][data-placeholder="true"] {
    THE LAST ESCALATION IN THE SHEET IS GONE, and it was the widest. Its
    consumers were the three inline transitions left in the package: the shell's
    nav-link transition (NAV_LINK_STYLE), the hub card title's (titleTextStyle)
-   and the sidebar's own transition: width. The first two are rules now; the
-   third was the documented escape — the aside carried no marker, so nothing
-   here matched it and a reduced-motion user watched the rail animate — and it
-   is closed by the sidebar taking a marker and its width becoming a rule. With
-   no style attribute left to out-shout, layer order alone wins: terp.motion
-   sits above terp.base and terp.state, so transition: none needs nothing
-   shouted. Measured, not assumed: under prefers-reduced-motion the sidebar,
-   a nav link and a hub card title all compute transition-duration 0s. */
+   and the sidebar's own transition: width. The first became a rule; the second
+   became a rule and has since gone entirely, with the title's hover colour that
+   was its only reason to exist; the third was the documented escape — the aside
+   carried no marker, so nothing here matched it and a reduced-motion user
+   watched the rail animate — and it is closed by the sidebar taking a marker and
+   its width becoming a rule. With no style attribute left to out-shout, layer
+   order alone wins: terp.motion sits above terp.base and terp.state, so
+   transition: none needs nothing shouted. Measured, not assumed: under
+   prefers-reduced-motion the sidebar, a nav link and a hub card BODY all compute
+   transition-duration 0s. The body rather than the title, and the swap is the
+   point rather than a tidy-up: the title has no transition to suppress any more,
+   so asserting 0s on it would pass against a default and witness nothing. */
 @media (prefers-reduced-motion: reduce) {
   [data-terp],
   [data-terp="appshell-nav"] a,

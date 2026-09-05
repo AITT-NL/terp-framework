@@ -10,6 +10,34 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.18.0 — 2026-09-05
+
+### Changed
+
+- **A hub card no longer moves when the pointer crosses it.** Hovering one lifted the card a
+  pixel and gave it a shadow while the body's border and the title's colour went accent —
+  four declarations over three elements, all reporting the same fact. The lift is the half
+  that gets noticed, and not as polish. A hub is a grid of large targets, so a pointer on its
+  way to one card sweeps across every card between here and there, and each one twitched as it
+  passed; the effect on a full grid is a surface that ripples under the cursor. Motion in an
+  interface earns its place by saying something the still frame cannot, and this said only
+  where the pointer was, which the pointer already says.
+
+  The hover state is the accent edge now, and nothing else. The shadow came off with the
+  transform rather than separately, because a 1px rise and a 1px shadow are one effect —
+  elevation — and half of an elevation reads as a rendering fault rather than as restraint.
+  The title's accent came off because two properties saying one thing is how a hover state
+  grows back into four; the border alone lands on the element the pointer is actually over,
+  carries the same is-this-one signal the rest of the sheet uses, and moves no layout. Both of
+  the card's transitions and the title's went with the properties they animated, leaving one:
+  `border-color` on `hubcard-body`.
+
+  **This change is invisible to both lanes, which is why its record is in the sheet's comments
+  and its tests.** Screenshots capture a resting state and axe does not evaluate hover, so no
+  visual baseline moves and no resting pixel changes — the diff is four declarations and three
+  transitions coming out. An app that wants the lift back has the marker to do it: declare
+  it from `theme.css` against `[data-terp="hubcard"]:hover`.
+
 ## 0.17.0 — 2026-09-04
 
 ### Changed
