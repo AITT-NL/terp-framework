@@ -67,6 +67,18 @@ def _backend_rule_names() -> set[str]:
     return set(GUIDE_TOPIC_BY_RULE)
 
 
+def _pinned_spec_version() -> str | None:
+    """The ``terp-spec==`` version this repository pins, or ``None`` if unpinned.
+
+    ``None`` is not an error: terp-spec's certification job deletes the pin before
+    resolving, precisely so a branch heading for an unpublished version can still be
+    certified. It means "the installed catalog is not the pinned one".
+    """
+    text = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'"terp-spec==([^"]+)"', text)
+    return match.group(1) if match else None
+
+
 #: Rules this repository implements while their catalog entries are still
 #: unreleased — a shrink-only allowance, empty except during a spec release
 #: window (ADR 0116).
@@ -130,9 +142,19 @@ def test_rules_awaiting_a_spec_release_are_real_and_still_waiting() -> None:
         f"_AWAITING_SPEC_RELEASE names rules this repository does not implement: "
         f"{sorted(unknown)}"
     )
+
+    # "It arrived" is only a meaningful question about the catalog this repository
+    # PINS. terp-spec's certification job substitutes its own checkout for the
+    # pinned release and deletes the pin before resolving, so under that job every
+    # waiting rule is legitimately present in the catalog under test -- asserting
+    # here would fail the one job the allowance exists to unblock. Comparing the
+    # installed version against the pin is what tells the two situations apart.
+    pinned = _pinned_spec_version()
+    if pinned is None or pinned != spec_version():
+        return
     arrived = _AWAITING_SPEC_RELEASE & catalogued
     assert arrived == set(), (
-        f"_AWAITING_SPEC_RELEASE still lists rules the installed catalog now carries: "
+        f"_AWAITING_SPEC_RELEASE still lists rules the pinned catalog now carries: "
         f"{sorted(arrived)} — the release landed, so drop them"
     )
 
