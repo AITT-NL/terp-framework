@@ -179,7 +179,10 @@ decision, 0001 onwards.
   window it was opened for has closed. `test_no_rule_awaits_a_spec_release` then refuses to
   cut a framework release while the list is non-empty — which is what makes it an allowance
   rather than a loophole: a rule may outrun its published entry across a merge and a
-  publish, never into a release.
+  publish, never into a release. That assertion is conditional on a tag being built, because
+  asserting it always would fail every ordinary run for the whole length of the window it
+  exists to permit — the same shape as `production_problems` being consulted only under
+  `ENVIRONMENT == "production"`.
 
   During certification the assertion is trivially satisfied, because the catalog under test
   already carries the rule. The allowance is invisible to the job it exists to unblock.

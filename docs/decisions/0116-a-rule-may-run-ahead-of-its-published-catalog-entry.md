@@ -68,6 +68,15 @@ than a loophole: a rule may outrun its published entry across a merge and a publ
 not outrun it into a release. Shipping an enforced rule that no published catalog documents
 is precisely the state the parity contract exists to prevent.
 
+That one assertion is conditional on a tag being built, and the condition is the decision
+rather than an escape. Asserting it on every run would fail every ordinary build for the
+whole length of the window the allowance exists to permit — the gate would refuse the state
+it was written to allow, which is how the deadlock started. The shape is the one this
+codebase already uses for `production_problems`, consulted only under
+`ENVIRONMENT == "production"`: a real observable state, not a switch anyone can leave off.
+The release workflow runs the full gate at the tag, and `test_release_workflow` holds it to
+that, so the assertion is reachable exactly when it decides something.
+
 During certification the parity assertion is trivially satisfied, because the catalog under
 test already contains the rule. The allowance is invisible to the job it exists to unblock,
 which is the sign it is in the right place.
