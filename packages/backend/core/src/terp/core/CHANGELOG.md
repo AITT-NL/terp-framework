@@ -78,6 +78,30 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **Adding a rule no longer requires a main branch to be red** (ADR 0116). The two
+  repositories' contracts were symmetric and, in combination, unsatisfiable. This
+  repository's parity test compares its rules against the *installed* — pinned, published
+  — catalog in both directions; terp-spec's `certify-against-reference` runs that same test
+  from this repository's **default branch** against an unreleased catalog, deleting the pin
+  first. So a new rule has to be on `main` before the standard can certify and release it,
+  and for exactly that window `main` fails its own parity test. There was no ordering that
+  avoided it: landing the framework first turned `main` red, landing the spec first turned
+  certification red and needed an override on a protected branch, and the window lasted
+  until a human approved the release.
+
+  `_AWAITING_SPEC_RELEASE` is the allowance, and it is a shrink-only list like
+  `corpus/PENDING.json` and the escape-hatch budget beside it. A rule missing from the
+  installed catalog is still refused unless it is listed by name; a listed name must be a
+  rule that really exists, so a rename cannot leave a hole behind a dead entry; and a listed
+  rule whose entry has since been published is a failure rather than a no-op, because the
+  window it was opened for has closed. `test_no_rule_awaits_a_spec_release` then refuses to
+  cut a framework release while the list is non-empty — which is what makes it an allowance
+  rather than a loophole: a rule may outrun its published entry across a merge and a
+  publish, never into a release.
+
+  During certification the assertion is trivially satisfied, because the catalog under test
+  already carries the rule. The allowance is invisible to the job it exists to unblock.
+
 - **The release runbook now names the order the two repositories move in.** Adopting a spec
   release was documented as four declarations and a re-lock, which is true and is not the
   hard part. The hard part is that the two pipelines are circularly coupled: the

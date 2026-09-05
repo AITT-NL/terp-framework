@@ -85,13 +85,24 @@ terp-spec's `certify-against-reference` job checks out this repository's **main 
 runs its parity tests against the new catalog; this repository's gate installs the
 **published** pin. So:
 
-1. **terp-spec first.** Land the catalog entry and its corpus cases, cut and publish the
-   spec release. Its certification job stays red until step 2 lands on `main` here — that
-   red is expected and is not evidence of a bad rule.
-2. **terp-framework second.** Land the rule implementation, move the four declarations above
-   to the new spec version, re-lock, and merge to `main`.
-3. **Re-run terp-spec's CI.** It is now green against a reference implementation that carries
-   the check.
+**terp-framework moves first**, which is the opposite of what the coupling suggests and is
+the whole point of ADR 0116. terp-spec's `main` is protected by
+`certify-against-reference`, and that job reads this repository's **default branch** — so
+the standard cannot merge its own catalog entry until the reference implementation already
+carries the rule.
+
+1. **terp-framework first.** Land the rule implementation here and add its name to
+   `_AWAITING_SPEC_RELEASE` (`tests/architecture/test_spec_catalog.py`, ADR 0116). That
+   list is what lets `main` carry a rule whose catalog entry is not in the *installed*
+   release yet, so this merge is green instead of knowingly red.
+2. **terp-spec second.** Its certification now runs against a `main` that implements the
+   rule, so it passes and the catalog merges normally — no override on a protected branch.
+3. **Release terp-spec.** The tag's verify job certifies against the same `main` and
+   publishes.
+4. **Come back here and close the window.** Move the four declarations above to the new spec
+   version, re-lock, and **empty `_AWAITING_SPEC_RELEASE`** — a framework release cannot be
+   cut while it is non-empty, and a listed rule whose entry has since been published fails
+   the staleness check, so neither half can be forgotten.
 
 A release that only *records* behaviour this repository already ships — a residual promoted
 to required, say — collapses to step 2 alone, and that is the case most likely to be

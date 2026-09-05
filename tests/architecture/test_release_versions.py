@@ -190,6 +190,25 @@ def test_the_conformance_package_publishes_runnable_javascript() -> None:
     assert "dist" in data["files"]
 
 
+def test_no_rule_awaits_a_spec_release() -> None:
+    """A release may not ship a rule whose catalog entry is unpublished (ADR 0116).
+
+    ``_AWAITING_SPEC_RELEASE`` lets this repository carry a rule while the standard
+    that describes it is still being released — a window measured in one merge and
+    one publish. This is what closes that window: cutting a framework release with
+    the list non-empty would ship an enforced rule that no published catalog
+    documents, which is the state the parity test exists to prevent. Bump the
+    ``terp-spec`` pin to the release that carries the entries, then empty the list.
+    """
+    from tests.architecture.test_spec_catalog import _AWAITING_SPEC_RELEASE
+
+    assert _AWAITING_SPEC_RELEASE == frozenset(), (
+        "these rules are implemented but their catalog entries are unreleased: "
+        f"{sorted(_AWAITING_SPEC_RELEASE)} — adopt the spec release that carries them "
+        "before cutting a framework release"
+    )
+
+
 def test_changelog_records_the_release_version() -> None:
     changelog = (_REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert f"## {_RELEASE_VERSION}" in changelog
