@@ -643,10 +643,14 @@ def test_resolve_pinned_target_rejects_a_host_that_resolves_to_nothing() -> None
 def test_validate_target_resolves_a_hostname_via_the_default_resolver(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import terp.capabilities.webhooks.ssrf as ssrf
+    # The default resolver is the egress capability's: webhooks stopped carrying its
+    # own copy of the denylist and the lookup when egress became the declared way out
+    # of the process. Patching it there is what keeps this a test of the DEFAULT path
+    # rather than of an injected one.
+    import terp.capabilities.egress.ssrf as egress_ssrf
 
     monkeypatch.setattr(
-        ssrf.socket,
+        egress_ssrf.socket,
         "getaddrinfo",
         lambda _host, _port: [(0, 0, 0, "", ("93.184.216.34", 0))],
     )
@@ -658,12 +662,12 @@ def test_validate_target_rejects_an_unresolvable_host(
 ) -> None:
     import socket as _socket
 
-    import terp.capabilities.webhooks.ssrf as ssrf
+    import terp.capabilities.egress.ssrf as egress_ssrf
 
     def _boom(_host: str, _port: object) -> list[object]:
         raise _socket.gaierror("name resolution failed")
 
-    monkeypatch.setattr(ssrf.socket, "getaddrinfo", _boom)
+    monkeypatch.setattr(egress_ssrf.socket, "getaddrinfo", _boom)
     with pytest.raises(WebhookTargetError):
         validate_webhook_target("https://nope.example/hook")
 

@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-egress"
+version = "0.18.0"
+description = "Terp egress capability — the declared way out of the process: an allowlisted, SSRF-guarded, time-bounded HTTP client whose every attempt is observable."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.18.0",
+    # The one place the platform's outbound HTTP client is a dependency. Every other
+    # package reaches the network through this one, which is the whole point of the
+    # `no_raw_outbound_http` rule.
+    "httpx>=0.27",
+]
+
+# A LIBRARY capability (like terp-cap-leases): it owns no table, mounts no router, and
+# declares NO `terp.capabilities` auto-discovery entry point. Outbound access is not
+# something an app should acquire by installing a package — it declares an EgressPolicy
+# and constructs a client, and a policy nobody filled in permits nothing.
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.egress`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/egress"]
+
+# Where this package comes from. The shipped changelog (`terp guide changelog`)
+# ends at the installed version; the notes for a release you do not have yet
+# live at these URLs, which `pip show` and the index page both surface.
+[project.urls]
+Repository = "https://github.com/AITT-NL/terp-framework"
+Changelog = "https://github.com/AITT-NL/terp-framework/blob/main/CHANGELOG.md"
