@@ -35,6 +35,7 @@ RUN uv pip install --system --no-cache \
     -e packages/backend/capabilities/realtime \
     -e packages/backend/capabilities/redis \
     -e packages/backend/capabilities/oidc \
+    -e packages/backend/capabilities/egress \
     -e packages/backend/capabilities/webhooks \
     -e packages/backend/cli \
     "uvicorn[standard]" "psycopg[binary]"
