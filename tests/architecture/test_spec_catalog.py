@@ -98,14 +98,7 @@ def _pinned_spec_version() -> str | None:
 #: to cut a framework release, so the window closes at the pin bump and cannot be
 #: left open. During certification the assertion below is trivially satisfied,
 #: because the catalog under test already contains the rule.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset(
-    {
-        # Catalogued in terp-spec 0.31.0, which is not published yet. Both entries go
-        # when the pin moves to it (ADR 0116).
-        "errors_use_the_typed_envelope",
-        "no_exception_text_in_responses",
-    }
-)
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
 
 
 # --------------------------------------------------------------------------- #
