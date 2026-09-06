@@ -3660,6 +3660,16 @@ button[data-terp="input"][data-placeholder="true"] {
   font-size: var(--font-size-sm);
   color: var(--color-neutral-700);
 }
+/* The envelope for the three self-labelling controls (Switch, Checkbox, RadioGroup),
+   which cannot use [data-terp="field"]: that one is a <label> wrapping its control, and
+   these render their own. The justify-items:start is the load-bearing declaration — the
+   control's own <label> is inline-flex, and a stretched grid item would grow its click
+   target to the full column, so clicking empty space far from the text would toggle it. */
+[data-terp="control-field"] {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
 [data-terp="field-hint"] {
   color: var(--color-fg-subtle);
   font-size: var(--font-size-xs);

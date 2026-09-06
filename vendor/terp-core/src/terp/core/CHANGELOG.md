@@ -10,6 +10,43 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.19.0 — 2026-09-06
+
+### Added
+
+- **`Switch`, `Checkbox` and `RadioGroup` carry their own `hint` and `error`** (ADR 0120).
+  `Field` is how this platform authors an accessible control: it wraps the control in a
+  `<label>`, gives the hint and the error ids, points `aria-describedby` at them, and sets
+  `aria-invalid` with a `role="alert"` on the error. These three could not use it. They label
+  *themselves* — the first two with their own `<label>`, the group with a `<fieldset>` and
+  `<legend>` — so nesting one in `Field` produces a `<label>` inside a `<label>`, which HTML
+  forbids and browsers resolve by binding the control to the outer one.
+
+  The consequence was not a slightly worse API but **no hint or error affordance at all**, and
+  the guide said so, sending authors to a hint placed beside the control as loose text — which
+  a screen reader never announces, because text next to a control is invisible unless something
+  points at it — and to a form-level summary for errors. `RadioGroup` is where that stops being
+  survivable: a boolean cannot hold a value its type refuses, but **a required choice can be
+  left unset**, and the rejection had nowhere to go except a summary that never names which
+  question was unanswered.
+
+  Both props are now on all three, wired by the same hook `Field` uses, so the four cannot
+  drift apart while looking alike. A caller's own `aria-describedby` is added to rather than
+  replaced. For the group, the description and the invalid state sit on the `<fieldset>` — the
+  thing left unanswered is the question, not any one radio, and marking each option would
+  repeat the message on every arrow-key move.
+
+  The affordance is a prop rather than a second `ControlField` component on purpose: a sibling
+  to `Field` would create a choice a caller can get wrong, and getting it wrong renders nested
+  labels silently. And the wrapper element is unconditional, which is the non-obvious part —
+  rendering it only when there is a message changes the element type at that position when an
+  error arrives, so React remounts the input and **an uncontrolled control loses its state at
+  exactly the moment the form says something is wrong**. That is tested rather than asserted.
+
+  Existing call sites are unchanged; both props are optional. The guide's "honest limitation"
+  paragraph, which is what sent authors to the inaccessible workaround, is rewritten in the
+  same commit.
+
 ## 0.18.0 — 2026-09-05
 
 ### Changed
