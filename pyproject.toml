@@ -12,6 +12,7 @@ members = [
     "packages/backend/capabilities/tenancy",
     "packages/backend/capabilities/access",
     "packages/backend/capabilities/audit",
+    "packages/backend/capabilities/egress",
     "packages/backend/capabilities/eventbus",
     "packages/backend/capabilities/files",
     "packages/backend/capabilities/groups",
@@ -39,6 +40,7 @@ terp-migrations = { workspace = true }
 terp-cap-access = { workspace = true }
 terp-cap-audit = { workspace = true }
 terp-cap-auth = { workspace = true }
+terp-cap-egress = { workspace = true }
 terp-cap-eventbus = { workspace = true }
 terp-cap-files = { workspace = true }
 terp-cap-groups = { workspace = true }
