@@ -10,6 +10,46 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.19.0 — 2026-09-06
+
+### Added
+
+- **A module owes tests, and the scaffold now writes them** (ADR 0119). `canonical_module_shape`
+  requires five files and not one of them is a test, so a module could pass every structural
+  rule in the Standard — mount routes, own a table, declare a policy — while shipping no tests
+  of any kind. What makes that a Standard problem rather than a habit problem is what sat next
+  to it: `terp scaffold` wrote exactly those five files and stopped. **An untested module was
+  not a corner an application had to cut; it was the shape the platform handed out**, and the
+  gate agreed with it. The nearest existing rule sharpens the point — `no_empty_tests` has an
+  opinion about whether a test that exists can fail, and none about whether one exists.
+
+  The new `modules_ship_tests` requires every wired module to have at least one test the
+  project attributes to it. The decision it needed was never "are tests required"; it was
+  *where they live*, and the two answers in the field disagreed — a per-module package under
+  the project's `tests/`, and one flat `tests/` directory with a file named after each module.
+  Both now satisfy the rule, and the asymmetry is the decision: `tests/<module>/test_*.py` is
+  canonical, emitted by the scaffold and taught by `terp guide testing`, because a module
+  accumulates test files and a directory holds them without a naming convention; the flat form
+  is *recognised* rather than taught. Refusing it would have failed applications whose modules
+  are in fact tested, whose only way through would be an escape marker reading "this module has
+  no tests" — and **a gate satisfiable only by a false statement is worse than one that accepts
+  the same true claim written two ways**. It would also have made the Standard require, on the
+  day it shipped, a layout this repository's own example application does not use.
+
+  Tests stay in the project's `tests/` tree rather than inside the module directory: that is
+  where a test driving the composed app has to live, and where this repository keeps its own.
+  `terp new module` now writes `tests/<name>/` with a real test — the manifest declares the
+  module and its data layer, and writing requires more authority than reading — so a generated
+  module is born conformant rather than owing a debt nobody mentioned. A module that genuinely
+  has none takes `# arch-allow-modules-ship-tests: <reason>`, spending the app's escape-hatch
+  budget, which is already a shrink-only ratchet: adoption needed no new mechanism.
+
+  The reference application passes unchanged, which is the evidence the two-layout design was
+  the right call — the blocker recorded against this work was four modules going non-conformant
+  on day one, and it dissolves rather than being paid. The frontend half is deferred with its
+  trigger stated in the ADR: its fifteen rules are ESLint rules, and ESLint cannot assert that
+  a file is absent.
+
 ## 0.18.0 — 2026-09-05
 
 ### Changed

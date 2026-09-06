@@ -195,6 +195,41 @@ module = ModuleSpec(
 '''
 
 
+_TEST_PY = '''\
+"""Tests for the ``{name}`` module.
+
+These start at the manifest, because that is what decides who may reach this module at
+all — and they are here so the module is not born untested (``modules_ship_tests``).
+Extend them: the tests worth having drive the routes against a client, and the example
+application's ``tests/conftest.py`` shows the fixtures that takes.
+"""
+
+from __future__ import annotations
+
+from {package}.modules.{name}.module import module
+from {package}.modules.{name}.service import {model}Service
+
+
+def test_the_manifest_declares_the_module_and_its_data_layer() -> None:
+    assert module.name == "{name}"
+    # Declaring `services` is what makes the data layer visible to `terp inspect access`
+    # and to Studio; an undeclared one is a warning there and a blank in the diagram.
+    assert {model}Service in module.services
+
+
+def test_writing_requires_more_authority_than_reading() -> None:
+    # The profile's whole point, and the one line of the manifest that is worth
+    # asserting rather than reading: if a later edit ever levels these two, everyone who
+    # can see a record can also change one, and nothing else in the gate would say so.
+    policy = module.policy
+    assert policy.authenticated
+    assert policy.write_requirement.min_rank > policy.read_requirement.min_rank
+'''
+
+
+def _test_py(model: str, name: str, package: str) -> str:
+    return _TEST_PY.format(model=model, name=name, package=package)
+
 def _files(name: str, package: str, profile: ModuleProfile) -> dict[str, str]:
     model = _model_name(name)
     return {
@@ -204,6 +239,20 @@ def _files(name: str, package: str, profile: ModuleProfile) -> dict[str, str]:
         "service.py": _service_py(model, name, package, profile),
         "router.py": _router_py(model, name, package),
         "module.py": _module_py(name, package, profile),
+    }
+
+
+def _test_files(name: str, package: str) -> dict[str, str]:
+    """The module's test package, written to ``<project>/tests/<name>/``.
+
+    Not into the module directory: this platform keeps a project's tests in one tree,
+    and a test that drives the composed app has to live where the app fixtures are
+    (ADR 0119). ``__init__.py`` makes it a package, which is what lets two modules both
+    have a ``test_api.py`` without pytest colliding on the basename.
+    """
+    return {
+        "__init__.py": "",
+        f"test_{name}_module.py": _test_py(_model_name(name), name, package),
     }
 
 
@@ -302,6 +351,19 @@ def new_module(
     created: list[pathlib.Path] = []
     for filename, content in _files(name, package, module_profile).items():
         path = destination / filename
+        path.write_text(content, encoding="utf-8")
+        created.append(path)
+
+    # A module with no tests used to be the *default* shape, because the scaffold emitted
+    # the five production files and nothing else (ADR 0119). Write the test package in the
+    # same breath, so the module a generated project starts from is conformant rather than
+    # owing a debt nobody mentioned.
+    tests_destination = root_path / "tests" / name
+    tests_destination.mkdir(parents=True, exist_ok=True)
+    for filename, content in _test_files(name, package).items():
+        path = tests_destination / filename
+        if path.exists():
+            continue  # never clobber a test someone already wrote
         path.write_text(content, encoding="utf-8")
         created.append(path)
 

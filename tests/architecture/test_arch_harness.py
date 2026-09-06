@@ -18,6 +18,7 @@ from terp.arch import (
     check_app,
     check_base_query_not_overridden,
     check_canonical_module_shape,
+    check_modules_ship_tests,
     check_escape_hatch_budget,
     check_emitted_events_are_declared,
     check_events_reference_catalog,
@@ -3895,6 +3896,165 @@ def test_schemas_exclude_sensitive_fields(tmp_path: pathlib.Path) -> None:
         "class User(BaseTable, table=True):\n    hashed_password: str\n",
     )
     assert check_schemas_exclude_sensitive_fields(app) == []
+
+
+def _wired_module(app: pathlib.Path, name: str) -> None:
+    """The minimum that makes a directory a module this rule has an opinion about."""
+    _write(app, f"modules/{name}/module.py", f"module = ModuleSpec(name={name!r})\n")
+    _write(app, f"modules/{name}/router.py", "router = APIRouter()\n")
+
+
+def test_modules_ship_tests(tmp_path: pathlib.Path) -> None:
+    """The headline case: a wired module with no tests anywhere is flagged.
+
+    Named for the rule because the harness's own drift guard pairs each registered
+    rule with a test of exactly that name; the cases below carry the boundaries.
+    """
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+
+    violations = check_modules_ship_tests(app)
+
+    assert {v.rule for v in violations} == {"modules_ship_tests"}
+    assert len(violations) == 1
+    assert "notes" in violations[0].message
+
+
+def test_modules_ship_tests_accepts_the_scaffolded_package(tmp_path: pathlib.Path) -> None:
+    """`tests/<module>/` beside the app package — the canonical shape."""
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (tmp_path / "tests" / "notes").mkdir(parents=True)
+    (tmp_path / "tests" / "notes" / "test_notes_api.py").write_text("", encoding="utf-8")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_accepts_a_flat_per_module_file(tmp_path: pathlib.Path) -> None:
+    """The layout the reference application already uses, recognised rather than taught.
+
+    Refusing it would fail an application whose modules *are* tested, whose only escape
+    would be a marker reading "this module has no tests" — a gate satisfiable only by a
+    false statement (ADR 0119).
+    """
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (tmp_path / "tests").mkdir(parents=True)
+    (tmp_path / "tests" / "test_notes_api.py").write_text("", encoding="utf-8")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_accepts_a_bare_flat_file(tmp_path: pathlib.Path) -> None:
+    """`tests/test_<module>.py` with no suffix — the boundary of the flat form."""
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (tmp_path / "tests").mkdir(parents=True)
+    (tmp_path / "tests" / "test_notes.py").write_text("", encoding="utf-8")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_does_not_credit_another_modules_tests(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A prefix match without the separator would let one module answer for another.
+
+    Module `note` is not tested by `test_notes_api.py`, which belongs to `notes`. A
+    bare `test_<module>*` glob credits it anyway, and the module ships untested with a
+    green gate — the exact failure this rule exists to stop, reintroduced by the check.
+    """
+    app = tmp_path / "app"
+    _wired_module(app, "note")
+    (tmp_path / "tests").mkdir(parents=True)
+    (tmp_path / "tests" / "test_notes_api.py").write_text("", encoding="utf-8")
+
+    violations = check_modules_ship_tests(app)
+
+    assert [v.rule for v in violations] == ["modules_ship_tests"]
+
+
+def test_modules_ship_tests_accepts_tests_inside_the_scanned_root(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The in-root fallback the Standard's corpus needs.
+
+    A corpus case copies one tree into the scanned root and cannot create a true
+    sibling of it, so `app/tests/` counts too — the same accommodation
+    `_coverage_is_strict` makes for the control plane.
+    """
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (app / "tests" / "notes").mkdir(parents=True)
+    (app / "tests" / "notes" / "test_api.py").write_text("", encoding="utf-8")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_needs_an_actual_test_file(tmp_path: pathlib.Path) -> None:
+    """An empty `tests/<module>/` directory is not a test.
+
+    Creating the directory is the cheapest possible way to satisfy a rule that only
+    looked for it, so the rule looks inside.
+    """
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (tmp_path / "tests" / "notes").mkdir(parents=True)
+    (tmp_path / "tests" / "notes" / "helpers.py").write_text("", encoding="utf-8")
+
+    assert [v.rule for v in check_modules_ship_tests(app)] == ["modules_ship_tests"]
+
+
+def test_modules_ship_tests_finds_a_test_nested_in_the_package(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A module's tests may be organised into subdirectories."""
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (tmp_path / "tests" / "notes" / "api").mkdir(parents=True)
+    (tmp_path / "tests" / "notes" / "api" / "test_list.py").write_text("", encoding="utf-8")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_leaves_an_unwired_directory_alone(
+    tmp_path: pathlib.Path,
+) -> None:
+    """No manifest and no router is not a module — the same signal the shape rule uses.
+
+    A shared-helper directory under `modules/` owes no tests of its own; requiring them
+    would push apps to hide helpers elsewhere rather than to test anything.
+    """
+    app = tmp_path / "app"
+    _write(app, "modules/shared/helpers.py", "# not a module\n")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_is_silent_without_a_modules_directory(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A blank app (no modules yet) has nothing to answer for."""
+    app = tmp_path / "app"
+    _write(app, "main.py", "# blank layout\n")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_reports_each_untested_module(tmp_path: pathlib.Path) -> None:
+    """Two untested modules produce two findings, and a tested sibling produces none."""
+    app = tmp_path / "app"
+    for name in ("notes", "projects", "tasks"):
+        _wired_module(app, name)
+    (tmp_path / "tests" / "tasks").mkdir(parents=True)
+    (tmp_path / "tests" / "tasks" / "test_tasks_api.py").write_text("", encoding="utf-8")
+
+    violations = check_modules_ship_tests(app)
+
+    assert sorted(v.path for v in violations) == [
+        f"{app.name}/modules/notes",
+        f"{app.name}/modules/projects",
+    ]
 
 
 def test_canonical_module_shape(tmp_path: pathlib.Path) -> None:

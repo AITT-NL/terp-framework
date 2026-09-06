@@ -24,7 +24,23 @@ from terp.cli.apidocs import _kind, _summary  # noqa: E402
 from terp.cli.profiles import profile_names  # noqa: E402
 from terp.cli.scaffold import _model_name, _singular, new_module_message  # noqa: E402
 
-_SLOTS = {"__init__.py", "models.py", "schemas.py", "service.py", "router.py", "module.py"}
+_MODULE = "app/modules/invoices"
+_SLOTS = {
+    f"{_MODULE}/{part}"
+    for part in ("__init__.py", "models.py", "schemas.py", "service.py", "router.py", "module.py")
+}
+# The module's tests are part of what a scaffold owes (ADR 0119): a generated module used
+# to be born untested, because the scaffold wrote the five production files and stopped.
+_TEST_SLOTS = {"tests/invoices/__init__.py", "tests/invoices/test_invoices_module.py"}
+
+
+def _written(paths, root: pathlib.Path) -> set[str]:
+    """Paths relative to the project root — where a file landed, not just its name.
+
+    Comparing basenames would let `__init__.py` in two different directories collapse
+    into one entry, so a file written to the wrong place would still pass.
+    """
+    return {p.relative_to(root).as_posix() for p in paths}
 
 
 def test_singularize_and_model_name() -> None:
@@ -34,19 +50,44 @@ def test_singularize_and_model_name() -> None:
     assert _model_name("billing") == "Billing"
 
 
-def test_new_module_writes_the_five_slots(tmp_path: pathlib.Path) -> None:
+def test_new_module_writes_the_canonical_slots_and_the_test_package(
+    tmp_path: pathlib.Path,
+) -> None:
     paths = new_module("invoices", root=tmp_path)
-    assert {p.name for p in paths} == _SLOTS
+    assert _written(paths, tmp_path) == _SLOTS | _TEST_SLOTS
     module = tmp_path / "app" / "modules" / "invoices"
     assert (module / "models.py").read_text().count("class Invoice(BaseTable") == 1
     assert "ModuleSpec" in (module / "module.py").read_text()
+
+
+def test_new_module_never_clobbers_a_test_someone_already_wrote(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Scaffolding into a project that already has tests for that name leaves them alone.
+
+    The module directory is refused outright if it exists, but the test package is not
+    the module's to own: someone may have written the tests first, or deleted a module
+    and kept them. Overwriting there would destroy work the scaffold did not create.
+    """
+    mine = "def test_mine() -> None:\n    assert my_thing() == 1\n"
+    existing = tmp_path / "tests" / "invoices" / "test_invoices_module.py"
+    existing.parent.mkdir(parents=True)
+    existing.write_text(mine, encoding="utf-8")
+
+    paths = new_module("invoices", root=tmp_path)
+
+    assert existing.read_text(encoding="utf-8") == mine
+    assert existing not in paths, "an untouched file must not be reported as created"
 
 
 def test_new_module_emits_frontend_when_app_present(tmp_path: pathlib.Path) -> None:
     # A frontend app is detected by frontend/src/modules; the module then spans both stacks.
     (tmp_path / "frontend" / "src" / "modules").mkdir(parents=True)
     paths = new_module("invoices", root=tmp_path)
-    assert {p.name for p in paths} == _SLOTS | {"module.tsx", "InvoicesList.tsx"}
+    assert _written(paths, tmp_path) == _SLOTS | _TEST_SLOTS | {
+        "frontend/src/modules/invoices/module.tsx",
+        "frontend/src/modules/invoices/InvoicesList.tsx",
+    }
     frontend = tmp_path / "frontend" / "src" / "modules" / "invoices"
     assert "defineModuleManifest" in (frontend / "module.tsx").read_text()
     assert 'name: "invoices"' in (frontend / "module.tsx").read_text()
@@ -64,7 +105,7 @@ def test_new_module_emits_frontend_when_app_present(tmp_path: pathlib.Path) -> N
 
 def test_new_module_skips_frontend_without_app(tmp_path: pathlib.Path) -> None:
     paths = new_module("invoices", root=tmp_path)
-    assert {p.name for p in paths} == _SLOTS
+    assert _written(paths, tmp_path) == _SLOTS | _TEST_SLOTS
     assert not any(p.suffix == ".tsx" for p in paths)
 
 
