@@ -435,6 +435,52 @@ def test_the_default_transport_pins_the_address_and_keeps_the_hostname(
     assert recorded[0].headers["host"] == "api.example.com"
 
 
+def test_the_default_transport_sends_the_request_it_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The body and the SNI extension must survive to the wire.
+
+    They did not. The sender built a request carrying both and then sent a
+    *different* one derived from a method and a URL, so every POST went out empty
+    and every TLS handshake would have been negotiated against the pinned IP rather
+    than the hostname — breaking certificate verification, which is the safe half of
+    the pinning the function exists for. Neither showed up: the earlier tests sent a
+    GET with no body and asserted on the URL host and the Host header, and both of
+    those survive the mistake.
+    """
+    recorded = _mock_httpx(monkeypatch, lambda _r: httpx.Response(200, content=b"ok"))
+    target = PinnedTarget(url="https://api.example.com/v1", host="api.example.com", ip=_PUBLIC)
+
+    _httpx_sender(
+        target, "POST", b'{"amount": 42}', {"content-type": "application/json"}, 3.0, 4096
+    )
+
+    sent = recorded[0]
+    assert sent.method == "POST"
+    assert sent.content == b'{"amount": 42}'
+    assert sent.headers["content-type"] == "application/json"
+    # TLS is verified against the hostname even though the socket goes to the IP.
+    assert sent.extensions["sni_hostname"] == "api.example.com"
+    assert sent.url.host == _PUBLIC
+    assert sent.headers["host"] == "api.example.com"
+
+
+def test_the_default_transport_does_not_follow_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A followed redirect is a second target nobody validated."""
+    _mock_httpx(
+        monkeypatch,
+        lambda _r: httpx.Response(302, headers={"location": "https://evil.example/"}),
+    )
+    target = PinnedTarget(url="https://api.example.com/v1", host="api.example.com", ip=_PUBLIC)
+
+    response = _httpx_sender(target, "GET", None, {}, 3.0, 4096)
+
+    assert response.status_code == 302
+    assert response.ok is False
+
+
 def test_the_default_transport_refuses_an_oversized_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

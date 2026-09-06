@@ -86,7 +86,13 @@ def _httpx_sender(
             extensions={"sni_hostname": target.host},
         )
         request.url = request.url.copy_with(host=target.ip)
-        with client.stream(request.method, request.url, headers=request.headers) as response:
+        # `send(request)`, not `stream(method, url, ...)`: the request built above is the
+        # one that must go out. Re-deriving it from a method and a URL silently drops the
+        # body and the `sni_hostname` extension -- which would make every POST send
+        # nothing and every TLS handshake verify against the pinned IP instead of the
+        # hostname, i.e. break the safe half of the pinning this function exists for.
+        response = client.send(request, stream=True)
+        try:
             chunks: list[bytes] = []
             read = 0
             for chunk in response.iter_bytes():
@@ -102,6 +108,8 @@ def _httpx_sender(
                 headers=dict(response.headers),
                 content=b"".join(chunks),
             )
+        finally:
+            response.close()
 
 
 class EgressClient:
