@@ -816,6 +816,25 @@ Route operations (what a route does for the person calling it, ADR 0102)
     "testing": """\
 Testing a Terp app (process-global runtime isolation)
 
+EVERY WIRED MODULE OWES AT LEAST ONE TEST (`modules_ship_tests`). The canonical module
+shape is five production files, so until this rule a module could mount routes, own a
+table and declare a policy with no test of any kind -- and `terp scaffold` emitted
+exactly those five, so untested was the shape the platform handed out, not a corner an
+app had to cut. WHERE they go:
+      tests/<module>/test_*.py        the scaffolded shape; `terp new module` writes it
+      tests/test_<module>_*.py        a flat file per module; recognised, not taught
+  Both satisfy the rule. The directory is what the scaffold emits, because a module
+  accumulates test files and a directory holds them without anyone inventing a naming
+  convention; the flat form is recognised because refusing it would fail an app whose
+  modules ARE tested, whose only way out would be a marker reading "no tests" (ADR 0119).
+  Tests live in the project's tests/ tree, NOT inside the module directory -- a test that
+  drives the composed app has to live where the app fixtures are.
+  A module that genuinely has none takes
+  `# arch-allow-modules-ship-tests: <reason>`, which spends the app's escape-hatch
+  budget -- a shrink-only ratchet, so the debt is counted and cannot grow quietly.
+  The rule asks only that the tests EXIST and are attributable. Whether they are any
+  good is `no_empty_tests` (a body that cannot fail is not a test) and your coverage gate.
+
 WHAT YOU MUST STILL DO YOURSELF. The platform UNDOES a runtime; it never INSTALLS the
 one your test needs. That distinction is the whole of testing on Terp:
       * whole runtime -> compose the app in a fixture (see apps/example/tests/conftest.py,

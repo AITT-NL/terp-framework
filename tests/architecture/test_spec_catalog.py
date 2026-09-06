@@ -98,7 +98,14 @@ def _pinned_spec_version() -> str | None:
 #: to cut a framework release, so the window closes at the pin bump and cannot be
 #: left open. During certification the assertion below is trivially satisfied,
 #: because the catalog under test already contains the rule.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset(
+    {
+        # ADR 0119. Implemented here first so terp-spec can certify against a main
+        # branch that carries the rule; emptied by the pin bump to the release that
+        # publishes catalog/backend/modules_ship_tests.json.
+        "modules_ship_tests",
+    }
+)
 
 
 # --------------------------------------------------------------------------- #

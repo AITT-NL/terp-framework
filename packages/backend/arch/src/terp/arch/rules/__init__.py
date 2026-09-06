@@ -128,7 +128,10 @@ from terp.arch.rules.secrets import (
     check_no_adhoc_config_decrypt,
     check_no_hardcoded_credentials,
 )
-from terp.arch.rules.structure import check_canonical_module_shape
+from terp.arch.rules.structure import (
+    check_canonical_module_shape,
+    check_modules_ship_tests,
+)
 from terp.arch.rules.traits import (
     check_base_query_not_overridden,
     check_no_manual_actor_stamping,
@@ -214,6 +217,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "table_ownership_is_not_split": "migrations",
     "no_unique_columns_on_soft_delete_models": "module",
     "canonical_module_shape": "module",
+    "modules_ship_tests": "testing",
     "session_imported_from_sqlmodel": "service",
     "no_app_instantiation": "capability",
     "no_raw_app_routes": "capability",
@@ -303,6 +307,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_table_ownership_is_not_split,
     check_no_unique_columns_on_soft_delete_models,
     check_canonical_module_shape,
+    check_modules_ship_tests,
     check_session_imported_from_sqlmodel,
     check_no_app_instantiation,
     check_no_raw_app_routes,
@@ -405,6 +410,7 @@ __all__ = [
     "check_table_ownership_is_not_split",
     "check_app",
     "check_canonical_module_shape",
+    "check_modules_ship_tests",
     "check_escape_hatch_budget",
     "check_events_reference_catalog",
     "check_emitted_events_are_declared",
