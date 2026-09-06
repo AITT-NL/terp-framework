@@ -410,3 +410,45 @@ def test_the_example_catalog_imports_only_capabilities_the_image_installs() -> N
         f"apps/example/Dockerfile does not install — the app cannot start in "
         f"production, and only in production"
     )
+
+
+def test_every_installed_capability_brings_its_capability_dependencies() -> None:
+    """A capability that depends on another must not be installed without it.
+
+    The sibling test above checks what the app *imports*. This checks what the
+    installed packages themselves *require*, which is a different failure and a
+    later one: the image lists packages one by one, so a capability that grows a
+    dependency on another capability makes the resolver fail inside a Docker layer
+    rather than in the suite.
+
+    That is exactly how it went wrong. Webhooks moved its SSRF denylist into the
+    egress capability and declared the dependency; every workspace install was fine,
+    because a workspace has every package present, and the image — which does not —
+    failed with "conclude that terp-cap-webhooks==0.18.0 cannot be used" a minute
+    into a build. Same shape as the import gap: true in the workspace, false in the
+    image, invisible until something is built.
+    """
+    import re
+    import tomllib
+
+    caps = _REPO_ROOT / "packages" / "backend" / "capabilities"
+    for name in ("Dockerfile", "Dockerfile.prod"):
+        dockerfile = (_REPO_ROOT / "apps" / "example" / name).read_text(encoding="utf-8")
+        installed = set(re.findall(r"packages/backend/capabilities/(\w+)", dockerfile))
+        assert installed, f"{name} must install some capabilities"
+
+        for capability in sorted(installed):
+            manifest = caps / capability / "pyproject.toml"
+            data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+            required = {
+                # `terp-cap-jobs-celery` is the distribution; `jobs_celery` the directory.
+                dependency.split("==")[0].removeprefix("terp-cap-").replace("-", "_")
+                for dependency in data["project"].get("dependencies", ())
+                if dependency.startswith("terp-cap-")
+            }
+            missing = sorted(required - installed)
+            assert not missing, (
+                f"{name} installs the {capability!r} capability but not {missing}, "
+                f"which it declares as a dependency — the image cannot resolve, and "
+                f"only the image"
+            )
