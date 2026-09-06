@@ -35,6 +35,12 @@ from typing import Any, Final
 
 from sqlmodel import Session
 
+from terp.core._internal.engine import get_engine
+from terp.core._internal.session_guard import (
+    WriteGuardedSession,
+    allow_session_writes,
+    fresh_write_scope,
+)
 from terp.core.logging import get_request_id
 from terp.core.runtime import register_runtime_seam
 
@@ -66,11 +72,20 @@ _REDACTED: Final[str] = "***redacted***"
 
 
 class AuditAction(str, Enum):
-    """The lifecycle action an audit record describes (a typed object, never a bare string)."""
+    """What an audit record describes (a typed object, never a bare string).
+
+    Three of these are lifecycle verbs, emitted automatically by the write
+    chokepoint. :attr:`DISCLOSED` is not: it is emitted deliberately, by the one kind
+    of endpoint that hands guarded data to a caller without changing anything (ADR
+    0118). Until it existed the trail could answer "who changed this" and had no way
+    to express "who saw this" — so an export, a file download or a screen that reveals
+    production values behind a grant left no record at all.
+    """
 
     CREATED = "created"
     UPDATED = "updated"
     DELETED = "deleted"
+    DISCLOSED = "disclosed"
 
 
 @dataclass(frozen=True)
@@ -284,6 +299,65 @@ def emit_audit(
     _active_sink(session, record, _active_policy)
 
 
+def emit_disclosure(
+    *,
+    target_type: str,
+    target_id: str,
+    payload: Mapping[str, Any] | None = None,
+) -> None:
+    """Record that guarded data was disclosed to the current actor, and commit it.
+
+    The read counterpart of :func:`emit_audit`, and it differs in the two ways a read
+    differs from a write (ADR 0118).
+
+    **It takes no session, because a read has no unit of work to ride.** Every other
+    audit record is staged into the business transaction that caused it and committed
+    by the write chokepoint. A disclosure has no such transaction, and the request's
+    own session could not carry one anyway: it is write-guarded, and during a safe
+    method it is *doubly* refused — the read-only guard exists precisely to stop a GET
+    from mutating. That guard protects business state, which a disclosure does not
+    touch; the trail is the one thing a read is allowed to write. So this opens its
+    own session and owns its own commit, which also means the record survives whether
+    or not the request that produced it later fails.
+
+    **It is called BEFORE the data is handed over.** A sink that raises propagates,
+    the endpoint fails, and nothing is disclosed. Recording afterwards would invert
+    the guarantee into "we will try to remember what we already gave away" — the
+    trail must be the precondition of the disclosure, not a report on it.
+
+    The payload goes through the same central redaction as every other record, so a
+    disclosure record cannot become the place a secret is written down while the
+    endpoint that emitted it was careful not to return one.
+    """
+    if not _active_policy.enabled:
+        return
+    record = AuditRecord(
+        action=AuditAction.DISCLOSED,
+        target_type=target_type,
+        target_id=target_id,
+        actor_id=audit_actor_ctx.get(),
+        request_id=get_request_id(),
+        payload=_active_policy.redact(payload),
+    )
+    # `fresh_write_scope`, for the same reason a background job opens one: this record is
+    # its own outermost unit of work at the envelope's authority, not a participant in
+    # whatever the request is doing. Two of the three flags it clears matter directly.
+    # The read-only flag is the load-bearing one — a disclosure happens during a GET, and
+    # without clearing it the guard refuses the write outright. The depth counter is reset
+    # so the record is genuinely outermost rather than appearing nested inside the caller's
+    # unit, which it is not: it commits on a different session, in a different transaction,
+    # and a sink that consulted its own outermost-ness would otherwise defer a commit to an
+    # "outer" unit that cannot commit it. (`enter_write_unit` restores the caller's depth on
+    # exit, so this is about what the disclosure sees, not damage left behind.)
+    with (
+        fresh_write_scope(),
+        allow_session_writes(),
+        WriteGuardedSession(get_engine()) as session,
+    ):
+        _active_sink(session, record, _active_policy)
+        session.commit()
+
+
 def current_actor_id() -> uuid.UUID | None:
     """Return the actor bound to the current request context, or ``None``.
 
@@ -327,6 +401,7 @@ __all__ = [
     "configure_audit",
     "current_actor_id",
     "emit_audit",
+    "emit_disclosure",
     "is_durable_audit_sink",
     "reset_audit_runtime",
     "set_audit_sink",

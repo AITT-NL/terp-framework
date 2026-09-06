@@ -10,6 +10,43 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.19.0 — 2026-09-06
+
+### Added
+
+- **The audit trail can say who *saw* something** (ADR 0118). `AuditAction` was `created` /
+  `updated` / `deleted`, emitted automatically from the `BaseService` write chokepoint — so
+  "who changed this row" was answerable completely and "who read this row" was not
+  answerable at all. An export that streams a payroll file, a download of a stored document,
+  a screen that reveals a supplier's bank details behind a grant: each hands guarded data to
+  a person, and each left no trace. Under most access-control regimes the disclosure is the
+  reportable event, and the trail was recording the one thing usually recoverable from the
+  data itself while omitting the one thing that is not.
+
+  `terp.core.emit_disclosure(target_type=..., target_id=..., payload=...)` records it, with
+  the new `AuditAction.DISCLOSED`. Adding a fourth verb is trivial; what made this worth an
+  ADR is that the framework is built to prevent the write it needs, twice, and both refusals
+  are correct in every other case. The request session refuses to persist outside the audited
+  chokepoint (ADR 0015), and during a safe method the read-only guard refuses a write *even
+  inside* it, because a request authorized at the read tier must not mutate (ADR 0028 §F2).
+  A disclosure happens during a `GET`. So the record saying "this data was read" is refused
+  by the guard whose job is to ensure a read changes nothing — a conflict only if you count
+  the trail as business state, which it is not: it is the evidence that the read occurred.
+
+  The seam therefore takes **no session** and owns its own transaction, inside the
+  `fresh_write_scope()` a background job already uses (ADR 0038) — its own outermost unit of
+  work at the envelope's authority rather than a participant in the request. That is also
+  what makes the ordering guarantee real: it is called **before** the data is handed over, a
+  sink that raises propagates, and the record is durable the moment the call returns, so a
+  request that discloses and *then* fails has still left the trail. Recording afterwards
+  would only ever promise to remember what was already given away.
+
+  No migration: `action` is a bounded `AutoString(16)` with no native enum and no CHECK
+  constraint, `disclosed` is nine characters, and a test pins the column bound against the
+  value so that stops being true loudly rather than at the first INSERT. Emission stays
+  deliberate — only the endpoint knows whether what it returns is guarded, and auto-emitting
+  on every read would bury the reportable events under list traffic.
+
 ## 0.18.0 — 2026-09-05
 
 ### Changed
