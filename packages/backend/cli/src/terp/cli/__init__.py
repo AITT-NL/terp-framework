@@ -463,6 +463,18 @@ The access model (three layers) — profiles + the access graph
   write authority, and warnings (e.g. OwnedMixin gates writes only). `--format json`
   is the stable Studio contract; declare services=(InvoiceService,) on the ModuleSpec
   so the data layer is visualizable — an undeclared data layer is a warning.
+- RECORDING that guarded data was read — the write trail does not cover this:
+      from terp.core import emit_disclosure
+      emit_disclosure(target_type="payroll_export", target_id=str(period.id))
+      return build_export(period)          # AFTER the record, never before
+  Mutations are audited for you from the BaseService chokepoint. A read is not, and
+  cannot be: only the endpoint knows whether what it returns is guarded rather than
+  ordinary, and auto-emitting on every read would bury the reportable events under
+  list traffic. Call it where "who saw this" is the event worth answering for — an
+  export, a document download, a screen that reveals sealed values behind a grant.
+  It takes no session and commits its own row, so the trail survives a request that
+  discloses and then fails; a sink that refuses aborts the endpoint, which is the
+  point — data we cannot account for is not handed over.
 - Narrowing authority below a role, and getting a permission to a subject:
   `terp guide permissions` (declare it, enforce it, `terp grant add`).
 """,
