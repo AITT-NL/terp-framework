@@ -100,6 +100,13 @@ where the legend already is.
   price of the remount guarantee above, and it is worth it.
 - `data-terp="control-field"` joins the marker ledger, so the stylesheet and the rendered
   markup stay in agreement.
+- **The workbench has no specimen for the new props yet.** Adding one requires recording a
+  screenshot baseline on *both* platforms — the screenshot lane compares against a linux set
+  recorded inside the Playwright container, and the win32 set must be a subset of it, so a
+  half-recorded specimen fails the lane in two ways. The procedure is documented
+  (`apps/workbench/README.md`, "Recording the linux set from an uncommitted change"), and it
+  is a session of its own rather than a line in this commit. Until then the props are taught
+  by `terp guide forms` and by the tests, and are not visible in the catalog.
 - A caller can still pass one of these three to `Field`, and nothing stops them. The invalid
   nesting is not detectable in the type system, and this platform does not warn at runtime.
   A lint rule on the frontend surface is where that check belongs; it is not written here.

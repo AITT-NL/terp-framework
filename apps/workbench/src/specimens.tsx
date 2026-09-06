@@ -1346,28 +1346,6 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
-        id: "self-labelling-messages",
-        title: "Checkbox, Switch and RadioGroup — hint and error",
-        node: (
-          <Stack gap={4}>
-            <Checkbox
-              label="Send a copy to the archive"
-              checked
-              hint="Applies to new records only."
-            />
-            <Switch label="Nightly export" hint="Runs at 02:00 in the tenant's timezone." />
-            <RadioGroup
-              label="Frequency"
-              options={[
-                { value: "daily", label: "Daily" },
-                { value: "weekly", label: "Weekly" },
-              ]}
-              error="Choose a frequency."
-            />
-          </Stack>
-        ),
-      },
-      {
         id: "combobox",
         title: "Combobox — closed with a selection",
         node: (
