@@ -1359,15 +1359,21 @@ Forms (react-core primitives)
         </Field>
         <Switch label="Actief" checked={active} onChange={setActive} />
         <RadioGroup label="Frequentie" options={FREQUENCIES}
-                    value={frequency} onChange={setFrequency} />
+                    value={frequency} onChange={setFrequency}
+                    error={errors.frequency} />
         <Button type="submit" variant="primary">Save</Button>
       </Stack>
-  The honest limitation: these three have no hint or error slot, so a hint goes beside
-  them as <Text tone="muted" size="sm"> and is NOT wired to the control for a screen
-  reader. For a boolean that costs little — a switch cannot hold a value its type
-  refuses — but a RadioGroup CAN be left unset when a choice is required, and that
-  error has nowhere to go today. If you need it, put the message in the form-level
-  ErrorState rather than inventing a per-control slot.
+  They carry the envelope THEMSELVES: `hint` and `error` are props on all three, wired
+  exactly as Field wires them — the text gets an id, the control gets an
+  `aria-describedby` pointing at it (added to any you passed, never replacing it), an
+  error also sets `aria-invalid` and carries role="alert" so it is announced when it
+  arrives on submit rather than only when focus lands. Do not put a hint beside them as
+  loose <Text>: text next to a control is invisible to a screen reader unless something
+  points at it.
+  RadioGroup is the one where this matters most. A boolean cannot hold a value its type
+  refuses, so a switch has little to be wrong about — but a required RadioGroup CAN be
+  left unset, and its error belongs on the group, next to the question, not in a
+  form-level ErrorState that never names which question was unanswered.
 """,
     "theming": """\
 Theming and branding (design tokens, palettes, the brand mark)
