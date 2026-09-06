@@ -106,7 +106,9 @@ def _module_is_tested(module: str, tests_roots: list[pathlib.Path]) -> bool:
     ``tests/<module>/test_*.py`` is the canonical one: it is what ``terp scaffold``
     emits and what the guide teaches, because a module accumulates several test files
     and a directory holds them without anyone inventing a naming convention. A flat
-    ``tests/test_<module>*.py`` is *recognised* rather than taught — refusing it would
+    ``tests/test_<module>.py`` or ``tests/test_<module>_*.py`` is *recognised* rather
+    than taught — the separator is required, so one module is never credited with a
+    differently-named sibling's file. Refusing the flat form outright would
     fail an application whose modules are, in fact, tested, and whose only way out
     would be an escape-hatch marker reading "this module has no tests", which is
     false. A gate satisfiable only by a false statement is worse than a gate that
@@ -141,8 +143,8 @@ def check_modules_ship_tests(
     Whether they are any good is a different question, already asked by
     ``no_empty_tests`` (which refuses a body that cannot fail) and by the app's own
     coverage gate. Two layouts satisfy it — the scaffolded ``tests/<name>/`` package,
-    and a flat ``tests/test_<name>*.py`` — for the reason given on
-    :func:`_module_is_tested`.
+    and a flat ``tests/test_<name>.py`` / ``tests/test_<name>_*.py`` — for the reason
+    given on :func:`_module_is_tested`.
 
     A module that genuinely has no tests takes
     ``# arch-allow-modules-ship-tests: <reason>`` in its manifest, which spends the
