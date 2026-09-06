@@ -74,6 +74,99 @@ decision, 0001 onwards.
   with a metering hook, and auditing the call — this is the first; the second is still
   open.
 
+- **The audit trail can say who *saw* something** (ADR 0118). `AuditAction` was `created` /
+  `updated` / `deleted`, emitted automatically from the `BaseService` write chokepoint — so
+  "who changed this row" was answerable completely and "who read this row" was not
+  answerable at all. An export that streams a payroll file, a download of a stored document,
+  a screen that reveals a supplier's bank details behind a grant: each hands guarded data to
+  a person, and each left no trace. Under most access-control regimes the disclosure is the
+  reportable event, and the trail was recording the one thing usually recoverable from the
+  data itself while omitting the one thing that is not.
+
+  `terp.core.emit_disclosure(target_type=..., target_id=..., payload=...)` records it, with
+  the new `AuditAction.DISCLOSED`. Adding a fourth verb is trivial; what made this worth an
+  ADR is that the framework is built to prevent the write it needs, twice, and both refusals
+  are correct in every other case. The request session refuses to persist outside the audited
+  chokepoint (ADR 0015), and during a safe method the read-only guard refuses a write *even
+  inside* it, because a request authorized at the read tier must not mutate (ADR 0028 §F2).
+  A disclosure happens during a `GET`. So the record saying "this data was read" is refused
+  by the guard whose job is to ensure a read changes nothing — a conflict only if you count
+  the trail as business state, which it is not: it is the evidence that the read occurred.
+
+  The seam therefore takes **no session** and owns its own transaction, inside the
+  `fresh_write_scope()` a background job already uses (ADR 0038) — its own outermost unit of
+  work at the envelope's authority rather than a participant in the request. That is also
+  what makes the ordering guarantee real: it is called **before** the data is handed over, a
+  sink that raises propagates, and the record is durable the moment the call returns, so a
+  request that discloses and *then* fails has still left the trail. Recording afterwards
+  would only ever promise to remember what was already given away.
+
+  No migration: `action` is a bounded `AutoString(16)` with no native enum and no CHECK
+  constraint, `disclosed` is nine characters, and a test pins the column bound against the
+  value so that stops being true loudly rather than at the first INSERT. Emission stays
+  deliberate — only the endpoint knows whether what it returns is guarded, and auto-emitting
+  on every read would bury the reportable events under list traffic.
+
+- **The egress capability the outbound-HTTP rule was already naming** (ADR 0117).
+  `no_raw_outbound_http` refuses `httpx` / `requests` / `urllib3` / `aiohttp` and the
+  `socket` / `http.client` escape routes in every application module — and in that
+  module's tests and migrations, because it is a security rule — and told the author to
+  use "a declared capability with SSRF protection". **There was no such capability.**
+  Nineteen shipped and outbound HTTP was not one of them; the only guard in the tree was
+  private to webhook delivery, raised a webhook's 422, and was reachable only by
+  installing a capability whose purpose is something else.
+
+  So the rule refused the common case and named a destination that did not exist — which
+  is the shape ADR 0096 §4 already has a verdict for: a checked seam that does not cover
+  the common case is a hole, because the compliant path is not available and code goes
+  around it. The going-around is observable, as a foreign-system connector living in a
+  third root package the architecture scanner never reaches. And it was not only an
+  implementation gap: terp-spec's catalog makes it normative and its reference
+  realisation already said outbound calls "go through a declared **egress** capability".
+  The standard had named this package; it had not been written.
+
+  `terp-cap-egress` is a **library** capability like `terp-cap-leases` — no router, no
+  table, no auto-discovery. Outbound access is not something an app should acquire by
+  installing a package; it declares an `EgressPolicy` and constructs an `EgressClient`,
+  both visible in the composition root. The four things the rule calls per-call-site
+  choices are now properties of that declaration:
+
+  - **the allowlist** is exact hostnames and empty by default, so `api.example.com` does
+    not admit `evil-api.example.com`, patterns are refused at construction, and
+    forgetting to configure egress means egress does not work rather than works without
+    limits;
+  - **the SSRF denylist** applies to every resolved address and the connection is
+    **pinned** to the one that passed, which is what closes the DNS-rebinding window
+    between the check and the connect. Redirects are never followed, because a followed
+    redirect is a second, unvalidated target;
+  - **the timeout** is on the policy with no per-call override, and the response is
+    bounded too — it is attacker-influenced input, and an unbounded read is an unbounded
+    allocation;
+  - **every attempt reaches an observer, refusals included.** That is where metering and
+    egress auditing attach. It never sees a body, and an observer that raises cannot
+    change what happened, because metering is not allowed to turn a completed call into
+    a failed one.
+
+  `allow_private_addresses` opens the denylist for a sanctioned internal target. It is a
+  field in the composition root a reviewer can see rather than an exception inside the
+  client, and it applies to the whole policy — if that is too coarse, the answer is two
+  clients with two policies, not a per-call flag that puts the decision back where this
+  capability exists to take it from.
+
+  **Webhooks is the first consumer, and the denylist moved rather than being copied.**
+  The forbidden-range table, the IPv4-mapped-IPv6 unwrapping, the pinned target and the
+  fail-closed resolver now live in egress; webhooks keeps its 422 and the messages a
+  subscriber sees. Copying would have been the smaller diff and the worse decision: two
+  lists of forbidden network ranges drift, and the one that drifts is the one nobody is
+  looking at. A capability with no consumers would also have repeated the original
+  mistake in a new place.
+
+  The rule's refusal now names the capability, what to declare and what the client does.
+  `httpx` becomes a dependency of exactly one distribution. Of the two prerequisites ADR
+  0111 §4 recorded for an application-declared AI capability — transport/timeouts/SSRF
+  with a metering hook, and auditing the call — this is the first; the second is still
+  open.
+
 - **`Switch`, `Checkbox` and `RadioGroup` carry their own `hint` and `error`** (ADR 0120).
   `Field` is how this platform authors an accessible control: it wraps the control in a
   `<label>`, gives the hint and the error ids, points `aria-describedby` at them, and sets
