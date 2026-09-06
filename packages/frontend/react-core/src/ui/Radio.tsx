@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import type { ChangeEvent, InputHTMLAttributes } from "react";
 
 import { injectTerpStyles } from "../styles";
+import { useControlMessages } from "./controlMessages";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
 
@@ -51,6 +52,18 @@ export interface RadioOption {
 
 export interface RadioGroupProps {
   label: UiText;
+  /** Optional helper text under the options (pointed at by the group's `aria-describedby`). */
+  hint?: UiText;
+  /**
+   * A group-level error, shown under the options and announced when it appears.
+   *
+   * This is the one of the three self-labelling controls with a genuine error need. A
+   * boolean cannot hold a value its type refuses, so a switch or a checkbox has little to
+   * be wrong about — but a required radio group **can** be left unset, and until this prop
+   * existed that rejection had nowhere to go except a form-level summary that never names
+   * the control it is about.
+   */
+  error?: string | null;
   name?: string;
   options?: readonly RadioOption[];
   value?: string;
@@ -62,6 +75,8 @@ export interface RadioGroupProps {
 /** Accessible token-styled radio group; pass `options` for the standard generated radios. */
 export function RadioGroup({
   label,
+  hint,
+  error,
   name,
   options,
   value,
@@ -71,6 +86,7 @@ export function RadioGroup({
 }: RadioGroupProps) {
   const generatedName = useId();
   const resolve = useUiText();
+  const { hasError, describedBy, messages } = useControlMessages(hint, error);
   const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? "");
   const selected = value ?? uncontrolledValue;
   const groupName = name ?? generatedName;
@@ -83,7 +99,14 @@ export function RadioGroup({
   }
 
   return (
-    <fieldset data-terp="radio-group">
+    // The description and the invalid state belong to the GROUP, not to any one radio: the
+    // thing that is unanswered is the question, and a screen-reader user moving through the
+    // options should hear it once at the group rather than repeated on each option.
+    <fieldset
+      data-terp="radio-group"
+      aria-describedby={describedBy}
+      aria-invalid={hasError ? true : undefined}
+    >
       <legend data-terp="radio-group-legend">{resolve(label)}</legend>
       <div data-terp="radio-group-options">
         {options?.map((option) => (
@@ -102,6 +125,7 @@ export function RadioGroup({
           />
         ))}
       </div>
+      {messages}
     </fieldset>
   );
 }

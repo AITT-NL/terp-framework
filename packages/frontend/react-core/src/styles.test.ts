@@ -1713,6 +1713,7 @@ describe("cascade structure", () => {
       "input",
       "input-password",
       "field",
+      "control-field",
       "control-label",
       "checkbox",
       "radio",

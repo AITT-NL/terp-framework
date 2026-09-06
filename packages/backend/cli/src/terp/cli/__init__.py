@@ -463,6 +463,18 @@ The access model (three layers) — profiles + the access graph
   write authority, and warnings (e.g. OwnedMixin gates writes only). `--format json`
   is the stable Studio contract; declare services=(InvoiceService,) on the ModuleSpec
   so the data layer is visualizable — an undeclared data layer is a warning.
+- RECORDING that guarded data was read — the write trail does not cover this:
+      from terp.core import emit_disclosure
+      emit_disclosure(target_type="payroll_export", target_id=str(period.id))
+      return build_export(period)          # AFTER the record, never before
+  Mutations are audited for you from the BaseService chokepoint. A read is not, and
+  cannot be: only the endpoint knows whether what it returns is guarded rather than
+  ordinary, and auto-emitting on every read would bury the reportable events under
+  list traffic. Call it where "who saw this" is the event worth answering for — an
+  export, a document download, a screen that reveals sealed values behind a grant.
+  It takes no session and commits its own row, so the trail survives a request that
+  discloses and then fails; a sink that refuses aborts the endpoint, which is the
+  point — data we cannot account for is not handed over.
 - Narrowing authority below a role, and getting a permission to a subject:
   `terp guide permissions` (declare it, enforce it, `terp grant add`).
 """,
@@ -1366,15 +1378,21 @@ Forms (react-core primitives)
         </Field>
         <Switch label="Actief" checked={active} onChange={setActive} />
         <RadioGroup label="Frequentie" options={FREQUENCIES}
-                    value={frequency} onChange={setFrequency} />
+                    value={frequency} onChange={setFrequency}
+                    error={errors.frequency} />
         <Button type="submit" variant="primary">Save</Button>
       </Stack>
-  The honest limitation: these three have no hint or error slot, so a hint goes beside
-  them as <Text tone="muted" size="sm"> and is NOT wired to the control for a screen
-  reader. For a boolean that costs little — a switch cannot hold a value its type
-  refuses — but a RadioGroup CAN be left unset when a choice is required, and that
-  error has nowhere to go today. If you need it, put the message in the form-level
-  ErrorState rather than inventing a per-control slot.
+  They carry the envelope THEMSELVES: `hint` and `error` are props on all three, wired
+  exactly as Field wires them — the text gets an id, the control gets an
+  `aria-describedby` pointing at it (added to any you passed, never replacing it), an
+  error also sets `aria-invalid` and carries role="alert" so it is announced when it
+  arrives on submit rather than only when focus lands. Do not put a hint beside them as
+  loose <Text>: text next to a control is invisible to a screen reader unless something
+  points at it.
+  RadioGroup is the one where this matters most. A boolean cannot hold a value its type
+  refuses, so a switch has little to be wrong about — but a required RadioGroup CAN be
+  left unset, and its error belongs on the group, next to the question, not in a
+  form-level ErrorState that never names which question was unanswered.
 """,
     "theming": """\
 Theming and branding (design tokens, palettes, the brand mark)
