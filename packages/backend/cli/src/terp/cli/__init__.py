@@ -1137,7 +1137,22 @@ Using capabilities
 - Outbound HTTP is a capability concern, never a module concern: importing httpx /
   requests / urllib.request / urllib3 / aiohttp in a module is refused by the
   no_raw_outbound_http rule — SSRF protection, egress allowlists and timeout policy
-  belong behind one declared capability, not scattered per call site.
+  belong behind one declared capability, not scattered per call site. That capability
+  is `terp-cap-egress`, and it is a declaration rather than a client you configure at
+  the call site:
+      from terp.capabilities.egress import EgressClient, EgressPolicy
+      rates = EgressClient(EgressPolicy(
+          allowed_hosts=("api.exchange.example",),   # EXACT hosts; empty permits nothing
+          timeout_seconds=5.0,                       # no per-call override, on purpose
+      ))
+      body = rates.get("https://api.exchange.example/v1/rates").content
+  Every resolved address is checked against the SSRF denylist and the connection is
+  PINNED to the one that passed (so a rebind between the check and the connect cannot
+  land on a private address), redirects are never followed, and every attempt —
+  refusals included — reaches the optional `observer=` hook, which is where metering
+  and egress auditing attach. A sanctioned internal target is a declared
+  `allow_private_addresses=True`, visible in the composition root, never a quiet
+  exception inside the client.
 - Credentials never live in module source: a credential-shaped assignment (password,
   api_key, token, ...) to a string literal — or a recognizable secret-token literal
   anywhere — is refused by the no_hardcoded_credentials rule. Wire secrets through

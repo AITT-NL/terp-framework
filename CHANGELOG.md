@@ -14,6 +14,66 @@ decision, 0001 onwards.
 
 ### Added
 
+- **The egress capability the outbound-HTTP rule was already naming** (ADR 0117).
+  `no_raw_outbound_http` refuses `httpx` / `requests` / `urllib3` / `aiohttp` and the
+  `socket` / `http.client` escape routes in every application module — and in that
+  module's tests and migrations, because it is a security rule — and told the author to
+  use "a declared capability with SSRF protection". **There was no such capability.**
+  Nineteen shipped and outbound HTTP was not one of them; the only guard in the tree was
+  private to webhook delivery, raised a webhook's 422, and was reachable only by
+  installing a capability whose purpose is something else.
+
+  So the rule refused the common case and named a destination that did not exist — which
+  is the shape ADR 0096 §4 already has a verdict for: a checked seam that does not cover
+  the common case is a hole, because the compliant path is not available and code goes
+  around it. The going-around is observable, as a foreign-system connector living in a
+  third root package the architecture scanner never reaches. And it was not only an
+  implementation gap: terp-spec's catalog makes it normative and its reference
+  realisation already said outbound calls "go through a declared **egress** capability".
+  The standard had named this package; it had not been written.
+
+  `terp-cap-egress` is a **library** capability like `terp-cap-leases` — no router, no
+  table, no auto-discovery. Outbound access is not something an app should acquire by
+  installing a package; it declares an `EgressPolicy` and constructs an `EgressClient`,
+  both visible in the composition root. The four things the rule calls per-call-site
+  choices are now properties of that declaration:
+
+  - **the allowlist** is exact hostnames and empty by default, so `api.example.com` does
+    not admit `evil-api.example.com`, patterns are refused at construction, and
+    forgetting to configure egress means egress does not work rather than works without
+    limits;
+  - **the SSRF denylist** applies to every resolved address and the connection is
+    **pinned** to the one that passed, which is what closes the DNS-rebinding window
+    between the check and the connect. Redirects are never followed, because a followed
+    redirect is a second, unvalidated target;
+  - **the timeout** is on the policy with no per-call override, and the response is
+    bounded too — it is attacker-influenced input, and an unbounded read is an unbounded
+    allocation;
+  - **every attempt reaches an observer, refusals included.** That is where metering and
+    egress auditing attach. It never sees a body, and an observer that raises cannot
+    change what happened, because metering is not allowed to turn a completed call into
+    a failed one.
+
+  `allow_private_addresses` opens the denylist for a sanctioned internal target. It is a
+  field in the composition root a reviewer can see rather than an exception inside the
+  client, and it applies to the whole policy — if that is too coarse, the answer is two
+  clients with two policies, not a per-call flag that puts the decision back where this
+  capability exists to take it from.
+
+  **Webhooks is the first consumer, and the denylist moved rather than being copied.**
+  The forbidden-range table, the IPv4-mapped-IPv6 unwrapping, the pinned target and the
+  fail-closed resolver now live in egress; webhooks keeps its 422 and the messages a
+  subscriber sees. Copying would have been the smaller diff and the worse decision: two
+  lists of forbidden network ranges drift, and the one that drifts is the one nobody is
+  looking at. A capability with no consumers would also have repeated the original
+  mistake in a new place.
+
+  The rule's refusal now names the capability, what to declare and what the client does.
+  `httpx` becomes a dependency of exactly one distribution. Of the two prerequisites ADR
+  0111 §4 recorded for an application-declared AI capability — transport/timeouts/SSRF
+  with a metering hook, and auditing the call — this is the first; the second is still
+  open.
+
 - **A module owes tests, and the scaffold now writes them** (ADR 0119). `canonical_module_shape`
   requires five files and not one of them is a test, so a module could pass every structural
   rule in the Standard — mount routes, own a table, declare a policy — while shipping no tests

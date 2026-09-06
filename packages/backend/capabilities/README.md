@@ -2,7 +2,7 @@
 
 Opt‑in cross‑cutting capabilities, each its own `terp-cap-*` distribution.
 Built so far: **`auth`, `identity`, `access`, `audit`, `eventbus`, `tenancy`,
-`users`, `groups`, `files`, `webhooks`, `oidc`, `outbox`, `leases`, `sync`,
+`users`, `groups`, `files`, `webhooks`, `oidc`, `outbox`, `leases`, `sync`, `egress`,
 `redis`,
 `jobs_celery`, `scheduler_apscheduler`, and `scheduler_celery_beat`**.
 Capabilities that expose a router
@@ -32,6 +32,7 @@ Built capabilities (design §3.1, §6):
 | **webhooks** (outbound webhooks, sealed secrets) | `terp-cap-webhooks` | `terp.capabilities.webhooks` |
 | **oidc** (SSO via OpenID Connect) | `terp-cap-oidc` | `terp.capabilities.oidc` |
 | **outbox** (durable event delivery) | `terp-cap-outbox` | `terp.capabilities.outbox` |
+| **egress** (library; the declared way out of the process — allowlisted, SSRF-guarded, time-bounded outbound HTTP with an observable attempt, ADR 0117) | `terp-cap-egress` | `terp.capabilities.egress` |
 | **leases** (library; expiring, fenced custody of work + the stale-claim reaper, ADR 0095) | `terp-cap-leases` | `terp.capabilities.leases` |
 | **sync** (data synchronisation) | `terp-cap-sync` | `terp.capabilities.sync` |
 | **redis** (shared Idempotency/Throttle/Cache stores, ADR 0078; realtime tickets / OIDC state behind `[realtime]` / `[oidc]`, or both with `[all]`) | `terp-cap-redis` | `terp.capabilities.redis` |
