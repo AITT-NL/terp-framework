@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildModuleRows, tileValues, NO_ACCESS } from "./accessModel";
+import { buildModuleRows } from "./accessModel";
 import type { AccessModel } from "./accessModel";
 
 /** A model shaped like the server's, with the rungs deliberately out of rank order. */
@@ -206,13 +206,5 @@ describe("buildModuleRows", () => {
       } as Partial<AccessModel>),
     );
     expect(row.rungs.map((rung) => rung.reachable.length)).toEqual([1, 0, 0]);
-  });
-});
-
-describe("tileValues", () => {
-  it("puts a real no-access tile first, in ladder order", () => {
-    // Revoking has to be exactly as reachable as granting, which an option buried in a menu
-    // never is. It is also what makes the strip bias downward rather than upward.
-    expect(tileValues(model())).toEqual([NO_ACCESS, "viewer", "editor", "admin"]);
   });
 });

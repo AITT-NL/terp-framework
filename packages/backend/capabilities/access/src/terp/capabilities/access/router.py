@@ -71,9 +71,11 @@ def _declarations(request: Request) -> tuple[ControlPlane, tuple[ModuleSpec, ...
     Fails closed rather than guessing. Every real mount has both — ``create_app`` records
     them on ``app.state`` — so the only caller that can reach the refusal is a hand-composed
     app, and for a *write* path guessing on its behalf is how an unenforceable row gets
-    stored. Shared by the projection and the writer, so the two cannot disagree about what
-    counts as a composed app. :func:`_refuse_undeclared` keeps its own lookup deliberately:
-    it needs no specs, and its refusal names the field it came from so a form can attach it.
+    stored. Shared by the projection, the provenance view and the writer, so the three cannot
+    disagree about what counts as a composed app — the provenance view had its own third copy
+    of this block until a coverage gap pointed at it, which is exactly the drift a shared
+    helper is for. :func:`_refuse_undeclared` keeps its own lookup deliberately: it needs no
+    specs, and its refusal names the field it came from so a form can attach it.
     """
     plane = getattr(request.app.state, "terp_control_plane", None)
     specs = getattr(request.app.state, "terp_module_specs", None)
@@ -179,14 +181,7 @@ def get_subject_access(
     ``effective``, which is the thing most often misread: assigning a lower rung alongside a
     higher one changes nothing at all.
     """
-    plane = getattr(request.app.state, "terp_control_plane", None)
-    specs = getattr(request.app.state, "terp_module_specs", None)
-    if plane is None or specs is None:
-        raise ValidationFailedError(
-            "this app exposes no control plane, so its declarations cannot be consulted; "
-            "compose it with create_app",
-            details=(ErrorDetail(code="no_control_plane"),),
-        )
+    plane, specs = _declarations(request)
 
     refs = subject_refs_for(session, subject_id)
     by_id = {ref.id: ref for ref in refs}

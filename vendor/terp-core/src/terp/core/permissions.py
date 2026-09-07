@@ -418,6 +418,18 @@ def register_module_rank_projector(projector: ModuleRankProjector) -> None:
         _module_rank_projectors.append(projector)
 
 
+def registered_module_rank_projectors() -> tuple[ModuleRankProjector, ...]:
+    """The registry as it stands, so a test can put back what it found.
+
+    The accessor the permission seam this is shaped like already had, and its absence was
+    load-bearing rather than cosmetic: without a way to snapshot, the only cleanup available
+    to a test was to clear the registry outright, which disarms the access capability's
+    import-time registration for whatever runs next. So no test registered a projector, and
+    the fold across projectors went unobserved.
+    """
+    return tuple(_module_rank_projectors)
+
+
 def project_module_ranks(session: Session, subject_id: uuid.UUID) -> dict[str, int]:
     """The caller's rung in each module they hold one in, highest wins.
 
@@ -455,6 +467,7 @@ __all__ = [
     "project_module_ranks",
     "project_permissions",
     "register_module_rank_projector",
+    "registered_module_rank_projectors",
     "register_permission_projector",
     "registered_permission_projectors",
     "reset_module_rank_projectors",

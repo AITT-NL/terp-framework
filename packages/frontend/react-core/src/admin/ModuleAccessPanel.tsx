@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { components } from "@terpjs/contract";
 
 import { Alert } from "../ui/Alert";
+import { Button } from "../ui/Button";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { LoadingState } from "../LoadingState";
 import { Stack } from "../layout";
@@ -151,6 +152,19 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   const [version, setVersion] = useState(0);
+  // The version whose read has actually landed. `-1` until the first one does, which is a
+  // state the rows alone cannot express: an empty `held` means "holds nothing" and "not yet
+  // asked" identically, and the strips would offer a choice against the wrong answer.
+  const [settled, setSettled] = useState(-1);
+  // Why the rungs could not be read, when they could not. Kept beside `settled` rather than
+  // folded into it: a read that failed is not a read that landed, and the strip must not
+  // become a control again on the strength of rows nobody could confirm.
+  //
+  // Terminal for the panel's lifetime, and there is deliberately no code to clear it. Nothing
+  // re-reads without a version bump, and only a write bumps one — which a panel showing no
+  // strips cannot produce. A reset here would be a line no test could reach, so the honest
+  // shape is not to have one: the operator leaves the screen and comes back, which remounts.
+  const [heldError, setHeldError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -161,9 +175,12 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
             params: { path: { subject_id: subjectId } },
           }),
         );
-        if (live) setHeld(subject.module_roles);
+        if (live) {
+          setHeld(subject.module_roles);
+          setSettled(version);
+        }
       } catch (cause: unknown) {
-        if (live) toast.warning(failure(cause, strings.requestFailed));
+        if (live) setHeldError(failure(cause, strings.requestFailed));
       }
     })();
     return () => {
@@ -179,7 +196,23 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, subjectId, version]);
 
+  // Between a write resolving and its re-read landing, the rows on screen are the *pre-write*
+  // answer — so the strip must not accept another choice against them. It used to: `busy`
+  // cleared when the request settled, one round trip before `held` caught up, and in that
+  // window a second commit was compared against the stale selection and silently dropped as
+  // "already selected".
+  const settling = settled !== version;
   const assignable = modules.filter((row) => row.assignable);
+  // A rung held in a module that does not accept them — because it never did, or because a
+  // later release stopped — has nowhere to appear among the strips, and this panel is the only
+  // place it could ever be cleared. Dropping it silently is how a row nobody can explain
+  // outlives the release that made it meaningless; ADR 0121 says such a row is reported
+  // rather than filtered, and the strips alone cannot keep that promise.
+  const orphaned = held.filter(
+    (entry) =>
+      entry.via.kind === "self" &&
+      !assignable.some((row) => row.name === entry.module),
+  );
   const floor = rungAtOrBelow(rungs, globalRank);
 
   function onPick(row: ModuleRow, value: string) {
@@ -240,18 +273,51 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
     <Stack gap={3}>
       <h2 data-terp="admin-section-title">{strings.moduleAccessTitle}</h2>
       <span data-terp="tile-note">{strings.moduleAccessDescription}</span>
-      {loading && <LoadingState />}
+      {(loading || (settled < 0 && heldError === null)) && <LoadingState />}
       {!loading && error !== null && <Alert tone="danger">{error}</Alert>}
-      {!loading && error === null && assignable.length === 0 && (
+      {heldError !== null && (
+        // Shown *and* the strips stay inert. Offering a choice against rungs nobody could
+        // read is how someone changes the wrong tier believing it was the right one; on a
+        // permission surface, refusing to guess is the whole posture.
+        <Alert tone="danger">{heldError}</Alert>
+      )}
+      {orphaned.map((entry) => (
+        <Stack key={`orphan:${entry.module}`} gap={2}>
+          <Alert tone="warning">
+            {strings.moduleAccessOrphaned
+              .replace("{role}", entry.role ?? String(entry.role_rank))
+              .replace("{module}", entry.module)}
+          </Alert>
+          <Stack direction="row" gap={2}>
+            {/* The only action the declarations still permit here, so it is the only one
+                offered — a strip would hold rungs the server would refuse to store. */}
+            <Button
+              variant="danger"
+              disabled={busy || settling}
+              onClick={() =>
+                setPending({ kind: "revoke", module: entry.module, label: entry.module })
+              }
+            >
+              {strings.revoke}
+            </Button>
+          </Stack>
+        </Stack>
+      ))}
+      {!loading && settled >= 0 && error === null && assignable.length === 0 && (
         <Alert tone="info">{strings.moduleAccessNoneAssignable}</Alert>
       )}
-      {assignable.map((row) => (
+      {/* Only once the rungs are known. A strip built on rows that were never read shows
+          `no access` selected for a module where a rung is in fact held, which is a wrong
+          statement rather than merely an inert control — and it is the statement someone acts
+          on. During a *re*-read the strips stay put and go inert instead: those rows are the
+          previous answer, which is very nearly right, and flickering them away is worse. */}
+      {settled >= 0 && heldError === null && assignable.map((row) => (
         <ModuleStrip
           key={row.name}
           row={row}
           held={held}
           floor={floor}
-          busy={busy}
+          busy={busy || settling}
           onPick={onPick}
         />
       ))}

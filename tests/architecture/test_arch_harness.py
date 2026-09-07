@@ -390,6 +390,17 @@ def test_grantable_modules_are_named(tmp_path: pathlib.Path) -> None:
     )
     assert check_grantable_modules_are_named(app) == []
 
+    # A label the rule cannot read is still a label. Only a literal counted before, so
+    # `label=MODULE_TITLE` was reported as "declares no label=" on a line that plainly
+    # declares one — a message asking for a fix that had already been made. The rule refuses
+    # to guess at a value it cannot see, the same answer it gives a computed `assignable=`.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label=MODULE_TITLE, assignable=True))\n",
+    )
+    assert check_grantable_modules_are_named(app) == []
+
     # `assignable=False` is not an opt-in either, and neither is a computed value: the rule
     # refuses to guess in both directions, leaving a non-literal to the constructor invariant
     # and the boot check, which see the value the app really passes.
@@ -491,6 +502,141 @@ def test_platform_modules_refuse_module_roles(tmp_path: pathlib.Path) -> None:
         "from terp.capabilities.access import AccessService\n\naccess = AccessService()\n",
     )
     _write(app, "modules/billing/module.py", "module = ModuleSpec(policy=Policy.default())\n")
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+
+def test_platform_modules_refuse_module_roles_looks_at_the_whole_module(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The unit is the module directory, not the triggering file's own.
+
+    A service kept a level down — ``modules/billing/services/grants.py`` — is an ordinary
+    layout, and it used to escape this rule entirely: its own parent directory holds no
+    manifest, so a check that globbed beside the file found no declaration and moved on. The
+    module opted into per-module roles while holding the authority that hands out every other
+    one, and the gate said nothing.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/billing/services/grants.py",
+        "from terp.capabilities.access import AccessService\n\naccess = AccessService()\n",
+    )
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label='Billing', assignable=True))\n",
+    )
+    violations = check_platform_modules_refuse_module_roles(app)
+    assert _rule_names(violations) == {"platform_modules_refuse_module_roles"}
+    # Still reported at the manifest, which is the line that has to change.
+    assert violations[0].path.endswith("module.py")
+
+    # And the refusal fixes it from down there just as it does from beside the manifest.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(\n"
+        "    access=ModuleAccess.platform_only(reason='it hands out every other authority')\n"
+        ")\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+
+def test_platform_modules_refuse_module_roles_wants_the_reason_too(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The refusal has to say why, and the constructor cannot be the one to insist.
+
+    ``platform_only(*, reason: str)`` makes the reason *present* — omitting it is an
+    import-time ``TypeError``, which needs no rule. It does not make the reason
+    *meaningful*: ``reason=""`` constructs happily and produces a module the access screen
+    lists as never assignable with nothing beside it, leaving the reader the exact question
+    the reason answers.
+
+    This is also the test that observes the classmethod form being matched at all.
+    ``base_name`` yields an attribute's last segment, so the helper's original
+    ``base_name(node.func) == "ModuleAccess"`` was ``"platform_only"`` for this form and
+    every refusal in the codebase was invisible to both rules.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import AccessService\n\naccess = AccessService()\n",
+    )
+
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only(reason=''))\n",
+    )
+    violations = check_platform_modules_refuse_module_roles(app)
+    assert _rule_names(violations) == {"platform_modules_refuse_module_roles"}
+    assert "says nothing about why" in violations[0].message
+
+    # No `reason=` at all is caught here too. Such a call would not survive import — the
+    # keyword is required — but a rule that parses rather than imports is the thing that gets
+    # to say so with a file and a line, and the refusal is the same one either way.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only())\n",
+    )
+    assert _rule_names(check_platform_modules_refuse_module_roles(app)) == {
+        "platform_modules_refuse_module_roles"
+    }
+
+    # Whitespace is not a reason either — it renders as the same blank space.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only(reason='  '))\n",
+    )
+    assert _rule_names(check_platform_modules_refuse_module_roles(app)) == {
+        "platform_modules_refuse_module_roles"
+    }
+
+    # A real reason is the fix, and the whole fix.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(\n"
+        "    access=ModuleAccess.platform_only(\n"
+        "        reason='it can grant every other authority'\n"
+        "    )\n"
+        ")\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # A non-literal is accepted, for the reason a non-literal `assignable=` is: the rule
+    # refuses to guess at a value it cannot see, in either direction.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only(reason=WHY))\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # The reason is asked of the *refusal* form only. A declaration that neither opts in nor
+    # refuses — present, unassignable, no platform reason — owes nothing here: there is no
+    # refusal on the access screen for a reader to be left wondering about.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label='Billing'))\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # The reason clause is scoped the way the opt-in clause is: this rule speaks only about
+    # modules that can hand authority out. An ordinary module's blank reason is not its
+    # business, and its catalog entry claims no more than that.
+    _write(app, "modules/billing/service.py", "from terp.core import BaseService\n")
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only(reason=''))\n",
+    )
     assert check_platform_modules_refuse_module_roles(app) == []
 
 

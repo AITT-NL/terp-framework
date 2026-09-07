@@ -155,14 +155,11 @@ export function buildModuleRows(model: AccessModel): ModuleRow[] {
 }
 
 /**
- * The ladder as tile values, with "no access" first.
+ * The value of the "no access" tile, which is a real tile rather than an option buried in a
+ * menu — so revoking is exactly as reachable as granting, and the strip biases downward
+ * instead of upward.
  *
- * A real tile rather than an option buried in a menu, so revoking is exactly as reachable as
- * granting — the reference application's best small idea, and the one that makes the strip bias
- * downward instead of upward.
+ * The empty string, deliberately: no declared rung can carry it, so it cannot collide with a
+ * role name, and `value === NO_ACCESS` is the same test as "no rung selected".
  */
 export const NO_ACCESS = "";
-
-export function tileValues(model: AccessModel): string[] {
-  return [NO_ACCESS, ...[...model.roles].sort((a, b) => a.rank - b.rank).map((r) => r.name)];
-}

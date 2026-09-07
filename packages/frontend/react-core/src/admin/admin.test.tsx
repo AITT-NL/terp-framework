@@ -188,6 +188,18 @@ function stubAdminFetch() {
         modules: [],
       });
     }
+    if (path.includes("/api/v1/access/subjects/")) {
+      // The assignment panel on every detail screen reads this. Answered with a real, empty
+      // payload rather than left to the page fallback: the panel treats a failed read as
+      // "the rungs are unknown" and refuses to render its strips, which is correct behaviour
+      // and would otherwise turn every detail-screen test into a test of that error path.
+      return jsonResponse({
+        subject_id: path.split("/").pop(),
+        via: [],
+        permissions: [],
+        module_roles: [],
+      });
+    }
     if (path.endsWith("/api/v1/users/u1")) {
       if (request.method === "PATCH") {
         return jsonResponse({

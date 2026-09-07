@@ -199,6 +199,8 @@ export interface TerpStrings {
   /** Assignment panel: confirmation of the rung being taken away again. */
   moduleAccessRevokeTitle: string;
   moduleAccessRevoke: string;
+  /** Assignment panel: a rung held in a module that no longer accepts one. */
+  moduleAccessOrphaned: string;
   /** Generic "Status" column header. */
   statusColumn: string;
   /** Generic "Created" column header. */
@@ -389,6 +391,8 @@ export const DEFAULT_STRINGS: TerpStrings = {
   moduleAccessRevokeTitle: "Take away the role in {module}?",
   moduleAccessRevoke:
     "Access in this module falls back to what the person's role gives them everywhere else.",
+  moduleAccessOrphaned:
+    "Still set to {role} in {module}, which no longer accepts a role of its own. It has no effect, and removing it is the only change left to make.",
   statusColumn: "Status",
   createdColumn: "Created",
   statusActive: "Active",

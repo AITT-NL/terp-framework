@@ -41,6 +41,7 @@ _RUNTIME_TOOL_SOURCES = {
     "terp.core": _REPO_ROOT / "packages" / "backend" / "core" / "src" / "terp" / "core",
     "terp.migrations": _REPO_ROOT / "packages" / "backend" / "migrations" / "src" / "terp" / "migrations",
     "terp.capabilities.files": _REPO_ROOT / "packages" / "backend" / "capabilities" / "files" / "src" / "terp" / "capabilities" / "files",
+    "terp.capabilities.access": _REPO_ROOT / "packages" / "backend" / "capabilities" / "access" / "src" / "terp" / "capabilities" / "access",
     "@terpjs/react-core": _REPO_ROOT / "packages" / "frontend" / "react-core" / "src",
 }
 

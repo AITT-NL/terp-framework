@@ -250,6 +250,8 @@ export const LOCALE_NL: LocaleCatalog = {
     moduleAccessRevokeTitle: "De rol in {module} weghalen?",
     moduleAccessRevoke:
       "De toegang in deze module valt terug op wat de rol van deze persoon overal geeft.",
+    moduleAccessOrphaned:
+      "Staat nog op {role} in {module}, dat geen eigen rol meer accepteert. Het heeft geen effect; het weghalen is de enige wijziging die nog kan.",
     statusColumn: "Status",
     createdColumn: "Aangemaakt",
     statusActive: "Actief",

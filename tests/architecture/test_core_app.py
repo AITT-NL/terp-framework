@@ -18,6 +18,7 @@ from terp.core import (
     ADMIN,
     AuditPolicy,
     BootError,
+    AuthorizationRequirement,
     ControlPlane,
     CorsPolicy,
     EDITOR,
@@ -1060,3 +1061,41 @@ def test_a_sibilant_noun_pluralises_with_es() -> None:
     assert _plural("batch") == "batches"
     assert _plural("note") == "notes"
     assert _plural("company") == "companies"
+
+
+
+def test_a_permission_label_may_not_be_padded() -> None:
+    """A label is rendered next to a tier name, so leading or trailing space is a defect.
+
+    Refused at construction rather than trimmed, for the reason the dotted-name check is
+    refused rather than normalised: the declaration is the thing a reader greps for, and a
+    constructor that quietly rewrites it makes the source and the catalog disagree about what
+    the app declares. The pane renders the label inside a tile whose own padding is the
+    layout's business.
+    """
+    with pytest.raises(ValueError, match="must not be padded with whitespace"):
+        Permission("notes.delete", min_role=EDITOR, label="  Delete a note  ")
+
+    # The same string without the padding is fine, which is what makes the check about the
+    # padding rather than about the label.
+    assert (
+        Permission("notes.delete", min_role=EDITOR, label="Delete a note").label
+        == "Delete a note"
+    )
+
+
+def test_declared_rank_answers_none_for_a_requirement_it_does_not_recognise() -> None:
+    """An unrecognised requirement kind is unregistered, which is the fail-closed answer.
+
+    ``AuthorizationRequirement.kind`` is a plain ``str``, so a requirement can carry a kind
+    this model has no branch for — a future kind, or a hand-built value. ``None`` means
+    "this model declares no floor for that", which every caller already treats as a refusal;
+    guessing a rank would be the one answer that could authorize something.
+    """
+    model = PermissionModel.default()
+    unknown = AuthorizationRequirement(kind="attribute", name="tenant.owner", min_rank=10)
+
+    assert model.declared_rank(unknown) is None
+    # The recognised kinds still answer, so the assertion above is about the kind and not
+    # about the model being empty.
+    assert model.declared_rank(AuthorizationRequirement.from_role(EDITOR)) == EDITOR.rank

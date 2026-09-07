@@ -1,7 +1,11 @@
 # 0121 — A per-module role is an assignment, not a policy
 
-- **Status:** Accepted for the direction; phases 1 and 2a are implemented, the rest is
-  sequenced in
+- **Status:** Accepted and implemented. Every phase this record's plan sequenced has landed —
+  the declarations, the table and the resolver seam, the guard change, the operator command, the
+  HTTP writer, the viewer and assignment surfaces, and the three static rules. What remains is a
+  release step rather than a design one: the rules run ahead of their published catalog entries
+  under [ADR 0116](0116-a-rule-may-run-ahead-of-its-published-catalog-entry.md), and the phase
+  record is
   [per-module-access-design-and-plan.md](../internal/drafts/per-module-access-design-and-plan.md).
 - **Date:** 2026-09-02
 - **Relates:** [ADR 0016](0016-permission-in-policy-enforced-as-grant.md) (a permission in a

@@ -367,6 +367,11 @@ def test_the_subject_endpoint_shows_a_stale_right_rather_than_hiding_it(
 
     AccessService().grant(db_session, subject, "retired.capability")
     ModuleRoleService().assign(db_session, subject, "tasks", int(Roles.EDITOR))
+    # And the third stale shape, which has a different fix from the other two: a rung in a
+    # module that *does* still accept them, at a rank the ladder no longer declares. `assign`
+    # stores it because validation lives at the writer; the guard refuses it because it does
+    # not trust the table. Both facts have to reach the reader, and only `stale` carries them.
+    ModuleRoleService().assign(db_session, subject, "notes", 25)
 
     body = admin.get(f"/api/v1/access/subjects/{subject}").json()
 
@@ -375,12 +380,21 @@ def test_the_subject_endpoint_shows_a_stale_right_rather_than_hiding_it(
     assert permission["declared"] is False
     assert permission["label"] is None
 
-    (role,) = body["module_roles"]
-    assert role["module"] == "tasks"
-    assert role["stale"] == ["this app no longer declares the module assignable"]
-    # Still reported as effective: it is the highest row for that module, and whether it
+    by_module = {row["module"]: row for row in body["module_roles"]}
+    assert by_module["tasks"]["stale"] == [
+        "this app no longer declares the module assignable"
+    ]
+    assert by_module["notes"]["stale"] == [
+        "this app no longer declares a role at this rank"
+    ]
+    # The rank is reported as stored, and `role` is null rather than guessed at: naming a
+    # neighbouring rung would misreport what is held.
+    assert by_module["notes"]["role_rank"] == 25
+    assert by_module["notes"]["role"] is None
+    # Still reported as effective: each is the highest row for its module, and whether it
     # *applies* is what `stale` says. Conflating the two would hide one of the two facts.
-    assert role["effective"] is True
+    assert by_module["tasks"]["effective"] is True
+    assert by_module["notes"]["effective"] is True
 
 
 def test_the_subject_endpoint_is_admin_only(client_factory) -> None:
@@ -557,3 +571,62 @@ def test_the_app_declares_two_assignable_modules_whose_rungs_diverge(client_fact
     # delete behind a grant as well.
     assert deletes_allowed_at("notes") == {"viewer": False, "editor": False, "admin": False}
     assert deletes_allowed_at("projects") == {"viewer": False, "editor": True, "admin": True}
+
+
+
+def test_the_access_routes_fail_closed_when_the_app_declares_no_control_plane() -> None:
+    """Every route that consults the declarations refuses when there are none to consult.
+
+    Only a hand-composed app can reach this — ``create_app`` records the control plane and the
+    module specs on ``app.state``, so a real mount always has both. That is exactly why it
+    matters for the *write* paths: guessing on behalf of an app whose declarations cannot be
+    read is how a row that no guard will ever honour gets stored, and the caller is then told
+    the assignment succeeded.
+
+    Mounted bare on purpose, with no guard in front: the module ``Policy`` is applied by
+    composition, and this asserts what the router itself does when composition never ran.
+    """
+    from terp.capabilities.access.router import router as access_router
+    from terp.core.app import register_error_handlers
+
+    app = FastAPI()
+    register_error_handlers(app)
+    app.include_router(access_router, prefix="/api/v1/access")
+    app.dependency_overrides[get_session] = lambda: None
+    client = TestClient(app)
+    subject = uuid.uuid4()
+
+    projection = client.get("/api/v1/access/model")
+    assert projection.status_code == 400
+    assert projection.json()["code"] == "validation_failed"
+    assert "no control plane" in projection.json()["detail"]
+
+    # The provenance view too. It kept a third copy of this block until a coverage gap pointed
+    # at it, which is the drift one shared helper exists to prevent.
+    provenance = client.get(f"/api/v1/access/subjects/{subject}")
+    assert provenance.status_code == 400
+    assert "no control plane" in provenance.json()["detail"]
+
+    # The writer refuses through the same helper, which is the point of it being one helper:
+    # a projection that cannot be built and an assignment that cannot be validated are the
+    # same missing fact, and two copies of the check could disagree about it.
+    assignment = client.put(
+        f"/api/v1/access/subjects/{subject}/module-roles/notes", json={"role_rank": 20}
+    )
+    assert assignment.status_code == 400
+    assert "no control plane" in assignment.json()["detail"]
+
+    # The grant writer keeps its own lookup, and its refusal names the field a form can
+    # attach it to — which is why it is not folded into the shared helper.
+    grant = client.post(
+        "/api/v1/access/grants",
+        json={"subject_id": str(subject), "permission": "notes.delete"},
+    )
+    assert grant.status_code == 400
+    assert grant.json()["details"][0]["loc"] == "permission"
+    assert grant.json()["details"][0]["code"] == "no_control_plane"
+
+    # Revoking is deliberately absent from this list, and the reason is worth stating: it
+    # consults no declarations at all, so there is nothing here for it to fail closed *on*.
+    # It still needs a database, which a router mounted without composition does not have —
+    # that it validates nothing is asserted where a real session exists, above.

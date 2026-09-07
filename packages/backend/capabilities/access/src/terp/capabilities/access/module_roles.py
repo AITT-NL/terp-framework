@@ -86,10 +86,17 @@ class ModuleRoleService(BaseService[ModuleRole, ModuleRoleCreate, ModuleRoleUpda
     def highest_rank(self, session: Session, subject_id: uuid.UUID, module: str) -> int:
         """The highest rank *subject_id* holds in *module* over the expanded subject set.
 
-        ``0`` when there is none, which is below every rank a ladder can declare, so an absent
-        assignment can never clear a floor. Expanded, so a rung assigned to a *group* reaches
-        its members through the seam that already makes a group's grants reach them — which is
-        what the FK-less ``subject_id`` was for.
+        ``0`` when there is none. Nothing forbids an app from declaring a rung at rank ``0``
+        — ``Role`` validates its name and not its number — so this cannot claim to be below
+        every declarable rung, and does not: it says "no rung", and a declared rank-``0`` rung
+        reports identically. That costs nothing, because the value is only ever compared
+        against a floor, and a rung at rank ``0`` clears exactly the floors that ``0``-as-absent
+        already clears. What it does mean is that ``0`` is not a safe rank to give a rung any
+        distinct meaning at, which is the honest thing to say rather than a range to promise.
+
+        Expanded, so a rung assigned to a *group* reaches its members through the seam that
+        already makes a group's grants reach them — which is what the FK-less ``subject_id``
+        was for.
 
         One aggregate query rather than a fetch-and-max in Python: this is on the request path
         of every guarded route whose caller does not already clear the floor.

@@ -181,9 +181,14 @@ def _declared_rank_only(rank: int, model: PermissionModel | None) -> int:
 
     ``validate_assignment`` refuses to *write* an undeclared rank, and that is not enough for
     the same reason it was not enough for a refusing module: the guard must not trust the
-    table. A rank the app has since stopped declaring lands here too, and ``0`` is the right
-    answer for it — below every declarable rung, so it clears nothing, while the row stays
-    visible to the views that report it stale.
+    table. A rank the app has since stopped declaring lands here too, and ``0`` is the answer
+    for it: the same value an absent assignment produces, so it clears whatever a missing rung
+    clears and nothing more, while the row stays visible to the views that report it stale.
+
+    Not "below every declarable rung" — nothing stops an app declaring one at rank ``0``, since
+    ``Role`` validates a name and not a number. It does not need to be: the floors a rank-``0``
+    rung could clear are the floors an absent one clears too, so collapsing the two changes no
+    decision. It does mean ``0`` carries no distinct authority anywhere in the system.
     """
     if model is None:
         return rank

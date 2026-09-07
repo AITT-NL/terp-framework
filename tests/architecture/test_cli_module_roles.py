@@ -246,3 +246,86 @@ def test_revoke_can_clear_a_role_in_a_module_the_app_no_longer_supports(
     assert "revoked the role" in _capture(
         app_module, tmp_path, "module-role", "revoke", str(subject), "retired"
     )
+
+
+def test_list_marks_a_rank_the_ladder_no_longer_declares(
+    app_module: str, tmp_path: pathlib.Path
+) -> None:
+    """The other stale shape, and it has a different fix from a retired module.
+
+    A rung stored at a rank the app has since stopped declaring cannot fire — the guard refuses
+    an undeclared rank rather than trusting the table — so `list` has to say so. It is the row
+    an operator is hunting for when someone's access looks wrong and every declaration looks
+    right, and the rank is printed as stored rather than mapped to a neighbouring rung, because
+    naming a rung nobody holds would be worse than naming none.
+    """
+    import uuid
+
+    from terp.capabilities.access import ModuleRoleService
+    from terp.cli._subjects import load_app_for_cli
+    from terp.core.db import get_session
+
+    load_app_for_cli(f"{app_module}:build", tmp_path)
+    subject = uuid.uuid4()
+    session = next(get_session())
+    # Through the service, because the command would (correctly) refuse to create this.
+    # 27, not 25: this app declares an `approver` rung at 25, and a fixture that picked it
+    # would print `invoices: approver` and assert nothing about staleness at all.
+    ModuleRoleService().assign(session, subject, "invoices", 27)
+
+    listed = _capture(app_module, tmp_path, "module-role", "list", str(subject))
+    assert "invoices: rank 27" in listed
+    assert "stale: this app no longer declares the rank" in listed
+
+
+def test_the_commands_refuse_an_app_that_exposes_no_control_plane(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A bare FastAPI is not a Terp app, and the command says which flag to fix.
+
+    `terp module-role` validates against the app's own declarations, exactly as `terp grant`
+    does, so an app that records none leaves it nothing to validate against. Guessing would
+    store a rung no guard could honour; exiting names the mistake — a factory that is not a
+    Terp composition root — and the flag that fixes it.
+    """
+    import pytest
+    from fastapi import FastAPI
+
+    from terp.cli.module_roles import _declarations
+
+    with pytest.raises(SystemExit) as exit_info:
+        _declarations(FastAPI())
+
+    assert "exposes no control plane" in str(exit_info.value)
+    assert "--app app.main:build" in str(exit_info.value)
+
+
+def test_a_refused_write_leaves_a_message_rather_than_a_traceback(
+    app_module: str, tmp_path: pathlib.Path, monkeypatch
+) -> None:
+    """A write the service refuses is reported as a sentence, not an exception.
+
+    Everything the declarations can catch is caught before the write, so reaching this needs
+    the *storage* to refuse — a constraint, a closed connection, an audit failure. Provoked
+    here by making the service raise, because the branch's whole purpose is that an operator
+    running a command gets a line they can read instead of a stack trace, and that promise
+    should not rest on nobody ever having tested it.
+    """
+    from terp.capabilities.access import ModuleRoleService
+    from terp.core import ValidationFailedError
+
+    account = _service_account(tmp_path, app_module, "billing-sync")
+
+    def _refuse(*_args: object, **_kwargs: object) -> None:
+        raise ValidationFailedError("the row could not be stored")
+
+    monkeypatch.setattr(ModuleRoleService, "assign", _refuse)
+
+    import pytest
+
+    with pytest.raises(SystemExit) as exit_info:
+        _run(app_module, tmp_path, "module-role", "add", account, "invoices", "editor")
+
+    message = str(exit_info.value)
+    assert "could not assign" in message
+    assert "the row could not be stored" in message

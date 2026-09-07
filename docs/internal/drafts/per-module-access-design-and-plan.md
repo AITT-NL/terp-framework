@@ -719,7 +719,9 @@ told the difference.
    - [x] **5b — the writer.** `PUT` / `DELETE
          /api/v1/access/subjects/{subject_id}/module-roles/{module}`, and the assignment panel on
          both a person's and a group's detail screen. Three things the plan had not settled, decided
-         here and recorded in ADR 0121 §9:
+         here, and recorded in this tracker rather than in ADR 0121 — the record settles the
+         *axis* (a rung is an assignment, resolved additively, not-assignable by default), and
+         these three are choices about the surface that implements it:
      - **Addressed by the pair, not by a row id.** `(subject_id, module)` *is* the fact's identity —
            the unique constraint says so and `assign` is already idempotent on it — so `PUT` is the
            honest verb. A `POST` that silently updated would be a create that is not one, and a row
@@ -767,7 +769,10 @@ told the difference.
    `no_manual_ownership_checks`' footing.
 
    The two-repository sequence ADR 0116 wrote down is what made this a green merge on both
-   sides: the catalog entry and corpus land in terp-spec, the rule lands here with its name in
+   sides — once the pre-push review found the step the sequence does not mention: a catalog entry
+   naming a *new* runtime tool also needs that tool in `_RUNTIME_TOOL_SOURCES`, or the
+   certification job refuses a name it cannot resolve and the release never happens. The
+   sequence is otherwise as written: the catalog entry and corpus land in terp-spec, the rule lands here with its name in
    `_AWAITING_SPEC_RELEASE`, terp-spec certifies against a `main` that carries it, and the pin
    bump empties the list. The window was already open for `modules_ship_tests` on the same
    unreleased 0.32.0, which is exactly what ADR 0116 predicted would happen.

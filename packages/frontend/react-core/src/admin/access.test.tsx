@@ -97,6 +97,24 @@ function accessModel() {
         endpoints: [endpoint(["GET"], "View the archive", { viewer: true, editor: true, admin: true })],
       },
       {
+        // Declared, but not assignable — the shape a module has after a release stops
+        // accepting per-module roles while rows naming it are still stored.
+        name: "legacy",
+        prefix: "/api/v1/legacy",
+        policy: { read: "viewer", write: "editor" },
+        permissions: [],
+        access: { assignable: false, label: "Legacy", platform_reason: null },
+        endpoints: [],
+      },
+      {
+        name: "retired",
+        prefix: "/api/v1/retired",
+        policy: { read: "viewer", write: "editor" },
+        permissions: [],
+        access: { assignable: false, label: "Retired", platform_reason: null },
+        endpoints: [],
+      },
+      {
         name: "access",
         prefix: "/api/v1/access",
         policy: { read: "admin", write: "admin" },
@@ -130,6 +148,9 @@ function initialDirect(): Map<string, number> {
   return new Map([
     ["notes", 20],
     ["archive", 25],
+    // Held in a module that no longer accepts a rung: it has no effect and the only change
+    // left is to remove it, which is the whole reason the panel has to show it at all.
+    ["legacy", 20],
   ]);
 }
 
@@ -157,6 +178,10 @@ function subjectAccess(subjectId: string, direct: Map<string, number>) {
       ),
       // Reports comes through a group, so the panel cannot change it — and must still credit it.
       heldRow("reports", 30, { id: GROUP, kind: "group", name: "Finance" }),
+      // Orphaned *and* inherited: a rung in a module that accepts none, held by a group. The
+      // panel must not offer to clear it here — the row belongs to the group, and the group's
+      // own screen is where it is the subject and can be removed.
+      heldRow("retired", 20, { id: GROUP, kind: "group", name: "Finance" }),
     ],
   };
 }
@@ -167,7 +192,37 @@ interface Written {
   body: unknown;
 }
 
-function stubAccessFetch(written: Written[], direct: Map<string, number>) {
+/**
+ * A gate the test can hold the provenance read behind.
+ *
+ * Needed because the panel's interesting state is a *window*: between a write resolving and
+ * its re-read landing, the rows on screen are the pre-write answer. With a stub that answers
+ * on the next microtask that window is real but not observable, and a test that tried to catch
+ * it would be a race. Holding every read open makes each step of the state machine a decision
+ * the test takes.
+ */
+interface ReadGate {
+  hold: boolean;
+  /** When set, the next held read answers with a failure instead of the rows. */
+  fail: boolean;
+  waiting: Array<() => void>;
+  release: () => void;
+}
+
+function makeReadGate(hold: boolean): ReadGate {
+  const gate: ReadGate = {
+    hold,
+    fail: false,
+    waiting: [],
+    release: () => {
+      const pending = gate.waiting.splice(0, gate.waiting.length);
+      for (const resume of pending) resume();
+    },
+  };
+  return gate;
+}
+
+function stubAccessFetch(written: Written[], direct: Map<string, number>, gate: ReadGate) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const request = input as Request;
     const url = new URL(request.url);
@@ -207,6 +262,15 @@ function stubAccessFetch(written: Written[], direct: Map<string, number>) {
       });
     }
     if (path.includes("/api/v1/access/subjects/")) {
+      if (gate.hold) {
+        await new Promise<void>((resume) => gate.waiting.push(resume));
+      }
+      if (gate.fail) {
+        return jsonResponse(
+          { code: "internal_error", detail: "the rungs could not be read" },
+          500,
+        );
+      }
       return jsonResponse(subjectAccess(path.split("/").pop() ?? SUBJECT, direct));
     }
     if (path.endsWith(`/api/v1/users/${SUBJECT}`)) {
@@ -247,8 +311,9 @@ function LogInOnMount() {
   return null;
 }
 
-function renderAt(initialPath: string) {
+function renderAt(initialPath: string, { gateReads = false } = {}) {
   const written: Written[] = [];
+  const gate = makeReadGate(gateReads);
   const manifests: ModuleManifest[] = [
     { name: "notes", routes: [{ path: "/", view: "NotesList" }], nav: [] },
   ];
@@ -262,7 +327,7 @@ function renderAt(initialPath: string) {
     title: "Terp",
     history: createMemoryHistory({ initialEntries: [initialPath] }),
   });
-  stubAccessFetch(written, direct);
+  stubAccessFetch(written, direct, gate);
   render(
     <TerpProvider baseUrl="https://api.test">
       <ToastProvider>
@@ -271,7 +336,7 @@ function renderAt(initialPath: string) {
       </ToastProvider>
     </TerpProvider>,
   );
-  return { written };
+  return { written, gate };
 }
 
 afterEach(() => {
@@ -479,5 +544,112 @@ describe("the assignment panel", () => {
       expect(tile("Notes", "viewer")).toHaveAttribute("aria-checked", "true"),
     );
     expect(tile("Notes", "editor")).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("refuses another choice until the re-read it triggered has landed", async () => {
+    // The window this closes: `busy` used to clear when the write settled, one round trip
+    // before `held` caught up. In between, the strip was fully interactive against the
+    // *pre-write* rows — so a second commit was compared with the stale selection and
+    // silently dropped as "already selected", leaving the server on the first choice and the
+    // reader with no sign their second click had been ignored.
+    const { written, gate } = renderAt(`/admin/users/${SUBJECT}`, { gateReads: true });
+
+    // Nothing is offered before the first read lands: an empty `held` cannot be told apart
+    // from "holds nothing", and a strip built on that answer offers the wrong selection.
+    await waitFor(() => expect(screen.getByText("Access per module")).toBeInTheDocument());
+    expect(screen.queryByRole("radiogroup", { name: "Notes" })).not.toBeInTheDocument();
+
+    gate.release();
+    await waitFor(() =>
+      expect(screen.getByRole("radiogroup", { name: "Notes" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("radiogroup", { name: "Notes" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    expect(tile("Notes", "editor")).toHaveAttribute("aria-checked", "true");
+
+    // Commit a middle rung. The write resolves; its re-read is still held.
+    fireEvent.click(tile("Notes", "viewer"));
+    await waitFor(() => expect(written).toHaveLength(1));
+    expect(screen.getByRole("radiogroup", { name: "Notes" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+
+    // A second commit in that window writes nothing — the strip is not a control right now.
+    // Before the fix this click reached `onPick`, matched the stale `editor` selection, and
+    // was discarded without a request or a word to the reader.
+    fireEvent.click(tile("Notes", "editor"));
+    expect(written).toHaveLength(1);
+
+    // Once the re-read lands the strip is a control again, and it shows what the server says.
+    gate.release();
+    await waitFor(() =>
+      expect(tile("Notes", "viewer")).toHaveAttribute("aria-checked", "true"),
+    );
+    expect(screen.getByRole("radiogroup", { name: "Notes" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+
+    // And the choice the window refused is available again, for real this time.
+    fireEvent.click(tile("Notes", "editor"));
+    await waitFor(() => expect(written).toHaveLength(2));
+    expect(written[1].body).toEqual({ role_rank: 20 });
+  });
+
+  it("says the rungs could not be read, and offers no choice against rows nobody confirmed", async () => {
+    // The other half of the settling rule. A read that fails is not a read that landed, so the
+    // strip must not become a control on the strength of rows nobody could confirm — offering
+    // one is how somebody changes the wrong tier believing it was the right one. The failure is
+    // shown rather than only toasted, because a toast is gone by the time it matters.
+    const { written, gate } = renderAt(`/admin/users/${SUBJECT}`, { gateReads: true });
+    await waitFor(() => expect(screen.getByText("Access per module")).toBeInTheDocument());
+
+    gate.fail = true;
+    gate.release();
+
+    // Asserted through the alert role rather than by text alone: a hidden node satisfies a
+    // text query, so "shown" and "present in the DOM" are two different claims and only the
+    // first is the one that matters to somebody reading the screen.
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("the rungs could not be read"),
+    );
+    // No strips at all, so there is nothing to click and nothing to misread.
+    expect(screen.queryByRole("radiogroup", { name: "Notes" })).not.toBeInTheDocument();
+    expect(written).toEqual([]);
+  });
+
+  it("shows a rung held in a module that no longer accepts one, and lets it be cleared", async () => {
+    // The strips are filtered to modules that opted in, which is right — offering a rung the
+    // server would refuse is worse than offering none. But a rung already *held* in a module
+    // that stopped accepting them then had nowhere to appear, and this panel is the only place
+    // it could ever be cleared: it outlived the release that made it meaningless, invisible to
+    // the one screen that could do anything about it. ADR 0121 says such a row is reported
+    // rather than filtered, and the strips alone cannot keep that promise.
+    const { written } = await openUserPanel();
+
+    const notice = screen.getByText(/no longer accepts a role of its own/);
+    expect(notice).toHaveTextContent("legacy");
+    expect(notice).toHaveTextContent("editor");
+    // And no strip for it, because there is no rung it could legally be given.
+    expect(screen.queryByRole("radiogroup", { name: "Legacy" })).not.toBeInTheDocument();
+
+    // Exactly one notice and one action, though two orphaned rungs are held: the other
+    // arrives through a group, and that row is the group's to clear on its own screen. The
+    // strip makes the same distinction, and a panel that offered it here would be writing a
+    // different row than the one it showed.
+    expect(screen.getAllByText(/no longer accepts a role of its own/)).toHaveLength(1);
+    expect(screen.queryByText(/retired/)).not.toBeInTheDocument();
+
+    // The one action the declarations still permit is offered, and only that one.
+    expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Take away the role in legacy?",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(written).toHaveLength(1));
+    expect(written[0].method).toBe("DELETE");
+    expect(written[0].path).toBe(`/api/v1/access/subjects/${SUBJECT}/module-roles/legacy`);
   });
 });

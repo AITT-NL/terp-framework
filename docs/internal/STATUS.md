@@ -708,9 +708,49 @@ one global rank and a group carries none.
       `_AWAITING_SPEC_RELEASE` now lists all three beside `modules_ship_tests`, which was already
       waiting on the same unreleased terp-spec 0.32.0. `test_no_rule_awaits_a_spec_release`
       refuses to cut a release while that list is non-empty, so the outstanding action is: publish
-      terp-spec 0.32.0, bump the `terp-spec==0.31.0` pin here, and empty the list. Until then the
+      terp-spec 0.32.0, bump the `terp-spec==0.31.0` pin here, and empty the list. That sequence
+      is only green because the pre-push review found the step it was missing — the catalog names
+      `terp.capabilities.access` as a runtime tool and `_RUNTIME_TOOL_SOURCES` had no entry for
+      it, so certification would have refused the release before the pin could ever be bumped. Until then the
       three rules run and are enforced, and no published catalog documents them — which is the
       state ADR 0116 permits across a merge and a publish, and refuses to allow into a release.
+
+**A second adversarial review was run before pushing** — seven dimensions, two diverse-lens
+refuters per finding, defaulting to refuted — and it found things the first pass could not,
+because it ran against the merged range rather than the branch. Ten defects fixed, four of them
+blocking:
+
+1. **The 100% coverage gate was red, and had been since before this thread.** CI runs
+   `coverage run -m pytest` with `fail-under=100`; nineteen statements were uncovered, twelve of
+   them merged at 0.18.0. Every one is now covered or restructured away, and the tests that close
+   them are mutation-checked. Two of the nineteen turned out to be unreachable branches rather
+   than untested ones — a second guard in `_module_root` and a `continue` in `_states_a_reason` —
+   and those were removed rather than given contrived tests.
+2. **Two decision records held 0121 again.** The renumber commit added the uniqueness gate, and a
+   commit fifty-nine minutes later on the same local `main` claimed 0121 for the
+   marketing-websites record. The gate caught it exactly as intended; that record is now 0123,
+   chosen over renumbering this one because it has no inbound citations while ADR 0121 is cited
+   from 37 files including two generated `openapi.json` descriptions.
+3. **The `## 0.31.0` heading was deleted from terp-spec's changelog.** The three-rule entry was
+   appended by replacing that heading instead of inserting above it, so everything 0.31.0
+   published was silently attributed to unreleased 0.32.0. Restored and checked by diffing the
+   heading set against the pre-change file: 32 before, 32 after, nothing else lost.
+4. **terp-spec 0.32.0 could not have been certified.** The new catalog entry names
+   `terp.capabilities.access` as a runtime tool, and `_RUNTIME_TOOL_SOURCES` in
+   `test_spec_catalog.py` had no entry for it — so the certification job that must pass *before*
+   the release would have failed on a name it could not resolve. Added, and every runtime `ref`
+   in the unreleased catalog now resolves.
+
+The six others: the assignment panel accepted a second choice in the window between a write
+settling and its re-read landing, comparing it against the pre-write rows and dropping it as
+"already selected" (`busy` cleared a round trip too early); a rung held in a module that stopped
+accepting them was filtered out of the only screen that could clear it; the escalation rule
+globbed beside the triggering file rather than at the module root, so a service kept in
+`modules/<name>/services/` escaped it entirely; a non-literal `label=` was reported as "declares
+no label="; `tileValues` had no consumer outside its own test; and four prose claims were untrue
+— a cited ADR section that does not exist, this record's own stale status line, and two docstrings
+justifying the `0` rank sentinel as "below every declarable rung" when nothing stops an app
+declaring a rung at rank 0.
 
 **An adversarial review has been run over the branch** — five lenses, three refuters per finding,
 defaulting to refuted — and six defects it found are fixed. The one that matters: the

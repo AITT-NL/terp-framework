@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pytest
 from fastapi import APIRouter
@@ -36,6 +37,7 @@ from terp.core import (
     Principal,
     Role,
     Roles,
+    PermissionDeniedError,
     ValidationFailedError,
     create_app,
     get_session,
@@ -45,11 +47,20 @@ import terp.capabilities.access.models  # noqa: F401  (register the access table
 from terp.capabilities.access import (
     ModuleRoleService,
     assignable_modules,
+    project_held_module_ranks,
     register_subject_expander,
     reset_subject_expanders,
     resolve_module_rank,
     validate_assignment,
 )
+from terp.core.app import build_guard
+from terp.core.permissions import (
+    project_module_ranks,
+    register_module_rank_projector,
+    registered_module_rank_projectors,
+    reset_module_rank_projectors,
+)
+
 from terp.capabilities.groups import register_group_expansion
 
 
@@ -67,6 +78,23 @@ def _canonical_expanders() -> Iterator[None]:
     yield
     reset_subject_expanders()
     register_group_expansion()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_module_rank_projectors() -> Iterator[None]:
+    """Snapshot the module-rank projector registry, and put it back afterwards.
+
+    Copied from the ``/me`` suite for the same reason the expander fixture above is copied
+    from the groups suite: the access capability registers its projector at **import** time,
+    once per process, and a test that clears the registry has disarmed it for everything that
+    runs afterwards. Snapshot-and-restore is the only cleanup that leaves the process as it
+    was found.
+    """
+    before = registered_module_rank_projectors()
+    yield
+    reset_module_rank_projectors()
+    for projector in before:
+        register_module_rank_projector(projector)
 
 
 @pytest.fixture
@@ -482,3 +510,111 @@ def test_a_rank_the_ladder_does_not_declare_clears_nothing(engine: Engine) -> No
         session.commit()
     assert client.post("/api/v1/notes/").status_code == 200
 
+
+
+def test_the_display_projection_reports_every_rung_a_subject_holds(engine: Engine) -> None:
+    """The `/me` counterpart of `resolve_module_rank`: every module at once, not one yes/no.
+
+    A **display** input and never a decision — the guard re-resolves on every request — but a
+    frontend that gates a button on the caller's own authority needs it, and a projection that
+    under-reports makes the button vanish for someone who may in fact press it (ADR 0121).
+
+    The fixture holds two rungs in `notes`, one directly and one through a group, stored in the
+    order that makes `max` observable: the **lower** rank is written first, so an accumulator
+    that kept the first value it saw, or compared with `min`, would answer `viewer` where the
+    truth is `editor`. With one row per module the two are indistinguishable, which is why the
+    group half of the fixture is here rather than in the resolver's own test.
+    """
+    group = uuid.uuid4()
+    subject = uuid.uuid4()
+    register_subject_expander(
+        lambda _session, holder: (group,) if holder == subject else ()
+    )
+    with Session(engine) as session:
+        ModuleRoleService().assign(session, subject, "notes", VIEWER.rank)
+        ModuleRoleService().assign(session, group, "notes", EDITOR.rank)
+        ModuleRoleService().assign(session, subject, "tasks", ADMIN.rank)
+        session.commit()
+
+        held = project_held_module_ranks(session, subject)
+
+    assert held == {"notes": EDITOR.rank, "tasks": ADMIN.rank}
+
+
+def test_the_projection_merges_across_projectors_and_keeps_the_higher(engine: Engine) -> None:
+    """`project_module_ranks` folds every registered projector, and a rung wins by rank.
+
+    The kernel holds the registry so `GET /me` can report per-module rungs without the auth or
+    identity capability importing the one that stores them — the seam shape the grant
+    projection already uses. Nothing in the framework registers a second projector, so the fold
+    *across* projectors is only observable with one registered here; without that, the
+    accumulator is indistinguishable from `dict.update`, which would let whichever projector
+    ran last lower an authority another had already reported.
+
+    The fake reports a *lower* rank for a module the real projector also answers and a higher
+    one for a module it does not, so both directions of the comparison are exercised.
+    """
+    subject = uuid.uuid4()
+    register_subject_expander(lambda _session, _holder: ())
+    with Session(engine) as session:
+        ModuleRoleService().assign(session, subject, "notes", EDITOR.rank)
+        session.commit()
+
+        def _fake(_session: Session, _subject_id: uuid.UUID) -> dict[str, int]:
+            return {"notes": VIEWER.rank, "reports": ADMIN.rank}
+
+        # Restored by `_isolate_module_rank_projectors`, which snapshots rather than clears:
+        # the capability's own registration is made at import and has to survive this test.
+        register_module_rank_projector(_fake)
+        projected = project_module_ranks(session, subject)
+
+    assert projected == {"notes": EDITOR.rank, "reports": ADMIN.rank}
+
+
+def test_a_stored_rank_is_filtered_only_where_a_model_declares_the_ladder(
+    engine: Engine,
+) -> None:
+    """A guard built without a permission model cannot check a rank, so it does not pretend to.
+
+    `build_guard`'s `permission_model` is optional, and the kernel's own guard tests build one
+    without it. The rank filter has to answer something for that case, and taking the stored
+    rank as given is the only answer that is not a lie: with no declared ladder there is no
+    rung to compare against, and answering `0` would deny an app that simply never registered a
+    model.
+
+    Composition never reaches it — `create_app` resolves a control plane before it builds a
+    guard, so a real mount always has the model and an undeclared rank really is refused, which
+    is the pairing asserted here. This pins the hand-composed case, which is the one the
+    kernel's own tests use.
+    """
+    subject = uuid.uuid4()
+    viewer = Principal(id=subject, role=VIEWER)
+    post = SimpleNamespace(method="POST")
+    register_subject_expander(lambda _session, _holder: ())
+    with Session(engine) as session:
+        # A rank no default ladder declares. `assign` stores it: validation lives at the
+        # writer, and the guard deliberately does not trust the table either way.
+        ModuleRoleService().assign(session, subject, "notes", 25)
+        session.commit()
+
+        def _resolver(inner: Session, holder: uuid.UUID, module: str) -> int:
+            return ModuleRoleService().highest_rank(inner, holder, module)
+
+        undeclared_is_refused = build_guard(
+            Policy.default(),
+            module_name="notes",
+            module_rank_resolver=_resolver,
+            permission_model=PermissionModel.default(),
+        )
+        with pytest.raises(PermissionDeniedError):
+            undeclared_is_refused(post, principal=viewer, session=session)
+
+        # Same rank, same row, no model: nothing declares the ladder, so the rank stands and
+        # a viewer clears the EDITOR write tier through it.
+        no_ladder_to_check = build_guard(
+            Policy.default(),
+            module_name="notes",
+            module_rank_resolver=_resolver,
+            permission_model=None,
+        )
+        no_ladder_to_check(post, principal=viewer, session=session)  # no raise
