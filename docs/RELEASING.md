@@ -27,7 +27,7 @@ Projects (one publisher each — the distribution names, not the repository name
 
 | Kernel & tooling | Capabilities |
 |---|---|
-| `terp-core` | `terp-cap-access`, `terp-cap-audit`, `terp-cap-auth`, `terp-cap-eventbus`, `terp-cap-files`, `terp-cap-groups`, `terp-cap-identity`, `terp-cap-jobs-celery`, `terp-cap-leases`, `terp-cap-oidc`, `terp-cap-outbox`, `terp-cap-realtime`, `terp-cap-redis`, `terp-cap-scheduler-apscheduler`, `terp-cap-scheduler-celery-beat`, `terp-cap-sync`, `terp-cap-tenancy`, `terp-cap-users`, `terp-cap-webhooks` |
+| `terp-core` | `terp-cap-access`, `terp-cap-audit`, `terp-cap-auth`, `terp-cap-egress`, `terp-cap-eventbus`, `terp-cap-files`, `terp-cap-groups`, `terp-cap-identity`, `terp-cap-jobs-celery`, `terp-cap-leases`, `terp-cap-oidc`, `terp-cap-outbox`, `terp-cap-realtime`, `terp-cap-redis`, `terp-cap-scheduler-apscheduler`, `terp-cap-scheduler-celery-beat`, `terp-cap-sync`, `terp-cap-tenancy`, `terp-cap-users`, `terp-cap-webhooks` |
 | `terp-arch` | |
 | `terp-cli` | |
 | `terp-migrations` | |
@@ -77,6 +77,39 @@ consumes them as ordinary pinned dependencies. Adopting a new spec release means
 the two constants that report the certified version (`terp.arch.SPEC_VERSION` and the ESLint
 adapter's `SPEC_VERSION` in `packages/frontend/eslint-boundaries/src/spec.js`) — then
 re-lock both lockfiles. `test_repo_split_readiness.py` fails the build if they skew.
+
+**Adopt the spec release in the same week it is cut, and move the two repositories in this
+order.** The two pipelines are circularly coupled, which is the whole of the procedure and
+the reason a bare "bump the pin when convenient" does not survive contact with a new rule.
+terp-spec's `certify-against-reference` job checks out this repository's **main source** and
+runs its parity tests against the new catalog; this repository's gate installs the
+**published** pin. So:
+
+**terp-framework moves first**, which is the opposite of what the coupling suggests and is
+the whole point of ADR 0116. terp-spec's `main` is protected by
+`certify-against-reference`, and that job reads this repository's **default branch** — so
+the standard cannot merge its own catalog entry until the reference implementation already
+carries the rule.
+
+1. **terp-framework first.** Land the rule implementation here and add its name to
+   `_AWAITING_SPEC_RELEASE` (`tests/architecture/test_spec_catalog.py`, ADR 0116). That
+   list is what lets `main` carry a rule whose catalog entry is not in the *installed*
+   release yet, so this merge is green instead of knowingly red.
+2. **terp-spec second.** Its certification now runs against a `main` that implements the
+   rule, so it passes and the catalog merges normally — no override on a protected branch.
+3. **Release terp-spec.** The tag's verify job certifies against the same `main` and
+   publishes.
+4. **Come back here and close the window.** Move the four declarations above to the new spec
+   version, re-lock, and **empty `_AWAITING_SPEC_RELEASE`** — a framework release cannot be
+   cut while it is non-empty, and a listed rule whose entry has since been published fails
+   the staleness check, so neither half can be forgotten.
+
+A release that only *records* behaviour this repository already ships — a residual promoted
+to required, say — collapses to step 2 alone, and that is the case most likely to be
+forgotten, because nothing here goes red when it is skipped. It does not go red because the
+gate reads the catalog from the installed package (ADR 0082): a stale pin certifies against
+the old bar silently, and the corpus cases written to hold the new one never run. Treat a
+spec release as unadopted until the four declarations name its version.
 
 **Check what the spec release actually ships, not what its changelog says it ships.** A
 schema declared in the spec repository but missing from its packaging manifests installs as

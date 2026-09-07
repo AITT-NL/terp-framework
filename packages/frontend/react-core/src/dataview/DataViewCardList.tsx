@@ -23,6 +23,7 @@ export interface DataViewCardListProps<T> {
   onToggleSelected: (rowId: string) => void;
   // Expansion
   renderExpanded?: (row: T) => ReactNode;
+  isRowExpandable?: (row: T) => boolean;
   isExpanded: (rowId: string) => boolean;
   onToggleExpanded: (rowId: string) => void;
   // Actions
@@ -58,7 +59,8 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
     <ul data-terp="dataview-card-list">
       {props.rows.map((row) => {
         const rowId = props.getRowId(row);
-        const expanded = props.isExpanded(rowId);
+        const expandable = props.isRowExpandable?.(row) ?? true;
+        const expanded = expandable && props.isExpanded(rowId);
         const clickable = props.onRowClick !== undefined;
         const tone = props.getRowTone?.(row) ?? null;
         return (
@@ -83,7 +85,7 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
                 />
               )}
               <div data-terp="dataview-card-main">
-                {props.renderExpanded !== undefined && (
+                {props.renderExpanded !== undefined && expandable && (
                   <DataViewExpandToggle
                     expanded={expanded}
                     onToggle={() => props.onToggleExpanded(rowId)}

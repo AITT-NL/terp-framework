@@ -140,7 +140,14 @@ def test_api_mounts_live_app_source_with_a_polling_reloader() -> None:
 def test_web_mounts_live_frontend_source_and_proxies_to_the_api() -> None:
     web = _compose()["services"]["web"]
     sources = {volume.rsplit(":", 1)[0] for volume in web.get("volumes", [])}
-    assert "./frontend/src" in sources
+    # The whole frontend, not just src/: the entry point imports declarations that live
+    # one level above it, and with only src/ mounted Vite served the copies baked into
+    # the image -- silently, which is why
+    # `test_dev_mounts_reach_what_is_imported` now holds the general rule.
+    assert "./frontend" in sources
+    # And the mask, without which the host's node_modules shadows the image's and a
+    # Linux container is handed a dependency built for the developer's own platform.
+    assert "/workspace/apps/example/frontend/node_modules" in web["volumes"]
     assert web["environment"]["TERP_DEV_FORCE_POLLING"] == "true"
     assert web["environment"]["TERP_API_PROXY"] == "http://api:8000"
 
@@ -158,7 +165,9 @@ def test_template_workbench_mounts_live_source_through_the_host_root_seam() -> N
         assert "${TERP_DEV_HOST_ROOT:-.}/app" in backend_sources
         assert "${TERP_DEV_HOST_ROOT:-.}/control_plane" in backend_sources
     web_sources = {volume.rsplit(":", 1)[0] for volume in services["web"].get("volumes", [])}
-    assert "${TERP_DEV_HOST_ROOT:-.}/frontend/src" in web_sources
+    # See the example's note: the whole frontend, plus the node_modules mask.
+    assert "${TERP_DEV_HOST_ROOT:-.}/frontend" in web_sources
+    assert "/app/frontend/node_modules" in services["web"]["volumes"]
     assert services["api"]["environment"]["WATCHFILES_FORCE_POLLING"] == "true"
     assert services["web"]["environment"]["TERP_DEV_FORCE_POLLING"] == "true"
 

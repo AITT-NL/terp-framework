@@ -53,6 +53,7 @@ from terp.core.logging import (
 from terp.core._internal.middleware import (
     ClientIpMiddleware,
     RateLimitMiddleware,
+    _RateLimits,
     RequestIdMiddleware,
     RequestSizeLimitMiddleware,
     SecurityHeadersMiddleware,
@@ -149,6 +150,11 @@ def test_security_config_validates_construction() -> None:
         SecurityConfig(request_id_header="   ")
     with pytest.raises(ValueError, match="trusted_proxy_hops"):
         SecurityConfig(trusted_proxy_hops=-1)
+    # A rate-limit override is keyed on a path prefix. A key that is not one would
+    # match nothing and read as a limit that had been applied, which is the worst
+    # failure a security declaration can have: silent and reassuring.
+    with pytest.raises(ValueError, match="rate_limit_overrides"):
+        SecurityConfig(rate_limit_overrides={"api/v1/auth": RateLimit(requests=5)})
 
 
 def test_production_problems_flags_unset_cors() -> None:
@@ -164,9 +170,59 @@ def test_production_problems_flags_wildcard_and_disabled_rate_limit() -> None:
     assert "rate limiting must be enabled" in joined
 
 
+def test_security_config_stays_hashable_with_overrides() -> None:
+    """A frozen value object that quietly stops being hashable is a real break.
+
+    Every other field here is hashable, and the config is a frozen dataclass, so
+    `hash(config)` works and a consumer may rely on it. A mapping field would have
+    taken that away without changing a signature -- which is why the declaration is
+    normalised to a tuple of pairs on the way in, and why this asserts it.
+    """
+    plain = SecurityConfig.default()
+    scoped = SecurityConfig(
+        rate_limit_overrides={"/api/v1/auth": RateLimit(requests=5, window_seconds=60)}
+    )
+    assert hash(plain) == hash(SecurityConfig.default())
+    assert isinstance(hash(scoped), int)
+    # The ergonomic mapping form is what an app writes; a tuple of pairs is what it
+    # becomes, and both spellings mean the same config.
+    assert scoped.rate_limit_overrides == (
+        ("/api/v1/auth", RateLimit(requests=5, window_seconds=60)),
+    )
+    assert scoped == SecurityConfig(
+        rate_limit_overrides=(("/api/v1/auth", RateLimit(requests=5, window_seconds=60)),)
+    )
+
+
+def test_production_problems_flags_a_disabled_rate_limit_override() -> None:
+    """One path family exempted is the same hole, and a quieter one.
+
+    The global limit still reads as enabled, so nothing else in the config says
+    that a family of paths is uncounted. The problem names the prefix, because a
+    reason a reader cannot act on is not a reason.
+    """
+    config = SecurityConfig(
+        cors=CorsPolicy.disabled(reason="api only"),
+        rate_limit_overrides={"/api/v1/assets": RateLimit.disabled()},
+    )
+    problems = config.production_problems()
+    assert len(problems) == 1
+    assert "/api/v1/assets" in problems[0]
+
+
 def test_production_problems_empty_when_safe() -> None:
     config = SecurityConfig(cors=CorsPolicy.disabled(reason="api only"))
     assert config.production_problems() == []
+    # A declared override that lowers (or raises) a limit is the sanctioned shape and
+    # must not read as a problem, or the feature is unusable in production.
+    scoped = SecurityConfig(
+        cors=CorsPolicy.disabled(reason="api only"),
+        rate_limit_overrides={
+            "/api/v1/auth": RateLimit(requests=5, window_seconds=60),
+            "/api/v1/files": RateLimit(requests=2000, window_seconds=60),
+        },
+    )
+    assert scoped.production_problems() == []
 
 
 # --------------------------------------------------------------------------- #
@@ -502,6 +558,99 @@ def test_rate_limit_middleware_blocks_after_limit() -> None:
     assert blocked.status_code == 429
     assert blocked.headers["Retry-After"]
     assert blocked.json()["code"] == "rate_limited"
+
+
+def _scoped_app() -> Starlette:
+    """An app with a path under a declared prefix and one outside it."""
+    return Starlette(
+        routes=[
+            Route("/", _ok, methods=["GET"]),
+            Route("/scoped", _ok, methods=["GET"]),
+        ]
+    )
+
+
+def test_rate_limits_resolve_the_longest_matching_prefix() -> None:
+    limits = _RateLimits(
+        240,
+        60,
+        {
+            "/api/v1/auth": (5, 60),
+            "/api/v1/auth/refresh": (60, 60),
+            "/api/v1/files": (1000, 300),
+        },
+    )
+    # The most specific declaration decides, not the first one written.
+    assert limits.for_path("/api/v1/auth/login") == ("/api/v1/auth", 5, 60)
+    assert limits.for_path("/api/v1/auth/refresh") == ("/api/v1/auth/refresh", 60, 60)
+    # The prefix itself matches, and so does the window it carries.
+    assert limits.for_path("/api/v1/auth") == ("/api/v1/auth", 5, 60)
+    assert limits.for_path("/api/v1/files/x") == ("/api/v1/files", 1000, 300)
+    # Unmatched paths keep the global limit, in the global bucket.
+    assert limits.for_path("/api/v1/notes") == ("", 240, 60)
+    # A prefix is a PATH prefix, not a string prefix: /api/v1/authorised is not under
+    # /api/v1/auth, and a limit meant for credentials must not land on it.
+    assert limits.for_path("/api/v1/authorised") == ("", 240, 60)
+
+
+def test_a_scoped_limit_has_its_own_counter() -> None:
+    """The point of the feature: exhausting one family must not 429 another.
+
+    A scoped limit sharing the global counter would be a second ceiling on one
+    tally rather than a separate allowance, so a burst of asset reads would still
+    lock out a login. This is the test that would go red if the bucket were dropped
+    from the counter key.
+    """
+    app = _scoped_app()
+    app.add_middleware(
+        RateLimitMiddleware, limit=5, window=60, overrides={"/scoped": (1, 60)}
+    )
+    client = TestClient(app)
+
+    assert client.get("/scoped").status_code == 200
+    assert client.get("/scoped").status_code == 429
+
+    # The global bucket is untouched by the scoped one's exhaustion.
+    unscoped = client.get("/")
+    assert unscoped.status_code == 200
+    assert unscoped.headers["X-RateLimit-Limit"] == "5"
+    assert unscoped.headers["X-RateLimit-Remaining"] == "4"
+
+
+def test_rate_limit_headers_name_the_limit_that_applied() -> None:
+    """A scoped limit a client cannot see is invisible until it fires."""
+    app = _scoped_app()
+    app.add_middleware(
+        RateLimitMiddleware, limit=240, window=60, overrides={"/scoped": (3, 60)}
+    )
+    client = TestClient(app)
+
+    first = client.get("/scoped")
+    assert first.headers["X-RateLimit-Limit"] == "3"
+    assert first.headers["X-RateLimit-Remaining"] == "2"
+
+    assert client.get("/scoped").headers["X-RateLimit-Remaining"] == "1"
+    assert client.get("/scoped").headers["X-RateLimit-Remaining"] == "0"
+
+    refused = client.get("/scoped")
+    assert refused.status_code == 429
+    assert refused.headers["X-RateLimit-Limit"] == "3"
+
+    # The global limit is what an unscoped path reports, on the same app.
+    assert client.get("/").headers["X-RateLimit-Limit"] == "240"
+
+
+def test_an_override_may_declare_a_path_family_unlimited() -> None:
+    app = _scoped_app()
+    app.add_middleware(
+        RateLimitMiddleware, limit=1, window=60, overrides={"/scoped": (0, 60)}
+    )
+    client = TestClient(app)
+    for _ in range(3):
+        assert client.get("/scoped").status_code == 200
+    # ... and the global limit still applies everywhere else.
+    assert client.get("/").status_code == 200
+    assert client.get("/").status_code == 429
 
 
 def test_declared_length_parses_header() -> None:

@@ -49,6 +49,10 @@ from terp.arch.rules.datetimes import (
     check_datetime_columns_are_timezone_aware,
     check_no_naive_datetime,
 )
+from terp.arch.rules.errors import (
+    check_errors_use_the_typed_envelope,
+    check_no_exception_text_in_responses,
+)
 from terp.arch.rules.hygiene import (
     check_no_blocking_sleep,
     check_no_empty_tests,
@@ -124,7 +128,10 @@ from terp.arch.rules.secrets import (
     check_no_adhoc_config_decrypt,
     check_no_hardcoded_credentials,
 )
-from terp.arch.rules.structure import check_canonical_module_shape
+from terp.arch.rules.structure import (
+    check_canonical_module_shape,
+    check_modules_ship_tests,
+)
 from terp.arch.rules.traits import (
     check_base_query_not_overridden,
     check_no_manual_actor_stamping,
@@ -169,6 +176,8 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "forwarded_filters_are_declared": "service",
     "frozen_values_hold_no_mutable_collection": "module",
     "no_naive_datetime": "service",
+    "errors_use_the_typed_envelope": "service",
+    "no_exception_text_in_responses": "service",
     "datetime_columns_are_timezone_aware": "module",
     "no_oversized_python_files": "module",
     "no_eval_or_exec": "capability",
@@ -208,6 +217,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "table_ownership_is_not_split": "migrations",
     "no_unique_columns_on_soft_delete_models": "module",
     "canonical_module_shape": "module",
+    "modules_ship_tests": "testing",
     "session_imported_from_sqlmodel": "service",
     "no_app_instantiation": "capability",
     "no_raw_app_routes": "capability",
@@ -257,6 +267,8 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_frozen_values_hold_no_mutable_collection,
     check_no_naive_datetime,
     check_datetime_columns_are_timezone_aware,
+    check_errors_use_the_typed_envelope,
+    check_no_exception_text_in_responses,
     check_no_oversized_python_files,
     check_no_eval_or_exec,
     check_no_star_imports,
@@ -295,6 +307,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_table_ownership_is_not_split,
     check_no_unique_columns_on_soft_delete_models,
     check_canonical_module_shape,
+    check_modules_ship_tests,
     check_session_imported_from_sqlmodel,
     check_no_app_instantiation,
     check_no_raw_app_routes,
@@ -397,6 +410,7 @@ __all__ = [
     "check_table_ownership_is_not_split",
     "check_app",
     "check_canonical_module_shape",
+    "check_modules_ship_tests",
     "check_escape_hatch_budget",
     "check_events_reference_catalog",
     "check_emitted_events_are_declared",
@@ -424,6 +438,8 @@ __all__ = [
     "check_schemas_avoid_positional_tuples",
     "check_update_schemas_inherit_base_update_schema",
     "check_no_naive_datetime",
+    "check_errors_use_the_typed_envelope",
+    "check_no_exception_text_in_responses",
     "check_datetime_columns_are_timezone_aware",
     "check_no_oversized_python_files",
     "check_no_blocking_sleep",

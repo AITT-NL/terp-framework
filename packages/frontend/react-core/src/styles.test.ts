@@ -464,6 +464,26 @@ describe("cascade structure", () => {
     expect(chrome, "the band is what separates chrome from content").toContain(
       "border-block-end: 1px solid var(--color-neutral-200)",
     );
+    // The block padding, and it has to be the same VALUE in both chrome rows rather than the
+    // same intention. A min-height is only a height while nothing legal can beat it, and
+    // var(--space-2) did not clear that bar: a 2.25rem control plus 8px of padding plus the
+    // 1px border is 53px against a floor of 48, so the app header (which always carries its
+    // toggle) was 53px, a band with an action button was 53px, and a band with only a title
+    // was 48px — the one row whose whole promise is that it matches the header above it,
+    // changing height per page.
+    //
+    // Zero, not a step: var(--space-1) leaves 39px of content box, which clears the 2.25rem
+    // control and not the 2.75rem one this package also ships, so a band with a large action
+    // button measured 53px again. Both rows spend the same value, and the resolved heights are
+    // pinned in the computed lane against the largest control there is; what belongs here is
+    // that neither row can move its padding without the other.
+    expect(chrome, "the band's block padding is the app header's").toContain(
+      "padding-block: var(--space-0)",
+    );
+    expect(
+      bodyFor('[data-terp="appshell-header"]'),
+      "both chrome rows spend the same block padding under the floor they share",
+    ).toContain("padding: var(--space-0) var(--shell-gutter)");
     expect(
       /padding-inline|padding:/.test(chrome),
       "an inline pad with no bleed would inset the band from the body beneath it",
@@ -860,7 +880,10 @@ describe("cascade structure", () => {
       '[data-terp="detail-list"][data-columns="2"]',
       '[data-terp="detail-list"][data-layout="aligned"]',
       '[data-terp="detail-list"][data-layout="aligned"][data-columns="2"]',
-      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"]',
+      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"]:not([data-full="true"])',
+      // The group's subgrid is a property of the shared column, so it belongs to the width at
+      // which there IS one.
+      '[data-terp="detail-list-group"] > [data-terp="detail-list"][data-layout="aligned"]:not([data-columns])',
     ]) {
       expect(
         declaresRuleFor(wide, selector),
@@ -961,6 +984,174 @@ describe("cascade structure", () => {
     // And the base rule still centres, or the title rides above the control in the common case.
     const headerAt = base.indexOf('[data-terp="card-header"] {');
     expect(base.slice(headerAt, base.indexOf("}", headerAt))).toContain("align-items: center");
+  });
+
+  it("gives the breadcrumb trail one line box, leaf included", () => {
+    // The trail is a row of items that get CENTRED, so two line heights in it are two
+    // baselines. The leaf declared 1.3 while its ancestors inherited `normal`: measured at
+    // font-size-sm, a 19.00px ancestor line box against an 18.19px leaf, which left the
+    // page's own title 0.59px above the crumb it hangs off with the chevron centred on a
+    // third line. One declaration on the trail, inherited by every crumb and by the h1, is
+    // what makes the row share a baseline.
+    //
+    // The published step rather than a bare literal, and that is the second half of the fix
+    // rather than house style: `normal` is the FONT's metric, so the mismatch was as big as
+    // the app's typeface said it was, and an app on a webfont with taller natural leading got
+    // a worse one than the system stack this was measured in.
+    const base = layerBody("terp.base");
+    const trail = base.slice(base.indexOf('[data-terp="breadcrumbs"] {'));
+    expect(
+      trail.slice(0, trail.indexOf("}")),
+      "the trail declares the line box every crumb shares",
+    ).toContain("line-height: var(--font-line-height-snug)");
+    const leafAt = base.indexOf('[data-terp="page-title"] {');
+    expect(leafAt, "the trail's leaf should have a rule").toBeGreaterThan(-1);
+    expect(
+      base.slice(leafAt, base.indexOf("}", leafAt)),
+      "the leaf takes the trail's line box; a second value here is the misalignment",
+    ).not.toContain("line-height");
+  });
+
+  it("spans a full row across every track, and makes it a box that can", () => {
+    // Two halves, and the second is the one that is easy to miss: a display: contents box
+    // generates no box, so grid-column on it is DROPPED and the span silently does not happen.
+    // The aligned row is a contents box above the cutover, so the full row has to become a
+    // block again there — which also gives it the label-above-value reading, the same pair's
+    // narrow shape.
+    const base = layerBody("terp.base");
+    // Anchored on the newline, because the wide block's rule ENDS with the same selector and
+    // an unanchored search finds that one first — which is how this test first passed while
+    // reading the wrong rule.
+    const spanAt = base.indexOf('\n[data-terp="detail-list-row"][data-full="true"] {');
+    expect(spanAt, "the full row should have a span rule").toBeGreaterThan(-1);
+    expect(
+      base.slice(spanAt, base.indexOf("}", spanAt)),
+      "1 / -1, so the row need not know how many tracks the list has",
+    ).toContain("grid-column: 1 / -1");
+    // And the invariant that makes the span reach it: NO rule may turn a full row into a
+    // display: contents box. Asserted over every such rule in the sheet rather than against
+    // the two that exist, because the failure is silent and specificity-shaped — the first
+    // version un-contents-ed the full row in a rule of its own, which tied with the auto
+    // list's contents rule and lost to source order, so `full` did nothing in an auto list at
+    // any width. An exclusion in the selector cannot lose that way; a third contents rule
+    // added without one fails here.
+    const contentsRules = [...base.matchAll(/([^{}]*detail-list-row[^{}]*)\{([^{}]*)\}/g)].filter(
+      ([, , body]) => /display:\s*contents/.test(body!),
+    );
+    expect(contentsRules.length, "the sheet should have contents rules to check").toBeGreaterThan(
+      0,
+    );
+    for (const [, selector] of contentsRules) {
+      expect(
+        selector!.includes(':not([data-full="true"])'),
+        `${selector!.trim()} would make a full row a contents box, which drops its span`,
+      ).toBe(true);
+    }
+  });
+
+  it("floors both tracks of an auto pair, and caps each at a share of the container", () => {
+    // The two failures this rule is shaped by, both measured rather than reasoned:
+    //
+    // A ZERO FLOOR makes an auto-fit repetition count unbounded — 35 pair repetitions with 31
+    // collapsed to 0px, every pair on one row — so `auto` is the one place in this component
+    // where a track may not be floored at zero. Hence a rem floor per track.
+    //
+    // A 100% CAP IS NOT ENOUGH FOR A PAIR. Grid's floor is min(16rem, 100%) because one track
+    // wider than its container overflows it; two tracks at 100% each can sum to 200%, and the
+    // list scrolled sideways in a narrow panel. The percentage shares are what keep one pair
+    // inside one container, so they must stay strictly under 100% between them.
+    const base = layerBody("terp.base");
+    const at = base.indexOf('[data-terp="detail-list"][data-layout="aligned"][data-columns="auto"] {');
+    expect(at, "aligned auto should have its own track list").toBeGreaterThan(-1);
+    const body = base.slice(at, base.indexOf("}", at));
+    const floors = [...body.matchAll(/min\((\d+)rem, (\d+)%\)/g)].map((match) => ({
+      rem: Number(match[1]),
+      share: Number(match[2]),
+    }));
+    expect(floors, "both tracks of the pair carry a floor").toHaveLength(2);
+    expect(
+      floors.every((floor) => floor.rem > 0),
+      "a zero floor makes the repetition count unbounded",
+    ).toBe(true);
+    expect(
+      floors.reduce((sum, floor) => sum + floor.share, 0),
+      "the shares must leave room for the gap, or one pair overflows its container",
+    ).toBeLessThan(100);
+    // The layouts with no label column repeat ONE track, and at Grid's own floor, so a stacked
+    // auto list and a grid of cards break at the same width by construction.
+    const plainAt = base.indexOf('[data-terp="detail-list"][data-columns="auto"] {');
+    expect(plainAt, "auto should have a no-label-column track list too").toBeGreaterThan(-1);
+    expect(base.slice(plainAt, base.indexOf("}", plainAt))).toContain(
+      "repeat(auto-fit, minmax(min(16rem, 100%), 1fr))",
+    );
+    // And the shared column for an auto list is declared at EVERY width, unlike the closed
+    // counts': the cutover is what `auto` exists to not need.
+    const rowAt = base.indexOf(
+      '[data-terp="detail-list"][data-layout="aligned"][data-columns="auto"]\n  [data-terp="detail-list-row"]',
+    );
+    expect(rowAt, "the auto row rule should exist").toBeGreaterThan(-1);
+    const wideAt = base.indexOf("@media not all and (max-width: 768px)");
+    expect(
+      rowAt > wideAt && rowAt > base.indexOf("}", base.indexOf('[data-terp="detail-list"] {')),
+      "the auto row rule belongs outside the wide block, at every width",
+    ).toBe(true);
+  });
+
+  it("gives the group the aligned track list verbatim, gutter included", () => {
+    // A subgrid takes the PARENT's tracks and the parent's gutter along the axis it subgrids,
+    // so these two declarations are one measure written twice — and a group whose tracks
+    // disagreed with aligned's would line its lists up with each other and with nothing else
+    // on the card. Compared rather than described, because the failure is invisible until two
+    // cards are side by side.
+    const base = layerBody("terp.base");
+    const alignedAt = base.indexOf('[data-terp="detail-list"][data-layout="aligned"] {');
+    const aligned = base.slice(alignedAt, base.indexOf("}", alignedAt));
+    const groupAt = base.indexOf('[data-terp="detail-list-group"] {');
+    expect(groupAt, "the group should have a base rule").toBeGreaterThan(-1);
+    const group = base.slice(groupAt, base.indexOf("}", groupAt));
+    const tracks = (body: string) => /grid-template-columns:\s*([^;]+);/.exec(body)?.[1]?.trim();
+    const columnGap = (body: string) => /column-gap:\s*([^;]+);/.exec(body)?.[1]?.trim();
+    expect(tracks(aligned), "aligned declares the shared track list").toBeTruthy();
+    expect(tracks(group), "the group shares aligned's track list").toBe(tracks(aligned));
+    expect(columnGap(group), "and its gutter, which the subgrid inherits").toBe(
+      columnGap(aligned),
+    );
+    // Every child spans the group, or a subgridded list would occupy one track and its values
+    // would land in the label column.
+    const childAt = base.indexOf('[data-terp="detail-list-group"] > * {');
+    expect(childAt, "the group's children should span it").toBeGreaterThan(-1);
+    expect(base.slice(childAt, base.indexOf("}", childAt))).toContain("grid-column: 1 / -1");
+    // And both of the group's rules reach its OWN children only. The child combinator looks
+    // like a tightening that could be relaxed and is the opposite: subgrid needs the element to
+    // be a grid item of the box owning the tracks, so as a descendant selector this would reach
+    // a list nested in a Stack, compute to `none` for want of a parent grid, and take that
+    // list's own label column with it. Not sharing is the correct outcome for a nested list;
+    // losing its tracks is not.
+    // Whitespace-normalised, because a selector this long is wrapped in the sheet and the
+    // wrapping is not the contract.
+    const flat = base.replace(/\s+/g, " ");
+    for (const rule of [
+      '[data-terp="detail-list-group"] > *',
+      '[data-terp="detail-list-group"] > [data-terp="detail-list"][data-layout="aligned"]:not([data-columns])',
+    ]) {
+      expect(
+        flat.includes(rule),
+        `${rule} must stay a child combinator: subgrid on a nested list computes to none`,
+      ).toBe(true);
+    }
+    // The group's gap is a row gap at every step, for the list's own reason: the column gap is
+    // the shared measure and is not a caller's to move.
+    for (const token of [0, 1, 2, 3, 4, 6, 8]) {
+      const stepAt = base.indexOf(`[data-terp="detail-list-group"][data-gap="${token}"]`);
+      expect(stepAt, `the group has no rule for gap ${token}`).toBeGreaterThan(-1);
+      const step = base.slice(stepAt, base.indexOf("}", stepAt));
+      expect(step, `gap ${token} must set the row gap only`).toContain(
+        `row-gap: var(--space-${token})`,
+      );
+      expect(/[^-]column-gap|^column-gap/.test(step), `gap ${token} must not touch the columns`).toBe(
+        false,
+      );
+    }
   });
 
   it("gives the page title, a card title and body copy three different steps", () => {
@@ -1255,12 +1446,18 @@ describe("cascade structure", () => {
       // and each of the six set cursor inline until it migrated. The day a calendar arrow gains
       // a min/max bound, this answer changes back.
       '[data-terp="iconbutton"]:disabled',
-      // HubPage was the condition for both of these, and it was the condition in the strongest
-      // form: hubcard-body's border and hubcard-title's colour were declared inline on the very
-      // elements these selectors match, so no layered rule could reach them at any specificity.
-      // Both surfaces come from terp.base now.
+      // HubPage was the condition for this one, and it was the condition in the strongest
+      // form: hubcard-body's border was declared inline on the very element this selector
+      // matches, so no layered rule could reach it at any specificity. That surface comes from
+      // terp.base now.
+      //
+      // Its twin was here until the hub card's hover state came down to the edge alone. The
+      // title's accent colour faced the same inline declaration and retired the same way, so it
+      // belonged in this list on the same evidence — but the selector itself is gone now, and a
+      // rule that does not exist cannot witness anything. Dropping it costs no coverage: the
+      // escalation it stood for retired for a reason this list still records once, in the entry
+      // above, since both halves faced the same inline consumer in the same file.
       '[data-terp="hubcard"]:hover [data-terp="hubcard-body"]',
-      '[data-terp="hubcard"]:hover [data-terp="hubcard-title"]',
       // AppShell's, and it blocked these two on its own: toggleStyle declared background and
       // colour inline on the shell's two toggles, the last elements wearing the icon-button
       // marker able to out-rank a layered rule. Their resting look is a scoped base rule now,
@@ -1516,6 +1713,7 @@ describe("cascade structure", () => {
       "input",
       "input-password",
       "field",
+      "control-field",
       "control-label",
       "checkbox",
       "radio",
@@ -1525,6 +1723,7 @@ describe("cascade structure", () => {
       "splitpage-panes",
       "splitpane",
       "detail-list",
+      "detail-list-group",
       "combobox",
       "combobox-list",
       "combobox-option",

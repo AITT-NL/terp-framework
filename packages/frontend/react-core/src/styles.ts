@@ -397,6 +397,37 @@ html {
    and the icon inherits — so a tone is one declaration pair rather than three
    places to keep in step. The body restates the reading colour, because the
    copy must stay neutral-900 while the frame and glyph carry the tone. */
+/* Disclosure. The toggle is a text button that happens to carry a chevron, so it
+   inherits the reading colour rather than the accent -- a row of accent-coloured
+   "Technical details" links reads as navigation, and this navigates nowhere. The
+   chevron rotates by swapping the glyph rather than by transform, which keeps the
+   two states legible with animation disabled.
+
+   The panel is indented to the width of the chevron plus its gap, so the revealed
+   content lines up with the label above it instead of with the glyph. */
+[data-terp="disclosure"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+[data-terp="disclosure-toggle"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+  padding: var(--space-1) var(--space-2);
+  margin-inline-start: calc(var(--space-2) * -1);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-neutral-700);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+[data-terp="disclosure-panel"] {
+  padding-inline-start: calc(var(--space-4) + var(--space-2));
+}
 [data-terp="alert"] {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -609,9 +640,41 @@ textarea[data-terp="input"] {
   /* display: contents is what makes the dt and dd grid items of the dl itself, so labels align
      ACROSS rows without a DOM change — and it belongs in here rather than in the base rules
      because it is the mechanism of the shared column, which exists only above the cutover.
-     Narrow, the row wrapper stays a block and each pair reads as two lines. */
-  [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-row"] {
+     Narrow, the row wrapper stays a block and each pair reads as two lines.
+
+     EVERY ROW BUT THE FULL ONE, and the exclusion is the whole of how full works rather than
+     a special case bolted onto it. A box that generates no box has no grid area, so the
+     grid-column the full row asks for is DROPPED and its span silently does not happen. Said
+     as :not() here, the full row is simply never a contents box — in this rule, in the auto
+     rule below, and in any third one someone adds — instead of being un-contents-ed again
+     afterwards by a rule that has to out-specify each of them in turn. The first version did
+     it that way and the auto list was the case it lost: same weight, declared earlier, so
+     full did nothing there at any width. */
+  [data-terp="detail-list"][data-layout="aligned"]
+    [data-terp="detail-list-row"]:not([data-full="true"]) {
     display: contents;
+  }
+  /* The shared measure across several lists (ADR 0113). The GROUP owns the track list -- see
+     its base rule below -- and each aligned list inside becomes a subgrid of it, so every
+     label in every list is measured against one track instead of each list measuring its own.
+     Four lists on a card had four different gutters before this, none of them wrong by that
+     list's own rules, which is why it read as sloppy rather than broken.
+
+     Keyed on :not([data-columns]) rather than on the marker alone, and that exclusion is the
+     honest half: a two-pair list needs FOUR tracks and the group publishes two, so folding it
+     in would reflow its pairs to one per row -- a layout change wearing an alignment fix's
+     clothes. It keeps its own tracks and its own measure, which is what it renders today.
+
+     Inside the wide block because that is where the shared column exists at all: below the
+     cutover every list is one column with the label above its value, so there is nothing to
+     share and the group is a plain stack of lists.
+
+     No feature query, and that is a property of subgrid rather than an omission: where it is
+     unsupported the declaration is dropped and each list keeps its own tracks, which is
+     exactly today's output. Baseline-wide since Chrome 117, Safari 16, Firefox 71. */
+  [data-terp="detail-list-group"]
+    > [data-terp="detail-list"][data-layout="aligned"]:not([data-columns]) {
+    grid-template-columns: subgrid;
   }
 }
 
@@ -689,6 +752,19 @@ textarea[data-terp="input"] {
 [data-terp="detail-list-row"] {
   min-width: 0;
 }
+/* One pair across every track, for the value that cannot live in a column: a paragraph, a
+   payload, a code block. Declared at every width, which costs nothing where there is one track
+   to span and is the point where there are four -- and it is what stopped a wide value from
+   needing a SECOND list, whose independently measured label column put its values on a
+   different vertical line from the first list's.
+
+   1 / -1 rather than a span count, so it does not have to know whether the list is one pair
+   wide, two, or an auto-fit count nobody wrote down. It is a grid item in every layout,
+   because the two rules that make a row a display: contents box both exclude it by
+   selector — a contents box has no grid area and would drop this declaration silently. */
+[data-terp="detail-list-row"][data-full="true"] {
+  grid-column: 1 / -1;
+}
 [data-terp="detail-list-term"] {
   display: inline;
   font-weight: var(--font-weight-medium);
@@ -729,6 +805,50 @@ textarea[data-terp="input"] {
 [data-terp="detail-list"][data-layout="stacked"] {
   row-gap: var(--space-3);
 }
+/* columns="auto", and its tracks live HERE rather than in the wide-viewport block above --
+   which is the whole of what it is for. The closed counts need a cutover because a number
+   cannot fit a phone; an auto-fit floor needs none, so this list follows its CONTAINER instead
+   of the window. That is the difference that matters for a list inside a card inside a split
+   pane, where the window says nothing about the width the list actually got.
+
+   Two published floors, and they are the behaviour rather than a detail: a pair is at least
+   9rem of label and 13rem of value. Measured across seven container widths -- three pairs at
+   1200px, two at 900px, one from 700px down.
+
+   The percentage cap is the part that is not obvious, and it is a real failure rather than
+   defensive. Grid's floor is min(16rem, 100%) because ONE track wider than its container
+   overflows it; a PAIR has two floors and 100% each lets their sum reach 200%, so a detail
+   list in a narrow panel scrolled sideways -- measured overflowing at 120px with both floors
+   capped at 100%. 30% and 60% leave the gap its share, so one pair always fits: no sideways
+   scroll at 240px.
+
+   A zero floor is not an option here even though every other track in this component takes
+   one. minmax(0, max-content) inside an auto-fit repeat makes the repetition count unbounded:
+   measured, Chromium generated 35 pair repetitions and collapsed 31 of them to 0px, putting
+   every pair on one row. Floors are what make auto-fit mean anything.
+
+   16rem for the layouts with no label column, which is Grid's own floor -- so a stacked auto
+   list and a Grid of cards break at the same width by construction rather than by coincidence,
+   the same argument the hub grid's floor already makes. */
+[data-terp="detail-list"][data-columns="auto"] {
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  column-gap: var(--space-4);
+}
+[data-terp="detail-list"][data-layout="aligned"][data-columns="auto"] {
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(9rem, 30%), max-content) minmax(min(13rem, 60%), 1fr)
+  );
+  column-gap: var(--space-3);
+}
+/* The shared column for an auto list, at EVERY width, which the aligned rule in the wide block
+   only gives above the cutover. Without it an auto list below the cutover would place each pair
+   BLOCK into one auto track, so the label would sit above its value in a list that had asked to
+   be measured -- the reflow this prop exists to replace, arriving through the back door. */
+[data-terp="detail-list"][data-layout="aligned"][data-columns="auto"]
+  [data-terp="detail-list-row"]:not([data-full="true"]) {
+  display: contents;
+}
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"],
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-value"],
 [data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"],
@@ -766,6 +886,48 @@ textarea[data-terp="input"] {
 [data-terp="detail-list"][data-gap="4"] { row-gap: var(--space-4); }
 [data-terp="detail-list"][data-gap="6"] { row-gap: var(--space-6); }
 [data-terp="detail-list"][data-gap="8"] { row-gap: var(--space-8); }
+
+/* The detail-list group (ADR 0113): several lists, one measured label column.
+   The subgrid half is in the wide-viewport block above, where the shared column exists; this
+   is the container that owns the tracks it shares.
+
+   THE TRACK LIST IS DECLARED ONCE, HERE, AND AT EVERY WIDTH -- not split into a narrow shape
+   and a wide override, and that is a placement decision rather than a shortcut. The wide block
+   sits ~100 lines above this section, so an override there would have to out-specify a rule
+   that comes later in source; the group root has no second attribute to spend on that. It does
+   not need one: with every child spanning 1 / -1, a group whose children are NOT subgrids
+   renders exactly as a stack of full-width lists, because the label track is then sized by
+   nothing and collapses to zero. So the narrow shape needs no rule at all and the two shapes
+   cannot drift apart.
+
+   It must be the aligned track list, verbatim, and column-gap with it: a subgrid takes the
+   PARENT's gutters along the axis it subgrids, so the group's column-gap becomes the
+   label-to-value distance inside every list in it. styles.test.ts pins the two against each
+   other, because a group whose tracks disagreed with aligned's would align the lists to each
+   other and to nothing else on the card. */
+[data-terp="detail-list-group"] {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  column-gap: var(--space-3);
+  row-gap: var(--space-4);
+  min-width: 0;
+}
+/* Every child spans the group, lists and everything between them alike -- a heading, a
+   divider, a paragraph. A list that becomes a subgrid needs the span to reach both tracks;
+   a child that does not is simply full width, which is what it would have been on its own. */
+[data-terp="detail-list-group"] > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+/* The distance between the lists. row-gap only, for the reason the list's own gap prop gives:
+   the column gap is the shared measure and belongs to the group's rule above, not to a caller. */
+[data-terp="detail-list-group"][data-gap="0"] { row-gap: var(--space-0); }
+[data-terp="detail-list-group"][data-gap="1"] { row-gap: var(--space-1); }
+[data-terp="detail-list-group"][data-gap="2"] { row-gap: var(--space-2); }
+[data-terp="detail-list-group"][data-gap="3"] { row-gap: var(--space-3); }
+[data-terp="detail-list-group"][data-gap="4"] { row-gap: var(--space-4); }
+[data-terp="detail-list-group"][data-gap="6"] { row-gap: var(--space-6); }
+[data-terp="detail-list-group"][data-gap="8"] { row-gap: var(--space-8); }
 
 /* Checkboxes / radios / switches ------------------------------------------- */
 /* One label shape for all three, so the marker is shared: the control differs,
@@ -1184,9 +1346,32 @@ textarea[data-terp="input"] {
 /* Breadcrumbs -------------------------------------------------------------- */
 /* The trail owns its whole subtree, so the list and its items are addressed
    structurally and the current crumb by the aria-current it already carries —
-   no marker for something the accessibility tree already states. */
+   no marker for something the accessibility tree already states.
+
+   ONE line-height for every crumb, declared here rather than left to inherit, and it is a
+   repair rather than a tidy-up. The leaf declared 1.3 of its own (see page-title) while its
+   ancestors inherited line-height: normal, so a row that centres its items was centring two
+   different line boxes and the two could not share a baseline. Measured in the workbench at
+   font-size-sm: the ancestors' line box resolved to 19.00px against the leaf's 18.19px, which
+   left the leaf's glyphs 0.59px above the crumb it hangs off, with the chevron between them
+   centred on a third line. Sub-pixel, and it reads as a trail whose end sits high.
+
+   DECLARED rather than inherited for the second half of the same defect: normal is the FONT's
+   own metric, so the size of the mismatch was whatever the app's typeface happened to say, and
+   an app on a webfont with taller natural leading got a worse one than the system stack this
+   was measured in. A published step is the one value the ancestor links and the h1 can agree
+   on without either of them asking the font.
+
+   What this does NOT fix is the chevron's optical centring, and that is a decision rather than
+   an oversight. Its box centres on the line box at 95.48px while the crumb's ink centres at
+   96.00px, because the font's ascent carries 5px of empty space above the caps against 4px of
+   descent below the baseline — so a box-centred glyph sits half a pixel high. Correcting it
+   means a nudge in em against ONE font's metrics, and this package renders system-ui: Segoe UI
+   here, SF on macOS, Roboto on Android. A correction that is right on one is wrong on the other
+   two, so the half pixel stays. */
 [data-terp="breadcrumbs"] {
   font-size: var(--font-size-sm);
+  line-height: var(--font-line-height-snug);
   color: var(--color-neutral-600);
 }
 [data-terp="breadcrumbs"] ol,
@@ -1526,8 +1711,41 @@ textarea[data-terp="input"] {
    above. That is a published contract token rather than a private property because
    tokens.guard.test.ts refuses a fallback-less var() against anything tokens.css does not
    declare — and a shell measure an app may want to move is what ADR 0097 §1 says a contract
-   token is for. The block padding is untouched and stays var(--space-2) under the
-   min-height floor.
+   token is for.
+
+   The BLOCK padding is ZERO, and that is what makes --shell-header-height mean anything. It
+   was var(--space-2) under the min-height floor and the floor never once applied: this header
+   ALWAYS carries a control — the sidebar toggle, the theme and language triggers — and a
+   control is --density-control-min-height, 2.25rem. 36px of control plus 8px of padding plus
+   the 1px border is 53px against a floor of 48, so the token an app reads to line its own
+   chrome up with this header was 5px short of the header itself, and the page band below
+   (which reads the same token, and carries a control only on a page that has actions) was 48px
+   on some pages and 53px on others. Measured, both of them, in the workbench.
+
+   Zero rather than a step, and the step is what the first attempt used: var(--space-1) leaves
+   a 39px content box, which clears the 2.25rem control and NOT the 2.75rem one the package
+   also ships (Button size="lg" is --density-control-min-height plus --space-2). Measured: a
+   band whose action button was large came out at 53px again — the same defect, on a legal
+   composition, four pixels of padding away. At zero the content box is the floor less its
+   border, 47px, which clears every control this package has; the row centres its content, so
+   a 36px control sits with 5.5px above and below it either way and nothing about the ordinary
+   band moves.
+
+   What zero costs is the WRAPPED row's breathing room, and the row gap is what pays for it:
+   a band that wraps grows past the floor and its two lines stay var(--space-2) apart, but the
+   first line now starts at the border. That is the trade — a rare row a little tight against
+   its edge, against a common row whose height depended on which control the page happened to
+   put in it.
+
+   A headroom argument rather than a proof, so it is pinned where a resolved height can be read
+   instead of inferred: the workbench's computed lane asserts both chrome rows come out at
+   --shell-header-height with no control, with the default one, and with the largest one the
+   package ships.
+
+   Not solved by raising the token instead, which was the other candidate. 3rem is published
+   geometry an app can already move from its own theme.css, and a consumer reading it to
+   offset something against this header is entitled to the number being true — so the fix is
+   to make the header the height it claims, not to redefine the claim around the padding.
 
    No backticks anywhere above, and that is not a style preference: one here terminates
    TERP_STYLES_CSS and the parse then fails somewhere else entirely with "try inserting a
@@ -1541,7 +1759,7 @@ textarea[data-terp="input"] {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-2) var(--shell-gutter);
+  padding: var(--space-0) var(--shell-gutter);
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   background: var(--color-neutral-0);
@@ -1743,8 +1961,10 @@ textarea[data-terp="input"] {
    list. In a band the title is CHROME — it names where you are, above content that starts
    immediately under a border — and a 24px leaf on a trail of 14px ancestors reads as
    small-small-BIG rather than as one trail. It also does not fit: the band is
-   shell-header-height with space-2 of block padding, which leaves 2rem, and xl at
-   line-height 1.3 is 1.95rem of it before a badge or a lead line asks for room.
+   shell-header-height less its 1px border, which leaves 47px, and xl at the trail's line
+   height is 2.03rem of it before a badge or a lead line asks for room —
+   and the row would then be set by the title rather than by the floor, which is the defect
+   the padding above was cut to end.
    --font-size-xl keeps two readers (heading[data-size="xl"], login-title), so the top of the
    scale is still wired; an app that wants the masthead back redefines the marker from its own
    unlayered theme.css, exactly as the retired comment here said.
@@ -1781,14 +2001,18 @@ textarea[data-terp="input"] {
    specific the ancestor rule is: without this the leaf renders at twice the trail.
 
    Semibold at the trail's own size, which is the whole "the trail is the title" idea in one
-   declaration — heavier than its ancestors, not larger. */
+   declaration — heavier than its ancestors, not larger.
+
+   And no line-height of its own, which is the other half of that idea: it takes the trail's
+   (see breadcrumbs, where the value and the defect are recorded). A second value here — 1.3
+   against the ancestors' inherited normal — is what left the leaf's glyphs sitting 0.59px
+   above the crumb they hang off, in the same font at the same size. */
 [data-terp="page-title"] {
   margin: 0;
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0;
   color: var(--color-neutral-900);
-  line-height: 1.3;
 }
 /* Status pills next to the title. A row of its own so a page passing several keeps them
    together when the band wraps, rather than letting one pill orphan onto the second line. */
@@ -1825,6 +2049,16 @@ textarea[data-terp="input"] {
    height this is reading. Without it the two are a padding apart and the "same height as the
    header above it" claim is off by 1rem.
 
+   padding-block is ZERO for the reason the app header's rule states in full, and this row is
+   where the symptom showed: with var(--space-2) a single action button beat the floor, so the
+   band was 53px on a page with actions and 48px on a page without — the one piece of chrome
+   whose entire promise is that it is the same height as the header above it, changing height
+   per page. var(--space-1) fixed that for the default control and not for the large one, which
+   is why this is zero rather than a step. It still grows past the floor when the row WRAPS, which is the
+   one case that should move it: a long title meeting a wide action cluster takes a second
+   line rather than overflowing, and a band that clipped its own title to keep a height would
+   be the worse trade.
+
    :not([data-measure="narrow"]) because a form is capped WITH its header (ADR 0098 §3) — a
    Save button a screen-width from its field is worse than one over it — so a form gets the
    one-row band with no chrome at all: a title row, which is what it wants.
@@ -1833,7 +2067,7 @@ textarea[data-terp="input"] {
    is nothing to bleed into and an inline pad with no negative margin would inset the band's
    content from the body beneath it for no reason. */
 [data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] {
-  padding-block: var(--space-2);
+  padding-block: var(--space-0);
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   border-block-end: 1px solid var(--color-neutral-200);
@@ -2174,17 +2408,16 @@ textarea[data-terp="input"] {
    through an ancestor. hub-card-bare is what catches this one, and only because its full
    card is deliberately long enough to set the row height.
 
-   The transition splits three ways, and each half is declared where its property
-   lives: box-shadow and transform animate on the card, border-color on the body,
-   colour on the title. Two of those were already rules; the title's was inline until
-   this commit, which means terp.motion could not reach it and a reduced-motion user
-   watched it animate. All three are inside the block's reach now. */
+   The transition is ONE property on ONE element, and it used to be three across three.
+   box-shadow and transform animated on the card and colour on the title, because the hover
+   state lifted the card a pixel, gave it a shadow and took the title to accent alongside the
+   edge. The movement is gone (see the state rules for why), and with it both of the card's
+   transitions and the title's — a transition whose property nothing changes is dead weight
+   that reads as a live intention. What remains is the body's border-color, declared on the
+   element that owns the border. */
 [data-terp="hubcard"] {
   height: 100%;
   min-height: 0;
-  transition:
-    box-shadow var(--motion-duration-fast) var(--motion-easing-standard),
-    transform var(--motion-duration-fast) var(--motion-easing-standard);
 }
 [data-terp="hubcard-body"] {
   display: grid;
@@ -2227,7 +2460,6 @@ textarea[data-terp="input"] {
   color: var(--color-neutral-900);
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
-  transition: color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 /* neutral-600 rather than fg-muted, and it is not the tinted-surface case: this text
    sits on the card's own neutral-0 and measures 7.58 / 7.94 / 7.50 / 7.60 / 18.42. */
@@ -3482,6 +3714,16 @@ button[data-terp="input"][data-placeholder="true"] {
   font-size: var(--font-size-sm);
   color: var(--color-neutral-700);
 }
+/* The envelope for the three self-labelling controls (Switch, Checkbox, RadioGroup),
+   which cannot use [data-terp="field"]: that one is a <label> wrapping its control, and
+   these render their own. The justify-items:start is the load-bearing declaration — the
+   control's own <label> is inline-flex, and a stretched grid item would grow its click
+   target to the full column, so clicking empty space far from the text would toggle it. */
+[data-terp="control-field"] {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
 [data-terp="field-hint"] {
   color: var(--color-fg-subtle);
   font-size: var(--font-size-xs);
@@ -3919,6 +4161,15 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 @layer terp.state {
+  /* Disclosure's toggle is a text button, so its hover is a quiet wash rather than a
+     fill -- the control sits inside reading content and a solid hover would read as a
+     row selection. No focus rule: the [data-terp]:focus-visible rule below already covers every
+     marked element, and restating it here would be a copy that can drift out of step. */
+  [data-terp="disclosure-toggle"]:hover {
+    background: var(--color-neutral-100);
+    color: var(--color-neutral-900);
+  }
+
 /* Shared focus-visible ring: every interactive element that opts in via
    [data-terp] shows a soft outline ring. It must stay in terp.state. It ties
    with [data-terp="button"][data-variant="primary"] on specificity — both
@@ -4305,29 +4556,41 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 /* Hub cards --------------------------------------------------------------- */
-/* The hover edge recolours hubcard-BODY, not the card.
+/* The hover state is the accent edge, and nothing else.
 
-   The rule here used to set border-color on [data-terp="hubcard"], which is the outer <li>
-   and has no border: HubPage puts the visible edge on the inner hubcard-body span. So the
-   accent edge — clearly the intent, since the title goes accent and the card lifts and gains
-   a shadow at the same moment — never painted. Measured in a browser rather than reasoned
-   about, because no baseline captures a hover: the li computed border 0px none at rest and
-   0px none in the accent colour on hover, while the shadow and the transform did apply.
+   It was four declarations over three elements: the card lifted a pixel and took a shadow,
+   the body's border went accent, the title's colour went with it. The lift is what people
+   actually noticed, and not kindly. A hub is a grid of large targets, so a pointer on its way
+   to one card sweeps across every card between here and there, and each one twitched as it
+   passed — motion reporting the cursor's position, which the cursor already reports. Movement
+   in an interface should say something the still frame cannot; this said nothing, on a surface
+   that shows several of itself at once. The shadow went with it rather than separately: a
+   1px rise and a 1px shadow are one effect, elevation, and half of an elevation reads as a
+   rendering fault rather than as restraint.
 
-   BOTH ESCALATIONS ARE GONE, and this file was the condition for both. hubcard-body's
-   border and hubcard-title's colour were declared inline in HubPage, on the very elements
-   these two selectors match, so no layered rule could reach them at any specificity. Both
-   surfaces take their base from terp.base now, so layer order alone is enough. Two of the
-   seven, and neither could have retired one commit earlier. */
-[data-terp="hubcard"]:hover {
-  box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
-}
+   That leaves the edge to carry the whole state, and it is enough to: accent against
+   neutral-200 is the same signal the rest of the sheet uses for is-this-one, it lands on the
+   element the pointer is actually over, and it moves no layout. The title's accent came off
+   with it — not because it was objectionable, but because two properties saying one thing is
+   how a hover state grows back into four.
+
+   The edge recolours hubcard-BODY, not the card, and that distinction is the reason this rule
+   was dead for as long as it was. It used to set border-color on [data-terp="hubcard"], the
+   outer <li>, which has no border at all: HubPage puts the visible edge on the inner
+   hubcard-body span. Measured in a browser rather than reasoned about, because no baseline
+   captures a hover — the li computed border 0px none at rest and 0px none in the accent colour
+   on hover, while the shadow and the transform, being on the element that could take them, did
+   apply. So through that whole period the hover was a lift with no edge, the exact inverse of
+   what it is now.
+
+   THE ESCALATION IS GONE, and this file was the condition for it. hubcard-body's border was
+   declared inline in HubPage, on the very element this selector matches, so no layered rule
+   could reach it at any specificity. That surface takes its base from terp.base now, so layer
+   order alone is enough. The title's colour was the same story and retired the same way; its
+   hover half is gone with the rest of the state, so one of the seven is now moot rather than
+   merely retired. */
 [data-terp="hubcard"]:hover [data-terp="hubcard-body"] {
   border-color: var(--color-fg-accent);
-}
-[data-terp="hubcard"]:hover [data-terp="hubcard-title"] {
-  color: var(--color-fg-accent);
 }
 
 /* Which layout is active, expressed as more than a wash. terp.state, and keyed on the
@@ -4592,14 +4855,18 @@ button[data-terp="input"][data-placeholder="true"] {
    THE LAST ESCALATION IN THE SHEET IS GONE, and it was the widest. Its
    consumers were the three inline transitions left in the package: the shell's
    nav-link transition (NAV_LINK_STYLE), the hub card title's (titleTextStyle)
-   and the sidebar's own transition: width. The first two are rules now; the
-   third was the documented escape — the aside carried no marker, so nothing
-   here matched it and a reduced-motion user watched the rail animate — and it
-   is closed by the sidebar taking a marker and its width becoming a rule. With
-   no style attribute left to out-shout, layer order alone wins: terp.motion
-   sits above terp.base and terp.state, so transition: none needs nothing
-   shouted. Measured, not assumed: under prefers-reduced-motion the sidebar,
-   a nav link and a hub card title all compute transition-duration 0s. */
+   and the sidebar's own transition: width. The first became a rule; the second
+   became a rule and has since gone entirely, with the title's hover colour that
+   was its only reason to exist; the third was the documented escape — the aside
+   carried no marker, so nothing here matched it and a reduced-motion user
+   watched the rail animate — and it is closed by the sidebar taking a marker and
+   its width becoming a rule. With no style attribute left to out-shout, layer
+   order alone wins: terp.motion sits above terp.base and terp.state, so
+   transition: none needs nothing shouted. Measured, not assumed: under
+   prefers-reduced-motion the sidebar, a nav link and a hub card BODY all compute
+   transition-duration 0s. The body rather than the title, and the swap is the
+   point rather than a tidy-up: the title has no transition to suppress any more,
+   so asserting 0s on it would pass against a default and witness nothing. */
 @media (prefers-reduced-motion: reduce) {
   [data-terp],
   [data-terp="appshell-nav"] a,

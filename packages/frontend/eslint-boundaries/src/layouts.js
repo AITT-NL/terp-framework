@@ -98,6 +98,7 @@ export const LAYOUT_CONTRACTS = {
       DetailPage: {
         components: {
           DetailList: "detail-list",
+          DetailListGroup: "detail-list-group",
           Stack: "stack",
           Tabs: "tabs",
           ModuleNav: "module-nav",

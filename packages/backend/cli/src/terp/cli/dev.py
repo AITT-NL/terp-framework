@@ -13,6 +13,7 @@ the orchestration is fully testable without launching real servers.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import shutil
 import subprocess
@@ -37,13 +38,33 @@ _POLL_SECONDS = 0.2
 SHUTDOWN_TIMEOUT_SECONDS = 3
 
 
+#: Default host ports for ``terp dev``, in the range Terp owns.
+#:
+#: Not 8000 and 5173. Those are where a developer's OTHER applications live, so
+#: defaulting there means the framework's own dev loop is the thing that collides
+#: with the rest of the machine -- and it collided with the workbench too, which
+#: has always allocated its per-project ports out of this range. The compose
+#: files carry the same two numbers as their ``${WEB_PORT:-...}`` fallbacks, so
+#: the two ways to run an app agree on where to answer.
+#:
+#: The container-internal ports are deliberately NOT these: inside the Compose
+#: network 8000 and 5173 cannot collide with anything, and moving them would
+#: churn every healthcheck and proxy target for no gain.
+DEFAULT_API_PORT = 22100
+DEFAULT_WEB_PORT = 21100
+
+
 @dataclass(frozen=True)
 class DevCommand:
-    """One dev process: a label, the argv to launch, and its working directory."""
+    """One dev process: a label, the argv to launch, its cwd, and its env overlay."""
 
     label: str
     argv: tuple[str, ...]
     cwd: pathlib.Path
+    #: Variables layered over the inherited environment for this process only.
+    #: A tuple of pairs rather than a dict so the dataclass stays frozen and
+    #: comparable, which is what lets a test assert the whole command.
+    env: tuple[tuple[str, str], ...] = ()
 
 
 def dev_plan(
@@ -52,7 +73,8 @@ def dev_plan(
     root: str | pathlib.Path = ".",
     frontend_dir: str = "frontend",
     host: str = "127.0.0.1",
-    port: int = 8000,
+    port: int = DEFAULT_API_PORT,
+    web_port: int = DEFAULT_WEB_PORT,
     shutdown_timeout: int = SHUTDOWN_TIMEOUT_SECONDS,
 ) -> tuple[DevCommand, DevCommand]:
     """Pure: the ``(backend, frontend)`` commands ``terp dev`` runs.
@@ -68,6 +90,13 @@ def dev_plan(
     as ``terp dev --shutdown-timeout``. A non-positive value is refused rather than passed
     through: uvicorn reads ``0`` as "cancel in-flight work immediately", which is a different
     decision from the one this argument names, and a negative one is meaningless.
+
+    Both host ports are explicit, and the frontend is TOLD where the backend is rather than
+    left to assume. ``vite.config.ts`` falls back to a literal API address when
+    ``TERP_API_PROXY`` is unset, so a moved backend port and a stale proxy target would be one
+    edit apart in two repositories -- and that failure is a frontend which loads and cannot
+    reach its own API. Passing the value removes the second copy: the proxy target is derived
+    from the port this command actually binds.
     """
     if shutdown_timeout <= 0:
         raise ValueError(
@@ -93,8 +122,13 @@ def dev_plan(
     )
     frontend = DevCommand(
         label="frontend",
-        argv=("npm", "run", "dev"),
+        # ``--`` separates npm's own arguments from the script's. Vite defaults to
+        # 5173 and the template config pins nothing, so without this the frontend
+        # half of the dev loop lands on the very port the rest of this change
+        # moves away from.
+        argv=("npm", "run", "dev", "--", "--port", str(web_port)),
         cwd=root_path / frontend_dir,
+        env=(("TERP_API_PROXY", f"http://{host}:{port}"),),
     )
     return backend, frontend
 
@@ -106,10 +140,19 @@ Supervise = Callable[[Sequence["subprocess.Popen[bytes]"]], None]
 def _spawn(command: DevCommand) -> subprocess.Popen[bytes]:
     """Start one dev process, resolving its executable on PATH (so ``npm`` works on Windows)."""
     executable = shutil.which(command.argv[0]) or command.argv[0]
+    # Layered over the inherited environment rather than replacing it: a dev server
+    # needs PATH, the virtualenv, the user's proxy settings and their terminal
+    # locale, and only an overlay keeps them. ``os.environ`` is read first, so a
+    # developer who has exported TERP_API_PROXY to point somewhere else is
+    # overruled -- which is wrong the other way round, and is why the overlay is
+    # applied ONLY for names the plan actually sets.
+    env = None
+    if command.env:
+        env = {**os.environ, **dict(command.env)}
     # The argv is an internally composed dev command (uvicorn / npm from dev_plan), run with
     # shell=False, so there is no shell interpolation of untrusted input.
     return subprocess.Popen(  # noqa: S603 - internal dev argv, shell=False (no injection)
-        (executable, *command.argv[1:]), cwd=command.cwd
+        (executable, *command.argv[1:]), cwd=command.cwd, env=env
     )
 
 
@@ -132,7 +175,8 @@ def run_dev_command(
     root: str | pathlib.Path = ".",
     frontend_dir: str = "frontend",
     host: str = "127.0.0.1",
-    port: int = 8000,
+    port: int = DEFAULT_API_PORT,
+    web_port: int = DEFAULT_WEB_PORT,
     shutdown_timeout: int = SHUTDOWN_TIMEOUT_SECONDS,
     openapi_out: str = "openapi.json",
     preflight: bool = True,
@@ -160,6 +204,7 @@ def run_dev_command(
         frontend_dir=frontend_dir,
         host=host,
         port=port,
+        web_port=web_port,
         shutdown_timeout=shutdown_timeout,
     )
     if preflight:
@@ -186,4 +231,10 @@ def run_dev_command(
     return f"terp dev stopped ({ran})"
 
 
-__all__ = ["DevCommand", "dev_plan", "run_dev_command"]
+__all__ = [
+    "DEFAULT_API_PORT",
+    "DEFAULT_WEB_PORT",
+    "DevCommand",
+    "dev_plan",
+    "run_dev_command",
+]

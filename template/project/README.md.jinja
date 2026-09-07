@@ -9,7 +9,7 @@ Built on **Terp** — secure-by-default by construction. The composition root is
 uv sync                               # backend deps (creates ./.venv)
 npm --prefix frontend install         # frontend deps
 uv run terp check                     # the architecture gate (== CI)
-uv run terp dev                       # runs the API (:8000) + frontend (:5173) together
+uv run terp dev                       # runs the API (:22100) + frontend (:21100) together
 ```
 
 Backend commands run through `uv run …` — the `terp` CLI and the project's Python
@@ -79,7 +79,7 @@ uv run terp docker dev    # (or: docker compose watch)
 
 This builds the images, brings up Postgres, runs the migrations, seeds a usable admin
 (`admin@example.test`, password `correct horse battery staple`), then serves
-the API (`:8000`) and the frontend (`:5173`) — editing `app/` or `frontend/src/` live-syncs
+the API (`:22100`) and the frontend (`:21100`) — editing `app/` or `frontend/src/` live-syncs
 into the running containers. The one-off `app/seed.py` is where you put demo data worth
 working against; production bootstraps its first admin with
 `uv run terp user create <email> --role admin` instead (never `terp seed`).

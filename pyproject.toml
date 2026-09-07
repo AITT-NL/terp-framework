@@ -12,6 +12,7 @@ members = [
     "packages/backend/capabilities/tenancy",
     "packages/backend/capabilities/access",
     "packages/backend/capabilities/audit",
+    "packages/backend/capabilities/egress",
     "packages/backend/capabilities/eventbus",
     "packages/backend/capabilities/files",
     "packages/backend/capabilities/groups",
@@ -39,6 +40,7 @@ terp-migrations = { workspace = true }
 terp-cap-access = { workspace = true }
 terp-cap-audit = { workspace = true }
 terp-cap-auth = { workspace = true }
+terp-cap-egress = { workspace = true }
 terp-cap-eventbus = { workspace = true }
 terp-cap-files = { workspace = true }
 terp-cap-groups = { workspace = true }
@@ -75,7 +77,7 @@ dev = [
     # The Terp Standard (ADR 0082): the certification tests locate the
     # catalog/corpus through terp_spec.spec_dir(), never a repo path. Pinned to
     # one exact release (ADR 0086) so the Python and npm pins can be compared.
-    "terp-spec==0.29.1",
+    "terp-spec==0.31.0",
 ]
 # CI-only generic backstops (NOT part of the `pytest --cov=terp` gate; they
 # complement terp-arch, never replace it). Installed in CI; optional locally.

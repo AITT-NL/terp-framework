@@ -16,7 +16,7 @@ only on purpose, never by accident.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
@@ -186,6 +186,17 @@ class SecurityConfig:
     headers: SecurityHeaders = field(default_factory=SecurityHeaders)
     cors: CorsPolicy = field(default_factory=CorsPolicy.deny_all)
     rate_limit: RateLimit = field(default_factory=RateLimit)
+    #: Per-path-prefix rate limits, longest prefix wins (ADR 0115). A path that
+    #: matches an entry is counted in that entry's OWN bucket, so exhausting one
+    #: family cannot 429 another: a credential endpoint and an asset read share a
+    #: process, not a counter. Everything unmatched keeps ``rate_limit``. The shape
+    #: deliberately mirrors the per-mount ``max_request_bytes`` map (ADR 0067) --
+    #: one way to scope a limit to a path, not two.
+    #:
+    #: Declared as a mapping and normalised to a tuple of pairs, because every other
+    #: field on this frozen config is hashable and a dict field would quietly take
+    #: that away -- the same reason ``CorsPolicy`` keeps its origins in a tuple.
+    rate_limit_overrides: tuple[tuple[str, RateLimit], ...] = ()
     max_request_bytes: int = 1024 * 1024
     request_id_header: str = "X-Request-ID"
     trusted_proxy_hops: int = 0
@@ -196,12 +207,22 @@ class SecurityConfig:
     expose_api_docs: bool = False
 
     def __post_init__(self) -> None:
+        if isinstance(self.rate_limit_overrides, Mapping):
+            object.__setattr__(
+                self, "rate_limit_overrides", tuple(self.rate_limit_overrides.items())
+            )
         if self.max_request_bytes <= 0:
             raise ValueError("SecurityConfig.max_request_bytes must be positive")
         if not self.request_id_header.strip():
             raise ValueError("SecurityConfig.request_id_header must be a non-empty header name")
         if self.trusted_proxy_hops < 0:
             raise ValueError("SecurityConfig.trusted_proxy_hops must be zero or positive")
+        for prefix, _limit in self.rate_limit_overrides:
+            if not prefix.startswith("/"):
+                raise ValueError(
+                    "SecurityConfig.rate_limit_overrides keys are path prefixes and must "
+                    f"start with '/': {prefix!r}"
+                )
 
     @classmethod
     def default(cls) -> SecurityConfig:
@@ -225,6 +246,15 @@ class SecurityConfig:
             problems.append("CORS must not allow '*' in production")
         if not self.rate_limit.enabled:
             problems.append("rate limiting must be enabled in production")
+        # A disabled override is the same hole as a disabled global limit, one path
+        # family wide -- and a quieter one, because the global limit still reads as
+        # enabled. It is named by prefix so the reason is actionable.
+        for prefix, limit in sorted(self.rate_limit_overrides):
+            if not limit.enabled:
+                problems.append(
+                    f"rate limiting is disabled for {prefix!r}; a per-prefix override "
+                    "may lower or raise a limit, not remove it, in production"
+                )
         return problems
 
 

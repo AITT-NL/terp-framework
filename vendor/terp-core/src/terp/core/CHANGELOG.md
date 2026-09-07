@@ -10,6 +10,724 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.19.0 — 2026-09-06
+
+### Added
+
+- **The egress capability the outbound-HTTP rule was already naming** (ADR 0117).
+  `no_raw_outbound_http` refuses `httpx` / `requests` / `urllib3` / `aiohttp` and the
+  `socket` / `http.client` escape routes in every application module — and in that
+  module's tests and migrations, because it is a security rule — and told the author to
+  use "a declared capability with SSRF protection". **There was no such capability.**
+  Nineteen shipped and outbound HTTP was not one of them; the only guard in the tree was
+  private to webhook delivery, raised a webhook's 422, and was reachable only by
+  installing a capability whose purpose is something else.
+
+  So the rule refused the common case and named a destination that did not exist — which
+  is the shape ADR 0096 §4 already has a verdict for: a checked seam that does not cover
+  the common case is a hole, because the compliant path is not available and code goes
+  around it. The going-around is observable, as a foreign-system connector living in a
+  third root package the architecture scanner never reaches. And it was not only an
+  implementation gap: terp-spec's catalog makes it normative and its reference
+  realisation already said outbound calls "go through a declared **egress** capability".
+  The standard had named this package; it had not been written.
+
+  `terp-cap-egress` is a **library** capability like `terp-cap-leases` — no router, no
+  table, no auto-discovery. Outbound access is not something an app should acquire by
+  installing a package; it declares an `EgressPolicy` and constructs an `EgressClient`,
+  both visible in the composition root. The four things the rule calls per-call-site
+  choices are now properties of that declaration:
+
+  - **the allowlist** is exact hostnames and empty by default, so `api.example.com` does
+    not admit `evil-api.example.com`, patterns are refused at construction, and
+    forgetting to configure egress means egress does not work rather than works without
+    limits;
+  - **the SSRF denylist** applies to every resolved address and the connection is
+    **pinned** to the one that passed, which is what closes the DNS-rebinding window
+    between the check and the connect. Redirects are never followed, because a followed
+    redirect is a second, unvalidated target;
+  - **the timeout** is on the policy with no per-call override, and the response is
+    bounded too — it is attacker-influenced input, and an unbounded read is an unbounded
+    allocation;
+  - **every attempt reaches an observer, refusals included.** That is where metering and
+    egress auditing attach. It never sees a body, and an observer that raises cannot
+    change what happened, because metering is not allowed to turn a completed call into
+    a failed one.
+
+  `allow_private_addresses` opens the denylist for a sanctioned internal target. It is a
+  field in the composition root a reviewer can see rather than an exception inside the
+  client, and it applies to the whole policy — if that is too coarse, the answer is two
+  clients with two policies, not a per-call flag that puts the decision back where this
+  capability exists to take it from.
+
+  **Webhooks is the first consumer, and the denylist moved rather than being copied.**
+  The forbidden-range table, the IPv4-mapped-IPv6 unwrapping, the pinned target and the
+  fail-closed resolver now live in egress; webhooks keeps its 422 and the messages a
+  subscriber sees. Copying would have been the smaller diff and the worse decision: two
+  lists of forbidden network ranges drift, and the one that drifts is the one nobody is
+  looking at. A capability with no consumers would also have repeated the original
+  mistake in a new place.
+
+  The rule's refusal now names the capability, what to declare and what the client does.
+  `httpx` becomes a dependency of exactly one distribution. Of the two prerequisites ADR
+  0111 §4 recorded for an application-declared AI capability — transport/timeouts/SSRF
+  with a metering hook, and auditing the call — this is the first; the second is still
+  open.
+
+- **The audit trail can say who *saw* something** (ADR 0118). `AuditAction` was `created` /
+  `updated` / `deleted`, emitted automatically from the `BaseService` write chokepoint — so
+  "who changed this row" was answerable completely and "who read this row" was not
+  answerable at all. An export that streams a payroll file, a download of a stored document,
+  a screen that reveals a supplier's bank details behind a grant: each hands guarded data to
+  a person, and each left no trace. Under most access-control regimes the disclosure is the
+  reportable event, and the trail was recording the one thing usually recoverable from the
+  data itself while omitting the one thing that is not.
+
+  `terp.core.emit_disclosure(target_type=..., target_id=..., payload=...)` records it, with
+  the new `AuditAction.DISCLOSED`. Adding a fourth verb is trivial; what made this worth an
+  ADR is that the framework is built to prevent the write it needs, twice, and both refusals
+  are correct in every other case. The request session refuses to persist outside the audited
+  chokepoint (ADR 0015), and during a safe method the read-only guard refuses a write *even
+  inside* it, because a request authorized at the read tier must not mutate (ADR 0028 §F2).
+  A disclosure happens during a `GET`. So the record saying "this data was read" is refused
+  by the guard whose job is to ensure a read changes nothing — a conflict only if you count
+  the trail as business state, which it is not: it is the evidence that the read occurred.
+
+  The seam therefore takes **no session** and owns its own transaction, inside the
+  `fresh_write_scope()` a background job already uses (ADR 0038) — its own outermost unit of
+  work at the envelope's authority rather than a participant in the request. That is also
+  what makes the ordering guarantee real: it is called **before** the data is handed over, a
+  sink that raises propagates, and the record is durable the moment the call returns, so a
+  request that discloses and *then* fails has still left the trail. Recording afterwards
+  would only ever promise to remember what was already given away.
+
+  No migration: `action` is a bounded `AutoString(16)` with no native enum and no CHECK
+  constraint, `disclosed` is nine characters, and a test pins the column bound against the
+  value so that stops being true loudly rather than at the first INSERT. Emission stays
+  deliberate — only the endpoint knows whether what it returns is guarded, and auto-emitting
+  on every read would bury the reportable events under list traffic.
+
+- **`Switch`, `Checkbox` and `RadioGroup` carry their own `hint` and `error`** (ADR 0120).
+  `Field` is how this platform authors an accessible control: it wraps the control in a
+  `<label>`, gives the hint and the error ids, points `aria-describedby` at them, and sets
+  `aria-invalid` with a `role="alert"` on the error. These three could not use it. They label
+  *themselves* — the first two with their own `<label>`, the group with a `<fieldset>` and
+  `<legend>` — so nesting one in `Field` produces a `<label>` inside a `<label>`, which HTML
+  forbids and browsers resolve by binding the control to the outer one.
+
+  The consequence was not a slightly worse API but **no hint or error affordance at all**, and
+  the guide said so, sending authors to a hint placed beside the control as loose text — which
+  a screen reader never announces, because text next to a control is invisible unless something
+  points at it — and to a form-level summary for errors. `RadioGroup` is where that stops being
+  survivable: a boolean cannot hold a value its type refuses, but **a required choice can be
+  left unset**, and the rejection had nowhere to go except a summary that never names which
+  question was unanswered.
+
+  Both props are now on all three, wired by the same hook `Field` uses, so the four cannot
+  drift apart while looking alike. A caller's own `aria-describedby` is added to rather than
+  replaced. For the group, the description and the invalid state sit on the `<fieldset>` — the
+  thing left unanswered is the question, not any one radio, and marking each option would
+  repeat the message on every arrow-key move.
+
+  The affordance is a prop rather than a second `ControlField` component on purpose: a sibling
+  to `Field` would create a choice a caller can get wrong, and getting it wrong renders nested
+  labels silently. And the wrapper element is unconditional, which is the non-obvious part —
+  rendering it only when there is a message changes the element type at that position when an
+  error arrives, so React remounts the input and **an uncontrolled control loses its state at
+  exactly the moment the form says something is wrong**. That is tested rather than asserted.
+
+  Existing call sites are unchanged; both props are optional. The guide's "honest limitation"
+  paragraph, which is what sent authors to the inaccessible workaround, is rewritten in the
+  same commit.
+
+- **A module owes tests, and the scaffold now writes them** (ADR 0119). `canonical_module_shape`
+  requires five files and not one of them is a test, so a module could pass every structural
+  rule in the Standard — mount routes, own a table, declare a policy — while shipping no tests
+  of any kind. What makes that a Standard problem rather than a habit problem is what sat next
+  to it: `terp scaffold` wrote exactly those five files and stopped. **An untested module was
+  not a corner an application had to cut; it was the shape the platform handed out**, and the
+  gate agreed with it. The nearest existing rule sharpens the point — `no_empty_tests` has an
+  opinion about whether a test that exists can fail, and none about whether one exists.
+
+  The new `modules_ship_tests` requires every wired module to have at least one test the
+  project attributes to it. The decision it needed was never "are tests required"; it was
+  *where they live*, and the two answers in the field disagreed — a per-module package under
+  the project's `tests/`, and one flat `tests/` directory with a file named after each module.
+  Both now satisfy the rule, and the asymmetry is the decision: `tests/<module>/test_*.py` is
+  canonical, emitted by the scaffold and taught by `terp guide testing`, because a module
+  accumulates test files and a directory holds them without a naming convention; the flat form
+  is *recognised* rather than taught. Refusing it would have failed applications whose modules
+  are in fact tested, whose only way through would be an escape marker reading "this module has
+  no tests" — and **a gate satisfiable only by a false statement is worse than one that accepts
+  the same true claim written two ways**. It would also have made the Standard require, on the
+  day it shipped, a layout this repository's own example application does not use.
+
+  Tests stay in the project's `tests/` tree rather than inside the module directory: that is
+  where a test driving the composed app has to live, and where this repository keeps its own.
+  `terp new module` now writes `tests/<name>/` with a real test — the manifest declares the
+  module and its data layer, and writing requires more authority than reading — so a generated
+  module is born conformant rather than owing a debt nobody mentioned. A module that genuinely
+  has none takes `# arch-allow-modules-ship-tests: <reason>`, spending the app's escape-hatch
+  budget, which is already a shrink-only ratchet: adoption needed no new mechanism.
+
+  The reference application passes unchanged, which is the evidence the two-layout design was
+  the right call — the blocker recorded against this work was four modules going non-conformant
+  on day one, and it dissolves rather than being paid. The frontend half is deferred with its
+  trigger stated in the ADR: its fifteen rules are ESLint rules, and ESLint cannot assert that
+  a file is absent.
+
+## 0.18.0 — 2026-09-05
+
+### Changed
+
+- **The gate is measured against the standard it enforces.** The framework pinned
+  `terp-spec==0.29.1` while the standard was at 0.30.0, and 0.30.0 is not an unrelated
+  release: it is the one that turns two of `no_manual_ownership_checks`'s three recorded
+  residuals into **required** behaviour, each contracted by a corpus case. Being stricter
+  than the standard is allowed and the specification's changelog says so, so this was never
+  a conformance failure — it is the reference implementation not being measured against the
+  bar it had just raised.
+
+  The cost is specific rather than theoretical. `terp.arch` reads the catalog from the
+  *installed* package (ADR 0082), so the gate was certifying against the release that still
+  permits what its own implementation refuses, and the two corpus cases written to hold that
+  behaviour — a `jobs=` declaration bound to a name, and reach that follows a declared edge
+  — never ran against the implementation that shipped it. A residual recorded as a permitted
+  limit and a residual that has been closed read identically from inside a stale pin.
+
+  Four declarations move together, which is what ADR 0082 asks: the `pyproject.toml` pin, the
+  `@terpjs/spec` pin in `packages/frontend/eslint-boundaries/package.json`, and the two
+  constants that report the certified version (`terp.arch.SPEC_VERSION` and the ESLint
+  adapter's `SPEC_VERSION`). Both lockfiles are re-locked. Nothing else changed: the corpus
+  harness is green on all 244 cases at 0.30.0 without touching a rule, which is the evidence
+  that the pin was the whole of the gap.
+
+### Added
+
+- **A rate limit is scoped the way a body cap already is** (ADR 0115).
+  `SecurityConfig.rate_limit` was one number for the whole application, and one number
+  cannot be right for two kinds of endpoint. A credential endpoint wants single digits per
+  minute per address; a page that loads thirty assets wants a limit one screen cannot
+  exhaust. The value that ships is necessarily the loose one, because the tight one would
+  break ordinary browsing — so the control was enabled, reported in headers, and set to a
+  number chosen by whichever endpoint tolerates the least protection.
+
+  `SecurityConfig` now takes `rate_limit_overrides`: a path prefix to its own `RateLimit`,
+  longest prefix wins, everything unmatched keeps the global limit. The shape is
+  deliberately the per-mount `max_request_bytes` map (ADR 0067) and `_RateLimits` is
+  deliberately a near-copy of `_RequestSizeCaps` — the framework had already answered this
+  question once for a different limit, and two controls that scope themselves to a path in
+  two different ways would be two things to learn and two places to be wrong.
+
+  **A scoped limit gets its own counter, and that is the substance rather than a detail.**
+  The counter key carries the matched prefix. A scoped limit sharing the global counter
+  would be a second *ceiling* on one tally rather than a separate *allowance*, so a burst
+  of asset reads would still consume the budget a login needs — and the tighter you set the
+  login's limit, the easier it would become to lock logins out. A limit that is easier to
+  weaponise the more carefully it is set is worse than none.
+
+  Three details that are decisions. A prefix is a **path** prefix, so `/api/v1/authorised`
+  is not under `/api/v1/auth` (inherited from the body-cap resolver, along with its test).
+  The `X-RateLimit-*` headers report the limit that **actually applied**, because a scoped
+  limit a client cannot see is invisible until the moment it refuses — the same correction
+  the 413 got when it started naming the cap that applied. And an override may lower or
+  raise a limit but not **remove** one: `production_problems()` refuses a disabled override
+  and names the prefix, because one path family exempted is the same hole as a disabled
+  global limit and a quieter one, with the global limit still reading as enabled. A key
+  that is not a path prefix is refused at construction, since it would match nothing and
+  read to an auditor as a limit that had been applied.
+
+  **Nothing changes for an app that declares no overrides.** The one observable difference
+  is internal: the counter key gained a bucket segment (`rl::<ip>` where it was `rl:<ip>`).
+  Invisible for the in-memory default; a deployment on a shared store sees each key start
+  one fresh window on the deploy that ships this, and nothing beyond that.
+- **Two rules over the error path, which was the one place an application improvises a
+  message for a client and the one place nothing looked.** Everywhere else the shape of a
+  response is declared — a response model, a schema, a serialiser — and the rules that
+  guard those declarations cannot reach a string a handler builds on the spot. The
+  clearest evidence that this was a gap rather than a preference: the security posture an
+  application had to write for itself here was ahead of the standard, while everything
+  else it enforced (naive datetimes, pagination, string caps, optimistic concurrency,
+  write-role on mutations, hardcoded credentials, dynamic SQL) was already in the catalog.
+
+  `errors_use_the_typed_envelope` refuses `raise HTTPException(...)` in an application
+  module. A platform that promises one error envelope has to be the only thing that builds
+  it: a module naming a status code and a message directly is a second, undocumented error
+  contract for that one response, and a client then receives two shapes from one API with
+  no way to tell which it is holding. Each instance is defensible on its own, which is
+  exactly why the set of them accumulates. Raise an `AppError` subclass instead.
+
+  `no_exception_text_in_responses` refuses a caught exception's own text in the message a
+  client receives — `str(exc)`, `repr(exc)`, an f-string, `exc.args`, `%`-formatting, and
+  `traceback.format_exc()`, in the positional message and in `detail=` / `message=` alike.
+  A driver names the table and often the statement; a filesystem error names an absolute
+  path and therefore the deployment layout; a connection error names an internal host.
+  None of it is chosen, reviewed or versioned — it is a diagnostic string written for an
+  operator reading a log, forwarded verbatim to whoever made the request.
+
+  **The second rule is a split, not a prohibition, and the tests are where that is
+  visible.** `raise NotFoundError("Order not found") from exc` is untouched, because the
+  cause is the raise's cause and not one of its arguments — a rule that refused its own
+  recommended remedy would be worse than no rule. `log_context={"cause": str(exc)}` is
+  untouched because `terp.core` never serialises it: the operator keeps the driver's
+  message and the caller does not get it. And a builtin raised inside a handler is left
+  alone, because it is internal control flow that reaches a client only as a generic 500
+  whose message the framework writes. Each of those is a test asserting silence, beside
+  the six asserting a finding.
+
+  Both rules look at a `raise` statement and nothing else — no cross-file resolution, no
+  data flow, no guess about what a helper returns. The forms that fall outside are
+  recorded as residuals in the standard rather than claimed: an alias-renamed HTTP error,
+  an error built into a local name and raised a statement later, and a message helper
+  called from the handler.
+
+  The catalog half is terp-spec **0.31.0**, and the four declarations move with it. This
+  raises the bar for every implementation: an application that passed 0.30.x can fail
+  0.31.0.
+
+- **`no_manual_actor_stamping` follows its own justification: writing a stamp is refused,
+  gating on one is refused, reading one is not** (ADR 0114). The rule's prose said, in the
+  docstring and the catalog entry both, that "only attribute access (set / compare) is
+  policed" — a sentence that contradicts itself, since attribute access is the broad thing
+  and set-or-compare the narrow one. The detector did the broad thing, so
+  `if row.created_by_id is None` was refused by a rule whose stated reason is forgery, and
+  so was returning the value in a dictionary or putting it in a log line.
+
+  The cost was never the suppression comment. It was that a careful reader, told a rule
+  forbids reading provenance and shown a sentence saying only set and compare are policed,
+  correctly concludes the rule does not mean what it says — and then designs around a wall
+  that was never there. A refusal wider than its own justification spends the credibility of
+  every refusal beside it.
+
+  The scope now follows the harm, and each of the three shapes has a one-line reason.
+  **Assigning** or deleting forges the trail, because afterwards a hand-written stamp is
+  indistinguishable from one `_save` wrote. **Comparing** against a principal is
+  object-level authorization written inline — not forgery, but the hand-rolled version of
+  what `OwnedMixin` applies at the write chokepoint, so it is refused on its own terms and
+  the same expression inside a `where(...)` with it. **Reading** does neither, and the
+  ordinary uses are what the trail is kept for. The boundary is what a comparison is
+  *against*: a literal names no principal, so `is None` is a presence test rather than a
+  decision.
+
+  **The two sibling rules keep the broad reading, and that asymmetry is the decision rather
+  than an oversight.** For `deleted_at`, `tenant_id` and `owner_id` a read is the first half
+  of the harm — `if row.deleted_at is None` in module code *is* the hand-rolled scope
+  predicate, and a load of `owner_id` is the first half of a per-row gate that leaks the day
+  someone forgets it. No static check can tell those from a display read, and the direction
+  to be wrong in differs: for a gate you must not under-refuse, for a provenance trail you
+  must not over-refuse. Both sibling catalog entries now carry that sentence, so the breadth
+  is recorded rather than inferred from a detector.
+
+  terp-spec 0.31.0 carries the catalog half and three corpus cases contracting the new
+  boundary in both directions; two residuals (a `setattr` stamp, a comparison written as
+  `.in_` / `.is_`) are recorded rather than claimed. This is a contract change in the
+  permissive direction: an application that failed on a stamp read passes, and nothing that
+  passed starts failing.
+
+### Fixed
+
+- **Adding a rule no longer requires a main branch to be red** (ADR 0116). The two
+  repositories' contracts were symmetric and, in combination, unsatisfiable. This
+  repository's parity test compares its rules against the *installed* — pinned, published
+  — catalog in both directions; terp-spec's `certify-against-reference` runs that same test
+  from this repository's **default branch** against an unreleased catalog, deleting the pin
+  first. So a new rule has to be on `main` before the standard can certify and release it,
+  and for exactly that window `main` fails its own parity test. There was no ordering that
+  avoided it: landing the framework first turned `main` red, landing the spec first turned
+  certification red and needed an override on a protected branch, and the window lasted
+  until a human approved the release.
+
+  `_AWAITING_SPEC_RELEASE` is the allowance, and it is a shrink-only list like
+  `corpus/PENDING.json` and the escape-hatch budget beside it. A rule missing from the
+  installed catalog is still refused unless it is listed by name; a listed name must be a
+  rule that really exists, so a rename cannot leave a hole behind a dead entry; and a listed
+  rule whose entry has since been published is a failure rather than a no-op, because the
+  window it was opened for has closed. `test_no_rule_awaits_a_spec_release` then refuses to
+  cut a framework release while the list is non-empty — which is what makes it an allowance
+  rather than a loophole: a rule may outrun its published entry across a merge and a
+  publish, never into a release. That assertion is conditional on a tag being built, because
+  asserting it always would fail every ordinary run for the whole length of the window it
+  exists to permit — the same shape as `production_problems` being consulted only under
+  `ENVIRONMENT == "production"`.
+
+  During certification the assertion is trivially satisfied, because the catalog under test
+  already carries the rule. The allowance is invisible to the job it exists to unblock.
+
+- **The release runbook now names the order the two repositories move in.** Adopting a spec
+  release was documented as four declarations and a re-lock, which is true and is not the
+  hard part. The hard part is that the two pipelines are circularly coupled: the
+  specification's certification job runs the framework's parity tests against the new
+  catalog, so a new rule is red there until the framework carries the check, and the
+  framework installs the *published* pin, so the same rule is red here until the
+  specification version exists on the index. A pin that re-opened four days after it was
+  closed is what a procedure with no written order produces, so the order is now written
+  down beside the four declarations it applies to.
+
+## 0.17.0 — 2026-09-04
+
+### Changed
+
+- **A hub card no longer moves when the pointer crosses it.** Hovering one lifted the card a
+  pixel and gave it a shadow while the body's border and the title's colour went accent —
+  four declarations over three elements, all reporting the same fact. The lift is the half
+  that gets noticed, and not as polish. A hub is a grid of large targets, so a pointer on its
+  way to one card sweeps across every card between here and there, and each one twitched as it
+  passed; the effect on a full grid is a surface that ripples under the cursor. Motion in an
+  interface earns its place by saying something the still frame cannot, and this said only
+  where the pointer was, which the pointer already says.
+
+  The hover state is the accent edge now, and nothing else. The shadow came off with the
+  transform rather than separately, because a 1px rise and a 1px shadow are one effect —
+  elevation — and half of an elevation reads as a rendering fault rather than as restraint.
+  The title's accent came off because two properties saying one thing is how a hover state
+  grows back into four; the border alone lands on the element the pointer is actually over,
+  carries the same is-this-one signal the rest of the sheet uses, and moves no layout. Both of
+  the card's transitions and the title's went with the properties they animated, leaving one:
+  `border-color` on `hubcard-body`.
+
+  **This change is invisible to both lanes, which is why its record is in the sheet's comments
+  and its tests.** Screenshots capture a resting state and axe does not evaluate hover, so no
+  visual baseline moves and no resting pixel changes — the diff is four declarations and three
+  transitions coming out. An app that wants the lift back has the marker to do it: declare
+  it from `theme.css` against `[data-terp="hubcard"]:hover`.
+
+- **Every host port Terp binds by default moved into a range Terp owns.** A development
+  stack is the one part of this framework that has to coexist with software it has never
+  heard of, and 5173, 8000, 8080 and 3000 are exactly where that software lives. The
+  defaults were therefore not a convention but a collision, and the symptom is diffuse:
+  a stack that appears to start and answers somebody else's application, or refuses to
+  bind at all with a message about an address already in use.
+
+  The framework was also contradicting itself, which is what made this worth a release
+  rather than a preference. A workbench that runs several projects at once has always
+  allocated their host ports out of a Terp-owned range — its own comment gives the reason,
+  naming those very ports as where foreign applications live — while the compose files it
+  starts carried `${WEB_PORT:-5173}`. The two agreed only while the workbench was the thing
+  doing the starting, and disagreed for every other way to run an app: a shell, an editor
+  task, an agent, `terp dev`.
+
+  So: `WEB_PORT` defaults to **21100**, `API_PORT` to **22100**, and the deployment
+  profile's `WEB_PORT` to **23100**, in the template, in the example app, in
+  `.env.example`, and in `terp dev` — which gains `--web-port` beside `--port` and now
+  passes the frontend its port explicitly rather than leaving it to take Vite's own 5173.
+  `vite.config.ts` pins `server.port` for the same reason, so a bare `npm run dev` lands
+  in range too.
+
+  **Container-internal ports are deliberately untouched.** Inside a Compose network 8000
+  and 5173 cannot collide with anything, and every healthcheck, proxy target and process
+  argument is written against them; moving those would be churn with no beneficiary. Only
+  the host side of a published mapping changed.
+
+- **`terp dev` tells the frontend where the backend is, instead of both sides
+  hard-coding it.** `vite.config.ts` falls back to a literal API address when
+  `TERP_API_PROXY` is unset, so moving the backend's port left a stale proxy target one
+  edit away in a second file — and that failure is a frontend which loads perfectly and
+  cannot reach its own API. `dev_plan` now derives `TERP_API_PROXY` from the port the
+  command actually binds and passes it to the frontend process as an environment overlay
+  (layered over the inherited environment, never replacing it: a dev server needs PATH,
+  the virtualenv and the developer's own proxy settings). The literal in the config is now
+  the last resort for a bare `npm run dev`, not a value either supported loop depends on.
+
+- **The dev stack mounts the whole frontend, so the app's declarations are live again.**
+  `frontend/src/main.tsx` imports `../layout-contract.json` and `../i18n.json` — one level
+  *above* `src/`, which was the only thing mounted. Vite therefore resolved both to the
+  copies baked into the image at build time, so editing nav groups, shell density, the
+  default theme or the locale set changed nothing in the running stack. No error, no
+  warning, no rebuild: the stack served last build's declaration and looked healthy doing
+  it, and the same froze `vite.config.ts` and `tsconfig.json`.
+
+  The half that makes it more than an inconvenience: the boundary lint reads the
+  declaration from the **checkout** while the app reads the one in the image, so a change
+  could pass every check and be absent from the thing the checks describe.
+
+  Both the template and the example now bind `frontend/` with an anonymous volume masking
+  `node_modules` — not optional, because the host's directory would otherwise shadow the
+  image's and hand a Linux container a dependency built for the developer's own platform.
+  `tests/architecture/test_dev_mounts_reach_what_is_imported.py` is the control: any import
+  in the entry point that reaches outside `src/` has to land inside a mounted path, and the
+  failure names the file.
+
+- **`DataView` asks whether a row is expandable, instead of assuming every row is.**
+  `renderExpanded` is one prop for the whole view, so declaring it drew a chevron on every
+  row — including the rows with nothing behind it, where the only honest thing left to put
+  there is a sentence saying so. `isRowExpandable` closes an asymmetry that was already
+  inside one interface: `rowActions` four lines above it has taken a row all along. A
+  predicate rather than "call `renderExpanded` and see if it returns null", which would
+  build a subtree for every row on every render to answer a boolean, and run whatever the
+  caller does in there as a side effect of drawing a chevron.
+
+- **`useResource` carries the total the server already computed.** The backend has always
+  sent it — the `Page` envelope is `{items, total, skip, limit}` — and the documented
+  recipe for `list` unwrapped `.items` and dropped the rest, so every "showing N of M" and
+  every "at least N" warning re-derived an answer with `items.length >= limit`: a heuristic
+  standing in for a number. `list` may now return the page instead of the rows (a union, so
+  every existing source keeps compiling), and `Resource.total` is `number | undefined`
+  because the cursor envelope counts only when asked — unknown is a real answer and must
+  not render as zero.
+
+- **The database hint stopped teaching a fixed host port.** The commented-out `ports:`
+  line in the template's `db` service showed `"5433:5432"` — a literal, in the range this
+  release is moving away from, in the one place a reader looks when they want to attach a
+  client. It now shows `"${DB_PORT:-21400}:5432"` and says to declare `DB_PORT` in
+  `workbench.json` in the same change, which is what the workbench rule has always
+  required of a published port.
+
+### Added
+
+- **A clipboard seam, because the browser's own is a trap.** `navigator.clipboard` is typed
+  by `lib.dom` as always present and is absent outside a **secure context**, so on a plain
+  http origin `navigator.clipboard.writeText(...)` is a property read on `undefined` — a
+  *synchronous* `TypeError`, thrown before any promise exists, which no `.catch` on the call
+  and no `try` around an unreached `await` will see. TypeScript reports nothing. The outcome
+  is a button that does nothing and says nothing, found by a person clicking it rather than
+  by any check, and the icon set has shipped a `clipboard` glyph the whole time.
+
+  `copyText` and `useCopyToClipboard` wrap it once, with the `execCommand` path for the
+  insecure contexts where the API is absent, and **report a refusal** — the whole defect was
+  that the failure was silent, so a caller that ignores the answer has at least been given
+  one. The hook adds the "Copied" acknowledgement, because a copy has no visible result and
+  a control that does not acknowledge is indistinguishable from a broken one. Same shape as
+  the download seam of ADR 0096 §3, for the same reason.
+
+- **`Disclosure`: one labelled toggle over one region.** ADR 0099 refused an `Accordion` and
+  a `Collapsible`, and both readings still hold — `<details>` is not a restricted element,
+  so an app was never blocked, only unstyled. What changed is the discovery that the
+  framework owned *half* of this pattern: row disclosure has a home in `DataView`, and the
+  single value beside it had none, so "Technical details" was hand-built from a `Button`
+  carrying `aria-expanded` and a body toggled next to it — twice, independently, each
+  rewiring the same three attributes. This ships that control and nothing wider: no set, no
+  policy over one. It renders a button and a region rather than `<details>`, whose open
+  state is the browser's and fights a controlled prop, and it unmounts the panel while
+  closed rather than hiding it.
+
+- **`renderTerpApp` takes `errorMessages`.** `ErrorMessagesProvider`, `useErrorMessage` and
+  `DEFAULT_ERROR_MESSAGES` were all exported and there was no way to register a map from the
+  one-call bootstrap, which owns everything between the root and the router — so an app that
+  wanted its own wording for a code, or any wording at all for a code its own backend
+  modules define, had to abandon `renderTerpApp` for `TerpProvider` + `buildAppRouter`.
+
+  Fourth instance of the shape `headerActions` and `logoDark` already name in that file, and
+  the one that makes it a class rather than three oversights: a seam that exists, is
+  documented, and cannot be reached from the entry point every app uses. A general
+  `providers` wrapper slot would end the sequence and is declined — by ADR 0111's test it
+  adds capability and removes legibility, since no tool could then know an app's provider
+  stack. The typed option is the answer, one seam at a time.
+
+- **A control that stops the ports drifting back.**
+  `tests/architecture/test_dev_host_ports.py` reads every published mapping in the
+  repository as data and requires its default to fall inside the range, refuses a bare
+  literal host port outright, and greps for the conventional numbers — so a new file that
+  publishes 5173 fails even though the test never named it. The bound cannot be applied
+  centrally for the same reason ADR 0108's shutdown bound cannot: the host side of a port
+  is written in the app's own compose file, its own Vite config, or a CLI default, and
+  none of those routes through `create_app`.
+
+- **A record's labels can share one measure across several lists, and one pair can leave it
+  (ADR 0113).** `DetailList`'s aligned layout gives the labels a shared column, and three
+  things could not live in that column. All three used to be answered by splitting the list or
+  by hand-rolling a width, and each answer cost the alignment the component exists for.
+
+  **`DetailItem.full` spans one pair across every track**, label above value — the same pair's
+  narrow shape, asked for at one row rather than imposed on all of them. It is for the value
+  that is a paragraph rather than a field, and what it replaces is closing the `<dl>`, rendering
+  the wide thing and opening another. The rules that make a row a
+  `display: contents` box exclude it by selector, and that shape is a correction rather than a
+  flourish: a contents box generates no box, so
+  `grid-column` on it is dropped and the span silently does not happen. Un-contents-ing the full
+  row in a rule of its own was the first attempt, and that rule tied with the auto list's own
+  contents rule and lost to source order — so `full` did nothing at all in an auto list, at any
+  width, while the aligned specimen said everything was fine. An exclusion cannot lose that way,
+  and a third contents rule added without one fails a test.
+
+  **`DetailListGroup` shares one measured label column across several lists.** A record shown in
+  sections is a list per section, because the sections have their own headings and a `<dl>`
+  cannot carry a heading — and each list then measures its own label column, so three sections
+  whose labels differ in width put their values on three different vertical lines. Measured:
+  three distinct offsets on one card, none of them wrong by that list's own rules, which is why
+  it reads as sloppy rather than broken and why nothing in the suite could have caught it. The
+  group owns the track list and each aligned list inside becomes a `subgrid` of it, so every
+  label in every list is measured against the same track: one line, verified at the pixel.
+
+  A wrapper, and explicit rather than something `Card` infers from the lists it happens to
+  contain — a card that wants two different label widths has to be able to say so, and a card
+  has no business knowing about `<dl>` tracks. The lists have to be the group's OWN children:
+  `subgrid` needs the element to be a grid item of the box that owns the tracks, so wrapping
+  each heading-and-list section in a `Stack` — the obvious tidy-up — gives the shared measure
+  back. The rule says so with a child combinator on purpose, because as a descendant selector it
+  would reach the nested list and compute to `none` for want of a parent grid, taking that
+  list's own label column with it. Nesting costs you the group; it does not break the list. It shares the measure for `layout="aligned"` at
+  the default single column above the viewport cutover, and a `columns={2}` list keeps its own
+  four tracks rather than being quietly folded into two. Where `subgrid` is unsupported the
+  declaration is dropped and every list keeps its own tracks, which is exactly today's output —
+  so it ships with no feature query and nothing to remove later.
+
+  **`columns` takes `"auto"`**, which follows the CONTAINER rather than the viewport: the first
+  thing in this component that answers the width it actually got rather than the width of the
+  window, which is what a list inside a card inside a split pane needs. It closes the asymmetry
+  the component's own notes recorded — `Grid` publishes `columns="auto"` and a closed
+  one-or-two had no such escape, so the reflow had to be hand-rolled at one cutover. The closed
+  counts keep that reflow: a number that silently became three would not be a number.
+
+  Its floors are the behaviour rather than a detail, and two measurements set them. A zero floor
+  makes an `auto-fit` repetition count unbounded — Chromium produced 35 pair repetitions,
+  collapsed 31 to `0px` and put every pair on one row — so `auto` is the one place in this
+  component that needs a real floor: 9rem of label and 13rem of value, a 22rem pair. And a 100%
+  cap is not enough for a *pair*: `Grid`'s floor is `min(16rem, 100%)` because one track wider
+  than its container overflows it, and two tracks at 100% each summed past the container and
+  scrolled sideways. Each floor is therefore capped at a share of the track, measured across
+  seven widths — three pairs at 1200px, two at 900px, one from 700px down, no sideways scroll at
+  240px.
+
+  All three are pinned in the workbench's computed lane, where a resolved layout can be read
+  instead of inferred, and all three fail with the sheet reverted. The group's specimen is
+  deliberately a pair — the same three sections stacked plainly beside the same three grouped —
+  because neither half of that picture means anything alone.
+
+### Fixed
+
+- **The port move left three CI jobs dialling ports nothing was listening on.** Moving every
+  published host port into the Terp-owned range moved the publishers and not their consumers:
+  the conformance suite still drove `localhost:5173`, the production smoke test still curled
+  `localhost:8080`, and two Playwright configs still defaulted to 5173. The stacks came up
+  healthy and every request was refused at a closed port — the failure survives review exactly
+  because nothing about the workflow looks wrong.
+
+  The control that was supposed to prevent this only knew about publishing. It reads compose
+  mappings and Vite settings, so it passed: neither a workflow's base URL nor an e2e config's
+  default publishes anything. `test_nothing_dials_a_conventional_host_port` closes the other
+  side, over the workflows and the e2e configs, and it is scoped to the app's HTTP surface for
+  a reason found on its first run — a `postgresql://localhost:5432` in the gate is a runner
+  service container, out of scope by the same sentence that exempts a database client mapping.
+  The one place a `localhost` URL in a workflow is genuinely not the host is named rather than
+  pattern-matched: a readiness probe that runs through `docker compose exec`, inside the
+  container.
+
+  Also the last line of the coverage gate: `terp dev`'s environment overlay was applied by a
+  branch nothing executed, because the test beside it asserts the no-overlay half by reading
+  the plan. A real child process now reports its own environment back through a file — the seam
+  pipes no stdio, because a dev server's output belongs on the developer's terminal — and
+  proves both halves: the plan's port beats an exported `TERP_API_PROXY`, and everything else
+  the parent had survives.
+
+- **The subheader is the height its token declares, on every page.** A `min-height` is only a
+  height while nothing legal can beat it, and the page band's was not: a control is
+  `--density-control-min-height` (2.25rem), so 36px of control plus the row's 8px of block
+  padding plus its 1px border came to 53px against a floor of 3rem. The visible symptom is
+  the one that was reported — a subheader that changes height from page to page, because a
+  band with an action button was 53px and a band with only a title was 48px — and the app
+  header above it was quietly in the same state: it always carries the sidebar toggle, so it
+  was 53px too and `--shell-header-height` was 5px short of the header every app reads it to
+  line something up with.
+
+  Both rows now spend **no** block padding, so the content box is the floor less its border —
+  47px, which clears every control this package ships, the 2.75rem `Button size="lg"`
+  included. `--space-1` was the first answer and cleared only the default 2.25rem one: a band
+  whose action button was large measured 53px again, the same defect four pixels away. The row
+  centres its content, so a default control still sits with 5.5px above and below it and
+  nothing about the ordinary band moves; what zero costs is the wrapped row's breathing room,
+  where the two lines stay `--space-2` apart but the first starts at the border. **The app header is therefore 5px shorter than in 0.16.0** and
+  the content below it moves up with it; the band no longer moves at all. Raising the token to
+  fit the old padding was the other candidate and was declined: 3rem is published geometry an
+  app can already move from its own `theme.css`, and a consumer reading it is entitled to the
+  number being true. A band whose row WRAPS — a long title meeting a wide action cluster —
+  still grows, which is the one case that should move it.
+
+  Pinned in the workbench's computed lane, because this is exactly the fact a screenshot
+  cannot state: a baseline can only say a row looks like the last picture of itself, never
+  that it is the height a token declares. Both rows had baselines throughout.
+
+- **Every crumb in the breadcrumb trail sits on one baseline.** The trail's leaf declared a
+  line height of its own while its ancestor crumbs inherited `normal`, so a row that centres
+  its items was centring two different line boxes — 19.00px against 18.19px at the trail's own
+  font size — and the two could not share a baseline. The page's title ended up 0.59px above
+  the crumb it hangs off, with the chevron between them centred on a third line. Sub-pixel, and
+  it reads exactly as it was reported: the arrow and the last crumb sit slightly high.
+
+  The trail now declares one line height for its whole subtree, from the published type scale,
+  and the leaf inherits it. Declared rather than inherited is the second half of the fix rather
+  than house style: `normal` is the *font's* own metric, so the size of the mismatch was
+  whatever an app's typeface happened to say, and an app on a webfont with taller natural
+  leading had a worse one than the system stack this was measured in.
+
+  What is deliberately not corrected is the chevron's optical centring, which remains half a
+  pixel high: its box centres on the line box while the crumb's ink centres a little lower,
+  because a font's ascent carries more empty space above the caps than its descent leaves below
+  the baseline. Correcting that means a nudge in `em` against ONE font's metrics, and the
+  package renders `system-ui` — a correction that is right on Segoe UI is wrong on SF and on
+  Roboto.
+- **No white flash on reload for a viewer who chose a dark palette (ADR 0112).** The theme is a
+  person's own choice, so it lives in `localStorage` and only script can read it — and the app's
+  own bundle cannot do it in time. `index.html` ships an empty root element, so the browser
+  paints before React has committed anything, and what it paints from is the token sheet's
+  `:root`: the light palette. The viewer who follows their platform never saw this, because the
+  sheet's `prefers-color-scheme` block is resolved before paint with no script at all, which is
+  why the defect reads as intermittent until you notice it tracks an *explicit* choice.
+
+  Every generated app now serves `frontend/public/theme-bootstrap.js`, wired into `index.html`
+  by the template: a blocking, same-origin classic script that stamps the stored palette on
+  `<html>` before the first paint and declares its `color-scheme` with it. Each of those
+  adjectives is load-bearing and none is visible in review — `defer`, `async` or `type="module"`
+  all run it after the parse and bring the flash back; an inline snippet works in the dev server
+  and is silently refused by production's `script-src 'self'`; and the `color-scheme` half is
+  what fixes *development*, where the token sheet is imported by the entry point and therefore
+  arrives with the bundle, so the attribute alone has no palette to paint from.
+  `tests/architecture/test_theme_bootstrap.py` holds all of it, including the three facts the
+  script has to duplicate — the storage key, the theme list, and which palettes are dark — each
+  against its source, so a sixth theme cannot ship without this file learning about it.
+
+  Two notes for an existing app. The fix arrives with a **template update**: the script is
+  framework-owned, so it is overwritten rather than skipped, and the `<script>` tag is added to
+  `index.html` — an app whose document has diverged adds those two lines by hand. And an app
+  that ships on a named palette declares it in BOTH places, because each answers at a different
+  moment: `defaultTheme` in `layout-contract.json`, which is what the app applies, and the same
+  name as `data-theme` on the `<html>` element, which is what paints it before the bundle
+  exists. The attribute alone fails in the direction nobody expects — `ThemeProvider` defaults
+  to following the platform, so it would REMOVE the attribute on mount and the app would open on
+  its palette and then leave it. The bootstrap leaves a declared default alone and overrides it
+  only for someone who has chosen. `terp guide theming`
+  carries the recipe. There is no server rendering to enable or disable here, and adding it would
+  not have helped: the choice is in `localStorage`, which a server cannot read.
+
+## 0.16.0 — 2026-09-03
+
+### Added
+
+- **An app's API answers its own root with a signpost instead of a dead end.** A Terp app is
+  two published addresses in development and an interface in front of an API in production,
+  and `GET /` on the API belonged to nobody: no module can claim it (every module router is
+  prefixed `/api/v1/<name>`) and route registration is frozen after composition, so nothing
+  ever will. FastAPI therefore answered the most reliably reachable address the platform has
+  with `{"detail":"Not Found"}` — a correct 404 which reads, to somebody who opened the wrong
+  one of two ports in a browser, as an application that is broken. What follows is a search
+  for a bug in code the reader did not write, and then a report against whichever tool
+  started the stack. `/` now serves a small HTML page naming the app, saying that the
+  interface is served separately on its own address, and linking the health paths plus
+  `/docs` — the last only where those endpoints exist, since pointing at a hidden one
+  relocates the dead end rather than removing it. Deliberately unstyled: the security
+  middleware serves `default-src 'none'`, and weakening a real header to decorate a landing
+  page would be a poor trade. Deliberately outside the OpenAPI document: a page for a human
+  is not API surface, and including it would add a route to every generated client for
+  something no client calls.
+
+### Fixed
+
+- **A field only a workbench reads, declared under a role no workbench looks up.** The
+  declaration's `hostPortEnv` and `readinessPath` are resolved BY ROLE — a workbench asks
+  which service has role `web`, then reads the variable that entry named. So the identical
+  line under `role: "frontend"` is not a near-miss spelling, it is a field with no reader,
+  and every symptom of that is silent: the check passes, the workbench finds no entry for
+  the role it asked about, falls back to its own default, and the two agree for exactly as
+  long as the declared value happens to equal that default. The day the app renames the
+  variable, the workbench keeps setting the old name and starts a stack it can no longer
+  find — which is the failure `workbench.json` exists to prevent, arriving through
+  `workbench.json`. `terp verify --only workbench` now reports it, and names the vocabulary
+  in the remedy so the reader is not told they are wrong without being told what is right.
+  `KNOWN_ROLES` returns to carry that rule: it was dropped in 0.15.0 as a declared fact
+  nobody consumed, which was true of this toolchain and not true of a workbench. The rule
+  stays deliberately narrow — an unrecognised role on its own is still information nobody
+  acts on yet, and a role carrying only fields nothing resolves by name (a comment, a note
+  to the next reader) still passes untouched.
+
 ## 0.15.0 — 2026-09-02
 
 ### Added

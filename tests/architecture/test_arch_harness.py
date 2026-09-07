@@ -18,6 +18,7 @@ from terp.arch import (
     check_app,
     check_base_query_not_overridden,
     check_canonical_module_shape,
+    check_modules_ship_tests,
     check_escape_hatch_budget,
     check_emitted_events_are_declared,
     check_events_reference_catalog,
@@ -53,6 +54,8 @@ from terp.arch import (
     check_no_manual_version_assignment,
     check_no_naive_datetime,
     check_datetime_columns_are_timezone_aware,
+    check_errors_use_the_typed_envelope,
+    check_no_exception_text_in_responses,
     check_no_oversized_python_files,
     check_no_blocking_sleep,
     check_no_empty_tests,
@@ -1180,6 +1183,169 @@ def test_no_dynamic_sql(tmp_path: pathlib.Path) -> None:
     _write(app, "modules/notes/tests/helper.py", "stmt = text(query)\n")
     assert _rule_names(check_no_dynamic_sql(app)) == {"no_dynamic_sql"}
 
+
+
+def test_errors_use_the_typed_envelope(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+
+    # Every spelling of the framework's own HTTP error leaves the same leaf name,
+    # which is what the rule matches -- an app cannot dodge it by importing the
+    # Starlette original or by qualifying the module.
+    for source in (
+        'raise HTTPException(status_code=404, detail="gone")',
+        'raise fastapi.HTTPException(status_code=404, detail="gone")',
+        'raise starlette.exceptions.HTTPException(404, "gone")',
+        "raise HTTPException",
+    ):
+        _write(app, "modules/notes/service.py", f"def run():\n    {source}\n")
+        assert _rule_names(check_errors_use_the_typed_envelope(app)) == {
+            "errors_use_the_typed_envelope"
+        }, source
+
+    # The typed error is the compliant path and must be silent, or the rule would
+    # be refusing the thing it exists to ask for.
+    _write(app, "modules/notes/service.py", 'def run():\n    raise NotFoundError("gone")\n')
+    assert check_errors_use_the_typed_envelope(app) == []
+
+    # Naming the framework's error is not raising it: an adapter that catches one
+    # and re-raises the caught exception is how a module recognises a failure the
+    # framework itself produced.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "def run():\n"
+        "    try:\n"
+        "        call()\n"
+        "    except HTTPException:\n"
+        "        raise\n",
+    )
+    assert check_errors_use_the_typed_envelope(app) == []
+
+    # A raise of anything else is not this rule's business.
+    _write(app, "modules/notes/service.py", 'def run():\n    raise ValueError("bad")\n')
+    assert check_errors_use_the_typed_envelope(app) == []
+
+
+def test_no_exception_text_in_responses(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+
+    def handler(raised: str, *, binding: str = " as exc") -> str:
+        return (
+            "def run():\n"
+            "    try:\n"
+            "        parse()\n"
+            f"    except ValueError{binding}:\n"
+            f"        raise {raised}\n"
+        )
+
+    # Every way a caught exception's text reaches the message a client reads --
+    # by conversion, by interpolation, by attribute, and through the traceback
+    # formatter, which needs no binding at all.
+    borrowed = (
+        "ValidationFailedError(str(exc))",
+        'HTTPException(status_code=400, detail=f"failed: {exc}")',
+        "ConflictError(message=repr(exc))",
+        'ValidationFailedError("failed: %s" % exc)',
+        "ValidationFailedError(str(exc.args))",
+    )
+    for raised in borrowed:
+        _write(app, "modules/notes/service.py", handler(raised))
+        assert _rule_names(check_no_exception_text_in_responses(app)) == {
+            "no_exception_text_in_responses"
+        }, raised
+
+    _write(
+        app,
+        "modules/notes/service.py",
+        handler("ValidationFailedError(traceback.format_exc())", binding=""),
+    )
+    assert _rule_names(check_no_exception_text_in_responses(app)) == {
+        "no_exception_text_in_responses"
+    }
+
+    # The compliant shape: a written message, the cause chained. `from exc` is the
+    # raise's cause and not one of its arguments, so it must not fire -- if it did,
+    # the rule would refuse the exact pattern its own message recommends.
+    _write(
+        app,
+        "modules/notes/service.py",
+        handler('ValidationFailedError("The file could not be read.") from exc'),
+    )
+    assert check_no_exception_text_in_responses(app) == []
+
+    # The other half of the compliant shape, and the reason the rule is a split
+    # rather than a prohibition: log context is never serialised, so the operator
+    # keeps the driver's message while the caller does not get it.
+    _write(
+        app,
+        "modules/notes/service.py",
+        handler('ConflictError("Refused.", log_context={"cause": str(exc)})'),
+    )
+    assert check_no_exception_text_in_responses(app) == []
+
+    # A value the caller submitted is ordinary message writing. A detector that
+    # matched f-strings inside a handler would refuse this.
+    _write(app, "modules/notes/service.py", handler('ValidationFailedError(f"{name} is bad")'))
+    assert check_no_exception_text_in_responses(app) == []
+
+    # A builtin raised inside a handler is internal control flow: it reaches a
+    # client only as a generic 500 whose message the framework writes.
+    _write(app, "modules/notes/service.py", handler("ValueError(str(exc))"))
+    assert check_no_exception_text_in_responses(app) == []
+
+    # ... and so is a name that is not error-shaped at all.
+    _write(app, "modules/notes/service.py", handler("refusal(str(exc))"))
+    assert check_no_exception_text_in_responses(app) == []
+
+    # A raised expression with no resolvable name is left alone rather than guessed at.
+    _write(app, "modules/notes/service.py", handler("(First or Second)(str(exc))"))
+    assert check_no_exception_text_in_responses(app) == []
+
+    # Re-raising the caught exception itself is not a constructed message.
+    _write(app, "modules/notes/service.py", handler("exc"))
+    assert check_no_exception_text_in_responses(app) == []
+
+    # Outside a handler there is no caught exception to borrow from.
+    _write(app, "modules/notes/service.py", 'def run(exc):\n    raise ConflictError(str(exc))\n')
+    assert check_no_exception_text_in_responses(app) == []
+
+    # Nested handlers: the outer binding is still in scope, so a raise that reaches
+    # it must be found -- and found ONCE. Visiting each handler independently sees
+    # this raise twice over, and the traceback formatter matches whatever the binding
+    # is, so one file and one line came out as two findings.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "import traceback\n"
+        "\n"
+        "def run():\n"
+        "    try:\n"
+        "        outer()\n"
+        "    except ValueError as exc:\n"
+        "        try:\n"
+        "            inner()\n"
+        "        except KeyError as other:\n"
+        "            raise ValidationFailedError(traceback.format_exc()) from other\n",
+    )
+    nested = check_no_exception_text_in_responses(app)
+    assert len(nested) == 1, nested
+    assert nested[0].line == 10
+
+    # ... and the outer handler's name reaching down into a nested handler is one
+    # finding as well, not one per enclosing handler.
+    _write(
+        app,
+        "modules/notes/service.py",
+        "def run():\n"
+        "    try:\n"
+        "        outer()\n"
+        "    except ValueError as exc:\n"
+        "        try:\n"
+        "            inner()\n"
+        "        except KeyError:\n"
+        "            raise ValidationFailedError(str(exc)) from None\n",
+    )
+    assert len(check_no_exception_text_in_responses(app)) == 1
 
 
 def test_no_naive_datetime(tmp_path: pathlib.Path) -> None:
@@ -2409,6 +2575,37 @@ def test_no_manual_actor_stamping(tmp_path: pathlib.Path) -> None:
         "    modified_by_id: uuid.UUID | None\n",
     )
     assert check_no_manual_actor_stamping(app) == []
+
+    # Deleting the stamp clobbers the trail as surely as writing one.
+    _write(app, "modules/notes/schemas.py", "")
+    _write(app, "modules/notes/service.py", "def wipe(note):\n    del note.created_by_id\n")
+    assert _rule_names(check_no_manual_actor_stamping(app)) == {"no_manual_actor_stamping"}
+
+    # Gating on the stamp is object-level authorization written inline, wherever the
+    # comparison sits -- in a predicate or inside a query's where().
+    for source in (
+        "def may_edit(note, actor):\n    return note.created_by_id == actor.id\n",
+        "def refuse(note, actor):\n    if note.modified_by_id != actor.id:\n        raise Boom()\n",
+        "def mine(actor):\n    return select(Note).where(Note.created_by_id == actor.id)\n",
+        "def same(a, b):\n    return a.created_by_id == b.created_by_id\n",
+    ):
+        _write(app, "modules/notes/service.py", source)
+        assert _rule_names(check_no_manual_actor_stamping(app)) == {
+            "no_manual_actor_stamping"
+        }, source
+
+    # Reading the stamp is NOT policed (ADR 0114). A read cannot forge a trail, and a
+    # comparison against a literal names no principal, so it decides nothing -- it asks
+    # whether the row has been stamped at all. These are the shapes a careful reader
+    # concluded the rule refused, so each one is asserted silent rather than assumed.
+    for source in (
+        "def provenance(note):\n    return {'by': note.created_by_id}\n",
+        "def unstamped(note):\n    return note.created_by_id is None\n",
+        "def unstamped(note):\n    return note.modified_by_id == None\n",
+        "def show(note):\n    return f\"made by {note.created_by_id}\"\n",
+    ):
+        _write(app, "modules/notes/service.py", source)
+        assert check_no_manual_actor_stamping(app) == [], source
 
 
 def test_no_manual_lease_columns(tmp_path: pathlib.Path) -> None:
@@ -3699,6 +3896,165 @@ def test_schemas_exclude_sensitive_fields(tmp_path: pathlib.Path) -> None:
         "class User(BaseTable, table=True):\n    hashed_password: str\n",
     )
     assert check_schemas_exclude_sensitive_fields(app) == []
+
+
+def _wired_module(app: pathlib.Path, name: str) -> None:
+    """The minimum that makes a directory a module this rule has an opinion about."""
+    _write(app, f"modules/{name}/module.py", f"module = ModuleSpec(name={name!r})\n")
+    _write(app, f"modules/{name}/router.py", "router = APIRouter()\n")
+
+
+def test_modules_ship_tests(tmp_path: pathlib.Path) -> None:
+    """The headline case: a wired module with no tests anywhere is flagged.
+
+    Named for the rule because the harness's own drift guard pairs each registered
+    rule with a test of exactly that name; the cases below carry the boundaries.
+    """
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+
+    violations = check_modules_ship_tests(app)
+
+    assert {v.rule for v in violations} == {"modules_ship_tests"}
+    assert len(violations) == 1
+    assert "notes" in violations[0].message
+
+
+def test_modules_ship_tests_accepts_the_scaffolded_package(tmp_path: pathlib.Path) -> None:
+    """`tests/<module>/` beside the app package — the canonical shape."""
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (tmp_path / "tests" / "notes").mkdir(parents=True)
+    (tmp_path / "tests" / "notes" / "test_notes_api.py").write_text("", encoding="utf-8")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_accepts_a_flat_per_module_file(tmp_path: pathlib.Path) -> None:
+    """The layout the reference application already uses, recognised rather than taught.
+
+    Refusing it would fail an application whose modules *are* tested, whose only escape
+    would be a marker reading "this module has no tests" — a gate satisfiable only by a
+    false statement (ADR 0119).
+    """
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (tmp_path / "tests").mkdir(parents=True)
+    (tmp_path / "tests" / "test_notes_api.py").write_text("", encoding="utf-8")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_accepts_a_bare_flat_file(tmp_path: pathlib.Path) -> None:
+    """`tests/test_<module>.py` with no suffix — the boundary of the flat form."""
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (tmp_path / "tests").mkdir(parents=True)
+    (tmp_path / "tests" / "test_notes.py").write_text("", encoding="utf-8")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_does_not_credit_another_modules_tests(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A prefix match without the separator would let one module answer for another.
+
+    Module `note` is not tested by `test_notes_api.py`, which belongs to `notes`. A
+    bare `test_<module>*` glob credits it anyway, and the module ships untested with a
+    green gate — the exact failure this rule exists to stop, reintroduced by the check.
+    """
+    app = tmp_path / "app"
+    _wired_module(app, "note")
+    (tmp_path / "tests").mkdir(parents=True)
+    (tmp_path / "tests" / "test_notes_api.py").write_text("", encoding="utf-8")
+
+    violations = check_modules_ship_tests(app)
+
+    assert [v.rule for v in violations] == ["modules_ship_tests"]
+
+
+def test_modules_ship_tests_accepts_tests_inside_the_scanned_root(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The in-root fallback the Standard's corpus needs.
+
+    A corpus case copies one tree into the scanned root and cannot create a true
+    sibling of it, so `app/tests/` counts too — the same accommodation
+    `_coverage_is_strict` makes for the control plane.
+    """
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (app / "tests" / "notes").mkdir(parents=True)
+    (app / "tests" / "notes" / "test_api.py").write_text("", encoding="utf-8")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_needs_an_actual_test_file(tmp_path: pathlib.Path) -> None:
+    """An empty `tests/<module>/` directory is not a test.
+
+    Creating the directory is the cheapest possible way to satisfy a rule that only
+    looked for it, so the rule looks inside.
+    """
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (tmp_path / "tests" / "notes").mkdir(parents=True)
+    (tmp_path / "tests" / "notes" / "helpers.py").write_text("", encoding="utf-8")
+
+    assert [v.rule for v in check_modules_ship_tests(app)] == ["modules_ship_tests"]
+
+
+def test_modules_ship_tests_finds_a_test_nested_in_the_package(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A module's tests may be organised into subdirectories."""
+    app = tmp_path / "app"
+    _wired_module(app, "notes")
+    (tmp_path / "tests" / "notes" / "api").mkdir(parents=True)
+    (tmp_path / "tests" / "notes" / "api" / "test_list.py").write_text("", encoding="utf-8")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_leaves_an_unwired_directory_alone(
+    tmp_path: pathlib.Path,
+) -> None:
+    """No manifest and no router is not a module — the same signal the shape rule uses.
+
+    A shared-helper directory under `modules/` owes no tests of its own; requiring them
+    would push apps to hide helpers elsewhere rather than to test anything.
+    """
+    app = tmp_path / "app"
+    _write(app, "modules/shared/helpers.py", "# not a module\n")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_is_silent_without_a_modules_directory(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A blank app (no modules yet) has nothing to answer for."""
+    app = tmp_path / "app"
+    _write(app, "main.py", "# blank layout\n")
+
+    assert check_modules_ship_tests(app) == []
+
+
+def test_modules_ship_tests_reports_each_untested_module(tmp_path: pathlib.Path) -> None:
+    """Two untested modules produce two findings, and a tested sibling produces none."""
+    app = tmp_path / "app"
+    for name in ("notes", "projects", "tasks"):
+        _wired_module(app, name)
+    (tmp_path / "tests" / "tasks").mkdir(parents=True)
+    (tmp_path / "tests" / "tasks" / "test_tasks_api.py").write_text("", encoding="utf-8")
+
+    violations = check_modules_ship_tests(app)
+
+    assert sorted(v.path for v in violations) == [
+        f"{app.name}/modules/notes",
+        f"{app.name}/modules/projects",
+    ]
 
 
 def test_canonical_module_shape(tmp_path: pathlib.Path) -> None:

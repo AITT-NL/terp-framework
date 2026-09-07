@@ -56,11 +56,15 @@ thing this must not become.
 The corollary matters as much: a role this toolchain does not know is information, not an error.
 Otherwise adding a role becomes a breaking change for every app that already shipped one.
 
+That corollary has one boundary, found later and recorded in decision 3: an unknown role stops
+being harmless the moment it carries a field a workbench resolves *by role*.
+
 ### 3. The rule is *truth about self*, never *conformance*
 
 Red: a declared role points at a service that does not exist; a service that declared a host-port
-variable publishes a fixed port instead; a declared environment seam the compose file never reads.
-All three are the declaration lying about the app.
+variable publishes a fixed port instead; a declared environment seam the compose file never reads;
+a field only a workbench reads (`hostPortEnv`, `readinessPath`), declared under a role no workbench
+looks up. All four are the declaration lying about the app.
 
 The third arrived late and matters as much as the other two. The `env` block names how the source
 root and the framing grant reach the containers, and it was the half nobody checked — so an agent
@@ -70,10 +74,23 @@ silent class this ADR exists for, in the one place the first draft left uncovere
 *read somewhere*, never *read by a particular service*: which container needs the value is the
 app's business, and requiring one would be conformance.
 
+The fourth arrived later still, and it is the only one of the four with no symptom at all before
+the day it bites. A workbench asks its declaration which service has role `web`, then reads the
+variable that entry named — a lookup by exact string. So the identical line under
+`role: "frontend"` is not a near-miss spelling, it is a field with no reader: the check passes, the
+workbench finds no entry for the role it asked about, falls back to its own default, and the two
+agree for exactly as long as the declared value happens to equal that default. The day the app
+renames the variable, the workbench keeps setting the old name and starts a stack it can no longer
+find, which is this ADR's own failure arriving through this ADR's own file. `KNOWN_ROLES` carries
+the rule; it was briefly removed as a fact nobody consumed, which was true of this toolchain and
+not true of a workbench, and it returns *with* a reader.
+
 Never red: an undeclared service; the absence of a service we happen to know about; three APIs;
-two frontends; no frontend; a service that publishes nothing; a role we have never heard of; an
-app that declares no `env` seam at all; a port published on an ephemeral host port (`ports:
-["5173"]`), which cannot collide and so cannot break the thing the fixed-port rule protects.
+two frontends; no frontend; a service that publishes nothing; a role we have never heard of *that
+carries nothing resolved by name* — a comment, a note to the next reader, a key some other tool
+invented; an app that declares no `env` seam at all; a port published on an ephemeral host port
+(`ports: ["5173"]`), which cannot collide and so cannot break the thing the fixed-port rule
+protects.
 
 ### 4. The escape ships in the same change as the rule
 
@@ -151,6 +168,13 @@ app's gate red over a file it has not adopted.
 - Only what a declaration *claims* carries a checked field. `containerPort` was seeded and read by
   nothing in this toolchain or in a workbench, so it is gone: a declared fact nobody consumes is a
   fact that can rot unnoticed, which is the opposite of the point.
+- The same reasoning was applied to `KNOWN_ROLES` and was wrong about the second half. Nothing in
+  this toolchain read a role name; a workbench reads two fields by exact role string. Removing the
+  set therefore left the vocabulary undefended at precisely the seam it existed for, and the
+  correction is not to restore a decorative constant but to give it the reader whose absence was
+  the objection — the check in decision 3. The lesson generalises: "nobody consumes this" has to be
+  answered for *every* consumer of a shared declaration, and the tool on the other side of the
+  seam is the one easiest to forget.
 
 ## Alternatives considered
 

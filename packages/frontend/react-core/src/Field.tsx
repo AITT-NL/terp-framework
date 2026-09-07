@@ -2,6 +2,7 @@ import { cloneElement, isValidElement, useId } from "react";
 import type { ReactNode } from "react";
 
 import { injectTerpStyles } from "./styles";
+import { mergeDescribedBy, useControlMessages } from "./ui/controlMessages";
 import { useUiText } from "./uiText";
 import type { UiText } from "./uiText";
 
@@ -42,12 +43,11 @@ export interface FieldProps {
  */
 export function Field({ label, children, error, hint }: FieldProps) {
   const resolve = useUiText();
-  const baseId = useId();
-  const hasError = error !== undefined && error !== null;
-  const hintId = hint !== undefined ? `${baseId}-hint` : undefined;
-  const errorId = hasError ? `${baseId}-error` : undefined;
-  const described = [hintId, errorId].filter((id) => id !== undefined).join(" ");
-  const labelId = `${baseId}-label`;
+  const labelId = `${useId()}-label`;
+  // Shared with Switch / Checkbox / RadioGroup, which cannot nest inside this component and
+  // so carry the same hint/error envelope themselves: one implementation of the ids, the
+  // description wiring and the alert, rather than four that drift apart.
+  const { hasError, describedBy, messages } = useControlMessages(hint, error);
 
   // Only a single element child can be named and described — which is the documented contract
   // ("the control"). Anything else is passed through untouched rather than guessed at.
@@ -70,12 +70,10 @@ export function Field({ label, children, error, hint }: FieldProps) {
           children.props["aria-label"] === undefined
             ? (children.props["aria-labelledby"] ?? labelId)
             : undefined,
-        "aria-describedby":
-          described.length > 0
-            ? [children.props["aria-describedby"], described]
-                .filter((id) => id !== undefined && id !== "")
-                .join(" ")
-            : children.props["aria-describedby"],
+        "aria-describedby": mergeDescribedBy(
+          children.props["aria-describedby"],
+          describedBy,
+        ),
         "aria-invalid": children.props["aria-invalid"] ?? (hasError ? true : undefined),
       })
     : children;
@@ -88,16 +86,7 @@ export function Field({ label, children, error, hint }: FieldProps) {
         </span>
         {control}
       </label>
-      {hint !== undefined && (
-        <span id={hintId} data-terp="field-hint">
-          {resolve(hint)}
-        </span>
-      )}
-      {hasError && (
-        <span id={errorId} role="alert" data-terp="field-error">
-          {error}
-        </span>
-      )}
+      {messages}
     </div>
   );
 }

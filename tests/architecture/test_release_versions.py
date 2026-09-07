@@ -11,6 +11,7 @@ it at build time instead.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 import tomllib
@@ -35,7 +36,7 @@ _TEMPLATE_FRONTEND_MANIFESTS = sorted(
     (_REPO_ROOT / "template" / "project").rglob("package.json.jinja")
 )
 
-_RELEASE_VERSION = "0.15.0"
+_RELEASE_VERSION = "0.18.0"
 
 
 def _pyproject_version(path: pathlib.Path) -> str:
@@ -188,6 +189,35 @@ def test_the_conformance_package_publishes_runnable_javascript() -> None:
     # ``npm publish`` never produced, which is a worse failure than the one being fixed.
     assert data["scripts"]["prepack"] == "npm run build"
     assert "dist" in data["files"]
+
+
+def test_no_rule_awaits_a_spec_release() -> None:
+    """A release may not ship a rule whose catalog entry is unpublished (ADR 0116).
+
+    ``_AWAITING_SPEC_RELEASE`` lets this repository carry a rule while the standard
+    that describes it is being released. This closes that window at the only moment
+    it must be shut: cutting a framework release with the list non-empty would
+    publish an enforced rule that no published catalog documents.
+
+    It asserts only when a tag is being built, and that is the point rather than an
+    escape. Asserting always would fail every ordinary run for the whole length of
+    the window the allowance exists to permit — the gate would refuse the state it
+    was written to allow. The condition is the same shape as ``production_problems``
+    being consulted only under ``ENVIRONMENT == "production"``: a real, observable
+    state, not a switch someone can leave off. The release workflow runs the full
+    gate at the tag (``test_release_workflow`` holds it to that), so this is
+    reachable exactly when it matters.
+    """
+    if not os.environ.get("GITHUB_REF", "").startswith("refs/tags/v"):
+        pytest.skip("not a tagged release build — the allowance is legitimate here")
+
+    from tests.architecture.test_spec_catalog import _AWAITING_SPEC_RELEASE
+
+    assert _AWAITING_SPEC_RELEASE == frozenset(), (
+        "these rules are implemented but their catalog entries are unreleased: "
+        f"{sorted(_AWAITING_SPEC_RELEASE)} — adopt the spec release that carries them "
+        "before cutting a framework release"
+    )
 
 
 def test_changelog_records_the_release_version() -> None:

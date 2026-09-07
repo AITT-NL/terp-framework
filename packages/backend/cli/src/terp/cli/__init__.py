@@ -19,7 +19,13 @@ from terp.cli.access import (
 )
 from terp.cli.apidocs import api_docs
 from terp.cli.capabilities import render_capabilities
-from terp.cli.dev import SHUTDOWN_TIMEOUT_SECONDS, dev_plan, run_dev_command
+from terp.cli.dev import (
+    DEFAULT_API_PORT,
+    DEFAULT_WEB_PORT,
+    SHUTDOWN_TIMEOUT_SECONDS,
+    dev_plan,
+    run_dev_command,
+)
 from terp.cli.docker import run_docker_dev_command
 from terp.cli.fmt import changed_python_files, run_fmt_command
 from terp.cli.leases import reap_leases_command, render_leases
@@ -344,6 +350,27 @@ Services (BaseService)
   The sibling service is a declared edge (ModuleSpec(requires=...)), so the dependency
   is visible in the manifest. A validator that opened its own session would be
   unreviewable, untestable without a database, and outside the write chokepoint.
+- Refusing? Raise a typed AppError, never HTTPException. The envelope (status, a
+  stable machine-readable code, the body shape) belongs to terp.core, and a raise
+  that names a status and a message itself is a second error contract for that one
+  response, which no schema describes and no client can dispatch on. Refused by the
+  errors_use_the_typed_envelope rule:
+      raise NotFoundError("Order not found")
+      raise ConflictError("This order is already approved.")
+      raise ValidationFailedError("The period is closed.")
+- And never put the caught exception's own text in that message. A driver names the
+  table and often the statement, a filesystem error names an absolute path, a
+  connection error names an internal host — none of it chosen, reviewed or versioned,
+  all of it forwarded verbatim to whoever made the request. Refused by the
+  no_exception_text_in_responses rule. The split is: written message in the body,
+  exception in the log.
+      except IntegrityError as exc:
+          raise ConflictError(
+              "This code is already in use.",                  # what the caller reads
+              log_context={"cause": str(exc)},                 # never serialised
+          ) from exc                                           # keeps the traceback
+  `from exc` and `log_context=` are both untouched by the rule, on purpose: they are
+  where the diagnosis is supposed to go.
 """,
     "policy": """\
 Authorization (Policy)
@@ -484,6 +511,18 @@ The access model (three layers) — profiles + the access graph
   write authority, and warnings (e.g. OwnedMixin gates writes only). `--format json`
   is the stable Studio contract; declare services=(InvoiceService,) on the ModuleSpec
   so the data layer is visualizable — an undeclared data layer is a warning.
+- RECORDING that guarded data was read — the write trail does not cover this:
+      from terp.core import emit_disclosure
+      emit_disclosure(target_type="payroll_export", target_id=str(period.id))
+      return build_export(period)          # AFTER the record, never before
+  Mutations are audited for you from the BaseService chokepoint. A read is not, and
+  cannot be: only the endpoint knows whether what it returns is guarded rather than
+  ordinary, and auto-emitting on every read would bury the reportable events under
+  list traffic. Call it where "who saw this" is the event worth answering for — an
+  export, a document download, a screen that reveals sealed values behind a grant.
+  It takes no session and commits its own row, so the trail survives a request that
+  discloses and then fails; a sink that refuses aborts the endpoint, which is the
+  point — data we cannot account for is not handed over.
 - Narrowing authority below a role, and getting a permission to a subject:
   `terp guide permissions` (declare it, enforce it, `terp grant add`).
 """,
@@ -825,6 +864,25 @@ Route operations (what a route does for the person calling it, ADR 0102)
     "testing": """\
 Testing a Terp app (process-global runtime isolation)
 
+EVERY WIRED MODULE OWES AT LEAST ONE TEST (`modules_ship_tests`). The canonical module
+shape is five production files, so until this rule a module could mount routes, own a
+table and declare a policy with no test of any kind -- and `terp scaffold` emitted
+exactly those five, so untested was the shape the platform handed out, not a corner an
+app had to cut. WHERE they go:
+      tests/<module>/test_*.py        the scaffolded shape; `terp new module` writes it
+      tests/test_<module>_*.py        a flat file per module; recognised, not taught
+  Both satisfy the rule. The directory is what the scaffold emits, because a module
+  accumulates test files and a directory holds them without anyone inventing a naming
+  convention; the flat form is recognised because refusing it would fail an app whose
+  modules ARE tested, whose only way out would be a marker reading "no tests" (ADR 0119).
+  Tests live in the project's tests/ tree, NOT inside the module directory -- a test that
+  drives the composed app has to live where the app fixtures are.
+  A module that genuinely has none takes
+  `# arch-allow-modules-ship-tests: <reason>`, which spends the app's escape-hatch
+  budget -- a shrink-only ratchet, so the debt is counted and cannot grow quietly.
+  The rule asks only that the tests EXIST and are attributable. Whether they are any
+  good is `no_empty_tests` (a body that cannot fail is not a test) and your coverage gate.
+
 WHAT YOU MUST STILL DO YOURSELF. The platform UNDOES a runtime; it never INSTALLS the
 one your test needs. That distinction is the whole of testing on Terp:
       * whole runtime -> compose the app in a fixture (see apps/example/tests/conftest.py,
@@ -1139,7 +1197,22 @@ Using capabilities
 - Outbound HTTP is a capability concern, never a module concern: importing httpx /
   requests / urllib.request / urllib3 / aiohttp in a module is refused by the
   no_raw_outbound_http rule — SSRF protection, egress allowlists and timeout policy
-  belong behind one declared capability, not scattered per call site.
+  belong behind one declared capability, not scattered per call site. That capability
+  is `terp-cap-egress`, and it is a declaration rather than a client you configure at
+  the call site:
+      from terp.capabilities.egress import EgressClient, EgressPolicy
+      rates = EgressClient(EgressPolicy(
+          allowed_hosts=("api.exchange.example",),   # EXACT hosts; empty permits nothing
+          timeout_seconds=5.0,                       # no per-call override, on purpose
+      ))
+      body = rates.get("https://api.exchange.example/v1/rates").content
+  Every resolved address is checked against the SSRF denylist and the connection is
+  PINNED to the one that passed (so a rebind between the check and the connect cannot
+  land on a private address), redirects are never followed, and every attempt —
+  refusals included — reaches the optional `observer=` hook, which is where metering
+  and egress auditing attach. A sanctioned internal target is a declared
+  `allow_private_addresses=True`, visible in the composition root, never a quiet
+  exception inside the client.
 - Credentials never live in module source: a credential-shaped assignment (password,
   api_key, token, ...) to a string literal — or a recognizable secret-token literal
   anywhere — is refused by the no_hardcoded_credentials rule. Wire secrets through
@@ -1353,15 +1426,21 @@ Forms (react-core primitives)
         </Field>
         <Switch label="Actief" checked={active} onChange={setActive} />
         <RadioGroup label="Frequentie" options={FREQUENCIES}
-                    value={frequency} onChange={setFrequency} />
+                    value={frequency} onChange={setFrequency}
+                    error={errors.frequency} />
         <Button type="submit" variant="primary">Save</Button>
       </Stack>
-  The honest limitation: these three have no hint or error slot, so a hint goes beside
-  them as <Text tone="muted" size="sm"> and is NOT wired to the control for a screen
-  reader. For a boolean that costs little — a switch cannot hold a value its type
-  refuses — but a RadioGroup CAN be left unset when a choice is required, and that
-  error has nowhere to go today. If you need it, put the message in the form-level
-  ErrorState rather than inventing a per-control slot.
+  They carry the envelope THEMSELVES: `hint` and `error` are props on all three, wired
+  exactly as Field wires them — the text gets an id, the control gets an
+  `aria-describedby` pointing at it (added to any you passed, never replacing it), an
+  error also sets `aria-invalid` and carries role="alert" so it is announced when it
+  arrives on submit rather than only when focus lands. Do not put a hint beside them as
+  loose <Text>: text next to a control is invisible to a screen reader unless something
+  points at it.
+  RadioGroup is the one where this matters most. A boolean cannot hold a value its type
+  refuses, so a switch has little to be wrong about — but a required RadioGroup CAN be
+  left unset, and its error belongs on the group, next to the question, not in a
+  form-level ErrorState that never names which question was unanswered.
 """,
     "theming": """\
 Theming and branding (design tokens, palettes, the brand mark)
@@ -1398,6 +1477,19 @@ Theming and branding (design tokens, palettes, the brand mark)
   Legal values are the five above plus "system". Passing `defaultTheme` as a bootstrap
   option as well is refused (terp guide layouts). Your organisation's styling tool may
   seed this key; changing it here makes it yours and later rollouts leave it alone.
+
+  ONE more line for a palette that is dark. A person's own choice is read from
+  localStorage before the first paint by `frontend/public/theme-bootstrap.js`, which the
+  template wires into index.html — so a viewer who picks dark does not get a white flash
+  on reload. A DECLARED default is not a person's choice and that script leaves it alone,
+  so declare it on the document as well and the app opens in its own palette with no
+  flash either:
+
+      frontend/index.html -> <html lang="en" data-theme="midnight">
+
+  Both halves are the same fact, in the two places that can each answer at a different
+  moment: the attribute is there before anything runs, and the script overrides it only
+  for someone who has chosen otherwise.
 - THE BRAND MARK is a path, not JSX. Put the file in `frontend/public/` (Vite serves
   that directory at the site root) and declare it:
 
@@ -1464,8 +1556,9 @@ Layout contracts (slot-typed layouts, ADR 0079)
       OverviewPage -> DataView / ResourceList / ModuleNav / Stack / Card / Divider /
                       Text + the framework states (EmptyState / ErrorState /
                       LoadingState / Alert) and ConfirmDialog
-      DetailPage   -> DetailList / Stack / Grid / Tabs / ModuleNav / DataView / Card /
-                      Divider / Text + the same framework states and ConfirmDialog
+      DetailPage   -> DetailList / DetailListGroup / Stack / Grid / Tabs / ModuleNav /
+                      DataView / Card / Divider / Text + the same framework states and
+                      ConfirmDialog
   Grid is a DETAIL-body component and not an overview one, deliberately: an overview
   body is a data collection, and a grid of summary cards is a hub — which has its own
   archetype. Heading is admitted nowhere: a heading in a governed body must OWN its
@@ -1525,10 +1618,12 @@ is NOT derivable from the variable's name or type, so the manifest records it:
 
   container   a service on the compose network dials it -> use the SERVICE NAME
               (http://api:8000). A loopback address here is the container ITSELF: the
-              classic failure is setting the host value (127.0.0.1:8000), which is right
-              for a CLI run from your shell, and watching every one-shot exit 1 with
-              "Connection refused" from inside the network.
-  host        your shell dials it, outside the network -> http://127.0.0.1:8000
+              classic failure is setting the host value (127.0.0.1:22100), which is
+              right for a CLI run from your shell, and watching every one-shot exit 1
+              with "Connection refused" from inside the network.
+  host        your shell dials it, outside the network -> http://127.0.0.1:22100
+              (the published port, ${API_PORT}; 8000 is the container's own side and
+              is not reachable from your shell)
   browser     the user's browser is sent there -> a host address. OIDC_REDIRECT_URI is
               the canonical case, and the reason it is legitimately a .env forward rather
               than a declaration: the IdP redirects a BROWSER, so localhost is correct.
@@ -2718,7 +2813,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--host", default="127.0.0.1", help="Backend host (default: 127.0.0.1)"
     )
     dev_parser.add_argument(
-        "--port", type=int, default=8000, help="Backend port (default: 8000)"
+        "--port",
+        type=int,
+        default=DEFAULT_API_PORT,
+        help=(
+            f"Backend host port (default: {DEFAULT_API_PORT}) -- in the range Terp owns, "
+            "away from the 8000 another application on this machine is probably using"
+        ),
+    )
+    dev_parser.add_argument(
+        "--web-port",
+        type=int,
+        default=DEFAULT_WEB_PORT,
+        help=(
+            f"Frontend host port (default: {DEFAULT_WEB_PORT}); passed through to the "
+            "frontend dev server, which would otherwise take its own 5173"
+        ),
     )
     dev_parser.add_argument(
         "--shutdown-timeout",
@@ -3169,6 +3279,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 frontend_dir=args.frontend_dir,
                 host=args.host,
                 port=args.port,
+                web_port=args.web_port,
                 shutdown_timeout=args.shutdown_timeout,
                 openapi_out=args.openapi_out,
                 preflight=not args.no_preflight,

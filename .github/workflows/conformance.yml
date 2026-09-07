@@ -45,7 +45,7 @@ jobs:
 
       # Build + start the workbench and wait for it: db -> migrate -> api + web, then the one-shot
       # seed. No .env is present on a fresh checkout, so the API and web bind the default host
-      # ports (8000 / 5173). `seed` stays out of `--wait`: that flag treats any container that
+      # ports (22100 / 21100). `seed` stays out of `--wait`: that flag treats any container that
       # exits — even with 0 — as a failure (docker/compose#10596).
       - name: Start the workbench
         run: |
@@ -69,12 +69,12 @@ jobs:
 
       - name: Run the base-profile conformance suite (app-agnostic)
         env:
-          TERP_E2E_BASE_URL: http://localhost:5173
+          TERP_E2E_BASE_URL: http://localhost:21100
         run: npm run -w @terpjs/conformance test
 
       - name: Run the example app's own e2e flows (its modules)
         env:
-          TERP_E2E_BASE_URL: http://localhost:5173
+          TERP_E2E_BASE_URL: http://localhost:21100
         run: npm run -w @terpjs-example/frontend test:e2e
 
       - name: Upload the Playwright reports on failure

@@ -19,6 +19,7 @@ from terp.core.audit import (
     DurableAuditSink,
     bind_audit_actor,
     current_actor_id,
+    emit_disclosure,
     is_durable_audit_sink,
 )
 from terp.core.base_models import (
@@ -324,6 +325,7 @@ __all__ = [
     "declared_operation",
     "decrypt_config",
     "emit",
+    "emit_disclosure",
     "encrypt_config",
     "enforces_token_revocation",
     "enqueue",

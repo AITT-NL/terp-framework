@@ -18,11 +18,14 @@ never *are you built the approved way*. Concretely:
   (which is what breaks running two projects at once); a declared environment
   seam the compose file never reads (which is how live source and the framing
   grant arrive, so a stale name breaks hot reload while everything still
-  builds, runs and passes).
+  builds, runs and passes); a field only a workbench reads, declared under a
+  role no workbench looks up — a line written to be honoured that nothing will
+  ever read (:data:`_ROLE_ADDRESSED_KEYS`).
 * **Never** red: a service nobody declared — Redis, a worker, a virus scanner, a
   second frontend, whatever the app needs; the *absence* of a service we happen
   to know about; three APIs; no frontend at all; an optional container from the
-  platform replaced by the app's own equivalent.
+  platform replaced by the app's own equivalent; **a role this file has never
+  heard of**, as long as it carries nothing that had to be resolved by name.
 
 The declaration is a **partial** description. Services it does not mention are
 not the workbench's business, and an exhaustive list here would be exactly the
@@ -104,6 +107,36 @@ class Finding:
 COMMAND_SLOTS = frozenset(
     {"start", "stop", "status", "rebuild", "resetData", "destroy", "migrate"}
 )
+
+#: Roles a workbench resolves by name. Not a vocabulary an app must use: a role
+#: outside this set is still information nobody acts on yet, and refusing one
+#: outright would make adding a role a breaking change for every app that
+#: already shipped.
+#:
+#: This set was here once and was removed as a fact nobody consumed, on the
+#: reading that neither this toolchain nor a workbench looked at a role name.
+#: The first half was true and the second was not: a workbench asks its
+#: declaration "which service has role ``api``, and where does it answer the
+#: readiness question?" — a lookup by exact string. So the set comes back, and
+#: it comes back *with* a reader, which is what the objection to it actually
+#: asked for. See :data:`_ROLE_ADDRESSED_KEYS`.
+KNOWN_ROLES = frozenset({"web", "api", "one-shot", "database", "worker"})
+
+#: Fields whose only reader is a workbench, and which it looks up BY ROLE.
+#:
+#: These are what make an off-vocabulary role more than a spelling preference.
+#: The same line under ``role: "frontend"`` instead of ``role: "web"`` is not a
+#: near-miss — it is a field nothing will ever read, and every symptom of that
+#: is silent. The check passes. The workbench finds no entry for the role it
+#: asked about, falls back to its own default, and the two agree exactly as long
+#: as the declared value happens to equal that default. The day the app renames
+#: the variable, the workbench keeps setting the old name and starts a stack it
+#: can no longer find — which is the failure this whole file exists to make
+#: visible, arriving through the file itself.
+#:
+#: Narrow on purpose. An unrecognised role stays fine; an unrecognised role
+#: carrying one of these is a claim that cannot be honoured.
+_ROLE_ADDRESSED_KEYS = ("hostPortEnv", "readinessPath")
 
 
 @dataclass(frozen=True)
@@ -292,6 +325,34 @@ def _interpolates(compose: dict[str, Any], name: str) -> bool:
     return any(needle in value for value in _strings(compose))
 
 
+def _role_findings(name: str, role: str, entry: dict[str, Any]) -> list[Finding]:
+    """A field a workbench resolves by role, declared under a role it never asks for.
+
+    The two halves both have to be true before this says anything, and that is
+    the whole design. An unrecognised role on its own is information; a
+    recognised role carrying these fields is the ordinary case. Only the
+    combination is a line written to be honoured that nothing will read — and
+    unlike every other defect in this file, it has no symptom at all until the
+    declared value and the workbench's own default finally differ.
+    """
+    if not role or role in KNOWN_ROLES:
+        return []
+    addressed = [key for key in _ROLE_ADDRESSED_KEYS if entry.get(key)]
+    if not addressed:
+        return []
+    return [
+        Finding(
+            f"{WORKBENCH_FILE} declares {', '.join(addressed)} for service "
+            f"{name!r} under role {role!r}, which no workbench looks up.",
+            "A workbench resolves these fields BY ROLE, so under a role it does "
+            "not know they are never read: it falls back to its own default and "
+            "this line is decorative until the day the two disagree. Use one of "
+            f"{', '.join(sorted(KNOWN_ROLES))}, or drop the field if no tool "
+            "needs to carry it.",
+        )
+    ]
+
+
 def audit(declared: Declaration, compose: dict[str, Any]) -> list[Finding]:
     """Check the declaration against the compose file it describes.
 
@@ -322,6 +383,7 @@ def audit(declared: Declaration, compose: dict[str, Any]) -> list[Finding]:
                 )
             )
             continue
+        findings.extend(_role_findings(name, role, entry))
         port_env = entry.get("hostPortEnv")
         if not isinstance(port_env, str) or not port_env:
             continue

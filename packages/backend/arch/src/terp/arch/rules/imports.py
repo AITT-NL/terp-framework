@@ -193,7 +193,10 @@ def check_no_raw_outbound_http(
     imports — and the lower-level ``socket`` / ``http.client`` escape routes to the
     same network — make SSRF protection, allowlists, egress auditing, and timeout
     policy a per-call-site choice. Outbound traffic belongs behind a declared
-    capability that centralizes those controls. As a security rule this also scans
+    capability that centralizes those controls, and that capability is
+    ``terp.capabilities.egress``: the allowlist, the SSRF denylist, the timeout and the
+    egress record are all properties of its :class:`~terp.capabilities.egress.EgressPolicy`,
+    so a call site cannot decide any of them. As a security rule this also scans
     ``tests/`` and ``migrations/`` dirs inside a module — they are importable
     Python, so they are application surface too.
     """
@@ -214,8 +217,11 @@ def check_no_raw_outbound_http(
                         "no_raw_outbound_http",
                         rel,
                         line,
-                        f"imports {module!r}; outbound HTTP must go through a declared "
-                        "capability with SSRF protection",
+                        f"imports {module!r}; outbound HTTP goes through the egress "
+                        "capability — declare an EgressPolicy (allowed hosts, timeout) "
+                        "and call it through terp.capabilities.egress.EgressClient, "
+                        "which allowlists the host, checks every resolved address "
+                        "against the SSRF denylist and pins the connection to it",
                     )
                 )
     return violations

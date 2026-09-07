@@ -3,9 +3,11 @@ import { defineConfig } from "vite";
 
 // The dev server proxies /api to the running Terp backend, so the app calls the API
 // same-origin and there is no CORS to configure in development. The target defaults to
-// uvicorn on localhost:8000 (the `terp dev` layout) and is overridable via TERP_API_PROXY
-// (the Docker workbench points it at the `api` service).
-const apiProxyTarget = process.env.TERP_API_PROXY ?? "http://localhost:8000";
+// uvicorn on localhost:22100 (the `terp dev` layout) and is overridable via TERP_API_PROXY
+// (the Docker workbench points it at the `api` service, and `terp dev` passes the port it
+// actually bound -- so this literal is the last resort for a bare `npm run dev`, not the
+// value either supported loop relies on).
+const apiProxyTarget = process.env.TERP_API_PROXY ?? "http://localhost:22100";
 
 // Some filesystems deliver file events unreliably or not at all, and the failure is
 // SILENT: Vite keeps serving the last build it saw, so a frontend edit appears to have
@@ -111,6 +113,12 @@ const devContentSecurityPolicy = [
 export default defineConfig({
   plugins: [react()],
   server: {
+    // In the range Terp owns, not Vite's own 5173. `terp dev` passes `--port`
+    // explicitly and the Compose file pins the container side, so the one caller
+    // this default serves is a developer running `npm run dev` by hand -- which
+    // is exactly the case that used to land on top of whatever else they had
+    // running on 5173.
+    port: 21100,
     // Same policy every dev session, so a CSP-incompatible pattern cannot be
     // introduced unnoticed and discovered only in production.
     //

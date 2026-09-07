@@ -99,6 +99,12 @@ build, or deploy.
 determine the app's status, and the app works exactly as before. An unknown role is information,
 not an error. An app with no declaration passes.
 
+"Says so out loud" is the half that is easy to drop, and dropping it fails this test from the other
+side. An unknown role carrying a field a workbench resolves *by role* is the case: there the tool
+does lose a feature, silently, and the app is never told — so the check that reports it (ADR 0110,
+decision 3) is not a topology gate but the sentence this test asks for. The app still runs, builds
+and deploys; what is red is a declaration that cannot be honoured.
+
 If the answer to "who loses?" is "the app", the design is wrong, whatever else recommends it. This
 test is the one that keeps a legibility contract from quietly turning into a permitted-topology
 gate, which is the failure mode every instance of this pattern will drift toward.

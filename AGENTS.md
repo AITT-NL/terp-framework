@@ -79,7 +79,11 @@ a guard to make a change pass:
    `BaseService`. Don't redeclare `id` / `created_at` / `updated_at` / `version`.
 3. **Secure by default** — declare a `ModuleSpec` with a `Policy`; the framework
    mounts routers behind a deny‑by‑default guard. Raise typed `AppError`s (uniform
-   envelope). List endpoints paginate (`Page[T]`). Every `str` field caps length.
+   envelope): `raise HTTPException` is refused (`errors_use_the_typed_envelope`),
+   and so is a message built from a caught exception
+   (`no_exception_text_in_responses`) - chain the cause with `from exc`, and put
+   the exception's own text in `log_context=`, which is never serialised to the
+   client. List endpoints paginate (`Page[T]`). Every `str` field caps length.
 4. **Two‑layer enforcement where runtime can enforce** — a rule whose invariant
    the running system can observe pairs its build‑time check with a fail‑closed
    *runtime* control, and the test is never the only control for it. Which rules

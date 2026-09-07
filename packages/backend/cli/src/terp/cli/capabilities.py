@@ -107,6 +107,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         guide="jobs",
     ),
     Capability(
+        name="egress",
+        summary="The declared way out of the process — an allowlisted, SSRF-guarded, time-bounded HTTP client whose every attempt is observable.",
+        kind="library",
+        wiring="EgressClient(EgressPolicy(allowed_hosts=(...), timeout_seconds=...))",
+        guide="capability",
+    ),
+    Capability(
         name="leases",
         summary="Fenced, expiring custody of work — and a reaper that recovers a dead worker's claim.",
         kind="library",

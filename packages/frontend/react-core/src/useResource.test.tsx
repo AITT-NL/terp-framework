@@ -17,6 +17,62 @@ describe("useResource", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("carries the total when the source hands over the page", async () => {
+    // The backend has always sent it -- the Page envelope is {items, total, skip, limit}.
+    // The documented recipe unwrapped .items and dropped the rest, so every "showing N of
+    // M" re-derived an answer the server had computed.
+    const { result } = renderHook(() =>
+      useResource<string, string>({ list: async () => ({ items: ["a", "b"], total: 57 }) }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.items).toEqual(["a", "b"]);
+    expect(result.current.total).toBe(57);
+  });
+
+  it("leaves the total unknown when the source hands over rows", async () => {
+    // Not zero. A source that returns an array has said nothing about how many rows there
+    // are, and a screen reading undefined as 0 announces an empty result set over a full
+    // page of them.
+    const { result } = renderHook(() =>
+      useResource<string, string>({ list: async () => ["a", "b"] }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.total).toBeUndefined();
+  });
+
+  it("leaves the total unknown when the page did not count", async () => {
+    // The cursor envelope computes the total only on include_total=true, so a page with no
+    // total is the ordinary case rather than a malformed one -- and it must not collapse
+    // into the same answer as a page of zero rows.
+    const { result } = renderHook(() =>
+      useResource<string, string>({ list: async () => ({ items: ["a"] }) }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.items).toEqual(["a"]);
+    expect(result.current.total).toBeUndefined();
+  });
+
+  it("updates the total on reload", async () => {
+    let total = 2;
+    const { result } = renderHook(() =>
+      useResource<string, string>({ list: async () => ({ items: ["a"], total }) }),
+    );
+    await waitFor(() => expect(result.current.total).toBe(2));
+
+    total = 9;
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(result.current.total).toBe(9);
+  });
+
   it("reloads when a declared dependency changes (in-place route-param navigation)", async () => {
     // A detail view keyed by a route param must refetch when the param changes
     // without a remount — otherwise the previous record's data lingers.
