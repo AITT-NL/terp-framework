@@ -6,7 +6,7 @@
 # the backend, so the browser calls the API same-origin (no CORS in production).
 
 # --- Stage 1: build the static bundle ------------------------------------------------
-FROM node:24-slim AS build
+FROM node:26-slim AS build
 
 WORKDIR /workspace
 
