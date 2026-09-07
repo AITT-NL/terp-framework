@@ -48,7 +48,7 @@ class ModuleRole(BaseTable, table=True):
     The row that makes "editor in one module, viewer everywhere else" expressible. Before it,
     a user carried exactly one rank and a group carried none, so the only way to grant write
     access in one module was to raise the rank everywhere — the ten-second workaround ADR 0089
-    was written about, one level up (ADR 0112).
+    was written about, one level up (ADR 0121).
 
     ``subject_id`` is an FK-less UUID for exactly the reason :class:`Grant`'s is, and it buys
     the same thing: a group's id is a subject, so a per-module role for a whole group needs no

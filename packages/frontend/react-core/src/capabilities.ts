@@ -18,7 +18,7 @@ export const DEFAULT_RANK_THRESHOLDS: RankThresholds = {
  * `moduleRank` inside the module in question.
  *
  * The effective rank is the **higher** of the two, which is what the server's guard computes
- * (ADR 0112): a per-module rung raises authority inside one module and never lowers it. Passing
+ * (ADR 0121): a per-module rung raises authority inside one module and never lowers it. Passing
  * the rung is what stops the UI disagreeing with the guard — without it a caller who may reach
  * a module *only* through a rung had the button hidden, so the interface refused what the server
  * would have allowed, and the control existed on one side of the wire only.

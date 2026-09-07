@@ -91,7 +91,7 @@ def test_me_router_returns_the_resolved_caller() -> None:
         # grant capability has no named permissions to hold (ADR 0096).
         "permissions": [],
             # Empty here: this app mounts no assignment capability, so the caller holds no
-            # per-module rung (ADR 0112). Asserted rather than omitted, because the whole
+            # per-module rung (ADR 0121). Asserted rather than omitted, because the whole
             # payload is pinned and a new field arriving unnoticed is what this shape is for.
         "module_ranks": {},
     }

@@ -72,7 +72,7 @@ def test_me_returns_the_authenticated_user(app_db: FastAPI, make_user) -> None:
         # This user holds no grants, so the projection is empty — the wire still carries
         # the key, so a UI reads it without guarding (ADR 0096).
         "permissions": [],
-        # Empty: this caller holds no per-module rung (ADR 0112). Pinned with the rest of the
+        # Empty: this caller holds no per-module rung (ADR 0121). Pinned with the rest of the
         # payload, so a field appearing or vanishing is a visible change rather than a silent one.
         "module_ranks": {},
     }

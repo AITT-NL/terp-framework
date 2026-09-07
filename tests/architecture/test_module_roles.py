@@ -1,4 +1,4 @@
-"""Per-module role assignment: the capability gap ADR 0112 exists to close.
+"""Per-module role assignment: the capability gap ADR 0121 exists to close.
 
 Before this, a user carried exactly one rank and a group carried none, so "editor in one
 module, viewer everywhere else" was not expressible. The only ways to let someone write in one
@@ -411,7 +411,7 @@ def test_a_rung_in_a_module_that_refuses_assignment_does_not_elevate(engine: Eng
     `platform_only` module *or* a module that never opted in elevated the caller anyway. Both
     modules here are admin-gated, so a VIEWER reaching them is full platform authority —
     `admin` in a `users`-shaped module provisions accounts, and in an `access`-shaped one hands
-    out every other authority. That is the exact escalation ADR 0112 §5 exists to prevent.
+    out every other authority. That is the exact escalation ADR 0121 §5 exists to prevent.
 
     `validate_assignment` refuses to *create* such a row, and that was the whole enforcement:
     the guard read whatever was in the table, so any other write path — a seed, a migration, a

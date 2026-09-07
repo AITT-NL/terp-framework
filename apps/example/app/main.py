@@ -79,7 +79,7 @@ def _create(
         event_dispatcher=dispatch_in_process,
         job_queue=job_queue,
         permission_enforcer=enforce_permission,
-        # `notes` declares itself per-module assignable (ADR 0112), so the boot refuses this
+        # `notes` declares itself per-module assignable (ADR 0121), so the boot refuses this
         # app without a resolver: a declaration the runtime cannot act on would let an
         # administrator assign a rung that silently did nothing.
         module_rank_resolver=resolve_module_rank,

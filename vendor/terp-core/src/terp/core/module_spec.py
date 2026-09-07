@@ -10,7 +10,7 @@ boot validates every one of them against the control plane, by value.
 
 ``access`` is the exception to that pattern, and deliberately: it is the module's
 own answer to whether it takes part in per-module role assignment and what it is
-called (:class:`ModuleAccess`, ADR 0112). There is no registry to validate it
+called (:class:`ModuleAccess`, ADR 0121). There is no registry to validate it
 against, because nothing outside the module owns that answer.
 
 Secure-by-default: a module's security posture is **declared** as a
@@ -205,7 +205,7 @@ def decide(
 
     ``module_rank`` is the one thing that *can* lift a caller over a floor, and only upward:
     it is consulted solely when the global rank falls short, because a per-module role adds
-    authority and never removes it (ADR 0112), so a caller who already clears the floor
+    authority and never removes it (ADR 0121), so a caller who already clears the floor
     cannot be changed by one. Clearing this way is reported as ``allowed_in_module`` rather
     than ``allowed``, because "why can this person do that?" has a different answer in the
     two cases and a viewer has to be able to give it.
@@ -226,7 +226,7 @@ def decide(
     elevated_by_module = False
     if role.rank < required.min_rank:
         # Only now, and only for a caller who does not already clear the floor: a per-module
-        # rank can raise authority and never lower it (ADR 0112), so someone whose global
+        # rank can raise authority and never lower it (ADR 0121), so someone whose global
         # rank already suffices cannot be changed by one — and a lookup on their behalf would
         # be a query that could not affect the answer. Lazy for the same reason
         # ``holds_permission`` is.
@@ -250,7 +250,7 @@ class ModuleAccess:
     """Whether a module takes part in per-module role assignment, and what it is called.
 
     Secure by default through absence: a ``ModuleSpec`` with no ``access`` declaration does
-    not take part, which is today's behaviour — global rank only (ADR 0112). Opting in is a
+    not take part, which is today's behaviour — global rank only (ADR 0121). Opting in is a
     deliberate, greppable line, and a capability that never considered the question is safe
     by omission rather than dangerous by omission.
 

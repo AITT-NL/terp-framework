@@ -51,7 +51,7 @@ class LabelCoverage(str, Enum):
     Whether ``STRICT`` should become the default is deliberately **not** claimed here.
     ADR 0102 only calls strict *its* destination default because that was settled and
     recorded as an amendment; the same question for labels is open, and is listed as such in
-    ADR 0112. A docstring is the wrong place to decide it.
+    ADR 0121. A docstring is the wrong place to decide it.
     """
 
     #: Labels are honored where present and never required (the default).
@@ -389,7 +389,7 @@ def reset_permission_projectors() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The module-rank projection seam (ADR 0112)
+# The module-rank projection seam (ADR 0121)
 # --------------------------------------------------------------------------- #
 
 # Which rung a caller holds in each module, for the UI to gate on. Shaped like

@@ -589,7 +589,7 @@ def test_an_undeclared_route_boots_with_coverage_off_and_is_refused_under_strict
 
 
 def test_decide_answers_every_branch_the_guard_used_to_answer_inline() -> None:
-    """`decide` is the single copy of the guard's decision (ADR 0112 §4).
+    """`decide` is the single copy of the guard's decision (ADR 0121 §4).
 
     Each reason is a stable slug rather than prose because two consumers dispatch on it: the
     guard maps it to an exception, and a view maps it to a matrix cell. The order is the

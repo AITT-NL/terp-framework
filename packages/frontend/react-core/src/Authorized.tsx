@@ -7,7 +7,7 @@ import { useAuth } from "./TerpProvider";
  * Whether the current user may perform `action` (the UI gate; the backend re-checks).
  *
  * Pass `module` on a module's own screen: a per-module rung the caller holds there raises the
- * answer exactly as it does at the guard (ADR 0112). Without it this compares the global rank
+ * answer exactly as it does at the guard (ADR 0121). Without it this compares the global rank
  * only, which is correct for a screen that belongs to no module and wrong for one that does —
  * it hid a module the caller could reach and rendered none of its controls.
  */

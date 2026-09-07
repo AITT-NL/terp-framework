@@ -61,7 +61,7 @@ class CurrentUser(BaseSchema):
     """
 
     module_ranks: dict[str, int] = {}
-    """The rung the caller holds in each module they hold one in (ADR 0112).
+    """The rung the caller holds in each module they hold one in (ADR 0121).
 
     The frontend half of per-module authority. Rank alone was not enough here either, and in
     the more dangerous direction: the guard raises a caller's authority inside a module they

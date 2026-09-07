@@ -42,7 +42,7 @@ export interface AuthSession {
    * UI gate: may the current user perform `action`? (Honours the backend roles.)
    *
    * `module` names the module the action happens in. Pass it and a per-module rung the caller
-   * holds there raises the answer, which is what the server's guard does (ADR 0112) — omit it
+   * holds there raises the answer, which is what the server's guard does (ADR 0121) — omit it
    * and the gate is the global rank alone. Omitting it on a module's own screen is the shape
    * that hid a module the caller could actually reach.
    */

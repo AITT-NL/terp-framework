@@ -1,6 +1,6 @@
 """Per-module role assignment — the service, and the resolver the kernel guard calls.
 
-The write half of ADR 0112: who holds which rung in which module. The declaration of what a
+The write half of ADR 0121: who holds which rung in which module. The declaration of what a
 rung *means* stays in code and is never touched here, which is the whole division — this
 module only ever records an assignment.
 
@@ -220,7 +220,7 @@ def validate_assignment(
 def project_held_module_ranks(
     session: Session, subject_id: uuid.UUID
 ) -> dict[str, int]:
-    """Every module rung *subject_id* holds, for the ``/me`` projection (ADR 0112).
+    """Every module rung *subject_id* holds, for the ``/me`` projection (ADR 0121).
 
     The display counterpart of :func:`resolve_module_rank`: the same expanded subject set, but
     every module at once instead of a yes/no for one. Registered below, so ``GET /me`` reports

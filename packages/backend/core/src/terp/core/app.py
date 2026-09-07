@@ -98,7 +98,7 @@ _logger = logging.getLogger("terp.core")
 PermissionEnforcer = Callable[[Session, uuid.UUID, str], bool]
 
 # The seam the access capability fills so a per-module role can raise a caller's authority
-# inside one module (ADR 0112): (session, subject_id, module_name) -> the highest rank that
+# inside one module (ADR 0121): (session, subject_id, module_name) -> the highest rank that
 # subject holds in that module, over the expanded subject set, or 0 for none. Shaped like
 # ``PermissionEnforcer`` and wired the same way, so the kernel never imports the capability.
 ModuleRankResolver = Callable[[Session, uuid.UUID, str], int]

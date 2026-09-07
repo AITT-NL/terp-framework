@@ -5,7 +5,7 @@ kernel because it grew a second consumer. The CLI reads it to render an audit vi
 access capability serves it over HTTP so an app's own admin pane can render a permission
 matrix; the Studio reads the CLI's JSON at design time. A capability cannot import
 ``terp.cli`` — the tool sits above it — so the alternative to moving it was a second
-projection, which is the thing ADR 0112 §4 exists to prevent.
+projection, which is the thing ADR 0121 §4 exists to prevent.
 
 What stays in the CLI is what only an audit needs: model traits, registered predicates,
 kernel and schema-hidden routes, undeclared event subscribers, and the reconciliation of the
@@ -82,7 +82,7 @@ def _by_role_json(
     **second** requirement, added by the access capability on top, and the ``Policy`` does
     not carry it — so replaying only the guard reported an editor as allowed on a route an
     editor without the grant gets a 403 from. That is the exact class of disagreement between
-    a pane and the gate that ADR 0112 exists to prevent, so the extra requirement is folded
+    a pane and the gate that ADR 0121 exists to prevent, so the extra requirement is folded
     in here.
 
     A view has no subject, so it cannot know whether the grant is held: a rung that clears
@@ -123,7 +123,7 @@ def endpoint_json(
     methods = sorted(getattr(route, "methods", None) or ())
     is_write = not methods or any(method in MUTATING_METHODS for method in methods)
     # One representative method, so `decide` makes the read-or-write choice rather than this
-    # projection making it again. That second copy is what ADR 0112 §4 removed: the guard and
+    # projection making it again. That second copy is what ADR 0121 §4 removed: the guard and
     # this function each tested the method against MUTATING_METHODS, and the copy that drifts
     # is the one an administrator is shown.
     probe = "POST" if is_write else "GET"
@@ -198,7 +198,7 @@ def module_json(spec: ModuleSpec, ladder: Sequence[Role] = ()) -> dict[str, obje
         # top-level ``permissions`` list, which carries each floor and label.
         "permissions": sorted(permission.name for permission in spec.permissions),
         # Whether this module takes part in per-module role assignment, and what it is
-        # called (ADR 0112). ``null`` where the module has not declared — which is the
+        # called (ADR 0121). ``null`` where the module has not declared — which is the
         # secure default, not a gap: absence means global rank only, as before.
         "access": (
             None

@@ -25,7 +25,7 @@ describe("canPerform", () => {
 
 describe("canPerform with a per-module rung", () => {
   it("takes the higher of the global rank and the module rung", () => {
-    // What the server's guard computes (ADR 0112). Without the rung the UI refused what the
+    // What the server's guard computes (ADR 0121). Without the rung the UI refused what the
     // guard would have allowed, so a caller who could reach a module *only* through a rung had
     // every control there hidden — a control living on one side of the wire.
     expect(canPerform(10, "write")).toBe(false);

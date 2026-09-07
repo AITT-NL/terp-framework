@@ -1,4 +1,4 @@
-# 0112 — A per-module role is an assignment, not a policy
+# 0121 — A per-module role is an assignment, not a policy
 
 - **Status:** Accepted for the direction; phases 1 and 2a are implemented, the rest is
   sequenced in

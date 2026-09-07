@@ -143,7 +143,7 @@ def test_module_access_is_absent_by_default_and_refuses_a_contradiction() -> Non
     """Secure by default through absence, and the invariants that keep a pane honest.
 
     A `ModuleSpec` with no `access` declaration does not take part in per-module assignment
-    (ADR 0112) — which is today's behaviour, so a capability that never considered the
+    (ADR 0121) — which is today's behaviour, so a capability that never considered the
     question is safe by omission. Opting in requires a label as a *constructor* invariant
     rather than a coverage-gated one: the field is new and has no call sites to break, and a
     module cannot ask to appear in an editor and decline to say what it is called.
