@@ -21,6 +21,29 @@ const FIXED_USER = {
   role_rank: 30,
 };
 
+/**
+ * The declared role ladder behind `admin-user-create`.
+ *
+ * That specimen mounts the real `UserCreate`, and the screen stopped being self-contained when
+ * it started reading the app's own ladder from `GET /api/v1/access/model` rather than hardcoding
+ * three ranks (ADR 0022 — the role model belongs to the application). Without an answer the
+ * fetch fails, the role `Select` renders with no options and the submit button stays disabled,
+ * so the specimen pictured an unusable form and the baseline gated nothing about the layout it
+ * exists for: `admin-form` caps the width at 32rem, and only full-width content shows the cap.
+ *
+ * Three rungs with the packaged names, so the framework's own translations apply and the picture
+ * is the same on every run — the determinism rule the fixed user above already follows.
+ */
+const DECLARED_LADDER = {
+  roles: [
+    { name: "viewer", rank: 10 },
+    { name: "editor", rank: 20 },
+    { name: "admin", rank: 30 },
+  ],
+  permissions: [],
+  modules: [],
+};
+
 function mockAuth(): Plugin {
   return {
     name: "workbench-mock-auth",
@@ -34,6 +57,11 @@ function mockAuth(): Plugin {
         if (req.url === "/api/v1/me/" && req.method === "GET") {
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify(FIXED_USER));
+          return;
+        }
+        if (req.url === "/api/v1/access/model" && req.method === "GET") {
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify(DECLARED_LADDER));
           return;
         }
         next();

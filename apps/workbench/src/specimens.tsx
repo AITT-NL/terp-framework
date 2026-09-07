@@ -3457,8 +3457,12 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
     //
     // The three specimens below are deliberately not the same KIND of specimen, and the
     // difference is the honest part rather than an inconsistency. `admin-user-create` mounts
-    // the real packaged screen, because that screen fetches nothing on mount. The other two
-    // owners — `GroupDetail` and `AuditLogAdmin` — build an HTTP repository and load on mount.
+    // the real packaged screen; it does fetch on mount now — the app's declared role ladder,
+    // since ADR 0022 makes the role model the application's — and `vite.config.ts` answers
+    // that one request with a fixed three-rung ladder, on the same determinism grounds as the
+    // fixed user. Without the answer the form pictured an empty role picker and a disabled
+    // submit, which gated nothing about the width cap this specimen exists for. The other two
+    // owners — `GroupDetail` and `AuditLogAdmin` — build an HTTP repository and load a list.
     //
     // Mounting them is possible, and an earlier version of this note gave a bad reason for
     // not doing it — that a mock server would break the registry's no-live-data rule. This app
