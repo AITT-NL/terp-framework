@@ -13,6 +13,7 @@ COPY packages/frontend packages/frontend
 COPY apps/example/frontend apps/example/frontend
 RUN npm ci
 
+
 EXPOSE 5173
 # The Vite dev server, reachable from the host; the /api proxy target is TERP_API_PROXY
 # (set to the api service in compose), so the browser calls the API same-origin.
