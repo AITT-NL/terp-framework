@@ -104,6 +104,13 @@ _AWAITING_SPEC_RELEASE: frozenset[str] = frozenset(
         # branch that carries the rule; emptied by the pin bump to the release that
         # publishes catalog/backend/modules_ship_tests.json.
         "modules_ship_tests",
+        # ADR 0121, and riding the same unreleased spec version as the rule above —
+        # which is the shape ADR 0116 predicted: a window opened for one rule stays
+        # open for whatever lands before the release closes it. All three are
+        # catalogued in the standard already; the pin bump empties them together.
+        "grantable_modules_are_named",
+        "platform_modules_refuse_module_roles",
+        "module_role_writes_go_through_the_capability",
     }
 )
 

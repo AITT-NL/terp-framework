@@ -751,7 +751,28 @@ told the difference.
    confirmation, so automatic activation would fire it while someone was arrowing past. That claim
    was in `TileGroup`'s docstring from the start with nothing to back it — the panel is the
    consumer that makes it true.
-6. **terp-spec rules and the violation corpus**, once the declarations are stable. The catalog
+6. **terp-spec rules and the violation corpus** — **done**, all three, in the shape the plan
+   named, plus one thing the plan had wrong. `grantable_modules_are_named` is **required**, not
+   coverage-gated: `ModuleAccess` refuses to construct an assignable declaration without a label,
+   so nothing can exist that a gate would need to stage. Its build-time half adds a file and a
+   line before the app is imported, which is the whole value on top of the constructor invariant.
+   `platform_modules_refuse_module_roles` is build-time **only**, and the rationale is recorded in
+   its catalog entry: the runtime does refuse to *assign* a rung in a platform-only module, but
+   nothing at runtime can know that a module administers authority — that is a judgement about
+   what the source does. Its trigger is holding `AccessService` or `ModuleRoleService`, and it is
+   deliberately blind to whether a call site only reads, because a read is the first half of a
+   write. The pair of corpus cases puts the service in `service.py` and the declaration in
+   `module.py`, which is the shape a real module has and one a manifest-only check would miss.
+   `module_role_writes_go_through_the_capability` refuses a read as well as a write, on
+   `no_manual_ownership_checks`' footing.
+
+   The two-repository sequence ADR 0116 wrote down is what made this a green merge on both
+   sides: the catalog entry and corpus land in terp-spec, the rule lands here with its name in
+   `_AWAITING_SPEC_RELEASE`, terp-spec certifies against a `main` that carries it, and the pin
+   bump empties the list. The window was already open for `modules_ship_tests` on the same
+   unreleased 0.32.0, which is exactly what ADR 0116 predicted would happen.
+
+   The original plan text, for the record. The catalog
    already has the precedents to copy — `backend/modules_declare_policy` for a required module
    declaration, `backend/routes_declare_operation` for a coverage-gated one, and
    `backend/policy_refs_resolve` for a reference that must resolve against the control plane. Three

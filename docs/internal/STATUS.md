@@ -694,7 +694,23 @@ one global rank and a group carries none.
       CRUD resource has no such gate, so its `editor` rung really does hand over the delete and
       its delta carries the destructive kind. An app with one assignable module could not show
       what the pane is for.
-- [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.
+- [x] Phase 6 the terp-spec rules and the violation-corpus fixtures. Three rules, six corpus
+      cases, and the catalog entries in terp-spec: `grantable_modules_are_named` (an assignable
+      module says what to call it — required, since `ModuleAccess` enforces the pairing at
+      construction and the build-time half adds a file and a line before the app is imported),
+      `platform_modules_refuse_module_roles` (a module holding `AccessService` or
+      `ModuleRoleService` never opts in — the escalation guard, build-time only because nothing
+      at runtime can know that a module administers authority), and
+      `module_role_writes_go_through_the_capability` (the table is reached through its service,
+      reads included, on `no_manual_ownership_checks`' footing). The plan had the first one down
+      as coverage-gated; it is not, and why is recorded there.
+      **The merge to main is not blocked, but the next framework release is.** ADR 0116's
+      `_AWAITING_SPEC_RELEASE` now lists all three beside `modules_ship_tests`, which was already
+      waiting on the same unreleased terp-spec 0.32.0. `test_no_rule_awaits_a_spec_release`
+      refuses to cut a release while that list is non-empty, so the outstanding action is: publish
+      terp-spec 0.32.0, bump the `terp-spec==0.31.0` pin here, and empty the list. Until then the
+      three rules run and are enforced, and no published catalog documents them — which is the
+      state ADR 0116 permits across a merge and a publish, and refuses to allow into a release.
 
 **An adversarial review has been run over the branch** — five lenses, three refuters per finding,
 defaulting to refuted — and six defects it found are fixed. The one that matters: the

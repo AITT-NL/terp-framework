@@ -29,7 +29,10 @@ from terp.arch import (
     check_operations_reference_catalog,
     check_routes_declare_operation,
     check_list_routes_paginate,
+    check_grantable_modules_are_named,
+    check_module_role_writes_go_through_the_capability,
     check_modules_declare_policy,
+    check_platform_modules_refuse_module_roles,
     check_mutations_emit_audit,
     check_mutations_require_write_role,
     check_no_adhoc_background_runtime,
@@ -333,6 +336,221 @@ def test_modules_declare_policy(tmp_path: pathlib.Path) -> None:
         "module = ModuleSpec(name='billing', router=router, policy=Policy.default())\n",
     )
     assert check_modules_declare_policy(app) == []
+
+
+def test_grantable_modules_are_named(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(\n"
+        "    name='billing',\n"
+        "    router=router,\n"
+        "    access=ModuleAccess(assignable=True),\n"
+        "    policy=Policy.default(),\n"
+        ")\n",
+    )
+    violations = check_grantable_modules_are_named(app)
+    assert _rule_names(violations) == {"grantable_modules_are_named"}
+    # The message has to say what the label is *for*, because the fix is a sentence someone
+    # has to write rather than a keyword they can copy.
+    assert "heads this module's strip" in violations[0].message
+
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(\n"
+        "    name='billing',\n"
+        "    router=router,\n"
+        "    access=ModuleAccess(label='Billing', assignable=True),\n"
+        "    policy=Policy.default(),\n"
+        ")\n",
+    )
+    assert check_grantable_modules_are_named(app) == []
+
+    # A blank label is the same defect wearing a keyword: the strip is still headed by
+    # nothing. Only a non-empty string counts.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label='   ', assignable=True))\n",
+    )
+    assert _rule_names(check_grantable_modules_are_named(app)) == {
+        "grantable_modules_are_named"
+    }
+
+    # A module that does not opt in owes nothing, whether it declares no access at all or
+    # declares the refusal — the label is only meaningful for a strip that gets rendered.
+    _write(app, "modules/billing/module.py", "module = ModuleSpec(policy=Policy.default())\n")
+    assert check_grantable_modules_are_named(app) == []
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only(reason='hands out authority'))\n",
+    )
+    assert check_grantable_modules_are_named(app) == []
+
+    # `assignable=False` is not an opt-in either, and neither is a computed value: the rule
+    # refuses to guess in both directions, leaving a non-literal to the constructor invariant
+    # and the boot check, which see the value the app really passes.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(assignable=False))\n",
+    )
+    assert check_grantable_modules_are_named(app) == []
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(assignable=FLAG))\n",
+    )
+    assert check_grantable_modules_are_named(app) == []
+
+
+def test_platform_modules_refuse_module_roles(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # The trigger and the declaration are in different files of the same module, which is the
+    # shape a real one has: the service holds the authority, the manifest declares the access.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import AccessService\n\n\n"
+        "class BillingService:\n"
+        "    access = AccessService()\n",
+    )
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label='Billing', assignable=True))\n",
+    )
+    violations = check_platform_modules_refuse_module_roles(app)
+    assert _rule_names(violations) == {"platform_modules_refuse_module_roles"}
+    # Reported at the declaration, not at the service: that is the line to change.
+    assert violations[0].path.endswith("module.py")
+    assert "way around the role ladder" in violations[0].message
+
+    # The refusal is the fix, and it is a declaration rather than a deletion — an absent
+    # `access=` would also pass, but says nothing to a reader of the access surface.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(\n"
+        "    access=ModuleAccess.platform_only(reason='it can grant every other authority')\n"
+        ")\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # `ModuleRoleService` is the other half of the same authority: assigning a rung is as
+    # much a way to confer authority as granting a permission is.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import ModuleRoleService\n\n\n"
+        "class BillingService:\n"
+        "    rungs = ModuleRoleService()\n",
+    )
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label='Billing', assignable=True))\n",
+    )
+    assert _rule_names(check_platform_modules_refuse_module_roles(app)) == {
+        "platform_modules_refuse_module_roles"
+    }
+
+    # One declaration, one violation, even when two files of the module name the service.
+    _write(
+        app,
+        "modules/billing/router.py",
+        "from terp.capabilities.access import ModuleRoleService\n\nrungs = ModuleRoleService()\n",
+    )
+    assert len(check_platform_modules_refuse_module_roles(app)) == 1
+
+    # A module that opts in and holds no such service is exactly the ordinary case, and the
+    # whole point of the rule is that it stays silent there.
+    _write(app, "modules/billing/service.py", "from terp.core import BaseService\n")
+    _write(app, "modules/billing/router.py", "from terp.core import SessionDep\n")
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # Gating a route on a permission is not the same as being able to grant one: a module
+    # that only *checks* authority is the common shape, and flagging it would make the rule
+    # unusable in any app that uses named permissions at all.
+    _write(
+        app,
+        "modules/billing/router.py",
+        "from terp.capabilities.access import require_permission\n\n"
+        "route = require_permission('billing.export')\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # The authority is only a problem where it meets the opt-in: a module holding the
+    # service and declaring nothing is a different rule's business.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import AccessService\n\naccess = AccessService()\n",
+    )
+    _write(app, "modules/billing/module.py", "module = ModuleSpec(policy=Policy.default())\n")
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+
+def test_module_role_writes_go_through_the_capability(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from sqlmodel import select\n\n"
+        "from terp.capabilities.access import ModuleRole\n\n\n"
+        "class BillingService:\n"
+        "    def rung(self, session, subject_id):\n"
+        "        return session.exec(select(ModuleRole)).first()\n",
+    )
+    violations = check_module_role_writes_go_through_the_capability(app)
+    assert _rule_names(violations) == {"module_role_writes_go_through_the_capability"}
+    assert "belongs to the access capability" in violations[0].message
+
+    # The service is the whole fix, and it is not a thinner wrapper over the same query: it
+    # emits the audit row and refuses an assignment the declarations cannot support.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import ModuleRoleService\n\n\n"
+        "class BillingService:\n"
+        "    def rung(self, session, subject_id):\n"
+        "        return ModuleRoleService().highest_rank(session, subject_id, 'billing')\n",
+    )
+    assert check_module_role_writes_go_through_the_capability(app) == []
+
+    # A read is refused as well as a write, on the same footing as hand-rolled row
+    # ownership: a read is the first half of a per-module gate written by hand, and nothing
+    # static can tell it from a read that only displays a tier.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import ModuleRole\n\n\n"
+        "def held(session, subject_id):\n"
+        "    return session.get(ModuleRole, subject_id).role_rank\n",
+    )
+    assert _rule_names(check_module_role_writes_go_through_the_capability(app)) == {
+        "module_role_writes_go_through_the_capability"
+    }
+
+    # Constructing the row directly is the write this exists to stop — it stores a rung with
+    # no audit entry and no validation, so it can name a module that could never honour it.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import ModuleRole\n\n\n"
+        "def grant(session, subject_id):\n"
+        "    session.add(ModuleRole(subject_id=subject_id, module='access', role_rank=30))\n",
+    )
+    assert _rule_names(check_module_role_writes_go_through_the_capability(app)) == {
+        "module_role_writes_go_through_the_capability"
+    }
+
+    # And the ordinary module, which never mentions the table at all.
+    _write(app, "modules/billing/service.py", "from terp.core import BaseService\n")
+    assert check_module_role_writes_go_through_the_capability(app) == []
 
 
 def test_no_adhoc_permission_literals(tmp_path: pathlib.Path) -> None:

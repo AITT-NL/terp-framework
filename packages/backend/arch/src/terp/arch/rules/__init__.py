@@ -87,6 +87,11 @@ from terp.arch.rules.imports import (
     check_no_raw_outbound_http,
     check_session_imported_from_sqlmodel,
 )
+from terp.arch.rules.module_roles import (
+    check_grantable_modules_are_named,
+    check_module_role_writes_go_through_the_capability,
+    check_platform_modules_refuse_module_roles,
+)
 from terp.arch.rules.migrations import (
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
@@ -161,6 +166,9 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "public_modules_are_read_only": "policy",
     "no_adhoc_permission_literals": "policy",
     "policy_refs_resolve": "policy",
+    "grantable_modules_are_named": "permissions",
+    "platform_modules_refuse_module_roles": "permissions",
+    "module_role_writes_go_through_the_capability": "permissions",
     "routes_declare_response_model": "module",
     "response_model_not_table_model": "module",
     "schemas_exclude_sensitive_fields": "module",
@@ -251,6 +259,9 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_public_modules_are_read_only,
     check_no_adhoc_permission_literals,
     check_policy_refs_resolve,
+    check_grantable_modules_are_named,
+    check_platform_modules_refuse_module_roles,
+    check_module_role_writes_go_through_the_capability,
     check_routes_declare_response_model,
     check_response_model_not_table_model,
     check_schemas_exclude_sensitive_fields,
