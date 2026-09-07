@@ -658,6 +658,20 @@ one global rank and a group carries none.
       tier strip, the delta split by verb, the viewer lenses.
 - [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.
 
+**An adversarial review has been run over the branch** — five lenses, three refuters per finding,
+defaulting to refuted — and six defects it found are fixed. The one that matters: the
+`ModuleAccess` declaration was enforced only at the writer, so a stored row naming a
+`platform_only` module elevated the caller anyway, reachable with no out-of-band write by
+dropping `assignable` from a module in a later release. The guard now reads the declaration. Also
+fixed: an undeclared rank cleared any floor; the undeclared-permission boot check was evadable by
+moving the dependency into the endpoint signature; a public policy short-circuited the
+route-permission fold; a `-1` sentinel in three max-accumulators crashed the provenance endpoint;
+and the control was half-built, so `/me` now carries `module_ranks` and the frontend gate takes
+the higher of the two. One finding was right about a symptom and wrong about the fix — see §4.9.
+
+The branch has been merged up to `main` at 0.18.0 (42 commits, 252 files) with no conflicts;
+the full suite, both frontend suites and the OpenAPI contract are green on the merge.
+
 A three-design panel was run against the plan; §9 there records the four mechanisms adopted from
 it, the one genuine alternative to the new table and why it is still not preferred, and the fact
 that its adversarial judges never ran — so the fork has not been independently scored.
