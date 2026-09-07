@@ -1,0 +1,12 @@
+# Baseline of the full-history gitleaks scan. CI scans every commit, so a test
+# fixture keeps firing until it is listed here. Format:
+# <commit>:<path>:<rule>:<line>.
+#
+# All four are literals written to be obviously fake: a CI smoke-test SECRET_KEY
+# that only ever reaches a throwaway stack, and three architecture tests that
+# need a key-shaped value to prove sealing, HMAC signing and OIDC token
+# validation actually happen. Never list a real credential here — rotate it.
+a8e0ec894cace738e4f08ba8e7b3c79af1decea7:tests/architecture/test_cli_env_seams.py:generic-api-key:674
+c7138152e6deb603b779ad98a843dd8d0980d349:.github/workflows/prod-smoke.yml:generic-api-key:29
+c7138152e6deb603b779ad98a843dd8d0980d349:tests/architecture/test_oidc.py:generic-api-key:50
+c7138152e6deb603b779ad98a843dd8d0980d349:tests/architecture/test_webhooks.py:generic-api-key:91

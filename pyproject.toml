@@ -84,6 +84,10 @@ lint = [
     "pip-audit>=2.7",
     "deptry>=0.20",
     "import-linter>=2.0",
+    # Pinned exactly, unlike the others: this one blocks, so a new audit must
+    # arrive by a deliberate bump (Dependabot opens it) rather than by surprise
+    # on an unrelated pull request.
+    "zizmor==1.30.0",
 ]
 
 [tool.pytest.ini_options]
