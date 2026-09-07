@@ -736,9 +736,16 @@ told the difference.
      - **`Tile.disabled` was removed.** Nothing consumed it, and the near-term surfaces do not
            either — a rung below the subject's global role is *marked as a floor*, not disabled,
            because it stays assignable and becomes meaningful the moment the global role drops.
-   - [ ] **5c — the example app's second assignable module**, whose rungs genuinely diverge from
-         `notes` (§9, design C). Still open: today only `notes` opts in, so the viewer's own
-         screenshot is one strip.
+   - [x] **5c — the example app's second assignable module.** `projects` opts in beside `notes`,
+         and the pair was chosen because their rows genuinely differ rather than to fill the
+         screen. Measured off `GET /model` rather than reasoned about: `notes` puts its delete
+         behind the named `notes.delete` permission, which no rung confers, so the delete is
+         refused at every rung and `admin` there hands over nothing an `editor` did not already
+         have — the `addsNothing` line firing in the real app. `projects` is a plain CRUD
+         resource with no such gate, so its `editor` rung really does hand over the delete, and
+         its delta carries the destructive kind with its own tone. That difference is the whole
+         reason the pane reports what each rung *adds* instead of one table of tiers, and an app
+         with one assignable module could not show it. **Phase 5 complete.**
 
    The panel is where the strip's manual activation earns its cost: assigning the top rung opens a
    confirmation, so automatic activation would fire it while someone was arrowing past. That claim

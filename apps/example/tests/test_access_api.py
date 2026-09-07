@@ -515,3 +515,45 @@ def test_only_an_admin_may_assign_or_revoke_a_rung(client_factory) -> None:
     anonymous = client_factory(None)
     assert anonymous.put(url, json={"role_rank": 20}).status_code == 401
     assert anonymous.delete(url).status_code == 401
+
+
+def test_the_app_declares_two_assignable_modules_whose_rungs_diverge(client_factory) -> None:
+    """Two modules opt into per-module roles, and a rung does not buy the same thing in both.
+
+    A demonstration app with one assignable module cannot show what the pane is for: every
+    column of the strip would be the same shape, and the reader would conclude the delta is
+    decoration. So `projects` opts in beside `notes`, and the pair was chosen because their
+    rows genuinely differ rather than to fill the screen.
+
+    `notes` puts its delete behind the named `notes.delete` permission, which no rung confers —
+    the projection probes rank alone — so the delete is refused at every rung and `admin` there
+    hands over nothing an `editor` did not already have. `projects` is a plain CRUD resource
+    with no such gate, so its `editor` rung really does hand over the delete. That difference
+    is the whole reason the pane reports what each rung *adds* instead of one table of tiers.
+    """
+    model = client_factory(Principal(id=uuid.uuid4(), role=Roles.ADMIN)).get(
+        "/api/v1/access/model"
+    )
+    assert model.status_code == 200
+    modules = {module["name"]: module for module in model.json()["modules"]}
+
+    assignable = sorted(
+        name
+        for name, module in modules.items()
+        if module["access"] is not None and module["access"]["assignable"]
+    )
+    assert assignable == ["notes", "projects"]
+
+    def deletes_allowed_at(module: str) -> dict[str, bool]:
+        (endpoint,) = [
+            row
+            for row in modules[module]["endpoints"]
+            if "DELETE" in (row["methods"] or [])
+        ]
+        return {row["role"]: row["allowed"] for row in endpoint["by_role"]}
+
+    # The divergence, asserted on the server's own per-rung outcomes rather than on a policy
+    # the test restates. Both modules gate writes at `editor`; only one of them gates its
+    # delete behind a grant as well.
+    assert deletes_allowed_at("notes") == {"viewer": False, "editor": False, "admin": False}
+    assert deletes_allowed_at("projects") == {"viewer": False, "editor": True, "admin": True}

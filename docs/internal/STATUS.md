@@ -687,6 +687,13 @@ one global rank and a group carries none.
       write re-read at all — the fixture answered the same rows forever, so an optimistic panel
       was indistinguishable from a correct one. The stub is stateful now and a test watches the
       strip follow the server.
+      **5c closed, and with it phase 5**: `projects` opts in beside `notes`. The pair diverges
+      for a reason measured off `GET /model` rather than assumed — `notes` gates its delete
+      behind a named permission no rung confers, so the delete is refused at every rung there
+      and `admin` adds nothing (the pane's `addsNothing` line, firing in the real app); a plain
+      CRUD resource has no such gate, so its `editor` rung really does hand over the delete and
+      its delta carries the destructive kind. An app with one assignable module could not show
+      what the pane is for.
 - [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.
 
 **An adversarial review has been run over the branch** — five lenses, three refuters per finding,
