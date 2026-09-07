@@ -179,9 +179,7 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
         router=router,
         policy=Policy.default(),
         permissions=(approve,),
-        access=ModuleAccess(
-            label="Widgets", summary="Things that get approved.", assignable=True
-        ),
+        access=ModuleAccess(label="Widgets", assignable=True),
     )
     graph = build_access_graph(
         ControlPlane(permissions=PermissionModel(permissions=(approve, retire))), [spec]
@@ -202,7 +200,6 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
     assert graph["modules"][0]["access"] == {
         "assignable": True,
         "label": "Widgets",
-        "summary": "Things that get approved.",
         "platform_reason": None,
     }
     (module,) = graph["modules"]
@@ -217,6 +214,155 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
         {"role": "editor", "allowed": False, "reason": "grant"},
         {"role": "admin", "allowed": False, "reason": "grant"},
     ]
+
+
+def test_the_model_reports_a_websocket_route_and_leaves_nesting_to_the_reconciliation() -> None:
+    """A WebSocket is guarded by the module policy, so the projection has to report it.
+
+    Found by review, along with a nesting claim that turned out to be right about the symptom
+    and wrong about the fix — see the assertion below.
+
+    The WebSocket half is the part that *is* fixed: an `isinstance(route, APIRoute)` filter
+    dropped every `APIWebSocketRoute`, though the same module policy guards it. It is gated at
+    the write tier, because that is what the guard does with a connection that has no HTTP
+    method after the upgrade.
+    """
+    from fastapi import APIRouter, WebSocket
+
+    from terp.core import ControlPlane, ModuleSpec, Policy
+    from terp.core.authz import build_access_model
+
+    child = APIRouter()
+
+    @child.get("/nested-leaf", response_model=str)
+    def leaf() -> str:  # pragma: no cover - never called
+        return "x"
+
+    parent = APIRouter()
+    parent.include_router(child)
+
+    @parent.get("/top", response_model=str)
+    def top() -> str:  # pragma: no cover - never called
+        return "x"
+
+    @parent.websocket("/live")
+    async def live(ws: WebSocket) -> None:  # pragma: no cover - never called
+        return None
+
+    model = build_access_model(
+        ControlPlane(), [ModuleSpec(name="m", router=parent, policy=Policy.default())]
+    )
+    (module,) = model["modules"]
+    # The nested route is deliberately absent, not forgotten: `include_router` keeps the child
+    # as a wrapper carrying no prefix, so a descent recovers the routes but not the paths they
+    # are served under — it reported `/api/v1/m/nested-leaf` for a route served under whatever
+    # prefix the parent gave it. A view naming a path that does not exist is worse than one
+    # that omits it, so coverage is asserted where it can be truthful: the audit graph
+    # reconciles against `app.openapi()` and alarms on anything uncovered.
+    assert [endpoint["path"] for endpoint in module["endpoints"]] == [
+        "/api/v1/m/live",
+        "/api/v1/m/top",
+    ]
+
+    websocket = next(e for e in module["endpoints"] if e["path"].endswith("/live"))
+    assert websocket["methods"] == []
+    assert websocket["requirement"] == "role:editor"
+    assert [row["allowed"] for row in websocket["by_role"]] == [False, True, True]
+
+
+def test_the_projection_sees_a_permission_declared_in_the_endpoint_signature() -> None:
+    """The other half of the same evasion: a view that cannot see a requirement reports it away.
+
+    `route.dependencies` holds only the route-decorator form, so a `require_permission` in the
+    endpoint signature was invisible here and every rung came back plainly `allowed` — on a
+    route where an ungranted caller gets a 403. Found by review.
+    """
+    from fastapi import APIRouter, Depends
+
+    from terp.core import VIEWER, ControlPlane, ModuleSpec, Permission, PermissionModel, Policy
+    from terp.core.authz import build_access_model
+
+    from terp.capabilities.access import require_permission
+
+    act = Permission("widgets.act", min_role=VIEWER, label="Act on a widget")
+    router = APIRouter()
+
+    @router.post("/act", response_model=str)
+    def do_act(_: None = Depends(require_permission(act))) -> str:  # pragma: no cover
+        return "ok"
+
+    model = build_access_model(
+        ControlPlane(permissions=PermissionModel(permissions=(act,))),
+        [ModuleSpec(name="gated", router=router, permissions=(act,), policy=Policy.default())],
+    )
+    (endpoint,) = model["modules"][0]["endpoints"]
+    assert endpoint["extra_permissions"] == ["widgets.act"]
+    assert [row["reason"] for row in endpoint["by_role"]] == ["rank", "grant", "grant"]
+
+
+def test_a_public_route_gated_by_a_grant_is_not_reported_as_allowed() -> None:
+    """`Policy.public_write` + `require_permission` is the documented grant-not-tier pattern.
+
+    The example app's own gated fixture uses it, justified as "gated by a fine-grained grant,
+    not a role". For such a route the module guard admits everyone while the route-level
+    dependency still answers 401 unauthenticated and 403 ungranted — so reporting the rungs as
+    `allowed` was the pane disagreeing with the gate, inside the one function written to stop
+    that. Found by review; the fold had excluded public policies.
+    """
+    from fastapi import APIRouter, Depends
+
+    from terp.core import (
+        VIEWER,
+        ControlPlane,
+        ModuleSpec,
+        Permission,
+        PermissionModel,
+        Policy,
+    )
+    from terp.core.authz import build_access_model
+
+    from terp.capabilities.access import require_permission
+
+    act = Permission("widgets.act", min_role=VIEWER, label="Act on a widget")
+    router = APIRouter()
+
+    @router.post("/act", response_model=str, dependencies=[Depends(require_permission(act))])
+    def do_act() -> str:  # pragma: no cover - never called
+        return "ok"
+
+    spec = ModuleSpec(
+        name="gated",
+        router=router,
+        permissions=(act,),
+        policy=Policy.public_write(reason="gated by a fine-grained grant, not a role"),
+    )
+    model = build_access_model(
+        ControlPlane(permissions=PermissionModel(permissions=(act,))), [spec]
+    )
+    (endpoint,) = model["modules"][0]["endpoints"]
+    assert endpoint["requirement"] == "public"
+    assert endpoint["extra_permissions"] == ["widgets.act"]
+    assert [(row["allowed"], row["reason"]) for row in endpoint["by_role"]] == [
+        (False, "grant"),
+        (False, "grant"),
+        (False, "grant"),
+    ]
+
+    # And a genuinely public route — no route-level permission — still reports public, without
+    # which the assertion above passes against a fold that simply never reports `public`.
+    open_router = APIRouter()
+
+    @open_router.get("/health", response_model=str)
+    def health() -> str:  # pragma: no cover - never called
+        return "ok"
+
+    probe = ModuleSpec(
+        name="probe", router=open_router, policy=Policy.public(reason="liveness probe")
+    )
+    open_model = build_access_model(ControlPlane(), [probe])
+    (open_endpoint,) = open_model["modules"][0]["endpoints"]
+    assert all(row["allowed"] for row in open_endpoint["by_role"])
+    assert {row["reason"] for row in open_endpoint["by_role"]} == {"public"}
 
 
 def test_access_graph_renders_public_policy() -> None:

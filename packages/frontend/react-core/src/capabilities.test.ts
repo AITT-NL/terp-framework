@@ -22,3 +22,23 @@ describe("canPerform", () => {
     expect(DEFAULT_RANK_THRESHOLDS).toEqual({ read: 10, write: 20, admin: 30 });
   });
 });
+
+describe("canPerform with a per-module rung", () => {
+  it("takes the higher of the global rank and the module rung", () => {
+    // What the server's guard computes (ADR 0112). Without the rung the UI refused what the
+    // guard would have allowed, so a caller who could reach a module *only* through a rung had
+    // every control there hidden — a control living on one side of the wire.
+    expect(canPerform(10, "write")).toBe(false);
+    expect(canPerform(10, "write", DEFAULT_RANK_THRESHOLDS, 20)).toBe(true);
+  });
+
+  it("never lowers a global rank", () => {
+    // The rung is additive at the guard, so a lower one cannot demote anyone here either. This
+    // is the case an implementation that *replaced* the rank would break.
+    expect(canPerform(30, "write", DEFAULT_RANK_THRESHOLDS, 10)).toBe(true);
+  });
+
+  it("ignores a rung for a threshold it still does not reach", () => {
+    expect(canPerform(10, "admin", DEFAULT_RANK_THRESHOLDS, 20)).toBe(false);
+  });
+});

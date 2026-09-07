@@ -8,7 +8,7 @@ object here, never a string in module code.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 
@@ -275,6 +275,17 @@ class PermissionModel:
             return None if permission is None else permission.min_role.rank
         return None
 
+    def has_rank(self, rank: int) -> bool:
+        """Whether this model declares a role at *rank*.
+
+        The guard's counterpart to :meth:`has_role` for a rank that arrives without a role
+        object — a per-module rung, which is stored as an integer because rank is what the
+        guard compares. Without it the two were asymmetric: an unregistered *global* role was
+        refused while an unregistered *module* rank cleared any floor, so a row at rank 999
+        was full authority in that module even though no ladder declared it.
+        """
+        return rank in self._roles_by_rank
+
     def role_for_rank(self, rank: int) -> Role:
         """Return the registered role with *rank*, or fail closed."""
         try:
@@ -377,20 +388,76 @@ def reset_permission_projectors() -> None:
     _permission_projectors.clear()
 
 
+# --------------------------------------------------------------------------- #
+# The module-rank projection seam (ADR 0112)
+# --------------------------------------------------------------------------- #
+
+# Which rung a caller holds in each module, for the UI to gate on. Shaped like
+# ``PermissionProjector`` and filled the same way, by the capability that owns the rows.
+ModuleRankProjector = Callable[[Session, uuid.UUID], Mapping[str, int]]
+
+_module_rank_projectors: list[ModuleRankProjector] = []
+
+
+def register_module_rank_projector(projector: ModuleRankProjector) -> None:
+    """Register a source of the caller's per-module rungs (idempotent).
+
+    The frontend half of per-module authority, and without it the control is half-built: the
+    guard honours a rung the packaged UI cannot see, so a module a caller may reach only
+    through one stays hidden and the button they are entitled to is never rendered. The
+    ideology calls a control that exists on one side of the wire only what it is.
+
+    Composed by taking the **highest** rung per module across projectors, which is the same
+    composition the guard performs and the only one that cannot report less authority than the
+    server will honour. Under-reporting hides a button someone may use; over-reporting shows
+    one the server refuses. Neither is good and the second is at least visible, but the real
+    reason is that ``max`` is what the resolver does, so any other choice would make the two
+    sides disagree by construction.
+    """
+    if projector not in _module_rank_projectors:
+        _module_rank_projectors.append(projector)
+
+
+def project_module_ranks(session: Session, subject_id: uuid.UUID) -> dict[str, int]:
+    """The caller's rung in each module they hold one in, highest wins.
+
+    Empty for an app that mounts no assignment capability, which is the honest answer: it has
+    no per-module rungs, so a UI gates on the global rank exactly as it did before.
+    """
+    projected: dict[str, int] = {}
+    for projector in _module_rank_projectors:
+        for module, rank in projector(session, subject_id).items():
+            # Sentinel-free for the reason the other two accumulators are: a `-1` default
+            # silently drops a rank at or below it, and ranks are app-declared integers.
+            current = projected.get(module)
+            if current is None or rank > current:
+                projected[module] = rank
+    return dict(sorted(projected.items()))
+
+
+def reset_module_rank_projectors() -> None:
+    """Clear the registry (a test seam; capabilities re-register at import)."""
+    _module_rank_projectors.clear()
+
+
 __all__ = [
     "ADMIN",
     "AuthorizationRequirement",
     "EDITOR",
     "LabelCoverage",
+    "ModuleRankProjector",
     "Permission",
     "PermissionModel",
     "PermissionProjector",
     "Role",
     "VIEWER",
     "as_role",
+    "project_module_ranks",
     "project_permissions",
+    "register_module_rank_projector",
     "register_permission_projector",
     "registered_permission_projectors",
+    "reset_module_rank_projectors",
     "reset_permission_projectors",
     "requirement_from",
     "role_from_rank",

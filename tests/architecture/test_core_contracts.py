@@ -150,7 +150,7 @@ def test_module_access_is_absent_by_default_and_refuses_a_contradiction() -> Non
     """
     assert ModuleSpec(name="notes").access is None
 
-    opted_in = ModuleAccess(label="Notes", summary="Free-form notes.", assignable=True)
+    opted_in = ModuleAccess(label="Notes", assignable=True)
     assert opted_in.is_platform_only is False
 
     refused = ModuleAccess.platform_only(reason="grants hand out every other authority")

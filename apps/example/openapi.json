@@ -441,6 +441,14 @@
             "title": "Id",
             "type": "string"
           },
+          "module_ranks": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "default": {},
+            "title": "Module Ranks",
+            "type": "object"
+          },
           "permissions": {
             "default": [],
             "items": {
@@ -1065,23 +1073,11 @@
               }
             ],
             "title": "Platform Reason"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summary"
           }
         },
         "required": [
           "assignable",
           "label",
-          "summary",
           "platform_reason"
         ],
         "title": "ModuleAccessRead",

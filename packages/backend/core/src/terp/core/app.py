@@ -79,8 +79,9 @@ from terp.core.routing import (
     MUTATING_METHODS,
     declared_operation,
     is_read_only,
+    iter_declaring_routes,
     request_method,
-    required_permission,
+    route_permission_names,
 )
 from terp.core.throttling import (
     InMemoryThrottleStore,
@@ -168,6 +169,26 @@ def enforces_token_revocation(provider: Callable[..., Principal | None]) -> bool
     return bool(getattr(provider, _TOKEN_REVOCATION_ATTR, False))
 
 
+def _declared_rank_only(rank: int, model: PermissionModel | None) -> int:
+    """The resolved module rank, or ``0`` when the app's ladder does not declare it.
+
+    Symmetry with the global role, which the guard already refuses when the model does not
+    register it. Without this the two disagreed in the dangerous direction: an unregistered
+    global role was denied outright, while a stored module rank at any integer cleared every
+    floor at or below it — so a row at rank 999 was full authority in that module though no
+    ladder declared such a rung.
+
+    ``validate_assignment`` refuses to *write* an undeclared rank, and that is not enough for
+    the same reason it was not enough for a refusing module: the guard must not trust the
+    table. A rank the app has since stopped declaring lands here too, and ``0`` is the right
+    answer for it — below every declarable rung, so it clears nothing, while the row stays
+    visible to the views that report it stale.
+    """
+    if model is None:
+        return rank
+    return rank if model.has_rank(rank) else 0
+
+
 def build_guard(
     policy: Policy,
     principal_provider: Callable[..., Principal | None] = get_principal,
@@ -224,7 +245,10 @@ def build_guard(
                 if principal is None
                 or module_rank_resolver is None
                 or module_name is None
-                else lambda: module_rank_resolver(session, principal.id, module_name)
+                else lambda: _declared_rank_only(
+                    module_rank_resolver(session, principal.id, module_name),
+                    permission_model,
+                )
             ),
         )
         if decision.allowed:
@@ -709,31 +733,6 @@ def _route_label(spec: ModuleSpec, route: object) -> str:
     return f"{spec.name}:{verb} {getattr(route, 'path', '?')}"
 
 
-def _iter_declaring_routes(routes: Sequence[object]) -> Iterator[object]:
-    """Every route with an endpoint reachable from *routes*, HTTP or WebSocket.
-
-    Distinct from :func:`_iter_api_routes`, which yields only ``APIRoute`` because its
-    consumers are about response models and HTTP methods. A route's *operation* is not
-    an HTTP concept: ``@router.websocket(...)`` declares a mounted, callable surface
-    that a permission view must explain like any other, and this framework's own
-    realtime capability ships one.
-
-    Yielding only ``APIRoute`` here silently dropped those from both halves of the
-    control — an undeclared WebSocket passed STRICT, and an operation absent from the
-    catalog was accepted on a WebSocket while the identical declaration was refused on
-    a ``GET``. A guarantee described as unconditional cannot be conditional on the
-    route class.
-    """
-    for route in routes:
-        if isinstance(route, APIRoute | APIWebSocketRoute):
-            yield route
-            continue
-        nested = getattr(route, "original_router", None) or route
-        sub = getattr(nested, "routes", None)
-        if sub:
-            yield from _iter_declaring_routes(sub)
-
-
 def _validate_declared_operations(
     specs: Sequence[ModuleSpec], catalog: OperationCatalog
 ) -> None:
@@ -756,7 +755,7 @@ def _validate_declared_operations(
     for spec in specs:
         if spec.router is None:
             continue
-        for route in _iter_declaring_routes(spec.router.routes):
+        for route in iter_declaring_routes(spec.router.routes):
             declared = declared_operation(route.endpoint)
             if declared is None:
                 undeclared.append(_route_label(spec, route))
@@ -847,10 +846,12 @@ def _validate_route_permissions_are_declared(
     for spec in specs:
         if spec.router is None:
             continue
-        for route in _iter_declaring_routes(spec.router.routes):
-            for depends in getattr(route, "dependencies", ()) or ():
-                name = required_permission(getattr(depends, "dependency", None))
-                if name is not None and not plane.permissions.declares(name):
+        for route in iter_declaring_routes(spec.router.routes):
+            # The resolved dependency tree, not `route.dependencies`: FastAPI enforces a
+            # `Depends(require_permission(...))` in the endpoint *signature* identically, and
+            # reading the shorter list made this gate evadable by moving the dependency there.
+            for name in route_permission_names(route):
+                if not plane.permissions.declares(name):
                     undeclared.append(f"{_route_label(spec, route)} requires {name!r}")
     if undeclared:
         raise BootError(
@@ -1786,7 +1787,19 @@ def create_app(
                             permission_enforcer,
                             resolved_plane.permissions,
                             spec.name,
-                            module_rank_resolver,
+                            # Only a module that DECLARED itself assignable gets a resolver, so
+                            # the declaration is a gate at the decision point rather than a
+                            # convention the writer happens to honour. Without this, a
+                            # `ModuleRole` row naming a `platform_only` module — or one that
+                            # never opted in — elevated the caller anyway: `validate_assignment`
+                            # refuses to create such a row, but the guard read whatever was
+                            # there, so any other write path (a seed, a migration, a future
+                            # endpoint, a bug) turned a refused declaration into admin in
+                            # `users` or `access`. It also makes the stale reporting honest: a
+                            # row every view calls stale now genuinely does nothing.
+                            module_rank_resolver
+                            if spec.access is not None and spec.access.assignable
+                            else None,
                         )
                     ),
                     audit_actor_binder,

@@ -254,12 +254,16 @@ class ModuleAccess:
     deliberate, greppable line, and a capability that never considered the question is safe
     by omission rather than dangerous by omission.
 
-    ``label`` and ``summary`` exist because the pane renders them to an administrator who
-    cannot read the source, the same reason ADR 0102 gives every route a sentence. A module
-    that opts in **must** carry a label: not a coverage-gated requirement like a permission's
-    label, but a constructor invariant, because the field is new and has no existing call
-    sites to break — a module cannot ask to appear in an editor and decline to say what it
-    is called.
+    ``label`` exists because the pane renders it to an administrator who cannot read the
+    source, the same reason ADR 0102 gives every route a sentence. A module that opts in
+    **must** carry one: not a coverage-gated requirement like a permission's label, but a
+    constructor invariant, because the field is new and has no existing call sites to break —
+    a module cannot ask to appear in an editor and decline to say what it is called.
+
+    There is no ``summary``. One was declared, projected into the API and typed into the
+    generated client, and rendered by nobody — a field whose only consumers were its own
+    serialisation. "Name the consumer or drop it" applies to a field the pane *might* want as
+    much as to one nothing could ever want, so it comes back with the screen that shows it.
 
     ``platform_only`` is the refusal. Per-module ``admin`` in the wrong module is a way
     around the ladder rather than a use of it: admin in ``users`` provisions users, and
@@ -267,14 +271,21 @@ class ModuleAccess:
     platform's own authority declare it, with a reason, in the shape ``Policy.public``
     already uses for its own justified exception.
 
-    It is a **declaration**, not yet an enforced gate: nothing assigns a per-module role
-    until that lands, so there is nothing for it to refuse today. It is declared first on
-    purpose — the alternative is shipping assignment and the refusal in one change, where a
-    capability nobody remembered to annotate is assignable the moment assignment exists.
+    It is enforced at the **decision point**, not only at the writer, and the difference was a
+    real defect for two commits. ``validate_assignment`` refuses to create a row naming a
+    refusing module, and that was briefly the whole enforcement — while the guard read whatever
+    was in the table, so any other write path turned a refused declaration into admin in
+    ``users`` or ``access``. ``create_app`` now hands a module-rank resolver only to a module
+    that declared itself assignable, so a row for any other module is never read at all: the
+    declaration gates rather than advises, and a row every view calls stale genuinely does
+    nothing.
+
+    This docstring said "not yet an enforced gate" while that was true and kept saying it after
+    assignment shipped. Recorded because the rule here is that a false claim in a docstring is a
+    defect in its own right, and this one described the exact gap it was sitting on.
     """
 
     label: str = ""
-    summary: str = ""
     assignable: bool = False
     platform_reason: str | None = None
 

@@ -264,7 +264,6 @@ def test_the_access_model_is_served_to_an_admin_and_refused_to_everyone_else(
     assert notes["access"] == {
         "assignable": True,
         "label": "Notes",
-        "summary": "Free-form notes, with deletion held behind a named grant.",
         "platform_reason": None,
     }
     assert notes["permissions"] == ["notes.delete"]

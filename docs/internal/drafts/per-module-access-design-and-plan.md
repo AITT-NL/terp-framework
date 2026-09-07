@@ -616,6 +616,50 @@ Every row is an assertion about behaviour rather than about shape, which is what
 mutation-checkable at all. None of them is satisfiable by a fixture whose values coincide with the
 expected output.
 
+## 4.9 A residual gap: `GET /model` cannot yet claim route coverage
+
+`build_access_graph_for_app` can promise that a permission report covers the whole guarded
+surface, because it reconciles the graph against `app.openapi()` and reports anything served
+but uncovered under `omitted_routes`. `GET /api/v1/access/model` makes no such promise: it is
+pure derivation over the specs, so a route it does not enumerate is simply absent with no
+signal.
+
+That matters for exactly one shape today. `APIRouter.include_router` keeps the child as an
+`_IncludedRouter` whose wrapper carries **no prefix**, so a walk can recover a nested route's
+existence but not the path it is served under — descending reported `/api/v1/widgets/nested`
+for a route served at `/api/v1/widgets/deep/nested`. A view naming a path that does not exist
+is worse than one that omits it, so the projection stays flat and the audit graph's alarm is
+the control. A review finding was right that the pane can under-report and wrong that walking
+the tree fixes it; walking it was tried here and reverted, and the test that pins the alarm is
+what caught the wrong paths.
+
+The fix, when the pane needs it, is to give `/model` the same reconciliation rather than a
+cleverer walk: move `_served_routes` and the omission computation into
+`terp.core.authz` beside `build_access_model`, have `build_access_graph_for_app` call it so
+there is one copy, and let the endpoint carry the alarm. It needs the composed `FastAPI`, which
+the endpoint has and the pure builder does not — so the builder grows an optional second
+entry point rather than a hidden dependency. Not built yet: the pane does not exist, and
+ADR 0099's name-a-consumer test applies to an alarm as much as to a component.
+
+## 4.8 A working note on mutation-checking, learned the hard way here
+
+Two mutations were left in the working tree unreverted during this work and were noticed only
+because they appeared in `git diff --cached` before a commit. Neither had broken a test, which is
+how they survived — a leftover mutation is indistinguishable from a passing suite.
+
+So the discipline needs one more step than "break it, watch it go red, restore it": **after a
+mutation batch, assert the tree is clean.** `git diff --quiet` between batches turns a silent
+leftover into a stop. It also catches the other failure mode seen here, a mutation that never
+applied — which looks exactly like a test that missed, and cost one wrong conclusion before the
+edit was checked rather than assumed.
+
+Four vacuous assertions were found across this work, and the shape repeats: the fixture's values
+already coincided with the expected output. A single `ModuleRole` row makes `max` and `min` the
+same query. A caller who already clears the floor never consults the resolver. A pre-sorted role
+list cannot observe a sort. A test asserting a floor is *marked* is not asserting it is marked
+*differently*. In each case the assertion read correct and observed nothing, and only a mutation
+told the difference.
+
 ## 5. The plan, in phases that each end somewhere shippable
 
 1. **Cleanups that stand alone**, none of which need any of the design below:

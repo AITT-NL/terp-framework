@@ -14,13 +14,23 @@ export const DEFAULT_RANK_THRESHOLDS: RankThresholds = {
 };
 
 /**
- * Whether a caller with `roleRank` may perform `action` under `thresholds`. This is the
- * UI gate only; the backend independently enforces authorization on every request.
+ * Whether a caller may perform `action`, at `roleRank` globally and optionally at
+ * `moduleRank` inside the module in question.
+ *
+ * The effective rank is the **higher** of the two, which is what the server's guard computes
+ * (ADR 0112): a per-module rung raises authority inside one module and never lowers it. Passing
+ * the rung is what stops the UI disagreeing with the guard — without it a caller who may reach
+ * a module *only* through a rung had the button hidden, so the interface refused what the server
+ * would have allowed, and the control existed on one side of the wire only.
+ *
+ * This is the UI gate only; the backend independently enforces authorization on every request.
  */
 export function canPerform(
   roleRank: number,
   action: Action,
   thresholds: RankThresholds = DEFAULT_RANK_THRESHOLDS,
+  moduleRank?: number,
 ): boolean {
-  return roleRank >= thresholds[action];
+  const effective = moduleRank === undefined ? roleRank : Math.max(roleRank, moduleRank);
+  return effective >= thresholds[action];
 }

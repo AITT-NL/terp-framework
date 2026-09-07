@@ -131,7 +131,6 @@ class ModuleAccessRead(BaseSchema):
 
     assignable: bool
     label: str | None
-    summary: str | None
     #: Set when the module refuses assignment outright, and carries the justification.
     platform_reason: str | None
 

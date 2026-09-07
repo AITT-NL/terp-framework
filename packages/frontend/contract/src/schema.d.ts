@@ -559,6 +559,13 @@ export interface components {
              */
             id: string;
             /**
+             * Module Ranks
+             * @default {}
+             */
+            module_ranks: {
+                [key: string]: number;
+            };
+            /**
              * Permissions
              * @default []
              */
@@ -739,8 +746,6 @@ export interface components {
             label: string | null;
             /** Platform Reason */
             platform_reason: string | null;
-            /** Summary */
-            summary: string | null;
         };
         /** Page[AuditEventRead] */
         Page_AuditEventRead_: {

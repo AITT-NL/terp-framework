@@ -31,11 +31,7 @@ module = ModuleSpec(
     services=(NoteService,),
     requires=("access",),
     permissions=(NOTES_DELETE_PERMISSION,),
-    access=ModuleAccess(
-        label="Notes",
-        summary="Free-form notes, with deletion held behind a named grant.",
-        assignable=True,
-    ),
+    access=ModuleAccess(label="Notes", assignable=True),
     policy=Policy.default(),
     emits=[NOTE_CREATED],
 )

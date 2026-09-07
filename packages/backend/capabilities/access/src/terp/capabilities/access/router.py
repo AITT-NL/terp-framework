@@ -199,7 +199,11 @@ def get_subject_access(
     assignments = ModuleRoleService().held_with_subjects(session, set(by_id))
     winning = {}
     for module, rank, _holder in assignments:
-        if rank > winning.get(module, -1):
+        # Sentinel-free, and this one was a crash rather than a wrong answer: with a `-1`
+        # default a stored rank of -1 never won, `winning` stayed empty, and the lookup below
+        # raised `KeyError` — a 500 from the endpoint whose job is explaining a right.
+        current = winning.get(module)
+        if current is None or rank > current:
             winning[module] = rank
     module_roles = []
     for module, rank, holder in sorted(

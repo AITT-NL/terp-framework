@@ -151,12 +151,15 @@ from terp.core.permissions import (
     VIEWER,
     AuthorizationRequirement,
     LabelCoverage,
+    ModuleRankProjector,
     Permission,
     PermissionModel,
     PermissionProjector,
     Role,
     as_role,
+    project_module_ranks,
     project_permissions,
+    register_module_rank_projector,
     register_permission_projector,
 )
 from terp.core.operations import (

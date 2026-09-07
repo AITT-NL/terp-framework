@@ -387,3 +387,98 @@ def test_clearing_the_floor_by_module_role_is_reported_distinctly(engine: Engine
         == "allowed"
     )
 
+
+def _admin_only_module(name: str, access: ModuleAccess | None) -> ModuleSpec:
+    """An admin-gated module, so a VIEWER holding a rung there is a visible escalation."""
+    router = APIRouter()
+
+    @router.post("/", response_model=str)
+    def write() -> str:  # pragma: no cover - exercised over HTTP
+        return f"wrote {name}"
+
+    return ModuleSpec(
+        name=name,
+        router=router,
+        policy=Policy(read_role=Roles.ADMIN, write_role=Roles.ADMIN),
+        access=access,
+    )
+
+
+def test_a_rung_in_a_module_that_refuses_assignment_does_not_elevate(engine: Engine) -> None:
+    """The declaration has to be a gate at the DECISION point, not a convention at the writer.
+
+    Found by review, and it was worse than reported: a `ModuleRole` row naming a
+    `platform_only` module *or* a module that never opted in elevated the caller anyway. Both
+    modules here are admin-gated, so a VIEWER reaching them is full platform authority —
+    `admin` in a `users`-shaped module provisions accounts, and in an `access`-shaped one hands
+    out every other authority. That is the exact escalation ADR 0112 §5 exists to prevent.
+
+    `validate_assignment` refuses to *create* such a row, and that was the whole enforcement:
+    the guard read whatever was in the table, so any other write path — a seed, a migration, a
+    future endpoint, a bug — turned a refused declaration into admin. The suite was green
+    throughout, because every existing assertion about the refusal was aimed at the writer.
+
+    Fixing it at the guard also makes the stale reporting honest: a row every view calls stale
+    now genuinely does nothing.
+    """
+    viewer = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
+    app = create_app(
+        [
+            _admin_only_module(
+                "iam", ModuleAccess.platform_only(reason="the platform's own authority")
+            ),
+            _admin_only_module("silent", None),
+            _admin_only_module("opted_in", ModuleAccess(label="Opted in", assignable=True)),
+        ],
+        principal_provider=lambda: viewer,
+        control_plane=ControlPlane(permissions=PermissionModel.default()),
+        module_rank_resolver=resolve_module_rank,
+    )
+
+    def _session() -> Iterator[Session]:
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_session] = _session
+    client = TestClient(app)
+
+    with Session(engine) as session:
+        for module in ("iam", "silent", "opted_in"):
+            ModuleRoleService().assign(session, viewer.id, module, ADMIN.rank)
+        session.commit()
+
+    assert client.post("/api/v1/iam/").status_code == 403
+    assert client.post("/api/v1/silent/").status_code == 403
+    # The positive half, without which the two above pass against a guard that ignores every
+    # module role: the module that DID opt in still elevates.
+    assert client.post("/api/v1/opted_in/").status_code == 200
+
+
+def test_a_rank_the_ladder_does_not_declare_clears_nothing(engine: Engine) -> None:
+    """Symmetry with the global role, which the guard already refuses when unregistered.
+
+    Found by review. The two disagreed in the dangerous direction: an unregistered *global*
+    role was denied outright, while a stored module rank at any integer cleared every floor at
+    or below it — so a row at rank 999 was full authority in that module though no ladder
+    declared such a rung. `validate_assignment` refuses to write one, and that was the whole
+    enforcement, which is the same mistake as trusting the table about a refusing module.
+
+    A rank the app has *since stopped* declaring lands here too, and clearing nothing is the
+    right answer for it while the row stays visible to the views that report it stale.
+    """
+    viewer = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
+    client = _client(engine, viewer, "notes")
+    service = ModuleRoleService()
+
+    with Session(engine) as session:
+        service.assign(session, viewer.id, "notes", 999)
+        session.commit()
+    assert client.post("/api/v1/notes/").status_code == 403
+
+    # The positive half: a rank the ladder *does* declare still elevates, without which the
+    # assertion above passes against a guard that ignores every module role.
+    with Session(engine) as session:
+        service.assign(session, viewer.id, "notes", EDITOR.rank)
+        session.commit()
+    assert client.post("/api/v1/notes/").status_code == 200
+

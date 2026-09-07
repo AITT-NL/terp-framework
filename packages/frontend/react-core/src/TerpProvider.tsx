@@ -249,8 +249,19 @@ export function TerpProvider({
       refresh,
       currentUser: () => user,
       loading: () => loading,
-      can: (action: Action) =>
-        user ? canPerform(user.role_rank, action, thresholds) : false,
+      // `module` names the module the action happens in, so a per-module rung can raise the
+      // answer. Omitted, the gate is the global rank exactly as before — which is the honest
+      // default for a screen that is not a module's own, and keeps every existing caller
+      // correct rather than silently widened.
+      can: (action: Action, module?: string) =>
+        user
+          ? canPerform(
+              user.role_rank,
+              action,
+              thresholds,
+              module === undefined ? undefined : user.module_ranks?.[module],
+            )
+          : false,
     }),
     [login, logout, refresh, user, loading, thresholds],
   );

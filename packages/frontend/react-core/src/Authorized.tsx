@@ -3,9 +3,16 @@ import type { ReactNode } from "react";
 
 import { useAuth } from "./TerpProvider";
 
-/** Whether the current user may perform `action` (the UI gate; the backend re-checks). */
-export function useCan(action: Action): boolean {
-  return useAuth().can(action);
+/**
+ * Whether the current user may perform `action` (the UI gate; the backend re-checks).
+ *
+ * Pass `module` on a module's own screen: a per-module rung the caller holds there raises the
+ * answer exactly as it does at the guard (ADR 0112). Without it this compares the global rank
+ * only, which is correct for a screen that belongs to no module and wrong for one that does —
+ * it hid a module the caller could reach and rendered none of its controls.
+ */
+export function useCan(action: Action, module?: string): boolean {
+  return useAuth().can(action, module);
 }
 
 /**
@@ -32,6 +39,8 @@ export function useHasPermission(permission: string): boolean {
 
 export interface AuthorizedProps {
   action: Action;
+  /** The module this action happens in, so a per-module rung can raise the answer. */
+  module?: string;
   children: ReactNode;
   /**
    * Also require this named permission grant.
@@ -46,8 +55,14 @@ export interface AuthorizedProps {
 }
 
 /** Render `children` only when the current user may perform `action`, else `fallback`. */
-export function Authorized({ action, permission, children, fallback = null }: AuthorizedProps) {
-  const allowedByRank = useCan(action);
+export function Authorized({
+  action,
+  module,
+  permission,
+  children,
+  fallback = null,
+}: AuthorizedProps) {
+  const allowedByRank = useCan(action, module);
   const permissions = usePermissions();
   const allowed = allowedByRank && (permission === undefined || permissions.includes(permission));
   return <>{allowed ? children : fallback}</>;

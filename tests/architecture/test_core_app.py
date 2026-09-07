@@ -602,6 +602,49 @@ def test_a_route_may_not_require_a_permission_the_control_plane_does_not_declare
     assert create_app([spec], control_plane=plane).title == "Terp app"
 
 
+def test_the_undeclared_permission_gate_sees_a_dependency_in_the_signature_too() -> None:
+    """A gate with a documented evasion is not a gate.
+
+    FastAPI accepts a dependency in two places and enforces both identically: on the route
+    (`dependencies=[Depends(...)]`) and as a parameter default in the endpoint signature. The
+    check read `route.dependencies`, which holds only the first — so moving the dependency into
+    the signature evaded it, and the access projection reported such a route's rungs as plainly
+    `allowed` while an ungranted caller got a 403. Found by review.
+
+    Both forms are asserted here, because fixing one and leaving the other is the shape of the
+    original defect.
+    """
+    from terp.core import mark_required_permission
+
+    def holds_it() -> None:  # pragma: no cover - never called; only its marker is read
+        return None
+
+    marked = mark_required_permission(holds_it, "widgets.write")
+
+    signature_router = APIRouter()
+
+    @signature_router.post("/act", response_model=str)
+    def act(_: None = Depends(marked)) -> str:  # pragma: no cover - never called
+        return "ok"
+
+    declared_router = APIRouter()
+
+    @declared_router.post("/act", response_model=str, dependencies=[Depends(marked)])
+    def act_declared() -> str:  # pragma: no cover - never called
+        return "ok"
+
+    for router in (signature_router, declared_router):
+        spec = ModuleSpec(name="gated", router=router, policy=Policy.default())
+        with pytest.raises(BootError, match="does not declare"):
+            create_app([spec], control_plane=ControlPlane())
+
+        # And declaring it boots, so neither assertion above passes against a check that
+        # refuses every marked route.
+        declared = Permission("widgets.write", min_role=VIEWER, label="Change a widget")
+        plane = ControlPlane(permissions=PermissionModel(permissions=(declared,)))
+        assert create_app([spec], control_plane=plane).title == "Terp app"
+
+
 def test_an_unlabelled_permission_boots_with_coverage_off_and_is_refused_under_strict() -> None:
     """The permission half of ADR 0102's promise, staged the same way.
 

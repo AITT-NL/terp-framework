@@ -60,5 +60,22 @@ class CurrentUser(BaseSchema):
     trusts this list has moved the gate to the wrong side of the wire.
     """
 
+    module_ranks: dict[str, int] = {}
+    """The rung the caller holds in each module they hold one in (ADR 0112).
+
+    The frontend half of per-module authority. Rank alone was not enough here either, and in
+    the more dangerous direction: the guard raises a caller's authority inside a module they
+    hold a rung in, so a UI gating on the global rank alone hid a module the caller could
+    actually reach and never rendered the button they were entitled to. A control that exists
+    on one side of the wire only is half-built.
+
+    The effective rank in a module is the higher of ``role_rank`` and the entry here, which is
+    what the guard computes — so a client applying it agrees with the server by construction
+    rather than by coincidence. Absent modules are simply not held.
+
+    Empty for an app that mounts no assignment capability, and a *display* input on exactly
+    the same terms as ``permissions``: the guard re-resolves on every request.
+    """
+
 
 __all__ = ["AccessToken", "ClientCredentialsRequest", "CurrentUser", "LoginRequest"]

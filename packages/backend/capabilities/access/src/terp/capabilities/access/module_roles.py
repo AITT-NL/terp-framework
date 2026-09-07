@@ -23,7 +23,14 @@ import uuid
 
 from sqlmodel import Session, col, func, select
 
-from terp.core import AuditAction, BaseService, ControlPlane, ModuleSpec, ValidationFailedError
+from terp.core import (
+    AuditAction,
+    BaseService,
+    ControlPlane,
+    ModuleSpec,
+    ValidationFailedError,
+    register_module_rank_projector,
+)
 
 from terp.capabilities.access.expansion import subject_ids_for
 from terp.capabilities.access.models import ModuleRole
@@ -210,9 +217,42 @@ def validate_assignment(
         )
 
 
+def project_held_module_ranks(
+    session: Session, subject_id: uuid.UUID
+) -> dict[str, int]:
+    """Every module rung *subject_id* holds, for the ``/me`` projection (ADR 0112).
+
+    The display counterpart of :func:`resolve_module_rank`: the same expanded subject set, but
+    every module at once instead of a yes/no for one. Registered below, so ``GET /me`` reports
+    the rungs without the auth or identity capability importing this one — exactly how the
+    grant projection already works.
+
+    A **display** input, never a decision. The guard re-resolves on every request, and a client
+    treating this as authority has moved the gate to the wrong side of the wire. Reporting a
+    rung the caller holds cannot widen anything; what it fixes is the opposite failure, a
+    packaged UI that hid a module the caller could actually reach.
+    """
+    held = _service.held_with_subjects(session, subject_ids_for(session, subject_id))
+    highest: dict[str, int] = {}
+    for module, rank, _holder in held:
+        # Sentinel-free: `rank > highest.get(module, -1)` looked equivalent and was not, because
+        # a stored rank of -1 or below never won. Ranks are app-declared integers and this must
+        # not trust the table about their range.
+        current = highest.get(module)
+        if current is None or rank > current:
+            highest[module] = rank
+    return highest
+
+
+# Registered at import, like the grant projector: an app that mounts this capability gets the
+# rungs in `/me` without wiring it, and one that does not projects nothing.
+register_module_rank_projector(project_held_module_ranks)
+
+
 __all__ = [
     "ModuleRoleService",
     "assignable_modules",
+    "project_held_module_ranks",
     "resolve_module_rank",
     "validate_assignment",
 ]

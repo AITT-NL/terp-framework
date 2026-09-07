@@ -32,6 +32,7 @@ from terp.core import (
     AuthenticationError,
     PermissionModel,
     Principal,
+    project_module_ranks,
     project_permissions,
 )
 
@@ -153,6 +154,12 @@ class IdentityService:
             # an import of the access capability: identity owns *who you are*, not what you
             # may do, and an app that mounts no grant capability projects nothing.
             permissions=project_permissions(session, user.id),
+            # And the rungs the caller holds per module (ADR 0112), through the mirror seam.
+            # Without them the packaged UI gated on the global rank alone, so a module the
+            # caller could reach *only* through a per-module rung stayed hidden — the guard
+            # honoured an authority the interface could not see, which is a control built on
+            # one side of the wire.
+            module_ranks=project_module_ranks(session, user.id),
         )
 
     def token_version_for(self, session: Session, principal: Principal) -> int:

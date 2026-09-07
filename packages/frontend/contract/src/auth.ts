@@ -38,6 +38,13 @@ export interface AuthSession {
   currentUser(): CurrentUser | null;
   /** True while the provider is resolving an existing session (e.g. boot refresh). */
   loading(): boolean;
-  /** UI gate: may the current user perform `action`? (Honours the backend roles.) */
-  can(action: Action): boolean;
+  /**
+   * UI gate: may the current user perform `action`? (Honours the backend roles.)
+   *
+   * `module` names the module the action happens in. Pass it and a per-module rung the caller
+   * holds there raises the answer, which is what the server's guard does (ADR 0112) — omit it
+   * and the gate is the global rank alone. Omitting it on a module's own screen is the shape
+   * that hid a module the caller could actually reach.
+   */
+  can(action: Action, module?: string): boolean;
 }

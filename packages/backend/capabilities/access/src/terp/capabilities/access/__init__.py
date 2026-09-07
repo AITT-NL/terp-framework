@@ -40,6 +40,7 @@ from terp.capabilities.access.models import Grant, ModuleRole
 from terp.capabilities.access.module_roles import (
     ModuleRoleService,
     assignable_modules,
+    project_held_module_ranks,
     resolve_module_rank,
     validate_assignment,
 )
@@ -80,6 +81,7 @@ __all__ = [
     "assignable_modules",
     "enforce_permission",
     "project_granted_permissions",
+    "project_held_module_ranks",
     "module",
     "register_subject_expander",
     "require_permission",

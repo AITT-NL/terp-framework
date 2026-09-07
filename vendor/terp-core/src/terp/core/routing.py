@@ -59,8 +59,10 @@ by a read-tier caller is a ``GET``, and this decorator is not a way to spell one
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any, TypeVar
+
+from fastapi.routing import APIRoute, APIWebSocketRoute
 
 from terp.core.operations import OperationDefinition
 
@@ -235,3 +237,62 @@ __all__ = [
     "request_method",
     "required_permission",
 ]
+
+
+def iter_declaring_routes(routes: Sequence[object]) -> Iterator[object]:
+    """Every route with an endpoint reachable from *routes*, HTTP or WebSocket.
+
+    Descends into an included sub-router, which is the whole point: a guarantee that stopped
+    at the top level would be one an app sidesteps by nesting a router, and this repository
+    has already fixed that exact bug once for operation coverage.
+
+    It lives here rather than in ``terp.core.app`` because it grew a second consumer. The
+    access projection walked ``router.routes`` itself with an ``isinstance(route, APIRoute)``
+    filter, and so reported a module's top-level routes and silently omitted every nested one
+    — while the guard, mounted on the whole router, protected them all. A permission view that
+    quietly under-reports the guarded surface is the failure the projection exists to prevent.
+
+    Yields ``APIRoute`` and ``APIWebSocketRoute``: a route's authority is not an HTTP concept,
+    and ``@router.websocket(...)`` declares a mounted, callable surface a permission view must
+    explain like any other.
+    """
+    for route in routes:
+        if isinstance(route, APIRoute | APIWebSocketRoute):
+            yield route
+            continue
+        nested = getattr(route, "original_router", None) or route
+        sub = getattr(nested, "routes", None)
+        if sub:
+            yield from iter_declaring_routes(sub)
+
+
+def route_permission_names(route: object) -> list[str]:
+    """Every ``require_permission`` name this route enforces, in declaration order.
+
+    Reads the route's **resolved dependency tree** (``route.dependant``), not its
+    ``dependencies`` list, and that is the whole point. FastAPI accepts a dependency in two
+    places — ``@router.post(..., dependencies=[Depends(require_permission(X))])`` and a
+    parameter default, ``def handler(_: None = Depends(require_permission(X)))`` — and only the
+    first appears in ``route.dependencies``. Both are enforced identically at request time.
+
+    Reading the shorter list meant the signature form was invisible to two controls at once: the
+    boot check that a route may not enforce an undeclared permission was evadable by moving the
+    dependency into the signature, and the access projection reported such a route's rungs as
+    plainly ``allowed`` when an ungranted caller gets a 403. A gate with a documented evasion is
+    not a gate, and a view that disagrees with the guard is the failure the projection exists to
+    prevent.
+
+    Recurses, because a dependency may itself declare dependencies, and a marker two levels down
+    is enforced just as surely as one at the top.
+    """
+    found: list[str] = []
+
+    def walk(dependant: object) -> None:
+        for child in getattr(dependant, "dependencies", ()) or ():
+            name = required_permission(getattr(child, "call", None))
+            if name is not None:
+                found.append(name)
+            walk(child)
+
+    walk(getattr(route, "dependant", None))
+    return found
