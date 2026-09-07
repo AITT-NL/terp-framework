@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { components } from "@terpjs/contract";
 
 import { Alert } from "../ui/Alert";
@@ -43,6 +43,21 @@ function failure(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback;
 }
 
+/**
+ * The rung this subject holds in *this* module by its own name, or `null`.
+ *
+ * One reader, because the strip and the commit handler both need it and both got it subtly
+ * wrong when they each derived it: collapsing "no row" and "a row whose rank the app no longer
+ * declares" into the same value made the stale row unclearable, since committing `no access`
+ * then looked like committing what was already selected.
+ *
+ * A rung arriving through a group is excluded — that is a fact about the group, and the strip
+ * can only change what this subject was given directly.
+ */
+function directRung(held: readonly HeldModuleRole[], module: string): HeldModuleRole | null {
+  return held.find((entry) => entry.module === module && entry.via.kind === "self") ?? null;
+}
+
 /** The declared rung a rank sits at, for the floor marker: the highest rung the rank clears. */
 function rungAtOrBelow(rungs: readonly AdminRoleOption[], rank: number | null): string | null {
   if (rank === null) return null;
@@ -64,12 +79,10 @@ function ModuleStrip({
   onPick: (row: ModuleRow, value: string) => void;
 }) {
   const strings = useStrings();
-  const mine = held.filter((entry) => entry.module === row.name);
-  // What this subject was given *directly* is the only thing the strip can change. A rung that
-  // arrives through a group is a fact about the group, and offering to unset it here would be
-  // offering to edit a different row than the one shown.
-  const direct = mine.find((entry) => entry.via.kind === "self") ?? null;
-  const inherited = mine.filter((entry) => entry.via.kind !== "self");
+  const direct = directRung(held, row.name);
+  const inherited = held.filter(
+    (entry) => entry.module === row.name && entry.via.kind !== "self",
+  );
 
   return (
     <Stack gap={2}>
@@ -80,10 +93,12 @@ function ModuleStrip({
       <TileGroup
         label={row.label}
         tiles={tilesFor(row, strings)}
-        // `role` is `null` when the app no longer declares the rank that was stored, so no tile
-        // matches and the strip shows nothing selected — with the stale note below saying why.
-        // Better than selecting a neighbouring tile, which would misreport what is held.
-        value={direct?.role ?? NO_ACCESS}
+        // Three states, not two. No row selects the real `no access` tile; a live rung selects
+        // its own; and a rung whose rank the app no longer declares reports `role: null`, which
+        // selects *nothing* — with the stale note below saying why. Collapsing that third state
+        // into `no access` would claim the subject holds nothing while a row sits there doing
+        // nothing, which is the one case where saying so is the whole point.
+        value={direct === null ? NO_ACCESS : direct.role}
         floor={floor}
         disabled={busy}
         onCommit={(value) => onPick(row, value)}
@@ -135,22 +150,18 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
   const [held, setHeld] = useState<HeldModuleRole[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const reload = useCallback(async () => {
-    const subject = unwrap(
-      await client.GET("/api/v1/access/subjects/{subject_id}", {
-        params: { path: { subject_id: subjectId } },
-      }),
-    );
-    setHeld(subject.module_roles);
-  }, [client, subjectId]);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let live = true;
-    setHeld([]);
     void (async () => {
       try {
-        await reload();
+        const subject = unwrap(
+          await client.GET("/api/v1/access/subjects/{subject_id}", {
+            params: { path: { subject_id: subjectId } },
+          }),
+        );
+        if (live) setHeld(subject.module_roles);
       } catch (cause: unknown) {
         if (live) toast.warning(failure(cause, strings.requestFailed));
       }
@@ -158,19 +169,26 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
     return () => {
       live = false;
     };
-    // `toast` is deliberately not a dependency: showing a message must not re-fetch.
+    // A version counter rather than a callback the writer invokes, which is the idiom the group
+    // screen already uses for the same job. The point is that *every* read happens inside this
+    // effect, so every read is covered by the `live` guard — a writer that set the rows itself
+    // could resolve after the screen was gone, or after a newer read had already landed.
+    //
+    // `toast` and `strings` are deliberately not dependencies: showing a message must not
+    // re-fetch, and neither must a language change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reload]);
+  }, [client, subjectId, version]);
 
   const assignable = modules.filter((row) => row.assignable);
   const floor = rungAtOrBelow(rungs, globalRank);
 
   function onPick(row: ModuleRow, value: string) {
-    const current =
-      held.find((entry) => entry.module === row.name && entry.via.kind === "self")?.role ??
-      NO_ACCESS;
+    const entry = directRung(held, row.name);
+    const current = entry === null ? NO_ACCESS : entry.role;
     // Committing the tile that is already selected is not a change, and a request that stores
     // what is already stored would still write an audit row saying someone changed something.
+    // A stale row's `current` is `null`, which is not any tile's value — so `no access` is a
+    // real change there, which is what makes such a row clearable at all.
     if (value === current) return;
     if (value === NO_ACCESS) {
       setPending({ kind: "revoke", module: row.name, label: row.label });
@@ -208,7 +226,7 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
           }),
         );
       }
-      await reload();
+      setVersion((current) => current + 1);
       toast.success(strings.saved);
     } catch (cause: unknown) {
       toast.warning(failure(cause, strings.requestFailed));

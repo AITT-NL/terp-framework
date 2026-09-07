@@ -89,6 +89,14 @@ function accessModel() {
         endpoints: [endpoint(["GET"], null, { viewer: true, editor: true, admin: true })],
       },
       {
+        name: "archive",
+        prefix: "/api/v1/archive",
+        policy: { read: "viewer", write: "editor" },
+        permissions: [],
+        access: { assignable: true, label: "Archive", platform_reason: null },
+        endpoints: [endpoint(["GET"], "View the archive", { viewer: true, editor: true, admin: true })],
+      },
+      {
         name: "access",
         prefix: "/api/v1/access",
         policy: { read: "admin", write: "admin" },
@@ -104,29 +112,51 @@ function accessModel() {
   };
 }
 
-/** What the subject holds: `editor` in notes directly, `admin` in reports through a group. */
-function subjectAccess(subjectId: string) {
+/** The rung names this app declares, by rank. `25` is deliberately absent. */
+const RUNG_NAMES: Record<number, string> = { 10: "viewer", 20: "editor", 30: "admin" };
+
+/**
+ * The rungs a subject holds directly, as *mutable* state the writes change.
+ *
+ * Stateful rather than a constant so that a refetch is observable at all: with a stub that
+ * answers the same rows forever, a panel that never re-read after writing would look
+ * indistinguishable from one that did.
+ *
+ * `notes` starts at editor, `archive` at rank 25 — a rank the app no longer declares, which
+ * the server reports rather than hides, the same choice `terp grant list` makes when it marks
+ * a stale grant instead of dropping it.
+ */
+function initialDirect(): Map<string, number> {
+  return new Map([
+    ["notes", 20],
+    ["archive", 25],
+  ]);
+}
+
+/** One held row, with the shape the provenance endpoint reports. */
+function heldRow(module: string, rank: number, via: { id: string; kind: string; name: string | null }) {
+  const role = RUNG_NAMES[rank] ?? null;
+  return {
+    module,
+    role_rank: rank,
+    role,
+    effective: true,
+    stale: role === null ? [`this app declares no role at rank ${rank}`] : [],
+    via,
+  };
+}
+
+function subjectAccess(subjectId: string, direct: Map<string, number>) {
   return {
     subject_id: subjectId,
     via: [{ id: subjectId, kind: "self", name: null }],
     permissions: [],
     module_roles: [
-      {
-        module: "notes",
-        role_rank: 20,
-        role: "editor",
-        effective: true,
-        stale: [],
-        via: { id: subjectId, kind: "self", name: null },
-      },
-      {
-        module: "reports",
-        role_rank: 30,
-        role: "admin",
-        effective: true,
-        stale: [],
-        via: { id: GROUP, kind: "group", name: "Finance" },
-      },
+      ...[...direct].map(([module, rank]) =>
+        heldRow(module, rank, { id: subjectId, kind: "self", name: null }),
+      ),
+      // Reports comes through a group, so the panel cannot change it — and must still credit it.
+      heldRow("reports", 30, { id: GROUP, kind: "group", name: "Finance" }),
     ],
   };
 }
@@ -137,7 +167,7 @@ interface Written {
   body: unknown;
 }
 
-function stubAccessFetch(written: Written[]) {
+function stubAccessFetch(written: Written[], direct: Map<string, number>) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const request = input as Request;
     const url = new URL(request.url);
@@ -158,25 +188,26 @@ function stubAccessFetch(written: Written[]) {
       return jsonResponse(accessModel());
     }
     if (path.includes("/module-roles/")) {
-      written.push({
-        method: request.method,
-        path,
-        body: request.method === "PUT" ? await request.clone().json() : null,
+      const module = path.split("/").pop() ?? "";
+      const body = request.method === "PUT" ? await request.clone().json() : null;
+      written.push({ method: request.method, path, body });
+      if (request.method === "DELETE") {
+        direct.delete(module);
+        return new Response(null, { status: 204 });
+      }
+      direct.set(module, (body as { role_rank: number }).role_rank);
+      return jsonResponse({
+        id: "mr1",
+        subject_id: SUBJECT,
+        module,
+        role_rank: (body as { role_rank: number }).role_rank,
+        version: 1,
+        created_at: "2026-07-01T10:00:00Z",
+        updated_at: "2026-07-01T10:00:00Z",
       });
-      return request.method === "DELETE"
-        ? new Response(null, { status: 204 })
-        : jsonResponse({
-            id: "mr1",
-            subject_id: SUBJECT,
-            module: "notes",
-            role_rank: 20,
-            version: 1,
-            created_at: "2026-07-01T10:00:00Z",
-            updated_at: "2026-07-01T10:00:00Z",
-          });
     }
     if (path.includes("/api/v1/access/subjects/")) {
-      return jsonResponse(subjectAccess(path.split("/").pop() ?? SUBJECT));
+      return jsonResponse(subjectAccess(path.split("/").pop() ?? SUBJECT, direct));
     }
     if (path.endsWith(`/api/v1/users/${SUBJECT}`)) {
       return jsonResponse({
@@ -224,13 +255,14 @@ function renderAt(initialPath: string) {
   const views: Record<string, ComponentType> = {
     NotesList: () => <Page title="Notes">notes</Page>,
   };
+  const direct = initialDirect();
   const merged = withAdminArea(manifests, views, true);
   const router = buildAppRouter(merged.manifests, {
     views: merged.views,
     title: "Terp",
     history: createMemoryHistory({ initialEntries: [initialPath] }),
   });
-  stubAccessFetch(written);
+  stubAccessFetch(written, direct);
   render(
     <TerpProvider baseUrl="https://api.test">
       <ToastProvider>
@@ -340,9 +372,11 @@ describe("the assignment panel", () => {
     // what stops someone doing it and wondering why nothing happened.
     expect(tile("Notes", "editor")).toHaveAttribute("data-floor", "true");
     expect(tile("Notes", "admin")).not.toHaveAttribute("data-floor");
+    // One note per strip, tied to the strips actually on screen rather than to a literal: the
+    // floor is a property of the subject, so every module it lists has to say it.
     expect(
       screen.getAllByText("editor everywhere already, so anything up to here changes nothing"),
-    ).toHaveLength(2);
+    ).toHaveLength(screen.getAllByRole("radiogroup").length);
   });
 
   it("writes a middle rung straight away, addressed by subject and module", async () => {
@@ -408,5 +442,42 @@ describe("the assignment panel", () => {
     expect(
       screen.queryByText(/everywhere already, so anything up to here changes nothing/),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows a stale rung as selecting nothing, and still lets it be cleared", async () => {
+    const { written } = await openUserPanel();
+    // Three states, not two. This row holds rank 25, which the app no longer declares, so the
+    // server reports `role: null` — and the strip must not answer with the `no access` tile,
+    // because a row that sits there doing nothing is exactly what has to be said out loud.
+    expect(tile("Archive", "No access")).toHaveAttribute("aria-checked", "false");
+    expect(tile("Archive", "viewer")).toHaveAttribute("aria-checked", "false");
+    expect(
+      screen.getByText("Held, but has no effect: this app declares no role at rank 25"),
+    ).toBeInTheDocument();
+
+    // And the fix that mattered: collapsing that state into `no access` made committing
+    // `no access` look like committing what was already selected, so the one row that most
+    // needs removing was the one row the panel could not remove.
+    fireEvent.click(tile("Archive", "No access"));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Take away the role in Archive?",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(written).toHaveLength(1));
+    expect(written[0].method).toBe("DELETE");
+    expect(written[0].path).toBe(`/api/v1/access/subjects/${SUBJECT}/module-roles/archive`);
+  });
+
+  it("re-reads what is held after a write, rather than trusting its own optimism", async () => {
+    await openUserPanel();
+    // The strip must show what the *server* now says, not what the click intended. A panel that
+    // set its own state would agree with itself even when the write was rejected, coerced, or
+    // superseded by a rung the same person holds through a group.
+    expect(tile("Notes", "editor")).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(tile("Notes", "viewer"));
+    await waitFor(() =>
+      expect(tile("Notes", "viewer")).toHaveAttribute("aria-checked", "true"),
+    );
+    expect(tile("Notes", "editor")).toHaveAttribute("aria-checked", "false");
   });
 });

@@ -675,6 +675,18 @@ one global rank and a group carries none.
       meaningful the moment the global role drops. **Left: 5c**, a second assignable module in
       the example app whose rungs genuinely diverge from `notes` — today only `notes` opts in,
       so the feature's own screenshot is one strip.
+      A review at the phase boundary found three things in the panel as first committed, all
+      fixed. A rung whose rank the app no longer declares was collapsed into the `no access`
+      tile, which both misreported what was held *and* made that row the one row the panel
+      could not clear, since committing `no access` then looked like committing what was
+      already selected — the strip now has three states and one shared reader for "what is
+      held here directly", because the two call sites had each derived it and each got it wrong
+      the same way. The writer set the rows itself rather than going through the guarded effect,
+      so a response could land after the screen was gone or after a newer read; it now bumps a
+      version counter, the idiom the group screen already uses. And nothing observed that a
+      write re-read at all — the fixture answered the same rows forever, so an optimistic panel
+      was indistinguishable from a correct one. The stub is stateful now and a test watches the
+      strip follow the server.
 - [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.
 
 **An adversarial review has been run over the branch** — five lenses, three refuters per finding,
