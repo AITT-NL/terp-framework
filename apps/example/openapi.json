@@ -1046,7 +1046,7 @@
         "type": "object"
       },
       "ModuleAccessRead": {
-        "description": "Whether a module takes part in per-module role assignment (ADR 0112).",
+        "description": "Whether a module takes part in per-module role assignment (ADR 0121).",
         "properties": {
           "assignable": {
             "title": "Assignable",
@@ -1081,6 +1081,67 @@
           "platform_reason"
         ],
         "title": "ModuleAccessRead",
+        "type": "object"
+      },
+      "ModuleRoleAssign": {
+        "description": "The body of an assignment whose subject and module are already in the path.\n\nAddressed by ``(subject_id, module)`` rather than by row id, because that pair *is* the\nfact's identity \u2014 the table's unique constraint says so, and\n:meth:`ModuleRoleService.assign` is already idempotent on it. A surrogate id in the URL\nwould make the caller fetch a row before it could change one, and would let two requests\nthat mean the same thing address it differently.",
+        "properties": {
+          "role_rank": {
+            "title": "Role Rank",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "role_rank"
+        ],
+        "title": "ModuleRoleAssign",
+        "type": "object"
+      },
+      "ModuleRoleRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "module": {
+            "title": "Module",
+            "type": "string"
+          },
+          "role_rank": {
+            "title": "Role Rank",
+            "type": "integer"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "subject_id",
+          "module",
+          "role_rank",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ModuleRoleRead",
         "type": "object"
       },
       "NoteCreate": {
@@ -2548,6 +2609,111 @@
           }
         },
         "summary": "See what someone can do, and where each right comes from",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/subjects/{subject_id}/module-roles/{module}": {
+      "delete": {
+        "operationId": "access.revoke_module_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subject_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Subject Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "title": "Module",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Take away someone's role inside one module",
+        "tags": [
+          "access"
+        ]
+      },
+      "put": {
+        "operationId": "access.assign_module_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subject_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Subject Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "title": "Module",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleRoleAssign"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleRoleRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Give someone a role inside one module",
         "tags": [
           "access"
         ]

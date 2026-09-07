@@ -7,7 +7,7 @@ import type { UiText } from "../uiText";
 
 injectTerpStyles();
 
-/** One choice in a {@link TileGroup}. */
+/** One tile: a rung, and what reaching it hands over. */
 export interface Tile {
   value: string;
   label: UiText;
@@ -19,13 +19,17 @@ export interface Tile {
    * bias *down*, so the most privileged rung is the one that looks like a decision.
    */
   tone?: "neutral" | "danger";
-  disabled?: boolean;
 }
 
-export interface TileGroupProps {
-  /** Names the group for assistive technology. Required — a radiogroup without one is unusable. */
+interface TileGroupBase {
+  /** Names the group for assistive technology. Required — an unlabelled group is unusable. */
   label: UiText;
   tiles: readonly Tile[];
+}
+
+/** The strip as a **control**: one tile is the current choice, and committing changes it. */
+export interface TileChoiceProps extends TileGroupBase {
+  readOnly?: false;
   /** The selected value, or `null` for none selected. */
   value: string | null;
   /**
@@ -43,41 +47,66 @@ export interface TileGroupProps {
 }
 
 /**
- * The whole set of choices as tiles, with **manual activation**.
+ * The strip as a **description**: the tiles explain what each rung hands over, and nothing in
+ * it is selectable.
  *
- * A dropdown was the obvious control and it is the wrong one here: it hides that the options
- * exist until you open it, and it makes two of them impossible to compare. The tiles borrow the
- * shape of a plan picker, where "everything below, plus…" is the mechanic — and invert its
- * rhetoric, because a plan picker exists to move you up a tier and this exists to help someone
- * choose the smallest tier that works.
+ * A separate mode rather than a disabled control, because the two are different claims. A
+ * disabled radiogroup announces a set of radio buttons with none of them checked — which tells
+ * a screen-reader user they have failed to choose something, on a screen where there is
+ * nothing to choose. This mode carries the same tiles with no selection semantics at all.
  *
- * Manual activation is the load-bearing accessibility decision, not a detail. A native radio
- * group activates on arrow: focus moves and the value changes together. Here the most privileged
- * tile is behind a confirmation, so automatic activation would fire that confirmation while
- * someone was merely arrowing past it — the roving-tabindex pattern with Space/Enter to commit is
- * what makes the keyboard path match the pointer path. `Home`/`End` jump to the ends, which is
- * what a strip of five or six tiles needs to be usable at all.
+ * It deliberately accepts no `value`: a highlighted tile that assistive technology cannot see
+ * is a sighted-only fact, and the type is what stops one being passed here. A screen that
+ * needs to show what someone *holds* wants the control, gated on whether the reader may
+ * change it.
  */
-export function TileGroup({
+export interface TileDescriptionProps extends TileGroupBase {
+  readOnly: true;
+}
+
+export type TileGroupProps = TileChoiceProps | TileDescriptionProps;
+
+function TileContent({ tile }: { tile: Tile }) {
+  const resolve = useUiText();
+  return (
+    <>
+      <span data-terp="tile-label">{resolve(tile.label)}</span>
+      {tile.body !== undefined && <div data-terp="tile-body">{tile.body}</div>}
+    </>
+  );
+}
+
+function TileDescription({ label, tiles }: TileDescriptionProps) {
+  const resolve = useUiText();
+  return (
+    <div data-terp="tile-group" role="group" aria-label={resolve(label)}>
+      {tiles.map((tile) => (
+        <div
+          key={tile.value}
+          data-terp="tile"
+          data-tone={tile.tone === "danger" ? "danger" : undefined}
+        >
+          <TileContent tile={tile} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TileChoice({
   label,
   tiles,
   value,
   onCommit,
   floor = null,
   disabled = false,
-}: TileGroupProps) {
+}: TileChoiceProps) {
   const resolve = useUiText();
   const groupId = useId();
   const refs = useRef<(HTMLDivElement | null)[]>([]);
-  const selectable = tiles.map((tile, index) => ({ tile, index })).filter(
-    ({ tile }) => !tile.disabled,
-  );
   const selectedIndex = tiles.findIndex((tile) => tile.value === value);
-  // Focus starts on the selection, or on the first selectable tile when there is none — never
-  // on a disabled one, which would be a tab stop that does nothing.
-  const [focusIndex, setFocusIndex] = useState(() =>
-    selectedIndex >= 0 ? selectedIndex : (selectable[0]?.index ?? 0),
-  );
+  // Focus starts on the selection, or on the first tile when there is none.
+  const [focusIndex, setFocusIndex] = useState(() => (selectedIndex >= 0 ? selectedIndex : 0));
 
   function moveTo(index: number) {
     setFocusIndex(index);
@@ -85,13 +114,10 @@ export function TileGroup({
   }
 
   function step(from: number, delta: number) {
-    const order = selectable.map(({ index }) => index);
-    if (order.length === 0) return;
-    const at = order.indexOf(from);
+    if (tiles.length === 0) return;
     // Wraps, because a strip is a closed set: arrowing past the end of four tiles and stopping
     // dead reads as a broken control rather than as a boundary.
-    const next = at === -1 ? order[0] : order[(at + delta + order.length) % order.length];
-    moveTo(next);
+    moveTo((from + delta + tiles.length) % tiles.length);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -115,18 +141,18 @@ export function TileGroup({
     }
     if (event.key === "Home") {
       event.preventDefault();
-      if (selectable.length > 0) moveTo(selectable[0].index);
+      moveTo(0);
       return;
     }
     if (event.key === "End") {
       event.preventDefault();
-      if (selectable.length > 0) moveTo(selectable[selectable.length - 1].index);
+      moveTo(tiles.length - 1);
       return;
     }
     if (event.key === " " || event.key === "Enter") {
       event.preventDefault();
       const tile = tiles[from];
-      if (tile !== undefined && !tile.disabled) onCommit(tile.value);
+      if (tile !== undefined) onCommit(tile.value);
     }
   }
 
@@ -154,20 +180,41 @@ export function TileGroup({
             data-tone={tile.tone === "danger" ? "danger" : undefined}
             role="radio"
             aria-checked={selected}
-            aria-disabled={tile.disabled || disabled || undefined}
+            aria-disabled={disabled || undefined}
             // The roving tab stop: one tile is reachable by Tab and the arrows move within the
             // group, which is what a radiogroup is supposed to feel like.
             tabIndex={index === focusIndex && !disabled ? 0 : -1}
             onFocus={() => setFocusIndex(index)}
             onClick={() => {
-              if (!disabled && !tile.disabled) onCommit(tile.value);
+              if (!disabled) onCommit(tile.value);
             }}
           >
-            <span data-terp="tile-label">{resolve(tile.label)}</span>
-            {tile.body !== undefined && <div data-terp="tile-body">{tile.body}</div>}
+            <TileContent tile={tile} />
           </div>
         );
       })}
     </div>
   );
+}
+
+/**
+ * The whole set of rungs as tiles — either as a control with **manual activation**, or as a
+ * description of what each rung hands over.
+ *
+ * A dropdown was the obvious control and it is the wrong one here: it hides that the options
+ * exist until you open it, and it makes two of them impossible to compare. The tiles borrow the
+ * shape of a plan picker, where "everything below, plus…" is the mechanic — and invert its
+ * rhetoric, because a plan picker exists to move you up a tier and this exists to help someone
+ * choose the smallest tier that works.
+ *
+ * Manual activation is the load-bearing accessibility decision of the control mode, not a
+ * detail. A native radio group activates on arrow: focus moves and the value changes together.
+ * Here the most privileged tile is behind a confirmation, so automatic activation would fire
+ * that confirmation while someone was merely arrowing past it — the roving-tabindex pattern
+ * with Space/Enter to commit is what makes the keyboard path match the pointer path.
+ * `Home`/`End` jump to the ends, which is what a strip of five or six tiles needs to be usable
+ * at all.
+ */
+export function TileGroup(props: TileGroupProps) {
+  return props.readOnly === true ? <TileDescription {...props} /> : <TileChoice {...props} />;
 }

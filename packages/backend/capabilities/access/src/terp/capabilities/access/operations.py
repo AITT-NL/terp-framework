@@ -25,11 +25,21 @@ ACCESS_GET_SUBJECT = OperationDefinition(
     id="access.get_subject",
     label="See what someone can do, and where each right comes from",
 )
+ACCESS_ASSIGN_MODULE_ROLE = OperationDefinition(
+    id="access.assign_module_role",
+    label="Give someone a role inside one module",
+)
+ACCESS_REVOKE_MODULE_ROLE = OperationDefinition(
+    id="access.revoke_module_role",
+    label="Take away someone's role inside one module",
+)
 
 __all__ = [
+    "ACCESS_ASSIGN_MODULE_ROLE",
     "ACCESS_CREATE_GRANT",
     "ACCESS_DELETE_GRANT",
     "ACCESS_GET_MODEL",
     "ACCESS_GET_SUBJECT",
     "ACCESS_LIST_GRANTS",
+    "ACCESS_REVOKE_MODULE_ROLE",
 ]

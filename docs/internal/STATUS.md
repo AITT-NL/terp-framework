@@ -593,7 +593,7 @@ implemented only in the backend is half-built".
   implying otherwise.
 
 **Per-module access** — decided in
-[ADR 0112](../decisions/0112-a-module-role-is-an-assignment-not-a-policy.md), sequenced in
+[ADR 0121](../decisions/0121-a-module-role-is-an-assignment-not-a-policy.md), sequenced in
 [per-module-access-design-and-plan.md](drafts/per-module-access-design-and-plan.md). The goal is the per-module permission
 editor *and* viewer in the packaged `terp-admin` area: these are the roles, and this is
 what each role gets in this module. The one capability gap it rests on is that Terp
@@ -654,8 +654,27 @@ one global rank and a group carries none.
       tagged with the subject it came from, a stale grant or module role reported rather than
       filtered, and only the highest of several rungs in one module marked `effective`. The
       subject's global rank is deliberately absent, because it lives in a table this
-      capability cannot import and a pane already has it. Left: 5b, the pane itself — the
-      tier strip, the delta split by verb, the viewer lenses.
+      capability cannot import and a pane already has it.
+      Then the pane itself. `/admin/access` answers the question the whole design is for —
+      these are the roles, and this is what each one may do in this module — with every
+      allowance shown being the kernel guard's own answer, so the screen cannot disagree with
+      the gate. It is section-gated in `AdminAreaSections` beside users, groups and audit,
+      for a reason rather than for symmetry: the screen reads `GET /api/v1/access/model`, so
+      an app without the access capability would otherwise ship a nav entry leading to a 404.
+      And the writer: `PUT` / `DELETE /api/v1/access/subjects/{subject_id}/module-roles/{module}`
+      plus an assignment panel on a person's and a group's detail screen — the only places the
+      choice has a subject (ADR 0121). Three things the plan had not settled were decided here.
+      The route is addressed by `(subject_id, module)` rather than a row id, because that pair
+      *is* the fact's identity and the provenance endpoint reports held rungs without one, so a
+      delete-by-id writer could not be driven from what the reader returns. `TileGroup` gained a
+      `readOnly` mode with no radio semantics at all, because a disabled radiogroup announces a
+      set of radio buttons with none of them checked — which tells a screen-reader user they
+      failed to choose something on a screen where there is nothing to choose. And
+      `Tile.disabled` was removed: nothing consumed it, and a rung below the subject's global
+      role is *marked as a floor* rather than disabled, since it stays assignable and becomes
+      meaningful the moment the global role drops. **Left: 5c**, a second assignable module in
+      the example app whose rungs genuinely diverge from `notes` — today only `notes` opts in,
+      so the feature's own screenshot is one strip.
 - [ ] Phase 6 the terp-spec rules and the violation-corpus fixtures.
 
 **An adversarial review has been run over the branch** — five lenses, three refuters per finding,
@@ -676,11 +695,25 @@ A three-design panel was run against the plan; §9 there records the four mechan
 it, the one genuine alternative to the new table and why it is still not preferred, and the fact
 that its adversarial judges never ran — so the fork has not been independently scored.
 
+**Due at release, not now** — a second entry: `GET /api/v1/access/model` and the two module-role
+routes are new public surface, and the two new operations (`access.assign_module_role`,
+`access.revoke_module_role`) are additions to the catalog every app folds into its own
+`OperationCatalog`. An app that composes the access capability and pins its catalog by hand will
+refuse to boot until it adds them, which is the declared-operations gate working as intended and
+still a line the release notes owe.
+
 **Due at release, not now** (the changelog carries no Unreleased section): the authority-shadow
 boot check is a **breaking change** for any app that constructs a `Role` or `Permission` at a
 policy call site instead of referencing the declared object. Such an app boots today, enforces the
 floor it wrote and displays the declared one; after this it refuses to boot with a message naming
 both floors. That needs a changelog entry and a line in the release notes.
+
+**A flake seen once, not chased**: `admin.test.tsx > "shows the field it can and still toasts the
+reason it cannot, when a 422 names both"` failed once at 1107 ms while other suites were running
+concurrently, and passed on two immediate re-runs and in isolation. It waits on a `findByText`
+after a submit, so it is timing-sensitive under load rather than wrong. Pre-existing, not touched
+by the per-module access work, and written down here because a flake nobody records is a flake
+somebody rediscovers.
 
 **Findings recorded, not fixed** (both in the plan, §2.7 and §2.8): a route can enforce a
 permission the control plane never declared, which makes ADR 0089's "can only ever offer

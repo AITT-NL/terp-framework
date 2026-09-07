@@ -223,6 +223,33 @@ export const LOCALE_NL: LocaleCatalog = {
     adminGroupsDescription: "Bundel permissies; lidmaatschap past ze toe",
     adminAudit: "Auditlog",
     adminAuditDescription: "Elke wijziging: wat, wie, wanneer",
+    adminAccess: "Toegang",
+    adminAccessDescription: "Welke rollen er zijn, en wat elke rol per module mag",
+    accessNoRung: "Geen toegang",
+    accessAdds: "Extra ten opzichte van de tier eronder",
+    accessKindRead: "Bekijken",
+    accessKindWrite: "Wijzigen",
+    accessKindDelete: "Verwijderen",
+    accessAddsNothing: "Niets extra ten opzichte van de tier eronder",
+    accessNeverAssignable: "Nooit per module toe te kennen",
+    accessNotAssignable: "Niet per module toe te kennen",
+    accessUnexplainedRoutes: "{count} actie(s) in deze module hebben nog geen omschrijving",
+    accessDeclaredOnly:
+      "Dit is wat de applicatie vastlegt. Het laat niet zien wie welke rol heeft — open een persoon om dat te zien.",
+    moduleAccessTitle: "Toegang per module",
+    moduleAccessDescription:
+      "Een rol hier geldt in die ene module en verhoogt de toegang, nooit omlaag. Modules die dit niet aanbieden staan er niet bij.",
+    moduleAccessNoneAssignable:
+      "Geen enkele module in deze applicatie accepteert een eigen rol, dus hier is niets in te stellen.",
+    moduleAccessVia: "Hier ook {role}, via {name}",
+    moduleAccessStale: "Vastgelegd, maar zonder effect: {reason}",
+    moduleAccessFloor: "Overal al {role}, dus alles tot hier verandert niets",
+    moduleAccessConfirmTitle: "{role} geven in {module}?",
+    moduleAccessConfirm:
+      "Dit is de meest verstrekkende rol die de module heeft. Alles van de tier eronder, plus wat op de tegel staat.",
+    moduleAccessRevokeTitle: "De rol in {module} weghalen?",
+    moduleAccessRevoke:
+      "De toegang in deze module valt terug op wat de rol van deze persoon overal geeft.",
     statusColumn: "Status",
     createdColumn: "Aangemaakt",
     statusActive: "Actief",

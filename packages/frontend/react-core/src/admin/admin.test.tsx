@@ -104,7 +104,7 @@ describe("withAdminArea", () => {
     // Omitted flags default to true: an empty object is the full area.
     const full = withAdminArea(appManifests(), appViews(), {});
     const fullAdmin = full.manifests.find((manifest) => manifest.name === "terp-admin");
-    expect(fullAdmin?.routes).toHaveLength(8);
+    expect(fullAdmin?.routes).toHaveLength(9);
     expect(full.views.TerpAdminHub).toBe(withAdminArea(appManifests(), appViews(), true).views.TerpAdminHub);
   });
 
@@ -115,7 +115,19 @@ describe("withAdminArea", () => {
     });
     const admin = manifests.find((manifest) => manifest.name === "terp-admin");
     expect(admin?.nav?.[0]?.label).toBe("Admin");
-    expect(admin?.routes.map((route) => route.path)).toEqual(["/admin", "/admin/audit"]);
+    expect(admin?.routes.map((route) => route.path)).toEqual([
+      "/admin",
+      "/admin/audit",
+      "/admin/access",
+    ]);
+
+    // The access screen is section-gated too, and for a reason rather than for symmetry: it
+    // reads `GET /api/v1/access/model`, which exists only where the access capability is
+    // mounted, so an app without it would otherwise ship a nav entry leading to a 404.
+    const withoutAccess = withAdminArea(appManifests(), appViews(), { access: false });
+    const trimmed = withoutAccess.manifests.find((m) => m.name === "terp-admin");
+    expect(trimmed?.routes.map((route) => route.path)).not.toContain("/admin/access");
+    expect(withoutAccess.views.TerpAdminAccess).toBeUndefined();
   });
 
   it("refuses a view-id collision that claims no path (a silent drop would dead-link the hub)", () => {
@@ -770,7 +782,10 @@ describe("the packaged admin area", () => {
     renderAdminApp("/admin/groups/g1");
     const headings = await waitFor(() => {
       const found = document.querySelectorAll('[data-terp="admin-section-title"]');
-      expect(found.length).toBe(2);
+      // Access per module, members, granted permissions. The count is here so the loop below
+      // cannot pass by finding nothing, and naming them is what keeps it from being a magic
+      // number the next section silently invalidates.
+      expect(found.length).toBe(3);
       return found;
     });
     for (const heading of headings) {

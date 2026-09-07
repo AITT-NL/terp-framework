@@ -106,6 +106,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/access/subjects/{subject_id}/module-roles/{module}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Give someone a role inside one module */
+        put: operations["access.assign_module_role"];
+        post?: never;
+        /** Take away someone's role inside one module */
+        delete: operations["access.revoke_module_role"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit/": {
         parameters: {
             query?: never;
@@ -737,7 +755,7 @@ export interface components {
         };
         /**
          * ModuleAccessRead
-         * @description Whether a module takes part in per-module role assignment (ADR 0112).
+         * @description Whether a module takes part in per-module role assignment (ADR 0121).
          */
         ModuleAccessRead: {
             /** Assignable */
@@ -746,6 +764,49 @@ export interface components {
             label: string | null;
             /** Platform Reason */
             platform_reason: string | null;
+        };
+        /**
+         * ModuleRoleAssign
+         * @description The body of an assignment whose subject and module are already in the path.
+         *
+         *     Addressed by ``(subject_id, module)`` rather than by row id, because that pair *is* the
+         *     fact's identity — the table's unique constraint says so, and
+         *     :meth:`ModuleRoleService.assign` is already idempotent on it. A surrogate id in the URL
+         *     would make the caller fetch a row before it could change one, and would let two requests
+         *     that mean the same thing address it differently.
+         */
+        ModuleRoleAssign: {
+            /** Role Rank */
+            role_rank: number;
+        };
+        /** ModuleRoleRead */
+        ModuleRoleRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Module */
+            module: string;
+            /** Role Rank */
+            role_rank: number;
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: number;
         };
         /** Page[AuditEventRead] */
         Page_AuditEventRead_: {
@@ -1075,6 +1136,72 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SubjectAccessRead"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "access.assign_module_role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: string;
+                module: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModuleRoleAssign"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModuleRoleRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "access.revoke_module_role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: string;
+                module: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

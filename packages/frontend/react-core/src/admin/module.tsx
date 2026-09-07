@@ -2,6 +2,7 @@ import { defineModuleManifest } from "@terpjs/contract";
 
 import type { TerpModule } from "../bootstrap";
 
+import { AccessAdmin } from "./AccessAdmin";
 import { AdminHub } from "./AdminHub";
 import { AuditLogAdmin } from "./AuditLogAdmin";
 import { GroupDetail } from "./GroupDetail";
@@ -35,6 +36,7 @@ export const adminModule: TerpModule = {
       { path: "/admin/groups/new", view: "TerpAdminGroupCreate", role: "admin" },
       { path: "/admin/groups/$groupId", view: "TerpAdminGroupDetail", role: "admin" },
       { path: "/admin/audit", view: "TerpAdminAudit", role: "admin" },
+      { path: "/admin/access", view: "TerpAdminAccess", role: "admin" },
     ],
     nav: [{ label: "Admin", to: "/admin", icon: "shield", role: "admin" }],
   }),
@@ -47,5 +49,6 @@ export const adminModule: TerpModule = {
     TerpAdminGroupCreate: GroupCreate,
     TerpAdminGroupDetail: GroupDetail,
     TerpAdminAudit: AuditLogAdmin,
+    TerpAdminAccess: AccessAdmin,
   },
 };

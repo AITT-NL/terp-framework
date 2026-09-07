@@ -98,27 +98,15 @@ describe("TileGroup", () => {
     expect(stops.map((tile) => tile.textContent)).toEqual(["Viewer"]);
   });
 
-  it("puts the tab stop on the first selectable tile when nothing is selected", () => {
-    setup({ value: null, tiles: [{ ...TILES[0], disabled: true }, ...TILES.slice(1)] });
+  it("puts the tab stop on the first tile when nothing is selected", () => {
+    // A group with no selection still has to be reachable by Tab, and the strip's leftmost
+    // tile is where a reader expects to arrive — `No access` here, which is also the tile a
+    // reader who wants to take a rung away is looking for.
+    setup({ value: null });
     const stops = screen
       .getAllByRole("radio")
       .filter((tile) => tile.getAttribute("tabindex") === "0");
-    // Never a disabled tile: that would be a tab stop that does nothing.
-    expect(stops.map((tile) => tile.textContent)).toEqual(["Viewer"]);
-  });
-
-  it("never commits a disabled tile, by click or by key", () => {
-    const { onCommit } = setup({
-      tiles: [...TILES.slice(0, 3), { ...TILES[3], disabled: true }],
-    });
-    const locked = screen.getByRole("radio", { name: "Administrator" });
-    fireEvent.click(locked);
-    expect(onCommit).not.toHaveBeenCalled();
-    // And arrowing skips it, so it cannot be reached and then confirmed.
-    const editor = screen.getByRole("radio", { name: "Editor" });
-    editor.focus();
-    fireEvent.keyDown(editor, { key: "ArrowRight" });
-    expect(screen.getByRole("radio", { name: "No access" })).toHaveFocus();
+    expect(stops.map((tile) => tile.textContent)).toEqual(["No access"]);
   });
 
   it("commits nothing at all while the whole group is disabled", () => {
@@ -160,5 +148,38 @@ describe("TileGroup", () => {
     });
     expect(screen.getByText("Bekijken: 12")).toBeInTheDocument();
     expect(screen.getByText("Wijzigen: 4")).toBeInTheDocument();
+  });
+
+  it("is a plain labelled group with no selection semantics when read-only", () => {
+    // A disabled radiogroup announces a set of radio buttons with none of them checked, which
+    // tells a screen-reader user they failed to choose something on a screen where there is
+    // nothing to choose. The description mode makes no such claim: the tiles are still there
+    // to be compared, and none of them pretends to be a control.
+    render(<TileGroup label="What each role may do" tiles={TILES} readOnly />);
+    expect(screen.getByRole("group", { name: "What each role may do" })).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("radio")).toEqual([]);
+    // Every tile's content still reaches the reader — that is the whole point of the mode.
+    expect(screen.getByText("Administrator")).toBeInTheDocument();
+  });
+
+  it("carries no tab stop at all when read-only", () => {
+    // The counterpart claim: nothing here is a control, so nothing here is in the tab order.
+    // A roving tab stop over five unselectable tiles is five keystrokes that do nothing.
+    const { container } = render(
+      <TileGroup label="What each role may do" tiles={TILES} readOnly />,
+    );
+    expect(container.querySelectorAll("[tabindex]")).toHaveLength(0);
+  });
+
+  it("still marks the destructive rung when read-only, because the tone is the warning", () => {
+    render(<TileGroup label="What each role may do" tiles={TILES} readOnly />);
+    const tiles = [...document.querySelectorAll('[data-terp="tile"]')];
+    expect(tiles.map((tile) => tile.getAttribute("data-tone"))).toEqual([
+      null,
+      null,
+      null,
+      "danger",
+    ]);
   });
 });

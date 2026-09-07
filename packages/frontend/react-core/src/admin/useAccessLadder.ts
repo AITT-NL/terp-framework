@@ -4,6 +4,9 @@ import { useTerpClient } from "../TerpProvider";
 import { unwrap } from "../unwrap";
 import type { TerpStrings } from "../uiText";
 
+import { buildModuleRows } from "./accessModel";
+import type { ModuleRow } from "./accessModel";
+
 /** One rung of the app's declared ladder, ready to render. */
 export interface AdminRoleOption {
   rank: number;
@@ -30,6 +33,15 @@ function packagedLabel(strings: TerpStrings, name: string): string | null {
 export interface AccessLadder {
   /** The declared rungs, rank-ascending. Empty until the first load resolves. */
   rungs: AdminRoleOption[];
+  /**
+   * Every module the app mounted, in ladder order, with what each rung adds.
+   *
+   * Carried by the same hook because it comes out of the same payload: the endpoint reports
+   * the ladder and the modules together, and a second hook for the second half would fetch
+   * `/model` twice to answer one question. The assignment panel filters this to the modules
+   * that opted in; the access screen keeps the refusals too, so it can say why.
+   */
+  modules: ModuleRow[];
   /** True while the model is in flight. */
   loading: boolean;
   /** The last failure message, or `null`. */
@@ -50,6 +62,7 @@ export interface AccessLadder {
 export function useAccessLadder(strings: TerpStrings): AccessLadder {
   const client = useTerpClient();
   const [rungs, setRungs] = useState<AdminRoleOption[]>([]);
+  const [modules, setModules] = useState<ModuleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +85,7 @@ export function useAccessLadder(strings: TerpStrings): AccessLadder {
               label: packagedLabel(strings, role.name) ?? role.name,
             })),
         );
+        setModules(buildModuleRows(model));
         setError(null);
       } catch (cause: unknown) {
         if (live) setError(cause instanceof Error ? cause.message : String(cause));
@@ -84,5 +98,5 @@ export function useAccessLadder(strings: TerpStrings): AccessLadder {
     };
   }, [client, strings]);
 
-  return { rungs, loading, error };
+  return { rungs, modules, loading, error };
 }

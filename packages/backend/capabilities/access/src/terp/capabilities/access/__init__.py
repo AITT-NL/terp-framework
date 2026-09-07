@@ -12,7 +12,7 @@ capability adds **fine-grained, per-permission** authorization on top:
 It also owns the other half of "who may do what": a :class:`ModuleRole` records that a
 subject holds a rung *inside one module*, and :func:`resolve_module_rank` fills the kernel's
 ``module_rank_resolver`` seam so the guard can let that rung raise the caller's authority in
-that module and nowhere else (ADR 0112). The two halves answer different questions — a grant
+that module and nowhere else (ADR 0121). The two halves answer different questions — a grant
 is a named capability, a module role is a tier within a boundary — and neither is expressible
 as the other, which is why both exist.
 
@@ -45,11 +45,13 @@ from terp.capabilities.access.module_roles import (
     validate_assignment,
 )
 from terp.capabilities.access.operations import (
+    ACCESS_ASSIGN_MODULE_ROLE,
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
     ACCESS_GET_MODEL,
     ACCESS_GET_SUBJECT,
     ACCESS_LIST_GRANTS,
+    ACCESS_REVOKE_MODULE_ROLE,
 )
 from terp.capabilities.access.router import module, router
 from terp.capabilities.access.schemas import (
@@ -62,11 +64,13 @@ from terp.capabilities.access.schemas import (
 from terp.capabilities.access.service import AccessService
 
 __all__ = [
+    "ACCESS_ASSIGN_MODULE_ROLE",
     "ACCESS_CREATE_GRANT",
     "ACCESS_DELETE_GRANT",
     "ACCESS_GET_MODEL",
     "ACCESS_GET_SUBJECT",
     "ACCESS_LIST_GRANTS",
+    "ACCESS_REVOKE_MODULE_ROLE",
     "AccessModelRead",
     "AccessService",
     "Grant",

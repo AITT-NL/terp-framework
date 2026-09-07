@@ -15,11 +15,13 @@
         "tasks.field.status"
       ],
       "messages": {
+        "access.assign_module_role": "Geef iemand een rol binnen één module",
         "access.create_grant": "Ken een permissie toe aan iemand",
         "access.delete_grant": "Trek een toegekende permissie in",
         "access.get_model": "Bekijk welke rollen er zijn en wat elke rol mag",
         "access.get_subject": "Bekijk wat iemand mag, en waar elk recht vandaan komt",
         "access.list_grants": "Toon de permissies die aan iemand zijn toegekend",
+        "access.revoke_module_role": "Haal iemands rol binnen één module weg",
         "admin.deliveries.column.attempt": "Poging",
         "admin.deliveries.column.event": "Gebeurtenis",
         "admin.deliveries.column.lastError": "Laatste fout",

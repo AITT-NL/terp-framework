@@ -19,6 +19,7 @@ import uuid
 from fastapi import APIRouter, Request
 
 from terp.core import (
+    ControlPlane,
     ErrorDetail,
     ModuleAccess,
     build_access_model,
@@ -33,13 +34,18 @@ from terp.core import (
 )
 
 from terp.capabilities.access.expansion import subject_refs_for
-from terp.capabilities.access.module_roles import ModuleRoleService
+from terp.capabilities.access.module_roles import (
+    ModuleRoleService,
+    validate_assignment,
+)
 from terp.capabilities.access.operations import (
+    ACCESS_ASSIGN_MODULE_ROLE,
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
     ACCESS_GET_MODEL,
     ACCESS_GET_SUBJECT,
     ACCESS_LIST_GRANTS,
+    ACCESS_REVOKE_MODULE_ROLE,
 )
 from terp.capabilities.access.schemas import (
     AccessModelRead,
@@ -47,6 +53,8 @@ from terp.capabilities.access.schemas import (
     GrantRead,
     HeldModuleRoleRead,
     HeldPermissionRead,
+    ModuleRoleAssign,
+    ModuleRoleRead,
     SubjectAccessRead,
     SubjectRefRead,
 )
@@ -54,6 +62,28 @@ from terp.capabilities.access.service import AccessService
 
 router = APIRouter(tags=["access"])
 _service = AccessService()
+_module_roles = ModuleRoleService()
+
+
+def _declarations(request: Request) -> tuple[ControlPlane, tuple[ModuleSpec, ...]]:
+    """The app's own control plane and mounted specs, or a refusal.
+
+    Fails closed rather than guessing. Every real mount has both — ``create_app`` records
+    them on ``app.state`` — so the only caller that can reach the refusal is a hand-composed
+    app, and for a *write* path guessing on its behalf is how an unenforceable row gets
+    stored. Shared by the projection and the writer, so the two cannot disagree about what
+    counts as a composed app. :func:`_refuse_undeclared` keeps its own lookup deliberately:
+    it needs no specs, and its refusal names the field it came from so a form can attach it.
+    """
+    plane = getattr(request.app.state, "terp_control_plane", None)
+    specs = getattr(request.app.state, "terp_module_specs", None)
+    if plane is None or specs is None:
+        raise ValidationFailedError(
+            "this app exposes no control plane, so its authority surface cannot be "
+            "projected; compose it with create_app",
+            details=(ErrorDetail(code="no_control_plane"),),
+        )
+    return plane, specs
 
 
 def _refuse_undeclared(request: Request, permission: str) -> None:
@@ -124,14 +154,7 @@ def get_access_model(request: Request) -> AccessModelRead:
     enumerate; a caller asking what *they themselves* may do is answered by ``GET /me``
     (ADR 0096), which needs no privilege because it only ever reports the caller's own.
     """
-    plane = getattr(request.app.state, "terp_control_plane", None)
-    specs = getattr(request.app.state, "terp_module_specs", None)
-    if plane is None or specs is None:
-        raise ValidationFailedError(
-            "this app exposes no control plane, so its authority surface cannot be "
-            "projected; compose it with create_app",
-            details=(ErrorDetail(code="no_control_plane"),),
-        )
+    plane, specs = _declarations(request)
     return AccessModelRead.model_validate(build_access_model(plane, specs))
 
 
@@ -196,7 +219,7 @@ def get_subject_access(
         for name, holder in sorted(held, key=lambda row: (row[0], str(row[1])))
     ]
 
-    assignments = ModuleRoleService().held_with_subjects(session, set(by_id))
+    assignments = _module_roles.held_with_subjects(session, set(by_id))
     winning = {}
     for module, rank, _holder in assignments:
         # Sentinel-free, and this one was a crash rather than a wrong answer: with a `-1`
@@ -263,6 +286,42 @@ def create_grant(
 @operation(ACCESS_DELETE_GRANT)
 def delete_grant(grant_id: uuid.UUID, session: SessionDep) -> None:
     _service.delete(session, grant_id)
+
+
+@router.put(
+    "/subjects/{subject_id}/module-roles/{module}", response_model=ModuleRoleRead
+)
+@operation(ACCESS_ASSIGN_MODULE_ROLE)
+def assign_module_role(
+    subject_id: uuid.UUID,
+    module: str,
+    payload: ModuleRoleAssign,
+    request: Request,
+    session: SessionDep,
+) -> ModuleRoleRead:
+    # ``PUT``, not ``POST``: the pair in the path is the fact's identity, the table's unique
+    # constraint says a subject holds at most one rung per module, and ``assign`` is already
+    # idempotent on that pair. A ``POST`` that silently updates an existing row would be a
+    # create that is not one, and would leave the caller no way to say "make it so" without
+    # first reading whether a row exists.
+    plane, specs = _declarations(request)
+    validate_assignment(plane, specs, module, payload.role_rank)
+    return ModuleRoleRead.model_validate(
+        _module_roles.assign(session, subject_id, module, payload.role_rank)
+    )
+
+
+@router.delete("/subjects/{subject_id}/module-roles/{module}", status_code=204)
+@operation(ACCESS_REVOKE_MODULE_ROLE)
+def revoke_module_role(
+    subject_id: uuid.UUID, module: str, session: SessionDep
+) -> None:
+    # Validates nothing, and returns 204 whether or not a row was there. A module the app has
+    # stopped declaring assignable is exactly the assignment that most needs clearing, so
+    # checking the catalog here would make it unreachable — the same reason
+    # ``terp grant revoke`` does not check its own. And a 404 for "already absent" would make
+    # a retry of a successful revoke look like a failure.
+    _module_roles.revoke(session, subject_id, module)
 
 
 module = ModuleSpec(

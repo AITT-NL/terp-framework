@@ -56,6 +56,19 @@ class ModuleRoleUpdate(BaseUpdateSchema):
     role_rank: int | None = None
 
 
+class ModuleRoleAssign(BaseSchema):
+    """The body of an assignment whose subject and module are already in the path.
+
+    Addressed by ``(subject_id, module)`` rather than by row id, because that pair *is* the
+    fact's identity — the table's unique constraint says so, and
+    :meth:`ModuleRoleService.assign` is already idempotent on it. A surrogate id in the URL
+    would make the caller fetch a row before it could change one, and would let two requests
+    that mean the same thing address it differently.
+    """
+
+    role_rank: int
+
+
 class ModuleRoleRead(BaseSchema):
     id: uuid.UUID
     subject_id: uuid.UUID
@@ -127,7 +140,7 @@ class AccessPolicyRead(BaseSchema):
 
 
 class ModuleAccessRead(BaseSchema):
-    """Whether a module takes part in per-module role assignment (ADR 0112)."""
+    """Whether a module takes part in per-module role assignment (ADR 0121)."""
 
     assignable: bool
     label: str | None

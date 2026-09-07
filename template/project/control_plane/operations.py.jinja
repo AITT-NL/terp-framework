@@ -16,11 +16,13 @@ from __future__ import annotations
 from terp.core import OperationCatalog
 
 from terp.capabilities.access import (
+    ACCESS_ASSIGN_MODULE_ROLE,
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
     ACCESS_GET_MODEL,
     ACCESS_GET_SUBJECT,
     ACCESS_LIST_GRANTS,
+    ACCESS_REVOKE_MODULE_ROLE,
 )
 from terp.capabilities.audit import AUDIT_LIST_EVENTS
 from terp.capabilities.auth import (
@@ -95,6 +97,8 @@ operation_catalog = OperationCatalog(
         ACCESS_DELETE_GRANT,
         ACCESS_GET_MODEL,
         ACCESS_GET_SUBJECT,
+        ACCESS_ASSIGN_MODULE_ROLE,
+        ACCESS_REVOKE_MODULE_ROLE,
         # What happened.
         AUDIT_LIST_EVENTS,
 {%- if use_files %}

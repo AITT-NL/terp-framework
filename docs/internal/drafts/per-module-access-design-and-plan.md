@@ -1,6 +1,6 @@
 # Per-module access — design notes and the sequenced plan
 
-> **Decision:** [ADR 0112](../../decisions/0112-a-module-role-is-an-assignment-not-a-policy.md) —
+> **Decision:** [ADR 0121](../../decisions/0121-a-module-role-is-an-assignment-not-a-policy.md) —
 > §3's fork is settled as option (A), the model is code and the pane assigns. This file is now the
 > execution tracker; when it disagrees with the ADR, the ADR wins.
 >
@@ -265,7 +265,7 @@ module = ModuleSpec(
 ```
 
 *(Shipped in phase 2b-ii, with one naming change from this section as first written.*
-`ModuleAccess.grantable(...)` *would have collided with the field it sets, and ADR 0112's own
+`ModuleAccess.grantable(...)` *would have collided with the field it sets, and ADR 0121's own
 sentence is "a per-module role is an **assignment**", so the field is* `assignable` *and the only
 classmethod is the refusal —* `ModuleAccess.platform_only(reason=...)` *— exactly the shape*
 `Policy` *uses, where the ordinary case is constructed directly and the justified exception gets a
@@ -329,7 +329,7 @@ same reasoning as `OperationCoverage`) decides whether an unlabelled declaration
 reported, or refused at boot. `OFF` is the framework default for the reason ADR 0102 gives about
 its own flip — turning it on before declarations carry labels refuses the boot of every app that
 has any. Whether `STRICT` becomes the default is an open question, not a decision this section
-gets to make (ADR 0112). The example app runs `STRICT` from the start, because
+gets to make (ADR 0121). The example app runs `STRICT` from the start, because
 the app whose job is to demonstrate the control is the wrong place to leave it off.
 
 `LabelCoverage` is named for one thing rather than two on purpose: phase 2's module labels want the
@@ -712,6 +712,38 @@ told the difference.
 5. **The pane**, viewer lenses first, then assignment. Template and example app pick it up — and
    the example app needs a second grantable module whose rows genuinely diverge from `notes`, or the
    first screenshot of this feature is three identical columns (§9, design C).
+   - [x] **5a — the viewer.** `/admin/access`, section-gated in `AdminAreaSections` beside users,
+         groups and audit, with a hub card. Gated for a reason rather than for symmetry: the screen
+         reads `GET /api/v1/access/model`, so an app without the access capability would otherwise
+         ship a nav entry leading to a 404.
+   - [x] **5b — the writer.** `PUT` / `DELETE
+         /api/v1/access/subjects/{subject_id}/module-roles/{module}`, and the assignment panel on
+         both a person's and a group's detail screen. Three things the plan had not settled, decided
+         here and recorded in ADR 0121 §9:
+     - **Addressed by the pair, not by a row id.** `(subject_id, module)` *is* the fact's identity —
+           the unique constraint says so and `assign` is already idempotent on it — so `PUT` is the
+           honest verb. A `POST` that silently updated would be a create that is not one, and a row
+           id in the URL would make the caller read a row before it could change one. It also
+           matters that `GET /subjects/{id}` reports held rungs keyed by module and `via`, with no
+           row id in the payload: a delete-by-id writer could not be driven from what the reader
+           returns.
+     - **A read-only strip is a description, not a disabled control.** `TileGroup` gained a
+           `readOnly` mode whose tiles carry no radio semantics at all. A disabled radiogroup
+           announces a set of radio buttons with none of them checked, which tells a screen-reader
+           user they have failed to choose something on a screen where there is nothing to choose.
+           The mode accepts no `value`, by type: a highlighted tile assistive technology cannot see
+           is a sighted-only fact.
+     - **`Tile.disabled` was removed.** Nothing consumed it, and the near-term surfaces do not
+           either — a rung below the subject's global role is *marked as a floor*, not disabled,
+           because it stays assignable and becomes meaningful the moment the global role drops.
+   - [ ] **5c — the example app's second assignable module**, whose rungs genuinely diverge from
+         `notes` (§9, design C). Still open: today only `notes` opts in, so the viewer's own
+         screenshot is one strip.
+
+   The panel is where the strip's manual activation earns its cost: assigning the top rung opens a
+   confirmation, so automatic activation would fire it while someone was arrowing past. That claim
+   was in `TileGroup`'s docstring from the start with nothing to back it — the panel is the
+   consumer that makes it true.
 6. **terp-spec rules and the violation corpus**, once the declarations are stable. The catalog
    already has the precedents to copy — `backend/modules_declare_policy` for a required module
    declaration, `backend/routes_declare_operation` for a coverage-gated one, and
@@ -731,7 +763,7 @@ value arrives before anything can go wrong at runtime.
 
 ## 6. Decisions to record
 
-- ~~**A per-module role is an assignment, not a policy.**~~ **Recorded as ADR 0112**, together with
+- ~~**A per-module role is an assignment, not a policy.**~~ **Recorded as ADR 0121**, together with
   the additive `max` rule, the not-grantable default, the platform-module refusal, the derived
   explanation and the shared `decide()`, the operator-command boundary, the staged label, and both
   write paths agreeing. Its five open questions are the live ones; §8 below is now a duplicate of
@@ -762,7 +794,7 @@ value arrives before anything can go wrong at runtime.
 ## 8. Open questions
 
 The decision's own open questions live in
-[ADR 0112](../../decisions/0112-a-module-role-is-an-assignment-not-a-policy.md) and are not
+[ADR 0121](../../decisions/0121-a-module-role-is-an-assignment-not-a-policy.md) and are not
 repeated here — two copies of one list is how a list rots. They are: whether strict label
 coverage becomes the default; whether a per-module `admin` rung means anything for a module
 whose policy only distinguishes read from write; whether the ladder is per app or per module;

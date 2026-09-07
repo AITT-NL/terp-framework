@@ -42,11 +42,13 @@ import terp.capabilities.access.models  # noqa: F401  (register Grant table)
 import terp.capabilities.audit.models  # noqa: F401  (register AuditEvent table)
 import terp.capabilities.identity.models  # noqa: F401  (register User table)
 from terp.capabilities.access import (
+    ACCESS_ASSIGN_MODULE_ROLE,
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
     ACCESS_GET_MODEL,
     ACCESS_GET_SUBJECT,
     ACCESS_LIST_GRANTS,
+    ACCESS_REVOKE_MODULE_ROLE,
     AccessService,
     enforce_permission,
     require_permission,
@@ -97,6 +99,8 @@ _OPERATIONS = OperationCatalog(
         ACCESS_DELETE_GRANT,
         ACCESS_GET_MODEL,
         ACCESS_GET_SUBJECT,
+        ACCESS_ASSIGN_MODULE_ROLE,
+        ACCESS_REVOKE_MODULE_ROLE,
         AUDIT_LIST_EVENTS,
     )
 )
