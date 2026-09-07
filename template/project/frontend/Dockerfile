@@ -11,6 +11,13 @@ COPY . .
 WORKDIR /app/frontend
 RUN npm install
 
+# Run as a non-root user that owns the (sync-mutable) source — the same shape
+# the backend image uses, and the same reason: `docker compose watch` writes
+# into this tree, and a root-owned bind mount leaves files on the host that the
+# developer cannot edit back.
+RUN useradd --create-home --uid 10001 appuser && chown -R appuser /app
+USER appuser
+
 EXPOSE 5173
 # The Vite dev server, reachable from the host; the /api proxy target is TERP_API_PROXY
 # (set to the api service in compose), so the browser calls the API same-origin.
