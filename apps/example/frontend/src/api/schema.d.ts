@@ -39,6 +39,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/access/model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * See which roles exist and what each one may do
+         * @description The declared authority surface: the ladder, the permissions, and every module.
+         *
+         *     The read half of a permission editor, and the reason the projection it is built on moved
+         *     into the kernel: this capability cannot import ``terp.cli``, where ``terp inspect access``
+         *     lives. One builder, so the pane and the audit view cannot disagree about who may do what.
+         *
+         *     Derivation over what ``create_app`` recorded on ``app.state`` — no database read at all,
+         *     which is why it says nothing about *who holds* anything. That question needs the grant
+         *     rows and is a different endpoint.
+         *
+         *     Admin-only, through this module's own ``Policy``. The permission topology is a map of
+         *     where the doors are, so it is not something an under-privileged caller should be able to
+         *     enumerate; a caller asking what *they themselves* may do is answered by ``GET /me``
+         *     (ADR 0096), which needs no privilege because it only ever reports the caller's own.
+         */
+        get: operations["access.get_model"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/subjects/{subject_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * See what someone can do, and where each right comes from
+         * @description One subject's effective access, with the provenance of every right.
+         *
+         *     "Why can this person do that?" is the question an administrator has to be able to answer
+         *     before any of this is safe, and it is the one a matrix of effective answers cannot answer
+         *     on its own. Every row here names the subject it came from — the person themselves, or a
+         *     group they belong to — because a right whose origin is unknown is a right nobody can
+         *     remove with confidence.
+         *
+         *     Two things are reported rather than filtered. A grant naming a permission the app no
+         *     longer declares comes back with ``declared: false``, and a module role at an undeclared
+         *     rank or in a module that no longer accepts them comes back with its reason in ``stale`` —
+         *     on the reasoning ``terp grant list`` gives, that a filtered row is a right nobody can
+         *     explain. And where several module rows exist for one module, only the highest is marked
+         *     ``effective``, which is the thing most often misread: assigning a lower rung alongside a
+         *     higher one changes nothing at all.
+         */
+        get: operations["access.get_subject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/subjects/{subject_id}/module-roles/{module}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Give someone a role inside one module */
+        put: operations["access.assign_module_role"];
+        post?: never;
+        /** Take away someone's role inside one module */
+        delete: operations["access.revoke_module_role"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit/": {
         parameters: {
             query?: never;
@@ -651,6 +736,115 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AccessEndpointRead
+         * @description One mounted route and the authority that applies to it.
+         */
+        AccessEndpointRead: {
+            /** By Role */
+            by_role: components["schemas"]["AccessRoleOutcomeRead"][];
+            /** Extra Permissions */
+            extra_permissions: string[];
+            /** Methods */
+            methods: string[];
+            /** Name */
+            name: string;
+            operation: components["schemas"]["AccessOperationRead"] | null;
+            /** Path */
+            path: string;
+            /** Requirement */
+            requirement: string;
+        };
+        /**
+         * AccessModelRead
+         * @description The declared authority surface: the ladder, the permissions, and every module.
+         */
+        AccessModelRead: {
+            /** Modules */
+            modules: components["schemas"]["AccessModuleRead"][];
+            /** Permissions */
+            permissions: components["schemas"]["AccessPermissionRead"][];
+            /** Roles */
+            roles: components["schemas"]["AccessRoleRead"][];
+        };
+        /**
+         * AccessModuleRead
+         * @description One module's declared authority.
+         */
+        AccessModuleRead: {
+            access: components["schemas"]["ModuleAccessRead"] | null;
+            /** Endpoints */
+            endpoints: components["schemas"]["AccessEndpointRead"][];
+            /** Name */
+            name: string;
+            /** Permissions */
+            permissions: string[];
+            policy: components["schemas"]["AccessPolicyRead"] | null;
+            /** Prefix */
+            prefix: string | null;
+        };
+        /**
+         * AccessOperationRead
+         * @description What a route does, in the source language (ADR 0102).
+         */
+        AccessOperationRead: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+        };
+        /**
+         * AccessPermissionRead
+         * @description One declared permission: its name, its rank floor, and what holding it buys.
+         */
+        AccessPermissionRead: {
+            /** Label */
+            label: string | null;
+            /** Min Role */
+            min_role: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * AccessPolicyRead
+         * @description A module's declared posture. ``public`` decides which of the other fields apply.
+         */
+        AccessPolicyRead: {
+            /** Allows Public Writes */
+            allows_public_writes?: boolean | null;
+            /** Authenticated */
+            authenticated?: boolean | null;
+            /** Public */
+            public: boolean;
+            /** Public Reason */
+            public_reason?: string | null;
+            /** Read */
+            read?: string | null;
+            /** Write */
+            write?: string | null;
+        };
+        /**
+         * AccessRoleOutcomeRead
+         * @description What one rung gets on one route, replayed through the kernel guard's own decision.
+         */
+        AccessRoleOutcomeRead: {
+            /** Allowed */
+            allowed: boolean;
+            /** Reason */
+            reason: string;
+            /** Role */
+            role: string;
+        };
+        /**
+         * AccessRoleRead
+         * @description One rung of the app's declared ladder.
+         */
+        AccessRoleRead: {
+            /** Name */
+            name: string;
+            /** Rank */
+            rank: number;
+        };
         /** AccessToken */
         AccessToken: {
             /** Access Token */
@@ -719,6 +913,13 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Module Ranks
+             * @default {}
+             */
+            module_ranks: {
+                [key: string]: number;
+            };
             /**
              * Permissions
              * @default []
@@ -902,6 +1103,36 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * HeldModuleRoleRead
+         * @description One per-module rung a subject holds, and why.
+         */
+        HeldModuleRoleRead: {
+            /** Effective */
+            effective: boolean;
+            /** Module */
+            module: string;
+            /** Role */
+            role: string | null;
+            /** Role Rank */
+            role_rank: number;
+            /** Stale */
+            stale: string[];
+            via: components["schemas"]["SubjectRefRead"];
+        };
+        /**
+         * HeldPermissionRead
+         * @description One permission a subject holds, and why.
+         */
+        HeldPermissionRead: {
+            /** Declared */
+            declared: boolean;
+            /** Label */
+            label: string | null;
+            /** Name */
+            name: string;
+            via: components["schemas"]["SubjectRefRead"];
+        };
         /** JournalCreate */
         JournalCreate: {
             /**
@@ -965,6 +1196,61 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * ModuleAccessRead
+         * @description Whether a module takes part in per-module role assignment (ADR 0121).
+         */
+        ModuleAccessRead: {
+            /** Assignable */
+            assignable: boolean;
+            /** Label */
+            label: string | null;
+            /** Platform Reason */
+            platform_reason: string | null;
+        };
+        /**
+         * ModuleRoleAssign
+         * @description The body of an assignment whose subject and module are already in the path.
+         *
+         *     Addressed by ``(subject_id, module)`` rather than by row id, because that pair *is* the
+         *     fact's identity — the table's unique constraint says so, and
+         *     :meth:`ModuleRoleService.assign` is already idempotent on it. A surrogate id in the URL
+         *     would make the caller fetch a row before it could change one, and would let two requests
+         *     that mean the same thing address it differently.
+         */
+        ModuleRoleAssign: {
+            /** Role Rank */
+            role_rank: number;
+        };
+        /** ModuleRoleRead */
+        ModuleRoleRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Module */
+            module: string;
+            /** Role Rank */
+            role_rank: number;
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: number;
         };
         /** NoteCreate */
         NoteCreate: {
@@ -1199,6 +1485,49 @@ export interface components {
              * @description Version from the most recent read response, used for optimistic concurrency control. A stale value is rejected with HTTP 409.
              */
             version: number;
+        };
+        /**
+         * SubjectAccessRead
+         * @description One subject's effective access, with the provenance of every right.
+         *
+         *     The answer to "why can this person do that?", which is the only defence an administrator
+         *     has against an over-broad grant. It reports what is *held*; what that lets someone do on a
+         *     given route is the declared model's question (``GET /model``), and a pane joins the two.
+         *
+         *     It deliberately does **not** carry the subject's global rank. That lives in the users
+         *     table, which this capability cannot import — its whole premise is being a leaf the
+         *     identity modules depend on rather than the reverse — and a field nothing here could ever
+         *     fill would be structurally null. A pane already fetches the account to show its detail
+         *     screen, so it has the rank; adding a seam to duplicate it here would be a second source
+         *     of truth for one integer.
+         */
+        SubjectAccessRead: {
+            /** Module Roles */
+            module_roles: components["schemas"]["HeldModuleRoleRead"][];
+            /** Permissions */
+            permissions: components["schemas"]["HeldPermissionRead"][];
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            /** Via */
+            via: components["schemas"]["SubjectRefRead"][];
+        };
+        /**
+         * SubjectRefRead
+         * @description Where a right came from: the caller themselves, or a group they belong to.
+         */
+        SubjectRefRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string | null;
         };
         /** TaskCreate */
         TaskCreate: {
@@ -1540,6 +1869,123 @@ export interface operations {
             header?: never;
             path: {
                 grant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "access.get_model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessModelRead"];
+                };
+            };
+        };
+    };
+    "access.get_subject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubjectAccessRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "access.assign_module_role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: string;
+                module: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModuleRoleAssign"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModuleRoleRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "access.revoke_module_role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: string;
+                module: string;
             };
             cookie?: never;
         };
