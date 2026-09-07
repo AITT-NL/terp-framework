@@ -17,7 +17,7 @@ dependencies = [
 # Config sealing (design §5.4, terp.core.secrets) loads its cipher lazily from the
 # `cryptography` package; an app that never seals config never needs this extra.
 [project.optional-dependencies]
-secrets = ["cryptography>=48.0.1"]
+secrets = ["cryptography>=50"]
 
 # Terp ships its own pytest plugin (terp.core.testing) so every app inherits
 # process-global runtime isolation without a conftest.py line. The hazard it guards

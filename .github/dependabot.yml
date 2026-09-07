@@ -1,0 +1,35 @@
+# Keeps the dependency surfaces current, so a CVE the audits report arrives with
+# its fix PR instead of only a red check. Grouped weekly: two people must not be
+# buried under one PR per package.
+#
+# The Docker entries cover what a generated app inherits — the template's four
+# images are the ones every project ships — plus the example app the suite
+# builds against.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      workspace-deps:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      frontend-deps:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directories:
+      - /template/project
+      - /template/project/frontend
+      - /apps/example
+      - /apps/example/frontend
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

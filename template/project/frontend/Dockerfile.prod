@@ -27,6 +27,11 @@ ENV API_UPSTREAM=api:8000 \
     NGINX_ENVSUBST_FILTER=^API_UPSTREAM$
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
 
+# Explicit, though `nginxinc/nginx-unprivileged` already runs as this user: the
+# fact then lives in this file where a reader looks for it, and a future base
+# image cannot drop it without this line failing.
+USER nginx
+
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=5s \
     CMD ["/bin/sh", "-c", "wget -q -O /dev/null http://127.0.0.1:8080/"]

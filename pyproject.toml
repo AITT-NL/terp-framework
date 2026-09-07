@@ -73,7 +73,7 @@ dev = [
     # Parses the Compose workbench file in test_compose_workbench.py (structure guard).
     "pyyaml>=6.0",
     # Exercises the terp-core[secrets] sealing cipher (terp.core.secrets, design §5.4).
-    "cryptography>=48.0.1",
+    "cryptography>=50",
     # The Terp Standard (ADR 0082): the certification tests locate the
     # catalog/corpus through terp_spec.spec_dir(), never a repo path. Pinned to
     # one exact release (ADR 0086) so the Python and npm pins can be compared.
@@ -86,6 +86,10 @@ lint = [
     "pip-audit>=2.7",
     "deptry>=0.20",
     "import-linter>=2.0",
+    # Pinned exactly, unlike the others: this one blocks, so a new audit must
+    # arrive by a deliberate bump (Dependabot opens it) rather than by surprise
+    # on an unrelated pull request.
+    "zizmor==1.30.0",
 ]
 
 [tool.pytest.ini_options]

@@ -1,0 +1,20 @@
+# Accepted misconfiguration findings for `trivy config`. Each line is a
+# decision, not a silence: the reason has to still hold when you read it.
+
+# DS-0002 — "specify a USER" on the two DEVELOPMENT frontend images
+# (template/project/frontend/Dockerfile and the example's). Deliberate, and
+# measured: the Vite dev server writes into the directory it serves — a
+# `vite.config.ts.timestamp-*.mjs` beside the config, and its own cache under
+# node_modules — and that directory is a bind mount of the developer's own
+# checkout. A uid inside the image cannot own a host bind mount, so switching
+# user there does not make the container safer, it makes `npm run dev` fail
+# with EACCES. (Tried, and the example app's e2e caught it.) The backend dev
+# image does switch user, because uvicorn only reads the mount.
+#
+# What that leaves accepted is a development container, on a developer's own
+# machine, running as root over a tree that developer already owns. The images
+# that ship are the `.prod` ones, and both of those declare `USER nginx`.
+#
+# Revisit when compose can pass the host uid portably, or when the dev server
+# stops writing into the source tree.
+DS-0002
