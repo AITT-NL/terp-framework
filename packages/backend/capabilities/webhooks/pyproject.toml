@@ -15,7 +15,7 @@ dependencies = [
     "httpx>=0.27",
     # Seals the subscription signing secret at rest (ADR 0076) — Fernet keyed from
     # SECRET_KEY with a webhooks-specific HKDF label, mirroring terp.core.secrets.
-    "cryptography>=48.0.1",
+    "cryptography>=50",
 ]
 
 # Self-registering: the kernel discovers this ModuleSpec via the entry point, mounting the
