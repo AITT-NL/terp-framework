@@ -29,7 +29,7 @@ WEBHOOKS_LIST_DELIVERIES = OperationDefinition(
     label="List the delivery attempts made to subscribed webhooks",
 )
 
-#: Every operation this capability's routes declare, in route order.
+#: Every operation this capability's routes declare, in declaration order.
 #:
 #: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
 #: splatting this (``*WEBHOOKS_OPERATIONS``) rather than naming each constant, so a

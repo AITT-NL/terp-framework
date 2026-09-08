@@ -14,10 +14,15 @@ holds while the aggregate is **exhaustive**, which is what these tests are for. 
 them the aggregate is a second list to forget rather than a fix — the same maintenance
 burden it exists to remove, one indirection further away.
 
-Enumeration is by module introspection rather than by walking routers: ``auth`` and
-``oidc`` publish ``build_*_router`` factories that need configuration to call, so there is
-no uniform router to walk, while every capability's operations do live in one
-``operations.py``. Introspection therefore covers all eleven with one rule.
+Enumeration is by module introspection rather than by walking routers, and that is a
+decision with evidence behind it rather than a convenience. ``auth`` and ``oidc`` publish
+``build_*_router`` factories that need configuration to call, so there is no uniform
+router to walk at all. Worse for a router-walking test, ``leases`` publishes *both*: a
+plain ``router`` and a ``build_holder_router`` factory, and ``leases.send_heartbeat`` is
+declared only on the factory's route — so walking the obvious export would have reported
+that capability complete while missing an operation. Every capability's operations do live
+in one ``operations.py``, so introspection covers all eleven with one rule and no
+per-capability knowledge.
 """
 
 from __future__ import annotations
@@ -118,7 +123,7 @@ def test_the_aggregate_holds_every_operation_the_capability_declares(
     )
     assert not missing, (
         f"{_aggregate_name(capability)} is missing {missing}; add each new operation to "
-        "the aggregate in route order, or an app that splats it silently loses the route"
+        "the aggregate, or an app that splats it silently loses the route"
     )
 
     surplus = [entry for entry in aggregate if entry not in declared.values()]

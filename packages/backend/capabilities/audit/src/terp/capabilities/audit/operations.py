@@ -6,7 +6,7 @@ from terp.core import OperationDefinition
 
 AUDIT_LIST_EVENTS = OperationDefinition(id="audit.list_events", label="View the audit trail")
 
-#: Every operation this capability's routes declare, in route order.
+#: Every operation this capability's routes declare, in declaration order.
 #:
 #: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
 #: splatting this (``*AUDIT_OPERATIONS``) rather than naming each constant, so a

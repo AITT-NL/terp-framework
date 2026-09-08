@@ -59,8 +59,8 @@ operation_catalog = OperationCatalog(
 
 Three parts make that a fix rather than one more list to forget:
 
-1. **`<CAP>_OPERATIONS` is a tuple on the capability's public surface**, in route order, and
-   is what an app references. It grows when the capability's router grows, so the app's
+1. **`<CAP>_OPERATIONS` is a tuple on the capability's public surface**, in the order
+   its module declares them, and is what an app references. It grows when the capability's router grows, so the app's
    catalog grows with it and no app edit is needed for a release that adds a route.
 2. **The aggregate is held exhaustive**, in both directions, by
    `tests/architecture/test_capability_operations.py`: every `OperationDefinition` the

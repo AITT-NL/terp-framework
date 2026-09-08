@@ -34,7 +34,7 @@ ACCESS_REVOKE_MODULE_ROLE = OperationDefinition(
     label="Take away someone's role inside one module",
 )
 
-#: Every operation this capability's routes declare, in route order.
+#: Every operation this capability's routes declare, in declaration order.
 #:
 #: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
 #: splatting this (``*ACCESS_OPERATIONS``) rather than naming each constant, so a

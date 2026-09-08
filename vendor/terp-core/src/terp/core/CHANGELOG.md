@@ -32,7 +32,7 @@ decision, 0001 onwards.
   never avoided it.
 
   Every capability that declares operations now exports `<CAP>_OPERATIONS` — a tuple in
-  route order — and an app folds the capability in by splatting it:
+  the order the capability declares them — and an app folds it in by splatting:
 
   ```python
   operations=(*AUTH_OPERATIONS, *ACCESS_OPERATIONS, NOTES_LIST, ...)

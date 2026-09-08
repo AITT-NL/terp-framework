@@ -19,7 +19,7 @@ FILES_DOWNLOAD = OperationDefinition(
 FILES_UPDATE = OperationDefinition(id="files.update_file", label="Edit a file's details")
 FILES_DELETE = OperationDefinition(id="files.delete", label="Delete a file")
 
-#: Every operation this capability's routes declare, in route order.
+#: Every operation this capability's routes declare, in declaration order.
 #:
 #: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
 #: splatting this (``*FILES_OPERATIONS``) rather than naming each constant, so a

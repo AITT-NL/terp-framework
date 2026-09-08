@@ -25,7 +25,7 @@ SYNC_LIST_MAPPINGS = OperationDefinition(
     label="List how records are matched between the two connected systems",
 )
 
-#: Every operation this capability's routes declare, in route order.
+#: Every operation this capability's routes declare, in declaration order.
 #:
 #: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
 #: splatting this (``*SYNC_OPERATIONS``) rather than naming each constant, so a

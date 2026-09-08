@@ -21,7 +21,7 @@ AUTH_REFRESH = OperationDefinition(
 AUTH_LOGOUT = OperationDefinition(id="auth.logout", label="Sign out of the current session")
 AUTH_ME = OperationDefinition(id="auth.me", label="View your own profile")
 
-#: Every operation this capability's routes declare, in route order.
+#: Every operation this capability's routes declare, in declaration order.
 #:
 #: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
 #: splatting this (``*AUTH_OPERATIONS``) rather than naming each constant, so a
