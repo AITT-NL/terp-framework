@@ -758,3 +758,128 @@ def test_init_says_nothing_to_fill_in_when_every_default_is_supplied(
     out = capsys.readouterr().out
     assert "wrote .app.env with 2 declared variable(s)" in out
     assert "still to fill in" not in out
+
+
+# --------------------------------------------------------------------------- #
+# the files this seam has a stake in, which is not the same set as the manifest's
+#
+# Reading only the files the DECLARATIONS imply makes every value the manifest does not
+# route invisible -- and those are the ones `check` exists to find. Three shapes of that,
+# each of which the first version of the multi-file rewrite got wrong.
+# --------------------------------------------------------------------------- #
+def test_a_stray_value_is_reported_when_every_declaration_is_scoped(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`.app.env` is read ALWAYS, not only when something is routed to it.
+
+    An app whose declarations are all scoped routes nothing to the shared file, so a
+    version that read only the routed files reported this app as clean while an
+    undeclared value -- in practice a misspelling of a declared name -- sat in it.
+    """
+    root = _project(
+        tmp_path,
+        {
+            "type": "object",
+            "properties": {
+                "SYNC_PASSWORD": {"type": "string", "services": ["worker"]}
+            },
+            "required": [],
+        },
+    )
+    (root / ".app.worker.env").write_text("SYNC_PASSWORD=x\n", encoding="utf-8")
+    (root / ".app.env").write_text("SYNC_PASWORD=oops\n", encoding="utf-8")
+
+    assert run_env_command(action="check", root=str(root)) == 1
+    out = capsys.readouterr().out
+    assert "SYNC_PASWORD" in out
+    assert "not declared" in out
+
+
+def test_a_stray_value_is_reported_when_the_manifest_declares_nothing(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty manifest routes nothing anywhere, and still has to read the one file."""
+    root = _project(tmp_path, {"type": "object", "properties": {}, "required": []})
+    (root / ".app.env").write_text("STRAY=1\n", encoding="utf-8")
+
+    assert run_env_command(action="check", root=str(root)) == 1
+    out = capsys.readouterr().out
+    assert "STRAY: set here but not declared" in out
+
+
+def test_a_render_left_behind_by_a_removed_scope_is_still_seen(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A `.app.worker.env` whose scope has been removed still holds its credential.
+
+    Nothing routes to it any more, so a set of files derived from the manifest does not
+    contain it -- and a command that cannot see the file can neither report it nor clear
+    it. That is the one case where the stale copy is a live secret.
+    """
+    root = _project(
+        tmp_path,
+        {
+            "type": "object",
+            "properties": {"SYNC_PASSWORD": {"type": "string"}},
+            "required": [],
+        },
+    )
+    (root / ".app.env").write_text("SYNC_PASSWORD=current\n", encoding="utf-8")
+    (root / ".app.worker.env").write_text("SYNC_PASSWORD=stale\n", encoding="utf-8")
+
+    assert run_env_command(action="check", root=str(root)) == 1
+    out = capsys.readouterr().out
+    # Declared, but routed elsewhere: "not declared" would send the reader to the
+    # manifest to add something already in it.
+    assert "rendered into .app.env" in out
+    assert ".app.worker.env" in out
+
+    # And `unset` can actually clear it, which is what the docstring promises.
+    capsys.readouterr()
+    run_env_command(action="unset", root=str(root), names=["SYNC_PASSWORD"])
+    assert "stale" not in (root / ".app.worker.env").read_text(encoding="utf-8")
+
+
+def test_an_unscoped_check_message_is_the_one_main_already_shipped(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No file context on a single-file app, because there is nothing to disambiguate.
+
+    The multi-file rewrite briefly said "not declared for this file" to every app,
+    scoped or not, which is the wording regression the no-op promise exists to prevent.
+    """
+    root = _project(tmp_path, _MANIFEST)
+    (root / ".app.env").write_text(
+        "VENDOR_API_URL=http://api:8000\nVENDOR_TOKEN=x\nSTRAY=1\n", encoding="utf-8"
+    )
+
+    assert run_env_command(action="check", root=str(root)) == 1
+    out = capsys.readouterr().out
+    assert "STRAY: set here but not declared, so it reaches no deployed environment" in out
+    assert "for this file" not in out
+    assert "(.app.env)" not in out
+
+
+def test_list_shows_a_stray_value_under_the_file_holding_it(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Which file it is in is the first thing needed in order to delete it."""
+    root = _project(
+        tmp_path,
+        {
+            "type": "object",
+            "properties": {
+                "SYNC_PASSWORD": {"type": "string", "services": ["worker"]}
+            },
+            "required": [],
+        },
+    )
+    (root / ".app.worker.env").write_text("SYNC_PASSWORD=x\nSTRAY=1\n", encoding="utf-8")
+
+    run_env_command(action="list", root=str(root))
+
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    worker = lines.index("  .app.worker.env")
+    stray = next(i for i, line in enumerate(lines) if "STRAY" in line)
+    assert stray > worker, "the stray value is listed under the file that holds it"
+    assert "not declared" in lines[stray]

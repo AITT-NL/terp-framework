@@ -102,10 +102,13 @@ are exercised by tests; no app can depend on a path that does not exist end to e
 window is one flag, and it may only move in the change that also:
 
 1. moves Studio's `TERP_FRAMEWORK_REF` onto a framework release carrying this dialect, and
-2. teaches Studio's three render sites — its reader's recognised-field list, the hardcoded shared
-   file name in its compose renderer, and the exact-path filter its Portainer path strips the app
-   env file by. Its Kubernetes path forwards no env file at all and needs a per-service
-   ConfigMap/Secret instead; that is Studio's design call, not this one.
+2. teaches Studio's three render sites — its reader's recognised-field list
+   (`app_env_schema.py`), the hardcoded shared file name in its compose renderer
+   (`deploy_compose.py`), and the exact-path filter its Portainer adapter strips the app env file
+   by (`deploy_portainer.py`, which matches on the exact name and would therefore leave a
+   `.app.<service>.env` in the compose it ships, pointing at a file nothing wrote). Whether
+   Studio's other deploy targets need more than that is Studio's call to make against its own
+   adapters, not a claim this ADR is in a position to enumerate.
 
 The refusal deliberately does **not** live in `manifest_findings`. That function mirrors Studio's
 reader case by case and documents itself as *every reason Studio's fail-closed reader would refuse

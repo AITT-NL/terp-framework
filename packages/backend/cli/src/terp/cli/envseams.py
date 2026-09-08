@@ -599,9 +599,7 @@ def _example_findings(
     return findings
 
 
-def _unsupported_findings(
-    project_root: pathlib.Path, declared: dict[str, dict]
-) -> list[EnvSeamFinding]:
+def _unsupported_findings(declared: dict[str, dict]) -> list[EnvSeamFinding]:
     """Scoped declarations the deploy side cannot render yet.
 
     The window :data:`STUDIO_RENDERS_SCOPED_FILES` describes, held shut from this side
@@ -653,7 +651,7 @@ def env_seam_findings(project_root: pathlib.Path) -> list[EnvSeamFinding]:
     if not declared:
         return []
     return [
-        *_unsupported_findings(project_root, declared),
+        *_unsupported_findings(declared),
         *_shadowing_findings(project_root, declared),
         *_scope_findings(project_root, declared),
         *_loopback_findings(project_root, declared),

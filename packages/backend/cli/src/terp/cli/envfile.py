@@ -183,13 +183,34 @@ def _read(
     return parse_dotenv(path.read_text(encoding="utf-8"))
 
 
+def _present_renders(root: pathlib.Path) -> set[str]:
+    """Per-service env files that exist on disk, whatever the manifest says now.
+
+    ``.app.env`` and ``.app.env.example`` do not match this glob — neither is
+    ``.app.<something>.env`` — so it returns the scoped renders and nothing else.
+    """
+    return {path.name for path in root.glob(".app.*.env")}
+
+
 def _read_every(
     root: pathlib.Path, declared: dict[str, dict]
 ) -> tuple[dict[str, dict[str, str]], list[tuple[int, str]]]:
-    """Every rendered file the declarations imply: ``({file: values}, problems)``.
+    """Every env file this seam has a stake in: ``({file: values}, problems)``.
 
-    Files that do not exist yet read as empty, exactly as the single file always has —
-    a half-initialised seam is the normal state between `terp env init` and the first
+    Three sources, unioned, and the third is the one that is easy to leave out:
+
+    * the shared ``.app.env``, **always**. It is where an undeclared value ends up (in
+      practice a misspelling of a declared name), and reading only the files the
+      declarations imply would make that value invisible to an app whose declarations
+      happen to all be scoped — or to one that declares nothing at all.
+    * every file the declarations imply, so a name is judged against the file it is
+      routed to even before that file exists.
+    * every per-service render already on disk. Not tidiness: a ``.app.worker.env``
+      left behind after its scope was removed still holds the credential it was created
+      for, and a command that cannot see it can neither report it nor clear it.
+
+    Files that do not exist read as empty, exactly as the single file always has — a
+    half-initialised seam is the normal state between `terp env init` and the first
     value being filled in, not a defect to report.
 
     Problems from every file are pooled, because :func:`_refuse_unreadable` speaks for
@@ -199,7 +220,7 @@ def _read_every(
     """
     per_file: dict[str, dict[str, str]] = {}
     problems: list[tuple[int, str]] = []
-    for file in sorted(_by_file(declared)) or [APP_ENV_FILE]:
+    for file in sorted({APP_ENV_FILE, *_by_file(declared), *_present_renders(root)}):
         values, file_problems = _read(root, file=file)
         per_file[file] = values
         problems.extend(file_problems)
@@ -420,9 +441,17 @@ def _list(root: pathlib.Path) -> int:
     # Grouped by file, and headed only when there is more than one: the grouping IS the
     # answer for a scoped app ("which service sees this"), and a heading over the single
     # shared file would be furniture in front of the same list as before.
-    for file, names in sorted(_by_file(declared).items()):
-        values = per_file.get(file, {})
-        if len(per_file) > 1:
+    #
+    # Over the files that EXIST, for the reason `_check` iterates them: a value in a
+    # file no declaration routes to has to be listed, and it is listed under the file
+    # holding it rather than in a trailing block, because which file it is in is the
+    # first thing the reader needs in order to delete it.
+    grouped = _by_file(declared)
+    multi = len(per_file) > 1
+    for file in sorted(per_file):
+        values = per_file[file]
+        names = grouped.get(file, [])
+        if multi:
             print(f"  {file}")
         for name in names:
             prop = declared[name]
@@ -433,11 +462,8 @@ def _list(root: pathlib.Path) -> int:
             else:
                 shown = values[name]
             print(f"  {name:<32} {shown}")
-    undeclared = sorted(
-        {name for values in per_file.values() for name in values} - set(declared)
-    )
-    for name in undeclared:
-        print(f"  {name:<32} (not declared — reaches no deployed environment)")
+        for name in sorted(set(values) - set(names)):
+            print(f"  {name:<32} (not declared — reaches no deployed environment)")
     return 0
 
 
@@ -454,9 +480,14 @@ def _check(root: pathlib.Path) -> int:
     findings = [f"line {number}: {problem}" for number, problem in problems]
     grouped = _by_file(declared)
     required = _required_names(root)
-    multi = len(grouped) > 1
-    for file, names in sorted(grouped.items()):
-        values = per_file.get(file, {})
+    # Iterate the files that EXIST (plus the ones the declarations imply), not just the
+    # implied ones: a value in a file no declaration routes to is the case this whole
+    # command is for, and looping over the manifest's own view would be asking the
+    # manifest whether the manifest is being followed.
+    multi = len(per_file) > 1
+    for file in sorted(per_file):
+        values = per_file[file]
+        names = grouped.get(file, [])
         # The file is named only for a scoped app, so single-file output is unchanged.
         where = f" ({file})" if multi else ""
         for name in names:
@@ -465,11 +496,21 @@ def _check(root: pathlib.Path) -> int:
             elif name in required and not values[name]:
                 findings.append(f"{name}: required by the manifest and empty here{where}")
         for name in sorted(set(values) - set(names)):
-            findings.append(
-                f"{name}: set here{where} but not declared for this file, so it reaches "
-                "no deployed environment"
-            )
-    files = ", ".join(sorted(grouped)) or APP_ENV_FILE
+            if name in declared:
+                # Declared, but routed elsewhere — a stale copy left behind when the
+                # declaration was scoped or re-scoped. Saying "not declared" here would
+                # send the reader to the manifest to add something already in it.
+                elsewhere = ", ".join(sorted(rendered_files(declared[name])))
+                findings.append(
+                    f"{name}: set here{where} but rendered into {elsewhere}, so this "
+                    "copy reaches no deployed environment"
+                )
+            else:
+                findings.append(
+                    f"{name}: set here{where} but not declared, so it reaches no "
+                    "deployed environment"
+                )
+    files = ", ".join(sorted(per_file))
     if not findings:
         print(f"{files} supplies every declared variable")
         return 0
