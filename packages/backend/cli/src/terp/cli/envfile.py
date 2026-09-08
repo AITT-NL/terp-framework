@@ -41,14 +41,16 @@ import json
 import pathlib
 
 from terp.cli.envschema import (
+    APP_ENV_FILE,
     APP_ENV_SCHEMA_FILE,
     MAX_PROPERTIES,
     PLATFORM_OWNED_NAMES,
     _NAME_RE,
     declared_variables,
     manifest_findings,
+    rendered_files,
 )
-from terp.cli.envseams import APP_ENV_EXAMPLE_FILE, APP_ENV_FILE, parse_dotenv
+from terp.cli.envseams import APP_ENV_EXAMPLE_FILE, parse_dotenv
 
 #: What a declared-secret variable renders as wherever a value would go.
 MASKED = "********"
@@ -85,10 +87,12 @@ def _required_names(root: pathlib.Path) -> set[str]:
     ) else set()
 
 
-def _write_live(root: pathlib.Path, values: dict[str, str]) -> None:
-    """Write ``.app.env`` owner-only.
+def _write_live(
+    root: pathlib.Path, values: dict[str, str], *, file: str = APP_ENV_FILE
+) -> None:
+    """Write one rendered env file owner-only.
 
-    This is the one file in the seam that holds real secret VALUES — the example
+    These are the files in the seam that hold real secret VALUES — the example
     is committed with them blank, and every deployed environment keeps its own in
     a sealed store. A default-permission write leaves an app's credentials
     readable by every other account on the machine, which is a weaker default
@@ -98,10 +102,35 @@ def _write_live(root: pathlib.Path, values: dict[str, str]) -> None:
     written through this same path, so a permission change on it cannot fail for
     a reason a guard could sensibly swallow. On Windows it narrows what it can
     and is a no-op for the rest, exactly as ``pathlib`` documents.
+
+    *file* is a name, never a path, and every caller takes it from
+    :func:`rendered_files` — so a per-service render lands beside the shared one and
+    inherits these same permissions instead of a second, laxer write path. That matters
+    more here than for the shared file: the whole point of scoping a variable is that it
+    holds a credential the rest of the app should not see.
     """
-    path = root / APP_ENV_FILE
+    path = root / file
     path.write_text(_render(values), encoding="utf-8")
     path.chmod(0o600)
+
+
+def _by_file(declared: dict[str, dict]) -> dict[str, list[str]]:
+    """Rendered file name -> the declared names that belong in it, both sorted.
+
+    The renderer's half of :func:`rendered_files`. A name scoped to two services appears
+    under both of their files, because compose forwards one file per service and a value
+    two services need has to exist in each.
+
+    A file with no names is absent rather than empty: an app that scopes nothing must
+    write exactly the one file it wrote before the field existed, and empty per-service
+    entries would have ``terp env init`` create files no service forwards and nobody
+    fills in.
+    """
+    grouped: dict[str, list[str]] = {}
+    for name, prop in sorted(declared.items()):
+        for file in sorted(rendered_files(prop)):
+            grouped.setdefault(file, []).append(name)
+    return grouped
 
 
 def _secret(prop: dict) -> bool:
@@ -145,11 +174,36 @@ def _render(values: dict[str, str], *, header: str = "") -> str:
     return "\n".join(lines) + "\n"
 
 
-def _read(root: pathlib.Path) -> tuple[dict[str, str], list[tuple[int, str]]]:
-    path = root / APP_ENV_FILE
+def _read(
+    root: pathlib.Path, *, file: str = APP_ENV_FILE
+) -> tuple[dict[str, str], list[tuple[int, str]]]:
+    path = root / file
     if not path.is_file():
         return {}, []
     return parse_dotenv(path.read_text(encoding="utf-8"))
+
+
+def _read_every(
+    root: pathlib.Path, declared: dict[str, dict]
+) -> tuple[dict[str, dict[str, str]], list[tuple[int, str]]]:
+    """Every rendered file the declarations imply: ``({file: values}, problems)``.
+
+    Files that do not exist yet read as empty, exactly as the single file always has —
+    a half-initialised seam is the normal state between `terp env init` and the first
+    value being filled in, not a defect to report.
+
+    Problems from every file are pooled, because :func:`_refuse_unreadable` speaks for
+    the whole command: a value the parser cannot read in the worker's file makes `terp
+    env set` on a shared name just as unsafe, since the write rewrites the file it could
+    not read.
+    """
+    per_file: dict[str, dict[str, str]] = {}
+    problems: list[tuple[int, str]] = []
+    for file in sorted(_by_file(declared)) or [APP_ENV_FILE]:
+        values, file_problems = _read(root, file=file)
+        per_file[file] = values
+        problems.extend(file_problems)
+    return per_file, problems
 
 
 def _refuse_unusable_manifest(root: pathlib.Path) -> None:
@@ -265,25 +319,37 @@ def run_env_command(
 
 
 def _init(root: pathlib.Path) -> int:
-    """Create ``.app.env`` from the declarations, defaults filled in."""
-    path = root / APP_ENV_FILE
-    if path.exists():
-        raise SystemExit(
-            f"{APP_ENV_FILE} already exists — `terp env set` changes a value, and "
-            "`terp env list` shows what is in it"
-        )
+    """Create every rendered env file from the declarations, defaults filled in."""
     declared = declared_variables(root)
     if not declared:
         raise SystemExit(
             f"{APP_ENV_SCHEMA_FILE} declares no variables, so there is nothing to "
             f"put in {APP_ENV_FILE} yet"
         )
-    values = {name: _default_of(prop) for name, prop in declared.items()}
-    _write_live(root, values)
-    empty = sorted(name for name, value in values.items() if not value)
-    print(f"wrote {APP_ENV_FILE} with {len(values)} declared variable(s)")
+    grouped = _by_file(declared)
+    # Refuse if ANY target exists, and name it. Writing the missing files around an
+    # existing one would silently re-render half a seam whose other half a developer has
+    # already filled in by hand -- and the surviving file is exactly where the secrets
+    # are, so a partial init is the one outcome with no safe recovery.
+    existing = [file for file in sorted(grouped) if (root / file).exists()]
+    if existing:
+        # Agrees with its own subject: "already exist(s)" is the shape that makes a
+        # refusal read like a template rather than a sentence about this app.
+        verb = "already exists" if len(existing) == 1 else "already exist"
+        raise SystemExit(
+            f"{', '.join(existing)} {verb} — `terp env set` changes a value, and "
+            "`terp env list` shows what is in it"
+        )
+    empty: list[str] = []
+    for file, names in sorted(grouped.items()):
+        values = {name: _default_of(declared[name]) for name in names}
+        _write_live(root, values, file=file)
+        empty.extend(name for name, value in values.items() if not value)
+        print(f"wrote {file} with {len(values)} declared variable(s)")
     if empty:
-        print(f"  still to fill in: {', '.join(empty)}")
+        # `sorted(set(...))`: a name scoped to two services is written to two files and
+        # is still one thing to fill in.
+        print(f"  still to fill in: {', '.join(sorted(set(empty)))}")
     return 0
 
 
@@ -297,26 +363,47 @@ def _set(root: pathlib.Path, pairs: list[str], *, declare: bool) -> int:
     if not parsed:
         raise SystemExit("nothing to set — pass one or more NAME=value pairs")
     declared = _check_names(root, list(parsed), declare=declare)
-    values, problems = _read(root)
+    per_file, problems = _read_every(root, declared)
     _refuse_unreadable(problems)
-    values.update(parsed)
-    _write_live(root, values)
+    # Route each name to the file(s) it is rendered into, never to the one it happens to
+    # be sitting in: a declaration that has just been scoped has its old value in the
+    # shared file, and writing the new one there again would leave the worker's file --
+    # the only one its service forwards -- untouched.
+    touched: dict[str, dict[str, str]] = {}
+    for name, value in parsed.items():
+        for file in sorted(rendered_files(declared.get(name, {}))):
+            target = touched.setdefault(file, dict(per_file.get(file, {})))
+            target[name] = value
+    for file, values in sorted(touched.items()):
+        _write_live(root, values, file=file)
     for name in parsed:
         shown = MASKED if _secret(declared.get(name, {})) else parsed[name]
-        print(f"{name}={shown}")
+        files = ", ".join(sorted(rendered_files(declared.get(name, {}))))
+        # The file is named only when it is not the shared one, so an app that scopes
+        # nothing reads exactly as it did.
+        suffix = "" if files == APP_ENV_FILE else f"   -> {files}"
+        print(f"{name}={shown}{suffix}")
     return 0
 
 
 def _unset(root: pathlib.Path, names: list[str]) -> int:
     if not names:
         raise SystemExit("nothing to unset — pass one or more names")
-    values, problems = _read(root)
+    declared = declared_variables(root)
+    per_file, problems = _read_every(root, declared)
     _refuse_unreadable(problems)
-    missing = [name for name in names if name not in values]
-    for name in names:
-        values.pop(name, None)
-    _write_live(root, values)
-    print(f"removed {len(names) - len(missing)} of {len(names)} name(s)")
+    # Removed from EVERY file that holds it, including one it no longer belongs in: an
+    # unset whose value survives in a file the manifest has stopped routing to is a
+    # credential the developer believes they have deleted.
+    removed = {name for name in names if any(name in v for v in per_file.values())}
+    for file, values in sorted(per_file.items()):
+        if not any(name in values for name in names):
+            continue
+        for name in names:
+            values.pop(name, None)
+        _write_live(root, values, file=file)
+    missing = [name for name in names if name not in removed]
+    print(f"removed {len(removed)} of {len(names)} name(s)")
     if missing:
         print(f"  not set anyway: {', '.join(missing)}")
     return 0
@@ -325,42 +412,68 @@ def _unset(root: pathlib.Path, names: list[str]) -> int:
 def _list(root: pathlib.Path) -> int:
     """Every declared name and whether it is supplied — never a secret's value."""
     declared = declared_variables(root)
-    values, problems = _read(root)
+    per_file, problems = _read_every(root, declared)
     _refuse_unreadable(problems)
-    if not declared and not values:
+    if not declared and not any(per_file.values()):
         print(f"{APP_ENV_SCHEMA_FILE} declares nothing and {APP_ENV_FILE} is empty")
         return 0
-    for name, prop in sorted(declared.items()):
-        if name not in values or values[name] == "":
-            print(f"  {name:<32} <unset>")
-        elif _secret(prop):
-            print(f"  {name:<32} {MASKED}")
-        else:
-            print(f"  {name:<32} {values[name]}")
-    undeclared = sorted(set(values) - set(declared))
+    # Grouped by file, and headed only when there is more than one: the grouping IS the
+    # answer for a scoped app ("which service sees this"), and a heading over the single
+    # shared file would be furniture in front of the same list as before.
+    for file, names in sorted(_by_file(declared).items()):
+        values = per_file.get(file, {})
+        if len(per_file) > 1:
+            print(f"  {file}")
+        for name in names:
+            prop = declared[name]
+            if name not in values or values[name] == "":
+                shown = "<unset>"
+            elif _secret(prop):
+                shown = MASKED
+            else:
+                shown = values[name]
+            print(f"  {name:<32} {shown}")
+    undeclared = sorted(
+        {name for values in per_file.values() for name in values} - set(declared)
+    )
     for name in undeclared:
         print(f"  {name:<32} (not declared — reaches no deployed environment)")
     return 0
 
 
 def _check(root: pathlib.Path) -> int:
-    """Is the file readable, and does it satisfy the manifest?"""
-    values, problems = _read(root)
-    findings = [f"line {number}: {problem}" for number, problem in problems]
+    """Are the rendered files readable, and do they satisfy the manifest?
+
+    Judged per file, and each name only against the file(s) it is rendered into. A
+    shared name is not "missing" from the worker's file — nothing routes it there — and
+    reporting it would make a correctly scoped app read as broken in proportion to how
+    many services it has.
+    """
     declared = declared_variables(root)
-    for name in sorted(set(declared) - set(values)):
-        findings.append(f"{name}: declared but not set here")
-    for name in sorted(set(values) - set(declared)):
-        findings.append(
-            f"{name}: set here but not declared, so it reaches no deployed environment"
-        )
-    for name in sorted(_required_names(root)):
-        if not values.get(name):
-            findings.append(f"{name}: required by the manifest and empty here")
+    per_file, problems = _read_every(root, declared)
+    findings = [f"line {number}: {problem}" for number, problem in problems]
+    grouped = _by_file(declared)
+    required = _required_names(root)
+    multi = len(grouped) > 1
+    for file, names in sorted(grouped.items()):
+        values = per_file.get(file, {})
+        # The file is named only for a scoped app, so single-file output is unchanged.
+        where = f" ({file})" if multi else ""
+        for name in names:
+            if name not in values:
+                findings.append(f"{name}: declared but not set here{where}")
+            elif name in required and not values[name]:
+                findings.append(f"{name}: required by the manifest and empty here{where}")
+        for name in sorted(set(values) - set(names)):
+            findings.append(
+                f"{name}: set here{where} but not declared for this file, so it reaches "
+                "no deployed environment"
+            )
+    files = ", ".join(sorted(grouped)) or APP_ENV_FILE
     if not findings:
-        print(f"{APP_ENV_FILE} supplies every declared variable")
+        print(f"{files} supplies every declared variable")
         return 0
-    print(f"{APP_ENV_FILE} does not agree with {APP_ENV_SCHEMA_FILE}:")
+    print(f"{files} does not agree with {APP_ENV_SCHEMA_FILE}:")
     for finding in findings:
         print(f"  {finding}")
     return 1

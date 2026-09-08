@@ -65,10 +65,12 @@ from urllib.parse import urlparse
 from terp.cli.envschema import (
     APP_ENV_FILE,
     APP_ENV_SCHEMA_FILE,
+    STUDIO_RENDERS_SCOPED_FILES,
     app_env_file_name,
     declared_services,
     declared_variables,
     manifest_findings,
+    rendered_files,
 )
 
 #: The committed, hand-maintained template for the rendered files. `terp env init` is the
@@ -201,20 +203,6 @@ def _compose_profiles(project_root: pathlib.Path) -> list[tuple[str, dict]]:
             continue
         profiles.append((compose_path.relative_to(project_root).as_posix(), services))
     return profiles
-
-
-def _rendered_files(prop: dict) -> frozenset[str]:
-    """The file(s) a declared variable's value is rendered into.
-
-    The shared ``.app.env`` for a variable every backend service reads, one
-    ``.app.<service>.env`` per named service for a scoped one. This is the set a service's
-    forwarded files have to meet for the value to arrive at all -- and therefore also the
-    set that decides whether an ``environment:`` block has anything to shadow.
-    """
-    scope = declared_services(prop)
-    if not scope:
-        return frozenset({APP_ENV_FILE})
-    return frozenset(app_env_file_name(service) for service in scope)
 
 
 def _quoted(names: tuple[str, ...] | list[str]) -> str:
@@ -351,7 +339,7 @@ def _shadowing_findings(
             forwarded = _forwarded_env_files(service)
             environment = _service_environment(service)
             for variable in sorted(set(environment) & set(declared)):
-                if not forwarded & _rendered_files(declared[variable]):
+                if not forwarded & rendered_files(declared[variable]):
                     # This service is not on the receiving end of the file the value is
                     # rendered into, so there is nothing here for it to shadow. Judged
                     # per variable rather than per service, because a scoped variable
@@ -611,12 +599,61 @@ def _example_findings(
     return findings
 
 
+def _unsupported_findings(
+    project_root: pathlib.Path, declared: dict[str, dict]
+) -> list[EnvSeamFinding]:
+    """Scoped declarations the deploy side cannot render yet.
+
+    The window :data:`STUDIO_RENDERS_SCOPED_FILES` describes, held shut from this side
+    because this is the side that can see it. Studio drops a manifest field it does not
+    know rather than refusing it, so without this an app that scopes a variable is green
+    here, green in the workbench, and quietly missing the value in every Studio-managed
+    environment -- the failure mode this module exists to make impossible, reached through
+    the very field added to prevent a *different* one.
+
+    Refused per variable rather than once per file: the fix is to unscope the specific
+    declarations, and a reader who has to work out *which* ones from a count is being
+    handed the diff to do by hand.
+
+    This is deliberately NOT in :func:`manifest_findings`. That function mirrors Studio's
+    own reader case by case and documents itself as "every reason Studio's fail-closed
+    reader would refuse this manifest" -- and Studio does not refuse ``services``, it
+    drops it. A refusal there would make the mirror lie about the half it mirrors. This is
+    the framework's own gate having an opinion Studio does not have, which is what a gate
+    is for.
+    """
+    if STUDIO_RENDERS_SCOPED_FILES:
+        return []
+    findings: list[EnvSeamFinding] = []
+    for variable, prop in sorted(declared.items()):
+        scope = declared_services(prop)
+        if not scope:
+            continue
+        findings.append(
+            EnvSeamFinding(
+                variable=variable,
+                source=APP_ENV_SCHEMA_FILE,
+                services=scope,
+                detail=(
+                    f'is scoped to {_quoted(scope)} with "services", which the deploy '
+                    f"side cannot render yet: it writes every declaration into "
+                    f"{APP_ENV_FILE} and drops a manifest field it does not know, so "
+                    f"this value would arrive in the workbench and never in a "
+                    f"Studio-managed environment"
+                ),
+                kind="unsupported",
+            )
+        )
+    return findings
+
+
 def env_seam_findings(project_root: pathlib.Path) -> list[EnvSeamFinding]:
     """Every declared variable whose value cannot arrive through the seam it was promised."""
     declared = declared_variables(project_root)
     if not declared:
         return []
     return [
+        *_unsupported_findings(project_root, declared),
         *_shadowing_findings(project_root, declared),
         *_scope_findings(project_root, declared),
         *_loopback_findings(project_root, declared),
@@ -705,6 +742,21 @@ def run_env_seams_check(project_root: pathlib.Path) -> tuple[int, str]:
             f"the manifest is its allow-list: one entry per declared name, no others, and",
             'an empty value for anything declared "format": "secret" -- this file is',
             "committed.",
+        ]
+    if any(finding.kind == "unsupported" for finding in findings):
+        # The one recipe worth stating once for the whole report: the fix is the same for
+        # every scoped declaration, and it is not a fix to the app's own wiring.
+        lines += [
+            "",
+            'The "services" field is read and checked here a release before the deploy',
+            "side can render what it implies, and the deploy side DROPS a field it does",
+            "not know rather than refusing it. So a scoped variable is not half-supported",
+            "-- it is supported locally and absent in production, with nothing to say so.",
+            "",
+            'Fix: remove "services" from those declarations. The value then rides the',
+            f"shared {APP_ENV_FILE} as it did before, which every backend service",
+            "forwards. Re-scope them once a Terp Studio release renders the per-service",
+            "files (ADR 0124 names what has to move on that side).",
         ]
     lines.append("See: terp guide environment")
     return 1, "\n".join(lines)

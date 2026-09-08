@@ -521,3 +521,212 @@ def test_check_is_green_on_an_app_that_agrees_with_its_manifest(
     capsys.readouterr()
     assert run_env_command(action="check", root=str(root)) == 0
     assert "supplies every declared variable" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- #
+# the per-service render
+#
+# A declaration scoped with "services" is rendered into `.app.<service>.env`, which only
+# the services that forward that file ever see. The routing rule is `rendered_files`, and
+# it is shared with `env-seams` on purpose: the checker asks it which file a value has to
+# arrive through and the renderer asks it which file to write into, so a second copy of
+# that answer would be the "rendered into one file, forwarded from another" failure with
+# the disagreement inside one repository instead of between two.
+# --------------------------------------------------------------------------- #
+_SCOPED_MANIFEST = {
+    "type": "object",
+    "properties": {
+        "SHARED_URL": {"type": "string", "default": "http://api:8000"},
+        "SYNC_PASSWORD": {"type": "string", "format": "secret", "services": ["worker"]},
+        "BOTH_TOKEN": {"type": "string", "services": ["worker", "beat"]},
+    },
+    "required": [],
+}
+
+
+def _files(root: pathlib.Path) -> dict[str, str]:
+    """Every rendered env file present, by name."""
+    return {
+        path.name: path.read_text(encoding="utf-8")
+        for path in sorted(root.glob(".app*.env"))
+    }
+
+
+def test_init_writes_one_file_per_service_plus_the_shared_one(
+    tmp_path: pathlib.Path,
+) -> None:
+    root = _project(tmp_path, _SCOPED_MANIFEST)
+
+    assert run_env_command(action="init", root=str(root)) == 0
+
+    written = _files(root)
+    assert set(written) == {".app.env", ".app.worker.env", ".app.beat.env"}
+    # Each name lands in the file(s) it is routed to, and in no others. The negative
+    # half is the point of the field: a credential in the shared file is a credential
+    # every backend service reads.
+    assert "SHARED_URL=http://api:8000" in written[".app.env"]
+    assert "SYNC_PASSWORD" not in written[".app.env"]
+    assert "SYNC_PASSWORD=" in written[".app.worker.env"]
+    assert "SYNC_PASSWORD" not in written[".app.beat.env"]
+    # Scoped to two services, so it exists twice: compose forwards one file per service.
+    assert "BOTH_TOKEN=" in written[".app.worker.env"]
+    assert "BOTH_TOKEN=" in written[".app.beat.env"]
+    assert "BOTH_TOKEN" not in written[".app.env"]
+
+
+def test_init_refuses_when_any_target_already_exists_and_names_it(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A partial init would re-render half a seam whose other half is filled in by hand,
+    and the surviving file is exactly where the secrets are."""
+    root = _project(tmp_path, _SCOPED_MANIFEST)
+    (root / ".app.worker.env").write_text("SYNC_PASSWORD=mine\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="app.worker.env already exists"):
+        run_env_command(action="init", root=str(root))
+
+    # Nothing else was written: the refusal lands before the first write, not between
+    # them, so there is no half-rendered seam to reason about afterwards.
+    assert set(_files(root)) == {".app.worker.env"}
+
+
+def test_a_scoped_value_is_set_in_its_service_file_not_the_shared_one(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _project(tmp_path, _SCOPED_MANIFEST)
+    run_env_command(action="init", root=str(root))
+    capsys.readouterr()
+
+    run_env_command(action="set", root=str(root), names=["SYNC_PASSWORD=hunter2"])
+
+    written = _files(root)
+    assert "SYNC_PASSWORD=hunter2" in written[".app.worker.env"]
+    assert "hunter2" not in written[".app.env"]
+    out = capsys.readouterr().out
+    # A declared secret, so the echo is masked and names the file instead of the value.
+    assert "hunter2" not in out
+    assert MASKED in out
+    assert ".app.worker.env" in out
+
+
+def test_setting_a_two_service_name_writes_both_files(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _project(tmp_path, _SCOPED_MANIFEST)
+    run_env_command(action="init", root=str(root))
+    capsys.readouterr()
+
+    run_env_command(action="set", root=str(root), names=["BOTH_TOKEN=abc"])
+
+    written = _files(root)
+    assert "BOTH_TOKEN=abc" in written[".app.worker.env"]
+    assert "BOTH_TOKEN=abc" in written[".app.beat.env"]
+
+
+def test_setting_a_shared_name_reads_exactly_as_it_did(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The file is named only when it is not the shared one, so an app that scopes
+    nothing sees no new output from a command it was already using."""
+    root = _project(tmp_path, _SCOPED_MANIFEST)
+    run_env_command(action="init", root=str(root))
+    capsys.readouterr()
+
+    run_env_command(action="set", root=str(root), names=["SHARED_URL=http://api:9000"])
+
+    assert capsys.readouterr().out.strip() == "SHARED_URL=http://api:9000"
+
+
+def test_unset_removes_the_value_from_every_file_holding_it(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unset whose value survives in one file is a credential the developer believes
+    they have deleted."""
+    root = _project(tmp_path, _SCOPED_MANIFEST)
+    run_env_command(action="init", root=str(root))
+    run_env_command(action="set", root=str(root), names=["BOTH_TOKEN=abc"])
+    capsys.readouterr()
+
+    run_env_command(action="unset", root=str(root), names=["BOTH_TOKEN"])
+
+    written = _files(root)
+    assert "BOTH_TOKEN" not in written[".app.worker.env"]
+    assert "BOTH_TOKEN" not in written[".app.beat.env"]
+    assert "removed 1 of 1" in capsys.readouterr().out
+
+
+def test_check_judges_each_name_against_its_own_file(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A shared name is not missing from the worker's file: nothing routes it there.
+
+    Without the per-file judgement a correctly scoped app reads as broken in proportion
+    to how many services it has, which would make the field unusable in practice.
+    """
+    root = _project(tmp_path, _SCOPED_MANIFEST)
+    run_env_command(action="init", root=str(root))
+    run_env_command(
+        action="set", root=str(root), names=["SYNC_PASSWORD=x", "BOTH_TOKEN=y"]
+    )
+    capsys.readouterr()
+
+    assert run_env_command(action="check", root=str(root)) == 0
+    out = capsys.readouterr().out
+    assert "supplies every declared variable" in out
+    assert "SHARED_URL" not in out
+
+
+def test_check_names_the_file_an_empty_required_value_is_missing_from(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = dict(_SCOPED_MANIFEST, required=["SYNC_PASSWORD"])
+    root = _project(tmp_path, manifest)
+    run_env_command(action="init", root=str(root))
+    capsys.readouterr()
+
+    assert run_env_command(action="check", root=str(root)) == 1
+    out = capsys.readouterr().out
+    assert "SYNC_PASSWORD: required by the manifest and empty here" in out
+    assert ".app.worker.env" in out
+
+
+def test_list_groups_by_file_only_when_there_is_more_than_one(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    scoped = tmp_path / "scoped"
+    scoped.mkdir()
+    _project(scoped, _SCOPED_MANIFEST)
+    run_env_command(action="init", root=str(scoped))
+    capsys.readouterr()
+    run_env_command(action="list", root=str(scoped))
+    grouped = capsys.readouterr().out
+    assert ".app.worker.env" in grouped
+    assert ".app.beat.env" in grouped
+
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    _project(plain, _MANIFEST)
+    run_env_command(action="init", root=str(plain))
+    capsys.readouterr()
+    run_env_command(action="list", root=str(plain))
+    # One file, so no heading: the grouping answers a question a single-file app never
+    # asked, and furniture in front of an unchanged list is a regression in output.
+    assert ".app.env" not in capsys.readouterr().out
+
+
+def test_the_example_file_stays_one_file_for_a_scoped_app(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The committed template is the file a HUMAN maintains; the split is a rendering
+    concern. A template per service multiplies what is maintained for no new statement."""
+    root = _project(tmp_path, _SCOPED_MANIFEST)
+
+    assert run_env_command(action="example", root=str(root)) == 0
+
+    assert sorted(p.name for p in root.glob(".app*.example")) == [".app.env.example"]
+    example = (root / ".app.env.example").read_text(encoding="utf-8")
+    for name in ("SHARED_URL", "SYNC_PASSWORD", "BOTH_TOKEN"):
+        assert name in example
+    # Still blank for the declared secret, which is the rule that makes one committed
+    # file safe to carry a scoped name at all.
+    assert "SYNC_PASSWORD=\n" in example

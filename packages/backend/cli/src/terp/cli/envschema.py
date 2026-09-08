@@ -69,6 +69,31 @@ SERVICE_NAME_PATTERN = r"^[a-z0-9][a-z0-9_.-]{0,62}$"
 #: The file the shared declarations are rendered into; the compose profiles forward it.
 APP_ENV_FILE = ".app.env"
 
+#: Whether the deploy side can render the per-service files ``"services"`` implies.
+#:
+#: This half of the platform is only ever the *reader* of a manifest; Terp Studio is what
+#: renders one into the files a compose profile forwards, and it pins this framework by
+#: git ref rather than the other way round. So the dialect can grow a field here a
+#: release before Studio can honour it — and per the module docstring above, Studio
+#: **drops** a field it does not know rather than refusing it.
+#:
+#: That combination is the one failure this whole module exists to prevent, in its worst
+#: shape. An app that scopes a variable while this is False gets a value that arrives in
+#: the workbench (where ``terp env`` renders the per-service file) and silently never
+#: arrives in a Studio-managed environment (where every declaration lands in the shared
+#: ``.app.env`` while the app's compose forwards a ``.app.<service>.env`` nothing wrote).
+#: Local green, production empty, nothing anywhere saying why. So the field is REFUSED by
+#: ``env-seams`` while this is False: the dialect, the checks and the renderer all ship
+#: and are exercised, and no app can depend on a path that does not exist end to end yet.
+#:
+#: Flip to True in the same change that moves Studio's ``TERP_FRAMEWORK_REF`` onto a
+#: framework release carrying this dialect AND teaches Studio's three sites to render it
+#: (its reader's field list, the hardcoded shared-file name in its compose renderer, and
+#: the exact-path filter its Portainer path strips the app env file by). ADR 0124 records
+#: the contract and why the window is shut from this side.
+#: ``test_the_scope_field_is_refused_until_the_deploy_side_can_render_it`` pins it.
+STUDIO_RENDERS_SCOPED_FILES = False
+
 #: Property fields Studio requires to be short strings.
 _TEXT_FIELDS = ("type", "title", "description", "format", "group", "resolvedBy")
 
@@ -87,6 +112,26 @@ def app_env_file_name(service: str | None = None) -> str:
     if not service:
         return APP_ENV_FILE
     return f".app.{service}.env"
+
+
+def rendered_files(prop: object) -> frozenset[str]:
+    """Every env file one declaration's value is rendered into.
+
+    The shared :data:`APP_ENV_FILE` for an unscoped declaration; one
+    ``.app.<service>.env`` per named service for a scoped one -- and a declaration naming
+    two services renders into BOTH, because compose forwards one file per service and a
+    value two services need has to exist in each of their files.
+
+    Lives here rather than in either caller because it is the routing rule itself: the
+    checker asks it "which file does this have to arrive through" and the renderer asks it
+    "which file do I write this into". Two copies of that answer is precisely the "value
+    rendered into one file and forwarded from another" this seam exists to prevent, with
+    the disagreement inside one repository instead of between two.
+    """
+    scope = declared_services(prop)
+    if not scope:
+        return frozenset({APP_ENV_FILE})
+    return frozenset(app_env_file_name(service) for service in scope)
 
 
 def declared_services(prop: object) -> tuple[str, ...]:

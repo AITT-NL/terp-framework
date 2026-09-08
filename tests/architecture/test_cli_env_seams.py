@@ -30,6 +30,7 @@ from terp.cli.envschema import (  # noqa: E402
     declared_variables,
     manifest_findings,
 )
+from terp.cli import envseams  # noqa: E402
 from terp.cli.envseams import (  # noqa: E402
     _forwarded_env_files,
     _is_loopback,
@@ -855,7 +856,24 @@ def _app(
     return tmp_path
 
 
+@pytest.fixture
+def rendered_by_the_deploy_side(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the body in the world ``STUDIO_RENDERS_SCOPED_FILES`` is holding back.
+
+    Every scope assertion below describes behaviour that matters once the deploy side
+    renders the per-service files, so it is tested against that world rather than around
+    the gate. Filtering the gate's finding out instead would leave the checks passing on
+    a code path nothing exercises end to end, and the flip that lifts the gate would then
+    be the first thing to run them.
+
+    Patched on ``envseams``, not ``envschema``: the flag is bound into this module's
+    namespace by a ``from ... import``, so that is the name the check actually reads.
+    """
+    monkeypatch.setattr(envseams, "STUDIO_RENDERS_SCOPED_FILES", True)
+
+
 def test_a_variable_scoped_to_a_service_that_forwards_its_file_passes(
+    rendered_by_the_deploy_side: None,
     tmp_path: pathlib.Path,
 ) -> None:
     """The point of the field: the worker gets the credential, the api never sees it."""
@@ -973,6 +991,7 @@ def test_an_empty_scope_is_refused_with_the_choice_spelled_out(
 
 
 def test_a_service_that_does_not_forward_the_scoped_file_is_refused(
+    rendered_by_the_deploy_side: None,
     tmp_path: pathlib.Path,
 ) -> None:
     """The value is rendered, correct, and arrives nowhere -- no error from compose and
@@ -997,6 +1016,7 @@ def test_a_service_that_does_not_forward_the_scoped_file_is_refused(
 
 
 def test_one_scope_offence_per_variable_not_one_per_service(
+    rendered_by_the_deploy_side: None,
     tmp_path: pathlib.Path,
 ) -> None:
     root = _app(
@@ -1013,7 +1033,8 @@ def test_one_scope_offence_per_variable_not_one_per_service(
     assert "each of those files" in findings[0].detail
 
 
-def test_a_service_no_profile_defines_is_refused(tmp_path: pathlib.Path) -> None:
+def test_a_service_no_profile_defines_is_refused(rendered_by_the_deploy_side: None,
+    tmp_path: pathlib.Path) -> None:
     """A misspelled name renders the value into a file nothing forwards. The manifest is
     the source, because the manifest is where the name is corrected."""
     root = _app(
@@ -1033,6 +1054,7 @@ def test_a_service_no_profile_defines_is_refused(tmp_path: pathlib.Path) -> None
 
 
 def test_a_service_only_the_workbench_profile_defines_passes(
+    rendered_by_the_deploy_side: None,
     tmp_path: pathlib.Path,
 ) -> None:
     """The case a real app has: the engine that talks to the foreign system runs where
@@ -1053,6 +1075,7 @@ def test_a_service_only_the_workbench_profile_defines_passes(
 
 
 def test_an_environment_block_on_a_scoped_service_is_now_reported(
+    rendered_by_the_deploy_side: None,
     tmp_path: pathlib.Path,
 ) -> None:
     """A worker that forwards only its own scoped file used to be skipped entirely --
@@ -1100,6 +1123,7 @@ def test_a_shared_variable_is_not_shadowed_by_a_scoped_only_service(
 
 
 def test_a_scope_verdict_needs_a_profile_to_judge_it_against(
+    rendered_by_the_deploy_side: None,
     tmp_path: pathlib.Path,
 ) -> None:
     """With no readable compose profile there is no service list, and answering anyway
@@ -1116,6 +1140,94 @@ def test_a_scope_verdict_needs_a_profile_to_judge_it_against(
         composes={"docker-compose.yml": "services: [ unbalanced\n"},
     )
     assert env_seam_findings(unreadable) == []
+
+
+# --------------------------------------------------------------------------- #
+# the window held shut from this side
+#
+# The dialect above is read and checked a release before the deploy side can render what
+# it implies, and the deploy side DROPS an unknown manifest field rather than refusing
+# it. So an app that scoped a variable now would be green here, green in the workbench,
+# and silently missing the value in every managed environment. These pin the refusal that
+# keeps that window shut, and that lifting it is one flag.
+# --------------------------------------------------------------------------- #
+_SCOPED = {"SYNC_PASSWORD": {"type": "string", "services": ["worker"]}}
+
+
+def test_the_scope_field_is_refused_until_the_deploy_side_can_render_it(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Named in ``STUDIO_RENDERS_SCOPED_FILES``' own comment, so it has to exist."""
+    assert envseams.STUDIO_RENDERS_SCOPED_FILES is False, (
+        "flipping this flag is a release decision, not a test fixture: it may only move "
+        "in the change that also moves Studio onto a framework release carrying this "
+        "dialect and teaches its three render sites (see ADR 0124)"
+    )
+    root = _app(
+        tmp_path, declared=_SCOPED, composes={"docker-compose.yml": _SCOPED_COMPOSE}
+    )
+
+    exit_code, output = run_env_seams_check(root)
+
+    assert exit_code == 1
+    # The refusal has to name the variable, the reason and the fix. "Unsupported" alone
+    # sends the reader to the changelog to find out what to do with their own manifest.
+    assert "SYNC_PASSWORD" in output
+    assert "cannot render yet" in output
+    assert 'remove "services"' in output
+    assert "ADR 0124" in output
+
+
+def test_the_refusal_names_every_scoped_declaration_not_a_count(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The fix is to unscope specific declarations, so a count is the diff left undone."""
+    root = _app(
+        tmp_path,
+        declared={
+            "SYNC_PASSWORD": {"type": "string", "services": ["worker"]},
+            "VENDOR_TOKEN": {"type": "string", "services": ["worker"]},
+            "SHARED_URL": {"type": "string"},
+        },
+        composes={"docker-compose.yml": _SCOPED_COMPOSE},
+    )
+
+    refused = [f.variable for f in env_seam_findings(root) if f.kind == "unsupported"]
+
+    assert refused == ["SYNC_PASSWORD", "VENDOR_TOKEN"]
+    # The unscoped declaration rides the shared file and is none of this gate's business.
+    assert "SHARED_URL" not in refused
+
+
+def test_lifting_the_flag_lifts_the_refusal_and_nothing_else(
+    rendered_by_the_deploy_side: None,
+    tmp_path: pathlib.Path,
+) -> None:
+    """The flip has to be the whole change, or it is not one flag but a rewrite.
+
+    Asserts the *absence* of the gate's kind rather than a green gate, so a scope defect
+    introduced later cannot make this pass by replacing one finding with another.
+    """
+    root = _app(
+        tmp_path, declared=_SCOPED, composes={"docker-compose.yml": _SCOPED_COMPOSE}
+    )
+
+    findings = env_seam_findings(root)
+
+    assert [f for f in findings if f.kind == "unsupported"] == []
+    assert run_env_seams_check(root)[0] == 0
+
+
+def test_an_unscoped_app_never_meets_the_gate(tmp_path: pathlib.Path) -> None:
+    """The gate may not cost anything to an app that ignores the field."""
+    root = _app(
+        tmp_path,
+        declared={"SHARED_URL": {"type": "string"}},
+        composes={"docker-compose.yml": _SCOPED_COMPOSE},
+    )
+
+    assert [f for f in env_seam_findings(root) if f.kind == "unsupported"] == []
+    assert "cannot render yet" not in run_env_seams_check(root)[1]
 
 
 # --------------------------------------------------------------------------- #
