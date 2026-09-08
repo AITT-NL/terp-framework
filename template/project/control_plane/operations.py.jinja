@@ -3,8 +3,15 @@
 Mirrors the event and job catalogs: a route declares the operation it performs,
 and the control plane holds the one catalog those declarations are checked
 against at boot. A capability declares its own operations *inside* its package
-(it cannot reach into this app's control plane) and re-exports them; this file
-folds every capability this app mounts into the single catalog below.
+(it cannot reach into this app's control plane) and publishes them as one set;
+this file folds every capability this app mounts into the single catalog below.
+
+**Fold a capability in by splatting its set, never by naming its operations**
+(ADR 0124). `*AUTH_OPERATIONS` grows when a release adds a route to the auth
+capability, so this catalog grows with it and the app keeps booting. Listing the
+constants one by one instead makes this file an inventory of somebody else's
+routes: the day a release adds one, a `STRICT` catalog refuses the boot and the
+only repair is to read the capability's source and copy the new name out of it.
 
 Add your own module's operations here as you build them, next to the
 capabilities — one place to read what this app can do, in plain English, without
@@ -15,110 +22,42 @@ from __future__ import annotations
 
 from terp.core import OperationCatalog
 
-from terp.capabilities.access import (
-    ACCESS_ASSIGN_MODULE_ROLE,
-    ACCESS_CREATE_GRANT,
-    ACCESS_DELETE_GRANT,
-    ACCESS_GET_MODEL,
-    ACCESS_GET_SUBJECT,
-    ACCESS_LIST_GRANTS,
-    ACCESS_REVOKE_MODULE_ROLE,
-)
-from terp.capabilities.audit import AUDIT_LIST_EVENTS
-from terp.capabilities.auth import (
-    AUTH_LOGIN,
-    AUTH_LOGOUT,
-    AUTH_ME,
-    AUTH_REFRESH,
-    AUTH_TOKEN,
-)
-from terp.capabilities.groups import (
-    GROUPS_ADD_MEMBER,
-    GROUPS_CREATE,
-    GROUPS_DELETE,
-    GROUPS_GET,
-    GROUPS_LIST,
-    GROUPS_LIST_MEMBERS,
-    GROUPS_REMOVE_MEMBER,
-    GROUPS_UPDATE,
-)
-from terp.capabilities.users import (
-    USERS_DEACTIVATE,
-    USERS_GET,
-    USERS_LIST,
-    USERS_PROVISION,
-    USERS_REACTIVATE,
-    USERS_RESET_PASSWORD,
-    USERS_UPDATE,
-)
+from terp.capabilities.access import ACCESS_OPERATIONS
+from terp.capabilities.audit import AUDIT_OPERATIONS
+from terp.capabilities.auth import AUTH_OPERATIONS
+from terp.capabilities.groups import GROUPS_OPERATIONS
+from terp.capabilities.users import USERS_OPERATIONS
 {%- if use_files %}
-from terp.capabilities.files import (
-    FILES_DELETE,
-    FILES_DOWNLOAD,
-    FILES_GET,
-    FILES_LIST,
-    FILES_UPDATE,
-    FILES_UPLOAD,
-)
+from terp.capabilities.files import FILES_OPERATIONS
 {%- endif %}
 {%- if use_sso %}
-from terp.capabilities.oidc import OIDC_AUTHORIZE, OIDC_CALLBACK
+from terp.capabilities.oidc import OIDC_OPERATIONS
 {%- endif %}
 {%- if use_realtime %}
-from terp.capabilities.realtime import REALTIME_MINT_TICKET, REALTIME_SUBSCRIBE_SSE
+from terp.capabilities.realtime import REALTIME_OPERATIONS
 {%- endif %}
 
 operation_catalog = OperationCatalog(
     operations=(
         # Signing in, staying signed in, signing out.
-        AUTH_LOGIN,
-        AUTH_TOKEN,
-        AUTH_REFRESH,
-        AUTH_LOGOUT,
-        AUTH_ME,
+        *AUTH_OPERATIONS,
         # Who exists, and what they may do.
-        USERS_LIST,
-        USERS_GET,
-        USERS_PROVISION,
-        USERS_UPDATE,
-        USERS_DEACTIVATE,
-        USERS_REACTIVATE,
-        USERS_RESET_PASSWORD,
-        GROUPS_LIST,
-        GROUPS_CREATE,
-        GROUPS_GET,
-        GROUPS_UPDATE,
-        GROUPS_DELETE,
-        GROUPS_LIST_MEMBERS,
-        GROUPS_ADD_MEMBER,
-        GROUPS_REMOVE_MEMBER,
-        ACCESS_LIST_GRANTS,
-        ACCESS_CREATE_GRANT,
-        ACCESS_DELETE_GRANT,
-        ACCESS_GET_MODEL,
-        ACCESS_GET_SUBJECT,
-        ACCESS_ASSIGN_MODULE_ROLE,
-        ACCESS_REVOKE_MODULE_ROLE,
+        *USERS_OPERATIONS,
+        *GROUPS_OPERATIONS,
+        *ACCESS_OPERATIONS,
         # What happened.
-        AUDIT_LIST_EVENTS,
+        *AUDIT_OPERATIONS,
 {%- if use_files %}
         # Attachments.
-        FILES_LIST,
-        FILES_UPLOAD,
-        FILES_GET,
-        FILES_UPDATE,
-        FILES_DOWNLOAD,
-        FILES_DELETE,
+        *FILES_OPERATIONS,
 {%- endif %}
 {%- if use_sso %}
         # Single sign-on.
-        OIDC_AUTHORIZE,
-        OIDC_CALLBACK,
+        *OIDC_OPERATIONS,
 {%- endif %}
 {%- if use_realtime %}
         # Live updates.
-        REALTIME_SUBSCRIBE_SSE,
-        REALTIME_MINT_TICKET,
+        *REALTIME_OPERATIONS,
 {%- endif %}
     )
 )

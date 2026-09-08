@@ -38,6 +38,7 @@ from terp.capabilities.files.operations import (
     FILES_DOWNLOAD,
     FILES_GET,
     FILES_LIST,
+    FILES_OPERATIONS,
     FILES_UPDATE,
     FILES_UPLOAD,
 )
@@ -77,15 +78,15 @@ from terp.capabilities.files.storage import (
 )
 
 __all__ = [
+    "ContentTypeMismatchError",
     "DEFAULT_STORAGE_PROFILE",
     "FILES_DELETE",
     "FILES_DOWNLOAD",
     "FILES_GET",
     "FILES_LIST",
+    "FILES_OPERATIONS",
     "FILES_UPDATE",
     "FILES_UPLOAD",
-    "MAX_UPLOAD_BYTES",
-    "ContentTypeMismatchError",
     "File",
     "FileCreate",
     "FileRead",
@@ -94,6 +95,7 @@ __all__ = [
     "FileStorageError",
     "FileUpdate",
     "LocalFilesystemStorage",
+    "MAX_UPLOAD_BYTES",
     "StorageBackend",
     "UndeclaredFileReferenceError",
     "UnknownStorageProfileError",

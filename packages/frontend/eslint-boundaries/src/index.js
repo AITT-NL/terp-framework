@@ -912,6 +912,12 @@ const terpPlugin = {
   },
 };
 
+const clipboardMessage =
+  "navigator.clipboard is absent outside a secure context and lib.dom types it as always " +
+  "present, so on an http origin this is a property access on undefined -- a SYNCHRONOUS " +
+  "TypeError that no .catch and no try around an await ever sees. Use copyText or " +
+  "useCopyToClipboard from @terpjs/react-core, which feature-detect, fall back, and " +
+  "report a refusal instead of failing silently.";
 const deepImportMessage =
   "Import from the package root (@terpjs/react-core, @terpjs/contract), not its internals.";
 const styleImportMessage =
@@ -970,10 +976,33 @@ function restrictedSyntaxWithCatalogIds() {
         },
       ]
     : [];
+  const rawClipboard = BOUNDARY_SPEC.restrictRawClipboard
+    ? [
+        {
+          // Any ACCESS, not just a call: `navigator.clipboard.writeText(...)` throws on
+          // the property lookup, so `const c = navigator.clipboard` is the same defect
+          // one line earlier. Matching the member expression covers both, and covers
+          // `readText` and anything else the API grows without naming methods here.
+          catalogId: "frontend/no-raw-clipboard",
+          selector:
+            "MemberExpression[object.name='navigator'][property.name='clipboard'], MemberExpression[object.name='navigator'][computed=true][property.value='clipboard'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis)$/][object.property.name='navigator'][property.name='clipboard'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis)$/][object.computed=true][object.property.value='navigator'][property.name='clipboard']",
+          message: clipboardMessage,
+        },
+        {
+          // The destructuring spelling, which no member-expression selector reaches:
+          // `const { clipboard } = navigator` binds the same undefined under a new name.
+          catalogId: "frontend/no-raw-clipboard",
+          selector:
+            "VariableDeclarator[init.name='navigator'] ObjectPattern > Property[key.name='clipboard'], VariableDeclarator[init.type='MemberExpression'][init.property.name='navigator'] ObjectPattern > Property[key.name='clipboard']",
+          message: clipboardMessage,
+        },
+      ]
+    : [];
   return [
     ...rawElements,
     ...rawAttributes,
     ...inAppAnchors,
+    ...rawClipboard,
     {
       catalogId: "frontend/no-dom-html-injection",
       selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",

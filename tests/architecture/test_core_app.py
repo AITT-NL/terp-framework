@@ -545,8 +545,47 @@ def test_an_operation_absent_from_the_catalog_fails_the_boot() -> None:
     spec = ModuleSpec(
         name="files", router=_declaring_router(_FILES_DELETE), policy=Policy.default()
     )
-    with pytest.raises(BootError, match="not the entry registered"):
+    with pytest.raises(BootError, match="does not carry") as caught:
         create_app([spec], control_plane=ControlPlane())
+
+    # The repair, not just the refusal (ADR 0126). This route's endpoint is defined
+    # here, so it is the app's own — the repair is to add the definition, and the
+    # message must NOT name a capability aggregate, because `*FILES_OPERATIONS` does
+    # not exist for an app's own module and reads as a broken suggestion.
+    message = str(caught.value)
+    assert "Add its OperationDefinition" in message
+    assert "_OPERATIONS" not in message
+    assert "coverage" in message
+
+
+def test_the_missing_operation_repair_is_the_one_that_applies() -> None:
+    """A capability's route and an app's route get opposite advice, chosen not hedged.
+
+    Classified by where the endpoint was defined, which is the only thing that actually
+    distinguishes them: a capability hand-writes its routers, so its endpoints live
+    under ``terp.capabilities.<name>``. The capability case is asserted against a REAL
+    capability endpoint rather than a function with a doctored ``__module__``, so the
+    assumption this rests on is the one being tested.
+    """
+    from terp.capabilities.audit import router as audit_router
+
+    from terp.core.app import _missing_operation_repair
+    from terp.core.routing import iter_declaring_routes
+
+    endpoint = next(iter_declaring_routes(audit_router.routes)).endpoint
+    capability_repair = _missing_operation_repair(endpoint)
+    assert "*AUDIT_OPERATIONS" in capability_repair
+    assert "terp.capabilities.audit" in capability_repair
+
+    def local_endpoint() -> None: ...
+
+    app_repair = _missing_operation_repair(local_endpoint)
+    assert "Add its OperationDefinition" in app_repair
+    assert "_OPERATIONS" not in app_repair
+
+    # A callable with no __module__ at all must not crash the boot check while it is
+    # trying to explain a different failure.
+    assert "Add its OperationDefinition" in _missing_operation_repair(object())
 
 
 def test_a_same_id_operation_with_different_wording_is_refused() -> None:
@@ -560,8 +599,34 @@ def test_a_same_id_operation_with_different_wording_is_refused() -> None:
         name="files", router=_declaring_router(shadow), policy=Policy.default()
     )
     plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
-    with pytest.raises(BootError, match="not the entry registered"):
+    with pytest.raises(BootError, match="same-id shadow") as caught:
         create_app([spec], control_plane=plane)
+
+    # A shadow and a missing entry are opposite repairs, so they must not share a
+    # message: this one quotes BOTH wordings, and must never suggest folding in a
+    # capability set, which would not fix a wording conflict.
+    message = str(caught.value)
+    assert "Remove a file for good" in message and _FILES_DELETE.label in message
+    assert "_OPERATIONS" not in message
+
+
+def test_entry_for_separates_an_absent_id_from_a_shadowed_one() -> None:
+    """The lookup the two boot messages branch on, tested directly.
+
+    ``has_operation`` answers one question with two causes behind it. ``entry_for``
+    is what tells them apart: ``None`` for an id the catalog never registered, the
+    registered definition for an id it did — even when the caller offers a different
+    one for that id.
+    """
+    catalog = OperationCatalog(operations=(_FILES_DELETE,))
+    shadow = OperationDefinition(id="files.delete", label="Remove a file for good")
+
+    assert catalog.entry_for("files.delete") is _FILES_DELETE
+    assert catalog.entry_for(shadow.id) is _FILES_DELETE
+    assert catalog.entry_for("files.never_registered") is None
+    # The pair the messages rest on: same answer from has_operation, different cause.
+    assert not catalog.has_operation(shadow)
+    assert catalog.has_operation(_FILES_DELETE)
 
 
 def test_a_declared_operation_in_the_catalog_boots() -> None:
@@ -930,7 +995,7 @@ def test_a_websocket_route_is_held_to_both_halves_of_the_control() -> None:
     async def drift(websocket: WebSocket) -> None: ...
 
     spec2 = ModuleSpec(name="rt", router=drifting, policy=Policy.default())
-    with pytest.raises(BootError, match="not the entry registered"):
+    with pytest.raises(BootError, match="does not carry"):
         create_app([spec2], control_plane=ControlPlane())
 
 

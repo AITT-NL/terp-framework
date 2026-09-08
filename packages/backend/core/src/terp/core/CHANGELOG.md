@@ -14,6 +14,75 @@ decision, 0001 onwards.
 
 ### Added
 
+- **A capability publishes the operation set its routes declare, so a release that adds
+  a route no longer refuses a mounted app's boot.** Friction reported from upgrading an
+  app onto 0.19.0. A capability declares its operations inside its own package and the
+  app folds them into the one `OperationCatalog` its control plane owns — but it did
+  that by naming each operation, which makes the app's control plane an inventory of
+  somebody else's router: a list of facts the app neither owns nor can see change. When
+  ADR 0121 added four routes to `access`, every app that had named the previous three
+  was refused at boot on upgrade, and the repair was to read the capability's source,
+  find the four new constants and copy their names across.
+
+  The failure does not read the way it behaves, which is worth being precise about: it
+  is **not** the strict-coverage check. `create_app` refuses any route declaring an
+  operation the catalog does not carry, and that check sits *above* the coverage dial
+  because the no-drift half of ADR 0102 was never meant to be tunable. An app on
+  `coverage=OFF` was refused exactly as an app on `STRICT` was, so turning coverage down
+  never avoided it.
+
+  Every capability that declares operations now exports `<CAP>_OPERATIONS` — a tuple in
+  the order the capability declares them — and an app folds it in by splatting:
+
+  ```python
+  operations=(*AUTH_OPERATIONS, *ACCESS_OPERATIONS, NOTES_LIST, ...)
+  ```
+
+  The tuple grows with the capability's router, so the app's catalog grows with it and
+  the upgrade needs no edit at all. `tests/architecture/test_capability_operations.py`
+  holds every aggregate exhaustive against its own module, in both directions and
+  parametrized off the source tree — so a capability that starts declaring operations is
+  covered without an edit there — because an aggregate that can silently miss an entry
+  is the same maintenance burden it removes, one indirection further away. The
+  template's catalog drops from 35 named constants to 8 splats, the example app's from
+  45 to 9, and both now read as "these capabilities, plus this app's own modules". ADR
+  0126.
+
+- **`OperationCatalog.entry_for`, and a boot refusal that names the repair that
+  applies.** One message covered two opposite mistakes — an id the catalog never
+  registered, and an id it registered with different wording — and then gave the advice
+  for the second: "reference the catalog constant rather than constructing an
+  OperationDefinition at the route". That is the right instruction for a same-id shadow
+  and useless for the first case, where the route is fine and the app's catalog is
+  simply missing an entry from a capability it mounts; a reader hitting the common
+  failure was sent to inspect the rarer one. The two are now separate. A missing entry
+  names the set to splat (derived from the operation id's own prefix) and states that
+  the refusal is coverage-independent; a shadow quotes both wordings, the route's and
+  the catalog's. `entry_for` is the lookup they branch on — the first of the helpers ADR
+  0102 removed as readerless to come back with a consumer that needs it.
+
+- **A boundary rule for `navigator.clipboard`, three releases after the seam that fixes
+  it.** `copyText` / `useCopyToClipboard` shipped in 0.17.0 with the footgun written out
+  in full: the API is typed as always present, is absent outside a secure context, and a
+  direct call on a plain-http origin is a property access on `undefined` that throws
+  **synchronously** — before any promise exists, so a `.catch` on the call never runs and
+  neither does a `try` around an `await` that was never reached. TypeScript sees nothing
+  wrong, and neither does a test on localhost.
+
+  The seam existed, was documented, and was hand-rolled anyway — which is the finding
+  worth keeping. Nothing said so at the point of writing: `fetch` has a rule,
+  `XMLHttpRequest` has a rule, `sendBeacon` has a rule, and the one browser API here whose
+  failure is *invisible* to the type checker had none. It has one now
+  (`frontend/no-raw-clipboard`), and it refuses any **access** rather than only a call,
+  since `const c = navigator.clipboard` is the same throw one line earlier — plus the
+  `window.`/`globalThis.` prefixed, computed (`navigator["clipboard"]`) and destructuring
+  (`const { clipboard } = navigator`) spellings, each of which binds the same `undefined`
+  under a new name. The message names both seams rather than saying "don't", because a
+  rule whose only compliant program is one that copies nothing would be obeyed by dropping
+  the feature. The Standard's catalog entry and corpus land in its next release; until
+  then the adapter's rule inventory is a superset of the pinned catalog, which is the
+  staging window `findings.test.js` already allows.
+
 - **A declared variable may name the services that see it — and the field is refused
   until the deploy side can render it.** One rendered `.app.env`, forwarded to every
   backend service through a shared anchor, meant a variable existed for whichever
@@ -165,6 +234,21 @@ decision, 0001 onwards.
   in a test environment that presents as a green build.
 
 ### Fixed
+
+- **`terp upgrade --check` states the re-render rule instead of three examples of it.**
+  The scaffolding-drift report named `main.tsx`, `index.html` and `AGENTS.md` as the
+  files a re-render would rewrite, and then said `theme.css`, `house-style.css` and
+  `layout-contract.json` were *not* in that list. Both were illustrative; the shape read
+  as exhaustive. So someone weighing whether a re-render would carry a fix to a file in
+  neither list — `docker-compose.yml`, say, whose dev mounts 0.17.0 widened — could not
+  answer it from the report, and could reasonably conclude the fix was undeliverable and
+  reimplement it inside the app instead. The report now states the rule: a re-render
+  rewrites **every** file the template owns, and names the seven that are seeded once
+  because they carry the app's own content. Those seven are copier's `_skip_if_exists`,
+  restated in the CLI because the template does not ship inside the wheel and the report
+  has to answer offline — and held against `template/copier.yml` by a parity test, since
+  a duplicate that can drift is worse than no list: it would say a file is yours in the
+  same breath as a re-render overwriting it.
 
 - **The component tests stop contending for the machine, which is what they were actually
   losing.** 0.20.0 raised Testing Library's budget from the 1000ms default to 3s on the

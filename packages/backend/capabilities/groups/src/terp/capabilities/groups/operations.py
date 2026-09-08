@@ -30,6 +30,24 @@ GROUPS_REMOVE_MEMBER = OperationDefinition(
     id="groups.remove_member", label="Remove someone from a group"
 )
 
+#: Every operation this capability's routes declare, in declaration order.
+#:
+#: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
+#: splatting this (``*GROUPS_OPERATIONS``) rather than naming each constant, so a
+#: release that adds a route here cannot refuse a ``STRICT`` app's boot (ADR 0126).
+#: Held exhaustive against the router by
+#: ``tests/architecture/test_capability_operations.py``.
+GROUPS_OPERATIONS: tuple[OperationDefinition, ...] = (
+    GROUPS_LIST,
+    GROUPS_CREATE,
+    GROUPS_GET,
+    GROUPS_UPDATE,
+    GROUPS_DELETE,
+    GROUPS_LIST_MEMBERS,
+    GROUPS_ADD_MEMBER,
+    GROUPS_REMOVE_MEMBER,
+)
+
 __all__ = [
     "GROUPS_ADD_MEMBER",
     "GROUPS_CREATE",
@@ -37,6 +55,7 @@ __all__ = [
     "GROUPS_GET",
     "GROUPS_LIST",
     "GROUPS_LIST_MEMBERS",
+    "GROUPS_OPERATIONS",
     "GROUPS_REMOVE_MEMBER",
     "GROUPS_UPDATE",
 ]

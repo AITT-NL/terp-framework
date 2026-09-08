@@ -727,6 +727,43 @@ def _validate_policy_write_tiers(specs: Sequence[ModuleSpec]) -> None:
             )
 
 
+#: Import prefix every shipped capability's routes are defined under. Used only to word
+#: an error message, never to import anything — ``terp.core`` sits below the
+#: capabilities and stays there (the keystone rule).
+_CAPABILITY_PREFIX = "terp.capabilities."
+
+
+def _missing_operation_repair(endpoint: object) -> str:
+    """The one repair that applies, for an operation the catalog does not carry.
+
+    The two cases have opposite fixes and an app hits the second far more often, so a
+    message hedging between them ("if it came from a capability … if it is your own …")
+    made the reader do the classification — and the capability half named a symbol
+    (``*NOTES_OPERATIONS``) that does not exist for an app's own module, which reads as
+    a broken suggestion rather than a conditional one.
+
+    Where the endpoint was *defined* settles it, and it needs no import: a capability
+    hand-writes its routers, so its endpoints live under ``terp.capabilities.<name>``,
+    while an app's own route — including one a CRUD factory generated, whose endpoint
+    lives in ``terp.core`` — does not. The capability name comes from that same module
+    path rather than from the operation id, because the path is what actually names the
+    package the aggregate is exported from.
+    """
+    module = getattr(endpoint, "__module__", "") or ""
+    if not module.startswith(_CAPABILITY_PREFIX):
+        return (
+            "Add its OperationDefinition to the catalog your control plane declares."
+        )
+    capability = module[len(_CAPABILITY_PREFIX) :].split(".", 1)[0]
+    return (
+        f"This is the {capability!r} capability's route, so fold that capability's whole "
+        f"set into the catalog — splat *{capability.upper()}_OPERATIONS from "
+        f"terp.capabilities.{capability} rather than naming its operations one at a "
+        "time, and a release that adds a route there cannot refuse this boot again "
+        "(ADR 0126)."
+    )
+
+
 def _route_label(spec: ModuleSpec, route: object) -> str:
     """Name one route so a reader can find it: module, method(s) and path.
 
@@ -767,13 +804,23 @@ def _validate_declared_operations(
                 undeclared.append(_route_label(spec, route))
                 continue
             if not catalog.has_operation(declared):
+                registered = catalog.entry_for(declared.id)
+                if registered is None:
+                    raise BootError(
+                        f"module {spec.name!r} route {route.path!r} declares operation "
+                        f"{declared.id!r}, which this app's OperationCatalog does not "
+                        "carry. A route may only declare a registered entry, at every "
+                        "coverage level — so this refuses the boot even with coverage "
+                        f"OFF. {_missing_operation_repair(route.endpoint)}"
+                    )
                 raise BootError(
                     f"module {spec.name!r} route {route.path!r} declares operation "
-                    f"{declared.id!r}, which is not the entry registered in the "
-                    "control plane's OperationCatalog (an unknown id, or a same-id "
-                    "definition with different wording — either way the catalog is no "
-                    "longer the one source of truth). Reference the catalog constant "
-                    "rather than constructing an OperationDefinition at the route."
+                    f"{declared.id!r} with wording the catalog does not have — a "
+                    f"same-id shadow ({declared.label!r} at the route, "
+                    f"{registered.label!r} in the catalog), which would let a route "
+                    "present one wording while the catalog documents another. Reference "
+                    "the catalog constant rather than constructing an "
+                    "OperationDefinition at the route."
                 )
     if not undeclared:
         return

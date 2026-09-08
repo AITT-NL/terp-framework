@@ -208,6 +208,31 @@ def scaffold_ref(root: pathlib.Path) -> str | None:
     return None
 
 
+#: The scaffolding files copier seeds once and never overwrites — ``_skip_if_exists`` in
+#: ``template/copier.yml``. Everything else the template owns *is* rewritten by a
+#: re-render, and that is the half a reader actually needs: the report used to name three
+#: template-owned files as though they were the list, so someone weighing whether a
+#: re-render would deliver a fix to, say, the Compose file had no way to tell from it.
+#:
+#: Some are authored (``theme.css``) and some are app-generated (``routes.gen.d.ts``), so
+#: what the report can honestly say about the set is not that it carries hand-written
+#: content but that copier seeds it once and it is the app's afterwards.
+#:
+#: Duplicated here because the template does not ship inside this wheel, so the CLI cannot
+#: read ``copier.yml`` at runtime. Held against it by
+#: ``test_the_app_owned_scaffold_list_matches_copier`` — the same treatment the theme
+#: bootstrap's three duplicated facts get, so this list cannot rot into a wrong answer.
+_APP_OWNED_SCAFFOLD_FILES = (
+    "environment.schema.json",
+    "escape-hatch-budget.json",
+    "frontend/layout-contract.json",
+    "frontend/src/house-style.css",
+    "frontend/src/routes.gen.d.ts",
+    "frontend/src/theme.css",
+    "workbench.json",
+)
+
+
 def _scaffold_lines(root: pathlib.Path, platform: str) -> list[str]:
     """Report how far the app's *scaffolding* is behind its *packages*.
 
@@ -241,11 +266,15 @@ def _scaffold_lines(root: pathlib.Path, platform: str) -> list[str]:
         "",
         f"Scaffolding: rendered from template {ref}, while the packages are on "
         f"{platform}.",
-        "Files the template owns — main.tsx, index.html, AGENTS.md — are still the",
-        "older release's. Nothing gates this, so it stays green; a stale AGENTS.md in",
-        "particular briefs every agent from the wrong rulebook. theme.css,",
-        "house-style.css and layout-contract.json are NOT in that list: they carry the",
-        "app's own content, so a re-render leaves them alone (copier _skip_if_exists).",
+        "A re-render rewrites EVERY file the template owns — main.tsx, index.html,",
+        "AGENTS.md, the Dockerfiles, docker-compose.yml, the CI workflows — so any fix a",
+        "release made to one of them is still waiting here. Nothing gates this, so it",
+        "stays green; a stale AGENTS.md in particular briefs every agent from the wrong",
+        "rulebook, and a stale docker-compose.yml can serve a dev stack that disagrees",
+        "with the checkout the boundary lint reads.",
+        "These are seeded once and then the app's, so a re-render leaves them alone:",
+        *(f"  {name}" for name in _APP_OWNED_SCAFFOLD_FILES),
+        "",
         "  Re-render:  copier update  (or the Studio's upgrade flow, which records the",
         "              answers file it needs).",
     ]

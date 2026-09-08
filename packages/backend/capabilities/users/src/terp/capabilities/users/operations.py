@@ -30,10 +30,28 @@ USERS_RESET_PASSWORD = OperationDefinition(
     id="users.reset_user_password", label="Set a new password for a user"
 )
 
+#: Every operation this capability's routes declare, in declaration order.
+#:
+#: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
+#: splatting this (``*USERS_OPERATIONS``) rather than naming each constant, so a
+#: release that adds a route here cannot refuse a ``STRICT`` app's boot (ADR 0126).
+#: Held exhaustive against the router by
+#: ``tests/architecture/test_capability_operations.py``.
+USERS_OPERATIONS: tuple[OperationDefinition, ...] = (
+    USERS_LIST,
+    USERS_PROVISION,
+    USERS_GET,
+    USERS_UPDATE,
+    USERS_DEACTIVATE,
+    USERS_REACTIVATE,
+    USERS_RESET_PASSWORD,
+)
+
 __all__ = [
     "USERS_DEACTIVATE",
     "USERS_GET",
     "USERS_LIST",
+    "USERS_OPERATIONS",
     "USERS_PROVISION",
     "USERS_REACTIVATE",
     "USERS_RESET_PASSWORD",
