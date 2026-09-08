@@ -241,6 +241,36 @@ describe("untranslated UI coverage", () => {
     expect(messages.map((message) => message.ruleId)).toContain("terp/no-untranslated-ui");
   });
 
+  it.each([
+    ['<Text>{status === "paused" && <Trans id="w.p" message="Paused" />}</Text>', "==="],
+    ['<Text>{status !== "archived" && <Trans id="w.a" message="Live" />}</Text>', "!=="],
+    ['<Text>{kind == "draft" && <Trans id="w.d" message="Draft" />}</Text>', "=="],
+    ['<Text>{kind != "draft" && <Trans id="w.f" message="Final" />}</Text>', "!="],
+    ['<Text>{stage > "Stage 2" && <Trans id="w.l" message="Late" />}</Text>', ">"],
+    ['<Text>{"paused" === status && <Trans id="w.r" message="Paused" />}</Text>', "reversed"],
+    ['<Page title={"Loading widgets" && loading} />', "&& left operand"],
+  ])("accepts a state token compared in a guard (%s)", async (jsx) => {
+    const messages = await lintWithCatalog(
+      declaration,
+      `export const W = ({ status, kind, stage, loading }) => ${jsx};`,
+    );
+    expect(messages.filter((message) => message.ruleId === "terp/no-untranslated-ui"))
+      .toHaveLength(0);
+  });
+
+  it.each([
+    ['<Page title={loading && "Loading widgets"} />', "&& right operand renders"],
+    ['<Page title={label || "Untitled widget"} />', "|| renders either side"],
+    ['<Page title={label ?? "Untitled widget"} />', "?? renders either side"],
+    ['<Page title={"Page " + index} />', "+ concatenates into copy"],
+  ])("still refuses copy the operator does render (%s)", async (jsx) => {
+    const messages = await lintWithCatalog(
+      declaration,
+      `export const W = ({ loading, label, index }) => ${jsx};`,
+    );
+    expect(messages.map((message) => message.ruleId)).toContain("terp/no-untranslated-ui");
+  });
+
   it("refuses conditional object-property copy and unwraps TypeScript const assertions", async () => {
     const conditional = await lintWithCatalog(
       declaration,
