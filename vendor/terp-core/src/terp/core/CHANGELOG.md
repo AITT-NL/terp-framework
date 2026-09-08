@@ -134,6 +134,20 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **The gate is certified against Standard 0.33.0.** All four declarations ADR 0082 asks
+  for move together — the `terp-spec==` pin, `terp.arch.SPEC_VERSION`, the
+  `@terpjs/spec` dependency and the ESLint adapter's own `SPEC_VERSION` — with both
+  lockfiles re-resolved, because `test_spec_lockfiles_resolved_the_pinned_release` reads
+  each of them and refuses a skew against the pin.
+
+  0.33.0 is the release that carries this repository's own two additions: the
+  `frontend/no-raw-clipboard` entry for the rule shipped here ahead of its catalog, and
+  the two entries that state a scope rather than change one — the actor stamp's fourth
+  shape, and that `no-untranslated-ui` does not reach a comparison operand. Adopting it
+  **closes the staging window**: the adapter's rule inventory was a superset of the pinned
+  catalog while the entry was unpublished, and the corpus harness now runs 237 cases
+  against 237 rather than tolerating 15 against 14.
+
 - **A declared job or schedule names the actor its writes are stamped with, and
   production refuses to boot without one.** The platform said in **four** places that a
   user-less job runs as a system actor *so that its writes are never silently unstamped* —
