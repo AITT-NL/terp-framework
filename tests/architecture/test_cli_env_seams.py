@@ -24,11 +24,14 @@ _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
 from terp.cli.envschema import (  # noqa: E402
+    MAX_SERVICES,
+    app_env_file_name,
+    declared_services,
     declared_variables,
     manifest_findings,
 )
 from terp.cli.envseams import (  # noqa: E402
-    _forwards_app_env,
+    _forwarded_env_files,
     _is_loopback,
     _read_env_file,
     _service_environment,
@@ -310,8 +313,15 @@ def test_service_environment_accepts_both_compose_forms() -> None:
     assert _service_environment("not a service") == {}
 
 
-def test_forwards_app_env_is_false_for_a_non_service() -> None:
-    assert _forwards_app_env("not a service") is False
+def test_forwarded_env_files_is_empty_for_a_non_service() -> None:
+    assert _forwarded_env_files("not a service") == frozenset()
+    assert _forwarded_env_files({"env_file": [".app.env", {"path": ".app.w.env"}]}) == {
+        ".app.env",
+        ".app.w.env",
+    }
+    # A path is read for its name: which file, not from where.
+    assert _forwarded_env_files({"env_file": "../.app.env"}) == {".app.env"}
+    assert _forwarded_env_files({"env_file": [5]}) == frozenset()
 
 
 def test_declared_variables_tolerate_a_manifest_that_is_not_usable(
@@ -783,3 +793,374 @@ def test_an_unreadable_example_file_is_a_finding_not_a_crash(
     monkeypatch.setattr(pathlib.Path, "read_text", _refuse)
     findings = envseams._example_findings(root, {"API_URL": {"type": "string"}})
     assert findings and "cannot be read" in findings[0].detail
+# --------------------------------------------------------------------------- #
+# the per-service scope
+#
+# One rendered file per app shipped every declared value to every backend service, so an
+# app whose worker holds credentials for a foreign system also handed them to its api,
+# migrate and seed containers. Apps answered with a second, hand-made env file that no
+# manifest governs, no check can see and Studio cannot manage. `"services"` is the
+# governed version of that workaround, and these tests are the reason it can be trusted:
+# a value rendered into one file and forwarded from another arrives nowhere, silently.
+# --------------------------------------------------------------------------- #
+_SCOPED_COMPOSE = """\
+name: app
+x-backend: &backend
+  image: app-backend
+  env_file:
+    - .app.env
+services:
+  api:
+    <<: *backend
+  worker:
+    <<: *backend
+    env_file:
+      - .app.env
+      - .app.worker.env
+"""
+
+#: The same app with the scoped file left out of the worker -- the mistake `"services"`
+#: makes possible, and the one nothing else in the stack would report.
+_UNFORWARDED_COMPOSE = """\
+name: app
+x-backend: &backend
+  image: app-backend
+  env_file:
+    - .app.env
+services:
+  api:
+    <<: *backend
+  worker:
+    <<: *backend
+"""
+
+
+def _app(
+    tmp_path: pathlib.Path, *, declared: dict, composes: dict[str, str]
+) -> pathlib.Path:
+    (tmp_path / "environment.schema.json").write_text(
+        json.dumps({"type": "object", "properties": declared, "required": []}),
+        encoding="utf-8",
+    )
+    # One example file carrying one entry per declared name, scoped or not. That is the
+    # design and not fixture convenience: the committed example is a template a HUMAN
+    # maintains, while the per-service split is a *rendering* concern, so a scoped
+    # declaration adds no second committed file. Omitting the file here would make every
+    # scope assertion below share its answer with `_example_findings`.
+    (tmp_path / ".app.env.example").write_text(
+        "".join(f"{name}=\n" for name in declared), encoding="utf-8"
+    )
+    for name, body in composes.items():
+        (tmp_path / name).write_text(body, encoding="utf-8")
+    return tmp_path
+
+
+def test_a_variable_scoped_to_a_service_that_forwards_its_file_passes(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The point of the field: the worker gets the credential, the api never sees it."""
+    root = _app(
+        tmp_path,
+        declared={"SYNC_PASSWORD": {"type": "string", "services": ["worker"]}},
+        composes={"docker-compose.yml": _SCOPED_COMPOSE},
+    )
+    exit_code, output = run_env_seams_check(root)
+    assert exit_code == 0
+    assert "1 of them scoped to named services" in output
+
+
+def test_a_scoped_declaration_at_the_limits_is_a_usable_manifest(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Off by one on either limit is a manifest that passes here and dies in Studio."""
+    root = _schema(
+        tmp_path,
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {
+                    "SYNC_PASSWORD": {
+                        "services": [f"worker-{n}" for n in range(MAX_SERVICES)]
+                    },
+                    "OTHER": {"services": ["a" * 63, "sync_worker.1"]},
+                },
+            }
+        ),
+    )
+    assert _defects(root) == []
+
+
+def test_the_file_name_is_derived_the_same_way_by_both_halves() -> None:
+    """A value rendered into one name and forwarded from another arrives nowhere, and
+    neither half of the platform is in a position to notice -- so there is one rule."""
+    assert app_env_file_name() == ".app.env"
+    assert app_env_file_name(None) == ".app.env"
+    assert app_env_file_name("") == ".app.env"
+    assert app_env_file_name("worker") == ".app.worker.env"
+
+
+def test_the_scope_reader_treats_an_unusable_value_as_no_scope(
+    tmp_path: pathlib.Path,
+) -> None:
+    """``manifest_findings`` owns the verdict, so this reader only answers "which
+    services does the app mean" -- and an unusable entry must read as absent, never as a
+    wider scope than the app asked for."""
+    assert declared_services("not a property") == ()
+    assert declared_services({}) == ()
+    assert declared_services({"services": "worker"}) == ()
+    assert declared_services({"services": ["worker", 5, "NOPE"]}) == ("worker",)
+
+
+_BAD_SCOPES = (
+    ("not a list", "worker"),
+    ("a non-string element", ["worker", 5]),
+    ("an element that fails the pattern", ["Worker"]),
+    ("an element longer than the pattern allows", ["w" * 64]),
+    ("more than the allowed number of entries", [f"w{n}" for n in range(11)]),
+)
+
+_SCOPE_SHAPE_DEFECT = (
+    "MY_VAR.services must be a list of at most 10 compose service names "
+    '(lowercase letters, digits, "_", "." and "-"; at most 63 characters)'
+)
+
+
+@pytest.mark.parametrize(("label", "services"), _BAD_SCOPES)
+def test_every_unusable_scope_is_named_in_the_words_the_deploy_side_uses(
+    tmp_path: pathlib.Path, label: str, services: object
+) -> None:
+    """Terp Studio has its own copy of this reader and cannot import ``terp.*``, so the
+    two halves are held equal by wording -- the sentence is the contract."""
+    root = _schema(
+        tmp_path,
+        json.dumps(
+            {"type": "object", "properties": {"MY_VAR": {"services": services}}}
+        ),
+    )
+    assert _defects(root) == [_SCOPE_SHAPE_DEFECT], label
+
+
+def test_a_scope_defect_is_one_finding_not_one_per_bad_element(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ten bad names are one thing to fix; ten repetitions of one sentence bury every
+    other finding in the file."""
+    root = _schema(
+        tmp_path,
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {"MY_VAR": {"services": ["Nope", "ALSO", "still bad"]}},
+            }
+        ),
+    )
+    assert _defects(root) == [_SCOPE_SHAPE_DEFECT]
+
+
+def test_an_empty_scope_is_refused_with_the_choice_spelled_out(
+    tmp_path: pathlib.Path,
+) -> None:
+    """It reads like "no service" and means the opposite: nothing forwards the file, so
+    the variable reaches no container at all. Both intentions get named."""
+    root = _schema(
+        tmp_path,
+        json.dumps({"type": "object", "properties": {"MY_VAR": {"services": []}}}),
+    )
+    assert _defects(root) == [
+        'MY_VAR.services is an empty list -- omit "services" for a variable every '
+        "backend service reads, or name the services that read it"
+    ]
+
+
+def test_a_service_that_does_not_forward_the_scoped_file_is_refused(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The value is rendered, correct, and arrives nowhere -- no error from compose and
+    nothing in any log. The fix must include the merge-key trap: a service declaring its
+    own ``env_file:`` REPLACES the anchored list, so restating ``.app.env`` is part of
+    the fix, not an optional extra."""
+    root = _app(
+        tmp_path,
+        declared={"SYNC_PASSWORD": {"type": "string", "services": ["worker"]}},
+        composes={"docker-compose.yml": _UNFORWARDED_COMPOSE},
+    )
+    findings = env_seam_findings(root)
+    assert [f.kind for f in findings] == ["unforwarded"]
+    assert findings[0].services == ("worker",)
+    exit_code, output = run_env_seams_check(root)
+    assert exit_code == 1
+    assert ".app.worker.env" in output
+    assert "env_file:" in output
+    assert "REPLACES the anchored list" in output
+    assert "it does not append" in output
+    assert "restate .app.env" in output
+
+
+def test_one_scope_offence_per_variable_not_one_per_service(
+    tmp_path: pathlib.Path,
+) -> None:
+    root = _app(
+        tmp_path,
+        declared={"SYNC_PASSWORD": {"services": ["worker", "seed"]}},
+        composes={
+            "docker-compose.yml": _UNFORWARDED_COMPOSE + "  seed:\n    <<: *backend\n"
+        },
+    )
+    findings = env_seam_findings(root)
+    assert len(findings) == 1
+    assert findings[0].services == ("worker", "seed")
+    assert ".app.worker.env, .app.seed.env" in findings[0].detail
+    assert "each of those files" in findings[0].detail
+
+
+def test_a_service_no_profile_defines_is_refused(tmp_path: pathlib.Path) -> None:
+    """A misspelled name renders the value into a file nothing forwards. The manifest is
+    the source, because the manifest is where the name is corrected."""
+    root = _app(
+        tmp_path,
+        declared={"SYNC_PASSWORD": {"services": ["wroker"]}},
+        composes={"docker-compose.yml": _SCOPED_COMPOSE},
+    )
+    findings = env_seam_findings(root)
+    assert [f.kind for f in findings] == ["unknown-service"]
+    assert findings[0].source == "environment.schema.json"
+    exit_code, output = run_env_seams_check(root)
+    assert exit_code == 1
+    assert "`wroker`" in output
+    assert "no compose profile at the project root defines" in output
+    # A name defect has no service to blame, so the report must not claim one.
+    assert "in: " not in output
+
+
+def test_a_service_only_the_workbench_profile_defines_passes(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The case a real app has: the engine that talks to the foreign system runs where
+    that system lives, not beside the control plane, so it is deliberately absent from
+    the production profile. Judging one profile at a time would flag that -- and push
+    the app straight back to the hand-made env file this field replaces."""
+    root = _app(
+        tmp_path,
+        declared={"SYNC_PASSWORD": {"services": ["worker"]}},
+        composes={
+            "docker-compose.yml": _SCOPED_COMPOSE,
+            "docker-compose.prod.yml": (
+                "services:\n  api:\n    env_file:\n      - .app.env\n"
+            ),
+        },
+    )
+    assert run_env_seams_check(root)[0] == 0
+
+
+def test_an_environment_block_on_a_scoped_service_is_now_reported(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A worker that forwards only its own scoped file used to be skipped entirely --
+    the shadowing check looked for ``.app.env`` and nothing else. A scoped variable is
+    judged against the file it actually arrives through."""
+    root = _app(
+        tmp_path,
+        declared={"SYNC_PASSWORD": {"services": ["worker"]}},
+        composes={
+            "docker-compose.yml": (
+                "services:\n"
+                "  api:\n    env_file:\n      - .app.env\n"
+                "  worker:\n"
+                "    env_file:\n      - .app.worker.env\n"
+                "    environment:\n      SYNC_PASSWORD: ${SYNC_PASSWORD:-}\n"
+            )
+        },
+    )
+    findings = env_seam_findings(root)
+    assert [f.kind for f in findings] == ["shadowed"]
+    assert findings[0].services == ("worker",)
+    exit_code, output = run_env_seams_check(root)
+    assert exit_code == 1
+    assert "forwarded from the host environment" in output
+
+
+def test_a_shared_variable_is_not_shadowed_by_a_scoped_only_service(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The mirror of the case above: a service that forwards only a scoped file never
+    receives the shared one, so an ``environment:`` block there outranks nothing."""
+    root = _app(
+        tmp_path,
+        declared={"MY_VAR": {"type": "string"}},
+        composes={
+            "docker-compose.yml": (
+                "services:\n"
+                "  worker:\n"
+                "    env_file:\n      - .app.worker.env\n"
+                "    environment:\n      MY_VAR: ${MY_VAR:-}\n"
+            )
+        },
+    )
+    assert env_seam_findings(root) == []
+
+
+def test_a_scope_verdict_needs_a_profile_to_judge_it_against(
+    tmp_path: pathlib.Path,
+) -> None:
+    """With no readable compose profile there is no service list, and answering anyway
+    would report every scoped variable as unknown on the strength of a YAML error
+    somewhere else."""
+    root = _app(
+        tmp_path, declared={"SYNC_PASSWORD": {"services": ["worker"]}}, composes={}
+    )
+    assert env_seam_findings(root) == []
+
+    unreadable = _app(
+        tmp_path,
+        declared={"SYNC_PASSWORD": {"services": ["worker"]}},
+        composes={"docker-compose.yml": "services: [ unbalanced\n"},
+    )
+    assert env_seam_findings(unreadable) == []
+
+
+# --------------------------------------------------------------------------- #
+# the no-op every app that ignores the field is entitled to
+# --------------------------------------------------------------------------- #
+def test_an_app_that_scopes_nothing_reads_exactly_as_it_did(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Byte-identical output, not merely a passing gate: a framework upgrade that
+    reworded an app's green check would send its authors looking for a change that never
+    happened.
+
+    The expectation is the summary main already shipped, example clause included. The
+    scope clause is the only thing this field may add, and only to an app that uses it.
+    """
+    root = _project(tmp_path, declared={"MY_VAR": {"type": "string"}})
+    assert run_env_seams_check(root) == (
+        0,
+        "1 declared variable(s) reach the app through .app.env, and "
+        ".app.env.example carries one entry for each",
+    )
+    # The clause this field could have leaked into every app's green check.
+    assert "scoped to" not in run_env_seams_check(root)[1]
+
+
+def test_an_app_with_no_manifest_still_reads_exactly_as_it_did(
+    tmp_path: pathlib.Path,
+) -> None:
+    (tmp_path / "docker-compose.yml").write_text(
+        _COMPOSE.format(environment="    ENVIRONMENT: local"), encoding="utf-8"
+    )
+    assert run_env_seams_check(tmp_path) == (
+        0,
+        "no environment.schema.json - app-declared variables not applicable",
+    )
+
+
+def test_a_shadow_report_for_an_unscoped_app_says_nothing_about_services(
+    tmp_path: pathlib.Path,
+) -> None:
+    root = _project(
+        tmp_path,
+        declared={"MY_VAR": {"type": "string"}},
+        environment="    MY_VAR: ${MY_VAR:-}",
+    )
+    _, output = run_env_seams_check(root)
+    assert "scoped to" not in output
+    assert "REPLACES" not in output
