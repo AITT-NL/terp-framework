@@ -41,7 +41,7 @@ decision, 0001 onwards.
   the detail that first looked like an argument for it: the stamp columns are FK-less by
   design, so a constant would store fine and resolve to no principal anywhere, turning "no
   actor" into "an actor that cannot be looked up" — the same defect, harder to see. ADR
-  0124.
+  0125.
 
 - **Playwright 1.63, its screenshot container, and the five baselines the new chromium
   moved.** The last of the six majors held out of 0.19.0's frontend bump, and the one

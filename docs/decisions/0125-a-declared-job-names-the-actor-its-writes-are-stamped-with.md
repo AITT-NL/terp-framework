@@ -1,4 +1,4 @@
-# 0124 — A declared job names the actor its writes are stamped with
+# 0125 — A declared job names the actor its writes are stamped with
 
 - **Status:** Accepted
 - **Date:** 2026-09-08
