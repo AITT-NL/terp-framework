@@ -12,6 +12,7 @@ and the boot guards the end-to-end example app does not reach (keeping 100% line
 from __future__ import annotations
 
 import contextlib
+import logging
 import uuid
 from collections.abc import Iterator
 from contextvars import ContextVar
@@ -23,12 +24,14 @@ from sqlmodel import Field, Session, SQLModel, create_engine
 
 from terp.core import (
     ActorStampedMixin,
+    AuditPolicy,
     BaseSchema,
     BaseService,
     BaseTable,
     BaseUpdateSchema,
     BootError,
     ControlPlane,
+    CorsPolicy,
     InProcessJobQueue,
     JobCatalog,
     JobContext,
@@ -43,6 +46,7 @@ from terp.core import (
     RetryPolicy,
     ScheduleCatalog,
     ScheduleDefinition,
+    SecurityConfig,
     create_app,
     enqueue,
     is_durable_job_queue,
@@ -57,6 +61,7 @@ from terp.core.jobs import (
     configure_jobs,
     reset_job_tenant_context,
 )
+from terp.core.config import settings
 from terp.core.scoping import (
     register_scope_predicate,
     registered_scope_predicates,
@@ -726,3 +731,117 @@ def test_create_app_requires_a_durable_queue_when_asked() -> None:
     durable = mark_durable_job_queue(InProcessJobQueue())
     create_app([spec], job_queue=durable, require_durable_jobs=True)
     assert active_job_queue() is durable
+
+
+# --------------------------------------------------------------------------- #
+# (8) a declared job or schedule must name the actor its writes are stamped with
+# --------------------------------------------------------------------------- #
+def _production_safe(**overrides: object) -> ControlPlane:
+    """A control plane clearing every *other* production boot check.
+
+    So a refusal in these tests can only be the one under test. CORS and the durable
+    audit sink are the two production gates that fire earlier in ``create_app``, and
+    neither has anything to do with the actor stamp.
+    """
+    return ControlPlane(
+        security=SecurityConfig(cors=CorsPolicy.disabled(reason="not under test")),
+        audit=AuditPolicy.disabled(reason="not under test"),
+        **overrides,  # type: ignore[arg-type]
+    )
+
+
+def test_production_problems_is_silent_without_unstamped_work() -> None:
+    """Two clean states: nothing declared, and work that names its own actor."""
+    assert ControlPlane().production_problems() == []
+
+    job = _doc_job()
+    named = ControlPlane(jobs=JobCatalog([job]), job_system_actor_id=uuid.uuid4())
+    assert named.production_problems() == []
+
+
+def test_production_problems_names_the_missing_system_actor() -> None:
+    """One problem per plane, and the count reads as the author declared it.
+
+    The singular / plural split is asserted on the exact word because that is the only
+    thing separating a message that counted from one that guessed. The schedule-only
+    case is asserted on its own for the same reason: a check that summed the job catalog
+    alone would satisfy every other assertion here, and a schedule with no originating
+    user is the exact shape that produced this control.
+    """
+    job = _doc_job()
+    schedule = ScheduleDefinition(name="docs.nightly", job=job, cron="0 3 * * *")
+
+    only_job = ControlPlane(jobs=JobCatalog([job])).production_problems()
+    assert len(only_job) == 1
+    assert "1 background declaration " in only_job[0]
+    assert "job_system_actor_id" in only_job[0]
+
+    only_schedule = ControlPlane(
+        schedules=ScheduleCatalog([schedule])
+    ).production_problems()
+    assert len(only_schedule) == 1
+    assert "1 background declaration " in only_schedule[0]
+
+    both = ControlPlane(
+        jobs=JobCatalog([job]), schedules=ScheduleCatalog([schedule])
+    ).production_problems()
+    assert len(both) == 1
+    assert "2 background declarations " in both[0]
+
+
+def test_create_app_refuses_a_production_boot_with_unstamped_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The state the promise was made for: production, declared work, nobody stamped."""
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    job = _doc_job()
+    spec = ModuleSpec(name="docs", policy=Policy.default(), jobs=(job,))
+
+    with pytest.raises(BootError, match="unattributable background writes"):
+        create_app([spec], control_plane=_production_safe(jobs=JobCatalog([job])))
+
+
+def test_create_app_accepts_a_production_boot_that_names_its_actor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same plane, one field set: the refusal is about the actor and nothing else."""
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    job = _doc_job()
+    system = uuid.uuid4()
+    spec = ModuleSpec(name="docs", policy=Policy.default(), jobs=(job,))
+
+    create_app(
+        [spec],
+        control_plane=_production_safe(
+            jobs=JobCatalog([job]), job_system_actor_id=system
+        ),
+    )
+    assert active_job_system_actor() == system
+
+
+def test_create_app_warns_outside_production_about_unstamped_jobs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The inner loop keeps booting, and is told what production does with this state.
+
+    Both directions, because a warning that cannot go quiet is noise: an app that names
+    its actor must not be warned, or the message stops carrying information.
+    """
+    job = _doc_job()
+    spec = ModuleSpec(name="docs", policy=Policy.default(), jobs=(job,))
+
+    with caplog.at_level(logging.WARNING, logger="terp.core"):
+        create_app([spec], control_plane=ControlPlane(jobs=JobCatalog([job])))
+    warned = [r for r in caplog.records if "UNSTAMPED" in r.getMessage()]
+    assert len(warned) == 1
+    assert "job_system_actor_id" in warned[0].getMessage()
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="terp.core"):
+        create_app(
+            [spec],
+            control_plane=ControlPlane(
+                jobs=JobCatalog([job]), job_system_actor_id=uuid.uuid4()
+            ),
+        )
+    assert not [r for r in caplog.records if "UNSTAMPED" in r.getMessage()]
