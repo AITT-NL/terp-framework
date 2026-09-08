@@ -99,21 +99,12 @@ def _pinned_spec_version() -> str | None:
 #: to cut a framework release, so the window closes at the pin bump and cannot be
 #: left open. During certification the assertion below is trivially satisfied,
 #: because the catalog under test already contains the rule.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset(
-    {
-        # ADR 0119. Implemented here first so terp-spec can certify against a main
-        # branch that carries the rule; emptied by the pin bump to the release that
-        # publishes catalog/backend/modules_ship_tests.json.
-        "modules_ship_tests",
-        # ADR 0121, and riding the same unreleased spec version as the rule above —
-        # which is the shape ADR 0116 predicted: a window opened for one rule stays
-        # open for whatever lands before the release closes it. All three are
-        # catalogued in the standard already; the pin bump empties them together.
-        "grantable_modules_are_named",
-        "platform_modules_refuse_module_roles",
-        "module_role_writes_go_through_the_capability",
-    }
-)
+#:
+#: Empty: terp-spec 0.32.0 publishes the catalog entries for the four rules that were
+#: waiting here — ``modules_ship_tests`` (ADR 0119) and the three module-role rules
+#: (ADR 0121) — and the pin above now names that release, so the window they were
+#: opened for is shut.
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
 
 
 # --------------------------------------------------------------------------- #

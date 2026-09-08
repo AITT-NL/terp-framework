@@ -178,6 +178,25 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **terp-spec 0.32.0 adopted, which closes the window four rules were waiting in.**
+  `modules_ship_tests` (ADR 0119) and the three module-role rules (ADR 0121) were
+  implemented here before the standard could describe them — the order ADR 0116
+  requires, because terp-spec cannot certify a catalog entry against a reference that
+  does not yet carry the rule. They sat in `_AWAITING_SPEC_RELEASE` for exactly that
+  window. 0.32.0 publishes all four catalog entries, so the four declarations move to
+  it — the two pins and the two `SPEC_VERSION` constants — and the list is empty
+  again. It has to be: `test_no_rule_awaits_a_spec_release` refuses a tagged release
+  while anything is listed, and the staleness half refuses a name whose entry has
+  since been published, so neither half of the window can be left open.
+
+  0.32.0 also adds `test-adequacy` to the assurance-lane vocabulary, and a lane the
+  standard declares is a lane this toolchain must report. Nothing in the release
+  profile answers it — it asks whether the suite could have *failed*, and coverage
+  reports which lines ran, not whether anything would notice them changing — so it
+  composes no checks and is emitted `not-run`, the same shape `a11y` already has. A
+  lane is never dropped and never counted as passed without evidence, so omitting it
+  would have hidden it rather than reported it honestly.
+
 - **The workbench images build on Python 3.14, and the supported range is a set of two
   rather than one literal.** Three of CI's four lanes already ran the suite on 3.14 while
   every image still built on 3.13 — the interpreter the framework tested and the one it
