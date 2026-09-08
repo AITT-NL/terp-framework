@@ -73,6 +73,30 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **`no-untranslated-ui` read a comparison operand as authored copy.** The walker took
+  both sides of every `BinaryExpression` and `LogicalExpression`, so the literal in
+  `status === "paused"` was reported as untranslated user-facing text and the ordinary React
+  guard `{status === "paused" && <Trans …/>}` could not be written without hoisting the
+  comparison into a variable above the JSX. In one feature slice that hoist was done
+  **eighteen** times, which is the cost worth stating: the remedy is mechanical, repeats
+  once per guard, and teaches an author that the gate's refusals are not to be read
+  literally.
+
+  A comparison renders neither operand — the expression evaluates to a boolean — and the
+  walker already drew exactly this distinction three lines above, where the
+  `ConditionalExpression` branch walks `consequent` and `alternate` and **not** `test`. So a
+  ternary's condition was already exempt while the identical literal in an `&&` guard was
+  not, which makes this a slip rather than a position. The boundary is now one operator
+  table: a relational or equality operator renders nothing; `&&` renders its right operand
+  and tests its left; `||`, `??` and `+` can render either side and keep the broad reading.
+
+  No specification change: the catalog entry's intent is "static user-facing text", and a
+  state token being compared is neither. `BinaryExpression` and `LogicalExpression`
+  appeared **zero** times in this rule's tests, so nothing contracted either direction —
+  eleven cases now do, in both, and four mutants of the operator table are killed by them
+  (comparisons treated as copy again, `&&` walking both sides, `&&` walking the test
+  instead of what renders, and `||` narrowed to one side).
+
 - **The component tests' async budget outlived the machine they run on, and the fix has a
   ceiling nobody had written down.** Testing Library's `findBy*` and `waitFor` default to
   1000ms, and in these tests that second is not spent rendering: it covers a mocked fetch

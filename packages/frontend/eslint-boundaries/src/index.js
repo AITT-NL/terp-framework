@@ -451,6 +451,25 @@ function isStaticDescriptor(node) {
   return staticString(named("id")?.value) !== null && staticString(named("message")?.value) !== null;
 }
 
+/**
+ * Binary operators whose operands are never rendered. The result is a boolean, so an
+ * authored-looking literal on either side is a value being *tested* -- the rule's subject
+ * is "static app-authored UI copy", and a state token compared against is neither authored
+ * copy nor rendered.
+ */
+const NON_RENDERING_COMPARISONS = new Set([
+  "===",
+  "!==",
+  "==",
+  "!=",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "in",
+  "instanceof",
+]);
+
 /** Authored string fragments in expressions that render or feed a known UiText property. */
 function containsStaticAuthoredCopy(node) {
   const value = unwrapExpression(node);
@@ -465,7 +484,21 @@ function containsStaticAuthoredCopy(node) {
   if (value.type === "ConditionalExpression") {
     return containsStaticAuthoredCopy(value.consequent) || containsStaticAuthoredCopy(value.alternate);
   }
-  if (value.type === "LogicalExpression" || value.type === "BinaryExpression") {
+  if (value.type === "BinaryExpression") {
+    // A comparison renders neither operand: the expression evaluates to a boolean, so the
+    // literal in `status === "paused"` is a state token being tested and never reaches a
+    // screen in any locale. Every other binary operator keeps the broad reading -- `+` is
+    // string concatenation and can render either side.
+    if (NON_RENDERING_COMPARISONS.has(value.operator)) return false;
+    return containsStaticAuthoredCopy(value.left) || containsStaticAuthoredCopy(value.right);
+  }
+  if (value.type === "LogicalExpression") {
+    // `&&` is the same story on one side only: the left operand is the test and the right
+    // is what renders, so `{loading && "Loading"}` is copy and `{"Loading" && loading}`
+    // evaluates to `loading` and is not. `||` and `??` can render either side and keep the
+    // broad reading. This is the distinction the ConditionalExpression branch above already
+    // draws by walking `consequent` / `alternate` and not `test`.
+    if (value.operator === "&&") return containsStaticAuthoredCopy(value.right);
     return containsStaticAuthoredCopy(value.left) || containsStaticAuthoredCopy(value.right);
   }
   if (value.type === "ArrayExpression") {
