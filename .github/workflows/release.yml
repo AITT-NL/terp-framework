@@ -91,6 +91,21 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           grep -q "^version = \"$version\"" packages/backend/core/pyproject.toml \
             || { echo "tag $GITHUB_REF_NAME != package version"; exit 1; }
+      - name: Every distribution has a PyPI project
+        # Trusted publishing can add a version to a project and cannot create
+        # one, and the upload is a single invocation over every distribution —
+        # so one new distribution stops the release with its siblings already
+        # published, and the lockstep `==` pins make that version uninstallable
+        # until the remainder goes up. 0.19.0 released exactly that way. Asking
+        # the index before anything is uploaded turns it into a refusal that
+        # costs seconds and names the procedure.
+        #
+        # Tag-only, and that is the point rather than an oversight: the manual
+        # per-package dispatch is *how* a project gets created, so guarding it
+        # would wall off the escape hatch the refusal tells you to use.
+        if: github.event_name == 'push'
+        run: uv run python tools/check_pypi_projects.py
+
       - name: Run the gate
         # See ci.yml: coverage starts before pytest loads its entry-point plugins.
         run: |

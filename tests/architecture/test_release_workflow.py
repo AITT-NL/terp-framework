@@ -86,6 +86,28 @@ def test_tag_version_check_is_push_only() -> None:
     assert _step(verify, "Tag matches the lockstep version")["if"] == _PUSH_ONLY
 
 
+def test_the_pypi_project_preflight_runs_before_any_upload_and_only_on_a_tag() -> None:
+    """A distribution with no PyPI project must be refused, not discovered mid-upload.
+
+    Two halves, and both matter. The check has to sit in ``verify`` — which
+    every publish job depends on — because the refusal is only worth anything
+    before the first artifact goes up; 0.19.0 published five distributions and
+    then stopped on a sixth that had no project. And it has to be push-only,
+    because the manual per-package dispatch is the documented way to *create*
+    that project: guarding the dispatch would refuse the fix it recommends.
+    """
+    verify = _workflow()["jobs"]["verify"]
+    preflight = _step(verify, "Every distribution has a PyPI project")
+
+    assert preflight["if"] == _PUSH_ONLY
+    assert "tools/check_pypi_projects.py" in preflight["run"]
+
+    # Before the gate, so a release that cannot publish fails in seconds rather
+    # than after the full suite has run on both stacks.
+    names = [step.get("name") for step in verify["steps"]]
+    assert names.index("Every distribution has a PyPI project") < names.index("Run the gate")
+
+
 def test_manual_publish_is_default_branch_only() -> None:
     """The trusted-publishing identity does not pin the selected Git ref, so the
     workflow must refuse dispatches from anything except the repository default."""

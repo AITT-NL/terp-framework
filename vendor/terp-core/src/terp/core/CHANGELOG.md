@@ -10,6 +10,37 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.20.0 — 2026-09-08
+
+### Fixed
+
+- **A release can no longer discover mid-upload that one of its distributions has no
+  PyPI project.** Trusted publishing can add a version to a project and cannot create
+  one — PyPI answers a create attempt from an OIDC identity with `400 Non-user
+  identities cannot create new projects` — and the upload is a single invocation over
+  every distribution. So a new distribution does not fail the release cleanly: it fails
+  it *part-way*, with the earlier siblings already published, and the lockstep `==`
+  pins make that version uninstallable until the remainder goes up.
+
+  0.19.0 released exactly that way. `terp-cap-egress` was new in it, five distributions
+  were live before PyPI refused the sixth, and the release needed a hand-registered
+  pending publisher, a per-package dispatch and a re-run to complete. Every leg is
+  idempotent so the state was recoverable, but recovery is not the same as never
+  entering it, and nothing said so first.
+
+  `verify` now asks the index before anything is uploaded
+  (`tools/check_pypi_projects.py`): a distribution with no project refuses the tag in
+  seconds and prints the procedure — register the pending publisher, create the project
+  through the manual per-package dispatch, re-run. It reports **every** missing
+  distribution rather than the first, because one pending-publisher slot exists at a
+  time and learning about the next one only after a re-run is the same loop again.
+  It fails closed: an index that cannot answer refuses the release rather than assuming
+  the projects are there.
+
+  The check is push-only, which is the design and not an omission — the manual dispatch
+  is *how* a project gets created, so guarding that path would wall off the escape hatch
+  the refusal recommends.
+
 ## 0.19.0 — 2026-09-08
 
 ### Added
