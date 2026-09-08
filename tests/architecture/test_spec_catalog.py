@@ -100,7 +100,7 @@ def _pinned_spec_version() -> str | None:
 #: left open. During certification the assertion below is trivially satisfied,
 #: because the catalog under test already contains the rule.
 #:
-#: Empty: terp-spec 0.32.0 publishes the catalog entries for the four rules that were
+#: Empty: terp-spec 0.33.0 publishes the catalog entries for every rule that was
 #: waiting here — ``modules_ship_tests`` (ADR 0119) and the three module-role rules
 #: (ADR 0121) — and the pin above now names that release, so the window they were
 #: opened for is shut.
