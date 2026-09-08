@@ -94,9 +94,16 @@ decision, 0001 onwards.
   `testTimeout` above both so a real failure is reported by the matcher, naming the element
   it could not find, rather than as an unhelpful "test timed out".
 
-  All three bounds are asserted (`async-budget.test.ts`), and the toast duration is read
-  out of `toast.tsx` rather than copied, so shortening it there fails the guard instead of
-  quietly starting to dismiss toasts mid-test.
+  All three bounds are asserted, and split by what each side can actually see.
+  `async-budget.test.ts` runs inside the suite and holds that the `configure` call **took
+  effect** — reading the number back out of the setup file would pass with the call deleted
+  and the constant left behind. The ordering spans three files, so
+  `test_frontend_async_budget.py` holds that from the Python side, the way this repository
+  already holds its cross-file config invariants, and reads the toast duration out of
+  `toast.tsx` rather than copying it: shortening it there fails the guard instead of
+  quietly starting to dismiss toasts mid-test. react-core compiles with `types: []`, so
+  reading files from the suite itself would need node types the package deliberately
+  does not have.
 
 - **A release can no longer discover mid-upload that one of its distributions has no
   PyPI project.** Trusted publishing can add a version to a project and cannot create
