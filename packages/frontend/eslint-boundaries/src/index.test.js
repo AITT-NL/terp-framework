@@ -196,6 +196,23 @@ describe("terpBoundaries", () => {
     expect(await lint("export const pick = (o) => o.clipboard;")).toEqual([]);
   });
 
+  it("honours the clipboard rule's declared escape hatch, and only its own name", async () => {
+    // The catalog entry declares `// terp-allow-no-raw-clipboard: <reason>`, and a
+    // declared opt-out that does not actually suppress is a false promise in the
+    // Standard. Asserted here rather than trusted: the marker resolves through the
+    // catalog rule name, not the ESLint rule id, and several catalog rules share
+    // `no-restricted-syntax` — so this could have silently waived a sibling or nothing.
+    const call = 'export const c = () => navigator.clipboard.writeText("x");';
+    expect(await lint(`// terp-allow-no-raw-clipboard: legacy embed target\n${call}`)).toEqual(
+      [],
+    );
+    // A near-miss name must not waive it, and is itself reported as an unjustified
+    // marker — otherwise a typo would read as compliance.
+    const wrong = await lint(`// terp-allow-no-clipboard: typo\n${call}`);
+    expect(wrong).toContain("no-restricted-syntax");
+    expect(wrong).toContain("terp/escape-hatch");
+  });
+
   it("flags raw browser streaming/beacon request primitives (generated client only)", async () => {
     expect(await lint('export const open = () => new WebSocket("wss://example.com");')).toContain(
       "no-restricted-globals",
