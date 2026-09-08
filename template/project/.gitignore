@@ -6,6 +6,13 @@
 !.env.example.jinja
 # Rendered app-declared variables (environment.schema.json) — may hold secrets.
 .app.env
+# Per-service renders (a declaration scoped with "services"). A SEPARATE pattern
+# because `.app.env` above is an exact name, not a glob: it does not match
+# `.app.worker.env`, so without this line the one file that exists to hold a single
+# worker's credentials would be the one file in the seam that gets committed.
+# `.app.env.example` stays tracked -- it does not end in `.env`, so neither line
+# claims it.
+.app.*.env
 
 # Python
 __pycache__/

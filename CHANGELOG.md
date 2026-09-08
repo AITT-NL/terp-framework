@@ -12,6 +12,57 @@ decision, 0001 onwards.
 
 ## 0.20.0 — 2026-09-08
 
+### Added
+
+- **A declared variable may name the services that see it — and the field is refused
+  until the deploy side can render it.** One rendered `.app.env`, forwarded to every
+  backend service through a shared anchor, meant a variable existed for whichever
+  service needed it and every other service got it anyway. An app whose worker holds
+  the credentials for a foreign system — an ERP, a payment provider, a customer's SQL
+  Server — also handed them to its `api`, `migrate` and `seed` containers, which have
+  no use for them and a much larger attack surface.
+
+  What apps did about it is the evidence that mattered: they stopped using the seam. A
+  second, hand-made env file, forwarded to the one service that needed it, governed by
+  no manifest, rendered by no tool, visible to no check and unmanageable from Studio —
+  routed around precisely for the values where it matters most.
+
+  `{"services": ["worker"]}` on a declaration renders it into `.app.worker.env`, which
+  only the services forwarding that file ever see. Two new offences, because they have
+  different fixes: `unforwarded` (a defined service does not forward the file the value
+  is rendered into, so the value exists and arrives nowhere) and `unknown-service` (the
+  scope names a service no profile defines). `unforwarded` is easy to reach by accident
+  and now says so — **YAML merge does not concatenate sequences**, so a service writing
+  its own `env_file:` *replaces* the shared anchor's list instead of adding to it, and
+  the template's anchor records that trap where an app will meet it. `unknown-service`
+  is judged across the union of the profiles on purpose: a service that exists only in
+  the workbench profile and deliberately not in production is correct, and flagging it
+  would push the app back to the hand-made file.
+
+  **The field is refused today, by name and with the fix.** This repository is only the
+  *reader* of a manifest; Studio renders one, and Studio pins this framework by git ref
+  rather than the other way round — so the dialect can grow a field here a release
+  before Studio can honour it, and Studio *drops* a field it does not know rather than
+  refusing it. An app that scoped a variable in that window would get a value that
+  arrives in the workbench and silently never arrives in a managed environment: local
+  green, production empty, nothing anywhere saying why. That is this seam's worst
+  failure, reached through the field added to prevent a lesser one. So the dialect,
+  both checks and the whole renderer ship and are exercised, `STUDIO_RENDERS_SCOPED_FILES`
+  holds the window shut, and lifting it is one flag in the change that also moves Studio.
+  ADR 0124 records the contract and names what has to move on that side.
+
+  Two details worth knowing before you reach for it. The committed
+  `.app.env.example` stays **one** file carrying every declared name — it is a template
+  a human maintains, while the split is a rendering concern — so a scoped app uses
+  `terp env init` rather than `cp .app.env.example .app.env`, which produces only the
+  shared file. And `.gitignore` gains `.app.*.env` in both this repo and the template,
+  because `.app.env` is an exact name and not a glob: without that line the one file
+  that exists to hold a single worker's credentials would have been the one file in
+  this seam that gets committed.
+
+  An app that ignores the field pays nothing: no new file, no new output, and a
+  byte-identical green check, pinned by a test rather than promised here.
+
 ### Changed
 
 - **Playwright 1.63, its screenshot container, and the five baselines the new chromium
