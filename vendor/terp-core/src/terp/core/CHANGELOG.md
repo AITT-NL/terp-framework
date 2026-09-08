@@ -73,6 +73,38 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **The component tests' async budget outlived the machine they run on, and the fix has a
+  ceiling nobody had written down.** Testing Library's `findBy*` and `waitFor` default to
+  1000ms, and in these tests that second is not spent rendering: it covers a mocked fetch
+  resolving, the state it sets, and the re-render that finally puts the text on screen.
+  Enough on an idle machine, not enough on a loaded one — five failures across one day,
+  four different tests, each passing alone and on a re-run, and one of them red in CI on a
+  branch whose own change was fine. That is a day spent reading a diff that was never the
+  cause.
+
+  Raised rather than retried: a retry hides a genuinely intermittent product bug, whereas
+  these assertions are not flaky in what they claim — the text does appear, and a matcher
+  that waits longer asserts the same thing.
+
+  The ceiling is the part worth recording, because the first attempt walked into it. A
+  toast auto-dismisses after 5s, and several admin tests wait for a field error and then
+  assert the toast **synchronously**. Setting the budget to 5s means a wait that resolves
+  late enough leaves nothing for the next line to find — one flake traded for a worse one,
+  since it reads as a product bug. So the budget sits between the two bounds at 3s, with
+  `testTimeout` above both so a real failure is reported by the matcher, naming the element
+  it could not find, rather than as an unhelpful "test timed out".
+
+  All three bounds are asserted, and split by what each side can actually see.
+  `async-budget.test.ts` runs inside the suite and holds that the `configure` call **took
+  effect** — reading the number back out of the setup file would pass with the call deleted
+  and the constant left behind. The ordering spans three files, so
+  `test_frontend_async_budget.py` holds that from the Python side, the way this repository
+  already holds its cross-file config invariants, and reads the toast duration out of
+  `toast.tsx` rather than copying it: shortening it there fails the guard instead of
+  quietly starting to dismiss toasts mid-test. react-core compiles with `types: []`, so
+  reading files from the suite itself would need node types the package deliberately
+  does not have.
+
 - **A release can no longer discover mid-upload that one of its distributions has no
   PyPI project.** Trusted publishing can add a version to a project and cannot create
   one — PyPI answers a create attempt from an OIDC identity with `400 Non-user

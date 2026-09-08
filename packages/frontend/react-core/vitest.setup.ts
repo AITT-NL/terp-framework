@@ -3,6 +3,31 @@
 // the jsdom component tests.
 import "@testing-library/jest-dom/vitest";
 
+import { configure } from "@testing-library/dom";
+
+// `findBy*` and `waitFor` default to a 1000ms budget, and the component tests spend it on
+// a path that is not a render: a mocked fetch resolving, then the state it sets, then the
+// re-render that finally puts the text on screen. One second is enough on an idle machine
+// and not on a loaded one, so the suite failed intermittently — five times across one day,
+// four different tests, every one passing alone and on a re-run, and one of them red in CI
+// on a branch whose own change was fine.
+//
+// The budget is raised rather than the tests retried. A retry would hide a genuinely
+// intermittent product bug, and these assertions are not flaky in what they claim: the
+// text does appear, and a matcher that waits longer asserts exactly the same thing. What
+// it costs is that a test which SHOULD fail now takes longer to say so, which is why
+// `testTimeout` moves too — the matcher must lose before the test does, or the failure
+// arrives as an unhelpful "test timed out" instead of naming the element it could not find.
+//
+// It has a CEILING, and the first attempt at this walked straight into it. A toast
+// auto-dismisses after `DEFAULT_DURATION_MS` (5s, toast.tsx), and several admin tests wait
+// for a field error and then assert the toast SYNCHRONOUSLY. Set the budget to 5s and a
+// wait that takes long enough outlives the toast the next line is about to look for — one
+// flake traded for another, and a worse one, because it looks like a product bug. So the
+// budget sits between the two: comfortably past a fetch and a re-render, comfortably short
+// of a toast's life. `async-budget.test.ts` holds both ends.
+configure({ asyncUtilTimeout: 3_000 });
+
 // jsdom's File / Blob / FormData are structurally incompatible with Node's built-in
 // (undici) fetch: a jsdom File inside a FormData body serializes as an empty, nameless
 // part, and on Node >= 24 `Request.formData()` brand-checks reject jsdom instances
