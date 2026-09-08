@@ -1696,6 +1696,20 @@ Never write a secret value into the manifest, .env.example, .app.env.example, so
 tests, prompts or logs. Platform-owned names (SECRET_KEY, POSTGRES_PASSWORD, DATABASE_URL,
 ENVIRONMENT, WEB_PORT, BACKEND_CORS_ORIGINS) are refused in the manifest: they already
 have an owner.
+
+SCOPING A VARIABLE TO ONE SERVICE (not available yet)
+
+A declaration may name the services that see it -- `{"services": ["worker"]}` renders
+into .app.worker.env, so a worker's credentials for a foreign system stop shipping to the
+api, migrate and seed containers as well. env-seams REFUSES the field for now, by name
+and with the fix: the deploy side renders every declaration into .app.env and drops a
+manifest field it does not know, so a scoped value would arrive in your workbench and
+never in a managed environment. Leave it off until a Terp Studio release renders the
+per-service files; ADR 0124 records what has to move there. Two things to know for when
+it lands: .app.env.example stays ONE committed file listing every declared name, so a
+scoped app uses `terp env init` rather than `cp`; and a service that adds its own
+`env_file:` REPLACES the shared anchor's list rather than adding to it (YAML merge does
+not concatenate sequences), so both files have to be listed.
 """,}
 
 # Topics whose body is generated from a live registry (not a static recipe above).

@@ -730,3 +730,31 @@ def test_the_example_file_stays_one_file_for_a_scoped_app(
     # Still blank for the declared secret, which is the rule that makes one committed
     # file safe to carry a scoped name at all.
     assert "SYNC_PASSWORD=\n" in example
+
+
+def test_init_says_nothing_to_fill_in_when_every_default_is_supplied(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A manifest of fully-defaulted, non-secret declarations is ready as written.
+
+    The "still to fill in" line is the one piece of `init` output that is advice rather
+    than a fact, so printing it with nothing after the colon would send a reader looking
+    for work that does not exist.
+    """
+    root = _project(
+        tmp_path,
+        {
+            "type": "object",
+            "properties": {
+                "SHARED_URL": {"type": "string", "default": "http://api:8000"},
+                "POLL_SECONDS": {"type": "string", "default": "5"},
+            },
+            "required": [],
+        },
+    )
+
+    assert run_env_command(action="init", root=str(root)) == 0
+
+    out = capsys.readouterr().out
+    assert "wrote .app.env with 2 declared variable(s)" in out
+    assert "still to fill in" not in out
