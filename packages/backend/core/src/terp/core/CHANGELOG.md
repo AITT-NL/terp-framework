@@ -66,10 +66,12 @@ decision, 0001 onwards.
 ### Changed
 
 - **A declared job or schedule names the actor its writes are stamped with, and
-  production refuses to boot without one.** The platform said in three places that a
+  production refuses to boot without one.** The platform said in **four** places that a
   user-less job runs as a system actor *so that its writes are never silently unstamped* —
-  in `create_app`'s reference documentation, in `terp.core.scheduling` for a schedule, and
-  in `terp guide jobs`. `ControlPlane.job_system_actor_id` is what makes those sentences
+  in `create_app`'s reference documentation, in `terp.core.scheduling` for a schedule, in
+  `terp guide jobs`, and — found by grepping for the promise rather than by remembering
+  where it was made — in the APScheduler capability's own module docstring, which is the
+  page an author reads while wiring the thing that fires the schedule. `ControlPlane.job_system_actor_id` is what makes those sentences
   true and it defaulted to `None`: the only member of that aggregate without a
   `default_factory` producing a working value, while the eight beside it all build one.
   Nothing validated it, so a `ScheduleCatalog` full of entries with no system actor booted

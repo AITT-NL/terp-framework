@@ -15,6 +15,12 @@ typed chokepoint, so the job flows through the active :class:`~terp.core.JobQueu
 / outbox / broker) and the context-binding runner: a scheduled job has no originating user, so
 it runs as the configured system actor and its writes stay audited + stamped.
 
+**Configure that actor.** ``ControlPlane.job_system_actor_id`` is what the sentence above
+depends on, it defaults to unset, and a production boot that declares a schedule without
+one is refused (ADR 0125) — because a nightly tick whose rows name no actor is the one
+answer a provenance column must not give. Outside production the boot warns and
+``terp jobs`` names it.
+
 APScheduler runs **in one process** with no distributed lock, so for a multi-instance
 deployment use an external scheduler / Celery beat (or a single leader) to avoid duplicate
 ticks (the design's §17). It depends only on ``terp-core`` + ``apscheduler`` and imports the

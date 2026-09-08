@@ -4,6 +4,9 @@
 - **Date:** 2026-09-08
 - **Relates:** [ADR 0043](0043-jobs-seam-and-typed-enqueue.md) (the jobs seam whose system
   actor this constrains),
+  [ADR 0048](0048-scheduler-engine-adapters.md) and
+  [ADR 0049](0049-scheduler-cli-entrypoint.md) (which make the same
+  "system-actor stamped" claim for a schedule, and whose condition this ADR supplies),
   [ADR 0007](0007-audit-auto-emit-and-the-audit-seam.md) (the trail the stamp belongs to),
   [ADR 0109](0109-a-job-reaches-an-unowned-row-across-an-edge-not-a-directory.md) (what a
   job-declaring module may reach — this ADR is about what its writes are *labelled* with),
