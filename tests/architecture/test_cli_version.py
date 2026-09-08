@@ -280,6 +280,43 @@ def test_scaffolding_behind_the_packages_is_reported(tmp_path: pathlib.Path) -> 
     assert "AGENTS.md" in report
     assert "copier update" in report
 
+    # The report must state the RULE, not three examples of it. Naming a few
+    # template-owned files reads as the complete list, and a reader deciding whether a
+    # re-render would carry a fix to a file not among them — docker-compose.yml, say —
+    # concluded it would not. Both halves are asserted because either alone is
+    # compatible with the old, misleading message.
+    assert "EVERY file the template owns" in report
+    assert "docker-compose.yml" in report
+    for name in version_mod._APP_OWNED_SCAFFOLD_FILES:
+        assert name in report, f"the report does not name the app-owned {name}"
+
+
+def test_the_app_owned_scaffold_list_matches_copier() -> None:
+    """The duplicated fact, held against its source.
+
+    ``_APP_OWNED_SCAFFOLD_FILES`` restates ``_skip_if_exists`` from
+    ``template/copier.yml``, because the template does not ship inside the CLI wheel and
+    the report has to be answerable offline. A duplicate that can drift is worse than no
+    list at all: it would state, with authority, that a file is yours when a re-render is
+    about to overwrite it. Same treatment as the theme bootstrap's three duplicated facts.
+    """
+    import yaml
+
+    repo_root = pathlib.Path(__file__).resolve().parents[2]
+    config = yaml.safe_load(
+        (repo_root / "template" / "copier.yml").read_text(encoding="utf-8")
+    )
+    skipped = config["_skip_if_exists"]
+
+    assert set(skipped) == set(version_mod._APP_OWNED_SCAFFOLD_FILES), (
+        "copier's _skip_if_exists and the CLI's copy of it disagree; a file moved "
+        "between 'yours' and 'the template's' and the upgrade report now lies about it"
+    )
+    # Sorted, so the report reads deterministically and a diff here is a real change.
+    assert list(version_mod._APP_OWNED_SCAFFOLD_FILES) == sorted(
+        version_mod._APP_OWNED_SCAFFOLD_FILES
+    )
+
 
 def test_scaffolding_level_with_the_packages_says_so_and_stops(
     tmp_path: pathlib.Path,

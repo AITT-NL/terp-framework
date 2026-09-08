@@ -122,6 +122,21 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **`terp upgrade --check` states the re-render rule instead of three examples of it.**
+  The scaffolding-drift report named `main.tsx`, `index.html` and `AGENTS.md` as the
+  files a re-render would rewrite, and then said `theme.css`, `house-style.css` and
+  `layout-contract.json` were *not* in that list. Both were illustrative; the shape read
+  as exhaustive. So someone weighing whether a re-render would carry a fix to a file in
+  neither list — `docker-compose.yml`, say, whose dev mounts 0.17.0 widened — could not
+  answer it from the report, and could reasonably conclude the fix was undeliverable and
+  reimplement it inside the app instead. The report now states the rule: a re-render
+  rewrites **every** file the template owns, and names the seven that are seeded once
+  because they carry the app's own content. Those seven are copier's `_skip_if_exists`,
+  restated in the CLI because the template does not ship inside the wheel and the report
+  has to answer offline — and held against `template/copier.yml` by a parity test, since
+  a duplicate that can drift is worse than no list: it would say a file is yours in the
+  same breath as a re-render overwriting it.
+
 - **The component tests' async budget outlived the machine they run on, and the fix has a
   ceiling nobody had written down.** Testing Library's `findBy*` and `waitFor` default to
   1000ms, and in these tests that second is not spent rendering: it covers a mocked fetch
