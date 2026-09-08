@@ -775,7 +775,7 @@ def _validate_declared_operations(
                     # makes this app's control plane an inventory of somebody else's
                     # router. Name the set to splat instead (ADR 0124). The family is the
                     # id's own prefix, which for a capability operation is the capability
-                    # name — so this is derived, not guessed at from the spec.
+                    # name — so it is derived from the declaration, not from the spec name.
                     family = declared.id.split(".", 1)[0]
                     raise BootError(
                         f"module {spec.name!r} route {route.path!r} declares operation "
@@ -784,7 +784,7 @@ def _validate_declared_operations(
                         "coverage level — so this refuses the boot even with coverage "
                         "OFF. If the route comes from a capability, fold that "
                         "capability's whole set into the catalog "
-                        f"(``*{family.upper()}_OPERATIONS``) rather than naming its "
+                        f"(*{family.upper()}_OPERATIONS) rather than naming its "
                         "operations one at a time, and a release that adds a route there "
                         "cannot refuse this boot again (ADR 0124). If it is your own "
                         "module's route, add its OperationDefinition to the catalog."
