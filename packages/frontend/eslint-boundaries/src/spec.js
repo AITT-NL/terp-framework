@@ -111,6 +111,16 @@ export const BOUNDARY_SPEC = {
   /** Browser request/stream globals that would skip the audited, typed client. */
   restrictedGlobals: ["fetch", "XMLHttpRequest", "WebSocket", "EventSource"],
   /**
+   * Refuse `navigator.clipboard` in app code, in every spelling.
+   *
+   * A flag rather than a list because it is one API with one defect, the way
+   * `restrictInAppAnchors` is: the DOM lib types the property as always present and it is
+   * absent outside a secure context, so an access on a plain-http origin is a property
+   * lookup on `undefined` -- a synchronous throw the type checker cannot see. The stack's
+   * `copyText` / `useCopyToClipboard` feature-detect and report a refusal instead.
+   */
+  restrictRawClipboard: true,
+  /**
    * The governed escape hatch (the frontend analog of the backend's `# arch-allow-*`): a
    * justified `// terp-allow-<rule>: <reason>` comment on (or immediately above) a violating
    * line suppresses that rule there. `<rule>` is the Terp Standard CATALOG rule name (the

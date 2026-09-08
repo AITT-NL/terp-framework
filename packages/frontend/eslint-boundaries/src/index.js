@@ -943,10 +943,33 @@ function restrictedSyntaxWithCatalogIds() {
         },
       ]
     : [];
+  const rawClipboard = BOUNDARY_SPEC.restrictRawClipboard
+    ? [
+        {
+          // Any ACCESS, not just a call: `navigator.clipboard.writeText(...)` throws on
+          // the property lookup, so `const c = navigator.clipboard` is the same defect
+          // one line earlier. Matching the member expression covers both, and covers
+          // `readText` and anything else the API grows without naming methods here.
+          catalogId: "frontend/no-raw-clipboard",
+          selector:
+            "MemberExpression[object.name='navigator'][property.name='clipboard'], MemberExpression[object.name='navigator'][computed=true][property.value='clipboard'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis)$/][object.property.name='navigator'][property.name='clipboard'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis)$/][object.computed=true][object.property.value='navigator'][property.name='clipboard']",
+          message: clipboardMessage,
+        },
+        {
+          // The destructuring spelling, which no member-expression selector reaches:
+          // `const { clipboard } = navigator` binds the same undefined under a new name.
+          catalogId: "frontend/no-raw-clipboard",
+          selector:
+            "VariableDeclarator[init.name='navigator'] ObjectPattern > Property[key.name='clipboard'], VariableDeclarator[init.type='MemberExpression'][init.property.name='navigator'] ObjectPattern > Property[key.name='clipboard']",
+          message: clipboardMessage,
+        },
+      ]
+    : [];
   return [
     ...rawElements,
     ...rawAttributes,
     ...inAppAnchors,
+    ...rawClipboard,
     {
       catalogId: "frontend/no-dom-html-injection",
       selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
@@ -980,24 +1003,6 @@ function restrictedSyntaxWithCatalogIds() {
       selector:
         "CallExpression[callee.type='MemberExpression'][callee.object.type='MemberExpression'][callee.object.object.name=/^(window|globalThis)$/][callee.object.property.name='navigator'][callee.property.name='sendBeacon'], CallExpression[callee.type='MemberExpression'][callee.object.type='MemberExpression'][callee.object.object.name=/^(window|globalThis)$/][callee.object.property.name='navigator'][callee.computed=true][callee.property.value='sendBeacon'], CallExpression[callee.type='MemberExpression'][callee.object.type='MemberExpression'][callee.object.object.name=/^(window|globalThis)$/][callee.object.computed=true][callee.object.property.value='navigator'][callee.property.name='sendBeacon'], CallExpression[callee.type='MemberExpression'][callee.object.type='MemberExpression'][callee.object.object.name=/^(window|globalThis)$/][callee.object.computed=true][callee.object.property.value='navigator'][callee.computed=true][callee.property.value='sendBeacon']",
       message: generatedClientMessage,
-    },
-    {
-      // Any ACCESS, not just a call: `navigator.clipboard.writeText(...)` throws on the
-      // property lookup, so `const c = navigator.clipboard` is the same defect one line
-      // earlier. Matching the member expression covers both, and covers `readText` and
-      // anything else the API grows without naming methods here.
-      catalogId: "frontend/no-raw-clipboard",
-      selector:
-        "MemberExpression[object.name='navigator'][property.name='clipboard'], MemberExpression[object.name='navigator'][computed=true][property.value='clipboard'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis)$/][object.property.name='navigator'][property.name='clipboard'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis)$/][object.computed=true][object.property.value='navigator'][property.name='clipboard']",
-      message: clipboardMessage,
-    },
-    {
-      // The destructuring spelling, which no member-expression selector reaches:
-      // `const { clipboard } = navigator` binds the same undefined under a new name.
-      catalogId: "frontend/no-raw-clipboard",
-      selector:
-        "VariableDeclarator[init.name='navigator'] ObjectPattern > Property[key.name='clipboard'], VariableDeclarator[init.type='MemberExpression'][init.property.name='navigator'] ObjectPattern > Property[key.name='clipboard']",
-      message: clipboardMessage,
     },
   ];
 }
