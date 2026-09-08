@@ -27,7 +27,7 @@
   "devDependencies": {
     "@terpjs/spec": "0.32.0",
     "eslint": "^10.10.0",
-    "vitest": "^4.1.9"
+    "vitest": "^5.0.0"
   },
   "license": "Apache-2.0",
   "repository": {
