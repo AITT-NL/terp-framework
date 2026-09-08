@@ -100,6 +100,34 @@ decision, 0001 onwards.
   is *how* a project gets created, so guarding that path would wall off the escape hatch
   the refusal recommends.
 
+- **An npm check's precondition reads the workspace that check actually uses.** Every
+  manifest command whose argv starts with `npm` was judged by `frontend/node_modules`,
+  whatever tree it operated in. An app has more than one: the template ships
+  `frontend/` *and* `conformance/`, and the profile is open at the app end (ADR 0106),
+  so a third is the app's business. The precondition was therefore wrong in both
+  directions for the one shipped check that does not use the frontend.
+
+  Refusing the wrong thing came first. `--only conformance` (`npm --prefix conformance
+  test`) would not run until `frontend/` was installed, and named `npm --prefix
+  frontend ci` as the fix — a tree the Playwright specs never touch, in a job with no
+  other use for it. The template's own conformance job installs the conformance tree
+  and only that, so as shipped it could not run the check it exists to run.
+
+  Passing the wrong thing was worse. A *missing* `conformance/node_modules` cleared the
+  guard untouched, because a project whose `frontend/package.json` it cannot find is one
+  this function returns `None` for — so the check went straight into the raw `Cannot
+  find module` trace that names neither cause nor fix. That is the exact failure the
+  precondition was written for, reaching Node through the tree it never looked at.
+
+  The workspace now comes from the argv's own `--prefix` (either spelling; no prefix
+  means the project root, where `npm ci` is the fix and `npm --prefix . ci` would read
+  as a typo), and the two frontend-only runners name their tree explicitly.
+  `_node_modules_problem` takes it as a required argument rather than defaulting to
+  `frontend`: the implicit default is what let every npm check silently inherit one
+  tree's verdict. Each message now names the tree it read and the install command for
+  that tree. `_terp_frontend_manifests` had already learned to discover both manifests
+  instead of naming one; this is the same lesson, one function over.
+
 ## 0.19.0 — 2026-09-08
 
 ### Added
