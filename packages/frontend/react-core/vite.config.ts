@@ -18,5 +18,14 @@ export default defineConfig({
     // the setup file configured 3s, and a comment that misstates the code it explains is
     // worse than none.
     testTimeout: 15_000,
+    // These tests contend for the machine rather than with each other, and losing that
+    // contention is how they fail: four different fetch-bound assertions across four CI
+    // runs, always one file of eighty-one, each passing on its own. Widening the async
+    // budget was tried first and did not fix it (1s to 3s to 4s), and it has nowhere left
+    // to go -- a toast's 5s lifetime is the ceiling. So remove the cause rather than the
+    // tolerance: a jsdom + React + fetch file is heavy, a small runner has four vCPUs, and
+    // eighty-one of them at once starve each other's timers. It costs wall clock and buys
+    // a green that means something.
+    fileParallelism: false,
   },
 });
