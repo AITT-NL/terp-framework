@@ -22,8 +22,22 @@ REALTIME_SUBSCRIBE_WEBSOCKET = OperationDefinition(
     label="Open a two-way live connection to one channel",
 )
 
+#: Every operation this capability's routes declare, in route order.
+#:
+#: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
+#: splatting this (``*REALTIME_OPERATIONS``) rather than naming each constant, so a
+#: release that adds a route here cannot refuse a ``STRICT`` app's boot (ADR 0124).
+#: Held exhaustive against the router by
+#: ``tests/architecture/test_capability_operations.py``.
+REALTIME_OPERATIONS: tuple[OperationDefinition, ...] = (
+    REALTIME_MINT_TICKET,
+    REALTIME_SUBSCRIBE_SSE,
+    REALTIME_SUBSCRIBE_WEBSOCKET,
+)
+
 __all__ = [
     "REALTIME_MINT_TICKET",
+    "REALTIME_OPERATIONS",
     "REALTIME_SUBSCRIBE_SSE",
     "REALTIME_SUBSCRIBE_WEBSOCKET",
 ]

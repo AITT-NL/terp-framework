@@ -107,7 +107,10 @@ class OperationCatalog:
     modelled on. Copying that catalog wholesale brought over ``has_id`` / ``get`` /
     ``missing_operations`` / ``ids``, and nothing in the repository read any of them —
     a field without a reader is removed here rather than kept for a caller that may
-    never arrive. They come back with the consumer that needs them.
+    never arrive. They come back with the consumer that needs them, and
+    :meth:`entry_for` is the first to come back: the boot check needs to tell an app
+    whose catalog is simply *missing* an entry (fold the capability's set in) apart from
+    one carrying a same-id *shadow* (a wording conflict), and those are opposite repairs.
     """
 
     operations: Sequence[OperationDefinition] = field(default_factory=tuple)
@@ -137,6 +140,18 @@ class OperationCatalog:
         of truth, as it does for events.
         """
         return self._by_id.get(definition.id) == definition
+
+    def entry_for(self, operation_id: str) -> OperationDefinition | None:
+        """The registered entry for *operation_id*, or ``None`` if there is none.
+
+        Separates the two ways :meth:`has_operation` can say no. Nothing registered for
+        the id means the catalog is incomplete — the app never folded in the operations
+        of something it mounts. A registered entry that is not the one offered means a
+        *shadow*: same id, different wording. The first is the app's catalog to fix, the
+        second is the route's declaration, and a single "not the registered entry"
+        message sent readers of the first case looking at the second.
+        """
+        return self._by_id.get(operation_id)
 
 
 __all__ = ["OperationCatalog", "OperationCoverage", "OperationDefinition"]

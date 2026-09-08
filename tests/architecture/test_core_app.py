@@ -545,8 +545,16 @@ def test_an_operation_absent_from_the_catalog_fails_the_boot() -> None:
     spec = ModuleSpec(
         name="files", router=_declaring_router(_FILES_DELETE), policy=Policy.default()
     )
-    with pytest.raises(BootError, match="not the entry registered"):
+    with pytest.raises(BootError, match="does not carry") as caught:
         create_app([spec], control_plane=ControlPlane())
+
+    # The repair, not just the refusal (ADR 0124). This is the message an app hits when
+    # a capability release adds a route, and the useful half is the name of the set to
+    # splat — derived from the operation id's own prefix. Without this assertion the
+    # message could regress to advice the app cannot act on (annotate a route it does
+    # not own) and the test above would still pass.
+    assert "*FILES_OPERATIONS" in str(caught.value)
+    assert "coverage" in str(caught.value)
 
 
 def test_a_same_id_operation_with_different_wording_is_refused() -> None:
@@ -560,8 +568,34 @@ def test_a_same_id_operation_with_different_wording_is_refused() -> None:
         name="files", router=_declaring_router(shadow), policy=Policy.default()
     )
     plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
-    with pytest.raises(BootError, match="not the entry registered"):
+    with pytest.raises(BootError, match="same-id shadow") as caught:
         create_app([spec], control_plane=plane)
+
+    # A shadow and a missing entry are opposite repairs, so they must not share a
+    # message: this one quotes BOTH wordings, and must never suggest folding in a
+    # capability set, which would not fix a wording conflict.
+    message = str(caught.value)
+    assert "Remove a file for good" in message and _FILES_DELETE.label in message
+    assert "_OPERATIONS" not in message
+
+
+def test_entry_for_separates_an_absent_id_from_a_shadowed_one() -> None:
+    """The lookup the two boot messages branch on, tested directly.
+
+    ``has_operation`` answers one question with two causes behind it. ``entry_for``
+    is what tells them apart: ``None`` for an id the catalog never registered, the
+    registered definition for an id it did — even when the caller offers a different
+    one for that id.
+    """
+    catalog = OperationCatalog(operations=(_FILES_DELETE,))
+    shadow = OperationDefinition(id="files.delete", label="Remove a file for good")
+
+    assert catalog.entry_for("files.delete") is _FILES_DELETE
+    assert catalog.entry_for(shadow.id) is _FILES_DELETE
+    assert catalog.entry_for("files.never_registered") is None
+    # The pair the messages rest on: same answer from has_operation, different cause.
+    assert not catalog.has_operation(shadow)
+    assert catalog.has_operation(_FILES_DELETE)
 
 
 def test_a_declared_operation_in_the_catalog_boots() -> None:
@@ -930,7 +964,7 @@ def test_a_websocket_route_is_held_to_both_halves_of_the_control() -> None:
     async def drift(websocket: WebSocket) -> None: ...
 
     spec2 = ModuleSpec(name="rt", router=drifting, policy=Policy.default())
-    with pytest.raises(BootError, match="not the entry registered"):
+    with pytest.raises(BootError, match="does not carry"):
         create_app([spec2], control_plane=ControlPlane())
 
 

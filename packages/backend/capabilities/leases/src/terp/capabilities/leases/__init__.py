@@ -43,6 +43,7 @@ from terp.capabilities.leases.operations import (
     LEASES_HEARTBEAT,
     LEASES_LIST,
     LEASES_LIST_EXPIRED,
+    LEASES_OPERATIONS,
     LEASES_REAP,
 )
 from terp.capabilities.leases.reaper import ReapResult, reap_expired_leases
@@ -58,13 +59,14 @@ from terp.capabilities.leases.service import heartbeat, list_leases, reap_now
 from terp.capabilities.leases.store import DatabaseLeaseStore
 
 __all__ = [
-    "LEASE_REAP",
     "DatabaseLeaseStore",
     "HolderResolver",
     "LEASES_HEARTBEAT",
     "LEASES_LIST",
     "LEASES_LIST_EXPIRED",
+    "LEASES_OPERATIONS",
     "LEASES_REAP",
+    "LEASE_REAP",
     "LeaseHeartbeat",
     "LeaseHeartbeatAccepted",
     "LeaseReapPayload",

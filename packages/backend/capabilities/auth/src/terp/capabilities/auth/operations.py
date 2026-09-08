@@ -21,4 +21,26 @@ AUTH_REFRESH = OperationDefinition(
 AUTH_LOGOUT = OperationDefinition(id="auth.logout", label="Sign out of the current session")
 AUTH_ME = OperationDefinition(id="auth.me", label="View your own profile")
 
-__all__ = ["AUTH_LOGIN", "AUTH_LOGOUT", "AUTH_ME", "AUTH_REFRESH", "AUTH_TOKEN"]
+#: Every operation this capability's routes declare, in route order.
+#:
+#: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
+#: splatting this (``*AUTH_OPERATIONS``) rather than naming each constant, so a
+#: release that adds a route here cannot refuse a ``STRICT`` app's boot (ADR 0124).
+#: Held exhaustive against the router by
+#: ``tests/architecture/test_capability_operations.py``.
+AUTH_OPERATIONS: tuple[OperationDefinition, ...] = (
+    AUTH_LOGIN,
+    AUTH_TOKEN,
+    AUTH_REFRESH,
+    AUTH_LOGOUT,
+    AUTH_ME,
+)
+
+__all__ = [
+    "AUTH_LOGIN",
+    "AUTH_LOGOUT",
+    "AUTH_ME",
+    "AUTH_OPERATIONS",
+    "AUTH_REFRESH",
+    "AUTH_TOKEN",
+]

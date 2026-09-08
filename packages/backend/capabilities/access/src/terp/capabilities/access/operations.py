@@ -34,6 +34,23 @@ ACCESS_REVOKE_MODULE_ROLE = OperationDefinition(
     label="Take away someone's role inside one module",
 )
 
+#: Every operation this capability's routes declare, in route order.
+#:
+#: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
+#: splatting this (``*ACCESS_OPERATIONS``) rather than naming each constant, so a
+#: release that adds a route here cannot refuse a ``STRICT`` app's boot (ADR 0124).
+#: Held exhaustive against the router by
+#: ``tests/architecture/test_capability_operations.py``.
+ACCESS_OPERATIONS: tuple[OperationDefinition, ...] = (
+    ACCESS_LIST_GRANTS,
+    ACCESS_CREATE_GRANT,
+    ACCESS_DELETE_GRANT,
+    ACCESS_GET_MODEL,
+    ACCESS_GET_SUBJECT,
+    ACCESS_ASSIGN_MODULE_ROLE,
+    ACCESS_REVOKE_MODULE_ROLE,
+)
+
 __all__ = [
     "ACCESS_ASSIGN_MODULE_ROLE",
     "ACCESS_CREATE_GRANT",
@@ -41,5 +58,6 @@ __all__ = [
     "ACCESS_GET_MODEL",
     "ACCESS_GET_SUBJECT",
     "ACCESS_LIST_GRANTS",
+    "ACCESS_OPERATIONS",
     "ACCESS_REVOKE_MODULE_ROLE",
 ]

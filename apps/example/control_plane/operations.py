@@ -4,75 +4,35 @@ Mirrors the event and job catalogs: this app's own domain modules (notes, tasks,
 journals, projects) declare their operations here, in one place, the same way
 their authority lives in ``control_plane/permissions.py`` rather than scattered
 per module. A capability's own operations are declared *inside* the capability
-package (it cannot reach into this app's control plane) and re-exported from its
-public ``__init__.py``; this file imports every capability actually mounted by
-:mod:`app.main` and folds its operations into the one catalog below, so
-``ControlPlane.operations`` is the single source of truth for every route this
+package (it cannot reach into this app's control plane) and published as one set
+from its public ``__init__.py``; this file imports every capability actually
+mounted by :mod:`app.main` and folds its operations into the one catalog below,
+so ``ControlPlane.operations`` is the single source of truth for every route this
 app serves, hand-written or capability-supplied alike.
+
+Each capability is folded in by **splatting its set** — ``*ACCESS_OPERATIONS``,
+never the seven constants behind it (ADR 0124). This app runs ``STRICT``
+coverage, which refuses the boot of any mounted route that declares no
+operation, so an enumerated list would make every capability release a
+potentially breaking one: ADR 0121 added four routes to ``access``, and an app
+that had named the other three would have been refused until someone read the
+capability's source and copied the new names across. The splat grows with the
+capability's router, so there is nothing to copy.
 """
 
 from __future__ import annotations
 
 from terp.core import OperationCatalog, OperationCoverage, OperationDefinition
 
-from terp.capabilities.access import (
-    ACCESS_ASSIGN_MODULE_ROLE,
-    ACCESS_CREATE_GRANT,
-    ACCESS_DELETE_GRANT,
-    ACCESS_GET_MODEL,
-    ACCESS_GET_SUBJECT,
-    ACCESS_LIST_GRANTS,
-    ACCESS_REVOKE_MODULE_ROLE,
-)
-from terp.capabilities.audit import AUDIT_LIST_EVENTS
-from terp.capabilities.auth import (
-    AUTH_LOGIN,
-    AUTH_LOGOUT,
-    AUTH_ME,
-    AUTH_REFRESH,
-    AUTH_TOKEN,
-)
-from terp.capabilities.files import (
-    FILES_DELETE,
-    FILES_DOWNLOAD,
-    FILES_GET,
-    FILES_LIST,
-    FILES_UPDATE,
-    FILES_UPLOAD,
-)
-from terp.capabilities.groups import (
-    GROUPS_ADD_MEMBER,
-    GROUPS_CREATE,
-    GROUPS_DELETE,
-    GROUPS_GET,
-    GROUPS_LIST,
-    GROUPS_LIST_MEMBERS,
-    GROUPS_REMOVE_MEMBER,
-    GROUPS_UPDATE,
-)
-from terp.capabilities.oidc import OIDC_AUTHORIZE, OIDC_CALLBACK
-from terp.capabilities.realtime import (
-    REALTIME_MINT_TICKET,
-    REALTIME_SUBSCRIBE_SSE,
-    REALTIME_SUBSCRIBE_WEBSOCKET,
-)
-from terp.capabilities.users import (
-    USERS_DEACTIVATE,
-    USERS_GET,
-    USERS_LIST,
-    USERS_PROVISION,
-    USERS_REACTIVATE,
-    USERS_RESET_PASSWORD,
-    USERS_UPDATE,
-)
-from terp.capabilities.webhooks import (
-    WEBHOOKS_CREATE_SUBSCRIPTION,
-    WEBHOOKS_DELETE_SUBSCRIPTION,
-    WEBHOOKS_GET_SUBSCRIPTION,
-    WEBHOOKS_LIST_DELIVERIES,
-    WEBHOOKS_LIST_SUBSCRIPTIONS,
-    WEBHOOKS_UPDATE_SUBSCRIPTION,
-)
+from terp.capabilities.access import ACCESS_OPERATIONS
+from terp.capabilities.audit import AUDIT_OPERATIONS
+from terp.capabilities.auth import AUTH_OPERATIONS
+from terp.capabilities.files import FILES_OPERATIONS
+from terp.capabilities.groups import GROUPS_OPERATIONS
+from terp.capabilities.oidc import OIDC_OPERATIONS
+from terp.capabilities.realtime import REALTIME_OPERATIONS
+from terp.capabilities.users import USERS_OPERATIONS
+from terp.capabilities.webhooks import WEBHOOKS_OPERATIONS
 
 # notes
 NOTES_LIST = OperationDefinition(id="notes.list_notes", label="List every note")
@@ -132,51 +92,15 @@ operation_catalog = OperationCatalog(
         PROJECTS_GET,
         PROJECTS_UPDATE,
         PROJECTS_DELETE,
-        ACCESS_LIST_GRANTS,
-        ACCESS_CREATE_GRANT,
-        ACCESS_DELETE_GRANT,
-        ACCESS_GET_MODEL,
-        ACCESS_GET_SUBJECT,
-        ACCESS_ASSIGN_MODULE_ROLE,
-        ACCESS_REVOKE_MODULE_ROLE,
-        AUDIT_LIST_EVENTS,
-        AUTH_LOGIN,
-        AUTH_TOKEN,
-        AUTH_REFRESH,
-        AUTH_LOGOUT,
-        AUTH_ME,
-        FILES_UPLOAD,
-        FILES_LIST,
-        FILES_GET,
-        FILES_DOWNLOAD,
-        FILES_UPDATE,
-        FILES_DELETE,
-        GROUPS_LIST,
-        GROUPS_CREATE,
-        GROUPS_GET,
-        GROUPS_UPDATE,
-        GROUPS_DELETE,
-        GROUPS_LIST_MEMBERS,
-        GROUPS_ADD_MEMBER,
-        GROUPS_REMOVE_MEMBER,
-        OIDC_AUTHORIZE,
-        OIDC_CALLBACK,
-        REALTIME_MINT_TICKET,
-        REALTIME_SUBSCRIBE_SSE,
-        REALTIME_SUBSCRIBE_WEBSOCKET,
-        USERS_LIST,
-        USERS_PROVISION,
-        USERS_GET,
-        USERS_UPDATE,
-        USERS_DEACTIVATE,
-        USERS_REACTIVATE,
-        USERS_RESET_PASSWORD,
-        WEBHOOKS_LIST_SUBSCRIPTIONS,
-        WEBHOOKS_CREATE_SUBSCRIPTION,
-        WEBHOOKS_GET_SUBSCRIPTION,
-        WEBHOOKS_UPDATE_SUBSCRIPTION,
-        WEBHOOKS_DELETE_SUBSCRIPTION,
-        WEBHOOKS_LIST_DELIVERIES,
+        *ACCESS_OPERATIONS,
+        *AUDIT_OPERATIONS,
+        *AUTH_OPERATIONS,
+        *FILES_OPERATIONS,
+        *GROUPS_OPERATIONS,
+        *OIDC_OPERATIONS,
+        *REALTIME_OPERATIONS,
+        *USERS_OPERATIONS,
+        *WEBHOOKS_OPERATIONS,
     ),
     # Phase 6.4 (ADR 0102): the worked reference for the destination default. Every
     # route this app mounts declares an operation (phase 5), so strict coverage

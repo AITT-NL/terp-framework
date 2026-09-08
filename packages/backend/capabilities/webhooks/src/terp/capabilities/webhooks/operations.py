@@ -29,11 +29,28 @@ WEBHOOKS_LIST_DELIVERIES = OperationDefinition(
     label="List the delivery attempts made to subscribed webhooks",
 )
 
+#: Every operation this capability's routes declare, in route order.
+#:
+#: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
+#: splatting this (``*WEBHOOKS_OPERATIONS``) rather than naming each constant, so a
+#: release that adds a route here cannot refuse a ``STRICT`` app's boot (ADR 0124).
+#: Held exhaustive against the router by
+#: ``tests/architecture/test_capability_operations.py``.
+WEBHOOKS_OPERATIONS: tuple[OperationDefinition, ...] = (
+    WEBHOOKS_LIST_SUBSCRIPTIONS,
+    WEBHOOKS_CREATE_SUBSCRIPTION,
+    WEBHOOKS_GET_SUBSCRIPTION,
+    WEBHOOKS_UPDATE_SUBSCRIPTION,
+    WEBHOOKS_DELETE_SUBSCRIPTION,
+    WEBHOOKS_LIST_DELIVERIES,
+)
+
 __all__ = [
     "WEBHOOKS_CREATE_SUBSCRIPTION",
     "WEBHOOKS_DELETE_SUBSCRIPTION",
     "WEBHOOKS_GET_SUBSCRIPTION",
     "WEBHOOKS_LIST_DELIVERIES",
     "WEBHOOKS_LIST_SUBSCRIPTIONS",
+    "WEBHOOKS_OPERATIONS",
     "WEBHOOKS_UPDATE_SUBSCRIPTION",
 ]

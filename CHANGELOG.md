@@ -12,6 +12,55 @@ decision, 0001 onwards.
 
 ## 0.20.0 — 2026-09-08
 
+### Added
+
+- **A capability publishes the operation set its routes declare, so a release that adds
+  a route no longer refuses a mounted app's boot.** Friction reported from upgrading an
+  app onto 0.19.0. A capability declares its operations inside its own package and the
+  app folds them into the one `OperationCatalog` its control plane owns — but it did
+  that by naming each operation, which makes the app's control plane an inventory of
+  somebody else's router: a list of facts the app neither owns nor can see change. When
+  ADR 0121 added four routes to `access`, every app that had named the previous three
+  was refused at boot on upgrade, and the repair was to read the capability's source,
+  find the four new constants and copy their names across.
+
+  The failure does not read the way it behaves, which is worth being precise about: it
+  is **not** the strict-coverage check. `create_app` refuses any route declaring an
+  operation the catalog does not carry, and that check sits *above* the coverage dial
+  because the no-drift half of ADR 0102 was never meant to be tunable. An app on
+  `coverage=OFF` was refused exactly as an app on `STRICT` was, so turning coverage down
+  never avoided it.
+
+  Every capability that declares operations now exports `<CAP>_OPERATIONS` — a tuple in
+  route order — and an app folds the capability in by splatting it:
+
+  ```python
+  operations=(*AUTH_OPERATIONS, *ACCESS_OPERATIONS, NOTES_LIST, ...)
+  ```
+
+  The tuple grows with the capability's router, so the app's catalog grows with it and
+  the upgrade needs no edit at all. `tests/architecture/test_capability_operations.py`
+  holds every aggregate exhaustive against its own module, in both directions and
+  parametrized off the source tree — so a capability that starts declaring operations is
+  covered without an edit there — because an aggregate that can silently miss an entry
+  is the same maintenance burden it removes, one indirection further away. The
+  template's catalog drops from 35 named constants to 8 splats, the example app's from
+  45 to 9, and both now read as "these capabilities, plus this app's own modules". ADR
+  0124.
+
+- **`OperationCatalog.entry_for`, and a boot refusal that names the repair that
+  applies.** One message covered two opposite mistakes — an id the catalog never
+  registered, and an id it registered with different wording — and then gave the advice
+  for the second: "reference the catalog constant rather than constructing an
+  OperationDefinition at the route". That is the right instruction for a same-id shadow
+  and useless for the first case, where the route is fine and the app's catalog is
+  simply missing an entry from a capability it mounts; a reader hitting the common
+  failure was sent to inspect the rarer one. The two are now separate. A missing entry
+  names the set to splat (derived from the operation id's own prefix) and states that
+  the refusal is coverage-independent; a shadow quotes both wordings, the route's and
+  the catalog's. `entry_for` is the lookup they branch on — the first of the helpers ADR
+  0102 removed as readerless to come back with a consumer that needs it.
+
 ### Changed
 
 - **Playwright 1.63, its screenshot container, and the five baselines the new chromium

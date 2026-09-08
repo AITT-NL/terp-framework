@@ -767,13 +767,36 @@ def _validate_declared_operations(
                 undeclared.append(_route_label(spec, route))
                 continue
             if not catalog.has_operation(declared):
+                registered = catalog.entry_for(declared.id)
+                if registered is None:
+                    # The catalog is incomplete, which for a mounted capability is not
+                    # something the app can fix route by route: it cannot annotate a
+                    # route it does not own, and enumerating the capability's operations
+                    # makes this app's control plane an inventory of somebody else's
+                    # router. Name the set to splat instead (ADR 0124). The family is the
+                    # id's own prefix, which for a capability operation is the capability
+                    # name — so this is derived, not guessed at from the spec.
+                    family = declared.id.split(".", 1)[0]
+                    raise BootError(
+                        f"module {spec.name!r} route {route.path!r} declares operation "
+                        f"{declared.id!r}, which this app's OperationCatalog does not "
+                        "carry. A route may only declare a registered entry, at every "
+                        "coverage level — so this refuses the boot even with coverage "
+                        "OFF. If the route comes from a capability, fold that "
+                        "capability's whole set into the catalog "
+                        f"(``*{family.upper()}_OPERATIONS``) rather than naming its "
+                        "operations one at a time, and a release that adds a route there "
+                        "cannot refuse this boot again (ADR 0124). If it is your own "
+                        "module's route, add its OperationDefinition to the catalog."
+                    )
                 raise BootError(
                     f"module {spec.name!r} route {route.path!r} declares operation "
-                    f"{declared.id!r}, which is not the entry registered in the "
-                    "control plane's OperationCatalog (an unknown id, or a same-id "
-                    "definition with different wording — either way the catalog is no "
-                    "longer the one source of truth). Reference the catalog constant "
-                    "rather than constructing an OperationDefinition at the route."
+                    f"{declared.id!r} with wording the catalog does not have — a "
+                    f"same-id shadow ({declared.label!r} at the route, "
+                    f"{registered.label!r} in the catalog), which would let a route "
+                    "present one wording while the catalog documents another. Reference "
+                    "the catalog constant rather than constructing an "
+                    "OperationDefinition at the route."
                 )
     if not undeclared:
         return
