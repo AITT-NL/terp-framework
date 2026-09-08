@@ -122,9 +122,14 @@ kept the throttle-store guard out of the catalog.
 - Development and test behaviour is unchanged apart from one warning.
 - The stamp is still the app's own principal. The platform does not invent one, so a row's
   provenance keeps resolving to something the app can explain.
-- `terp inspect`'s `job_system_actor` boolean is now a leading indicator of a boot refusal
-  rather than a fact with no consumer. Surfacing that in the inspect output itself is a
-  legibility improvement of the kind ADR 0122 §3 asks for, and is not done here.
+- `terp jobs` no longer goes quiet in the state that refuses a boot. It was the one human
+  surface reporting this, and it printed the actor only when one was set, so the operator
+  best placed to fix it before a deploy was the last to hear about it. It now reuses
+  `production_problems()`' own sentence rather than paraphrasing it, which is what stops
+  the CLI and the refusal drifting into two different explanations of one condition.
+- `terp inspect`'s `job_system_actor` boolean is left as it is: it is a machine surface, the
+  fact is already in it, and adding a derived field would change that document's schema for
+  a reader that can compute it.
 - **This should be revisited** if an application appears with a legitimate reason to run
   declared background work in production with no attributable actor. None is known, and the
   refusal names the field, so the cost of being wrong is one line in a composition root.

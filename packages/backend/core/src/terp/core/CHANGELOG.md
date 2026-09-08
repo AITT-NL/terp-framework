@@ -80,7 +80,12 @@ decision, 0001 onwards.
   failure is invisible to the suite and only becomes visible to whoever needs the trail,
   which is precisely when it can no longer be reconstructed. Two surfaces already reported
   the state and neither acted on it — `terp inspect` emits `"job_system_actor": <bool>`, and
-  `terp jobs` prints the actor only when one is set.
+  `terp jobs` printed the actor only when one *was* set, so the one human surface that
+  reports this said nothing in exactly the state that now refuses a boot. **`terp jobs`
+  now names it**, wrapped for a terminal, and reuses
+  `ControlPlane.production_problems()` rather than paraphrasing it so an operator
+  comparing this output against a boot refusal reads one sentence and not two. It stays
+  silent when nothing is declared, because then there is nothing to refuse.
 
   `ControlPlane.production_problems()` now joins the security and password checks on the
   production boot path: at least one job or schedule declared and no actor is a `BootError`.
