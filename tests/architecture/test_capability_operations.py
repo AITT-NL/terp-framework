@@ -33,7 +33,7 @@ from types import ModuleType
 
 import pytest
 
-from terp.core import OperationDefinition
+from terp.core import OperationCatalog, OperationDefinition
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CAPS = _REPO_ROOT / "packages" / "backend" / "capabilities"
@@ -110,9 +110,14 @@ def test_the_aggregate_holds_every_operation_the_capability_declares(
 
     Missing entry: a release adds a route, its operation is absent from the aggregate, and
     a STRICT app's boot is refused again — exactly the failure ADR 0124 exists to end, now
-    caught here instead of in a consumer's upgrade. Extra entry: the aggregate names
-    something the module does not declare, so the catalog carries an operation no route
-    references and the "every route is explained" claim is made of stale data.
+    caught here instead of in a consumer's upgrade.
+
+    Extra entry: the aggregate carries a definition the module does not declare as a
+    constant, which in practice means one built inline inside the tuple. The tuple would
+    then ship an operation that reading ``operations.py``'s constants does not reveal, and
+    no route could reference it without constructing its own copy — the shadow
+    ``has_operation`` refuses. Both directions are asserted because each catches a
+    different mistake, and neither implies the other.
     """
     module = _operations_module(capability)
     declared = _declared_constants(module)
@@ -172,8 +177,6 @@ def test_the_catalog_accepts_every_capability_aggregate_at_once() -> None:
     catalog rather than hitting ``OperationCatalog``'s duplicate-id refusal. A collision
     here would be unfixable downstream, since neither tuple belongs to the app.
     """
-    from terp.core import OperationCatalog
-
     folded: list[OperationDefinition] = []
     for capability in _DECLARING:
         folded.extend(

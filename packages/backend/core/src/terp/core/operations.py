@@ -138,8 +138,13 @@ class OperationCatalog:
         different label is a *shadow*, and accepting it would let a route present one
         wording while the catalog documents another. The catalog stays the one source
         of truth, as it does for events.
+
+        Expressed through :meth:`entry_for` rather than reaching into the index again,
+        so there is one lookup with two questions asked of it: this answers "is this
+        the entry?", that one answers "what is the entry?". Two call sites reading the
+        same private dict is how those answers drift apart.
         """
-        return self._by_id.get(definition.id) == definition
+        return self.entry_for(definition.id) == definition
 
     def entry_for(self, operation_id: str) -> OperationDefinition | None:
         """The registered entry for *operation_id*, or ``None`` if there is none.

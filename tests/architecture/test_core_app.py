@@ -548,13 +548,44 @@ def test_an_operation_absent_from_the_catalog_fails_the_boot() -> None:
     with pytest.raises(BootError, match="does not carry") as caught:
         create_app([spec], control_plane=ControlPlane())
 
-    # The repair, not just the refusal (ADR 0124). This is the message an app hits when
-    # a capability release adds a route, and the useful half is the name of the set to
-    # splat — derived from the operation id's own prefix. Without this assertion the
-    # message could regress to advice the app cannot act on (annotate a route it does
-    # not own) and the test above would still pass.
-    assert "*FILES_OPERATIONS" in str(caught.value)
-    assert "coverage" in str(caught.value)
+    # The repair, not just the refusal (ADR 0124). This route's endpoint is defined
+    # here, so it is the app's own — the repair is to add the definition, and the
+    # message must NOT name a capability aggregate, because `*FILES_OPERATIONS` does
+    # not exist for an app's own module and reads as a broken suggestion.
+    message = str(caught.value)
+    assert "Add its OperationDefinition" in message
+    assert "_OPERATIONS" not in message
+    assert "coverage" in message
+
+
+def test_the_missing_operation_repair_is_the_one_that_applies() -> None:
+    """A capability's route and an app's route get opposite advice, chosen not hedged.
+
+    Classified by where the endpoint was defined, which is the only thing that actually
+    distinguishes them: a capability hand-writes its routers, so its endpoints live
+    under ``terp.capabilities.<name>``. The capability case is asserted against a REAL
+    capability endpoint rather than a function with a doctored ``__module__``, so the
+    assumption this rests on is the one being tested.
+    """
+    from terp.capabilities.audit import router as audit_router
+
+    from terp.core.app import _missing_operation_repair
+    from terp.core.routing import iter_declaring_routes
+
+    endpoint = next(iter_declaring_routes(audit_router.routes)).endpoint
+    capability_repair = _missing_operation_repair(endpoint)
+    assert "*AUDIT_OPERATIONS" in capability_repair
+    assert "terp.capabilities.audit" in capability_repair
+
+    def local_endpoint() -> None: ...
+
+    app_repair = _missing_operation_repair(local_endpoint)
+    assert "Add its OperationDefinition" in app_repair
+    assert "_OPERATIONS" not in app_repair
+
+    # A callable with no __module__ at all must not crash the boot check while it is
+    # trying to explain a different failure.
+    assert "Add its OperationDefinition" in _missing_operation_repair(object())
 
 
 def test_a_same_id_operation_with_different_wording_is_refused() -> None:
