@@ -61,6 +61,28 @@ decision, 0001 onwards.
   the catalog's. `entry_for` is the lookup they branch on — the first of the helpers ADR
   0102 removed as readerless to come back with a consumer that needs it.
 
+- **A boundary rule for `navigator.clipboard`, three releases after the seam that fixes
+  it.** `copyText` / `useCopyToClipboard` shipped in 0.17.0 with the footgun written out
+  in full: the API is typed as always present, is absent outside a secure context, and a
+  direct call on a plain-http origin is a property access on `undefined` that throws
+  **synchronously** — before any promise exists, so a `.catch` on the call never runs and
+  neither does a `try` around an `await` that was never reached. TypeScript sees nothing
+  wrong, and neither does a test on localhost.
+
+  The seam existed, was documented, and was hand-rolled anyway — which is the finding
+  worth keeping. Nothing said so at the point of writing: `fetch` has a rule,
+  `XMLHttpRequest` has a rule, `sendBeacon` has a rule, and the one browser API here whose
+  failure is *invisible* to the type checker had none. It has one now
+  (`frontend/no-raw-clipboard`), and it refuses any **access** rather than only a call,
+  since `const c = navigator.clipboard` is the same throw one line earlier — plus the
+  `window.`/`globalThis.` prefixed, computed (`navigator["clipboard"]`) and destructuring
+  (`const { clipboard } = navigator`) spellings, each of which binds the same `undefined`
+  under a new name. The message names both seams rather than saying "don't", because a
+  rule whose only compliant program is one that copies nothing would be obeyed by dropping
+  the feature. The Standard's catalog entry and corpus land in its next release; until
+  then the adapter's rule inventory is a superset of the pinned catalog, which is the
+  staging window `findings.test.js` already allows.
+
 ### Changed
 
 - **Playwright 1.63, its screenshot container, and the five baselines the new chromium

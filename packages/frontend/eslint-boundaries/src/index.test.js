@@ -152,6 +152,50 @@ describe("terpBoundaries", () => {
     );
   });
 
+  it("flags raw navigator.clipboard (the seam feature-detects; the API does not)", async () => {
+    // Every spelling reaches the same undefined on an http origin. The direct call is
+    // the one that gets written; the others are what it becomes when someone "tidies"
+    // it, and a rule that missed them would push the defect around rather than out.
+    expect(await lint('export const c = () => navigator.clipboard.writeText("x");')).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const c = () => navigator.clipboard.readText();")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint('export const c = () => navigator["clipboard"].writeText("x");')).toContain(
+      "no-restricted-syntax",
+    );
+    expect(
+      await lint('export const c = () => window.navigator.clipboard.writeText("x");'),
+    ).toContain("no-restricted-syntax");
+    expect(
+      await lint('export const c = () => globalThis["navigator"].clipboard.writeText("x");'),
+    ).toContain("no-restricted-syntax");
+    // Bound to a name rather than called: the throw already happened on the lookup.
+    expect(await lint("export const c = navigator.clipboard;")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const { clipboard } = navigator;")).toContain(
+      "no-restricted-syntax",
+    );
+  });
+
+  it("accepts the react-core clipboard seam", async () => {
+    // The other half of the rule: it must be satisfiable. A rule whose only compliant
+    // program is one that does not copy anything would be obeyed by dropping the
+    // feature -- so this asserts the sanctioned import is clean, not merely unflagged
+    // by the clipboard selector.
+    expect(
+      await lint(
+        'import { useCopyToClipboard } from "@terpjs/react-core";\n' +
+          "export const useCopy = () => useCopyToClipboard();",
+      ),
+    ).toEqual([]);
+    // A property named `clipboard` on something that is not `navigator` is not this
+    // defect, and flagging it would make the rule a word filter.
+    expect(await lint("export const pick = (o) => o.clipboard;")).toEqual([]);
+  });
+
   it("flags raw browser streaming/beacon request primitives (generated client only)", async () => {
     expect(await lint('export const open = () => new WebSocket("wss://example.com");')).toContain(
       "no-restricted-globals",
