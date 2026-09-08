@@ -1,4 +1,4 @@
-# 0124 — A capability publishes its operation set, and an app folds it in
+# 0126 — A capability publishes its operation set, and an app folds it in
 
 - **Status:** Accepted and implemented. Every capability that declares operations publishes
   `<CAP>_OPERATIONS`, the template and the example app fold each capability in by splatting

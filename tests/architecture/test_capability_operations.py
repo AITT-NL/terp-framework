@@ -1,6 +1,6 @@
 """A capability's operation set is exhaustive, exported, and grows with its routes.
 
-The friction this closes (ADR 0124). A capability declares its operations inside its own
+The friction this closes (ADR 0126). A capability declares its operations inside its own
 package and re-exports the constants one by one; an app folds them into the single
 ``OperationCatalog`` its control plane owns. Nothing held those two halves together, so a
 release that added a route to a capability added an operation the app's catalog did not
@@ -92,7 +92,7 @@ def test_every_capability_with_operations_publishes_an_aggregate(capability: str
     aggregate = getattr(module, name, None)
     assert aggregate is not None, (
         f"{capability} declares operations but publishes no {name}; an app folding this "
-        "capability in would have to name each constant, which is the coupling ADR 0124 "
+        "capability in would have to name each constant, which is the coupling ADR 0126 "
         "removes"
     )
     assert isinstance(aggregate, tuple), (
@@ -109,7 +109,7 @@ def test_the_aggregate_holds_every_operation_the_capability_declares(
     """Exhaustive, in both directions, which is the property the fix rests on.
 
     Missing entry: a release adds a route, its operation is absent from the aggregate, and
-    a STRICT app's boot is refused again — exactly the failure ADR 0124 exists to end, now
+    a STRICT app's boot is refused again — exactly the failure ADR 0126 exists to end, now
     caught here instead of in a consumer's upgrade.
 
     Extra entry: the aggregate carries a definition the module does not declare as a

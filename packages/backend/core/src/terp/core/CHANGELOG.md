@@ -46,7 +46,7 @@ decision, 0001 onwards.
   is the same maintenance burden it removes, one indirection further away. The
   template's catalog drops from 35 named constants to 8 splats, the example app's from
   45 to 9, and both now read as "these capabilities, plus this app's own modules". ADR
-  0124.
+  0126.
 
 - **`OperationCatalog.entry_for`, and a boot refusal that names the repair that
   applies.** One message covered two opposite mistakes — an id the catalog never

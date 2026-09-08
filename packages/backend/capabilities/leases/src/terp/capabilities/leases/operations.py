@@ -27,7 +27,7 @@ LEASES_HEARTBEAT = OperationDefinition(
 #:
 #: An app folds the capability into its :class:`~terp.core.OperationCatalog` by
 #: splatting this (``*LEASES_OPERATIONS``) rather than naming each constant, so a
-#: release that adds a route here cannot refuse a ``STRICT`` app's boot (ADR 0124).
+#: release that adds a route here cannot refuse a ``STRICT`` app's boot (ADR 0126).
 #: Held exhaustive against the router by
 #: ``tests/architecture/test_capability_operations.py``.
 LEASES_OPERATIONS: tuple[OperationDefinition, ...] = (

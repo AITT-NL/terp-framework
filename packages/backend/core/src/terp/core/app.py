@@ -760,7 +760,7 @@ def _missing_operation_repair(endpoint: object) -> str:
         f"set into the catalog — splat *{capability.upper()}_OPERATIONS from "
         f"terp.capabilities.{capability} rather than naming its operations one at a "
         "time, and a release that adds a route there cannot refuse this boot again "
-        "(ADR 0124)."
+        "(ADR 0126)."
     )
 
 

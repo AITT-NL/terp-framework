@@ -11,7 +11,7 @@ so ``ControlPlane.operations`` is the single source of truth for every route thi
 app serves, hand-written or capability-supplied alike.
 
 Each capability is folded in by **splatting its set** — ``*ACCESS_OPERATIONS``,
-never the seven constants behind it (ADR 0124). This app runs ``STRICT``
+never the seven constants behind it (ADR 0126). This app runs ``STRICT``
 coverage, which refuses the boot of any mounted route that declares no
 operation, so an enumerated list would make every capability release a
 potentially breaking one: ADR 0121 added four routes to ``access``, and an app

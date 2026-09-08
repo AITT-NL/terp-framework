@@ -548,7 +548,7 @@ def test_an_operation_absent_from_the_catalog_fails_the_boot() -> None:
     with pytest.raises(BootError, match="does not carry") as caught:
         create_app([spec], control_plane=ControlPlane())
 
-    # The repair, not just the refusal (ADR 0124). This route's endpoint is defined
+    # The repair, not just the refusal (ADR 0126). This route's endpoint is defined
     # here, so it is the app's own — the repair is to add the definition, and the
     # message must NOT name a capability aggregate, because `*FILES_OPERATIONS` does
     # not exist for an app's own module and reads as a broken suggestion.

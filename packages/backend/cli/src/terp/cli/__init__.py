@@ -839,7 +839,7 @@ Route operations (what a route does for the person calling it, ADR 0102)
       operation_catalog = OperationCatalog([NOTES_DELETE])
       control_plane = ControlPlane(operations=operation_catalog, ...)
 - Fold in a mounted capability by SPLATTING its set, never by naming its operations
-  (ADR 0124). Each capability that declares operations exports one:
+  (ADR 0126). Each capability that declares operations exports one:
       from terp.capabilities.access import ACCESS_OPERATIONS
       operation_catalog = OperationCatalog([*ACCESS_OPERATIONS, NOTES_DELETE])
   Naming them one at a time makes your control plane an inventory of somebody else's
