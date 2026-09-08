@@ -465,9 +465,13 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
 #: release-profile check ids). The vocabulary and each lane's requirement
 #: level are NORMATIVE in the spec (assurance-profile.schema.json + the
 #: README's "Assurance profile" table) — these constants mirror them, held to
-#: the pinned spec's schema by the framework gate. ``a11y`` is declared but
-#: not realised by this toolchain yet: it is emitted ``not-run`` (a lane is
-#: never dropped and never counted as passed without evidence).
+#: the pinned spec's schema by the framework gate. ``a11y`` and
+#: ``test-adequacy`` are declared but not realised by this toolchain yet: they
+#: are emitted ``not-run`` (a lane is never dropped and never counted as passed
+#: without evidence). ``test-adequacy`` asks whether the suite could have
+#: failed, which no check in the release profile answers — coverage reports
+#: which lines ran, not whether anything would notice them changing — so it
+#: composes nothing rather than borrowing evidence that does not bear on it.
 ASSURANCE_LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("terp-standard", "required", ("architecture", "frontend-boundaries")),
     ("appsec-baseline", "required", ("appsec-baseline",)),
@@ -478,6 +482,7 @@ ASSURANCE_LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ),
     ("a11y", "recommended", ()),
     ("blackbox-conformance", "recommended", ("conformance",)),
+    ("test-adequacy", "recommended", ()),
 )
 
 

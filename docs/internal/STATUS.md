@@ -704,16 +704,18 @@ one global rank and a group carries none.
       `module_role_writes_go_through_the_capability` (the table is reached through its service,
       reads included, on `no_manual_ownership_checks`' footing). The plan had the first one down
       as coverage-gated; it is not, and why is recorded there.
-      **The merge to main is not blocked, but the next framework release is.** ADR 0116's
-      `_AWAITING_SPEC_RELEASE` now lists all three beside `modules_ship_tests`, which was already
-      waiting on the same unreleased terp-spec 0.32.0. `test_no_rule_awaits_a_spec_release`
-      refuses to cut a release while that list is non-empty, so the outstanding action is: publish
-      terp-spec 0.32.0, bump the `terp-spec==0.31.0` pin here, and empty the list. That sequence
-      is only green because the pre-push review found the step it was missing — the catalog names
-      `terp.capabilities.access` as a runtime tool and `_RUNTIME_TOOL_SOURCES` had no entry for
-      it, so certification would have refused the release before the pin could ever be bumped. Until then the
-      three rules run and are enforced, and no published catalog documents them — which is the
-      state ADR 0116 permits across a merge and a publish, and refuses to allow into a release.
+      **Closed: terp-spec 0.32.0 is published and adopted here.** ADR 0116's
+      `_AWAITING_SPEC_RELEASE` listed all three beside `modules_ship_tests`, which was already
+      waiting on the same then-unreleased terp-spec 0.32.0, and
+      `test_no_rule_awaits_a_spec_release` refuses to cut a release while that list is non-empty.
+      0.32.0 published, the four declarations moved to it, and the list is empty — so the release
+      is no longer blocked. That sequence was only green because the pre-push review found the
+      step it was missing — the catalog names `terp.capabilities.access` as a runtime tool and
+      `_RUNTIME_TOOL_SOURCES` had no entry for it, so certification would have refused the
+      release before the pin could ever be bumped. Adoption carried one thing the plan did not
+      anticipate: 0.32.0 also adds `test-adequacy` to the assurance-lane vocabulary, and a
+      declared lane must be reported, so `ASSURANCE_LANES` gained it as a `not-run` lane
+      composing no checks — `a11y`'s shape, for the same reason.
 
 **A second adversarial review was run before pushing** — seven dimensions, two diverse-lens
 refuters per finding, defaulting to refuted — and it found things the first pass could not,
