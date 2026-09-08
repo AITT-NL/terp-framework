@@ -1211,6 +1211,27 @@ def _warn_unshared_idempotency_in_production(
     )
 
 
+def _warn_unstamped_background_writes(plane: ControlPlane) -> None:
+    """Say plainly, outside production, that a declared job writes rows with no actor.
+
+    The development half of the provenance control. Production refuses this state
+    outright (:meth:`~terp.core.ControlPlane.production_problems`); the inner loop keeps
+    booting, because a developer who has not wired a system principal yet should not be
+    blocked by one. But the row their nightly tick just wrote is unattributed either way
+    and nothing else in the system will ever mention it, so the warning names the field
+    and says what production does with the same state — the shape the
+    unshared-idempotency warning already uses for its flag.
+    """
+    problems = plane.production_problems()
+    if not problems:
+        return
+    _logger.warning(
+        "background writes are UNSTAMPED in this deployment: %s. A production boot is "
+        "REFUSED in this state.",
+        "; ".join(problems),
+    )
+
+
 def _validate_durable_jobs(
     job_queue: JobQueue | None, require_durable_jobs: bool
 ) -> None:
@@ -1728,6 +1749,10 @@ def create_app(
     is boot-validated against it (an undeclared job fails the boot, like a policy / event
     reference). The control plane's ``job_system_actor_id`` is the stand-in actor a job
     runs as when no user originated it, so a job's writes are never silently unstamped.
+    That promise holds only while the field is set, so it is enforced rather than
+    assumed: a production boot declaring a job or a schedule without one is **refused**
+    (:meth:`~terp.core.ControlPlane.production_problems`), and outside production the
+    boot warns that the rows are going in unattributed.
 
     *require_durable_jobs* makes durability a boot requirement: when ``True``, boot fails
     closed unless *job_queue* is a backend marked durable via ``mark_durable_job_queue`` —
@@ -1837,6 +1862,13 @@ def create_app(
                 "the durable audit capability (e.g. terp.capabilities.audit.persist_audit) "
                 "or turn audit off explicitly with AuditPolicy.disabled(reason=...)"
             )
+        plane_problems = resolved_plane.production_problems()
+        if plane_problems:
+            raise BootError(
+                "unattributable background writes: " + "; ".join(plane_problems)
+            )
+    else:
+        _warn_unstamped_background_writes(resolved_plane)
 
     if migration_check is not None:
         migration_check(get_engine())

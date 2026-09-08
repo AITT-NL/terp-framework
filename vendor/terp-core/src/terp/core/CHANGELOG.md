@@ -134,6 +134,48 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **A declared job or schedule names the actor its writes are stamped with, and
+  production refuses to boot without one.** The platform said in **four** places that a
+  user-less job runs as a system actor *so that its writes are never silently unstamped* —
+  in `create_app`'s reference documentation, in `terp.core.scheduling` for a schedule, in
+  `terp guide jobs`, and — found by grepping for the promise rather than by remembering
+  where it was made — in the APScheduler capability's own module docstring, which is the
+  page an author reads while wiring the thing that fires the schedule. `ControlPlane.job_system_actor_id` is what makes those sentences
+  true and it defaulted to `None`: the only member of that aggregate without a
+  `default_factory` producing a working value, while the eight beside it all build one.
+  Nothing validated it, so a `ScheduleCatalog` full of entries with no system actor booted
+  clean and then wrote rows whose `created_by_id` answered **nobody**.
+
+  Found by running a schedule rather than by testing one, and that is the whole argument for
+  a boot check: a unit test asserts the row exists, and an unattributed row exists. The
+  failure is invisible to the suite and only becomes visible to whoever needs the trail,
+  which is precisely when it can no longer be reconstructed. Two surfaces already reported
+  the state and neither acted on it — `terp inspect` emits `"job_system_actor": <bool>`, and
+  `terp jobs` printed the actor only when one *was* set, so the one human surface that
+  reports this said nothing in exactly the state that now refuses a boot. **`terp jobs`
+  now names it**, wrapped for a terminal, and reuses
+  `ControlPlane.production_problems()` rather than paraphrasing it so an operator
+  comparing this output against a boot refusal reads one sentence and not two. It stays
+  silent when nothing is declared, because then there is nothing to refuse.
+
+  `ControlPlane.production_problems()` now joins the security and password checks on the
+  production boot path: at least one job or schedule declared and no actor is a `BootError`.
+  Outside production the boot warns instead, names the field, and states what production
+  does with the same state — and goes quiet when an actor is set, because a warning that
+  cannot go quiet is noise. **An existing production app that declares background work and
+  never set the field will refuse to boot after this upgrade;** that is the intent, and the
+  fix is one field. A reserved sentinel actor was the other candidate and was rejected on
+  the detail that first looked like an argument for it: the stamp columns are FK-less by
+  design, so a constant would store fine and resolve to no principal anywhere, turning "no
+  actor" into "an actor that cannot be looked up" — the same defect, harder to see. ADR
+  0125.
+
+  The first app it refused was this repository's own example, in `prod-smoke` rather
+  than in review: it declares one job and had set no actor, so the reference
+  implementation was shipping the defect it demonstrates. It now declares one. The
+  template is unaffected, since a generated project declares no jobs, so an app that
+  never enqueues anything sees no change in any environment.
+
 - **Playwright 1.63, its screenshot container, and the five baselines the new chromium
   moved.** The last of the six majors held out of 0.19.0's frontend bump, and the one
   that could never have ridden along with the others: `@playwright/test` is not only a
@@ -207,6 +249,30 @@ decision, 0001 onwards.
   has to answer offline — and held against `template/copier.yml` by a parity test, since
   a duplicate that can drift is worse than no list: it would say a file is yours in the
   same breath as a re-render overwriting it.
+
+- **The component tests stop contending for the machine, which is what they were actually
+  losing.** 0.20.0 raised Testing Library's budget from the 1000ms default to 3s on the
+  evidence of five flakes in a day. Three seconds was not enough either, and neither was
+  four: **four different fetch-bound assertions failed across four CI runs** — one on
+  `main`, whose commit was a Python-only change — always "unable to find element", always
+  one file of eighty-one, each passing on its own.
+
+  Raising the budget was the wrong lever and its own comment had said so: *"enough on an
+  idle machine and not on a loaded one"*. A jsdom + React + fetch file is heavy, a small
+  runner has four vCPUs, and eighty-one of them at once starve each other's timers. So
+  `fileParallelism: false` removes the cause rather than widening the tolerance, and it is
+  cheap: the whole suite runs **81 files / 762 tests green in 134s**, measured, against a
+  parallel run that failed one file in three.
+
+  The budget stays at 4s, which is honest rather than load-bearing — it gives a legitimately
+  slow chain room without approaching the ceiling. That ceiling is real: a toast
+  auto-dismisses at 5s and several admin tests assert one synchronously after a wait, so
+  `test_frontend_async_budget.py` holds `1000 < asyncUtilTimeout < DEFAULT_DURATION_MS <
+  testTimeout` across the three files that declare them.
+
+  `vite.config.ts` also described the budget as "the 5s `asyncUtilTimeout`" while the setup
+  file configured 3s. It now names no number and points at the test that holds the ordering,
+  because a comment that misstates the code it explains is worse than none.
 
 - **`no-untranslated-ui` read a comparison operand as authored copy.** The walker took
   both sides of every `BinaryExpression` and `LogicalExpression`, so the literal in

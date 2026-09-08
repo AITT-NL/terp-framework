@@ -12,7 +12,7 @@ from terp.core import ControlPlane, PermissionModel
 
 from control_plane.audit import audit
 from control_plane.events import event_catalog
-from control_plane.jobs import job_catalog
+from control_plane.jobs import SYSTEM_ACTOR_ID, job_catalog
 from control_plane.operations import operation_catalog
 from control_plane.permissions import permission_model
 from control_plane.security import security
@@ -23,6 +23,7 @@ control_plane = ControlPlane(
     audit=audit,
     events=event_catalog,
     jobs=job_catalog,
+    job_system_actor_id=SYSTEM_ACTOR_ID,
     operations=operation_catalog,
 )
 
