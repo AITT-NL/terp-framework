@@ -23,7 +23,32 @@ _TEMPLATE_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.yml.ji
 _TEMPLATE_PROD_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.prod.yml.jinja"
 _EXAMPLE_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile"
 _TEMPLATE_DOCKERFILE = _REPO_ROOT / "template" / "project" / "Dockerfile"
+_EXAMPLE_PROD_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile.prod"
+_TEMPLATE_PROD_DOCKERFILE = _REPO_ROOT / "template" / "project" / "Dockerfile.prod"
 _WORKBENCH_SERVICES = {"db", "migrate", "seed", "api", "web"}
+
+#: The interpreters the distributions support (`requires-python = ">=3.13"`), and so
+#: the only bases a deployable may pin. Naming a set rather than one literal is what
+#: lets the supported range move without this file being the thing that refuses it;
+#: what the tests below hold is that every image agrees on ONE member of the set.
+_SUPPORTED_PYTHON_BASES = frozenset({"python:3.13-slim", "python:3.14-slim"})
+_BACKEND_DOCKERFILES = (
+    _EXAMPLE_DOCKERFILE,
+    _EXAMPLE_PROD_DOCKERFILE,
+    _TEMPLATE_DOCKERFILE,
+    _TEMPLATE_PROD_DOCKERFILE,
+)
+
+
+def _python_bases(dockerfile: pathlib.Path) -> set[str]:
+    """Every `python:<tag>` this Dockerfile builds a stage on."""
+    return set(
+        re.findall(
+            r"^FROM\s+(python:\S+)",
+            dockerfile.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+    )
 
 
 def _compose() -> dict:
@@ -270,10 +295,27 @@ def test_example_and_template_workbenches_share_a_topology() -> None:
 def test_example_and_template_backend_images_share_the_security_invariants() -> None:
     for dockerfile in (_EXAMPLE_DOCKERFILE, _TEMPLATE_DOCKERFILE):
         text = dockerfile.read_text(encoding="utf-8")
-        assert "FROM python:3.13-slim" in text  # pinned slim base
+        assert _python_bases(dockerfile) <= _SUPPORTED_PYTHON_BASES  # pinned slim base
         assert "\nUSER " in text  # drops root
         assert "psycopg" in text  # the production database driver
         assert '"uvicorn[standard]"' in text and "app.main:app" in text
+
+
+def test_every_backend_image_pins_the_same_supported_interpreter() -> None:
+    # Both workbenches, dev and prod, on ONE interpreter. Two things go wrong without
+    # this. A bump can land half-applied — the dev image on a version the prod image
+    # is not, or the example ahead of the template — and each file on its own still
+    # looks fine. And a stage can drift inside one file: Dockerfile.prod builds wheels
+    # on one base and runs them on another, which is an ABI mismatch that only shows
+    # up when the image runs. Neither is reachable by reading a single FROM line.
+    declared = {dockerfile: _python_bases(dockerfile) for dockerfile in _BACKEND_DOCKERFILES}
+    for dockerfile, bases in declared.items():
+        assert bases, f"{dockerfile} builds on no python base"
+        unsupported = bases - _SUPPORTED_PYTHON_BASES
+        assert not unsupported, f"{dockerfile} pins {sorted(unsupported)}, outside the supported set"
+
+    pinned = set().union(*declared.values())
+    assert len(pinned) == 1, f"backend images disagree on the interpreter: {sorted(pinned)}"
 
 
 def test_local_dev_environments_install_websocket_server_support() -> None:

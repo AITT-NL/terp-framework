@@ -54,6 +54,30 @@ jobs:
           name: scorecard-terp-arch
           path: scorecard-terp-arch.json
 
+  # The lower bound of `requires-python = ">=3.13"`, proved instead of claimed. The
+  # gate runs the suite on the newest supported interpreter; this runs the same suite
+  # on the oldest, so a 3.14-only construct cannot reach PyPI under a floor that still
+  # says 3.13 — the kind of break an installer discovers, not a maintainer. Coverage
+  # and the scorecard stay on the gate alone: they measure the suite, not the
+  # interpreter, and the scorecard is one artifact per run by name.
+  lower-bound-interpreter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Run the suite on the oldest supported interpreter
+        run: uv run --python 3.13 pytest
+
   # The PostgreSQL conformance lane (ADR 0069): the migration subsystem must hold on
   # the verified production dialect, not only the SQLite dev/test engine — SQLite
   # masks real differences (VARCHAR length enforcement, timezone-aware datetimes,
@@ -202,6 +226,9 @@ jobs:
         with:
           enable-cache: true
 
+      # Deliberately the oldest supported interpreter, not the newest: this lane
+      # builds a project the way a user's machine would, and the floor is what a
+      # fresh `terp new` is allowed to assume.
       - name: Set up Python
         run: uv python install 3.13
 

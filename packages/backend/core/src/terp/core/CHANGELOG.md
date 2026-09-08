@@ -176,6 +176,32 @@ decision, 0001 onwards.
   trigger stated in the ADR: its fifteen rules are ESLint rules, and ESLint cannot assert that
   a file is absent.
 
+### Changed
+
+- **The workbench images build on Python 3.14, and the supported range is a set of two
+  rather than one literal.** Three of CI's four lanes already ran the suite on 3.14 while
+  every image still built on 3.13 — the interpreter the framework tested and the one it
+  shipped had quietly diverged. The parity test that should have caught that was the reason
+  it could not be fixed: it asserted the exact string `FROM python:3.13-slim`, so any bump
+  turned it red no matter how correct, and Dependabot's two halves of the bump sat open
+  against it.
+
+  The images now build on `python:3.14-slim` — all six declarations, dev and prod, example
+  and template — and the invariant names the supported set instead of a version, holding
+  what it actually cares about: every backend image agrees on one member of the set. That
+  reaches two failures the single-line check could not see. A bump can land half-applied,
+  the dev image on a version the prod image is not, and each file still reads fine on its
+  own. And a stage can drift inside one file, `Dockerfile.prod` building wheels on one
+  interpreter and running them on another, which is an ABI mismatch that surfaces when the
+  image runs rather than when it is built.
+
+  `requires-python` is unchanged at `>=3.13`, and that floor is now proved rather than
+  declared: the new `lower-bound-interpreter` lane runs the whole suite on 3.13, so a
+  3.14-only construct cannot reach PyPI under a declaration that still admits 3.13 — a
+  break an installer would otherwise find first. The template-acceptance lane stays on 3.13
+  for the same reason: it builds a generated project the way a user's machine would, and
+  the floor is what a fresh `terp new` may assume.
+
 ## 0.18.0 — 2026-09-05
 
 ### Changed
