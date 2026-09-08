@@ -214,6 +214,10 @@ def scaffold_ref(root: pathlib.Path) -> str | None:
 #: template-owned files as though they were the list, so someone weighing whether a
 #: re-render would deliver a fix to, say, the Compose file had no way to tell from it.
 #:
+#: Some are authored (``theme.css``) and some are app-generated (``routes.gen.d.ts``), so
+#: what the report can honestly say about the set is not that it carries hand-written
+#: content but that copier seeds it once and it is the app's afterwards.
+#:
 #: Duplicated here because the template does not ship inside this wheel, so the CLI cannot
 #: read ``copier.yml`` at runtime. Held against it by
 #: ``test_the_app_owned_scaffold_list_matches_copier`` — the same treatment the theme
@@ -268,7 +272,7 @@ def _scaffold_lines(root: pathlib.Path, platform: str) -> list[str]:
         "stays green; a stale AGENTS.md in particular briefs every agent from the wrong",
         "rulebook, and a stale docker-compose.yml can serve a dev stack that disagrees",
         "with the checkout the boundary lint reads.",
-        "These are seeded once and left alone, because they carry your own content:",
+        "These are seeded once and then the app's, so a re-render leaves them alone:",
         *(f"  {name}" for name in _APP_OWNED_SCAFFOLD_FILES),
         "",
         "  Re-render:  copier update  (or the Studio's upgrade flow, which records the",
