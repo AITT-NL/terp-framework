@@ -94,6 +94,12 @@ decision, 0001 onwards.
   actor" into "an actor that cannot be looked up" — the same defect, harder to see. ADR
   0125.
 
+  The first app it refused was this repository's own example, in `prod-smoke` rather
+  than in review: it declares one job and had set no actor, so the reference
+  implementation was shipping the defect it demonstrates. It now declares one. The
+  template is unaffected, since a generated project declares no jobs, so an app that
+  never enqueues anything sees no change in any environment.
+
 - **Playwright 1.63, its screenshot container, and the five baselines the new chromium
   moved.** The last of the six majors held out of 0.19.0's frontend bump, and the one
   that could never have ridden along with the others: `@playwright/test` is not only a

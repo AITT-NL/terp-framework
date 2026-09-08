@@ -112,6 +112,12 @@ kept the throttle-store guard out of the catalog.
   `job_system_actor_id` will refuse to boot after upgrading.** That is intended, and it is the
   only breaking change here. The fix is one field naming the app's own system principal; the
   refusal states it.
+- **The first application it refused was this repository's own example app**, in
+  `prod-smoke` rather than in review: it declares `WEBHOOK_DELIVER` and had set no
+  system actor, so the reference implementation was shipping the defect it
+  demonstrates. It now declares one, and that constant is deliberately an app-level
+  choice rather than the platform default section 3 refuses - it is visible in the
+  app's own control plane, where someone can be asked about it.
 - An application that declares no background work is untouched, in every environment.
 - Development and test behaviour is unchanged apart from one warning.
 - The stamp is still the app's own principal. The platform does not invent one, so a row's
