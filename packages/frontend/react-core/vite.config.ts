@@ -10,5 +10,9 @@ export default defineConfig({
     environment: "node",
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    // Above the 5s `asyncUtilTimeout` the setup file configures, so a matcher that
+    // cannot find its element loses first and says which element. Equal budgets would
+    // let the test time out mid-wait and report nothing useful about the assertion.
+    testTimeout: 15_000,
   },
 });
