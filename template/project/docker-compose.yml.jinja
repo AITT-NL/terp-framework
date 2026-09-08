@@ -22,6 +22,33 @@ x-backend: &backend
   env_file:
     - path: .app.env
       required: false
+  # SCOPING A VARIABLE TO ONE SERVICE (a declaration's "services" field, ADR 0124)
+  # is rendered into `.app.<service>.env`, and only the services that forward that
+  # file see it — so a worker's credentials for a foreign system stop shipping to
+  # api, migrate and seed as well. There is no such service in this template, so
+  # there is nothing to scope yet; the trap is recorded here because this anchor is
+  # where an app adds one.
+  #
+  # YAML merge does NOT concatenate sequences. A service that writes its own
+  # `env_file:` REPLACES this list rather than adding to it, so the shared
+  # `.app.env` silently stops arriving at that service. Both files have to be
+  # listed explicitly:
+  #
+  #   worker:
+  #     <<: *backend
+  #     env_file:
+  #       - path: .app.env          # re-listed on purpose: the merge dropped it
+  #         required: false
+  #       - path: .app.worker.env
+  #         required: false
+  #
+  # `terp verify --only env-seams` reports exactly that omission (`unforwarded`),
+  # so this is a check away rather than a run-time mystery.
+  #
+  # One more difference for a scoped app: `cp .app.env.example .app.env` above only
+  # produces the shared file, so use `terp env init`, which writes every file the
+  # declarations imply. The example stays ONE committed file listing every declared
+  # name — it is a template a human maintains, not a render target.
   # PRECEDENCE: compose resolves `environment:` OVER `env_file:`. A name that
   # appears below is therefore supplied by .env (or by the default written here)
   # and NEVER by .app.env — in every environment, including one with no .env at

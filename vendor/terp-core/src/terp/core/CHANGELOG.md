@@ -83,6 +83,55 @@ decision, 0001 onwards.
   then the adapter's rule inventory is a superset of the pinned catalog, which is the
   staging window `findings.test.js` already allows.
 
+- **A declared variable may name the services that see it — and the field is refused
+  until the deploy side can render it.** One rendered `.app.env`, forwarded to every
+  backend service through a shared anchor, meant a variable existed for whichever
+  service needed it and every other service got it anyway. An app whose worker holds
+  the credentials for a foreign system — an ERP, a payment provider, a customer's SQL
+  Server — also handed them to its `api`, `migrate` and `seed` containers, which have
+  no use for them and a much larger attack surface.
+
+  What apps did about it is the evidence that mattered: they stopped using the seam. A
+  second, hand-made env file, forwarded to the one service that needed it, governed by
+  no manifest, rendered by no tool, visible to no check and unmanageable from Studio —
+  routed around precisely for the values where it matters most.
+
+  `{"services": ["worker"]}` on a declaration renders it into `.app.worker.env`, which
+  only the services forwarding that file ever see. Two new offences, because they have
+  different fixes: `unforwarded` (a defined service does not forward the file the value
+  is rendered into, so the value exists and arrives nowhere) and `unknown-service` (the
+  scope names a service no profile defines). `unforwarded` is easy to reach by accident
+  and now says so — **YAML merge does not concatenate sequences**, so a service writing
+  its own `env_file:` *replaces* the shared anchor's list instead of adding to it, and
+  the template's anchor records that trap where an app will meet it. `unknown-service`
+  is judged across the union of the profiles on purpose: a service that exists only in
+  the workbench profile and deliberately not in production is correct, and flagging it
+  would push the app back to the hand-made file.
+
+  **The field is refused today, by name and with the fix.** This repository is only the
+  *reader* of a manifest; Studio renders one, and Studio pins this framework by git ref
+  rather than the other way round — so the dialect can grow a field here a release
+  before Studio can honour it, and Studio *drops* a field it does not know rather than
+  refusing it. An app that scoped a variable in that window would get a value that
+  arrives in the workbench and silently never arrives in a managed environment: local
+  green, production empty, nothing anywhere saying why. That is this seam's worst
+  failure, reached through the field added to prevent a lesser one. So the dialect,
+  both checks and the whole renderer ship and are exercised, `STUDIO_RENDERS_SCOPED_FILES`
+  holds the window shut, and lifting it is one flag in the change that also moves Studio.
+  ADR 0124 records the contract and names what has to move on that side.
+
+  Two details worth knowing before you reach for it. The committed
+  `.app.env.example` stays **one** file carrying every declared name — it is a template
+  a human maintains, while the split is a rendering concern — so a scoped app uses
+  `terp env init` rather than `cp .app.env.example .app.env`, which produces only the
+  shared file. And `.gitignore` gains `.app.*.env` in both this repo and the template,
+  because `.app.env` is an exact name and not a glob: without that line the one file
+  that exists to hold a single worker's credentials would have been the one file in
+  this seam that gets committed.
+
+  An app that ignores the field pays nothing: no new file, no new output, and a
+  byte-identical green check, pinned by a test rather than promised here.
+
 ### Changed
 
 - **Playwright 1.63, its screenshot container, and the five baselines the new chromium
@@ -159,6 +208,30 @@ decision, 0001 onwards.
   a duplicate that can drift is worse than no list: it would say a file is yours in the
   same breath as a re-render overwriting it.
 
+- **`no-untranslated-ui` read a comparison operand as authored copy.** The walker took
+  both sides of every `BinaryExpression` and `LogicalExpression`, so the literal in
+  `status === "paused"` was reported as untranslated user-facing text and the ordinary React
+  guard `{status === "paused" && <Trans …/>}` could not be written without hoisting the
+  comparison into a variable above the JSX. In one feature slice that hoist was done
+  **eighteen** times, which is the cost worth stating: the remedy is mechanical, repeats
+  once per guard, and teaches an author that the gate's refusals are not to be read
+  literally.
+
+  A comparison renders neither operand — the expression evaluates to a boolean — and the
+  walker already drew exactly this distinction three lines above, where the
+  `ConditionalExpression` branch walks `consequent` and `alternate` and **not** `test`. So a
+  ternary's condition was already exempt while the identical literal in an `&&` guard was
+  not, which makes this a slip rather than a position. The boundary is now one operator
+  table: a relational or equality operator renders nothing; `&&` renders its right operand
+  and tests its left; `||`, `??` and `+` can render either side and keep the broad reading.
+
+  No specification change: the catalog entry's intent is "static user-facing text", and a
+  state token being compared is neither. `BinaryExpression` and `LogicalExpression`
+  appeared **zero** times in this rule's tests, so nothing contracted either direction —
+  eleven cases now do, in both, and four mutants of the operator table are killed by them
+  (comparisons treated as copy again, `&&` walking both sides, `&&` walking the test
+  instead of what renders, and `||` narrowed to one side).
+
 - **The component tests' async budget outlived the machine they run on, and the fix has a
   ceiling nobody had written down.** Testing Library's `findBy*` and `waitFor` default to
   1000ms, and in these tests that second is not spent rendering: it covers a mocked fetch
@@ -217,6 +290,34 @@ decision, 0001 onwards.
   The check is push-only, which is the design and not an omission — the manual dispatch
   is *how* a project gets created, so guarding that path would wall off the escape hatch
   the refusal recommends.
+
+- **An npm check's precondition reads the workspace that check actually uses.** Every
+  manifest command whose argv starts with `npm` was judged by `frontend/node_modules`,
+  whatever tree it operated in. An app has more than one: the template ships
+  `frontend/` *and* `conformance/`, and the profile is open at the app end (ADR 0106),
+  so a third is the app's business. The precondition was therefore wrong in both
+  directions for the one shipped check that does not use the frontend.
+
+  Refusing the wrong thing came first. `--only conformance` (`npm --prefix conformance
+  test`) would not run until `frontend/` was installed, and named `npm --prefix
+  frontend ci` as the fix — a tree the Playwright specs never touch, in a job with no
+  other use for it. The template's own conformance job installs the conformance tree
+  and only that, so as shipped it could not run the check it exists to run.
+
+  Passing the wrong thing was worse. A *missing* `conformance/node_modules` cleared the
+  guard untouched, because a project whose `frontend/package.json` it cannot find is one
+  this function returns `None` for — so the check went straight into the raw `Cannot
+  find module` trace that names neither cause nor fix. That is the exact failure the
+  precondition was written for, reaching Node through the tree it never looked at.
+
+  The workspace now comes from the argv's own `--prefix` (either spelling; no prefix
+  means the project root, where `npm ci` is the fix and `npm --prefix . ci` would read
+  as a typo), and the two frontend-only runners name their tree explicitly.
+  `_node_modules_problem` takes it as a required argument rather than defaulting to
+  `frontend`: the implicit default is what let every npm check silently inherit one
+  tree's verdict. Each message now names the tree it read and the install command for
+  that tree. `_terp_frontend_manifests` had already learned to discover both manifests
+  instead of naming one; this is the same lesson, one function over.
 
 ## 0.19.0 — 2026-09-08
 
