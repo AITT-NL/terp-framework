@@ -124,7 +124,7 @@ jobs:
       # The screenshot lane is the one with a recorded baseline, and it runs in a container
       # rather than on the runner directly. Baselines are split by platform because font
       # rasterisation differs by more than any useful tolerance is worth; the `linux` set was
-      # recorded in `mcr.microsoft.com/playwright:v1.62.0-noble`, and this runner shares
+      # recorded in `mcr.microsoft.com/playwright:v1.63.0-noble`, and this runner shares
       # Ubuntu's kernel with that image but not its font packages. Comparing outside the image
       # that recorded would reduce the lane to noise on its first run. `node_modules` comes
       # from the `npm ci` above and is already linux-native, so the mount needs no second
@@ -159,5 +159,21 @@ jobs:
           docker run --rm --ipc=host \
             -v "$PWD":/work \
             -w /work/apps/workbench \
-            mcr.microsoft.com/playwright:v1.62.0-noble \
+            mcr.microsoft.com/playwright:v1.63.0-noble \
             npx playwright test visual/specimens.spec.ts --reporter=line
+
+      # A baseline mismatch is the one failure in this workflow whose evidence is an
+      # image, and until now the run discarded it: the log said which specimen moved
+      # and by how many pixels, and the actual render — the only thing that answers
+      # whether a real regression or a browser repaint moved it — existed for the life
+      # of the container. Recording new baselines then meant reproducing the container
+      # locally, which is the step the comment above explains is not casually available.
+      # `tolerance` is zero, so a chromium bump lands here on purpose and this is the
+      # artifact that makes it reviewable rather than a wall of red.
+      - name: Keep the renders when a baseline moved
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: specimen-renders
+          path: apps/workbench/test-results/
+          if-no-files-found: ignore
