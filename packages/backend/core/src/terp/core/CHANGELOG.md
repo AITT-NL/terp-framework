@@ -14,6 +14,36 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **Playwright 1.63, its screenshot container, and the five baselines the new chromium
+  moved.** The last of the six majors held out of 0.19.0's frontend bump, and the one
+  that could never have ridden along with the others: `@playwright/test` is not only a
+  dependency here, it is half of a pair. The specimens are compared inside
+  `mcr.microsoft.com/playwright:v<version>-noble` against baselines recorded in that
+  image at `maxDiffPixels: 0`, and `specimens.spec.ts` reads the lockfile and the
+  workflow and refuses a mismatch — so the package, the container tag and the committed
+  PNGs move together or not at all.
+
+  Chromium moved **five of 264 specimens**, on both platforms identically, and every one
+  is a native form control the browser paints itself: the textarea's resize grip in the
+  four `text-inputs` specimens, and a checkbox in the dataview column panel. 20 to 123
+  pixels, ratio 0.01. The diff images are what settle it — the changed pixels sit on the
+  grip and the checkbox, not on glyph edges, and nothing in the shells, tables, cards or
+  type moved. That is a browser repainting its own widgets, not a layout regression, and
+  it is the distinction a zero-tolerance baseline cannot make on its own.
+
+  Two specimens that failed the first pass were 5s `toHaveScreenshot` timeouts rather
+  than diffs and pass when run serially, so their baselines are untouched: a flaky
+  re-record is how a real regression gets committed as the new truth.
+
+- **A baseline mismatch keeps its renders.** It is the one failure in the frontend
+  workflow whose evidence is an image, and the run discarded it: the log named the
+  specimen and the pixel count, and the actual render lived and died inside the
+  container. Recording new baselines then meant reproducing that container locally,
+  which the workflow's own comment explains is not casually available — so the cost of
+  a chromium bump was paid in exactly the place with the least to work with.
+  `frontend.yml` now uploads `apps/workbench/test-results/` on failure. The linux
+  baselines in this release were recorded through it.
+
 - **Four of the frontend test stack's majors adopted: vitest 5, jsdom 30,
   @testing-library/jest-dom 7 and @types/node 26.** Held out of the grouped bump that
   became 0.19.0's frontend update, each on the grounds that a major needs its own
