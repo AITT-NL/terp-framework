@@ -26,7 +26,13 @@ import { configure } from "@testing-library/dom";
 // flake traded for another, and a worse one, because it looks like a product bug. So the
 // budget sits between the two: comfortably past a fetch and a re-render, comfortably short
 // of a toast's life. `async-budget.test.ts` holds both ends.
-configure({ asyncUtilTimeout: 3_000 });
+//
+// Raised from 3s to 4s on 2026-09-08: 3s was still not enough under CI load. Two
+// consecutive runs failed on two different fetch-bound tests, and main failed a third
+// time in the same window -- always "unable to find element", always one file of
+// eighty-one. 4s keeps a full second below the toast, which is the last of the
+// headroom this lever has: the next move is less contention, not a longer wait.
+configure({ asyncUtilTimeout: 4_000 });
 
 // jsdom's File / Blob / FormData are structurally incompatible with Node's built-in
 // (undici) fetch: a jsdom File inside a FormData body serializes as an empty, nameless

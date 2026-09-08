@@ -166,6 +166,27 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **The component tests' async budget was still short of CI, and the guard's own comment
+  misstated it.** 0.20.0 raised Testing Library's budget from the 1000ms default to 3s on
+  the evidence of five flakes in a day. Three seconds turned out not to be enough either:
+  two consecutive runs on one branch failed on two *different* fetch-bound tests, and
+  `main` failed a third time inside the same window — always "unable to find element",
+  always one file of eighty-one, each passing on its own. These assertions are not flaky
+  in what they claim; the wait is spanning a login fetch, a `/me` fetch, a lazily framed
+  view and the re-render that puts the text on screen, and CI does not always finish that
+  in three seconds.
+
+  So the budget goes to 4s, which is the last of the headroom this lever has: a toast
+  auto-dismisses at 5s and several admin tests assert one synchronously after a wait, so
+  `test_frontend_async_budget.py` holds `1000 < asyncUtilTimeout < DEFAULT_DURATION_MS <
+  testTimeout` across the three files that declare them. **If it flakes again the next
+  move is less contention, not a longer wait** — and that is now written where the number
+  is.
+
+  `vite.config.ts` also described the budget as "the 5s `asyncUtilTimeout`" while the
+  setup file configured 3s. It now names no number and points at the test that holds the
+  ordering, because a comment that misstates the code it explains is worse than none.
+
 - **`no-untranslated-ui` read a comparison operand as authored copy.** The walker took
   both sides of every `BinaryExpression` and `LogicalExpression`, so the literal in
   `status === "paused"` was reported as untranslated user-facing text and the ordinary React
