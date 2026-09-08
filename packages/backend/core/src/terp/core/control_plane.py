@@ -52,6 +52,45 @@ class ControlPlane:
         errors.extend(self._schedule_errors())
         return tuple(errors)
 
+    def production_problems(self) -> list[str]:
+        """Reasons this control plane is unsafe to boot in production.
+
+        There is exactly one today, and it is the promise this aggregate makes on its
+        own field. ``job_system_actor_id`` is documented as the stand-in actor a job runs
+        as when no user originated it, *so that a job's writes are never silently
+        unstamped* — in :func:`terp.core.create_app`, again in
+        :mod:`terp.core.scheduling` for a schedule, and a third time in ``terp guide
+        jobs``. The field is optional and defaults to ``None``, so an app that declares a
+        job or a schedule and never sets it passes every other boot check and then writes
+        rows whose ``created_by_id`` answers **nobody** — the one answer a provenance
+        column must not give, and one no unit test catches, because an unattributed row
+        is still a row.
+
+        Reported here rather than refused in :meth:`validation_errors`, and rather than
+        papered over with a reserved sentinel actor. Development and test deliberately
+        run without a system principal and keep booting (``create_app`` warns instead);
+        production writing unattributable rows is the case the promise was made for. A
+        sentinel default was the other candidate and is worse: the column is FK-less, so
+        a constant would store fine and resolve to no principal anywhere, turning "no
+        actor" into "an actor that cannot be looked up" — the same defect, harder to
+        see. Mirrors :meth:`~terp.core.SecurityConfig.production_problems` and
+        :meth:`~terp.core.PasswordPolicy.production_problems`.
+        """
+        if self.job_system_actor_id is not None:
+            return []
+        declared = len(self.jobs.jobs) + len(self.schedules.schedules)
+        if declared == 0:
+            return []
+        subject = "declaration" if declared == 1 else "declarations"
+        return [
+            f"the control plane carries {declared} background {subject} (jobs and "
+            "schedules) and no job_system_actor_id, so every write a job makes is "
+            "stamped with no actor at all; pass "
+            "ControlPlane(job_system_actor_id=<the app's system principal>) so the "
+            "provenance trail names something, or drop the declarations if this app "
+            "runs no background work"
+        ]
+
     def _policy_errors(self, spec: ModuleSpec) -> list[str]:
         """Policy references must resolve to the declared role/permission, by value.
 

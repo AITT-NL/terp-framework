@@ -981,7 +981,9 @@ Background jobs (terp.core.enqueue + JobCatalog)
   use ctx.session / ctx.actor_id / ctx.tenant_id, all re-bound from the envelope.
 - The default InProcessJobQueue runs the handler inline in its own audited unit (dev /
   single-process). A user-less job runs as the control-plane system actor
-  (ControlPlane(job_system_actor_id=...)), so its writes are never unstamped. For real
+  (ControlPlane(job_system_actor_id=...)), so its writes are never unstamped. Set it:
+  a production boot that declares a job or a schedule without one is REFUSED, and outside
+  production the boot warns that those rows are going in unattributed. For real
   off-request execution + durability, wire a durable adapter and require it at boot:
       create_app(specs, ..., job_queue=<durable>, require_durable_jobs=settings.is_production)
 - The system actor CANNOT update or delete a user's OwnedMixin row. It remains a

@@ -20,6 +20,7 @@ import importlib
 import json
 import pathlib
 import sys
+import textwrap
 
 from fastapi import FastAPI
 
@@ -66,7 +67,8 @@ def render_jobs(dotted: str = "control_plane:control_plane") -> str:
 
     Generated from the live :class:`~terp.core.JobCatalog`, so it always matches what the
     app declares — name, routing queue, retry budget, and visibility — plus the configured
-    system actor a user-less job runs as.
+    system actor a user-less job runs as, or, when jobs are declared and no actor is, the
+    reason a production boot refuses that (ADR 0125).
     """
     plane = _load_control_plane(dotted)
     lines = ["Jobs"]
@@ -80,6 +82,26 @@ def render_jobs(dotted: str = "control_plane:control_plane") -> str:
     if plane.job_system_actor_id is not None:
         lines.append("")
         lines.append(f"System actor: {plane.job_system_actor_id}")
+    else:
+        # This surface used to be silent in exactly the state that now refuses a
+        # production boot (ADR 0125), which made it the last place an operator would
+        # learn about it. The boot check's own sentence is reused rather than
+        # paraphrased, so the two cannot drift -- and it stays quiet when nothing is
+        # declared, because then there is nothing to refuse.
+        for problem in plane.production_problems():
+            lines.append("")
+            lines.append("System actor: NONE")
+            # Wrapped and indented because a BootError is read once, in a log, while
+            # this is read by someone deciding whether to deploy -- a single 300-column
+            # line is the same information nobody finishes reading.
+            lines.extend(
+                textwrap.wrap(
+                    problem[:1].upper() + problem[1:],
+                    width=88,
+                    initial_indent="  ",
+                    subsequent_indent="  ",
+                )
+            )
     return "\n".join(lines)
 
 
