@@ -12,6 +12,35 @@ decision, 0001 onwards.
 
 ## 0.20.0 — 2026-09-08
 
+### Changed
+
+- **Four of the frontend test stack's majors adopted: vitest 5, jsdom 30,
+  @testing-library/jest-dom 7 and @types/node 26.** Held out of the grouped bump that
+  became 0.19.0's frontend update, each on the grounds that a major needs its own
+  evidence. This is that evidence, and it found one real incompatibility and one thing
+  worth knowing about the tooling.
+
+  Vitest 5's jsdom environment installs a `Request` **subclass** whose constructor
+  pre-processes `init.body` for jsdom's Blob internals — it reads `_buffer`. The
+  react-core setup deliberately replaces jsdom's `File` / `Blob` / `FormData` with
+  Node's, because jsdom's do not survive Node's fetch, so that body is a Node `FormData`
+  holding a Node `File` and the shim throws on it. Handed a jsdom `FormData` instead the
+  shim does not recognise it as form data at all and serialises the body as a string, so
+  the request leaves as `text/plain` — the multipart upload test fails either way, for
+  two different reasons. The setup now unwraps that shim to the class it extends,
+  restoring Node's own constructor, which serialises a Node `FormData` as multipart with
+  a boundary. Guarded on the shim being present, so a later Vitest that stops wrapping
+  makes it a no-op.
+
+  The thing worth knowing: **vitest 5 paired with jsdom 29 silently runs a fifth of the
+  suite.** All 65 files carrying `// @vitest-environment jsdom` are dropped, the
+  remaining 16 pass, and the run reports success with exit 0 — no error, no skip count,
+  nothing. `vitest list` still enumerates all 81, so discovery is fine and execution is
+  not. Nothing declares the constraint that would have caught it either: vitest's
+  `peerDependencies` say `jsdom: "*"`. The pair shipped here (5 + 30) runs all 80 files
+  and 761 tests, but the shape of that failure is worth recording — a version mismatch
+  in a test environment that presents as a green build.
+
 ### Fixed
 
 - **A release can no longer discover mid-upload that one of its distributions has no

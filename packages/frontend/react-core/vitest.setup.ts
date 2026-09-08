@@ -27,6 +27,25 @@ if (typeof window !== "undefined") {
   ).constructor as typeof FormData;
   globalThis.FormData = NativeFormData;
   window.FormData = NativeFormData;
+
+  // Vitest's jsdom environment installs a `Request` SUBCLASS whose constructor
+  // pre-processes `init.body` for jsdom's Blob internals (it reads `_buffer`).
+  // With the swap above that body is a Node FormData holding a Node File, so the
+  // shim throws on the one thing these tests exist to check — and handed a jsdom
+  // FormData instead it does not recognise it as form data at all and serialises
+  // the body as a string, so the request goes out as `text/plain` and the
+  // multipart assertion fails for a second, quieter reason. Unwrapping to the
+  // class it extends restores Node's own constructor, which serialises a Node
+  // FormData as multipart with a boundary.
+  //
+  // Guarded on the shim actually being there: a real `Request` is a base class,
+  // so its prototype is `Function.prototype`. If a later Vitest stops wrapping,
+  // this becomes a no-op rather than reaching for something that is not a class.
+  const RequestBase = Object.getPrototypeOf(globalThis.Request) as typeof Request;
+  if (typeof RequestBase === "function" && (RequestBase as unknown) !== Function.prototype) {
+    globalThis.Request = RequestBase;
+    window.Request = RequestBase;
+  }
 }
 
 // jsdom does not implement scrollTo, which TanStack Router calls on navigation; stub it so
