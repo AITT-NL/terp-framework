@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import shlex
 import subprocess
 import sys
+from collections.abc import Iterator
 
 import pytest
 
@@ -29,6 +31,7 @@ from terp.cli.verify import (  # noqa: E402
     _json_documents,
     _run_api_docs_drift,
     _run_platform_install,
+    _run_production_readiness,
     _run_subprocess,
 )
 
@@ -68,6 +71,35 @@ def test_every_check_is_well_formed() -> None:
     assert "architecture" in seen_ids
 
 
+def test_every_in_process_runner_is_dispatched() -> None:
+    """A check declaring an in-process runner must have a branch that calls it.
+
+    Found by mutation, not by reasoning: removing the dispatch branch for a new check
+    left every test green. `runner` is a plain string, and the dispatch chain ends in
+    an `else` that shells the check's `command` — so an unhandled runner does not
+    raise, it runs `terp verify --only <id>` in a child process, whose code is the
+    same code and also does not handle it. The check recurses until something runs
+    out, and what a reader sees is a gate that hangs rather than one that is wired
+    wrong.
+
+    Reads the dispatch chain from the source because the branches are statements and
+    there is nothing to introspect. The declared side comes from the live PROFILES
+    table, so a runner added to a check is covered here the day it is added.
+    """
+    declared = {
+        check.runner for checks in PROFILES.values() for check in checks
+    } - {"subprocess"}
+    assert declared, "no in-process runners found — this test would check nothing"
+    source = (_CLI_SRC / "terp" / "cli" / "verify.py").read_text(encoding="utf-8")
+    dispatched = set(re.findall(r'check\.runner == "([a-z0-9-]+)"', source))
+    missing = sorted(declared - dispatched)
+    assert not missing, (
+        f"{missing} declare an in-process runner that nothing dispatches. The chain's "
+        "else branch shells the check's own command, so each of these re-invokes "
+        "`terp verify --only <id>` in a child process that does the same thing again."
+    )
+
+
 def test_the_full_profile_is_the_template_ci_surface() -> None:
     # The merge bar: architecture gate, backend tests, the delegated AppSec
     # baseline (ADR 0085), and the frontend chain — the exact blocking checks
@@ -89,6 +121,12 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # comes up perfectly, so this one belongs on the merge bar rather than
         # beside it. It checks safety only, never shape.
         "deploy-safety",
+        # ...and would it come up at all? Three of the platform's boot refusals are
+        # decided by what the control plane declares, and outside production the same
+        # states only log. So an app could declare a job, name no actor for its
+        # writes, and take a green full profile to a deployment that refuses to
+        # start — every surface agreeing, because none of them asked.
+        "production-readiness",
         "architecture",
         "backend-tests",
         "appsec-baseline",
@@ -531,6 +569,175 @@ def test_the_independently_released_spec_mirror_is_not_a_missed_pin(
     _backend_consistent_at(monkeypatch, "0.6.0")
     _write_manifest(tmp_path / "frontend" / "package.json", {"@terpjs/spec": "^0.24.0"})
     assert _run_platform_install(tmp_path)[0] == 0
+
+
+@pytest.fixture
+def fresh_control_plane_import() -> Iterator[None]:
+    """Let each case import its own ``control_plane`` package.
+
+    One process imports a module name once, so without this the second fixture in
+    this file would silently read the first one's declarations — and every case
+    after it would assert against a plane it did not write. A real run has exactly
+    one app, which is why the runner itself does not do this.
+    """
+    for name in [name for name in sys.modules if name.split(".")[0] == "control_plane"]:
+        del sys.modules[name]
+    try:
+        yield
+    finally:
+        for name in [
+            name for name in sys.modules if name.split(".")[0] == "control_plane"
+        ]:
+            del sys.modules[name]
+
+
+def _write_control_plane(root: pathlib.Path, body: str) -> None:
+    """Write ``control_plane/__init__.py`` with *body* declaring ``control_plane``."""
+    package = root / "control_plane"
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "__init__.py").write_text(body, encoding="utf-8")
+
+
+#: A plane that boots in production: CORS declared (disabled WITH a reason is the
+#: explicit form, the shape the template ships), default password policy, and a
+#: declared job whose writes name an actor. Every case below starts from this and
+#: removes exactly one thing, so a passing assertion can only come from the removal.
+_READY_PLANE = '''
+import uuid
+
+from pydantic import BaseModel
+
+from terp.core import (
+    ControlPlane,
+    CorsPolicy,
+    JobCatalog,
+    JobDefinition,
+    SecurityConfig,
+)
+
+
+class Tick(BaseModel):
+    pass
+
+
+WORK = JobDefinition(
+    name="nightly.tick", payload_schema=Tick, handler=lambda context, payload: None
+)
+
+control_plane = ControlPlane(
+    security=SecurityConfig(cors=CorsPolicy.disabled(reason="server-to-server")),
+    jobs=JobCatalog([WORK]),
+    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),
+)
+'''
+
+
+def test_a_production_ready_control_plane_passes(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """The baseline every case below mutates, so a red elsewhere is the mutation."""
+    _write_control_plane(tmp_path, _READY_PLANE)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 0, output
+    assert "boots in production" in output
+
+
+def test_a_declared_job_with_no_actor_fails_the_gate(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """The state that took a green full profile to a deployment that will not start.
+
+    `create_app` raises BootError on it under ENVIRONMENT=production and only logs
+    outside production (ADR 0125), and until now nothing between those two moments
+    asked — not the gate, not the machine-readable envelope.
+    """
+    _write_control_plane(
+        tmp_path, _READY_PLANE.replace('    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),\n', "")
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "jobs: " in output, f"the failure must say which half declared it: {output!r}"
+    assert "job_system_actor_id" in output, "and name the field that fixes it"
+
+
+def test_an_unsafe_security_declaration_fails_the_gate(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """CORS left unset is a production boot refusal too, and it was equally unasked.
+
+    Fixing only the job-actor case would leave the same class of defect in two more
+    places — the trap the platform's own upgrade recipe warns about, one level up.
+    """
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            '    security=SecurityConfig(cors=CorsPolicy.disabled(reason="server-to-server")),\n',
+            "",
+        ),
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "security: " in output and "CORS" in output, output
+
+
+def test_a_relaxed_password_policy_fails_the_gate(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """The third declared refusal: a policy with the strength floor taken out."""
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            "from terp.core import (",
+            "from terp.core import (\n    PasswordPolicy,",
+        ).replace(
+            "    jobs=JobCatalog([WORK]),",
+            '    passwords=PasswordPolicy.relaxed(reason="local fixtures"),\n'
+            "    jobs=JobCatalog([WORK]),",
+        ),
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "passwords: " in output, output
+
+
+def test_a_tree_with_no_control_plane_is_a_note_not_a_red(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """The platform's own checkout, and an app predating the module: nothing to read.
+
+    A note rather than silence, because the reader is the only one who can turn it
+    on — the shape `routes-drift` already uses for an unadopted seam.
+    """
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 0
+    assert output.startswith("note: "), output
+
+
+def test_a_control_plane_that_yields_no_plane_is_a_red(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """Adopted the pattern, then stopped answering — not a layout choice.
+
+    `terp jobs list`, `terp inspect control-plane` and the app's own composition root
+    all read this one reference, so all of them are broken in this state.
+    """
+    _write_control_plane(tmp_path, "control_plane = {'permissions': 'whatever'}\n")
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1
+    assert "did not resolve to a terp.core.ControlPlane" in output
+
+
+def test_an_uninmportable_control_plane_is_a_red(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """A plane that raises on import is an app that cannot boot at all, so the
+    verdict is red and carries the exception — this is a CLI diagnosing a tree, not
+    a response to a client."""
+    _write_control_plane(tmp_path, "raise RuntimeError('the capability is not installed')\n")
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1
+    assert "could not be imported" in output
+    assert "the capability is not installed" in output
 
 
 def _write_pyproject(path: pathlib.Path, body: str) -> None:

@@ -38,6 +38,7 @@ required lanes.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import pathlib
@@ -183,6 +184,7 @@ class VerifyCheck:
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
     # | "dependency-hygiene" | "workbench" | "deploy-safety"
+    # | "production-readiness"
     runner: str = "subprocess"
 
 
@@ -257,6 +259,20 @@ _DEPLOY_SAFETY = VerifyCheck(
     command="terp verify --only deploy-safety",
     scope=("docker-compose.prod.yml",),
     runner="deploy-safety",
+)
+
+# Runs beside deploy-safety and for the same reason, one layer in. That check reads
+# the deployment artifact for properties a declaration cannot excuse; this one reads
+# the declaration itself for the states the platform's own boot refuses. Both answer
+# "would this actually come up where it matters", which is the question a green gate
+# is otherwise silent about — and both cost a file read or an import, so they can run
+# in every profile including the cheapest.
+_PRODUCTION_READINESS = VerifyCheck(
+    id="production-readiness",
+    category="architecture",
+    command="terp verify --only production-readiness",
+    scope=("control_plane/**/*.py",),
+    runner="production-readiness",
 )
 
 _ARCHITECTURE = VerifyCheck(
@@ -416,6 +432,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ENV_SEAMS,
         _WORKBENCH,
         _DEPLOY_SAFETY,
+        _PRODUCTION_READINESS,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _FRONTEND_BOUNDARIES,
@@ -428,6 +445,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ENV_SEAMS,
         _WORKBENCH,
         _DEPLOY_SAFETY,
+        _PRODUCTION_READINESS,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _DEPENDENCY_HYGIENE,
@@ -444,6 +462,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ENV_SEAMS,
         _WORKBENCH,
         _DEPLOY_SAFETY,
+        _PRODUCTION_READINESS,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _DEPENDENCY_HYGIENE,
@@ -1185,6 +1204,93 @@ def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
     )
 
 
+#: The reference every other Terp surface already uses for the authority aggregate:
+#: `terp jobs list`, `terp inspect control-plane` and the template's own composition
+#: root all resolve `control_plane:control_plane`. Named here rather than made an
+#: option, because a check that has to be told where to look is a check an app can
+#: leave unaimed.
+_CONTROL_PLANE_REF = "control_plane:control_plane"
+
+
+def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
+    """Refuse a tree whose declared control plane cannot boot in production.
+
+    Three of the platform's boot refusals are decided entirely by what the control
+    plane declares — no environment, no database, no request. `create_app` raises
+    `BootError` on each of them under `ENVIRONMENT == "production"`: an unsafe
+    security config, a password policy with no strength floor, and background work
+    that names no actor to stamp its writes with (ADR 0125). Outside production the
+    same states log a warning and keep booting, on purpose, because a developer who
+    has not wired a system principal yet should not be blocked by one.
+
+    Nothing gated the gap between those two behaviours. An app could declare a job,
+    never set `job_system_actor_id`, and take a green `--profile full` all the way to
+    a deployment that refuses to start — the gate, the machine envelope and CI all
+    agreeing, because none of them asked. This asks, and it is the same argument
+    `platform-install` already makes about mixed installs: a warning inside a command
+    nobody runs before shipping is not a control, so the verdict belongs where it can
+    fail.
+
+    Reads the *declared* plane and never builds the app, so it costs one module import
+    and can sit in every profile. The audit refusal is deliberately not among the
+    three: it turns on `create_app(audit_sink=...)`, a runtime argument this check
+    cannot see, and a check that pretended to cover it would be worse than the gap.
+
+    Skips with a note for a tree with no importable control plane — the platform's own
+    checkout, and an app whose authority surface predates the module. A plane that
+    imports and yields no `ControlPlane`, however, is a red: every other Terp command
+    reads the same reference, so the app has adopted the pattern and the file the
+    tooling depends on has stopped answering.
+    """
+    from terp.core import ControlPlane
+
+    if not (project_root / "control_plane").is_dir():
+        return (
+            0,
+            f"{NOTE_PREFIX}no control_plane/ package - production readiness not "
+            "applicable (the authority surface every other terp command reads)",
+        )
+    root = str(project_root.resolve())
+    restore = root not in sys.path
+    if restore:
+        sys.path.insert(0, root)
+    module_name, _, attr = _CONTROL_PLANE_REF.partition(":")
+    try:
+        importlib.invalidate_caches()
+        module = importlib.import_module(module_name)
+        plane = getattr(module, attr, None)
+    except Exception as exc:  # noqa: BLE001 - any import failure is the app's answer
+        return 1, (
+            f"{_CONTROL_PLANE_REF} could not be imported, so what this app declares "
+            f"cannot be established: {type(exc).__name__}: {exc}"
+        )
+    finally:
+        if restore and root in sys.path:
+            sys.path.remove(root)
+    if not isinstance(plane, ControlPlane):
+        return 1, (
+            f"{_CONTROL_PLANE_REF} did not resolve to a terp.core.ControlPlane "
+            f"(found {type(plane).__name__}). Every terp command reads that reference "
+            "- `terp jobs list`, `terp inspect control-plane` and the app's own "
+            "composition root - so this is not a layout choice, it is a surface that "
+            "has stopped answering."
+        )
+    problems = [
+        *(f"security: {problem}" for problem in plane.security.production_problems()),
+        *(f"passwords: {problem}" for problem in plane.passwords.production_problems()),
+        *(f"jobs: {problem}" for problem in plane.production_problems()),
+    ]
+    if problems:
+        return 1, (
+            "this app's control plane refuses a production boot:\n"
+            + "".join(f"  {problem}\n" for problem in problems)
+            + "Each of these raises BootError under ENVIRONMENT=production and only "
+            "logs a warning outside it, so a green gate over this state is a gate "
+            "that agrees with a deployment that will not start."
+        )
+    return 0, "the declared control plane boots in production (security, passwords, jobs)"
+
+
 def _run_routes_drift(root: pathlib.Path) -> tuple[int, str]:
     """Refuse a committed route table that no longer matches the module manifests.
 
@@ -1600,6 +1706,8 @@ def run_verify_command(
             from terp.cli.deploy_safety import run_deploy_safety_check
 
             exit_code, output = run_deploy_safety_check(project_root)
+        elif check.runner == "production-readiness":
+            exit_code, output = _run_production_readiness(project_root)
         else:
             exit_code, output = _run_subprocess(check, project_root)
             reports = _reports_in(output)
