@@ -72,7 +72,9 @@ or `python` will not resolve.
   what this app already has, what it can adopt, the exact `uv add` line and the
   composition-root wiring. **Read this before building infrastructure by hand** —
   durable delivery, realtime push, background jobs, scheduling, file storage,
-  multi-tenancy, signed webhooks and shared multi-replica state are already solved.
+  multi-tenancy, signed webhooks, outbound HTTP (`terp-cap-egress` — the rule over
+  outbound calls names it, and hand-rolling one gets refused) and shared
+  multi-replica state are already solved.
 - **`uv run terp verify`** — the one-command gate: runs the declared verification
   profile (`--profile quick` for per-edit static checks, `--profile full` for the
   merge bar CI enforces, `--profile release` before shipping). `--list` shows what a
@@ -83,8 +85,10 @@ or `python` will not resolve.
   structured violations (rule, file, line, message, and the `uv run terp guide` fix
   recipe) for tools and agents; `--format check-report` emits the Terp Standard
   check-report document (catalog-attributed findings + the evaluated-rule inventory).
-- **`uv run terp dev`** — run the API (:8000) and frontend (:5173) together, with an
-  OpenAPI preflight so the typed client stays current.
+- **`uv run terp dev`** — run the API (:22100) and frontend (:21100) together, with an
+  OpenAPI preflight so the typed client stays current. Not 8000 and 5173: every host
+  port Terp binds by default sits in a range Terp owns (web 21100+, api 22100+, deploy
+  23100+), because 8000 and 5173 are where a developer's *other* applications live.
 - **`uv run terp new module <name>`** — scaffold the five slots.
   **`uv run terp inspect control-plane`** — your roles, permissions, and per-module
   authority map.
@@ -119,6 +123,12 @@ variable, update the manifest in the same change:
   environment-specific values and renders it there. Locally, `cp .app.env.example
   .app.env` — running the inner loop on the deployed seam is how divergence surfaces
   here rather than in production.
+- **Declaring a job or a schedule? Declare `JOB_SYSTEM_ACTOR_ID` here too.** It is the
+  principal a background write is stamped with when no user originated the work, and
+  production refuses to boot without one. It belongs in the manifest rather than in
+  code because the id is a service principal in a particular database, and one image
+  runs against several — `create_app` resolves it, so there is no env read to write.
+  Golden rule 10.
 - Add concise titles/descriptions; use `required` only when the app cannot operate
   without the variable. Validate the JSON and run the relevant gate after editing.
 - **Keep every text field to 500 characters** (`type`, `title`, `description`,
@@ -148,6 +158,20 @@ npm --prefix frontend run typecheck   # frontend types (tsc)
 npm --prefix frontend run lint        # frontend boundary lint + budget
 npm --prefix frontend run build       # the production build CI ships
 ```
+
+Three of the profile's checks ask questions the test suite cannot, and each of them
+reddens for a reason no test failure will explain:
+
+- `production-readiness` — would this app boot in production? Three refusals are
+  decided by what the control plane declares (an unsafe security config, a password
+  policy with no strength floor, background work naming no actor), and outside
+  production they only log. A green gate over one of them agrees with a deployment
+  that will not start.
+- `deploy-safety` — would this deployment ship something that cannot be taken back?
+  Properties of `docker-compose.prod.yml`, never its shape.
+- `workbench` — can a tool still navigate this app? `workbench.json` declares which
+  parts of the development topology are load-bearing; this audits the declaration
+  against the compose file it describes.
 
 A frontend module that fails typecheck breaks the app at runtime (a blank page —
 Vite refuses the module graph), so a red typecheck means the app does not work,
@@ -183,6 +207,40 @@ Two boundaries are never autonomous agent decisions:
 8. Added or changed a database model? Generate its migration in the same change:
    `uv run terp migrate make <module_name>` (the app refuses to boot behind on
    migrations, and the test gate fails when migrations drift from the models).
+9. Every route declares the **operation** it performs, and the one catalog those
+   declarations are checked against lives in `control_plane/`. Two halves, two files:
+   your own operations go in `control_plane/app_operations.py` (yours, never rewritten
+   by an upgrade), and a capability is folded into `control_plane/operations.py` by
+   **splatting its published set** — `*AUTH_OPERATIONS`, never the constants behind it.
+   Naming them one by one makes that file an inventory of somebody else's router: the
+   day a release adds a route, the boot is refused and the only repair is to read the
+   capability's source. `uv run terp guide operations`.
+10. A declared **job or schedule names the actor its writes are stamped with**.
+   Production refuses to boot without one, because a background write whose
+   `created_by_id` answers nobody is the one answer a provenance column must not give.
+   Supply it by declaring `JOB_SYSTEM_ACTOR_ID` (above) — or set
+   `ControlPlane(job_system_actor_id=...)` if the app resolves its principal another
+   way. `uv run terp jobs list` shows the actor, or says plainly that there is none.
+11. **A module ships tests.** Every wired `modules/<name>` needs at least one, in
+   `tests/<name>/test_*.py` (what `terp scaffold` emits) or a flat
+   `tests/test_<name>_*.py`. The gate refuses a module with neither.
+12. **Production refuses several boots the inner loop only warns about.** Each is
+   decided by what the control plane declares, so each is fixable here and now:
+   - CORS is declared either way — `CorsPolicy.allow([...])` for a browser origin, or
+     `CorsPolicy.disabled(reason=...)` for a server-to-server API. Unset is refused,
+     and so is `'*'`.
+   - The password strength floor stays: `PasswordPolicy.default()`, and never a
+     `min_length` under the safe floor the refusal names.
+   - Rate limiting stays enabled. A `rate_limit_overrides` entry may lower or raise a
+     limit for one path prefix; it may not remove it.
+   - A declared job or schedule names its actor (rule 10).
+
+   `uv run terp verify --only production-readiness` asks all of these, so the answer
+   arrives on the gate rather than on deployment day.
+13. **A stamp is written by the platform, never by hand**, and a read that hands
+   guarded data to someone is recorded with `emit_disclosure(...)` — the read
+   counterpart of `emit_audit`, for the case where nothing was written but something
+   was seen.
 
 ## Frontend golden rules
 
@@ -215,7 +273,11 @@ container's subtree is yours), checked at lint time
 message states the fix (`uv run terp guide layouts`).
 Security defaults are refused too: `dangerouslySetInnerHTML` and DOM HTML-injection
 sinks (render text, or `Markdown` for rich text), `eval()` / `new Function()`,
-`javascript:` URLs, and a static `target="_blank"` without `rel="noopener"`.
+`javascript:` URLs, a static `target="_blank"` without `rel="noopener"`, and raw
+`navigator.clipboard` (use `useCopyToClipboard` / `copyText` — the browser's own API
+rejects without a user gesture, throws in an insecure context, and is missing entirely
+in some embedded webviews, so every call site that used it directly grew a different
+half-handled failure).
 
 No lint modes — every violation is an error. The governed opt-out is a justified
 `// terp-allow-<rule>: <reason>` marker, counted exactly against

@@ -470,6 +470,96 @@ def test_the_app_declares_its_own_operations_outside_the_template_owned_catalog(
     )
 
 
+#: A snake_case identifier — a settings key, a control-plane field.
+_SNAKE_IDENTIFIER = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+){1,}\b")
+#: A sanctioned constructor named in a refusal, e.g. ``CorsPolicy.disabled``.
+_SANCTIONED_CALL = re.compile(r"\b[A-Z][A-Za-z0-9]*\.[a-z][A-Za-z0-9_]*")
+
+
+def _production_refusal_messages() -> list[str]:
+    """Every production boot refusal that is decided by a declaration, as text.
+
+    Called rather than pattern-matched out of the source: the messages are what the
+    platform actually says, and a source scan of the same functions picked up
+    unrelated identifiers from the rest of each module.
+    """
+    from pydantic import BaseModel
+
+    from terp.core import (
+        ControlPlane,
+        JobCatalog,
+        JobDefinition,
+        PasswordPolicy,
+        RateLimit,
+        SecurityConfig,
+    )
+
+    class _Payload(BaseModel):
+        pass
+
+    job = JobDefinition(
+        name="rulebook.tick", payload_schema=_Payload, handler=lambda context, payload: None
+    )
+    return [
+        *ControlPlane(jobs=JobCatalog([job])).production_problems(),
+        *SecurityConfig().production_problems(),
+        *SecurityConfig(rate_limit=RateLimit.disabled()).production_problems(),
+        *PasswordPolicy.relaxed(reason="a fixture").production_problems(),
+        *PasswordPolicy(min_length=4).production_problems(),
+    ]
+
+
+def test_the_template_rulebook_names_every_production_boot_refusal() -> None:
+    """The generated AGENTS.md must teach what refuses a production boot.
+
+    This is the control for a failure that already happened: the template's AGENTS.md
+    went seven releases without a line about the operations catalog or the job actor —
+    the two things that would refuse an upgraded app's boot — and nothing noticed,
+    because it was byte-identical to the template's own copy the whole time. Staleness
+    relative to the template is checked; staleness relative to the platform's rules was
+    not checked by anything.
+
+    Derived from the refusals themselves rather than from a hand-kept list, so a
+    release that adds a production refusal naming a new field fails here until the
+    rulebook says so. What it asks is narrow and deliberately mechanical — that every
+    identifier and sanctioned constructor the platform names in a refusal appears
+    somewhere in the rulebook. It cannot judge whether the surrounding sentence is any
+    good; it can only refuse a rulebook that has never heard of the field.
+    """
+    rulebook = (_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8")
+    named: set[str] = set()
+    for message in _production_refusal_messages():
+        named |= set(_SNAKE_IDENTIFIER.findall(message))
+        named |= set(_SANCTIONED_CALL.findall(message))
+    assert named, "no refusal messages were produced, so this test checked nothing"
+    missing = sorted(token for token in named if token not in rulebook)
+    assert not missing, (
+        f"the generated AGENTS.md never mentions {missing}, and each is named in a "
+        "message the platform prints while refusing a production boot. An agent works "
+        "from that file: a rule it does not carry is a rule the next change will break."
+    )
+
+
+def test_the_template_rulebook_lists_every_guide_topic() -> None:
+    """The topic list in the generated AGENTS.md is the index an agent reads.
+
+    A release that adds a guide topic and leaves this list alone makes the new topic
+    undiscoverable to the one reader the file exists for — which is the same failure as
+    a stale rule, one level less severe. Compared against the CLI's live registry, so
+    the list cannot be stale by more than the commit that changed it.
+    """
+    from terp.cli import guide_topics
+
+    rulebook = (_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8")
+    listed_block = rulebook.split("Topics:", 1)[1].split(".\n", 1)[0]
+    listed = {topic.strip() for topic in re.split(r"[,\s]+", listed_block) if topic.strip()}
+    expected = set(guide_topics())
+    assert listed == expected, (
+        f"the rulebook lists {sorted(listed - expected)} that the CLI does not have, "
+        f"and omits {sorted(expected - listed)} that it does"
+    )
+
+
 def test_project_ships_a_seed() -> None:
     # `terp seed` runs app.seed:seed; the template provisions a first admin (so the app is
     # loginnable) plus demo rows through the audited services.
