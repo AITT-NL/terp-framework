@@ -415,6 +415,61 @@ def test_project_ships_a_docker_workbench() -> None:
     assert "terp docker dev" in (_PROJECT / "README.md.jinja").read_text()
 
 
+def test_the_app_declares_its_own_operations_outside_the_template_owned_catalog() -> None:
+    """The app's half of the operation catalog is a file the template never rewrites.
+
+    `control_plane/operations.py` is template-owned, which is what lets a release
+    correct the folding rule or add a capability and have it arrive by re-render. While
+    the app's own operations lived in that same file — and the template's docstring
+    told authors to put them there — every `copier update` conflicted in it for any app
+    with routes of its own, which is every app. That is a conflict in the one file
+    ADR 0126 set out to stop making people edit.
+
+    So the app's half is `control_plane/app_operations.py`, seeded once
+    (`_skip_if_exists`) and splatted by the catalog. Measured with copier rather than
+    reasoned about: on a re-render of a rendered app carrying an edit in each half,
+    copier reports `skip` for app_operations.py and `overwrite` for operations.py.
+
+    Asserted structurally here because rendering needs copier and a network. The
+    seeded file must not be a `.jinja`: it carries no substitutions, and a template
+    suffix on it would leave a rendered app importing a name that does not exist.
+    """
+    package = _PROJECT / "control_plane"
+    seeded = package / "app_operations.py"
+    assert seeded.is_file(), (
+        "the template must seed control_plane/app_operations.py — the catalog imports "
+        "APP_OPERATIONS from it, so a rendered app without it does not boot"
+    )
+    assert not (package / "app_operations.py.jinja").exists(), (
+        "app_operations.py carries no substitutions; a .jinja suffix would render it "
+        "to a different name and break the import"
+    )
+    app_half = seeded.read_text(encoding="utf-8")
+    assert "APP_OPERATIONS: tuple[OperationDefinition, ...] = ()" in app_half, (
+        "the seeded tuple is empty and typed: an app adds to it, and the type is what "
+        "makes a wrong entry a type error rather than a boot refusal"
+    )
+
+    catalog = (package / "operations.py.jinja").read_text(encoding="utf-8")
+    assert "from control_plane.app_operations import APP_OPERATIONS" in catalog
+    # The splat, not a mention: naming the import without folding it in would leave
+    # every app-declared operation out of the catalog its routes are checked against,
+    # and a STRICT catalog then refuses the boot of the app's own routes.
+    operations_tuple = catalog.split("operations=(", 1)[1].split(")", 1)[0]
+    assert "*APP_OPERATIONS," in operations_tuple, (
+        "control_plane/operations.py must splat *APP_OPERATIONS into the catalog; "
+        f"the tuple is {operations_tuple!r}"
+    )
+
+    # And copier has to know it is the app's, or the next re-render takes it back.
+    copier_config = (_TEMPLATE / "copier.yml").read_text(encoding="utf-8")
+    skip = copier_config.split("_skip_if_exists:", 1)[1].split("\n\n", 1)[0]
+    assert "control_plane/app_operations.py" in skip, (
+        "app_operations.py must be in copier's _skip_if_exists, or an upgrade "
+        "un-declares every operation the app has"
+    )
+
+
 def test_project_ships_a_seed() -> None:
     # `terp seed` runs app.seed:seed; the template provisions a first admin (so the app is
     # loginnable) plus demo rows through the audited services.

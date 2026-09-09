@@ -13,9 +13,13 @@ constants one by one instead makes this file an inventory of somebody else's
 routes: the day a release adds one, a `STRICT` catalog refuses the boot and the
 only repair is to read the capability's source and copy the new name out of it.
 
-Add your own module's operations here as you build them, next to the
-capabilities — one place to read what this app can do, in plain English, without
-tracing HTTP verbs and paths.
+**Your own routes are declared next door, in `app_operations.py`, and folded in
+here the same way** (ADR 0130). This file is template-owned, so a release that
+adds a capability or corrects the folding rule reaches your app through a
+re-render — and while your operations lived here too, every `copier update`
+produced a merge conflict in the one file an upgrade was designed not to make you
+edit. `app_operations.py` is seeded once and never rewritten, so the split is what
+makes the re-render a delivery instead of a negotiation.
 """
 
 from __future__ import annotations
@@ -37,8 +41,13 @@ from terp.capabilities.oidc import OIDC_OPERATIONS
 from terp.capabilities.realtime import REALTIME_OPERATIONS
 {%- endif %}
 
+from control_plane.app_operations import APP_OPERATIONS
+
 operation_catalog = OperationCatalog(
     operations=(
+        # What this app itself does — declared in app_operations.py, which no
+        # upgrade rewrites.
+        *APP_OPERATIONS,
         # Signing in, staying signed in, signing out.
         *AUTH_OPERATIONS,
         # Who exists, and what they may do.

@@ -223,6 +223,7 @@ def scaffold_ref(root: pathlib.Path) -> str | None:
 #: ``test_the_app_owned_scaffold_list_matches_copier`` — the same treatment the theme
 #: bootstrap's three duplicated facts get, so this list cannot rot into a wrong answer.
 _APP_OWNED_SCAFFOLD_FILES = (
+    "control_plane/app_operations.py",
     "environment.schema.json",
     "escape-hatch-budget.json",
     "frontend/layout-contract.json",
