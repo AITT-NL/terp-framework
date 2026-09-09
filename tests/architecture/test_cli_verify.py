@@ -660,6 +660,70 @@ def test_a_declared_job_with_no_actor_fails_the_gate(
     assert "job_system_actor_id" in output, "and name the field that fixes it"
 
 
+def test_a_declared_job_actor_variable_satisfies_the_jobs_half(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """A principal that is a deployment fact is declared, not hard-coded.
+
+    `create_app` fills an unset `job_system_actor_id` from `JOB_SYSTEM_ACTOR_ID`
+    (ADR 0129), so an app whose actor lives in a particular database leaves the field
+    empty on purpose — and the gate's own environment is the last place a production
+    principal's id would be. The declaration is the evidence: `env-seams` refuses a
+    declared variable the deployment does not deliver, so this is a promise with a
+    gate behind it. The plane here is the one that fails the case above, unchanged.
+    """
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            '    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),\n',
+            "",
+        ),
+    )
+    (tmp_path / "environment.schema.json").write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {
+                    "JOB_SYSTEM_ACTOR_ID": {
+                        "type": "string",
+                        "title": "The principal background writes are stamped with",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 0, output
+
+
+def test_declaring_some_other_variable_does_not_satisfy_the_jobs_half(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """Only the variable the resolution actually reads counts.
+
+    A manifest with declarations in it must not read as a manifest that declared this
+    one — that would let any app with an environment schema past the check.
+    """
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            '    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),\n',
+            "",
+        ),
+    )
+    (tmp_path / "environment.schema.json").write_text(
+        json.dumps(
+            {"type": "object", "properties": {"SOME_API_BASE_URL": {"type": "string"}}}
+        ),
+        encoding="utf-8",
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "jobs: " in output
+    assert "JOB_SYSTEM_ACTOR_ID" in output, "the failure must name the way out"
+
+
 def test_an_unsafe_security_declaration_fails_the_gate(
     tmp_path: pathlib.Path, fresh_control_plane_import: None
 ) -> None:

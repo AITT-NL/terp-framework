@@ -1212,6 +1212,30 @@ def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
 _CONTROL_PLANE_REF = "control_plane:control_plane"
 
 
+#: The conventional address a job's system principal arrives at (ADR 0129). An app
+#: that declares this variable has said the value will be supplied, which is the
+#: evidence this check can actually have: the id belongs to a service principal in a
+#: particular database, so the gate's own environment is the last place it would be.
+_JOB_ACTOR_VARIABLE = "JOB_SYSTEM_ACTOR_ID"
+
+
+def _job_actor_arrives_from_the_environment(project_root: pathlib.Path) -> bool:
+    """Whether the app *declares* the job actor as a runtime variable.
+
+    The declaration is the proof, never the value. `create_app` fills an unset
+    `job_system_actor_id` from `JOB_SYSTEM_ACTOR_ID`, so an app whose principal is a
+    deployment fact leaves the field empty on purpose — and reddening it here would
+    punish exactly the delivery mechanism ADR 0129 added. What the app must not be
+    able to do is stay silent: `environment.schema.json` is where a runtime variable
+    is declared, `env-seams` already refuses a declaration the deployment does not
+    deliver, and `terp env file` renders it. So a declared variable is a promise with
+    a gate behind it, which an undeclared one is not.
+    """
+    from terp.cli.envschema import declared_variables
+
+    return _JOB_ACTOR_VARIABLE in declared_variables(project_root)
+
+
 def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     """Refuse a tree whose declared control plane cannot boot in production.
 
@@ -1241,6 +1265,11 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     imports and yields no `ControlPlane`, however, is a red: every other Terp command
     reads the same reference, so the app has adopted the pattern and the file the
     tooling depends on has stopped answering.
+
+    The job-actor half is satisfied by a *declaration* as well as by a value, because
+    ADR 0129 made `JOB_SYSTEM_ACTOR_ID` the conventional way the principal arrives and
+    the gate's own environment is the last place a production principal's id would be.
+    See `_job_actor_arrives_from_the_environment`.
     """
     from terp.core import ControlPlane
 
@@ -1278,7 +1307,11 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     problems = [
         *(f"security: {problem}" for problem in plane.security.production_problems()),
         *(f"passwords: {problem}" for problem in plane.passwords.production_problems()),
-        *(f"jobs: {problem}" for problem in plane.production_problems()),
+        *(
+            f"jobs: {problem}"
+            for problem in plane.production_problems()
+            if not _job_actor_arrives_from_the_environment(project_root)
+        ),
     ]
     if problems:
         return 1, (
@@ -1286,7 +1319,10 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
             + "".join(f"  {problem}\n" for problem in problems)
             + "Each of these raises BootError under ENVIRONMENT=production and only "
             "logs a warning outside it, so a green gate over this state is a gate "
-            "that agrees with a deployment that will not start."
+            "that agrees with a deployment that will not start.\n"
+            "  A job actor that is a deployment fact rather than a source constant is "
+            "declared, not hard-coded: put JOB_SYSTEM_ACTOR_ID in "
+            "environment.schema.json and create_app will resolve it (ADR 0129)."
         )
     return 0, "the declared control plane boots in production (security, passwords, jobs)"
 

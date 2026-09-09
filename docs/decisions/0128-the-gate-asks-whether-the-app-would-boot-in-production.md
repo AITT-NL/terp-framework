@@ -82,7 +82,10 @@ tooling depends on has stopped answering.
 **The escape is the declaration itself.** There is no new marker and no budget entry. CORS
 is excused by `CorsPolicy.disabled(reason=...)`, which is already the framework's escape
 shape: explicit, greppable, and arriving in the diff that accepts the risk. Background work
-is excused by naming an actor or by not declaring the job.
+is excused by naming an actor, by declaring `JOB_SYSTEM_ACTOR_ID` in
+`environment.schema.json` (ADR 0129 — a production principal's id is the last
+thing a gate's environment would hold, and `env-seams` already refuses a declared
+variable the deployment does not deliver), or by not declaring the job.
 
 ## Consequences
 

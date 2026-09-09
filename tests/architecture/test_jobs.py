@@ -819,6 +819,87 @@ def test_create_app_accepts_a_production_boot_that_names_its_actor(
     assert active_job_system_actor() == system
 
 
+def test_the_job_actor_may_arrive_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A service principal's id is a deployment fact, so it can be supplied as one.
+
+    ADR 0125 refused a platform-wide *sentinel* and left *delivery* to every app, so
+    each one that declared a job hand-rolled the same env read, UUID parse and error
+    path. ADR 0129 gives that a conventional address. The plane below is the exact
+    plane the refusal test above uses — same job, same empty field — so a boot here
+    can only come from the environment being read.
+    """
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    supplied = uuid.uuid4()
+    monkeypatch.setattr(settings, "JOB_SYSTEM_ACTOR_ID", supplied)
+    job = _doc_job()
+    spec = ModuleSpec(name="docs", policy=Policy.default(), jobs=(job,))
+
+    create_app([spec], control_plane=_production_safe(jobs=JobCatalog([job])))
+    assert active_job_system_actor() == supplied
+
+
+def test_an_explicit_job_actor_wins_over_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An app that resolves its principal some other way must keep saying so.
+
+    Both sources carry a value here, and they differ — a resolution that preferred the
+    environment, or one that merely checked "is anything set", would satisfy a test
+    whose two ids happened to agree.
+    """
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    declared, from_environment = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(settings, "JOB_SYSTEM_ACTOR_ID", from_environment)
+    job = _doc_job()
+    spec = ModuleSpec(name="docs", policy=Policy.default(), jobs=(job,))
+
+    create_app(
+        [spec],
+        control_plane=_production_safe(
+            jobs=JobCatalog([job]), job_system_actor_id=declared
+        ),
+    )
+    assert active_job_system_actor() == declared
+
+
+def test_an_unset_environment_leaves_the_production_refusal_in_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal is unchanged when neither source names anybody.
+
+    Asserted with the variable explicitly cleared rather than relying on the ambient
+    environment: a machine that happened to export JOB_SYSTEM_ACTOR_ID would otherwise
+    turn the refusal test green for a reason that has nothing to do with the code.
+    """
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    monkeypatch.setattr(settings, "JOB_SYSTEM_ACTOR_ID", None)
+    job = _doc_job()
+    spec = ModuleSpec(name="docs", policy=Policy.default(), jobs=(job,))
+
+    with pytest.raises(BootError, match="unattributable background writes"):
+        create_app([spec], control_plane=_production_safe(jobs=JobCatalog([job])))
+
+
+def test_the_settings_field_parses_the_variable_into_a_uuid() -> None:
+    """Typed, so the parse and its error live in one place instead of every app.
+
+    A malformed id is refused where it is read — the app never sees a string it has to
+    validate, which is the boilerplate this replaced.
+    """
+    from pydantic import ValidationError
+
+    from terp.core.config import Settings
+
+    parsed = Settings(JOB_SYSTEM_ACTOR_ID="3f2504e0-4f89-11d3-9a0c-0305e82c3301")
+    assert parsed.JOB_SYSTEM_ACTOR_ID == uuid.UUID("3f2504e0-4f89-11d3-9a0c-0305e82c3301")
+    assert Settings().JOB_SYSTEM_ACTOR_ID is None
+
+    with pytest.raises(ValidationError):
+        Settings(JOB_SYSTEM_ACTOR_ID="the-system-user")
+
+
 def test_create_app_warns_outside_production_about_unstamped_jobs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
