@@ -234,7 +234,9 @@ _APP_OWNED_SCAFFOLD_FILES = (
 )
 
 
-def _scaffold_lines(root: pathlib.Path, platform: str) -> list[str]:
+def _scaffold_lines(
+    root: pathlib.Path, platform: str, *, include_command: bool = True
+) -> list[str]:
     """Report how far the app's *scaffolding* is behind its *packages*.
 
     The two move independently and only one of them is gated. Package drift already fails
@@ -269,15 +271,124 @@ def _scaffold_lines(root: pathlib.Path, platform: str) -> list[str]:
         f"{platform}.",
         "A re-render rewrites EVERY file the template owns — main.tsx, index.html,",
         "AGENTS.md, the Dockerfiles, docker-compose.yml, the CI workflows — so any fix a",
-        "release made to one of them is still waiting here. Nothing gates this, so it",
-        "stays green; a stale AGENTS.md in particular briefs every agent from the wrong",
-        "rulebook, and a stale docker-compose.yml can serve a dev stack that disagrees",
-        "with the checkout the boundary lint reads.",
+        "release made to one of them may still be waiting here. WHICH of them actually",
+        "differ is not something this can say: it compares two version numbers, and a",
+        "file no release has touched since is already current. Nothing gates any of it,",
+        "so it stays green either way — and the two that cost the most when they are",
+        "behind are AGENTS.md, which briefs every agent working here, and",
+        "docker-compose.yml, which can serve a dev stack that disagrees with the",
+        "checkout the boundary lint reads.",
         "These are seeded once and then the app's, so a re-render leaves them alone:",
         *(f"  {name}" for name in _APP_OWNED_SCAFFOLD_FILES),
+        # Suppressed when a recipe above already numbered the re-render as a step: the
+        # same command printed twice in one report reads as two different things to do,
+        # and the recipe's copy is the one with the tree-cleaning step before it.
+        *(
+            [
+                "",
+                "  Re-render:  copier update  (or the Studio's upgrade flow, which "
+                "records the",
+                "              answers file it needs).",
+            ]
+            if include_command
+            else []
+        ),
+    ]
+
+
+def _has_template_provenance(root: pathlib.Path) -> bool:
+    """Whether ``copier update`` can run here at all.
+
+    It needs the answers file copier writes at render time; without one there is no
+    recorded template and no answers to re-render from, so the only way to move an app
+    forward is by hand. That is the whole reason the recipe below has two shapes.
+    """
+    return scaffold_ref(root) is not None
+
+
+def _rerender_recipe(target: str, current: str, count: int) -> list[str]:
+    """The upgrade for an app the template rendered: re-render first, sync once.
+
+    The order used to be the other way round and could not be followed as printed.
+    Steps 2 to 4 were "edit the pins, uv sync, npm install", and the re-render came
+    after them — but ``copier update`` refuses a dirty tree, so the recipe's own
+    earlier steps made its last step impossible, and whoever followed it had to stash
+    halfway through.
+
+    Worse, those pin edits were work the re-render does. The template owns
+    ``pyproject.toml``, ``frontend/package.json`` and ``conformance/package.json``, so
+    a re-render writes every one of those pins itself. The old recipe even warned that
+    "a recipe that names only one is how the other goes stale" — which is an admission
+    that the hand-pinning step was a footgun, for a job already done one step later.
+
+    So: read, clean the tree, re-render, resolve, sync once, confirm, verify.
+    """
+    return [
         "",
-        "  Re-render:  copier update  (or the Studio's upgrade flow, which records the",
-        "              answers file it needs).",
+        f"All {count} packages can move to {target} together. Re-render FIRST — the",
+        "template owns pyproject.toml and both npm manifests, so the re-render writes",
+        "every pin itself, and it refuses to run on a tree with uncommitted changes:",
+        "",
+        f"  1. Read what changed:  uvx --from terp-cli=={target} terp guide changelog",
+        f"     (the {target} notes; the copy installed here ends at {current}).",
+        "  2. Commit or discard what you have. A re-render on a dirty tree is refused,",
+        "     and its own diff is much easier to review on its own.",
+        "  3. copier update          (or the Studio's upgrade flow, which records the",
+        "     answers file it needs). This rewrites EVERY file the template owns and",
+        "     writes the terp-* and @terpjs/* pins for you.",
+        "  4. Resolve what it reports. Two conflicts are structural rather than bad luck,",
+        "     because the template owns the file and your app also writes to it:",
+        "       pyproject.toml            keep your dependencies, take the terp-* pins.",
+        "       control_plane/operations.py  the capability folding is the template's;",
+        "                                 your own operations belong in",
+        "                                 control_plane/app_operations.py, which no",
+        "                                 re-render touches (ADR 0130).",
+        "  5. uv sync --refresh && npm --prefix frontend install",
+        "     (once, now that the manifests are final — not before the re-render.)",
+        "  6. uv run terp --version          (confirm the set agrees)",
+        "  7. uv run terp verify --profile full",
+        "",
+        "  Running the dev stack in containers?",
+        "  Rebuild it rather than reloading into it: the images bake the terp packages",
+        "  in while the source is bind-mounted, so correct new code reloads against old",
+        "  libraries and dies on an import nowhere near its cause. `terp docker dev`",
+        "  rebuilds on a pyproject.toml change; a plain `docker compose up` does not,",
+        "  and `terp verify` now refuses the skew either way.",
+        "",
+        "A green gate proves the upgrade did not break this app. It cannot prove the",
+        "release did not change something this app should adopt — step 1 is the only",
+        "thing that answers that.",
+    ]
+
+
+def _hand_pin_recipe(target: str, current: str, count: int) -> list[str]:
+    """The upgrade for an app with no recorded template: every pin by hand.
+
+    No answers file means ``copier update`` has nothing to re-render from, so the pins
+    the template would have written have to be written here instead. Kept in full for
+    exactly that case and printed nowhere else — an app the template rendered is told
+    to re-render, because doing both is what produced two needless installs.
+    """
+    return [
+        "",
+        f"All {count} packages can move to {target} together. This app records no",
+        "template answers file, so `copier update` has nothing to re-render from and",
+        "the pins have to be written by hand:",
+        "",
+        f"  1. Read what changed:  uvx --from terp-cli=={target} terp guide changelog",
+        f"     (the {target} notes; the copy installed here ends at {current}).",
+        f"  2. Pin every terp-* dependency to =={target} in pyproject.toml",
+        "     (including the dev group — a forgotten pin is a mixed install).",
+        f"  3. Pin every @terpjs/* package to ^{target} in EVERY manifest that",
+        "     declares one — frontend/package.json AND conformance/package.json",
+        "     (a recipe that names only one is how the other goes stale).",
+        "  4. uv sync --refresh && npm --prefix frontend install",
+        "  5. uv run terp --version          (confirm the set agrees)",
+        "  6. uv run terp verify --profile full",
+        "",
+        "A green gate proves the upgrade did not break this app. It cannot prove the",
+        "release did not change something this app should adopt — step 1 is the only",
+        "thing that answers that.",
     ]
 
 
@@ -338,24 +449,16 @@ def render_upgrade_check(root: pathlib.Path | None = None) -> str:
     # to help judge. `uvx --from terp-cli==target` resolves an ephemeral CLI from
     # the same index (terp-cli pins terp-core exactly, so the right CHANGELOG
     # comes with it) without touching this app's environment or its pins.
-    lines += [
-        "",
-        f"All {len(landing)} packages can move to {target} together:",
-        "",
-        f"  1. Read what changed:  uvx --from terp-cli=={target} terp guide changelog",
-        f"     (the {target} notes; the copy installed here ends at {current}).",
-        f"  2. Pin every terp-* dependency to =={target} in pyproject.toml",
-        "     (including the dev group — a forgotten pin is a mixed install).",
-        f"  3. Pin every @terpjs/* package to ^{target} in EVERY manifest that",
-        "     declares one — frontend/package.json AND conformance/package.json",
-        "     (a recipe that names only one is how the other goes stale).",
-        "  4. uv sync --refresh && npm --prefix frontend install",
-        "  5. uv run terp --version          (confirm the set agrees)",
-        "  6. uv run terp verify --profile full",
-        "",
-        "A green gate proves the upgrade did not break this app. It cannot prove the",
-        "release did not change something this app should adopt — step 1 is the only",
-        "thing that answers that.",
-    ]
-    lines += _scaffold_lines(project_root, target)
+    # Which recipe depends on whether copier can run here at all: an app the
+    # template rendered re-renders and gets its pins written for it, and an app with
+    # no answers file writes them by hand. Printing both, or the hand-pin one to an
+    # app that could re-render, is what produced two needless installs and a stash
+    # halfway through.
+    if _has_template_provenance(project_root):
+        lines += _rerender_recipe(target, current, len(landing))
+    else:
+        lines += _hand_pin_recipe(target, current, len(landing))
+    lines += _scaffold_lines(
+        project_root, target, include_command=not _has_template_provenance(project_root)
+    )
     return "\n".join(lines)

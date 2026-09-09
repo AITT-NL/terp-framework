@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import sys
 
 import pytest
@@ -289,6 +290,133 @@ def test_scaffolding_behind_the_packages_is_reported(tmp_path: pathlib.Path) -> 
     assert "docker-compose.yml" in report
     for name in version_mod._APP_OWNED_SCAFFOLD_FILES:
         assert name in report, f"the report does not name the app-owned {name}"
+
+
+def _offered(monkeypatch: pytest.MonkeyPatch, root: pathlib.Path) -> str:
+    """The report for an app on 0.5.4 with 0.6.0 available, rooted at *root*."""
+    _fake_versions(monkeypatch, {"terp-core": "0.5.4", "terp-cap-auth": "0.5.4"})
+    _uv_says(
+        monkeypatch,
+        [
+            {"name": "terp-core", "version": "0.5.4", "latest_version": "0.6.0"},
+            {"name": "terp-cap-auth", "version": "0.5.4", "latest_version": "0.6.0"},
+        ],
+    )
+    return version_mod.render_upgrade_check(root)
+
+
+def test_the_recipe_re_renders_before_it_installs_anything(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The printed order used to be impossible to follow.
+
+    Editing the pins and running the two installers dirties the tree, and
+    ``copier update`` refuses a dirty tree — so the recipe's own earlier steps made its
+    last step impossible, and whoever followed it had to stash halfway through. The pin
+    edits were also work the re-render does: the template owns pyproject.toml and both
+    npm manifests, so a re-render writes every one of those pins itself.
+
+    Asserted as an ORDER and not as presence. Both commands appeared in the old recipe
+    too — the defect was which came first, so any assertion that merely finds them both
+    passes on the version this replaced.
+    """
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    rerender = report.index("copier update")
+    sync = report.index("uv sync --refresh")
+    npm = report.index("npm --prefix frontend install")
+    assert rerender < sync, "the re-render has to come before the installs, not after"
+    assert rerender < npm
+    # And the hand-pinning steps are gone rather than merely reordered: they are the
+    # re-render's own output, and doing both is what produced two needless installs.
+    assert "Pin every terp-* dependency" not in report
+    assert "Pin every @terpjs/* package" not in report
+
+
+def test_the_re_render_recipe_says_to_clean_the_tree_first(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The refusal is copier's, so the recipe has to account for it rather than
+    leave the reader to discover it three steps in."""
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    clean = report.index("Commit or discard what you have")
+    assert clean < report.index("copier update")
+    assert "dirty tree is refused" in report
+
+
+def test_the_re_render_recipe_names_the_two_structural_conflicts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Both conflicts are the template owning a file the app also writes to, so they
+    arrive on every re-render rather than occasionally — and naming them is the
+    difference between a step and a surprise. The operations one now has a fix
+    (ADR 0130); pyproject.toml is told which side wins."""
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    assert "keep your dependencies, take the terp-* pins" in report
+    assert "control_plane/app_operations.py" in report
+
+
+def test_the_re_render_recipe_warns_about_a_containerised_dev_stack(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The images bake the terp packages in while the source is bind-mounted, so
+    correct new code reloads against old libraries and dies on an import nowhere near
+    its cause."""
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    assert "Rebuild it rather than reloading into it" in report
+
+
+def test_the_re_render_command_is_printed_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The recipe numbers the re-render as a step, so the scaffolding report below it
+    must not offer the same command again: printed twice in one report it reads as two
+    different things to do, and only the recipe's copy has the tree-cleaning step in
+    front of it."""
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    assert report.count("copier update") == 1, report
+
+
+def test_an_app_with_no_template_answers_is_told_to_pin_by_hand(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Without an answers file ``copier update`` has nothing to re-render from, so the
+    pins the template would have written have to be written here — including the
+    second npm manifest, which a recipe naming only the frontend left stale."""
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    report = _offered(monkeypatch, bare)
+    assert "records no" in report and "template answers file" in report
+    assert "Pin every terp-* dependency to ==0.6.0" in report
+    assert "conformance/package.json" in report
+    # The command is *explained* here — why it is unavailable — and must never appear
+    # as a numbered step: sending an app copier cannot update to run it is how the old
+    # report sent readers to check something by hand.
+    assert "has nothing to re-render from" in report
+    numbered = [
+        line for line in report.splitlines() if re.match(r"\s+\d+\. ", line)
+    ]
+    assert numbered, "the hand-pin recipe must still print numbered steps"
+    assert not [line for line in numbered if "copier" in line], numbered
+
+
+def test_the_drift_report_does_not_claim_which_files_differ(
+    tmp_path: pathlib.Path,
+) -> None:
+    """It compares two version numbers, and that is all it knows.
+
+    The old wording said a release's fix to any template-owned file "is still waiting
+    here" and named AGENTS.md as the example — which was reported as a false alarm on
+    an app whose AGENTS.md was byte-identical to the template's. Reading the template
+    and diffing it is not available: the template does not ship inside the CLI wheel,
+    which is the same constraint that makes _APP_OWNED_SCAFFOLD_FILES a duplicated
+    list. So the honest fix is the claim, not the mechanism.
+    """
+    report = "\n".join(
+        version_mod._scaffold_lines(_answers(tmp_path / "app", "v0.5.7"), "0.6.1")
+    )
+    assert "may still be waiting" in report
+    assert "is still waiting here" not in report, "that states more than it checked"
+    assert "not something this can say" in report
 
 
 def test_the_app_owned_scaffold_list_matches_copier() -> None:
