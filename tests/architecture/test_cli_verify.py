@@ -533,6 +533,146 @@ def test_the_independently_released_spec_mirror_is_not_a_missed_pin(
     assert _run_platform_install(tmp_path)[0] == 0
 
 
+def _write_pyproject(path: pathlib.Path, body: str) -> None:
+    path.write_text(body, encoding="utf-8")
+
+
+def test_a_manifest_pin_the_environment_does_not_match_fails_the_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The half of the lockstep this check used to skip, and the costlier half.
+
+    The backend verdict read the environment and compared it only against itself, so
+    a manifest asking for one release over an install of another was internally
+    consistent and passed — a green about packages that are not the ones that will
+    run. It is the ordinary middle of an upgrade (repinned, not yet synced), and it
+    is what a container does permanently when it bakes the packages into its image
+    and bind-mounts the source over them.
+    """
+    _backend_consistent_at(monkeypatch, "0.13.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = ["terp-core==0.20.0"]
+''',
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "terp-core is pinned ==0.20.0 but 0.13.0 is installed" in output, (
+        "the failure must name the package, the version the manifest asks for and "
+        f"the version actually installed; got {output!r}"
+    )
+
+
+def test_a_pin_in_a_dependency_group_is_policed_too(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """terp-arch lives in the dev group and it is the gate itself, so a skew there
+    means the rules being enforced are not the release's rules."""
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8.0", "terp-arch==0.17.0"]
+''',
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "dependency-groups.dev: terp-arch is pinned ==0.17.0" in output, (
+        f"the failure must say which half of the manifest carries it; got {output!r}"
+    )
+
+
+def test_extras_and_a_marker_do_not_hide_a_pin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The template writes both spellings, so a parser that choked on either would
+    read the line as "no Terp dependency here" — a green over the very pin at issue."""
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = [
+  "terp-core[secrets]==0.16.0",
+  "terp-cap-files==0.18.0 ; python_version >= '3.13'",
+]
+''',
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    # The exact-pin wording, not merely the name and the version: the range message
+    # carries both of those too, so a looser assertion passes on a parser that read
+    # `[secrets]==0.16.0` as an unrecognised specifier and never saw the pin at all.
+    assert "terp-core is pinned ==0.16.0" in output, f"extras hid the pin: {output!r}"
+    assert "terp-cap-files is pinned ==0.18.0" in output, (
+        f"the marker hid the pin: {output!r}"
+    )
+
+
+def test_a_range_where_a_pin_belongs_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Terp moves in lockstep, so a range is an invitation to the resolver rather
+    than a pin — the same form the frontend half already refuses."""
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = ["terp-core>=0.20.0"]
+''',
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "==0.20.0" in output, "the message states the pin to write"
+
+
+def test_a_requirement_with_no_specifier_is_left_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A workspace member or an editable install keeps its version somewhere other
+    than the manifest — the platform's own tree declares every one of its packages
+    that way. Failing on those would redden the repository that ships the check.
+    """
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = ["terp-core", "terp-cli"]
+''',
+    )
+    assert _run_platform_install(tmp_path)[0] == 0
+
+
+def test_the_independently_released_spec_is_not_a_missed_backend_pin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """terp-spec is released from its own repository on its own cadence (ADR 0082),
+    so its version disagreeing with the platform's is the intended state."""
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = ["terp-spec==0.33.0"]
+''',
+    )
+    assert _run_platform_install(tmp_path)[0] == 0
+
+
 def test_the_platform_install_check_runs_in_process(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

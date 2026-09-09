@@ -1006,6 +1006,92 @@ def _frontend_lockstep_problems(project_root: pathlib.Path, platform: str) -> li
     return problems
 
 
+#: A ``terp-*`` requirement string, split into the distribution and its version
+#: specifier. Extras and environment markers are tolerated because the template
+#: writes both (``terp-core[secrets]==0.20.0``, a marker on a dev-group entry), and a
+#: parser that choked on them would silently read such a line as "no Terp dependency
+#: declared here" — a green over exactly the pin this check exists to police.
+_PY_REQUIREMENT = re.compile(
+    r"^(?P<name>[A-Za-z0-9._-]+)\s*(?:\[[^\]]*\])?\s*(?P<spec>[^;]*)"
+)
+#: The one accepted specifier shape: an exact pin. Terp moves in lockstep, so a range
+#: is a resolver invitation rather than a pin.
+_EXACT_PIN = re.compile(r"^==\s*(?P<version>[A-Za-z0-9._+!-]+)$")
+
+
+def _declared_python_requirements(project_root: pathlib.Path) -> list[tuple[str, str]]:
+    """``(where, requirement)`` for every dependency this app's manifest declares.
+
+    Both halves of the manifest, because a forgotten pin in the dev group is the same
+    mixed install as one in the runtime dependencies — ``terp-arch`` lives there, and
+    it is the gate itself.
+    """
+    manifest = project_root / "pyproject.toml"
+    try:
+        data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        # Unreadable or absent: `_run_dependency_hygiene` and the package-graph check
+        # already report a manifest nobody can parse, and a second voice saying it
+        # would bury the one that explains it.
+        return []
+    found: list[tuple[str, str]] = []
+    for requirement in data.get("project", {}).get("dependencies", []) or []:
+        if isinstance(requirement, str):
+            found.append(("dependencies", requirement))
+    for group, requirements in (data.get("dependency-groups", {}) or {}).items():
+        for requirement in requirements or []:
+            if isinstance(requirement, str):
+                found.append((f"dependency-groups.{group}", requirement))
+    return found
+
+
+def _backend_pin_problems(project_root: pathlib.Path, platform: str) -> list[str]:
+    """Every ``terp-*`` pin in ``pyproject.toml`` that disagrees with what is installed.
+
+    The half of the lockstep that was missing, and it was the more consequential half.
+    This check read the *environment* for backend packages and compared it only against
+    itself, while reading *declarations* for the frontend and comparing them against the
+    platform. So a tree whose manifest said ``terp-core==0.20.0`` over an environment
+    installed at 0.13.0 was internally consistent, passed here, and passed the whole
+    profile — a verdict about code that is not the code that will run.
+
+    Two ways an app arrives there, and neither is exotic. Someone repins and has not run
+    ``uv sync`` yet, which is the ordinary middle of an upgrade. Or a container bakes the
+    packages into its image and bind-mounts the source over them, so a rebuilt checkout
+    reloads new code against old libraries and dies on an import nowhere near the cause.
+
+    Silent on a requirement carrying **no** specifier: that is a workspace member or an
+    editable install (the platform's own tree declares all twenty-odd of its packages
+    that way), where the manifest is not where the version lives. A declared specifier,
+    however, is a claim about a version, and this holds it to the installed one.
+    """
+    from terp.cli.version import _INDEPENDENTLY_VERSIONED, _PREFIX
+
+    problems: list[str] = []
+    for where, requirement in _declared_python_requirements(project_root):
+        match = _PY_REQUIREMENT.match(requirement.strip())
+        if match is None:
+            continue
+        name = match.group("name").lower().replace("_", "-")
+        if not name.startswith(_PREFIX) or name in _INDEPENDENTLY_VERSIONED:
+            continue
+        spec = match.group("spec").strip()
+        if not spec:
+            continue  # a workspace source or an editable install; see the docstring
+        pinned = _EXACT_PIN.match(spec)
+        if pinned is None:
+            problems.append(
+                f"{where}: {name} is declared {spec!r} — Terp moves in lockstep, so "
+                f"pin =={platform}"
+            )
+        elif pinned.group("version") != platform:
+            problems.append(
+                f"{where}: {name} is pinned =={pinned.group('version')} but "
+                f"{platform} is installed"
+            )
+    return problems
+
+
 def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
     """Fail when the installed platform disagrees with itself — either half.
 
@@ -1016,7 +1102,10 @@ def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
     either direction, so this refuses rather than reports.
 
     The backend half reads the live environment (never a declared list), so a
-    capability adopted after this was written is policed too. The frontend half
+    capability adopted after this was written is policed too, and then holds that
+    environment against the pins ``pyproject.toml`` declares — a manifest and an
+    install that disagree is the same mixed platform arriving by a third route, and
+    the one that used to pass here green. The frontend half
     reads every app manifest that declares a ``@terpjs/*`` package, plus the
     installed copy under its ``node_modules`` when present — because a frontend
     package left behind is the same mixed install by another route, and a check
@@ -1057,6 +1146,20 @@ def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
             f"  Fix: rename each to its @terpjs/* spelling pinned at ^{platform}, "
             "then reinstall the node_modules of that manifest."
         )
+    backend_problems = _backend_pin_problems(project_root, platform)
+    if backend_problems:
+        return 1, (
+            f"the environment is consistent at terp {platform}, but this app's "
+            "pyproject.toml declares something else:\n"
+            + "".join(f"  {problem}\n" for problem in backend_problems)
+            + "A gate run against packages the manifest does not ask for proves "
+            "nothing about the code that will ship: the tree reloads new source "
+            "against old libraries and fails on an import nowhere near its cause.\n"
+            f"  Fix: uv sync --refresh (or repin to =={platform} if the manifest is "
+            "the half that is wrong).\n"
+            "If this is a container, its image bakes the packages in — rebuild it "
+            "rather than reloading into it (`terp docker dev` does)."
+        )
     frontend_problems = _frontend_lockstep_problems(project_root, platform)
     if frontend_problems:
         return 1, (
@@ -1070,10 +1173,15 @@ def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
             "that declares one, then reinstall that manifest's node_modules."
         )
     manifest_count = len(_terp_frontend_manifests(project_root))
+    pin_count = sum(
+        1
+        for _, requirement in _declared_python_requirements(project_root)
+        if requirement.lower().replace("_", "-").startswith("terp-")
+    )
     return (
         0,
-        f"terp {platform} ({len(versions)} distributions and "
-        f"{manifest_count} frontend manifest(s), consistent)",
+        f"terp {platform} ({len(versions)} distributions, {pin_count} declared "
+        f"pin(s) and {manifest_count} frontend manifest(s), consistent)",
     )
 
 
