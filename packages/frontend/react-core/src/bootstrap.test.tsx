@@ -1,13 +1,26 @@
 // @vitest-environment jsdom
 import { cleanup, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineModuleManifest } from "@terpjs/contract";
 
 import { collectModules, renderTerpApp } from "./bootstrap";
 import { useErrorMessage } from "./errorMessages";
 
+// A signed-out visitor's browser gets a 401 from the boot session check — an ANSWER.
+// These tests used to model "signed out" by letting the fetch fail outright, which is
+// the same state a dead backend produces, and the provider now tells those two apart:
+// no answer at all renders the unreachable view rather than a login form that cannot
+// work. So the fixture says what it means.
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async () => new Response("{}", { status: 401 })),
+  );
+});
+
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 const notesModule = {
@@ -56,6 +69,7 @@ describe("renderTerpApp", () => {
 
     renderTerpApp({
       title: "Test",
+      baseUrl: "https://api.test",
       modules: { "./modules/notes/module.tsx": notesModule },
       rootElement: root,
     });
@@ -93,6 +107,7 @@ describe("renderTerpApp", () => {
 
     renderTerpApp({
       title: "Test",
+      baseUrl: "https://api.test",
       modules: { "./modules/notes/module.tsx": notesModule },
       rootElement: root,
       login: <ShowsAnError />,

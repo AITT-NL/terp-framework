@@ -39,6 +39,17 @@ export interface AuthSession {
   /** True while the provider is resolving an existing session (e.g. boot refresh). */
   loading(): boolean;
   /**
+   * True when the boot session check got no answer at all — the backend did not
+   * respond before the timeout, or the connection failed.
+   *
+   * Distinct from `currentUser() === null`, which is the *answer* "nobody is signed
+   * in". Collapsing the two is what made a dead backend indistinguishable from a
+   * signed-out visitor, and since the fetch to a dead proxy target never settles
+   * rather than failing, the symptom was a permanently blank page with nothing in the
+   * console. `RequireAuth` renders its `unreachable` slot on this.
+   */
+  unreachable(): boolean;
+  /**
    * UI gate: may the current user perform `action`? (Honours the backend roles.)
    *
    * `module` names the module the action happens in. Pass it and a per-module rung the caller

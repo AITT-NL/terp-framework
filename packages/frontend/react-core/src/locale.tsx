@@ -192,6 +192,10 @@ export const LOCALE_NL: LocaleCatalog = {
     moduleNavigationLabel: "Modulenavigatie",
     moreActions: "Meer acties",
     errorTitle: "Er is iets misgegaan.",
+    backendUnreachableTitle: "De applicatie kan de server niet bereiken.",
+    backendUnreachableDescription:
+      "Er kwam geen antwoord van de API. Mogelijk start deze nog op, of staat "
+      + "hij uit. Vernieuw de pagina zodra hij draait.",
     confirm: "Bevestigen",
     cancel: "Annuleren",
     successTitle: "Gelukt",

@@ -70,8 +70,34 @@ export interface TerpProviderProps {
   children: ReactNode;
 }
 
+/**
+ * How long the boot session check waits for an answer before giving up.
+ *
+ * Loud on purpose, and the reason this number exists at all: a fetch to a dead proxy
+ * target does not fail, it *hangs*. The boot refresh therefore never settled, `loading`
+ * stayed true for the lifetime of the page, and `RequireAuth` rendered its `pending`
+ * slot — nothing, by default. The symptom was an empty `#root` with three console
+ * messages, zero errors and zero warnings: the single least diagnosable failure in the
+ * stack, for the most ordinary cause there is.
+ *
+ * Boot only, deliberately not a client-wide default. A file upload through the files
+ * capability legitimately runs longer than any timeout that would help here, so a
+ * blanket one would abort correct work to fix a diagnosis problem.
+ */
+export const BOOT_REQUEST_TIMEOUT_MS = 10_000;
+
+/** An abort signal for one boot request, or undefined where the runtime has none. */
+function bootTimeout(): AbortSignal | undefined {
+  // Guarded rather than assumed: this also runs under a test renderer and in SSR, and a
+  // missing AbortSignal.timeout must degrade to the old behaviour rather than throw
+  // during boot -- which would be a worse failure than the one being fixed.
+  return typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+    ? AbortSignal.timeout(BOOT_REQUEST_TIMEOUT_MS)
+    : undefined;
+}
+
 async function loadCurrentUser(client: TerpClient): Promise<CurrentUser> {
-  const { data, error } = await client.GET("/api/v1/me/", {});
+  const { data, error } = await client.GET("/api/v1/me/", { signal: bootTimeout() });
   if (error || !data) {
     throw new Error("failed to load the current user");
   }
@@ -95,6 +121,11 @@ export function TerpProvider({
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [ssoError, setSsoError] = useState<unknown>(null);
+  const [unreachable, setUnreachable] = useState(false);
+  // Set by the refresh attempt, read by the boot effect. A rejected fetch means no
+  // answer came back at all; a resolved one carrying `error` means the backend
+  // answered "no session", which is a completely different thing to tell the reader.
+  const noAnswerRef = useRef(false);
 
   // Captured once per provider lifetime (before the URL is cleaned), so a StrictMode
   // double boot effect cannot replay the single-use OIDC state against the backend.
@@ -129,15 +160,21 @@ export function TerpProvider({
     const existing = refreshInFlightRef.current;
     if (existing) return existing;
     const attempt = refreshClient
-      .POST("/api/v1/auth/refresh", {})
+      .POST("/api/v1/auth/refresh", { signal: bootTimeout() })
       .then(({ data, error }) => {
+        // An answer arrived, whatever it said: the backend is reachable.
+        noAnswerRef.current = false;
         if (error || !data) {
           return null;
         }
         tokenRef.current = data.access_token;
         return data.access_token;
       })
-      .catch(() => null)
+      .catch(() => {
+        // No answer: a refused connection, a dead proxy target, or the timeout above.
+        noAnswerRef.current = true;
+        return null;
+      })
       .finally(() => {
         refreshInFlightRef.current = null;
       });
@@ -166,6 +203,7 @@ export function TerpProvider({
       }
       tokenRef.current = data.access_token;
       const me = await loadCurrentUser(client);
+      setUnreachable(false);
       setUser(me);
       return me;
     },
@@ -233,6 +271,18 @@ export function TerpProvider({
         return;
       }
       await refresh();
+      if (noAnswerRef.current) {
+        // The console half of the same message. The screen tells whoever is looking at
+        // the app; this tells whoever has devtools open, which for this failure is the
+        // person most likely to be looking for it.
+        console.warn(
+          `[terp] the API at ${baseUrl} did not answer the boot session check within ` +
+            `${BOOT_REQUEST_TIMEOUT_MS}ms. Is the backend running, and is the dev ` +
+            "server's proxy target pointing at it? Nothing else will render until it " +
+            "answers.",
+        );
+        setUnreachable(true);
+      }
     };
     void boot().finally(() => {
       if (!cancelled) setLoading(false);
@@ -240,7 +290,7 @@ export function TerpProvider({
     return () => {
       cancelled = true;
     };
-  }, [completePendingSso, refresh]);
+  }, [baseUrl, completePendingSso, refresh]);
 
   const auth = useMemo<AuthSession>(
     () => ({
@@ -249,6 +299,7 @@ export function TerpProvider({
       refresh,
       currentUser: () => user,
       loading: () => loading,
+      unreachable: () => unreachable,
       // `module` names the module the action happens in, so a per-module rung can raise the
       // answer. Omitted, the gate is the global rank exactly as before — which is the honest
       // default for a screen that is not a module's own, and keeps every existing caller
@@ -263,7 +314,7 @@ export function TerpProvider({
             )
           : false,
     }),
-    [login, logout, refresh, user, loading, thresholds],
+    [login, logout, refresh, user, loading, unreachable, thresholds],
   );
 
   const beginSso = useCallback(

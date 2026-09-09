@@ -28,6 +28,12 @@ function LogInOnMount() {
 
 describe("RequireAuth", () => {
   it("shows the fallback while signed out", async () => {
+    // A 401 is what a signed-out visitor's browser actually receives: an answer. Letting
+    // the fetch fail instead would model a dead backend, which is now a different view.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => new Response("{}", { status: 401 })),
+    );
     render(
       <TerpProvider baseUrl="https://api.test">
         <RequireAuth fallback={<span>please-sign-in</span>}>

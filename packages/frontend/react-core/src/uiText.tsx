@@ -98,6 +98,10 @@ export interface TerpStrings {
   moreActions: string;
   /** Default {@link ErrorState} title. */
   errorTitle: string;
+  /** Title shown by `RequireAuth` when the backend did not answer the boot check. */
+  backendUnreachableTitle: string;
+  /** Explanation shown with {@link TerpStrings.backendUnreachableTitle}. */
+  backendUnreachableDescription: string;
   /** Default confirm-button label of {@link ConfirmDialog}. */
   confirm: string;
   /** Default cancel-button label of {@link ConfirmDialog}. */
@@ -333,6 +337,10 @@ export const DEFAULT_STRINGS: TerpStrings = {
   moduleNavigationLabel: "Module navigation",
   moreActions: "More actions",
   errorTitle: "Something went wrong.",
+  backendUnreachableTitle: "The application cannot reach its server.",
+  backendUnreachableDescription:
+    "No answer came back from the API. It may still be starting, or stopped. "
+    + "Reload once it is running.",
   confirm: "Confirm",
   cancel: "Cancel",
   successTitle: "Success",
