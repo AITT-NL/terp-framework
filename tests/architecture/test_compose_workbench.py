@@ -338,6 +338,32 @@ def test_example_and_template_dev_proxies_forward_websocket_upgrades() -> None:
         assert "ws: true" in text, f"{vite_config} must proxy WebSocket upgrades"
 
 
+def test_example_and_template_dev_proxies_forward_the_health_endpoints() -> None:
+    """A readiness probe against the dev server must reach the API, not the SPA.
+
+    Vite serves ``index.html`` for any path it does not proxy, and serves it with a
+    200. So while ``/api`` was the only proxied prefix, ``GET /health/ready`` on the
+    web origin answered *success* with a page body while the backend was dead — and a
+    liveness probe that reports healthy for a stopped API is worse than none, because
+    it retires the first hypothesis anyone forms. Whoever checks readiness checks it
+    on the address in their browser, which is this server and not the API's.
+
+    Reads the proxy table's keys rather than the file text: an assertion that
+    ``"/health"`` appears somewhere in the config would pass on a comment naming it.
+    """
+    for vite_config in (
+        _REPO_ROOT / "apps" / "example" / "frontend" / "vite.config.ts",
+        _REPO_ROOT / "template" / "project" / "frontend" / "vite.config.ts",
+    ):
+        text = vite_config.read_text(encoding="utf-8")
+        table = text.split("proxy: {", 1)[1]
+        keys = set(re.findall(r'^\s{6}"(/[^"]+)":', table, re.MULTILINE))
+        assert {"/api", "/health"} <= keys, (
+            f"{vite_config} proxies {sorted(keys)}; an unproxied prefix is answered "
+            "with index.html and a 200, so every path the backend owns is listed here"
+        )
+
+
 def test_the_template_declaration_tells_the_truth_about_the_template_compose() -> None:
     """The seeded `workbench.json` is audited against the compose it describes.
 

@@ -142,6 +142,12 @@ export default defineConfig({
         target: apiProxyTarget,
         ws: true,
       },
+      // Proxied so the obvious liveness probe does not LIE: Vite answers an
+      // unproxied path with `index.html` and a 200, so `/health/ready` against a
+      // dead backend reported success carrying the SPA.
+      "/health": {
+        target: apiProxyTarget,
+      },
     },
   },
 });
