@@ -10,6 +10,139 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.21.0 — unreleased
+
+### Added
+
+- **The gate asks whether the app it just passed would boot in production.** Friction
+  reported from a full upgrade of an app with background work: `terp verify --profile
+  full` printed `profile full is green` on a tree whose production boot was already
+  refused, and the only reason anyone noticed was that they had read the release notes
+  and then run `terp jobs list` on a hunch.
+
+  Three of the platform's boot refusals are decided entirely by what the control plane
+  declares — an unsafe security config, a password policy with no strength floor, and
+  background work naming no actor to stamp its writes with. Outside production each of
+  them logs a warning and keeps booting, deliberately. Nothing sat between the two
+  behaviours, so an app could carry an unqualified green through review and into a
+  deployment that refuses to start, with every surface agreeing because none of them had
+  a question about it.
+
+  `production-readiness` now runs in all three profiles, beside `deploy-safety` and for
+  the same reason one layer in. It reads the declared plane without building the app —
+  one module import, no database — and reports all three refusals prefixed by which half
+  declared them. The audit refusal is excluded on purpose: it turns on
+  `create_app(audit_sink=...)`, a runtime argument the check cannot see, and a check that
+  pretended to cover it would be worse than the honest gap. A tree with no
+  `control_plane/` package skips with a note. See ADR 0128.
+
+- **The job actor has a conventional address, so declaring background work no longer
+  means hand-rolling its delivery.** ADR 0125 established that a declared job names the
+  actor its writes are stamped with, and refused a platform-wide sentinel — rightly,
+  because an FK-less constant resolves to no principal anywhere. But a decision about the
+  default left the delivery to every app, and the delivery is not a free choice: the id
+  belongs to a service principal in a particular database and one image runs against
+  several, so it cannot be a source constant. Every app that declared a job wrote the
+  same block — read a variable, parse a UUID, raise something useful when it is absent,
+  thread it into the control plane.
+
+  `Settings.JOB_SYSTEM_ACTOR_ID` is now a typed `uuid.UUID | None`, and `create_app`
+  fills an unset `ControlPlane.job_system_actor_id` from it before the production refusal
+  is read. An explicit field still wins. Unset in both places is unchanged: production
+  refuses, development warns. This is an address, not an exemption — a variable nobody
+  set supplies nothing. Declare it in `environment.schema.json` and
+  `production-readiness` accepts the declaration, because a production principal's id is
+  the last thing a gate's environment would hold. See ADR 0129.
+
+- **The generated `AGENTS.md` teaches the rules that refuse a boot, and is gated against
+  them.** The template's rulebook went seven releases without a word about the operations
+  catalog or the job actor — the two things that would break an upgraded app's boot. It
+  was not stale relative to the template; it was byte-identical to the template's own
+  copy for that whole span, which is why nothing caught it. The only staleness anything
+  checked was an app's copy against the template's.
+
+  It now carries the operations catalog and its two halves, the job actor and where it
+  comes from, that a module owes tests, the four production refusals a control plane can
+  carry, the clipboard seam, the outbound-HTTP capability and `emit_disclosure` — and the
+  `terp dev` line stops teaching 8000 and 5173, three releases after those ports moved
+  into the range Terp owns. Two tests hold it there, both derived rather than hand-kept:
+  one calls the platform's declaration-decided refusals and requires every identifier and
+  sanctioned constructor they name to appear in the rulebook, and one compares the
+  rulebook's guide-topic index against the CLI's registry. See ADR 0131.
+
+- **An app's own operations live in a file no upgrade rewrites.** ADR 0126 set out to
+  make the operation catalog need no edit on an upgrade, and the mechanism delivering
+  that handed out a merge conflict in the very file the promise was about:
+  `control_plane/operations.py` is template-owned, and the template's own docstring told
+  authors to declare their operations there. One file, two halves, opposite ownership —
+  so every `copier update` conflicted in it for any app with routes of its own.
+
+  The app's half is now `control_plane/app_operations.py`, seeded once and never
+  rewritten, exporting a typed `APP_OPERATIONS` the catalog splats beside the capability
+  sets. Existing apps adopt it by moving their `OperationDefinition` constants across;
+  nothing breaks until they do. See ADR 0130.
+
+### Fixed
+
+- **`terp upgrade --check` printed a recipe that could not be followed in the order it
+  was printed.** Steps 2 to 4 edited the pins and ran both installers, which dirties the
+  tree, and the re-render below them refuses a dirty tree — so the recipe's own earlier
+  steps made its last step impossible, and following it meant stashing halfway through.
+  The pin edits were also work the re-render does: the template owns `pyproject.toml` and
+  both npm manifests, so a re-render writes every one of those pins itself.
+
+  There is now one ordered sequence instead of a recipe plus a postscript, and which one
+  you get depends on whether copier can run at all. An app with a recorded answers file
+  is told to read the notes, clean the tree, re-render, resolve, sync **once**, confirm
+  and verify; an app without one gets the hand-pin recipe, and only it does. The recipe
+  names the two conflicts that arrive on every re-render and says which side wins, and it
+  says what a containerised dev stack needs — a rebuild, not a reload.
+
+  The scaffolding-drift report also stops asserting what it never checked. It said a
+  release's fix to any template-owned file "is still waiting here" and named `AGENTS.md`
+  as the example, which was a false alarm on an app whose `AGENTS.md` was byte-identical
+  to the template's. Rendering and diffing is not available to that command — the
+  template does not ship inside the CLI wheel — so the fix is the claim rather than the
+  mechanism.
+
+- **The lockstep gate reads the app's declared pins, not only its environment.**
+  `platform-install` asked two different questions: for the frontend it held every
+  manifest's declarations against the platform version, and for the backend it compared
+  the installed distributions only against each other. So a tree whose `pyproject.toml`
+  asked for one release over an environment installed at another was internally
+  consistent and passed — a verdict about packages that are not the packages that will
+  run, which is exactly what the check claims to refuse.
+
+  Two ordinary routes there: someone repins and has not synced yet, which is the middle
+  of every upgrade; or a container bakes the packages into its image and bind-mounts the
+  source over them, so new code reloads against old libraries and dies on an import
+  nowhere near its cause. The backend half now also reads `pyproject.toml` — both
+  `[project]` dependencies and every dependency group, because `terp-arch` lives in the
+  dev group and it is the gate itself. A requirement with no specifier is left alone:
+  that is a workspace member or an editable install, where the manifest is not where the
+  version lives.
+
+- **A boot session check that gets no answer says so, instead of rendering nothing.** The
+  bootstrap issues `POST /api/v1/auth/refresh` before anything renders, and a fetch to a
+  dead proxy target does not fail — it hangs. So the promise never settled, `loading`
+  stayed true for the lifetime of the page, and `RequireAuth` rendered its `pending`
+  slot, which defaults to nothing: a blank page, an empty `#root`, three console
+  messages, zero errors and zero warnings.
+
+  The boot requests now carry `AbortSignal.timeout(BOOT_REQUEST_TIMEOUT_MS)` — boot only,
+  because a file upload legitimately runs longer than any timeout that would help here.
+  And there are three states where there were two: `AuthSession.unreachable()` is true
+  when the check got no answer at all, a resolved response including a 401 is an answer,
+  and `RequireAuth`'s new `unreachable` slot does *not* default to nothing. A login form
+  that cannot possibly succeed is the wrong answer to a stopped backend. See ADR 0132.
+
+- **A readiness probe against the dev server stops answering for a dead API.** Vite
+  serves `index.html` for any path it does not proxy, and serves it with a 200. Only
+  `/api` was proxied, so `GET /health/ready` on the web origin — the address in the
+  developer's browser, and the first thing anyone reaches for when a page comes up
+  blank — answered success with a page body while the backend was down. `/health` joins
+  `/api` in the proxy table of both the template's dev server and the reference app's.
+
 ## 0.20.0 — 2026-09-08
 
 ### Added
