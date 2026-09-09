@@ -136,6 +136,10 @@ decision, 0001 onwards.
   and `RequireAuth`'s new `unreachable` slot does *not* default to nothing. A login form
   that cannot possibly succeed is the wrong answer to a stopped backend. See ADR 0132.
 
+  `AuthSession` gains a required `unreachable()`, so an app that hand-rolls its own
+  implementation of that interface — a test double, most likely — adds one method
+  returning `false`. Nothing that goes through `TerpProvider` is affected.
+
 - **A readiness probe against the dev server stops answering for a dead API.** Vite
   serves `index.html` for any path it does not proxy, and serves it with a 200. Only
   `/api` was proxied, so `GET /health/ready` on the web origin — the address in the
