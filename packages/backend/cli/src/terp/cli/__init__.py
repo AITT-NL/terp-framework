@@ -1419,8 +1419,32 @@ Forms (react-core primitives)
   is the layout — never style={} / className / a module stylesheet.
 - Submit through the typed client: const client = useTerpClient();
   await unwrap(client.POST("/api/v1/invoices/", { body })); a failure throws ApiError
-  ({code, status, requestId}) — map codes to copy with useErrorMessage, show transient
-  success/failure with useToast(), and confirm destructive actions with ConfirmDialog.
+  ({code, status, requestId, fields}) — map codes to copy with useErrorMessage, show
+  transient success/failure with useToast(), and confirm destructive actions with
+  ConfirmDialog.
+- WHERE `errors.number` ABOVE COMES FROM: ApiError.fields. The backend's typed envelope
+  carries per-reason `loc` (AppError details, and FastAPI's own 422 entries, which share
+  the shape on purpose), and `unwrap` turns those into `fields` — a plain object keyed by
+  dotted field path, ready to hand straight to Field's `error` prop. That is the whole
+  loop the error envelope opens: a rejected field lights up under its own input instead of
+  degrading to a generic toast. `Object.keys(error.fields).length > 0` is the test for
+  "this belongs on the form".
+      const RENDERED = ["number", "status"];
+      try {
+        await unwrap(client.POST("/api/v1/invoices/", { body }));
+      } catch (error) {
+        const { shown, leftover } = routeFieldErrors(error, RENDERED);
+        setErrors(shown);
+        if (leftover || Object.keys(shown).length === 0) {
+          toast.error(message(error));
+        }
+      }
+- USE routeFieldErrors RATHER THAN A LOOP OF YOUR OWN, and the reason is the `leftover`
+  branch. The naive version — "if fields is non-empty, set them and return" — has a hole
+  that is invisible until it happens: a reason naming a field this form does not render
+  sets state nobody reads AND suppresses the toast on the way out, so the user presses
+  Save and nothing appears. No field lights up, no message, no navigation. A failed write
+  that reports nothing is worse than the toast it replaced.
 - Updates carry the row's `version` (optimistic concurrency): send the version you
   read; a 409 version_conflict means reload-and-retry, surfaced via ErrorState copy.
 - Mirror the backend's input caps client-side (maxLength on Input matching the schema's

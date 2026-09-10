@@ -14,6 +14,25 @@ decision, 0001 onwards.
 
 ### Added
 
+- **`routeFieldErrors` is public**, and `terp guide forms` now says where a field-level
+  error comes from. The loop had been closed since 0.21.0 and was invisible from the one
+  place an author looks: `ApiError.fields` carries the envelope's per-field reasons keyed
+  by dotted path, ready for `Field`'s `error` prop, and the forms recipe described the
+  failure as `ApiError ({code, status, requestId})` — omitting the field that does the
+  work. Its own example used an `errors.number` it never explained. A reader following
+  that recipe concludes the seam does not exist and falls back to a generic toast for every
+  rejected field, which is exactly what was reported.
+
+  The recipe now names `fields`, shows the mapping end to end, and hands over the helper
+  the packaged admin forms already used. `routeFieldErrors(error, rendered)` splits a
+  failure into what this form can show and whether anything was `leftover` — and that
+  second half is why it is worth shipping rather than describing. The naive version, "if
+  `fields` is non-empty, set them and return", has a hole that stays invisible until it
+  happens: a reason naming a field the form does not render sets state nobody reads *and*
+  suppresses the toast on the way out, so the user presses Save and nothing appears at
+  all. It was private pending a consumer outside `admin/`; an app wiring `fields` into its
+  own forms is that consumer.
+
 - **The gate asks whether the app it just passed would boot in production.** Friction
   reported from a full upgrade of an app with background work: `terp verify --profile
   full` printed `profile full is green` on a tree whose production boot was already
@@ -83,6 +102,36 @@ decision, 0001 onwards.
   nothing breaks until they do. See ADR 0130.
 
 ### Fixed
+
+- **The page band was three rows whenever a page had a description.** `Page` promises
+  "badges and description sit after the title and actions at the right edge, all on that
+  one line", and the sheet shipped the opposite. Measured in Chromium at 1024px, with a
+  description too long for the space left beside the trail: a **76px** band instead of the
+  header's 48, the `h1` pushed to the very top of it, the description **the full width of
+  the band** on a line of its own, and the action cluster on a third.
+
+  The description already declared `min-width: 0`, `overflow: hidden` and
+  `text-overflow: ellipsis`, so the truncation looked wired — and none of it could ever
+  run. Flex collects items into lines using their **hypothetical** main sizes and only
+  then shrinks what is already on a line, so an `auto` basis wrapped the box before any of
+  those three declarations got a chance; having reached a line of its own, it then had room
+  and never ellipsised. `Card` hit exactly this and fixed it in 0.19.0 (`card-heading` is
+  `flex: 1 1 0`); the page band kept the broken shape one component over. Both the heading
+  and the lead line now declare a zero basis, which puts all three on one 48px row with the
+  description ellipsised, and `styles.test.ts` records the measurement on both sides.
+
+- **`DataView` asserted a result count while it was still loading.** The footer computed
+  its range from a `totalCount` that started at `0`, so a fresh view read "0–0 of 0
+  results" directly underneath its own five-row loading skeleton: a count stated with
+  authority, beside a placeholder admitting there is no data yet, and wrong as often as
+  not. A failed query showed the same thing, having been told nothing at all.
+
+  `useDataViewQuery` now reports `totalCount` as `number | undefined` — unknown before the
+  first answer, and unknown again after a failure, rather than a number carried over from
+  a previous success. The footer renders no range and no pager while it is unknown, and
+  keeps its box, so nothing moves when the count lands. This is the distinction
+  `Resource.total` drew in 0.17.0 ("unknown is a real answer and must not render as zero"),
+  one component over.
 
 - **`terp upgrade --check` printed a recipe that could not be followed in the order it
   was printed.** Steps 2 to 4 edited the pins and ran both installers, which dirties the
