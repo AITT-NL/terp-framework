@@ -944,6 +944,36 @@ dependencies = ["terp-spec==0.33.0"]
     assert _run_platform_install(tmp_path)[0] == 0
 
 
+def test_an_entry_that_is_not_a_requirement_does_not_end_the_scan(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A dependency list is hand-edited, so it can carry an entry that is not a
+    requirement at all — an empty string left by a deleted line, a fragment someone
+    half-typed. TOML accepts it, and there is nothing here to police in it.
+
+    What matters is which way the scan fails. Skipping the entry costs nothing;
+    abandoning the list on it would leave every pin *after* the junk unread, and this
+    check's whole verdict is a green over pins nobody looked at. So the junk goes
+    first and a real skew follows it: the assertion is about the skew still being
+    found, not about the junk.
+    """
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = ["", "terp-core==0.13.0"]
+''',
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "terp-core is pinned ==0.13.0 but 0.20.0 is installed" in output, (
+        "an unparseable entry must be stepped over, not treated as the end of the "
+        f"dependency list; got {output!r}"
+    )
+
+
 def test_the_platform_install_check_runs_in_process(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1553,6 +1583,41 @@ def test_verify_dispatches_deploy_safety_through_its_own_runner(
     assert envelope["ok"] is True
     # The no-op success shape for an app with no deployment profile.
     assert "nothing to check" in json.dumps(envelope)
+
+
+def test_verify_dispatches_production_readiness_through_its_own_runner(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`production-readiness` is an in-process runner, so it needs its own dispatch.
+
+    The verdict itself is proven above against the function. This proves `terp verify`
+    reaches that function, and the reason it needs proving is the shape of the chain:
+    an unhandled runner falls into the `else`, which shells the check's own command —
+    `terp verify --only production-readiness` — into a child process running the same
+    unhandled code. Nothing raises. `test_every_in_process_runner_is_dispatched` reads
+    the branch out of the source, which is one letter away from a branch that calls
+    the wrong function, so the call is exercised here.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "quick",
+                "--root",
+                str(tmp_path),
+                "--only",
+                "production-readiness",
+                "--format",
+                "json",
+            ]
+        )
+
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is True
+    # The skip note for a tree with no control plane, which is what tmp_path is.
+    assert "no control_plane/ package" in json.dumps(envelope)
 
 
 # --------------------------------------------------------------------------- #
