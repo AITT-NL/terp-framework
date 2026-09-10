@@ -28,6 +28,7 @@ from terp.arch.rules._support import (
     _rel,
     _request_body_model_names,
     _response_model_names,
+    _soft_delete_capable_class_names,
     _tuple_annotation_name,
 )
 
@@ -618,37 +619,6 @@ def check_no_manual_table_schema(
 _VERIFIED_DIALECT_WHERE_KEYWORDS: frozenset[str] = frozenset(
     {"postgresql_where", "sqlite_where"}
 )
-
-
-def _soft_delete_capable_class_names(root: pathlib.Path) -> frozenset[str]:
-    """Class names that compose ``SoftDeleteMixin`` directly or transitively (tree-wide).
-
-    The soft-delete trait is commonly factored into an app-owned base
-    (``class AppTable(BaseTable, SoftDeleteMixin)`` — the pattern ADR 0011
-    recommends), so a table inheriting *that* base is soft-delete too even though
-    ``SoftDeleteMixin`` is absent from its own bases. This walks the whole app
-    tree once, records each class's base names, and computes the taint closure
-    from ``SoftDeleteMixin`` so the guard sees the inherited case as well as the
-    direct one. Name-based, like the sibling rules; a name defined twice merges
-    its bases conservatively (a class is capable if *any* definition composes the
-    trait — fail closed).
-    """
-    bases_of: dict[str, set[str]] = {}
-    for path in iter_python_files(root):
-        for node in ast.walk(parse(path)):
-            if isinstance(node, ast.ClassDef):
-                bases_of.setdefault(node.name, set()).update(
-                    base_name(base) for base in node.bases
-                )
-    tainted: set[str] = {"SoftDeleteMixin"}
-    changed = True
-    while changed:
-        changed = False
-        for name, bases in bases_of.items():
-            if name not in tainted and bases & tainted:
-                tainted.add(name)
-                changed = True
-    return frozenset(tainted)
 
 
 def check_no_unique_columns_on_soft_delete_models(

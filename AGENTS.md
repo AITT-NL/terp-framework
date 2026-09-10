@@ -104,6 +104,21 @@ a guard to make a change pass:
    `create_app(lease_store=DatabaseLeaseStore())`: this seam has **no** in-process
    default on purpose. Detail: `terp guide leases`.
 
+7. **Declare what a delete of a reference's target does** — never a bare
+   `Field(foreign_key=...)`. A foreign key has a referential action whether or not
+   anyone chose one, and the one you get by not choosing (`NO ACTION`) is
+   indistinguishable in the source from the one you chose. Declare it with
+   `Ref("invoice.id", on_delete=OnDelete.CASCADE)`, whose `on_delete` is a required
+   keyword (the `references_declare_delete_behaviour` rule refuses the undeclared
+   form). Terp does **not** prefer an action — `CASCADE` for a part of its parent,
+   `RESTRICT` for something the parent must not vanish underneath, `SET NULL` for a
+   pointer allowed to go slack — only that one is named; `OnDelete.NO_ACTION` is a
+   full answer and emits no clause, so declaring it costs no migration. One trap the
+   rule also refuses: `CASCADE` / `SET NULL` against a `SoftDeleteMixin` target can
+   never fire, because that row is stamped rather than deleted — declare `RESTRICT`
+   or `NO_ACTION` and cascade the stamp from the owning service. Detail:
+   `terp guide references`.
+
 ## Frontend conventions
 
 Frontend UI composes the **`@terpjs/react-core` component surface** — the catalog lives
