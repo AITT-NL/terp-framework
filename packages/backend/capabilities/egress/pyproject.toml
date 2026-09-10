@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-egress"
-version = "0.21.0"
+version = "0.22.0"
 description = "Terp egress capability — the declared way out of the process: an allowlisted, SSRF-guarded, time-bounded HTTP client whose every attempt is observable."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.21.0",
+    "terp-core==0.22.0",
     # The one place the platform's outbound HTTP client is a dependency. Every other
     # package reaches the network through this one, which is the whole point of the
     # `no_raw_outbound_http` rule.
