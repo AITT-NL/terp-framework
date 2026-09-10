@@ -158,6 +158,7 @@ export { Markdown } from "./ui/Markdown";
 export type { MarkdownProps } from "./ui/Markdown";
 export { saveBlob, useEndpointDownload, fetchDownload, downloadUrl } from "./download";
 export { copyText, useCopyToClipboard, COPIED_FEEDBACK_MS } from "./clipboard";
+export { randomUuid, RandomUuidUnavailableError } from "./randomUuid";
 export type { CopyToClipboard } from "./clipboard";
 export type { DownloadTarget } from "./download";
 export { Heading, Text, Code, Link } from "./typography";
