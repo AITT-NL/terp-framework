@@ -88,22 +88,6 @@ decision, 0001 onwards.
   delete, `OnDelete.RESTRICT` for a row that blocks another's, `BaseUpdateSchema` for
   the concurrent writer.
 
-### Fixed
-
-- **`assert_migrations_match_models` now documents the one thing it cannot see.**
-  Autogenerate compares foreign keys by a signature that includes their referential
-  options only when the backend reflects those options. PostgreSQL does; SQLite does not
-  report them at all, so against a SQLite scratch database Alembic falls back to the
-  option-less signature and an `ON DELETE` clause that changed — or was never chosen —
-  is invisible. The generated app template runs that check against SQLite, so its drift
-  test was silently not covering referential behaviour. The docstring says so now, and
-  the template gained `test_references_declare_delete_behaviour` beside it, which reads
-  the declaration on the models and needs no database at all.
-
-## 0.21.0 — 2026-09-10
-
-### Added
-
 - **`routeFieldErrors` is public**, and `terp guide forms` now says where a field-level
   error comes from. The loop had been closed since 0.21.0 and was invisible from the one
   place an author looks: `ApiError.fields` carries the envelope's per-field reasons keyed
@@ -122,6 +106,52 @@ decision, 0001 onwards.
   suppresses the toast on the way out, so the user presses Save and nothing appears at
   all. It was private pending a consumer outside `admin/`; an app wiring `fields` into its
   own forms is that consumer.
+
+### Fixed
+
+- **`assert_migrations_match_models` now documents the one thing it cannot see.**
+  Autogenerate compares foreign keys by a signature that includes their referential
+  options only when the backend reflects those options. PostgreSQL does; SQLite does not
+  report them at all, so against a SQLite scratch database Alembic falls back to the
+  option-less signature and an `ON DELETE` clause that changed — or was never chosen —
+  is invisible. The generated app template runs that check against SQLite, so its drift
+  test was silently not covering referential behaviour. The docstring says so now, and
+  the template gained `test_references_declare_delete_behaviour` beside it, which reads
+  the declaration on the models and needs no database at all.
+
+- **The page band was three rows whenever a page had a description.** `Page` promises
+  "badges and description sit after the title and actions at the right edge, all on that
+  one line", and the sheet shipped the opposite. Measured in Chromium at 1024px, with a
+  description too long for the space left beside the trail: a **76px** band instead of the
+  header's 48, the `h1` pushed to the very top of it, the description **the full width of
+  the band** on a line of its own, and the action cluster on a third.
+
+  The description already declared `min-width: 0`, `overflow: hidden` and
+  `text-overflow: ellipsis`, so the truncation looked wired — and none of it could ever
+  run. Flex collects items into lines using their **hypothetical** main sizes and only
+  then shrinks what is already on a line, so an `auto` basis wrapped the box before any of
+  those three declarations got a chance; having reached a line of its own, it then had room
+  and never ellipsised. `Card` hit exactly this and fixed it in 0.19.0 (`card-heading` is
+  `flex: 1 1 0`); the page band kept the broken shape one component over. Both the heading
+  and the lead line now declare a zero basis, which puts all three on one 48px row with the
+  description ellipsised, and `styles.test.ts` records the measurement on both sides.
+
+- **`DataView` asserted a result count while it was still loading.** The footer computed
+  its range from a `totalCount` that started at `0`, so a fresh view read "0–0 of 0
+  results" directly underneath its own five-row loading skeleton: a count stated with
+  authority, beside a placeholder admitting there is no data yet, and wrong as often as
+  not. A failed query showed the same thing, having been told nothing at all.
+
+  `useDataViewQuery` now reports `totalCount` as `number | undefined` — unknown before the
+  first answer, and unknown again after a failure, rather than a number carried over from
+  a previous success. The footer renders no range and no pager while it is unknown, and
+  keeps its box, so nothing moves when the count lands. This is the distinction
+  `Resource.total` drew in 0.17.0 ("unknown is a real answer and must not render as zero"),
+  one component over.
+
+## 0.21.0 — 2026-09-10
+
+### Added
 
 - **The gate asks whether the app it just passed would boot in production.** Friction
   reported from a full upgrade of an app with background work: `terp verify --profile
@@ -192,36 +222,6 @@ decision, 0001 onwards.
   nothing breaks until they do. See ADR 0130.
 
 ### Fixed
-
-- **The page band was three rows whenever a page had a description.** `Page` promises
-  "badges and description sit after the title and actions at the right edge, all on that
-  one line", and the sheet shipped the opposite. Measured in Chromium at 1024px, with a
-  description too long for the space left beside the trail: a **76px** band instead of the
-  header's 48, the `h1` pushed to the very top of it, the description **the full width of
-  the band** on a line of its own, and the action cluster on a third.
-
-  The description already declared `min-width: 0`, `overflow: hidden` and
-  `text-overflow: ellipsis`, so the truncation looked wired — and none of it could ever
-  run. Flex collects items into lines using their **hypothetical** main sizes and only
-  then shrinks what is already on a line, so an `auto` basis wrapped the box before any of
-  those three declarations got a chance; having reached a line of its own, it then had room
-  and never ellipsised. `Card` hit exactly this and fixed it in 0.19.0 (`card-heading` is
-  `flex: 1 1 0`); the page band kept the broken shape one component over. Both the heading
-  and the lead line now declare a zero basis, which puts all three on one 48px row with the
-  description ellipsised, and `styles.test.ts` records the measurement on both sides.
-
-- **`DataView` asserted a result count while it was still loading.** The footer computed
-  its range from a `totalCount` that started at `0`, so a fresh view read "0–0 of 0
-  results" directly underneath its own five-row loading skeleton: a count stated with
-  authority, beside a placeholder admitting there is no data yet, and wrong as often as
-  not. A failed query showed the same thing, having been told nothing at all.
-
-  `useDataViewQuery` now reports `totalCount` as `number | undefined` — unknown before the
-  first answer, and unknown again after a failure, rather than a number carried over from
-  a previous success. The footer renders no range and no pager while it is unknown, and
-  keeps its box, so nothing moves when the count lands. This is the distinction
-  `Resource.total` drew in 0.17.0 ("unknown is a real answer and must not render as zero"),
-  one component over.
 
 - **`terp upgrade --check` printed a recipe that could not be followed in the order it
   was printed.** Steps 2 to 4 edited the pins and ran both installers, which dirties the
@@ -1635,7 +1635,6 @@ decision, 0001 onwards.
   measured at. And this is why `DetailList` reflows itself while `Grid` deliberately refuses to
   for a fixed `columns` count — `Grid` publishes `columns="auto"` as its responsive answer, and
   a closed one-or-two has no such escape.
-
 
 - **One subscribed tab held every shutdown open forever.** A realtime channel's stream is a
   task with no end condition of its own — it closes when the client goes away, and staying
