@@ -17,7 +17,7 @@ import tokenize
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from terp.arch._ast import _SECURITY_SKIP_DIRS, base_name, iter_python_files
+from terp.arch._ast import _SECURITY_SKIP_DIRS, base_name, iter_python_files, parse
 
 _HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete"})
 _SESSION_CONSTRUCTORS = frozenset({"Session", "create_engine", "sessionmaker"})
@@ -297,6 +297,37 @@ class ArchViolation:
 # --------------------------------------------------------------------------- #
 # internal helpers
 # --------------------------------------------------------------------------- #
+def _soft_delete_capable_class_names(root: pathlib.Path) -> frozenset[str]:
+    """Class names that compose ``SoftDeleteMixin`` directly or transitively (tree-wide).
+
+    The soft-delete trait is commonly factored into an app-owned base
+    (``class AppTable(BaseTable, SoftDeleteMixin)`` — the pattern ADR 0011
+    recommends), so a table inheriting *that* base is soft-delete too even though
+    ``SoftDeleteMixin`` is absent from its own bases. This walks the whole app
+    tree once, records each class's base names, and computes the taint closure
+    from ``SoftDeleteMixin`` so the guard sees the inherited case as well as the
+    direct one. Name-based, like the sibling rules; a name defined twice merges
+    its bases conservatively (a class is capable if *any* definition composes the
+    trait — fail closed).
+    """
+    bases_of: dict[str, set[str]] = {}
+    for path in iter_python_files(root):
+        for node in ast.walk(parse(path)):
+            if isinstance(node, ast.ClassDef):
+                bases_of.setdefault(node.name, set()).update(
+                    base_name(base) for base in node.bases
+                )
+    tainted: set[str] = {"SoftDeleteMixin"}
+    changed = True
+    while changed:
+        changed = False
+        for name, bases in bases_of.items():
+            if name not in tainted and bases & tainted:
+                tainted.add(name)
+                changed = True
+    return frozenset(tainted)
+
+
 def _rel(path: pathlib.Path, app_root: pathlib.Path) -> str:
     """Path relative to the app package's parent (keeps the ``app/`` prefix)."""
     try:
