@@ -104,13 +104,7 @@ def _pinned_spec_version() -> str | None:
 #: catalogued in the standard's next release. The window before it — the entries for
 #: ``modules_ship_tests`` (ADR 0119) and the three module-role rules (ADR 0121) — was
 #: shut by terp-spec 0.33.0, which the pin above names.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset(
-    {
-        # ADR 0133: the catalog entry + corpus land in the next terp-spec release;
-        # the standard cannot merge its own entry before this rule exists here.
-        "references_declare_delete_behaviour",
-    }
-)
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
 
 
 # --------------------------------------------------------------------------- #
