@@ -47,6 +47,33 @@ describe("DataView states", () => {
     expect(screen.getByText("1–4 of 4 results")).toBeInTheDocument();
   });
 
+  it("states no count while the total is unknown, rather than zero", async () => {
+    // The defect: the footer computed its range from a totalCount that started at 0, so a
+    // fresh view asserted "0–0 of 0 results" directly underneath its own loading skeleton.
+    // A count is a fact, and that one was both unasked-for and usually wrong.
+    render(<DataView repository={inMemoryRepo()} columns={COLUMNS} />);
+    expect(screen.getByRole("status", { name: "Loading…" })).toBeInTheDocument();
+    expect(screen.queryByText(/results/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0.*of.*0/)).not.toBeInTheDocument();
+    // ... and the real count still arrives.
+    expect(await screen.findByText("1–4 of 4 results")).toBeInTheDocument();
+  });
+
+  it("says no count when the query failed either, having none to report", async () => {
+    // A failed refetch knows nothing about how many rows match now. Carrying the previous
+    // number over, or falling back to zero, both present a guess as an answer.
+    const failing: DataViewRepository<Ticket> = {
+      capabilities: inMemoryRepo().capabilities,
+      getRowId: (t) => t.id,
+      query: () => Promise.reject(new Error("upstream is down")),
+    };
+    render(<DataView repository={failing} columns={COLUMNS} />);
+    await waitFor(() =>
+      expect(screen.queryByRole("status", { name: "Loading…" })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/results/)).not.toBeInTheDocument();
+  });
+
   it("shows the empty state with the emptyActions slot", async () => {
     render(
       <DataView

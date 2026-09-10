@@ -986,6 +986,45 @@ describe("cascade structure", () => {
     expect(base.slice(headerAt, base.indexOf("}", headerAt))).toContain("align-items: center");
   });
 
+  it("keeps the page band one row: trail, description and actions", () => {
+    // Measured in Chromium at a 1024px viewport, against these exact declarations, with a
+    // description too long for the space left beside the trail:
+    //
+    //   flex: 1 1 auto -> band 76px tall, h1 at top 0, description 1024px wide on its own
+    //                     line, actions on a THIRD line, and no ellipsis anywhere
+    //   flex: 1 1 0    -> band 48px (the header's height), h1 / description / actions all
+    //                     on one row, description ellipsised
+    //
+    // Page.tsx promises the second ("badges and description sit after the title and actions
+    // at the right edge, all on that one line") and the sheet shipped the first. The
+    // description already declared min-width: 0, overflow: hidden and text-overflow, so the
+    // truncation looked wired -- but flex collects items into lines using HYPOTHETICAL main
+    // sizes and only shrinks what is already on a line, so an auto basis wraps the box before
+    // any of those three can run. This is the same defect card-heading fixed, one component
+    // over; that test records the same argument from the other end.
+    const base = layerBody("terp.base");
+    const headingAt = base.indexOf('[data-terp="page-heading"] {');
+    expect(headingAt, "page-heading should have a base rule").toBeGreaterThan(-1);
+    const heading = base.slice(headingAt, base.indexOf("}", headingAt));
+    expect(heading, "an auto basis wraps the action cluster onto its own line").toContain(
+      "flex: 1 1 0",
+    );
+    expect(heading, "min-width: 0 is what lets an unbreakable title shrink").toContain(
+      "min-width: 0",
+    );
+    // The lead line needs the same, one level in: nowrap makes its max-content the whole
+    // sentence, so an auto basis breaks the heading's own line before it can ellipsise.
+    const descAt = base.indexOf('[data-terp="page-description"] {');
+    expect(descAt, "page-description should have a base rule").toBeGreaterThan(-1);
+    const description = base.slice(descAt, base.indexOf("}", descAt));
+    expect(description, "an auto basis gives the lead line its own row").toContain("flex: 1 1 0");
+    // And the three declarations that do the truncating, which are only reachable from a
+    // line the box actually shares.
+    expect(description).toContain("min-width: 0");
+    expect(description).toContain("white-space: nowrap");
+    expect(description).toContain("text-overflow: ellipsis");
+  });
+
   it("gives the breadcrumb trail one line box, leaf included", () => {
     // The trail is a row of items that get CENTRED, so two line heights in it are two
     // baselines. The leaf declared 1.3 while its ancestors inherited `normal`: measured at

@@ -1983,14 +1983,25 @@ textarea[data-terp="input"] {
   min-width: 0;
 }
 /* The band's left group: the trail (whose leaf is the h1), then badges, then the lead line.
-   flex: 1 1 auto with min-width: 0 is what lets the lead line truncate instead of pushing
-   the action cluster off the row. */
+   A base size of ZERO, and that is the whole of what keeps the band one row. The comment
+   here used to claim a flex of 1 1 auto with min-width: 0 was what let the lead line truncate
+   instead of pushing the action cluster off the row, and it is the same mistake Card made
+   and fixed (see card-heading, and the test that records the measurement): flex collects
+   items into lines using their HYPOTHETICAL main sizes, and only then shrinks what is on a
+   line. With an auto basis the heading's hypothetical size is the max-content width of a
+   trail AND a sentence, so with the band's flex-wrap the heading takes the line and the
+   actions wrap underneath -- and the description, having reached its own line, has room and
+   never ellipsises. Neither of the two things the comment promised actually held.
+
+   min-width: 0 stays, for the other half: a flex item's automatic minimum is its content's,
+   so a long unbreakable title would otherwise refuse to shrink past it. Both are asserted in
+   styles.test.ts, because dropping either brings a different half of the bug back. */
 [data-terp="page-heading"] {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-3);
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
 }
 /* The single h1 of the view, and now also the trail's current crumb: one node instead of two
@@ -2025,10 +2036,15 @@ textarea[data-terp="input"] {
 }
 /* The lead line: one short sentence about the page, truncated rather than wrapped, because
    the band has a height and prose that wraps would set it. A page whose explanation does not
-   fit on one line is describing its body, and that belongs in the body. */
+   fit on one line is describing its body, and that belongs in the body.
+
+   Zero basis for the same reason the heading has one, one level in: nowrap makes this box's
+   max-content the whole unwrapped sentence, so an auto basis breaks the heading's line before
+   any of the three declarations below get a chance to run. The truncation is only reachable
+   from a line the box actually shares. */
 [data-terp="page-description"] {
   margin: 0;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   color: var(--color-fg-subtle);
   font-size: var(--font-size-sm);
@@ -3159,6 +3175,10 @@ th[data-terp="dataview-actions-cell"] > span {
 /* The bar reads only the inline half of the cell padding, with --space-2
    vertically, so its left edge stays flush with the first cell's text at either
    density — the same bargain the toolbar strikes at the other end of the box. */
+/* min-height is what lets the bar say nothing. While the total is unknown the range span
+   is empty and the pager is absent, so without a floor the bar collapses to its padding and
+   the whole footer jumps the moment the count lands -- which is the layout shift the
+   fixed-height skeleton above it exists to avoid. One line box of the bar's own type. */
 [data-terp="dataview-pagination"] {
   display: flex;
   align-items: center;
@@ -3166,6 +3186,8 @@ th[data-terp="dataview-actions-cell"] > span {
   gap: var(--space-3);
   flex-wrap: wrap;
   padding-block: var(--space-2);
+  min-height: calc(var(--font-size-sm) * var(--font-line-height-base) + 2 * var(--space-2));
+  box-sizing: border-box;
   font-size: var(--font-size-sm);
   color: var(--color-fg-subtle);
 }
