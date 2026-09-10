@@ -715,13 +715,20 @@ test("both chrome rows come out at the header height their shared token declares
     }
   }
 
-  // And the ONE composition that is meant to grow, asserted rather than assumed: a long
-  // title meeting a wide action cluster wraps to a second line and takes the band with it.
-  // A band that clipped its own title to hold a height would be the worse trade, so the
-  // floor is a floor and not a fixed height — this is the case that says which.
-  const wrapped = await chromeRow(page, "page-header-crowded", '[data-terp="page-header"]');
-  expect(wrapped.height, "a wrapped band grows past the floor").toBeGreaterThan(
-    wrapped.declared,
+  // The crowded composition, which used to be the ONE that grew — and is the case that says
+  // which way the trade goes, so it stays here saying the other thing rather than being
+  // deleted. It read "a band that clipped its own title to hold a height would be the worse
+  // trade", and the sheet has now made the opposite call: `Page.tsx` promises the trail,
+  // badges, description and actions on ONE line, and a band that wrapped was not keeping
+  // that promise — it put the description on its own full-width row and the actions on a
+  // third, 76px in Chromium at 1024px, with the ellipsis it already declared unable to run.
+  // Zero-basis heading and lead line hold the row; the description truncates instead.
+  // `styles.test.ts` ("keeps the page band one row") pins the declarations that do it;
+  // this is the composition most able to beat the floor, so it is where a regression to
+  // wrapping would show first.
+  const crowded = await chromeRow(page, "page-header-crowded", '[data-terp="page-header"]');
+  expect(crowded.height, "a crowded band holds the floor instead of wrapping").toBe(
+    crowded.declared,
   );
 });
 
