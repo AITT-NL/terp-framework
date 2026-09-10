@@ -14,6 +14,35 @@ decision, 0001 onwards.
 
 ### Added
 
+- **A UUID seam, because the browser's own is secure-context-only.** `crypto.randomUUID`
+  is the clipboard trap again, one API over: `lib.dom` declares it unconditionally on
+  `Crypto`, it exists only in a secure context, so on a plain-http origin the call is a
+  **synchronous** `TypeError`. TypeScript reports nothing, and neither does CI — localhost
+  *is* a secure context, so the entire class is invisible to the type checker, to review
+  and to the test suite at once, and surfaces only in a deployment.
+
+  What makes it a seam rather than a lesson is that the platform routes apps into it. The
+  idempotency capability's contract is a **client-generated** `Idempotency-Key`, so an app
+  adding retry-safety reaches for exactly this method — and the topology it breaks in is
+  the one Terp ships: the compose files publish plain http, so any deployment reached by
+  hostname is an insecure context. The recipe asked for a key and never said how to make
+  one; it does now.
+
+  `randomUuid()` from `@terpjs/react-core` uses the native generator where it exists and
+  assembles the same v4 from `crypto.getRandomValues` — which is *not* secure-context-gated
+  — where it does not, so the entropy is identical and only the assembly moves. There is
+  deliberately no `Math.random` path: a UUID standing in for an idempotency key is a value
+  a collision corrupts, and quietly degrading it to keep a call site quiet is the "it
+  worked" the clipboard seam exists to refuse. With no `crypto` at all it throws
+  `RandomUuidUnavailableError` rather than inventing one.
+
+  Paired with `frontend/no-raw-random-uuid`, which refuses any access to
+  `crypto.randomUUID` in app code — the member expression rather than only the call, since
+  `const gen = crypto.randomUUID` is the same broken binding a line earlier, and the
+  `window.`/`globalThis.`/`self.` prefixed, computed and destructured spellings with it.
+  `crypto.getRandomValues` is untouched: it is not gated, it is not this defect, and the
+  seam is built on it.
+
 - **The gate asks whether the app it just passed would boot in production.** Friction
   reported from a full upgrade of an app with background work: `terp verify --profile
   full` printed `profile full is green` on a tree whose production boot was already
