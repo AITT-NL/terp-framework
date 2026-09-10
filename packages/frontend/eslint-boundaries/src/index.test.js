@@ -196,6 +196,61 @@ describe("terpBoundaries", () => {
     expect(await lint("export const pick = (o) => o.clipboard;")).toEqual([]);
   });
 
+  it("refuses crypto.randomUUID in every spelling that binds the same undefined", async () => {
+    // Secure-context-only, declared unconditionally by lib.dom: on an http origin each of
+    // these is a synchronous TypeError that type-checks cleanly and never fires on
+    // localhost, so neither tsc nor CI ever sees it.
+    expect(await lint("export const id = () => crypto.randomUUID();")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint('export const id = () => crypto["randomUUID"]();')).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const id = () => window.crypto.randomUUID();")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const id = () => globalThis.crypto.randomUUID();")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const id = () => self.crypto.randomUUID();")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(
+      await lint('export const id = () => globalThis["crypto"].randomUUID();'),
+    ).toContain("no-restricted-syntax");
+    // Bound rather than called: the reference is already the broken one.
+    expect(await lint("export const gen = crypto.randomUUID;")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const { randomUUID } = crypto;")).toContain(
+      "no-restricted-syntax",
+    );
+  });
+
+  it("accepts the react-core uuid seam, and the API that is not gated", async () => {
+    expect(
+      await lint(
+        'import { randomUuid } from "@terpjs/react-core";\nexport const id = () => randomUuid();',
+      ),
+    ).toEqual([]);
+    // getRandomValues is NOT secure-context-gated, so it is not this defect and the seam
+    // itself is built on it. Flagging it would make the rule a word filter on "crypto".
+    expect(
+      await lint("export const bytes = () => crypto.getRandomValues(new Uint8Array(16));"),
+    ).toEqual([]);
+    // And a `randomUUID` on something that is not `crypto` is somebody else's function.
+    expect(await lint("export const id = (lib) => lib.randomUUID();")).toEqual([]);
+  });
+
+  it("honours the uuid rule's declared escape hatch, and only its own name", async () => {
+    const call = "export const id = () => crypto.randomUUID();";
+    expect(
+      await lint(`// terp-allow-no-raw-random-uuid: https-only admin origin\n${call}`),
+    ).toEqual([]);
+    const wrong = await lint(`// terp-allow-no-random-uuid: typo\n${call}`);
+    expect(wrong).toContain("no-restricted-syntax");
+  });
+
   it("honours the clipboard rule's declared escape hatch, and only its own name", async () => {
     // The catalog entry declares `// terp-allow-no-raw-clipboard: <reason>`, and a
     // declared opt-out that does not actually suppress is a false promise in the

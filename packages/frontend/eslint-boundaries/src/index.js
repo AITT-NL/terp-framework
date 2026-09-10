@@ -918,6 +918,12 @@ const clipboardMessage =
   "TypeError that no .catch and no try around an await ever sees. Use copyText or " +
   "useCopyToClipboard from @terpjs/react-core, which feature-detect, fall back, and " +
   "report a refusal instead of failing silently.";
+const randomUuidMessage =
+  "crypto.randomUUID exists only in a secure context and lib.dom declares it "
+  + "unconditionally, so on an http origin this is a call on undefined -- a SYNCHRONOUS "
+  + "TypeError that type-checks cleanly and never fires on localhost, so no test sees it. "
+  + "Use randomUuid from @terpjs/react-core, which falls back to crypto.getRandomValues "
+  + "(not secure-context-gated) for the same entropy.";
 const deepImportMessage =
   "Import from the package root (@terpjs/react-core, @terpjs/contract), not its internals.";
 const styleImportMessage =
@@ -998,11 +1004,32 @@ function restrictedSyntaxWithCatalogIds() {
         },
       ]
     : [];
+  const rawRandomUuid = BOUNDARY_SPEC.restrictRawRandomUuid
+    ? [
+        {
+          // Any ACCESS, like the clipboard rule beside it and for the same reason:
+          // `const gen = crypto.randomUUID` binds the same undefined one line before the
+          // call that throws on it.
+          catalogId: "frontend/no-raw-random-uuid",
+          selector:
+            "MemberExpression[object.name='crypto'][property.name='randomUUID'], MemberExpression[object.name='crypto'][computed=true][property.value='randomUUID'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis|self)$/][object.property.name='crypto'][property.name='randomUUID'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis|self)$/][object.computed=true][object.property.value='crypto'][property.name='randomUUID']",
+          message: randomUuidMessage,
+        },
+        {
+          // The destructuring spelling, which no member-expression selector reaches.
+          catalogId: "frontend/no-raw-random-uuid",
+          selector:
+            "VariableDeclarator[init.name='crypto'] ObjectPattern > Property[key.name='randomUUID'], VariableDeclarator[init.type='MemberExpression'][init.property.name='crypto'] ObjectPattern > Property[key.name='randomUUID']",
+          message: randomUuidMessage,
+        },
+      ]
+    : [];
   return [
     ...rawElements,
     ...rawAttributes,
     ...inAppAnchors,
     ...rawClipboard,
+    ...rawRandomUuid,
     {
       catalogId: "frontend/no-dom-html-injection",
       selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",

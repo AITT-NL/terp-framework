@@ -1171,6 +1171,14 @@ Idempotency (the Idempotency-Key header, terp.core.idempotency)
   CLIENT opts in per request by sending a header:
       Idempotency-Key: <client-generated unique key>
   A request without the header behaves exactly as it did before.
+- GENERATE THE KEY WITH randomUuid() from @terpjs/react-core, not crypto.randomUUID().
+  The browser method exists only in a SECURE CONTEXT while lib.dom declares it
+  unconditionally, so on an http origin -- which is what the compose files publish, so
+  any deployment reached by hostname rather than localhost -- the call is a synchronous
+  TypeError. It type-checks cleanly and it never fires on localhost, so neither tsc nor
+  the test suite ever sees it; the retry-safety this whole feature exists for is what
+  breaks, and only in the deployment. The seam falls back to crypto.getRandomValues,
+  which is not secure-context-gated, for the same entropy.
 - The semantics, all typed envelopes:
       first call                -> executes; the response is stored under the key
       retry, same body          -> the stored response is replayed

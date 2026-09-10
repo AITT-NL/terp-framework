@@ -120,6 +120,7 @@ export const BOUNDARY_SPEC = {
    * `copyText` / `useCopyToClipboard` feature-detect and report a refusal instead.
    */
   restrictRawClipboard: true,
+  restrictRawRandomUuid: true,
   /**
    * The governed escape hatch (the frontend analog of the backend's `# arch-allow-*`): a
    * justified `// terp-allow-<rule>: <reason>` comment on (or immediately above) a violating
