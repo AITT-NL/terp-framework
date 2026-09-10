@@ -14,6 +14,80 @@ decision, 0001 onwards.
 
 ### Added
 
+- **A stored reference now declares what a delete of its target does, and the platform
+  does not pick for you.** Terp already answered two of the three things that can happen
+  to a row somebody points at: concurrent change is covered by the mandatory OCC
+  `version`, and key change cannot happen at all, because `BaseTable` mandates a UUID
+  surrogate primary key. Deletion of the target was not covered, and the gap had a
+  particular shape: every foreign key has a referential action whether or not anyone
+  chose one, so a bare
+  `invoice_id: uuid.UUID = Field(foreign_key="invoice.id")` is indistinguishable from a
+  considered decision that the database should do nothing. The platform's own single
+  foreign key was the clearest example — undeclared, with nothing recording whether that
+  was deliberate.
+
+  The sharper finding is that the gate already shipped could not see this either. The
+  generated template's migration-drift test runs against SQLite, and Alembic
+  compares foreign keys by a signature including their referential options **only** when
+  the backend reflects those options. SQLite reports none, so it silently falls back to
+  the option-less signature: every generated app has been running a green drift check
+  that proves nothing about referential behaviour. That is fixed below, and it is the
+  reason this rule exists rather than a tidier catalog.
+
+  What the rule does **not** do is pick an action, and that is deliberate. Across a large
+  application on the same stack — SQLModel over SQLAlchemy and Alembic, not a Terp app —
+  the three actions appear in comparable volume: roughly 40% `CASCADE`, 30% `RESTRICT`,
+  28% `SET NULL` over some four hundred declarations. No default would have been right,
+  which is why what ships enforces the decision and never the choice.
+
+  `terp.core` now ships `Ref` and `OnDelete`. `on_delete` is a **required keyword**, so
+  a reference with no decision is a `TypeError` where the model is defined rather than a
+  review finding somebody has to notice:
+
+      class InvoiceLine(BaseTable, table=True):
+          invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)
+
+  All five SQL actions are accepted and the rule enforces only that one was *named* —
+  `CASCADE` for a part of its parent, `RESTRICT` for something the parent must not
+  vanish underneath, `SET NULL` for a pointer allowed to go slack. `OnDelete.NO_ACTION`
+  is a full answer ("the database takes none; something above it owns this lifecycle")
+  and deliberately emits **no** `ON DELETE` clause, for two reasons: a database reports
+  its default action as absent rather than as those words, so emitting the literal would
+  make every model-versus-database comparison report drift on that constraint forever;
+  and adopting the declaration therefore costs **no migration**. The DDL is unchanged;
+  what changes is that the source says the silence was chosen.
+
+  The rule also refuses an action that **cannot fire**. `SoftDeleteMixin` makes a delete
+  a stamp — `deleted_at` is set and the row stays — so no `DELETE` ever reaches a
+  constraint pointing at it. `CASCADE`, `SET NULL` and `SET DEFAULT` against such a
+  target are therefore all dead code, `SET NULL` most painfully: it does not fire, so the
+  children keep a live, non-null pointer to a row the read scope now hides from every
+  query, and the reference reads as broken rather than absent. `RESTRICT` and `NO_ACTION`
+  stay available, and the reason is not that they are passive — it is that they only ever
+  described the hard-delete path no request can reach, so they promise nothing that fails
+  to happen. Declare one of those as the backstop and cascade the stamp from the owning
+  service, which is the only layer that can see it.
+
+  Two halves, as usual, and they see different things: the `terp.arch`
+  `references_declare_delete_behaviour` rule reads the source, so it is the only one
+  that can tell a chosen `NO ACTION` from an unchosen one, while
+  `terp.core.assert_references_declare_delete_behaviour` audits live `MetaData`, so it
+  sees foreign keys in spellings no source scan reaches. The audit is a function you
+  call where the model set is known, deliberately not an unconditional `create_app`
+  check: `SQLModel.metadata` is process-global and accumulates every table any test ever
+  declares, so one ad-hoc test model with a bare foreign key would fail an unrelated
+  later test. Recipes: `terp guide references`. See ADR 0133.
+
+- **`terp guide append-only`**, for the immutability guarantees that already shipped and
+  were not written down anywhere an author would find them. `BaseService.append_only`
+  refuses every post-insert write at the audited chokepoint; the topic states what it
+  covers, what it does not (it is a property of the service, not a database grant, and
+  it is all-or-nothing per table — "editable until posted" is still your own code), and
+  sets it beside its neighbours so the choice is legible before someone hand-rolls the
+  wrong one: `@read_only` for a route, `SoftDeleteMixin` for a row that survives its own
+  delete, `OnDelete.RESTRICT` for a row that blocks another's, `BaseUpdateSchema` for
+  the concurrent writer.
+
 - **The gate asks whether the app it just passed would boot in production.** Friction
   reported from a full upgrade of an app with background work: `terp verify --profile
   full` printed `profile full is green` on a tree whose production boot was already
@@ -83,6 +157,16 @@ decision, 0001 onwards.
   nothing breaks until they do. See ADR 0130.
 
 ### Fixed
+
+- **`assert_migrations_match_models` now documents the one thing it cannot see.**
+  Autogenerate compares foreign keys by a signature that includes their referential
+  options only when the backend reflects those options. PostgreSQL does; SQLite does not
+  report them at all, so against a SQLite scratch database Alembic falls back to the
+  option-less signature and an `ON DELETE` clause that changed — or was never chosen —
+  is invisible. The generated app template runs that check against SQLite, so its drift
+  test was silently not covering referential behaviour. The docstring says so now, and
+  the template gained `test_references_declare_delete_behaviour` beside it, which reads
+  the declaration on the models and needs no database at all.
 
 - **`terp upgrade --check` printed a recipe that could not be followed in the order it
   was printed.** Steps 2 to 4 edited the pins and ran both installers, which dirties the

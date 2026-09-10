@@ -85,6 +85,7 @@ from terp.arch import (
     check_response_model_not_table_model,
     check_routes_declare_response_model,
     check_declared_read_only_routes_do_not_write,
+    check_references_declare_delete_behaviour,
     check_safe_methods_are_read_only,
     check_schemas_exclude_sensitive_fields,
     check_session_imported_from_sqlmodel,
@@ -4981,3 +4982,253 @@ def test_frozen_values_hold_no_mutable_collection_leaves_honest_fields_alone(
         "    columns: ColumnNames\n",
     )
     assert check_frozen_values_hold_no_mutable_collection(app) == []
+
+
+def test_references_declare_delete_behaviour(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+
+    # A foreign key with no delete behaviour, in each of the three spellings a table
+    # model can reach for. All three are the same defect: the action is whatever SQL
+    # defaults to, and nothing in the source says that was a choice.
+    undeclared = (
+        'invoice_id: uuid.UUID = Field(foreign_key="invoice.id")',
+        'invoice_id: uuid.UUID = Field(sa_column=Column(ForeignKey("invoice.id")))',
+        'invoice_id: uuid.UUID = Ref("invoice.id")',
+    )
+    for source in undeclared:
+        _write(
+            app,
+            "modules/billing/models.py",
+            f"class Line(BaseTable, table=True):\n    {source}\n",
+        )
+        found = check_references_declare_delete_behaviour(app)
+        assert _rule_names(found) == {"references_declare_delete_behaviour"}, source
+        # One column, one finding: the spellings must not overlap into a double report,
+        # which a rule-name set would hide.
+        assert len(found) == 1, source
+
+    # Every action is accepted -- the rule enforces that one was named, never which.
+    for action in ("CASCADE", "RESTRICT", "SET_NULL", "SET_DEFAULT", "NO_ACTION"):
+        _write(
+            app,
+            "modules/billing/models.py",
+            "class Line(BaseTable, table=True):\n"
+            f'    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.{action})\n',
+        )
+        assert check_references_declare_delete_behaviour(app) == [], action
+
+    # The decision counts however it is spelled: SQLModel's own shorthand and a
+    # hand-built column both made it without the helper.
+    declared_otherwise = (
+        'invoice_id: uuid.UUID = Field(foreign_key="invoice.id", ondelete="CASCADE")',
+        'invoice_id: uuid.UUID = Field(sa_column=Column(ForeignKey("invoice.id",'
+        ' ondelete="RESTRICT")))',
+    )
+    for source in declared_otherwise:
+        _write(
+            app,
+            "modules/billing/models.py",
+            f"class Line(BaseTable, table=True):\n    {source}\n",
+        )
+        assert check_references_declare_delete_behaviour(app) == [], source
+
+    # A table-level constraint is a reference too, and it is reported once.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    __table_args__ = (ForeignKeyConstraint(["invoice_id"], ["invoice.id"]),)\n'
+        "    invoice_id: uuid.UUID\n",
+    )
+    found = check_references_declare_delete_behaviour(app)
+    assert _rule_names(found) == {"references_declare_delete_behaviour"}
+    assert len(found) == 1
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    __table_args__ = (ForeignKeyConstraint(["invoice_id"], ["invoice.id"],\n'
+        '                                           ondelete="CASCADE"),)\n'
+        "    invoice_id: uuid.UUID\n",
+    )
+    assert check_references_declare_delete_behaviour(app) == []
+
+    # An action that cannot fire: the target's delete is a stamp, so CASCADE never
+    # cascades, SET DEFAULT never defaults, and SET NULL leaves a live pointer to a row
+    # every read now hides. SET_DEFAULT belongs here and not with the accepted pair --
+    # the line is whether the declaration's value depends on the action firing.
+    for action in ("CASCADE", "SET_NULL", "SET_DEFAULT"):
+        _write(
+            app,
+            "modules/billing/models.py",
+            "class Invoice(BaseTable, SoftDeleteMixin, table=True):\n"
+            "    number: str = Field(max_length=50)\n"
+            "\n"
+            "class Line(BaseTable, table=True):\n"
+            f'    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.{action})\n',
+        )
+        found = check_references_declare_delete_behaviour(app)
+        assert _rule_names(found) == {"references_declare_delete_behaviour"}, action
+        assert len(found) == 1, action
+        assert "can never fire" in found[0].message, action
+
+    # ... and the two that stay honest against the same target are accepted.
+    for action in ("RESTRICT", "NO_ACTION"):
+        _write(
+            app,
+            "modules/billing/models.py",
+            "class Invoice(BaseTable, SoftDeleteMixin, table=True):\n"
+            "    number: str = Field(max_length=50)\n"
+            "\n"
+            "class Line(BaseTable, table=True):\n"
+            f'    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.{action})\n',
+        )
+        assert check_references_declare_delete_behaviour(app) == [], action
+
+    # The trait reaches through an app-owned base and through an explicit __tablename__,
+    # because that is how a real app factors it (ADR 0011).
+    _write(
+        app,
+        "modules/billing/base.py",
+        "class AppTable(BaseTable, SoftDeleteMixin):\n    pass\n",
+    )
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Invoice(AppTable, table=True):\n"
+        '    __tablename__ = "billing_invoice"\n'
+        "    number: str = Field(max_length=50)\n"
+        "\n"
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Ref("billing_invoice.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    assert _rule_names(check_references_declare_delete_behaviour(app)) == {
+        "references_declare_delete_behaviour"
+    }
+
+    # A model that declares the trait's column itself behaves identically at the
+    # reference end, so it counts as soft-deletable too.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Invoice(BaseTable, table=True):\n"
+        "    deleted_at: datetime | None = None\n"
+        "\n"
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    assert _rule_names(check_references_declare_delete_behaviour(app)) == {
+        "references_declare_delete_behaviour"
+    }
+
+    # A target that is not soft-deletable takes any action, and an action the rule
+    # cannot resolve statically (a constant, a variable) is still a declaration.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Invoice(BaseTable, table=True):\n"
+        "    number: str = Field(max_length=50)\n"
+        "\n"
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=CONFIGURED_ACTION)\n'
+        '    other_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    assert check_references_declare_delete_behaviour(app) == []
+
+    # One column, one finding -- for the two shapes that would otherwise report it
+    # twice. Neither is caught by a corpus case, which only asserts the rule fired.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Outer(BaseTable, table=True):\n"
+        "    class Inner(BaseTable, table=True):\n"
+        '        invoice_id: uuid.UUID = Field(foreign_key="invoice.id")\n',
+    )
+    found = check_references_declare_delete_behaviour(app)
+    assert _rule_names(found) == {"references_declare_delete_behaviour"}
+    # The nested model is visited by the file pass in its own right, so walking into
+    # it from the enclosing class would report its column once per enclosing class.
+    assert len(found) == 1, found
+
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Field(foreign_key="invoice.id",\n'
+        '                                  sa_column=Column(ForeignKey("invoice.id")))\n',
+    )
+    found = check_references_declare_delete_behaviour(app)
+    assert _rule_names(found) == {"references_declare_delete_behaviour"}
+    # A foreign key nested inside a foreign key is still one column.
+    assert len(found) == 1, found
+
+    # Two real columns still give two findings -- the de-duplication above must not
+    # have collapsed into "one finding per class".
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    a_id: uuid.UUID = Field(foreign_key="a.id")\n'
+        '    b_id: uuid.UUID = Field(foreign_key="b.id")\n',
+    )
+    assert len(check_references_declare_delete_behaviour(app)) == 2
+
+    # The target may be passed as a keyword, and reachability still resolves it.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Invoice(BaseTable, SoftDeleteMixin, table=True):\n"
+        '    number: str = Field(max_length=50)\n'
+        "\n"
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Ref(target="invoice.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    found = check_references_declare_delete_behaviour(app)
+    assert len(found) == 1 and "can never fire" in found[0].message, found
+
+    # A target held in a module-level constant (the shape a tree with one shared user
+    # table reaches for) is a declaration the rule accepts; its table simply cannot be
+    # resolved from source, so the reachability half has nothing to check.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Invoice(BaseTable, SoftDeleteMixin, table=True):\n"
+        "    number: str = Field(max_length=50)\n"
+        "\n"
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Field(foreign_key=INVOICE_FK, ondelete="CASCADE")\n'
+        "    other_id: uuid.UUID = Ref(INVOICE_FK, on_delete=OnDelete.CASCADE)\n",
+    )
+    assert check_references_declare_delete_behaviour(app) == []
+
+    # A reference whose target this tree does not declare cannot be judged for
+    # reachability, and is not guessed at.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    file_id: uuid.UUID = Ref("elsewhere.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    assert check_references_declare_delete_behaviour(app) == []
+
+    # Scope: a non-table schema is not a persisted reference, and a helper outside an
+    # app module is not app-module code.
+    _write(
+        app,
+        "modules/billing/schemas.py",
+        "class LineRead(BaseSchema):\n"
+        '    invoice_id: uuid.UUID = Field(foreign_key="invoice.id")\n',
+    )
+    _write(
+        app,
+        "helpers/legacy.py",
+        "class Legacy(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Field(foreign_key="invoice.id")\n',
+    )
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    assert check_references_declare_delete_behaviour(app) == []

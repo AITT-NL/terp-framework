@@ -12,6 +12,7 @@ import tomllib
 
 from terp.arch import assert_app_clean
 from terp.cli.verify import PROFILES
+from terp.core import assert_references_declare_delete_behaviour
 from terp.migrations import assert_migrations_match_models, upgrade
 
 _APP_ROOT = pathlib.Path(__file__).resolve().parents[1] / "app"
@@ -88,6 +89,22 @@ def test_every_module_is_mounted() -> None:
             f"app/modules/{package} declares module {spec.name!r} but no {prefix} route is "
             "mounted — import it in app/main.py and add it to the `modules` list."
         )
+
+
+def test_references_declare_delete_behaviour() -> None:
+    # The runtime half of the reference control (platform ADR 0133): every foreign
+    # key in the app's own models must name what a delete of its target does, and
+    # must not name one that cannot fire (CASCADE / SET NULL against a
+    # soft-deletable target, whose delete is a stamp and never a DELETE).
+    #
+    # This is not covered by the drift check below, and the reason is worth knowing:
+    # that check compares the models against a SQLite database, and SQLite does not
+    # report a foreign key's referential options, so Alembic falls back to comparing
+    # constraints WITHOUT their options. An ON DELETE clause that changed -- or was
+    # never chosen -- is invisible to it. This test reads the declaration instead.
+    for models in sorted((_APP_ROOT / "modules").glob("*/models.py")):
+        importlib.import_module(f"app.modules.{models.parent.name}.models")
+    assert_references_declare_delete_behaviour()
 
 
 def test_migrations_match_models(tmp_path: pathlib.Path) -> None:
