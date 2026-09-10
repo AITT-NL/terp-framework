@@ -100,11 +100,17 @@ def _pinned_spec_version() -> str | None:
 #: left open. During certification the assertion below is trivially satisfied,
 #: because the catalog under test already contains the rule.
 #:
-#: Empty: terp-spec 0.33.0 publishes the catalog entries for every rule that was
-#: waiting here — ``modules_ship_tests`` (ADR 0119) and the three module-role rules
-#: (ADR 0121) — and the pin above now names that release, so the window they were
-#: opened for is shut.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
+#: Open: ``references_declare_delete_behaviour`` (ADR 0133) is implemented here and
+#: catalogued in the standard's next release. The window before it — the entries for
+#: ``modules_ship_tests`` (ADR 0119) and the three module-role rules (ADR 0121) — was
+#: shut by terp-spec 0.33.0, which the pin above names.
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset(
+    {
+        # ADR 0133: the catalog entry + corpus land in the next terp-spec release;
+        # the standard cannot merge its own entry before this rule exists here.
+        "references_declare_delete_behaviour",
+    }
+)
 
 
 # --------------------------------------------------------------------------- #

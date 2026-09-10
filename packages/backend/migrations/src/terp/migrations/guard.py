@@ -132,6 +132,17 @@ def assert_migrations_match_models(
     history creates. Autogenerate cannot see that split (each package's diff is scoped to
     the tables it owns), so it produces no drift of its own; left alone it breaks fresh
     installs only, long after the commit that caused it.
+
+    **One blind spot, and it depends on the database you point this at.** Autogenerate
+    compares foreign keys by a signature that includes their referential options
+    (``ON DELETE`` / ``ON UPDATE``) *only when the backend reflects those options*.
+    PostgreSQL does, so a changed ``ondelete`` shows up as drift there. SQLite does not
+    report them at all, so against a SQLite scratch database Alembic falls back to the
+    option-less signature and an ``ON DELETE`` clause that changed — or that was never
+    chosen — is invisible. A suite that runs this against SQLite is therefore not
+    checking referential behaviour; pair it with
+    :func:`terp.core.assert_references_declare_delete_behaviour`, which reads the
+    declaration on the models and needs no database at all (ADR 0133).
     """
     assert_no_split_table_ownership(
         str(app_root) if app_root is not None else None, package

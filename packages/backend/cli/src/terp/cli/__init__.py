@@ -560,6 +560,107 @@ Recoverable deletes (SoftDeleteMixin)
   preserves the row and the history that cites it; bringing one back is an operator
   action, not an app one.
 """,
+    "references": """\
+Stored references (Ref + OnDelete)
+
+- A foreign key HAS a referential action whether or not you chose one, and the one
+  you get by not choosing (NO ACTION) looks exactly like the one you chose. So
+  declare it. on_delete is a required keyword, so the decision cannot be skipped:
+      from terp.core import BaseTable, OnDelete, Ref
+      class InvoiceLine(BaseTable, table=True):
+          invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)
+- WHICH action is yours to pick; the platform does not prefer one, because the right
+  answer is a property of what the reference MEANS:
+      CASCADE      this row is part of its parent (an invoice line, an address)
+      RESTRICT     the parent must not vanish underneath this row (a ledger entry)
+      SET NULL     a pointer allowed to go slack (an optional assignee) -- nullable
+      SET_DEFAULT  point at the column default instead (that default must exist)
+      NO_ACTION    the database takes none; something above it owns this lifecycle
+- NO_ACTION is a real answer, not a cop-out, and it emits NO clause at all. Two
+  consequences worth knowing: adopting the declaration on an existing schema costs
+  no migration (the DDL is unchanged, only the source now says the silence was
+  chosen), and a database reports its default action as absent rather than as the
+  words NO ACTION -- which is why emitting the literal would make every
+  model-versus-database comparison report drift on that constraint forever.
+- Ref() forwards everything else to Field(), and indexes by default: an unindexed
+  foreign key turns every parent delete and every join into a table scan.
+      owner_id: uuid.UUID | None = Ref("user.id", on_delete=OnDelete.SET_NULL,
+                                       default=None)
+- SOFT-DELETE CHANGES THE ANSWER. A SoftDeleteMixin row is never DELETEd, only
+  stamped, so no action declared against it can fire at all: CASCADE never cascades,
+  SET DEFAULT never defaults, and SET NULL is the worst of them -- the children keep
+  a live, non-null pointer to a row the read scope now hides from every query, so the
+  reference reads as broken rather than absent. Those three are refused by the
+  references_declare_delete_behaviour rule. RESTRICT and NO_ACTION are accepted, and
+  the difference is not that they are passive: it is that they only ever described
+  the hard-delete path no request can reach, so they promise nothing that fails to
+  happen. Declare one of those and cascade the STAMP from the owning service, which
+  is the only layer that can see it.
+- A service-owned cascade goes in _after_write, inside the same write unit, so every
+  removal is audited and a failure anywhere rolls the whole thing back. Drain in
+  batches until nothing is left: each pass flushes into the same transaction, so it
+  sees the previous pass's deletes, and no parent size is too large.
+      def _after_write(self, session, entity, action):
+          super()._after_write(session, entity, action)
+          if action is not AuditAction.DELETED:
+              return
+          while True:
+              lines, _total = self._lines.list(session, skip=0, limit=1_000,
+                                               filters={"invoice_id": entity.id})
+              if not lines:
+                  break
+              for line in lines:
+                  self._lines._remove(session, line)
+  (`invoice_id` has to be on the child service's `filterable` declaration for that
+  filter to be accepted -- see `terp guide service`.) The hook runs with raw session
+  writes re-forbidden, so `session.delete(...)` there fails closed on purpose -- `_save` / `_remove` re-open the scope for their own
+  audited write, and they are the only way through. Prefer this over a database
+  CASCADE whenever the removals must appear in the audit trail: the database deletes
+  silently and leaves the trail with a hole in it.
+- AUDIT LIVE METADATA (a consumer test, or a boot check where the model set is known):
+      from terp.core import assert_references_declare_delete_behaviour
+      def test_references_declare_delete_behaviour() -> None:
+          import app.models  # noqa: F401 -- populate the metadata
+          assert_references_declare_delete_behaviour()
+  It is deliberately not wired into create_app: SQLModel.metadata is process-global
+  and accumulates every table any test ever declared, so an unconditional walk at
+  boot would make one ad-hoc test model fail an unrelated later test (ADR 0133).
+- WHAT THIS DOES NOT COVER: ON UPDATE. BaseTable mandates a UUID surrogate primary
+  key, so a key never changes and there is nothing for it to cascade.
+""",
+    "append-only": """\
+Rows that cannot change, and rows that cannot go (append_only)
+
+- A ledger row, an immutable revision, a captured snapshot: the guarantee is real
+  only when it is STATED. Without this, immutability is achieved by not exposing an
+  update route, which is a guarantee made of missing code -- it holds until someone
+  adds a line, and no rule and no review step notices when they do.
+      class LedgerEntryService(BaseService[LedgerEntry, LedgerEntryCreate, Never]):
+          model = LedgerEntry
+          append_only = True
+- The write chokepoint then refuses every non-CREATED write -- update(), delete(),
+  and any bespoke _save() -- with the uniform 409. There is nothing to remember at
+  the call sites, and no route can opt back in.
+- It is a property of the SERVICE, so it covers the API, a worker, a job and a
+  fixture equally. It is not a database grant: a migration or a psql session can
+  still write the table. Pair it with the audit trail if you need to know that
+  nothing did.
+- append_only is ALL OR NOTHING per table. "Editable until the invoice is posted"
+  and "set once, then fixed" are narrower questions with no built-in seam yet; they
+  live in the service's own update path today. Write the refusal as a typed
+  ConflictError so it reads like the built-in one:
+      def update(self, session, entity_id, data):
+          entity = self.get(session, entity_id)
+          if entity.posted_at is not None:
+              raise ConflictError("Een geboekte factuur kan niet meer wijzigen.")
+          return super().update(session, entity_id, data)
+- The neighbouring guarantees, so you pick the right one:
+      append_only          the ROW cannot change after insert
+      @read_only           the ROUTE writes nothing, though its verb is unsafe
+      SoftDeleteMixin      the row survives its own delete (see: soft-delete)
+      OnDelete.RESTRICT    another row cannot be deleted while this one points at it
+      BaseUpdateSchema     a concurrent writer cannot lose your edit (OCC, 409)
+""",
     "package-boundaries": """\
 Boundaries for a second top-level package (an ungated worker)
 

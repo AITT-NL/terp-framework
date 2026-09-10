@@ -125,6 +125,9 @@ from terp.arch.rules.persistence import (
     check_table_models_use_base_table,
     check_tables_have_migrations,
 )
+from terp.arch.rules.references import (
+    check_references_declare_delete_behaviour,
+)
 from terp.arch.rules.dependencies import (
     check_cross_module_imports_use_public_surface,
     check_module_dependency_graph_is_acyclic,
@@ -216,6 +219,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_manual_version_assignment": "service",
     "update_schemas_inherit_base_update_schema": "module",
     "no_raw_file_references": "files",
+    "references_declare_delete_behaviour": "references",
     "table_models_use_base_table": "module",
     "tables_have_migrations": "migrations",
     "no_manual_table_schema": "migrations",
@@ -317,6 +321,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_migration_history_is_intact,
     check_table_ownership_is_not_split,
     check_no_unique_columns_on_soft_delete_models,
+    check_references_declare_delete_behaviour,
     check_canonical_module_shape,
     check_modules_ship_tests,
     check_session_imported_from_sqlmodel,
@@ -468,6 +473,7 @@ __all__ = [
     "check_no_raw_outbound_http",
     "check_no_raw_session_construction",
     "check_no_unique_columns_on_soft_delete_models",
+    "check_references_declare_delete_behaviour",
     "check_offset_queries_declare_ordering",
     "check_operations_reference_catalog",
     "check_routes_declare_operation",
