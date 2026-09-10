@@ -88,22 +88,6 @@ decision, 0001 onwards.
   delete, `OnDelete.RESTRICT` for a row that blocks another's, `BaseUpdateSchema` for
   the concurrent writer.
 
-### Fixed
-
-- **`assert_migrations_match_models` now documents the one thing it cannot see.**
-  Autogenerate compares foreign keys by a signature that includes their referential
-  options only when the backend reflects those options. PostgreSQL does; SQLite does not
-  report them at all, so against a SQLite scratch database Alembic falls back to the
-  option-less signature and an `ON DELETE` clause that changed — or was never chosen —
-  is invisible. The generated app template runs that check against SQLite, so its drift
-  test was silently not covering referential behaviour. The docstring says so now, and
-  the template gained `test_references_declare_delete_behaviour` beside it, which reads
-  the declaration on the models and needs no database at all.
-
-## 0.21.0 — 2026-09-10
-
-### Added
-
 - **A UUID seam, because the browser's own is secure-context-only.** `crypto.randomUUID`
   is the clipboard trap again, one API over: `lib.dom` declares it unconditionally on
   `Crypto`, it exists only in a secure context, so on a plain-http origin the call is a
@@ -132,6 +116,22 @@ decision, 0001 onwards.
   `window.`/`globalThis.`/`self.` prefixed, computed and destructured spellings with it.
   `crypto.getRandomValues` is untouched: it is not gated, it is not this defect, and the
   seam is built on it.
+
+### Fixed
+
+- **`assert_migrations_match_models` now documents the one thing it cannot see.**
+  Autogenerate compares foreign keys by a signature that includes their referential
+  options only when the backend reflects those options. PostgreSQL does; SQLite does not
+  report them at all, so against a SQLite scratch database Alembic falls back to the
+  option-less signature and an `ON DELETE` clause that changed — or was never chosen —
+  is invisible. The generated app template runs that check against SQLite, so its drift
+  test was silently not covering referential behaviour. The docstring says so now, and
+  the template gained `test_references_declare_delete_behaviour` beside it, which reads
+  the declaration on the models and needs no database at all.
+
+## 0.21.0 — 2026-09-10
+
+### Added
 
 - **The gate asks whether the app it just passed would boot in production.** Friction
   reported from a full upgrade of an app with background work: `terp verify --profile
@@ -1615,7 +1615,6 @@ decision, 0001 onwards.
   measured at. And this is why `DetailList` reflows itself while `Grid` deliberately refuses to
   for a fixed `columns` count — `Grid` publishes `columns="auto"` as its responsive answer, and
   a closed one-or-two has no such escape.
-
 
 - **One subscribed tab held every shutdown open forever.** A realtime channel's stream is a
   task with no end condition of its own — it closes when the client goes away, and staying
