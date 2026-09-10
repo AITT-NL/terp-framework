@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.21.0 — 2026-09-10
+## 0.22.0 — 2026-09-10
 
 ### Added
 
@@ -88,6 +88,22 @@ decision, 0001 onwards.
   delete, `OnDelete.RESTRICT` for a row that blocks another's, `BaseUpdateSchema` for
   the concurrent writer.
 
+### Fixed
+
+- **`assert_migrations_match_models` now documents the one thing it cannot see.**
+  Autogenerate compares foreign keys by a signature that includes their referential
+  options only when the backend reflects those options. PostgreSQL does; SQLite does not
+  report them at all, so against a SQLite scratch database Alembic falls back to the
+  option-less signature and an `ON DELETE` clause that changed — or was never chosen —
+  is invisible. The generated app template runs that check against SQLite, so its drift
+  test was silently not covering referential behaviour. The docstring says so now, and
+  the template gained `test_references_declare_delete_behaviour` beside it, which reads
+  the declaration on the models and needs no database at all.
+
+## 0.21.0 — 2026-09-10
+
+### Added
+
 - **The gate asks whether the app it just passed would boot in production.** Friction
   reported from a full upgrade of an app with background work: `terp verify --profile
   full` printed `profile full is green` on a tree whose production boot was already
@@ -157,16 +173,6 @@ decision, 0001 onwards.
   nothing breaks until they do. See ADR 0130.
 
 ### Fixed
-
-- **`assert_migrations_match_models` now documents the one thing it cannot see.**
-  Autogenerate compares foreign keys by a signature that includes their referential
-  options only when the backend reflects those options. PostgreSQL does; SQLite does not
-  report them at all, so against a SQLite scratch database Alembic falls back to the
-  option-less signature and an `ON DELETE` clause that changed — or was never chosen —
-  is invisible. The generated app template runs that check against SQLite, so its drift
-  test was silently not covering referential behaviour. The docstring says so now, and
-  the template gained `test_references_declare_delete_behaviour` beside it, which reads
-  the declaration on the models and needs no database at all.
 
 - **`terp upgrade --check` printed a recipe that could not be followed in the order it
   was printed.** Steps 2 to 4 edited the pins and ran both installers, which dirties the
