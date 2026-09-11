@@ -147,7 +147,17 @@ services:
       # collision with something the app has never heard of -- and the workbench
       # that assigns these ports has always allocated out of the Terp range,
       # which made the old defaults a contradiction rather than a preference.
-      - "${API_PORT:-22100}:8000"
+      #
+      # REQUIRED, not defaulted. A default is right when any value will do, and
+      # a host port is exactly the case where it will not: the value a default
+      # would carry is the first pair an assigner hands out, so an app started
+      # without an assignment landed on the ports of whichever checkout holds
+      # that pair -- and because the project name is pinned below, that is the
+      # same containers rather than a second stack. Compose refusing here is the
+      # loud version of a failure that used to be silent. `terp docker dev`
+      # assigns on demand, so this is only ever reached by a bare
+      # `docker compose` (ADR 0134).
+      - "${API_PORT:?unset - run 'terp ports assign' to claim a host port pair for this checkout}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -181,8 +191,9 @@ services:
       # nothing inside the app can grant it, and nothing else needs to.
       TERP_DEV_FRAME_ANCESTORS: ${TERP_DEV_FRAME_ANCESTORS:-}
     ports:
-      # 21100, not 5173 -- see the api service's note on the port range.
-      - "${WEB_PORT:-21100}:5173"
+      # 21100, not 5173 -- see the api service's note on the port range, and on
+      # why this is required rather than defaulted.
+      - "${WEB_PORT:?unset - run 'terp ports assign' to claim a host port pair for this checkout}:5173"
     healthcheck:
       # Vite answers its root as soon as the port binds — which is BEFORE
       # dependency pre-bundling settles, and a request during that window can
