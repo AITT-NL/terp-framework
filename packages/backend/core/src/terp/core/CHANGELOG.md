@@ -32,12 +32,15 @@ decision, 0001 onwards.
   a parenthetical and then withheld the line that prevents it. 0.21.0 set out to make this
   command followable in order; this was the hole left in that fix.
 
-  Both new checks are local and certain. Whether a *remote* `_src_path` still carries the
-  ref cannot be answered without the network, so it is not guessed at — an un-checkable
-  template keeps the re-render recipe, because reading "could not check" as "missing" would
-  trade the old false positive for a false negative and send working apps to hand-pinning on
-  no evidence. When a re-render genuinely is ruled out, the scaffolding report stops offering
-  `copier update` as well, and says which of the three obstacles it hit.
+  Both new checks are local, and both rule a re-render out only on certain evidence —
+  because reading "could not check" as "missing" would trade the old false positive for a
+  false negative and send working apps to hand-pinning instead. So an app below its
+  repository root is still a checkout (it has no `.git` of its own and updates fine), a
+  template directory that is no repository is not a pruned tag (git declines that question
+  rather than answering it), a remote `_src_path` is left alone because the answer needs the
+  network, and a git that will not run settles nothing. When a re-render genuinely is ruled
+  out, the scaffolding report stops offering `copier update` as well, and says which of the
+  three obstacles it hit.
 
 - **`NO_ACTION` was documented in a way that invited the opposite of what it does.** `terp
   guide references` described the five actions with `NO_ACTION` as "the database takes none;
