@@ -155,10 +155,19 @@ malformed port, naming neither the variable nor the remedy.
 **Decision 4 is unbuilt and unscoped.** `terp release` and `terp promote` are named, not designed.
 
 **And one property is deliberately not claimed yet: a workbench still owns its own assignment.**
-Until it reads the ledger, two authorities exist over one resource. They do not fight, because a
-workbench publishes into the same file and `assign` adopts what it finds there rather than picking
-a second answer — but "they agree" is weaker than "there is one of them", and only the second is
-what this ADR decided.
+Until it reads the ledger, two authorities exist over one resource, and only one of them is what
+this ADR decided.
+
+What *is* now guaranteed is that they cannot diverge silently. The first cut of the CLI wrote its
+own managed block into the same `.env` a workbench writes, and Compose takes the last definition
+of a name — so the two agreed only until either changed its mind, and then the reader watched one
+port while the stack published the other. That is the original defect one layer up, so the
+predicate is explicit: when `.env` defines the names outside the CLI's own block, the pair is
+adopted, recorded so no other checkout is handed it, and the file is left alone. One definition,
+owned by whoever wrote it.
+
+That makes the transition safe rather than finished. A workbench reading the ledger instead of
+allocating is still the thing that ends the second authority, and it is the next slice.
 
 ## Consequences
 
