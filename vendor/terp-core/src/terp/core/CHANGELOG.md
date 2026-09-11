@@ -10,6 +10,56 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.23.0 — 2026-09-11
+
+### Fixed
+
+- **`terp upgrade --check` recommended a re-render it never checked was runnable.** The
+  provenance test behind that recommendation was a line scan for a `_commit:` key in the
+  copier answers file. That is the first of the three things `copier update` needs, and it
+  was the only one anything asked about: nothing checked that the recorded ref still
+  resolves in the template the app was rendered from, or that the destination is a git
+  checkout at all. Tags do get pruned, and an app unpacked from an archive carries the
+  answers file without the history — so a confident seven-step recipe could die at its own
+  step 3.
+
+  The second-order effect is worse than the bad suggestion, and it is what makes this worth
+  a check rather than a caveat. The two recipes are deliberately mutually exclusive, so a
+  false positive does not merely print one unrunnable step: it **withholds the hand-pin
+  recipe**, including the step that says to pin `@terpjs/*` in *every* manifest that
+  declares one rather than only `frontend/package.json`. A stale `conformance/package.json`
+  is precisely what that step exists to prevent — so the command anticipated the failure in
+  a parenthetical and then withheld the line that prevents it. 0.21.0 set out to make this
+  command followable in order; this was the hole left in that fix.
+
+  Both new checks are local, and both rule a re-render out only on certain evidence —
+  because reading "could not check" as "missing" would trade the old false positive for a
+  false negative and send working apps to hand-pinning instead. So an app below its
+  repository root is still a checkout (it has no `.git` of its own and updates fine), a
+  template directory that is no repository is not a pruned tag (git declines that question
+  rather than answering it), a remote `_src_path` is left alone because the answer needs the
+  network, and a git that will not run settles nothing. When a re-render genuinely is ruled
+  out, the scaffolding report stops offering `copier update` as well, and says which of the
+  three obstacles it hit.
+
+- **`NO_ACTION` was documented in a way that invited the opposite of what it does.** `terp
+  guide references` described the five actions with `NO_ACTION` as "the database takes none;
+  something above it owns this lifecycle", and then listed two consequences worth knowing —
+  both of them about migrations and schema drift. Neither is the runtime one. A foreign key
+  with no referential action is still enforced: `NO ACTION` and `RESTRICT` differ in
+  deferrability, never in whether the parent delete is refused. Read literally, the old
+  wording invited a reader to choose `NO_ACTION` for a service-owned lifecycle and expect a
+  hard delete of the parent to succeed, and it will not.
+
+  The guide, `AGENTS.md` and ADR 0133 §3 now say that `NO_ACTION` means the database takes no
+  *corrective* action rather than that it stands aside, and they name the runtime consequence
+  instead of leaving it to be discovered: `BaseService` turns the refusal into the uniform
+  409 `ConflictError`, the same envelope as any other integrity conflict, and the service
+  cascade the same guide recommends runs in `_after_write` — before the parent row is
+  deleted, which is exactly what makes that ordering work. No behaviour changed. The
+  soft-delete half of the guide was already precise about this; it was the hard-deletable
+  parent the wording misled on.
+
 ## 0.22.0 — 2026-09-10
 
 ### Added
