@@ -94,6 +94,13 @@ missing a command, and that command is the work.
   when git would see the result, best-effort otherwise, and never an exception into a start path. A
   machine's ports do not belong in an app's history, and a convenience must not make a checkout
   unreviewable or un-upgradable.
+- **The ledger holds every host-port claim, not only the dev ones.** A workbench today allocates
+  dev pairs from one set of bases and suggests a deployed environment's published port from
+  another, and the two allocators consult different notions of what is taken — the deploy
+  suggestion counts the dev pairs, and the dev allocation does not count the deployed ports. The
+  separation between the bases is what keeps that from being a live defect rather than anything in
+  the design. One ledger over one resource removes the asymmetry instead of widening the gap
+  between the bases again.
 - **A workbench keeps its registry as a cache of what it read**, and stops being the authority. Its
   own process environment may still outrank the file for a start it makes, so nothing about its
   behaviour changes except where the number comes from.
