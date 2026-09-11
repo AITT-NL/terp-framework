@@ -429,12 +429,25 @@ Chrome and chrome-headless-shell are blocked by group policy, leaving the contai
 recorder; recording their `win32` halves needs a working Windows browser and removing them from
 the set in the same commit.
 
-The `win32` set comes from a developer machine; the `linux` set was recorded in
-`mcr.microsoft.com/playwright:v1.62.0-noble`, and CI runs the screenshot lane **inside that
-same image** rather than on the bare runner. That last part is the load-bearing half: a
-GitHub runner shares Ubuntu's kernel with the image but not its font packages, and fonts are
-the entire reason the sets are split in the first place. Comparing in the environment that
-recorded is what makes the lane reproducible instead of hopeful.
+Both sets are recorded at the Playwright version `package-lock.json` pins — the `linux` set in
+`mcr.microsoft.com/playwright:v<version>-noble`, which CI also runs the screenshot lane **inside**
+rather than on the bare runner, and the `win32` set on a Windows machine with the matching
+browser installed.
+
+Naming a version here was itself a drift source: this paragraph said `v1.62.0` for the length of
+a release that compared in `v1.63.0`. The number lives in `package-lock.json`, the workflow reads
+it, and `specimens.spec.ts` refuses a mismatch between the two — so prose that repeats it can
+only ever go stale.
+
+Running the lane **inside** the image rather than on the bare runner is the load-bearing half of
+the linux side: a GitHub runner shares Ubuntu's kernel with the image but not its font packages,
+and fonts are the entire reason the sets are split in the first place. Comparing in the
+environment that recorded is what makes the lane reproducible instead of hopeful.
+
+The `win32` side has no such gate, and that is worth knowing rather than assuming. CI compares
+`linux` only, so nothing fails when the Windows set falls behind — it did, by seventeen days and
+one browser bump, and the lane that would have said so is the one nobody runs. Re-recording it
+fixes the day; it does not fix the mechanism. See the issue linked from the page-band ADR.
 
 The image tag tracks the Playwright version pinned in `package-lock.json`. Bumping one
 without the other records against one browser build and compares against another, which
