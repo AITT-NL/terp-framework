@@ -63,6 +63,75 @@ def test_run_docker_dev_invokes_the_runner(tmp_path: pathlib.Path) -> None:
     assert calls == [("docker", "compose", "-f", str(compose.resolve()), "watch")]
 
 
+def test_run_docker_dev_assigns_host_ports_before_starting(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    """The compose file requires its host ports, and this is what makes that
+    requirement invisible to somebody who has never heard of `terp ports`.
+
+    One command from a checkout to a running app is the promise this command
+    already makes, and ADR 0134 decision 1 refuses to spend it in order to
+    enforce decision 3 — so the assignment happens here rather than being a step
+    the reader has to know about.
+    """
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    order: list[str] = []
+
+    def _runner(argv):
+        order.append("compose")
+        return 0
+
+    run_docker_dev_command(
+        compose_file="docker-compose.yml", root=tmp_path, runner=_runner
+    )
+    published = (tmp_path / ".env").read_text(encoding="utf-8")
+
+    assert "WEB_PORT=" in published
+    assert "API_PORT=" in published
+    assert order == ["compose"]
+    # And it said so, because a file it wrote into the checkout is not a thing to
+    # do silently.
+    assert "terp ports" in capsys.readouterr().out
+
+
+def test_run_docker_dev_leaves_an_unmanaged_app_alone(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    """An app that drives its own loop names its own ports, so nothing is written
+    and nothing is said."""
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    (tmp_path / "workbench.json").write_text(
+        '{"unmanaged": true, "reason": "a Makefile"}', encoding="utf-8"
+    )
+    run_docker_dev_command(
+        compose_file="docker-compose.yml", root=tmp_path, runner=lambda argv: 0
+    )
+    assert not (tmp_path / ".env").exists()
+    assert "terp ports" not in capsys.readouterr().out
+
+
+def test_run_docker_dev_starts_the_stack_even_when_assignment_fails(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    """A start that dies over a ledger is worse than one that lets compose speak.
+
+    The compose file's own required-variable error names the command to run; a
+    traceback out of the assigner names nothing the reader can act on.
+    """
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    (tmp_path / "workbench.json").write_text("{not json", encoding="utf-8")
+    calls: list = []
+
+    run_docker_dev_command(
+        compose_file="docker-compose.yml",
+        root=tmp_path,
+        runner=lambda argv: calls.append(argv) or 0,
+    )
+    assert len(calls) == 1
+    assert "workbench.json" in capsys.readouterr().out
+
+
 def test_run_docker_dev_accepts_an_absolute_compose_path(tmp_path: pathlib.Path) -> None:
     compose = tmp_path / "compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")

@@ -50,16 +50,6 @@ from terp.cli.ports import (  # noqa: E402
 )
 
 
-@pytest.fixture(autouse=True)
-def _isolated_ledger(tmp_path, monkeypatch):
-    """Every test gets its own machine, so none of them can see the real ledger.
-
-    The ledger is machine-scoped by design — that is the whole point of it — which
-    makes an un-isolated test one that writes a developer's own port assignments.
-    """
-    monkeypatch.setenv("TERP_HOME", str(tmp_path / "terp-home"))
-
-
 def _checkout(root: pathlib.Path, *, env: str = "") -> pathlib.Path:
     """A plain directory standing in for a checkout, optionally with an ``.env``."""
     root.mkdir(parents=True, exist_ok=True)
@@ -877,6 +867,58 @@ def test_a_home_that_cannot_hold_a_lock_still_yields(tmp_path, monkeypatch):
     with ports_module._ledger_lock(timeout=0.01):
         entered = True
     assert entered is True
+
+
+# --------------------------------------------------------------------------- #
+# the start-path entry point never raises
+# --------------------------------------------------------------------------- #
+
+
+def test_ensure_assigned_claims_and_publishes_and_says_so(tmp_path):
+    root = _checkout(tmp_path / "app")
+    values, note = ports_module.ensure_assigned(root)
+
+    assert values == _ports(root)
+    assert f"WEB_PORT={values['WEB_PORT']}" in note
+    assert BLOCK_BEGIN in _dotenv(root)
+
+
+def test_ensure_assigned_is_quiet_when_nothing_changed(tmp_path):
+    """A note on every start would be noise; a note when a pair was claimed is
+    the one line worth printing."""
+    root = _checkout(tmp_path / "app")
+    ports_module.ensure_assigned(root)
+    _, note = ports_module.ensure_assigned(root)
+    assert note == ""
+
+
+def test_ensure_assigned_says_nothing_at_all_for_an_unmanaged_app(tmp_path):
+    """It said its loop is its own. A line about ports it does not use would be
+    this tool insisting anyway."""
+    root = _checkout(tmp_path / "app")
+    (root / "workbench.json").write_text(
+        json.dumps({"unmanaged": True, "reason": "a Makefile"}), encoding="utf-8"
+    )
+    assert ports_module.ensure_assigned(root) == ({}, "")
+
+
+def test_ensure_assigned_reports_a_broken_declaration_instead_of_raising(tmp_path):
+    """The whole reason this wrapper exists: a start must not die because the
+    assignment could not be arranged."""
+    root = _broken_declaration(_checkout(tmp_path / "app"), "{not json")
+    values, note = ports_module.ensure_assigned(root)
+    assert values == {}
+    assert "workbench.json" in note
+
+
+def test_ensure_assigned_reports_a_refused_publication(tmp_path):
+    root = _git_checkout(tmp_path / "app")
+    (root / ".env").write_text("SECRET_KEY=dev\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-f", ".env"], cwd=root, check=True)
+
+    values, note = ports_module.ensure_assigned(root)
+    assert values  # the claim is real and passable on a command line
+    assert "not published" in note
 
 
 # --------------------------------------------------------------------------- #

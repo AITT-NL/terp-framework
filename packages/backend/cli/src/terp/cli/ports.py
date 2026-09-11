@@ -669,6 +669,37 @@ def _assign_locked(
     return values, source, why_not
 
 
+def ensure_assigned(root: pathlib.Path) -> tuple[dict[str, int], str]:
+    """Make sure this checkout has a published assignment. ``(values, note)``.
+
+    The start-path entry point, and the reason :func:`assign` is not called
+    directly from one: **this never raises.** A developer running the app is not
+    in a position to care that a ledger could not be written or that a
+    declaration is unreadable, and a start that dies because the assignment
+    could not be arranged is worse than one that proceeds and lets the compose
+    file say what it needs. So every refusal comes back as *note* — something to
+    print — and the caller goes on to run the stack.
+
+    An app that declared itself unmanaged gets nothing and is told nothing: it
+    said its development loop is its own, and a line of output about ports it
+    does not use would be this tool insisting anyway.
+    """
+    seams = read_seams(root)
+    if seams.unmanaged:
+        return {}, ""
+    try:
+        values, source, why_not = assign(root)
+    except PortsError as exc:
+        return {}, str(exc)
+    notes = []
+    if source == "fresh":
+        listing = ", ".join(f"{n}={v}" for n, v in sorted(values.items()))
+        notes.append(f"terp ports: assigned {listing} and published them in .env")
+    if why_not:
+        notes.append(f"terp ports: the assignment was not published — {why_not}")
+    return values, "\n".join(notes)
+
+
 def release(root: pathlib.Path) -> bool:
     """Drop this checkout's dev claim and its published block. ``True`` if held."""
     path = ledger_path()
