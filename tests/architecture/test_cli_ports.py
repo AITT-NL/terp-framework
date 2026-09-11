@@ -195,6 +195,94 @@ def test_a_half_published_pair_is_not_adopted(tmp_path, capsys):
 
 
 # --------------------------------------------------------------------------- #
+# two managed blocks never both define one port
+# --------------------------------------------------------------------------- #
+
+_FOREIGN_BLOCK = (
+    "# >>> some-workbench: dev topology (managed)\n"
+    "WEB_PORT=21107\n"
+    "API_PORT=22107\n"
+    "# <<< some-workbench\n"
+)
+
+
+def test_a_pair_another_writer_publishes_is_adopted_without_a_second_block(
+    tmp_path, capsys
+):
+    """Compose takes the LAST definition of a name, so two managed blocks both
+    asserting one port is a divergence waiting for either writer to change its
+    mind — and then the reader watches one port while the stack publishes the
+    other. One definition, owned by whoever wrote it.
+    """
+    root = _checkout(tmp_path / "app", env=_FOREIGN_BLOCK)
+
+    assert run_ports_command(action="assign", root=str(root)) == 0
+    out = capsys.readouterr().out
+
+    body = _dotenv(root)
+    assert BLOCK_BEGIN not in body
+    assert body.count("WEB_PORT=") == 1
+    assert body.count("API_PORT=") == 1
+    assert "left its file alone" in out
+    # And the pair is still recorded, so the ledger keeps another checkout off it.
+    assert _ports(root) == {"WEB_PORT": 21107, "API_PORT": 22107}
+
+
+def test_our_own_block_is_not_somebody_else(tmp_path, capsys):
+    """The other side of the same question: our previous write must not read as a
+    foreign claim, or the command could never refresh its own block."""
+    root = _checkout(tmp_path / "app")
+    run_ports_command(action="assign", root=str(root))
+    capsys.readouterr()
+
+    assert ports_module.published_by_someone_else(root, ("WEB_PORT", "API_PORT")) is False
+    # So a re-assign still rewrites it in place rather than standing off.
+    assert run_ports_command(action="assign", root=str(root)) == 0
+    capsys.readouterr()
+    assert _dotenv(root).count(BLOCK_BEGIN) == 1
+
+
+def test_a_hand_written_pair_is_also_left_alone(tmp_path, capsys):
+    """Not only a workbench: a line somebody wrote by hand is a definition too,
+    and overwriting it would be this tool deciding it knows better."""
+    root = _checkout(tmp_path / "app", env="WEB_PORT=29001\nAPI_PORT=29002\n")
+
+    assert run_ports_command(action="assign", root=str(root)) == 0
+    capsys.readouterr()
+
+    assert BLOCK_BEGIN not in _dotenv(root)
+    assert _ports(root) == {"WEB_PORT": 29001, "API_PORT": 29002}
+
+
+def test_a_lost_ledger_recovers_the_pair_from_our_own_block(tmp_path, capsys):
+    """A new machine, or a cleared home, against a checkout that still carries
+    its block: the published answer is ours, so it is re-adopted and re-recorded
+    rather than replaced. Replacing it would move the ports of a stack that may
+    be running on exactly the pair the file names.
+    """
+    root = _checkout(tmp_path / "app")
+    assert run_ports_command(action="assign", root=str(root)) == 0
+    original = dict(_ports(root))
+    ledger_path().unlink()
+
+    assert run_ports_command(action="assign", root=str(root)) == 0
+    out = capsys.readouterr().out
+
+    assert _ports(root) == original
+    assert ".env already set" in out
+    assert _dotenv(root).count(BLOCK_BEGIN) == 1
+
+
+def test_nothing_published_is_not_somebody_else(tmp_path):
+    assert (
+        ports_module.published_by_someone_else(
+            _checkout(tmp_path / "app"), ("WEB_PORT",)
+        )
+        is False
+    )
+
+
+# --------------------------------------------------------------------------- #
 # the app's own declaration decides the names
 # --------------------------------------------------------------------------- #
 

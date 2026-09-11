@@ -375,6 +375,50 @@ def is_unmanaged(root: pathlib.Path) -> tuple[bool, str]:
     return seams.unmanaged, seams.reason
 
 
+def published_by_someone_else(root: pathlib.Path, names: tuple[str, ...]) -> bool:
+    """Does ``.env`` define *names* outside this command's own managed block?
+
+    The question that keeps two managed blocks from both defining one port. A
+    workbench writes its assignment into the same file under its own fences, and
+    Compose takes the *last* definition of a name — so a second block asserting
+    the same names is a divergence waiting for one of the two writers to change
+    its mind. Whichever it was, the reader would then be watching one port while
+    the stack published the other, silently, which is the defect this whole
+    module exists to remove.
+
+    So when somebody else is already publishing these names, :func:`assign`
+    adopts the values and leaves the file alone: one definition, owned by
+    whoever wrote it.
+    """
+    path = root / ".env"
+    try:
+        text = path.read_text(encoding="utf-8", newline="")
+    except OSError:
+        return False
+    # Everything except our own block, so our own previous write never reads as
+    # somebody else's claim on the name.
+    outside = merge_block(text, "")
+    return bool(_values_in(outside, names))
+
+
+def _values_in(text: str, names: tuple[str, ...]) -> dict[str, int]:
+    """The integer values *text* assigns to *names*, last assignment winning."""
+    found: dict[str, int] = {}
+    wanted = set(names)
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, _, value = stripped.partition("=")
+        if name.strip() not in wanted:
+            continue
+        try:
+            found[name.strip()] = int(value.strip())
+        except ValueError:
+            continue
+    return found
+
+
 def published(root: pathlib.Path, names: tuple[str, ...]) -> dict[str, int]:
     """The integer values ``.env`` already sets for *names*.
 
@@ -384,24 +428,9 @@ def published(root: pathlib.Path, names: tuple[str, ...]) -> dict[str, int]:
     """
     path = root / ".env"
     try:
-        text = path.read_text(encoding="utf-8")
+        return _values_in(path.read_text(encoding="utf-8"), names)
     except OSError:
         return {}
-    found: dict[str, int] = {}
-    wanted = set(names)
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        name, _, value = stripped.partition("=")
-        name = name.strip()
-        if name not in wanted:
-            continue
-        try:
-            found[name] = int(value.strip())
-        except ValueError:
-            continue
-    return found
 
 
 # --------------------------------------------------------------------------- #
@@ -588,9 +617,11 @@ def assign(
 ) -> tuple[dict[str, int], str, str]:
     """Claim a pair for *root* and publish it. ``(values, source, why not)``.
 
-    *source* is where the answer came from — ``ledger``, ``published`` or
-    ``fresh`` — because "nothing changed" and "you have new ports" are different
-    outcomes and a caller should be able to say which happened.
+    *source* is where the answer came from — ``ledger``, ``published``,
+    ``adopted`` or ``fresh`` — because "nothing changed", "somebody else owns
+    this" and "you have new ports" are three different outcomes and a caller
+    should be able to say which happened. ``adopted`` additionally means nothing
+    was written: see the end of this function.
 
     Order matters and is the safety property: a claim already recorded is reused,
     then a value this checkout's ``.env`` already sets is *adopted*, and only
@@ -665,6 +696,16 @@ def _assign_locked(
     data["claims"].append({"path": _key(root), "scope": "dev", "ports": values})
     _store(path, data)
 
+    if source == "published" and published_by_someone_else(
+        root, (web_env, api_env)
+    ):
+        # Adopted from a definition this command does not own — a workbench's
+        # managed block, or a line somebody wrote by hand. Writing our own block
+        # too would put two definitions of one port in one file, and Compose
+        # takes the last: the moment either writer changed its mind, the reader
+        # would watch one port while the stack published the other. One
+        # definition, owned by whoever wrote it.
+        return values, "adopted", ""
     _, why_not = publish(root, values)
     return values, source, why_not
 
@@ -811,7 +852,13 @@ def _render_assign(root: pathlib.Path, *, reassign: bool) -> int:
         return 1
     for name, value in sorted(values.items()):
         print(f"{name}={value}")
-    if source == "published":
+    if source == "adopted":
+        print(
+            "\nAdopted the pair another writer already publishes in .env, and "
+            "left its file alone — two definitions of one port would diverge the "
+            "moment either of us changed our mind."
+        )
+    elif source == "published":
         print("\nAdopted the pair this checkout's .env already set.")
     elif source == "ledger":
         print("\nAlready claimed; re-published unchanged.")
@@ -850,6 +897,7 @@ __all__ = [
     "port_is_free",
     "publish",
     "published",
+    "published_by_someone_else",
     "release",
     "read_seams",
     "render_block",
