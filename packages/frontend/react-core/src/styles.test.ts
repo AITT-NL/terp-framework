@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 
+import { ROOMY_VIEWPORT_QUERY } from "./breakpoints";
 import { TERP_STYLES_ID, TERP_STYLES_CSS, injectTerpStyles } from "./styles";
 
 /** The sheet with comments removed — prose must not satisfy a structural assertion. */
@@ -986,43 +987,77 @@ describe("cascade structure", () => {
     expect(base.slice(headerAt, base.indexOf("}", headerAt))).toContain("align-items: center");
   });
 
-  it("keeps the page band one row: trail, description and actions", () => {
-    // Measured in Chromium at a 1024px viewport, against these exact declarations, with a
-    // description too long for the space left beside the trail:
+  it("lays the page band out in areas, and spends a second row only when one is earned", () => {
+    // What this replaced, and why the argument had to change shape. The band was a wrapping
+    // flex row, and the bug it kept producing was always the same one: flex collects items
+    // into lines using HYPOTHETICAL main sizes and only shrinks what is already on a line, so
+    // any item whose max-content was wide -- a deep trail, an unwrapped sentence -- took the
+    // line and pushed the action cluster onto the next one. A zero basis bought the single
+    // row back, and measured 48px against 76px, which is why it was pinned here.
     //
-    //   flex: 1 1 auto -> band 76px tall, h1 at top 0, description 1024px wide on its own
-    //                     line, actions on a THIRD line, and no ellipsis anywhere
-    //   flex: 1 1 0    -> band 48px (the header's height), h1 / description / actions all
-    //                     on one row, description ellipsised
+    // Two things that basis could never fix, both of which arrive the moment the band DOES
+    // wrap. Wrap order follows source order, so the meta group and the cluster cannot share a
+    // row while staying two groups. And justify-content: space-between then has free space to
+    // distribute, which scatters a page's buttons across the full width -- or left-aligns a
+    // single cluster on the row whose whole job was to right-align it.
     //
-    // Page.tsx promises the second ("badges and description sit after the title and actions
-    // at the right edge, all on that one line") and the sheet shipped the first. The
-    // description already declared min-width: 0, overflow: hidden and text-overflow, so the
-    // truncation looked wired -- but flex collects items into lines using HYPOTHETICAL main
-    // sizes and only shrinks what is already on a line, so an auto basis wraps the box before
-    // any of those three can run. This is the same defect card-heading fixed, one component
-    // over; that test records the same argument from the other end.
+    // Areas answer both by construction: nothing is placed by flow and no free space is
+    // distributed anywhere, so neither failure has a place to happen.
     const base = layerBody("terp.base");
+    const headerAt = base.indexOf('[data-terp="page-header"] {');
+    expect(headerAt, "page-header should have a base rule").toBeGreaterThan(-1);
+    const header = base.slice(headerAt, base.indexOf("}", headerAt));
+    expect(header, "the band places by area, never by flow").toContain("display: grid");
+    // minmax(0, 1fr) rather than 1fr: a grid track's automatic minimum is its content's, so a
+    // long unbreakable title would refuse to shrink past it and push the cluster out of the
+    // band. This is the same job the old zero flex basis did, done by the track instead.
+    expect(header, "the trail column must be allowed to shrink below its content").toContain(
+      "grid-template-columns: minmax(0, 1fr) auto",
+    );
+    expect(header, "with nothing else to show, the band is one row").toContain(
+      'grid-template-areas: "trail actions"',
+    );
+    // The second row, and the reason it is conditional. A page with badges or a lead line
+    // already spends a row on them, so the cluster joining them costs no height at all -- and
+    // it buys the trail the whole first row, which is what stops a deep trail truncating. A
+    // page with neither keeps the single row, and with it the measurement the chrome is held
+    // to further down this file: the band matches the app header above it.
+    const metaAt = base.indexOf('[data-terp="page-header"][data-has-meta] {');
+    expect(metaAt, "the two-row band should have a rule of its own").toBeGreaterThan(-1);
+    const withMeta = base.slice(metaAt, base.indexOf("}", metaAt));
+    expect(withMeta, "the trail owns the first row outright once there is a second").toContain(
+      '"trail trail"',
+    );
+    expect(withMeta, "meta sits left of the cluster on the second row").toContain(
+      '"meta  actions"',
+    );
+    // The left group generates no box, which is what lets its two children be grid items of
+    // the BAND and therefore sit on different rows. The marker survives for the scanner.
     const headingAt = base.indexOf('[data-terp="page-heading"] {');
     expect(headingAt, "page-heading should have a base rule").toBeGreaterThan(-1);
     const heading = base.slice(headingAt, base.indexOf("}", headingAt));
-    expect(heading, "an auto basis wraps the action cluster onto its own line").toContain(
-      "flex: 1 1 0",
+    expect(heading, "a boxed wrapper would put the trail and the meta in one cell").toContain(
+      "display: contents",
     );
-    expect(heading, "min-width: 0 is what lets an unbreakable title shrink").toContain(
-      "min-width: 0",
-    );
-    // The lead line needs the same, one level in: nowrap makes its max-content the whole
-    // sentence, so an auto basis breaks the heading's own line before it can ellipsise.
+    // The lead line is written as a correction, not a rule: hidden everywhere, shown again
+    // above the SECOND cutover. That is what makes three regions out of two queries -- the
+    // middle one is the width at which this correction has not applied yet.
     const descAt = base.indexOf('[data-terp="page-description"] {');
     expect(descAt, "page-description should have a base rule").toBeGreaterThan(-1);
     const description = base.slice(descAt, base.indexOf("}", descAt));
-    expect(description, "an auto basis gives the lead line its own row").toContain("flex: 1 1 0");
-    // And the three declarations that do the truncating, which are only reachable from a
-    // line the box actually shares.
-    expect(description).toContain("min-width: 0");
-    expect(description).toContain("white-space: nowrap");
-    expect(description).toContain("text-overflow: ellipsis");
+    expect(description, "the lead line is the first thing to go when room is short").toContain(
+      "display: none",
+    );
+    const roomy = base.indexOf(`@media ${ROOMY_VIEWPORT_QUERY}`);
+    expect(roomy, "the lead line comes back above the second cutover").toBeGreaterThan(descAt);
+    // And the truncation, which still matters on the row it does get: the sentence shares
+    // that row with the badges, so its max-content must not decide the row's width.
+    const shown = base.slice(base.indexOf('[data-terp="page-description"] {', roomy));
+    expect(shown).toContain("display: block");
+    const full = base.slice(base.lastIndexOf('[data-terp="page-description"] {'));
+    expect(full).toContain("min-width: 0");
+    expect(full).toContain("white-space: nowrap");
+    expect(full).toContain("text-overflow: ellipsis");
   });
 
   it("gives the breadcrumb trail one line box, leaf included", () => {

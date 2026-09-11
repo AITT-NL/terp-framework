@@ -175,11 +175,19 @@ export function Page({
     .concat(badges ?? [])
     .filter((badge) => badge !== false && badge !== null && badge !== undefined && badge !== "");
   // Same test for the lead line, for the same reason: `description={error && error.message}`.
+  const hasActions = actions !== undefined && actions !== null && actions !== false;
   const hasDescription =
     description !== undefined &&
     description !== null &&
     description !== false &&
     description !== "";
+  // The band's second row exists when there is meta to put on it, and the action cluster then
+  // shares it at no cost in height. A page with neither keeps the single row, and with it the
+  // measurement the chrome is held to: the band matches the app header above it.
+  const hasMeta = badgeList.length > 0 || hasDescription;
+  // Hoisted, the density/collapsed idiom: the default stamps nothing, so the expression has a
+  // branch rather than a boolean React would render as the string "false".
+  const metaAttribute = hasMeta ? "true" : undefined;
   const body =
     error !== null && error !== undefined ? (
       (errorState ?? <ErrorState error={error} />)
@@ -200,24 +208,37 @@ export function Page({
           additive; the tag is load-bearing. For the same reason the body below takes no
           wrapper of its own — not even a display: contents one, since article.children is a
           DOM traversal and would see it. */}
-      <header data-terp="page-header">
+      <header data-terp="page-header" data-has-meta={metaAttribute}>
         <div data-terp="page-heading">
           {/* The trail carries the h1 as its leaf. No wrapper of its own any more: the crumb
               row it used to sit in existed to hold a 2rem floor above the title row, and
               there is no title row to be above. */}
           <Breadcrumbs items={trail} renderLink={renderLink} currentAs="h1" />
-          {badgeList.length > 0 && (
-            <div data-terp="page-badges">
-              {badgeList.map((badge, index) => (
-                <Fragment key={index}>{badge}</Fragment>
-              ))}
+          {/* Badges and the lead line travel together as one grid item: with meta present
+              they share the band's second row with the action cluster, and a group is what
+              lets them be left of it rather than competing for the same cells. Rendered only
+              when there is something in it, because the empty box would still take a row. */}
+          {hasMeta && (
+            <div data-terp="page-meta">
+              {badgeList.length > 0 && (
+                <div data-terp="page-badges">
+                  {badgeList.map((badge, index) => (
+                    <Fragment key={index}>{badge}</Fragment>
+                  ))}
+                </div>
+              )}
+              {hasDescription && (
+                <p data-terp="page-description">{resolveUiTextNode(description, resolve)}</p>
+              )}
             </div>
           )}
-          {hasDescription && (
-            <p data-terp="page-description">{resolveUiTextNode(description, resolve)}</p>
-          )}
         </div>
-        {actions}
+        {/* Always a group, never the caller's nodes loose in the band. A page that passed a
+            fragment of buttons used to put each one in the band as its own item, which the
+            grid would now scatter across cells it has no areas for. One wrapper means the
+            cluster is one item wherever the areas put it, whether or not the page reached
+            for PageActions. */}
+        {hasActions && <div data-terp="page-actions">{actions}</div>}
       </header>
       {/* Reset the slot for the body's own subtree, so nested content is never judged
           by an ancestor archetype's slot. */}

@@ -127,6 +127,18 @@ const LINUX_ONLY = new Set([
   "app-shell-nav-groups-collapsed",
   "app-shell-header-nav-groups",
   "app-shell-nav-groups-drawer",
+  // The band pair from ADR 0135, and they join for a third reason worth separating from the
+  // two above. They ARE recordable on win32 -- the browser runs here now. What is not
+  // recordable is a TRUSTWORTHY win32 baseline: on this machine fourteen specimens already
+  // differ from their committed win32 images on untouched main, three of them page-band ones,
+  // so a recording taken here certifies whatever this machine draws rather than what the
+  // reference does. Adding two more images to a set that is already drifting would make the
+  // drift harder to find, not easier.
+  //
+  // So they are linux-only until someone re-records win32 from a reference machine, at which
+  // point these two names come out of this set with the rest of that recording.
+  "page-header-deep-trail",
+  "page-header-one-row",
 ]);
 
 test("every specimen with asynchronous content declares what to wait for", () => {
