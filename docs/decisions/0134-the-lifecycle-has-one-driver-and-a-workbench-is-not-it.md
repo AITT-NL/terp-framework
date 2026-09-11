@@ -1,7 +1,7 @@
 # 0134 — The lifecycle has one driver, and a workbench is not it
 
-- **Status:** Proposed — decision 1 is policy and costs nothing to adopt; decisions 2–4 are work,
-  and decision 2 has a live defect behind it.
+- **Status:** Partly implemented — decision 1 is policy, decision 2 ships as `terp ports`, and
+  decisions 3 and 4 are unbuilt (see "Where this stands").
 - **Date:** 2026-09-11
 - **Relates:** [ADR 0111](0111-flexibility-is-bounded-by-legibility-not-by-capability.md)
   (flexibility is bounded by legibility — this supplies the fourth test its decision 1 is
@@ -129,6 +129,27 @@ workbench-shaped is the *record* of environments and deployment history, not the
 `terp release` and `terp promote` are the two commands this decision owes, and they are named now
 so the gap is a decision rather than something the next person to ship without a workbench finds
 out.
+
+## Where this stands
+
+**Decision 2 ships as `terp ports`** — `assign`, `show`, `list`, `release` over the
+machine-scoped ledger, with assignment and publication as one call, adoption of an answer a
+checkout already publishes, `workbench.json` deciding the names, and `unmanaged` left alone.
+
+**Decision 3 is unbuilt, and it is the half that closes the defect for a starter that does not
+know this command exists.** The compose default is still in place, so an app started by something
+that has never run `terp ports assign` still lands on it. Two things go together there and must
+land together: the template's port interpolation becomes required, and `terp docker dev` assigns
+on demand — shipping the first without the second would make the standalone path harder, which is
+decision 1 broken in the act of enforcing decision 3.
+
+**Decision 4 is unbuilt and unscoped.** `terp release` and `terp promote` are named, not designed.
+
+**And one property is deliberately not claimed yet: a workbench still owns its own assignment.**
+Until it reads the ledger, two authorities exist over one resource. They do not fight, because a
+workbench publishes into the same file and `assign` adopts what it finds there rather than picking
+a second answer — but "they agree" is weaker than "there is one of them", and only the second is
+what this ADR decided.
 
 ## Consequences
 
