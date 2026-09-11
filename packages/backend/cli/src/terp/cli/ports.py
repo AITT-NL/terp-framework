@@ -1,0 +1,649 @@
+"""``terp ports`` — the host ports a checkout owns, recorded where every starter reads them.
+
+The dev compose file publishes its host ports through interpolated names, and it
+used to default them to a fixed pair. A default is right when any value will do;
+a host port is exactly the case where it will not, and the defaults were the
+first pair a workbench hands out. So a start that did not come from that
+workbench — a shell in the project folder, an editor task, an agent bringing the
+app up to look at it, ``terp docker dev`` — ran the same compose file with the
+names unset, landed on the defaults, and (the compose project name being pinned)
+took over *the same containers* as whichever checkout held the first pair.
+
+Recording the assignment is therefore not a convenience. It is what makes two
+checkouts able to run at once, and what makes the address a workbench watches the
+address the app actually answers on.
+
+**The ledger is machine-scoped.** The resource being allocated belongs to the
+host, so a record inside one checkout cannot stop a second checkout claiming the
+same port, and a record inside one workbench cannot be read by a starter that is
+not that workbench — which is the whole defect. It lives in ``~/.terp/ports.json``
+(``TERP_HOME`` moves it), keyed by the checkout's absolute path.
+
+**Assigning and publishing are one act.** The defect was never a missing
+mechanism; it was that a tool could assign a pair and not publish it, leaving the
+number real to itself and absent everywhere else. :func:`assign` claims and writes
+in one call, and there is no way to reach the first half alone.
+
+**What is already published wins over a fresh pick.** Consulted in order: a claim
+this ledger already holds, then the names this checkout's ``.env`` already sets,
+then a free pair. The middle step is what makes this safe to run against a
+checkout some other tool already assigned — it adopts that answer instead of
+picking a second one and moving the ports of a stack that may be up. Forcing a
+new pair is an explicit ``--reassign``.
+
+**A block, not the file.** ``.env`` is the app's, it predates any tooling, and in
+a real checkout it holds secrets. So this owns a delimited block, rewritten where
+it stands, and leaves every other line alone.
+
+**And git must not see it.** A file git reports is a file that shows up in review
+and blocks ``copier update``, which fails closed on a dirty workspace. The
+template gitignores ``.env`` already; where it is not ignored the write is
+preceded by a local ``.git/info/exclude`` entry, and where even that is
+impossible it does not happen. A machine's ports do not belong in an app's
+history, and a convenience is never worth making a checkout unreviewable.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+import socket
+import subprocess
+from collections.abc import Mapping
+
+from terp.cli import workbench
+
+#: The dev pair's bases. Deliberately far from 5173 / 8000 / 3000, which is where
+#: a developer's *other* applications live.
+WEB_BASE = 21100
+API_BASE = 22100
+
+#: How far to count from the bases before giving up.
+SPAN = 1000
+
+#: Bumped only for a change a previous reader could not survive.
+SCHEMA_VERSION = 1
+
+DEFAULT_WEB_PORT_ENV = "WEB_PORT"
+DEFAULT_API_PORT_ENV = "API_PORT"
+
+#: The block's fences. Greppable, and they say who wrote them, because a
+#: developer who finds unexplained lines in their own ``.env`` is right to
+#: distrust them.
+BLOCK_BEGIN = "# >>> terp: host ports for this checkout (managed)"
+BLOCK_END = "# <<< terp"
+
+_PREAMBLE = (
+    "# Written by `terp ports assign`. Compose loads this file from the project\n"
+    "# directory automatically, so a stack started from a shell, an editor task or\n"
+    "# an agent lands on the same ports as one started from a workbench. Values\n"
+    "# passed on the command line still win. Edits inside this block are replaced\n"
+    "# on the next assign; `terp ports release` removes it.\n"
+)
+
+
+class PortsError(RuntimeError):
+    """The assignment cannot be made or recorded, with the reason for a reader."""
+
+
+# --------------------------------------------------------------------------- #
+# The ledger
+# --------------------------------------------------------------------------- #
+
+
+def home() -> pathlib.Path:
+    """The CLI's machine-scoped home. ``TERP_HOME`` overrides it."""
+    override = os.environ.get("TERP_HOME", "").strip()
+    if override:
+        return pathlib.Path(override).expanduser()
+    return pathlib.Path.home() / ".terp"
+
+
+def ledger_path() -> pathlib.Path:
+    """Where every host-port claim on this machine is recorded."""
+    return home() / "ports.json"
+
+
+def _load(path: pathlib.Path) -> dict:
+    """The ledger, or an empty one. A corrupt file is not a reason to refuse.
+
+    A ledger that cannot be parsed is treated as empty rather than fatal: the
+    worst case is a second checkout picking a port the first holds, which the
+    host probe still catches, and the alternative is a developer unable to start
+    anything until they hand-repair a file they did not know existed.
+    """
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"schemaVersion": SCHEMA_VERSION, "claims": []}
+    if not isinstance(raw, dict) or not isinstance(raw.get("claims"), list):
+        return {"schemaVersion": SCHEMA_VERSION, "claims": []}
+    return raw
+
+
+def _store(path: pathlib.Path, data: dict) -> None:
+    """Replace the ledger, via a temp file in the same directory.
+
+    Written beside the target and renamed over it, so a reader never sees a
+    half-written ledger and a failed write leaves the previous one intact.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        temp.write_text(
+            json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        os.replace(temp, path)
+    except OSError as exc:
+        raise PortsError(f"Cannot write the port ledger at {path}: {exc}") from exc
+
+
+def _key(root: pathlib.Path) -> str:
+    """A checkout's ledger key: its absolute path, resolved."""
+    return str(root.resolve())
+
+
+def claims(data: dict) -> list[dict]:
+    """Every well-formed claim in *data*, ignoring anything it cannot read."""
+    out = []
+    for claim in data.get("claims", []):
+        if not isinstance(claim, dict):
+            continue
+        if not isinstance(claim.get("path"), str):
+            continue
+        ports = claim.get("ports")
+        if not isinstance(ports, dict):
+            continue
+        if not all(isinstance(value, int) for value in ports.values()):
+            continue
+        out.append(claim)
+    return out
+
+
+def claim_for(data: dict, root: pathlib.Path, scope: str = "dev") -> dict | None:
+    """This checkout's claim in *scope*, or ``None``."""
+    key = _key(root)
+    for claim in claims(data):
+        if claim["path"] == key and claim.get("scope", "dev") == scope:
+            return claim
+    return None
+
+
+def taken_by_others(data: dict, root: pathlib.Path) -> set[int]:
+    """Every port some *other* checkout holds.
+
+    Every claim, not only the dev ones: a deployed environment's published port
+    is a claim on the same host over the same resource, and two allocators that
+    disagree about what is taken is how the gap between the bases became the only
+    thing keeping them apart.
+    """
+    key = _key(root)
+    return {
+        port
+        for claim in claims(data)
+        if claim["path"] != key
+        for port in claim["ports"].values()
+    }
+
+
+# --------------------------------------------------------------------------- #
+# The host
+# --------------------------------------------------------------------------- #
+
+
+def port_is_free(port: int) -> bool:
+    """Can this process bind *port* on the loopback interface right now?
+
+    A probe, not a reservation: something can take the port between this answer
+    and the bind that matters. It is still worth asking — it skips the ports
+    foreign applications are already holding, which would otherwise surface much
+    later as an opaque compose bind failure.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+# --------------------------------------------------------------------------- #
+# What this app calls its ports
+# --------------------------------------------------------------------------- #
+
+
+def declared_names(root: pathlib.Path) -> tuple[str, str]:
+    """The names this app publishes its web and api host ports through.
+
+    Read from ``workbench.json`` so an app that renamed them is served by its own
+    declaration rather than by this reader's assumption — the point of the
+    declaration being that an app may be shaped however it likes as long as it
+    says so.
+    """
+    declared, _ = workbench.load(root)
+    web, api = DEFAULT_WEB_PORT_ENV, DEFAULT_API_PORT_ENV
+    if declared is None or declared.unmanaged:
+        return web, api
+    for entry in declared.services:
+        name = entry.get("hostPortEnv")
+        if not isinstance(name, str) or not name:
+            continue
+        if entry.get("role") == "web":
+            web = name
+        elif entry.get("role") == "api":
+            api = name
+    return web, api
+
+
+def is_unmanaged(root: pathlib.Path) -> tuple[bool, str]:
+    """Has this app opted out of being driven? ``(True, reason)`` if so."""
+    declared, _ = workbench.load(root)
+    if declared is not None and declared.unmanaged:
+        return True, declared.reason
+    return False, ""
+
+
+def published(root: pathlib.Path, names: tuple[str, ...]) -> dict[str, int]:
+    """The integer values ``.env`` already sets for *names*.
+
+    The last assignment of a name wins, which is how Compose reads the file, and
+    a non-integer is ignored rather than repaired: this function answers "is
+    there already an answer here", and a malformed one is not an answer.
+    """
+    path = root / ".env"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    found: dict[str, int] = {}
+    wanted = set(names)
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, _, value = stripped.partition("=")
+        name = name.strip()
+        if name not in wanted:
+            continue
+        try:
+            found[name] = int(value.strip())
+        except ValueError:
+            continue
+    return found
+
+
+# --------------------------------------------------------------------------- #
+# Publication
+# --------------------------------------------------------------------------- #
+
+
+def render_block(values: Mapping[str, int]) -> str:
+    """The managed block for *values*, fences included, or ``""`` for nothing."""
+    lines = [f"{name}={value}" for name, value in sorted(values.items())]
+    if not lines:
+        return ""
+    return "\n".join([BLOCK_BEGIN, _PREAMBLE.rstrip("\n"), *lines, BLOCK_END]) + "\n"
+
+
+def _newline(text: str) -> str:
+    """The file's own line ending, so a managed block does not mix styles."""
+    return "\r\n" if "\r\n" in text else "\n"
+
+
+def merge_block(existing: str, block: str) -> str:
+    """*existing* with the managed block replaced, appended, or removed.
+
+    Replacement is positional: a block already in the file is rewritten where it
+    stands, because a diff that walks down the file on every run is a diff nobody
+    reads. An opening fence with no close — a truncated write, or a hand edit —
+    is treated as running to the end of the file and replaced, since leaving it
+    would mean the next run appends a second block and Compose reads whichever
+    came last. An empty *block* removes it, which is the only case here that
+    takes something away: no assignment is better said by an absent block than by
+    one asserting ports that are no longer current.
+    """
+    newline = _newline(existing) if existing else "\n"
+    body = block.replace("\n", newline) if newline != "\n" else block
+    start = existing.find(BLOCK_BEGIN)
+    if start == -1:
+        if not block:
+            return existing
+        head = existing.rstrip("\r\n")
+        if not head:
+            return body
+        return f"{head}{newline}{newline}{body}"
+    end = existing.find(BLOCK_END, start)
+    if end == -1:
+        tail = ""
+    else:
+        after = existing.find(newline, end)
+        tail = "" if after == -1 else existing[after + len(newline) :]
+    head = existing[:start]
+    if not body:
+        head = head.rstrip("\r\n")
+        return f"{head}{newline}{tail}" if head else tail
+    return f"{head}{body}{tail}"
+
+
+def _git(root: pathlib.Path, *argv: str) -> subprocess.CompletedProcess[str] | None:
+    """``git`` in *root*, or ``None`` when it cannot be run at all."""
+    try:
+        return subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["git", *argv],  # noqa: S607
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+
+
+def _is_repo(root: pathlib.Path) -> bool:
+    result = _git(root, "rev-parse", "--is-inside-work-tree")
+    return result is not None and result.returncode == 0
+
+
+def _is_tracked(root: pathlib.Path, name: str) -> bool:
+    result = _git(root, "ls-files", "--error-unmatch", name)
+    return result is not None and result.returncode == 0
+
+
+def _is_ignored(root: pathlib.Path, name: str) -> bool:
+    result = _git(root, "check-ignore", "-q", name)
+    return result is not None and result.returncode == 0
+
+
+def hide_from_git(root: pathlib.Path, name: str = ".env") -> bool:
+    """Make git ignore *name* in this checkout, locally. ``True`` if it now does.
+
+    ``.git/info/exclude`` rather than the app's ``.gitignore``: the app's file is
+    the app's to write, and appending to it would put a tooling decision in a
+    diff, in a commit, and in every other developer's checkout. The exclude is
+    per-clone and uncommittable, which is exactly the scope of the fact being
+    recorded — *this* checkout has a managed ``.env``.
+
+    ``git rev-parse --git-path`` resolves it, because ``root / ".git" / "info"``
+    is wrong in a linked worktree: there ``.git`` is a file and the real
+    directory belongs to the main checkout.
+    """
+    if _is_ignored(root, name):
+        return True
+    located = _git(root, "rev-parse", "--git-path", "info/exclude")
+    if located is None or located.returncode != 0:
+        return False
+    exclude = pathlib.Path(located.stdout.strip())
+    if not exclude.is_absolute():
+        exclude = root / exclude
+    try:
+        current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+        if any(line.strip() == name for line in current.splitlines()):
+            # Already listed and still not ignored: something else is un-ignoring
+            # it (a negation in .gitignore), and a second copy would not change
+            # that.
+            return False
+        separator = "" if not current or current.endswith("\n") else "\n"
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text(
+            f"{current}{separator}# `terp ports` writes this checkout's host ports here.\n{name}\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        return False
+    return _is_ignored(root, name)
+
+
+def publish(root: pathlib.Path, values: Mapping[str, int]) -> tuple[bool, str]:
+    """Put *values* in ``<root>/.env``'s managed block. ``(written, why not)``.
+
+    Refused rather than attempted when git would see the result — see the module
+    docstring. Otherwise best effort: a read-only checkout or a file someone
+    holds open is a reason to say so, never a reason to fail the caller, because
+    the assignment is still recorded and still passable on a command line.
+    """
+    if _is_repo(root):
+        if _is_tracked(root, ".env"):
+            return False, (
+                "this checkout tracks .env, and a machine's ports do not belong "
+                "in an app's history — a start from outside will fall back to "
+                "whatever the compose file does when the names are unset"
+            )
+        if not hide_from_git(root):
+            return False, (
+                "git would report the written .env, so it was not written: it "
+                "would sit in every review and refuse every template upgrade. "
+                "Add .env to this project's .gitignore to get the assignment "
+                "published"
+            )
+    path = root / ".env"
+    block = render_block(values)
+    try:
+        existing = path.read_text(encoding="utf-8", newline="") if path.exists() else ""
+        path.write_text(
+            merge_block(existing, block), encoding="utf-8", newline=""
+        )
+    except OSError as exc:
+        return False, f"{path} could not be written ({exc})"
+    return True, ""
+
+
+# --------------------------------------------------------------------------- #
+# Assignment
+# --------------------------------------------------------------------------- #
+
+
+def _pick(data: dict, root: pathlib.Path) -> tuple[int, int]:
+    """The first free pair no other checkout holds."""
+    taken = taken_by_others(data, root)
+    for offset in range(SPAN):
+        web, api = WEB_BASE + offset, API_BASE + offset
+        if web in taken or api in taken:
+            continue
+        if port_is_free(web) and port_is_free(api):
+            return web, api
+    raise PortsError(
+        f"No free port pair between {WEB_BASE}/{API_BASE} and "
+        f"{WEB_BASE + SPAN}/{API_BASE + SPAN}. Release a claim you no longer "
+        f"need with `terp ports release --root <path>`."
+    )
+
+
+def assign(
+    root: pathlib.Path, *, reassign: bool = False
+) -> tuple[dict[str, int], str, str]:
+    """Claim a pair for *root* and publish it. ``(values, source, why not)``.
+
+    *source* is where the answer came from — ``ledger``, ``published`` or
+    ``fresh`` — because "nothing changed" and "you have new ports" are different
+    outcomes and a caller should be able to say which happened.
+
+    Order matters and is the safety property: a claim already recorded is reused,
+    then a value this checkout's ``.env`` already sets is *adopted*, and only
+    then is a new pair picked. Adopting is what makes this safe to run against a
+    checkout another tool already assigned — the alternative is picking a second
+    answer and moving the ports of a stack that may well be up.
+    """
+    web_env, api_env = declared_names(root)
+    path = ledger_path()
+    data = _load(path)
+
+    source = "fresh"
+    values: dict[str, int] | None = None
+    existing = None if reassign else claim_for(data, root)
+    if existing is not None:
+        ports = existing["ports"]
+        if web_env in ports and api_env in ports:
+            source = "ledger"
+            values = {web_env: ports[web_env], api_env: ports[api_env]}
+        elif len(set(ports.values())) >= 2:
+            # The app renamed its port seams since the claim was recorded. The
+            # numbers are still this checkout's to keep; only the names move, and
+            # the lower of the two is the web one — that is what the bases mean.
+            recorded = sorted(set(ports.values()))
+            source = "ledger"
+            values = {web_env: recorded[0], api_env: recorded[-1]}
+    if values is None and not reassign:
+        adopted = published(root, (web_env, api_env))
+        if len(adopted) == 2:
+            source = "published"
+            values = dict(adopted)
+    if values is None:
+        web, api = _pick(data, root)
+        values = {web_env: web, api_env: api}
+
+    data["schemaVersion"] = SCHEMA_VERSION
+    data["claims"] = [
+        claim
+        for claim in claims(data)
+        if not (claim["path"] == _key(root) and claim.get("scope", "dev") == "dev")
+    ]
+    data["claims"].append({"path": _key(root), "scope": "dev", "ports": values})
+    _store(path, data)
+
+    _, why_not = publish(root, values)
+    return values, source, why_not
+
+
+def release(root: pathlib.Path) -> bool:
+    """Drop this checkout's dev claim and its published block. ``True`` if held."""
+    path = ledger_path()
+    data = _load(path)
+    held = claim_for(data, root) is not None
+    data["schemaVersion"] = SCHEMA_VERSION
+    data["claims"] = [
+        claim
+        for claim in claims(data)
+        if not (claim["path"] == _key(root) and claim.get("scope", "dev") == "dev")
+    ]
+    _store(path, data)
+    publish(root, {})
+    return held
+
+
+# --------------------------------------------------------------------------- #
+# The command
+# --------------------------------------------------------------------------- #
+
+
+def run_ports_command(*, action: str, root: str = ".", reassign: bool = False) -> int:
+    """Run one ``terp ports`` subcommand; returns the process exit code."""
+    project_root = pathlib.Path(root).expanduser().resolve()
+    if action == "list":
+        return _render_list()
+    if not project_root.is_dir():
+        print(f"No such directory: {project_root}")
+        return 2
+    if action == "show":
+        return _render_show(project_root)
+    if action == "assign":
+        return _render_assign(project_root, reassign=reassign)
+    if action == "release":
+        return _render_release(project_root)
+    print(f"Unknown ports action: {action}")
+    return 2
+
+
+def _render_list() -> int:
+    path = ledger_path()
+    recorded = claims(_load(path))
+    if not recorded:
+        print(f"No host-port claims recorded in {path}.")
+        return 0
+    print(f"Host-port claims on this machine ({path}):")
+    for claim in sorted(recorded, key=lambda c: (c["path"], c.get("scope", "dev"))):
+        ports = ", ".join(
+            f"{name}={value}" for name, value in sorted(claim["ports"].items())
+        )
+        print(f"  {claim['path']}  [{claim.get('scope', 'dev')}]  {ports}")
+    return 0
+
+
+def _render_show(root: pathlib.Path) -> int:
+    unmanaged, reason = is_unmanaged(root)
+    if unmanaged:
+        print(
+            f"workbench.json declares this app unmanaged: {reason}\n"
+            "`terp ports` does not assign for it — the app names its own ports."
+        )
+        return 0
+    web_env, api_env = declared_names(root)
+    claim = claim_for(_load(ledger_path()), root)
+    if claim is None:
+        print(
+            f"No host ports claimed for {root}.\n"
+            f"Run `terp ports assign` to claim a pair and publish it as "
+            f"{web_env}/{api_env} in .env."
+        )
+        return 0
+    for name, value in sorted(claim["ports"].items()):
+        print(f"{name}={value}")
+    in_file = published(root, (web_env, api_env))
+    if in_file != claim["ports"]:
+        print(
+            "\n.env does not publish this claim. A start from outside a workbench "
+            "will not land on these ports — run `terp ports assign` to publish it."
+        )
+    return 0
+
+
+def _render_assign(root: pathlib.Path, *, reassign: bool) -> int:
+    unmanaged, reason = is_unmanaged(root)
+    if unmanaged:
+        print(
+            f"workbench.json declares this app unmanaged: {reason}\n"
+            "Nothing assigned: an app that drives its own development loop names "
+            "its own ports, and guessing which names would be this tool deciding "
+            "something the app has said is its own."
+        )
+        return 0
+    try:
+        values, source, why_not = assign(root, reassign=reassign)
+    except PortsError as exc:
+        print(str(exc))
+        return 1
+    for name, value in sorted(values.items()):
+        print(f"{name}={value}")
+    if source == "published":
+        print("\nAdopted the pair this checkout's .env already set.")
+    elif source == "ledger":
+        print("\nAlready claimed; re-published unchanged.")
+    if why_not:
+        print(f"\nNot published: {why_not}.")
+        return 1
+    return 0
+
+
+def _render_release(root: pathlib.Path) -> int:
+    if release(root):
+        print(f"Released the host ports claimed for {root}.")
+    else:
+        print(f"No host ports were claimed for {root}; removed any published block.")
+    return 0
+
+
+__all__ = [
+    "API_BASE",
+    "BLOCK_BEGIN",
+    "BLOCK_END",
+    "SCHEMA_VERSION",
+    "SPAN",
+    "WEB_BASE",
+    "PortsError",
+    "assign",
+    "claim_for",
+    "claims",
+    "declared_names",
+    "hide_from_git",
+    "home",
+    "is_unmanaged",
+    "ledger_path",
+    "merge_block",
+    "port_is_free",
+    "publish",
+    "published",
+    "release",
+    "render_block",
+    "run_ports_command",
+    "taken_by_others",
+]

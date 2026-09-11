@@ -60,6 +60,7 @@ from terp.cli.service_accounts import create_service_account_command
 from terp.cli.users import create_user_command
 from terp.cli.envfile import run_env_command
 from terp.cli.outbox import render_backlog
+from terp.cli.ports import run_ports_command
 from terp.cli.verify import (
     profile_ids,
     run_verify_command,
@@ -2816,6 +2817,33 @@ def _build_parser() -> argparse.ArgumentParser:
     env_unset_parser.add_argument(
         "--root", default=".", help="Project root (default: .)"
     )
+    ports_parser = subcommands.add_parser(
+        "ports",
+        help="The host ports this checkout owns, recorded where every starter reads them",
+    )
+    ports_subcommands = ports_parser.add_subparsers(
+        dest="ports_command", required=True
+    )
+    for _name, _help in (
+        ("show", "This checkout's claim, and whether .env publishes it"),
+        ("release", "Drop the claim and remove the published block"),
+        ("list", "Every host-port claim recorded on this machine"),
+    ):
+        _sub = ports_subcommands.add_parser(_name, help=_help)
+        _sub.add_argument("--root", default=".", help="Project root (default: .)")
+    ports_assign_parser = ports_subcommands.add_parser(
+        "assign",
+        help="Claim a free pair and publish it into .env, in one act",
+    )
+    ports_assign_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    ports_assign_parser.add_argument(
+        "--reassign",
+        action="store_true",
+        help="Pick a new pair even if one is already claimed or published",
+    )
+
     outbox_parser = subcommands.add_parser(
         "outbox",
         help="Report the durable outbox's backlog - whether anything is draining it",
@@ -3373,6 +3401,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 root=args.root,
                 names=getattr(args, "pairs", None) or getattr(args, "names", None),
                 declare=getattr(args, "declare", False),
+            )
+        )
+    if args.command == "ports":
+        raise SystemExit(
+            run_ports_command(
+                action=args.ports_command,
+                root=args.root,
+                reassign=getattr(args, "reassign", False),
             )
         )
     if args.command == "outbox" and args.outbox_command == "backlog":
