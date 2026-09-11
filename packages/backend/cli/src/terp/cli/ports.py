@@ -24,16 +24,30 @@ mechanism; it was that a tool could assign a pair and not publish it, leaving th
 number real to itself and absent everywhere else. :func:`assign` claims and writes
 in one call, and there is no way to reach the first half alone.
 
-**What is already published wins over a fresh pick.** Consulted in order: a claim
-this ledger already holds, then the names this checkout's ``.env`` already sets,
-then a free pair. The middle step is what makes this safe to run against a
-checkout some other tool already assigned — it adopts that answer instead of
-picking a second one and moving the ports of a stack that may be up. Forcing a
-new pair is an explicit ``--reassign``.
+**What is already published wins over a fresh pick, and somebody else's answer
+wins over our own record.** Consulted in this order:
+
+1. a definition in ``.env`` **outside** this command's own block — a workbench's
+   managed block, or a line somebody wrote by hand;
+2. a claim this ledger already holds;
+3. this command's own block, if the ledger has been lost but the file survives;
+4. a free pair.
+
+Step 1 is first for a reason that was got wrong at first and had to be corrected.
+Compose takes the *last* definition of a name, so if a foreign block is present,
+that block is what the stack will actually publish — our record of this checkout
+is then stale, whatever it says. Preferring it would mean rewriting our block with
+a number the foreign one overrides: two definitions of one port, and the reader
+watching one while the stack publishes the other. So a foreign definition is
+adopted, recorded so no other checkout is handed the same pair, and our own block
+is removed if we had one. One definition, owned by whoever wrote it. ``--reassign``
+is refused in that state rather than obeyed — whoever publishes the port is who
+can move it.
 
 **A block, not the file.** ``.env`` is the app's, it predates any tooling, and in
 a real checkout it holds secrets. So this owns a delimited block, rewritten where
-it stands, and leaves every other line alone.
+it stands, and leaves every other line alone. Removing the block empties the file
+only if there was nothing else in it, and then the file goes too.
 
 **And git must not see it.** A file git reports is a file that shows up in review
 and blocks ``copier update``, which fails closed on a dirty workspace. The
@@ -51,6 +65,7 @@ import os
 import pathlib
 import socket
 import subprocess
+import threading
 import time
 from collections.abc import Iterator, Mapping
 
@@ -220,7 +235,11 @@ def _store(path: pathlib.Path, data: dict) -> None:
     """
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        # Process *and* thread: the lock normally keeps writers apart, but it
+        # times out rather than blocking a start forever, so two writers in one
+        # process is a reachable state — and a shared temp name would then have
+        # them clobber each other's half-written file before either renamed it.
+        temp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         temp.write_text(
             json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -375,6 +394,35 @@ def is_unmanaged(root: pathlib.Path) -> tuple[bool, str]:
     return seams.unmanaged, seams.reason
 
 
+def _our_block_is_present(root: pathlib.Path) -> bool:
+    """Does ``.env`` carry this command's own managed block?"""
+    try:
+        return BLOCK_BEGIN in (root / ".env").read_text(encoding="utf-8", newline="")
+    except OSError:
+        return False
+
+
+def foreign_published(root: pathlib.Path, names: tuple[str, ...]) -> dict[str, int]:
+    """The values ``.env`` assigns to *names* **outside** our own managed block.
+
+    Ground truth for what Compose will read once our block is out of the way, and
+    the reason :func:`assign` consults it before its own ledger: a workbench
+    writes its assignment into the same file under its own fences, and Compose
+    takes the *last* definition of a name. Preferring our recorded claim would
+    mean rewriting our block with a value the foreign block then overrides — two
+    definitions of one port, and the reader watching one while the stack publishes
+    the other.
+    """
+    path = root / ".env"
+    try:
+        text = path.read_text(encoding="utf-8", newline="")
+    except OSError:
+        return {}
+    # Our own block stripped first, so a previous write of ours never reads as
+    # somebody else's claim on the name.
+    return _values_in(merge_block(text, ""), names)
+
+
 def published_by_someone_else(root: pathlib.Path, names: tuple[str, ...]) -> bool:
     """Does ``.env`` define *names* outside this command's own managed block?
 
@@ -390,15 +438,7 @@ def published_by_someone_else(root: pathlib.Path, names: tuple[str, ...]) -> boo
     adopts the values and leaves the file alone: one definition, owned by
     whoever wrote it.
     """
-    path = root / ".env"
-    try:
-        text = path.read_text(encoding="utf-8", newline="")
-    except OSError:
-        return False
-    # Everything except our own block, so our own previous write never reads as
-    # somebody else's claim on the name.
-    outside = merge_block(text, "")
-    return bool(_values_in(outside, names))
+    return bool(foreign_published(root, names))
 
 
 def _values_in(text: str, names: tuple[str, ...]) -> dict[str, int]:
@@ -585,7 +625,15 @@ def publish(root: pathlib.Path, values: Mapping[str, int]) -> tuple[bool, str]:
         return True, ""
     try:
         existing = path.read_text(encoding="utf-8", newline="") if path.exists() else ""
-        path.write_text(merge_block(existing, block), encoding="utf-8", newline="")
+        merged = merge_block(existing, block)
+        if not merged.strip():
+            # Removing the block emptied the file. A 0-byte `.env` carries no
+            # information and is the same "left something behind" this function
+            # refuses to do on the way in, so it goes rather than being rewritten
+            # as nothing.
+            path.unlink(missing_ok=True)
+            return True, ""
+        path.write_text(merged, encoding="utf-8", newline="")
     except OSError as exc:
         return False, f"{path} could not be written ({exc})"
     return True, ""
@@ -646,6 +694,18 @@ def assign(
             "An app that drives its own development loop names its own ports."
         )
     web_env, api_env = seams.web, seams.api
+    if reassign and published_by_someone_else(root, (web_env, api_env)):
+        # Refused rather than obeyed. A new pair here would be written into our
+        # own block beside a definition somebody else owns, which is the two-
+        # definitions divergence — deliberately created this time, which is
+        # worse. Whoever publishes the port is who can move it.
+        raise PortsError(
+            f"{root / '.env'} already defines {web_env} and {api_env} outside "
+            "this command's own block — another tool or a hand-written line owns "
+            "them. Reassigning would add a second definition of the same port, "
+            "and Compose reads the last one. Change it where it is written, or "
+            "remove that definition first."
+        )
     path = ledger_path()
     with _ledger_lock():
         return _assign_locked(root, path, web_env, api_env, reassign=reassign)
@@ -662,6 +722,28 @@ def _assign_locked(
     """The read-compute-replace half of :func:`assign`, under the ledger lock."""
     data = _load(path)
     _refuse_a_newer_ledger(data)
+
+    # A definition somebody else owns comes FIRST, ahead of our own ledger claim,
+    # because it is ground truth for what Compose will read. The alternative was
+    # tried and is wrong: preferring the claim means rewriting our block with a
+    # value a foreign block then overrides, which is two definitions of one port
+    # and the divergence this ordering exists to prevent. If another writer is
+    # publishing, our record of what this checkout uses is simply stale.
+    foreign = {} if reassign else foreign_published(root, (web_env, api_env))
+    if len(foreign) == 2:
+        data["schemaVersion"] = SCHEMA_VERSION
+        data["claims"] = [
+            claim
+            for claim in claims(data)
+            if not (claim["path"] == _key(root) and claim.get("scope", "dev") == "dev")
+        ]
+        data["claims"].append({"path": _key(root), "scope": "dev", "ports": foreign})
+        _store(path, data)
+        # And our own block goes, if we have one: leaving it is the second
+        # definition this branch exists to avoid.
+        if _our_block_is_present(root):
+            publish(root, {})
+        return dict(foreign), "adopted", ""
 
     source = "fresh"
     values: dict[str, int] | None = None
@@ -696,16 +778,6 @@ def _assign_locked(
     data["claims"].append({"path": _key(root), "scope": "dev", "ports": values})
     _store(path, data)
 
-    if source == "published" and published_by_someone_else(
-        root, (web_env, api_env)
-    ):
-        # Adopted from a definition this command does not own — a workbench's
-        # managed block, or a line somebody wrote by hand. Writing our own block
-        # too would put two definitions of one port in one file, and Compose
-        # takes the last: the moment either writer changed its mind, the reader
-        # would watch one port while the stack published the other. One
-        # definition, owned by whoever wrote it.
-        return values, "adopted", ""
     _, why_not = publish(root, values)
     return values, source, why_not
 
@@ -889,6 +961,7 @@ __all__ = [
     "claim_for",
     "claims",
     "declared_names",
+    "foreign_published",
     "hide_from_git",
     "home",
     "is_unmanaged",

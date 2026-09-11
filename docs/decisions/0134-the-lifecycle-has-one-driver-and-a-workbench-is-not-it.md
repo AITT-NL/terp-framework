@@ -166,8 +166,17 @@ predicate is explicit: when `.env` defines the names outside the CLI's own block
 adopted, recorded so no other checkout is handed it, and the file is left alone. One definition,
 owned by whoever wrote it.
 
-That makes the transition safe rather than finished. A workbench reading the ledger instead of
-allocating is still the thing that ends the second authority, and it is the next slice.
+That makes the transition safe rather than finished, and one edge of it is worth naming because
+it is the one somebody will actually hit. **The ledger only knows about a checkout `terp` has been
+run in.** A workbench-managed project that has never seen the CLI holds its ports in the
+workbench's own registry and in its `.env`, and neither is a place `_pick` looks — so if that
+project's stack happens to be stopped, the host probe reports its ports free and a third checkout
+can be handed them. The collision then arrives when the first project next starts. Running
+`terp ports assign` (or `terp docker dev`) once in a project is enough to record it, and a
+workbench writing to the ledger removes the edge entirely.
+
+A workbench reading *and writing* the ledger instead of allocating is therefore still the thing
+that ends the second authority, and it is the next slice.
 
 ## Consequences
 

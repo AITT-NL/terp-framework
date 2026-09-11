@@ -173,15 +173,52 @@ def test_an_already_published_pair_is_adopted(tmp_path, capsys):
     assert _ports(root) == {"WEB_PORT": 29999, "API_PORT": 29998}
 
 
-def test_reassign_overrides_an_already_published_pair(tmp_path, capsys):
-    """The other side of adoption: asking for a new pair has to actually give one."""
+def test_reassign_moves_off_a_pair_that_is_now_taken(tmp_path, capsys):
+    """The other side of adoption: asking for a new pair has to actually give one.
+
+    Asserted against the case that makes the flag worth having — the assigned
+    port has since been taken by something else — rather than against "the number
+    must change". Re-running the pick on a pair that is still free and still
+    nobody else's correctly returns that same pair; a test demanding movement
+    there would be demanding churn.
+    """
+    root = _checkout(tmp_path / "app")
+    assert run_ports_command(action="assign", root=str(root)) == 0
+    first = _ports(root)["WEB_PORT"]
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as squatter:
+        squatter.bind(("127.0.0.1", first))
+        squatter.listen(1)
+        assert run_ports_command(action="assign", root=str(root), reassign=True) == 0
+        capsys.readouterr()
+        assert _ports(root)["WEB_PORT"] != first
+
+
+def test_reassign_refuses_when_someone_else_owns_the_definition(tmp_path, capsys):
+    """A new pair would go into our block beside a definition we do not own, and
+    Compose reads the last one — so the flag would be creating the two-definitions
+    divergence on purpose, which is worse than stumbling into it.
+
+    Whoever publishes the port is who can move it, and the refusal says where.
+    """
     root = _checkout(tmp_path / "app", env="WEB_PORT=29999\nAPI_PORT=29998\n")
+
+    assert run_ports_command(action="assign", root=str(root), reassign=True) == 1
+    out = capsys.readouterr().out
+
+    assert "outside this command's own block" in out
+    assert BLOCK_BEGIN not in _dotenv(root)
+    assert "WEB_PORT=29999" in _dotenv(root)
+
+
+def test_reassign_still_works_when_we_own_the_definition(tmp_path, capsys):
+    """Our own previous block must not read as somebody else's, or the flag would
+    be refused for the one case it is plainly meant to serve."""
+    root = _checkout(tmp_path / "app")
+    run_ports_command(action="assign", root=str(root))
     assert run_ports_command(action="assign", root=str(root), reassign=True) == 0
     capsys.readouterr()
-
-    assigned = _ports(root)
-    assert assigned["WEB_PORT"] != 29999
-    assert assigned["WEB_PORT"] == WEB_BASE
+    assert _dotenv(root).count(BLOCK_BEGIN) == 1
 
 
 def test_a_half_published_pair_is_not_adopted(tmp_path, capsys):
@@ -228,6 +265,35 @@ def test_a_pair_another_writer_publishes_is_adopted_without_a_second_block(
     assert _ports(root) == {"WEB_PORT": 21107, "API_PORT": 22107}
 
 
+def test_a_foreign_definition_outranks_our_own_ledger_claim(tmp_path, capsys):
+    """The ordering that had to be corrected, and the reason it had to be.
+
+    Our block and our claim come first; then a workbench adds its own block with
+    a different pair. Preferring the claim would rewrite our block with a number
+    the foreign block overrides — two definitions of one port, Compose taking the
+    last, and the reader watching one while the stack publishes the other. A
+    foreign definition is ground truth for what Compose will read, so it wins and
+    our stale record follows it.
+    """
+    root = _checkout(tmp_path / "app")
+    assert run_ports_command(action="assign", root=str(root)) == 0
+    ours = _ports(root)["WEB_PORT"]
+    assert BLOCK_BEGIN in _dotenv(root)
+
+    # A workbench turns up and publishes its own assignment into the same file.
+    with (root / ".env").open("a", encoding="utf-8") as handle:
+        handle.write(f"\n{_FOREIGN_BLOCK}")
+
+    assert run_ports_command(action="assign", root=str(root)) == 0
+    capsys.readouterr()
+
+    body = _dotenv(root)
+    assert BLOCK_BEGIN not in body, "our stale block was left behind"
+    assert body.count("WEB_PORT=") == 1
+    assert _ports(root) == {"WEB_PORT": 21107, "API_PORT": 22107}
+    assert _ports(root)["WEB_PORT"] != ours
+
+
 def test_our_own_block_is_not_somebody_else(tmp_path, capsys):
     """The other side of the same question: our previous write must not read as a
     foreign claim, or the command could never refresh its own block."""
@@ -271,6 +337,22 @@ def test_a_lost_ledger_recovers_the_pair_from_our_own_block(tmp_path, capsys):
     assert _ports(root) == original
     assert ".env already set" in out
     assert _dotenv(root).count(BLOCK_BEGIN) == 1
+
+
+def test_an_unreadable_dotenv_reads_as_carrying_no_block_of_ours(
+    tmp_path, monkeypatch
+):
+    """Defensive, and reachable: the file is read once to find a foreign pair and
+    again to ask whether our block is there, so a delete between the two lands
+    here. Answering "no block" is right — there is nothing of ours to remove —
+    and it must not be an exception out of a start path."""
+    root = _checkout(tmp_path / "app", env="WEB_PORT=1\n")
+
+    def _refuse(*_args, **_kwargs):
+        raise OSError("gone")
+
+    monkeypatch.setattr(pathlib.Path, "read_text", _refuse)
+    assert ports_module._our_block_is_present(root) is False
 
 
 def test_nothing_published_is_not_somebody_else(tmp_path):
@@ -1012,6 +1094,30 @@ def test_ensure_assigned_reports_a_refused_publication(tmp_path):
 # --------------------------------------------------------------------------- #
 # release leaves nothing behind
 # --------------------------------------------------------------------------- #
+
+
+def test_releasing_the_only_block_takes_the_file_with_it(tmp_path, capsys):
+    """A 0-byte `.env` is the same "left something behind" the write path already
+    refuses on the way in."""
+    root = _checkout(tmp_path / "app")
+    run_ports_command(action="assign", root=str(root))
+    assert (root / ".env").is_file()
+
+    assert run_ports_command(action="release", root=str(root)) == 0
+    capsys.readouterr()
+    assert not (root / ".env").exists()
+
+
+def test_releasing_a_block_beside_other_values_keeps_the_file(tmp_path, capsys):
+    """The other side of it: the file is the app's, and only the block was ours."""
+    root = _checkout(tmp_path / "app", env="SECRET_KEY=dev\n")
+    run_ports_command(action="assign", root=str(root))
+    assert run_ports_command(action="release", root=str(root)) == 0
+    capsys.readouterr()
+
+    body = _dotenv(root)
+    assert "SECRET_KEY=dev" in body
+    assert BLOCK_BEGIN not in body
 
 
 def test_release_does_not_create_a_dotenv_that_never_existed(tmp_path, capsys):

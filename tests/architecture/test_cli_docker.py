@@ -95,6 +95,36 @@ def test_run_docker_dev_assigns_host_ports_before_starting(
     assert "terp ports" in capsys.readouterr().out
 
 
+def test_run_docker_dev_assigns_beside_the_compose_file_not_beside_root(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    """Compose's project directory is the directory of the first ``-f``, and that
+    is the only ``.env`` it reads.
+
+    Publishing into ``--root`` instead would write the assignment into a file this
+    very command then ignores, and the start would fail on a required variable
+    that had just been set — the silent half of the defect, one level up.
+    Verified against Compose: with a ``.env`` in the working directory and another
+    beside the compose file, ``docker compose config`` resolves the one beside the
+    file.
+    """
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    run_docker_dev_command(
+        compose_file=str(nested / "docker-compose.yml"),
+        root=elsewhere,
+        runner=lambda argv: 0,
+    )
+    capsys.readouterr()
+
+    assert (nested / ".env").is_file()
+    assert not (elsewhere / ".env").exists()
+
+
 def test_run_docker_dev_leaves_an_unmanaged_app_alone(
     tmp_path: pathlib.Path, capsys
 ) -> None:

@@ -218,7 +218,15 @@ def run_docker_dev_command(
     # property ADR 0134 decision 1 refuses to spend in order to enforce decision
     # 3. Never fatal — `ensure_assigned` reports instead of raising, because a
     # start that dies over a ledger is worse than one that lets compose speak.
-    _, note = ports.ensure_assigned(pathlib.Path(root).resolve())
+    #
+    # Assigned beside the COMPOSE FILE, not beside --root. Compose's project
+    # directory defaults to the directory of the first `-f`, and that is the only
+    # `.env` it reads — so publishing into --root would write the assignment into
+    # a file this very command then ignores, and the start would fail on a
+    # required variable that had just been "set". The two coincide in the ordinary
+    # case and part company for an absolute or nested --compose-file, which is
+    # exactly where the mistake would have been silent.
+    _, note = ports.ensure_assigned(path.parent)
     if note:
         print(note)
     status = (runner or _run)(docker_dev_argv(path, project_name=project_name))
