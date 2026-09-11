@@ -861,11 +861,28 @@ def _render_list() -> int:
         print(f"No host-port claims recorded in {path}.")
         return 0
     print(f"Host-port claims on this machine ({path}):")
+    gone = 0
     for claim in sorted(recorded, key=lambda c: (c["path"], c.get("scope", "dev"))):
         ports = ", ".join(
             f"{name}={value}" for name, value in sorted(claim["ports"].items())
         )
-        print(f"  {claim['path']}  [{claim.get('scope', 'dev')}]  {ports}")
+        # A claim whose checkout has been deleted or moved holds its ports
+        # forever, and nothing else would ever say so — the pool narrows quietly
+        # over months. Reported rather than reclaimed: a checkout on a drive that
+        # is not mounted looks exactly like one that is gone, and handing its
+        # ports to somebody else is the collision this command exists to prevent.
+        # So the tool says what it found and leaves the decision with a person.
+        missing = not pathlib.Path(claim["path"]).is_dir()
+        gone += missing
+        suffix = "  (checkout is gone)" if missing else ""
+        print(f"  {claim['path']}  [{claim.get('scope', 'dev')}]  {ports}{suffix}")
+    if gone:
+        print(
+            f"\n{gone} claim(s) name a checkout that is no longer there, and they "
+            "still hold their ports. If the checkout is really gone, free them "
+            "with `terp ports release --root <path>`; if the drive is simply not "
+            "mounted, leave them."
+        )
     return 0
 
 

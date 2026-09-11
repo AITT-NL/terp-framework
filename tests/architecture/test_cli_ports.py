@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shutil
 import socket
 import subprocess
 import sys
@@ -750,6 +751,44 @@ def test_list_names_every_claim(tmp_path, capsys):
     out = capsys.readouterr().out
     assert str(first.resolve()) in out
     assert str(second.resolve()) in out
+
+
+def test_list_names_a_claim_whose_checkout_is_gone(tmp_path, capsys):
+    """A deleted checkout holds its ports forever and nothing else would say so,
+    so the pool narrows quietly over months.
+
+    Reported, not reclaimed: a checkout on an unmounted drive looks exactly like
+    one that is gone, and handing its ports to somebody else is the collision
+    this command exists to prevent. The tool says what it found and leaves the
+    decision with a person.
+    """
+    doomed = _checkout(tmp_path / "doomed")
+    survivor = _checkout(tmp_path / "survivor")
+    run_ports_command(action="assign", root=str(doomed))
+    run_ports_command(action="assign", root=str(survivor))
+    capsys.readouterr()
+    shutil.rmtree(doomed)
+
+    assert run_ports_command(action="list") == 0
+    out = capsys.readouterr().out
+
+    assert "(checkout is gone)" in out
+    assert "terp ports release" in out
+    # And the survivor is not slandered.
+    assert f"{survivor.resolve()}  [dev]" in out
+    assert out.count("(checkout is gone)") == 1
+
+
+def test_list_says_nothing_about_stale_claims_when_there_are_none(tmp_path, capsys):
+    """The advice only appears when it applies — otherwise every listing carries
+    a paragraph about a problem nobody has."""
+    run_ports_command(action="assign", root=str(_checkout(tmp_path / "app")))
+    capsys.readouterr()
+
+    assert run_ports_command(action="list") == 0
+    out = capsys.readouterr().out
+    assert "checkout is gone" not in out
+    assert "terp ports release" not in out
 
 
 def test_show_without_a_claim_points_at_assign(tmp_path, capsys):
