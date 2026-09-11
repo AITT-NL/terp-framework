@@ -2506,7 +2506,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               { label: "Master data", to: "/records/master" },
             ]}
             badges={<Badge tone="warning">Review</Badge>}
-            description="A lead line long enough that it has to be cut off rather than allowed to wrap onto a second line and set the band's height."
+            description="A lead line long enough to be cut off, sharing the band's second row with the badge rather than wrapping onto a third."
             actions={
               <PageActions
                 primary={<Button variant="primary">Publish</Button>}
