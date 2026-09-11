@@ -1,7 +1,7 @@
 # 0134 — The lifecycle has one driver, and a workbench is not it
 
-- **Status:** Partly implemented — decision 1 is policy, decision 2 ships as `terp ports`, and
-  decisions 3 and 4 are unbuilt (see "Where this stands").
+- **Status:** Partly implemented — decision 1 is policy, decisions 2 and 3 ship, and decision 4
+  is unbuilt (see "Where this stands").
 - **Date:** 2026-09-11
 - **Relates:** [ADR 0111](0111-flexibility-is-bounded-by-legibility-not-by-capability.md)
   (flexibility is bounded by legibility — this supplies the fourth test its decision 1 is
@@ -136,12 +136,21 @@ out.
 machine-scoped ledger, with assignment and publication as one call, adoption of an answer a
 checkout already publishes, `workbench.json` deciding the names, and `unmanaged` left alone.
 
-**Decision 3 is unbuilt, and it is the half that closes the defect for a starter that does not
-know this command exists.** The compose default is still in place, so an app started by something
-that has never run `terp ports assign` still lands on it. Two things go together there and must
-land together: the template's port interpolation becomes required, and `terp docker dev` assigns
-on demand — shipping the first without the second would make the standalone path harder, which is
-decision 1 broken in the act of enforcing decision 3.
+**Decision 3 ships, as the two halves it had to be.** The template's published host ports are
+required rather than defaulted, and `terp docker dev` assigns on demand so the requirement is
+invisible to someone who has never heard of the command — shipping the first without the second
+would have made the standalone path harder, which is decision 1 broken in the act of enforcing
+decision 3. Verified against Compose itself rather than assumed: an unassigned checkout is
+refused with `required variable WEB_PORT is missing a value` plus the directive message, and
+resolves to the assigned port once `terp ports assign` has run.
+
+Two scope notes that belong in the record rather than in a commit message. `apps/example` keeps
+its in-range defaults, because the conformance workflow runs its dev stack with no `.env` and
+says so — one checkout on an ephemeral runner, where the collision this removes cannot occur. And
+an in-range default stays legal for any app: the template's choice is the template's, not a
+conformance rule (ADR 0111 decision 1). What is now illegal is a published host port that answers
+neither question — a bare `${VAR}`, which Compose resolves to empty and then reports as a
+malformed port, naming neither the variable nor the remedy.
 
 **Decision 4 is unbuilt and unscoped.** `terp release` and `terp promote` are named, not designed.
 
