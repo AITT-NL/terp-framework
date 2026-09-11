@@ -106,6 +106,65 @@ describe("Page", () => {
     expect(bare.container.querySelector('[data-terp="page-description"]')).toBeNull();
   });
 
+  it("earns its second row only when there is meta to put on it", () => {
+    // The conditional half of ADR 0135. A page with badges or a lead line already spends a
+    // row on them, so the action cluster joining them costs no height; a page with neither
+    // keeps the single row and the measurement the chrome is held to. Both directions are
+    // asserted, because the attribute deciding the grid template is the whole mechanism.
+    const { container, rerender } = render(
+      <Page title="Tasks" actions={<Button>New</Button>}>
+        <p>body</p>
+      </Page>,
+    );
+    const bare = container.querySelector('[data-terp="page-header"]');
+    expect(bare?.hasAttribute("data-has-meta"), "nothing to show, so no second row").toBe(false);
+    expect(container.querySelector('[data-terp="page-meta"]'), "no empty group").toBeNull();
+
+    rerender(
+      <Page title="Tasks" description="A sentence." actions={<Button>New</Button>}>
+        <p>body</p>
+      </Page>,
+    );
+    const withMeta = container.querySelector('[data-terp="page-header"]');
+    expect(withMeta?.getAttribute("data-has-meta"), "a lead line earns the row").toBe("true");
+    expect(container.querySelector('[data-terp="page-meta"]')).not.toBeNull();
+  });
+
+  it("groups the action cluster even when the page passes loose nodes", () => {
+    // A page that passed a fragment used to put each button in the band as its own item,
+    // which the grid would scatter across cells it has no areas for. The wrapper is Page's,
+    // not PageActions', so it holds whether or not the page reached for that component.
+    const { container } = render(
+      <Page
+        title="Tasks"
+        actions={
+          <>
+            <Button>Discard</Button>
+            <Button>Publish</Button>
+          </>
+        }
+      >
+        <p>body</p>
+      </Page>,
+    );
+    const header = container.querySelector('[data-terp="page-header"]');
+    const cluster = container.querySelector('[data-terp="page-actions"]');
+    expect(cluster, "the cluster is always a group").not.toBeNull();
+    expect(cluster?.parentElement).toBe(header);
+    expect(cluster?.querySelectorAll("button")).toHaveLength(2);
+    // And the buttons are NOT direct children of the band, which is the failure this prevents.
+    expect(header?.querySelectorAll(':scope > button')).toHaveLength(0);
+  });
+
+  it("renders no cluster box at all when the page passes no actions", () => {
+    const { container } = render(
+      <Page title="Tasks">
+        <p>body</p>
+      </Page>,
+    );
+    expect(container.querySelector('[data-terp="page-actions"]')).toBeNull();
+  });
+
   it("takes several badges as one row, not one row each", () => {
     const { container } = render(
       <Page title="Fix the door" badges={[<span key="a">Open</span>, <span key="b">Urgent</span>]}>

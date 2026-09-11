@@ -207,6 +207,7 @@ const MARKERS = [
   "page-description",
   "page-header",
   "page-heading",
+  "page-meta",
   "page-title",
   "popover",
   "popover-panel",

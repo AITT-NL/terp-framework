@@ -103,7 +103,7 @@
  * touched.
  */
 
-import { WIDE_VIEWPORT_QUERY } from "./breakpoints";
+import { ROOMY_VIEWPORT_QUERY, WIDE_VIEWPORT_QUERY } from "./breakpoints";
 
 /** The `<style>` element id used to detect a prior injection. */
 export const TERP_STYLES_ID = "terp-core-styles";
@@ -564,12 +564,15 @@ textarea[data-terp="input"] {
    Same for every gap pair. styles.test.ts pins the order, because getting it backwards
    renders the narrow value at every width and looks like the prop not working.
 
-   The query is INTERPOLATED from ./breakpoints, which is the one \${…} in this sheet and is
-   deliberate rather than a slip: it is the complement of the exact string AppShell and
-   DataView hand to matchMedia, so the two halves of the cutover partition the viewport by
-   construction. Written out here they would be two literals that agree until someone edits
-   one. (The convention of grepping this literal for \${ still holds — there should be
-   exactly this one.) */
+   The query is INTERPOLATED from ./breakpoints, and that is deliberate rather than a slip:
+   it is the complement of the exact string AppShell and DataView hand to matchMedia, so the
+   two halves of the cutover partition the viewport by construction. Written out here they
+   would be two literals that agree until someone edits one.
+
+   There are TWO \${…} in this sheet now, one per cutover — this one and the page band's
+   ROOMY block. Both come from ./breakpoints and neither spells a number, which is the
+   property worth grepping for: a third interpolation is fine if it names a constant from
+   that module, and a literal pixel width in a media query here is not. */
 @media ${WIDE_VIEWPORT_QUERY} {
   [data-terp="stack"][data-direction-wide="column"] { flex-direction: column; }
   [data-terp="stack"][data-direction-wide="row"] { flex-direction: row; }
@@ -1374,15 +1377,39 @@ textarea[data-terp="input"] {
   line-height: var(--font-line-height-snug);
   color: var(--color-neutral-600);
 }
+/* NOWRAP on both, and the li is the one that matters. A crumb's chevron lives inside the li
+   beside its label, so a wrapping li let a long label push its own separator onto the next
+   line -- where it sat at the start of the row pointing at nothing. The ol follows for the
+   band's sake: the trail is one row of the grid, and a trail that wraps is a row whose height
+   nobody declared.
+
+   What gives instead is the text, below. Every crumb can shrink and ellipsise, so a deep
+   trail degrades by losing characters rather than by growing the chrome. */
 [data-terp="breadcrumbs"] ol,
 [data-terp="breadcrumbs"] li {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
+}
+/* Each crumb's own text: shrinkable, and cut rather than wrapped. The automatic minimum of a
+   flex item is its content's, so min-width: 0 is what admits the other three declarations --
+   the same pairing the lead line makes, one level in. */
+[data-terp="breadcrumbs"] li > a,
+[data-terp="breadcrumbs"] li > h1,
+[data-terp="breadcrumbs"] li > span:not([data-terp="breadcrumbs-separator"]) {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The chevron is 0.85em of glyph and never the thing worth losing. */
+[data-terp="breadcrumbs"] li > [data-terp="breadcrumbs-separator"] {
+  flex: 0 0 auto;
 }
 /* Keyed on our own marker, not on [aria-current="page"]. The trail's ancestor
    crumbs are the app router's links, and TanStack stamps aria-current="page" on
@@ -1975,34 +2002,84 @@ textarea[data-terp="input"] {
    meeting a wide action cluster takes a second line instead of overflowing — and the band
    grows past its floor when it does. */
 [data-terp="page-header"] {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "trail actions";
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2) var(--space-4);
   min-width: 0;
 }
-/* The band's left group: the trail (whose leaf is the h1), then badges, then the lead line.
-   A base size of ZERO, and that is the whole of what keeps the band one row. The comment
-   here used to claim a flex of 1 1 auto with min-width: 0 was what let the lead line truncate
-   instead of pushing the action cluster off the row, and it is the same mistake Card made
-   and fixed (see card-heading, and the test that records the measurement): flex collects
-   items into lines using their HYPOTHETICAL main sizes, and only then shrinks what is on a
-   line. With an auto basis the heading's hypothetical size is the max-content width of a
-   trail AND a sentence, so with the band's flex-wrap the heading takes the line and the
-   actions wrap underneath -- and the description, having reached its own line, has room and
-   never ellipsises. Neither of the two things the comment promised actually held.
+/* The two-row band, and it costs nothing to the pages that get it. A page with badges or a
+   lead line ALREADY spends a second row on them; putting the action cluster there too fills
+   space that was empty, and it buys the trail the whole of the first row -- which is what
+   stops a deep trail having to truncate at all. A page with neither keeps the single row,
+   and with it the promise the chrome is measured against: the band matches the app header
+   above it.
 
-   min-width: 0 stays, for the other half: a flex item's automatic minimum is its content's,
-   so a long unbreakable title would otherwise refuse to shrink past it. Both are asserted in
-   styles.test.ts, because dropping either brings a different half of the bug back. */
+   A grid rather than the flex-wrap this was: wrap order follows source order, so the meta
+   group and the cluster could not share a row while staying two groups, and the moment the
+   band did wrap justify-content: space-between had free space to distribute -- which
+   spread a page's buttons across the full width, or left-aligned a single cluster on a row
+   whose whole job was to right-align it. Areas say where things go and no free space is
+   distributed anywhere, so neither failure has anywhere to happen. */
+[data-terp="page-header"][data-has-meta] {
+  grid-template-areas:
+    "trail trail"
+    "meta  actions";
+  /* Same-height lines, and 1fr is what spells that in a box whose height nobody declared:
+     with an indefinite container the fr rows resolve to the LARGEST row's content rather
+     than to a share of a height that does not exist, so both rows come out at the taller
+     one. A band of two content-sized rows would otherwise be a short trail line above a
+     tall control line, which reads as two different bands rather than one of two lines. */
+  grid-auto-rows: 1fr;
+}
+/* The band's left group, and it generates NO box. The trail and the meta group have to be
+   grid items of the band itself -- they sit on different rows -- but the marker is published
+   and a wrapper that boxed them would put them both in one cell. display: contents is the
+   sheet's existing answer to exactly that shape (see the markdown wrapper): the children
+   stay in flow as the grid's own items, and the marker survives for the scanner and for
+   anything reading the DOM.
+
+   The flex basis this used to carry is gone with the box. What it bought -- a heading that
+   shrinks instead of pushing the cluster off the row -- is now the grid's minmax(0, 1fr)
+   first column, which does the same job by construction rather than by getting a flex
+   hypothetical size right. */
 [data-terp="page-heading"] {
+  display: contents;
+}
+/* The trail owns the first row outright once there is a second one to own. */
+[data-terp="page-header"] > [data-terp="breadcrumbs"] {
+  grid-area: trail;
+  min-width: 0;
+}
+/* Badges and the lead line, grouped so they share the second row as one left-hand item
+   rather than competing for cells with the cluster opposite them. */
+[data-terp="page-meta"] {
+  grid-area: meta;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-3);
-  flex: 1 1 0;
   min-width: 0;
+}
+[data-terp="page-header"] > [data-terp="page-actions"] {
+  grid-area: actions;
+}
+/* The lead line is desktop-only, and it is written as the correction rather than the rule:
+   hidden at every width, shown again above the SECOND cutover. Mobile-first in the literal
+   sense, and it is what lets the three regions come out of two queries (see ./breakpoints) —
+   the middle region is simply the width at which this correction has not applied yet.
+
+   A sentence about the page is the first thing to go when the band is short of room: the
+   trail says where you are and the cluster says what you can do, and neither has a smaller
+   form that still works. */
+[data-terp="page-description"] {
+  display: none;
+}
+@media ${ROOMY_VIEWPORT_QUERY} {
+  [data-terp="page-description"] {
+    display: block;
+  }
 }
 /* The single h1 of the view, and now also the trail's current crumb: one node instead of two
    copies of one string. margin: 0 is load-bearing twice over — the browser default h1 margin

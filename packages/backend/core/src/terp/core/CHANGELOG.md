@@ -12,6 +12,52 @@ decision, 0001 onwards.
 
 ## 0.23.0 — 2026-09-11
 
+### Changed
+
+- **The page band is a grid, and spends a second row only when one is earned (ADR 0135).** It
+  was a wrapping flex row whose measured promise was that it matched the app header above it,
+  and that promise held only while nothing in it was long. A deep trail widened the band until
+  it wrapped — no crumb carried `min-width: 0` or an ellipsis, and flex collects items into
+  lines using their *hypothetical* sizes, so the wrap always beat the truncation. Once there
+  was a second line, `justify-content: space-between` had free space to distribute on it: a
+  page that passed a fragment of buttons got them scattered across the full width, and a page
+  that passed one cluster got it left-aligned on the row whose only job was to right-align it.
+  That second failure was invisible for as long as the band stayed one row, because the left
+  group absorbed every free pixel and left `space-between` nothing to do.
+
+  The band now places by area. A page with badges or a lead line already spends a row on them,
+  so the action cluster joining them there costs no height — and it buys the trail the whole
+  first row, which is what stops a deep trail truncating at all. A page with neither keeps the
+  single row and the measurement. Two lines are the same height (`grid-auto-rows: 1fr` resolves
+  both to the taller one in a box whose height nobody declared), which costs 81px against the
+  token's 48 where content-sized rows would have cost 64 — the price of the second row being a
+  line rather than an afterthought. Crumbs may now be cut but never orphaned: both the list and
+  its items are `nowrap`, the crumb text ellipsises, and a chevron can no longer be pushed onto
+  the next line to point at nothing. The lead line is written as a correction rather than a
+  rule — hidden at every width, shown again above the second cutover.
+
+- **A second viewport cutover, and still no third media query.** `--breakpoint-lg` was
+  published and never used. The band wants three regions, and the obvious spelling of a middle
+  one is an `and` of a min and a max — which reintroduces the epsilon the first cutover
+  refuses and needs a negation nested inside an `and` that Media Queries 3 cannot express. So
+  the regions are two cutovers applied in cascade order: the narrow case is written
+  unconditionally and each cutover corrects it upward. The middle region is what the first
+  correction leaves standing when the second does not apply — never named, never queried, and
+  so never able to disagree with its neighbours about who owns 768px or 1024px. Both literals
+  stay gated against the tokens they mirror.
+
+### Added
+
+- **`PageActions` takes `secondaryActions`, and the cluster follows the viewport.** Supporting
+  actions drop to icons alone in the middle region and fold into the overflow menu below the
+  first cutover, above the page's own rare and destructive items. The primary action keeps its
+  label at every width: it is the one thing the page is for, and a glyph or a menu line makes
+  the main act of the screen a guess or a second tap. Folding an action into a menu needs it to
+  be a description rather than an element — by the time a caller hands over a `<Button>` the
+  label is inside someone else's tree and can only be shown or hidden — so the new prop takes
+  the same tuple shape `overflow` already does. The existing `secondary` node is unchanged, and
+  is now documented as the form that cannot follow the viewport.
+
 ### Fixed
 
 - **`terp upgrade --check` recommended a re-render it never checked was runnable.** The
