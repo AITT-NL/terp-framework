@@ -45,12 +45,14 @@ history, and a convenience is never worth making a checkout unreviewable.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import pathlib
 import socket
 import subprocess
-from collections.abc import Mapping
+import time
+from collections.abc import Iterator, Mapping
 
 from terp.cli import workbench
 
@@ -105,6 +107,10 @@ def ledger_path() -> pathlib.Path:
     return home() / "ports.json"
 
 
+def _empty() -> dict:
+    return {"schemaVersion": SCHEMA_VERSION, "claims": []}
+
+
 def _load(path: pathlib.Path) -> dict:
     """The ledger, or an empty one. A corrupt file is not a reason to refuse.
 
@@ -112,14 +118,98 @@ def _load(path: pathlib.Path) -> dict:
     worst case is a second checkout picking a port the first holds, which the
     host probe still catches, and the alternative is a developer unable to start
     anything until they hand-repair a file they did not know existed.
+
+    A version it *can* read is carried through untouched, so the write path can
+    tell a ledger this reader understands from one written by a newer `terp`.
     """
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {"schemaVersion": SCHEMA_VERSION, "claims": []}
+        return _empty()
     if not isinstance(raw, dict) or not isinstance(raw.get("claims"), list):
-        return {"schemaVersion": SCHEMA_VERSION, "claims": []}
+        return _empty()
     return raw
+
+
+def _refuse_a_newer_ledger(data: dict) -> None:
+    """Never rewrite a ledger a newer ``terp`` wrote.
+
+    Every write here replaces the claim list wholesale, and :func:`claims` drops
+    what it cannot model — so an older reader rewriting a newer file would
+    silently delete claims it merely failed to understand, and hand out ports
+    another checkout holds. Reading one is fine; owning it is not.
+    """
+    version = data.get("schemaVersion")
+    if isinstance(version, int) and version > SCHEMA_VERSION:
+        raise PortsError(
+            f"{ledger_path()} was written by a newer terp (ledger schema "
+            f"{version}; this one understands {SCHEMA_VERSION}). Upgrade terp "
+            f"rather than let an older one rewrite it — it would drop the "
+            f"claims it cannot read."
+        )
+
+
+def _lock_age(lock: pathlib.Path) -> float:
+    """How long *lock* has been held, or ``0.0`` if it has just gone.
+
+    A lock that vanished between the failed create and this question was
+    released by its holder, so it is not stale — it is finished, and the next
+    attempt to create it will succeed. Reporting an age of zero rather than
+    treating the missing file as ancient is what keeps this from breaking a lock
+    somebody else is about to take.
+    """
+    try:
+        return time.time() - lock.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+@contextlib.contextmanager
+def _ledger_lock(*, timeout: float = 5.0, stale_after: float = 30.0) -> Iterator[None]:
+    """Hold the ledger for a read-modify-write.
+
+    Every write is read-compute-replace, so two of them at once lose a claim —
+    and a lost claim is a port handed to a second checkout, which is the one
+    thing this file exists to prevent. Two conversations each starting their own
+    project is the ordinary case rather than a rare one, so the window is real.
+
+    An exclusive create is the lock, because it is the one primitive that behaves
+    the same on every platform this runs on. A lock older than *stale_after* is
+    broken rather than waited on: the alternative is a crashed process making a
+    developer's machine permanently unable to assign a port, and the cost of
+    breaking one early is the race we already tolerate today.
+    """
+    path = ledger_path()
+    lock = path.with_name(path.name + ".lock")
+    deadline = time.monotonic() + timeout
+    handle = None
+    while True:
+        try:
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            handle = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            if _lock_age(lock) > stale_after:
+                with contextlib.suppress(OSError):
+                    lock.unlink()
+                continue
+            if time.monotonic() >= deadline:
+                # Not fatal: the caller still gets a correct-looking assignment,
+                # and saying so is better than blocking a start indefinitely.
+                break
+            time.sleep(0.05)
+        except OSError:
+            # A home directory that cannot hold a lock file cannot hold a ledger
+            # either; the write path reports that with its own message.
+            break
+    try:
+        yield
+    finally:
+        if handle is not None:
+            with contextlib.suppress(OSError):
+                os.close(handle)
+            with contextlib.suppress(OSError):
+                lock.unlink()
 
 
 def _store(path: pathlib.Path, data: dict) -> None:
@@ -213,18 +303,55 @@ def port_is_free(port: int) -> bool:
 # --------------------------------------------------------------------------- #
 
 
-def declared_names(root: pathlib.Path) -> tuple[str, str]:
-    """The names this app publishes its web and api host ports through.
+class Seams:
+    """What this app says about its host-port names, and whether to believe it.
 
-    Read from ``workbench.json`` so an app that renamed them is served by its own
-    declaration rather than by this reader's assumption — the point of the
-    declaration being that an app may be shaped however it likes as long as it
-    says so.
+    :attr:`problems` is the half the first version of this module did not have.
+    ``workbench.load`` answers ``(None, findings)`` for a declaration it cannot
+    *read* — broken JSON, an unsupported ``schemaVersion``, an ``unmanaged``
+    without a reason — and that is indistinguishable, at the type level, from an
+    app that simply has no declaration. Treating the two the same means an app
+    that renamed its port seam and then broke its JSON gets the default name
+    published: a name its compose file never reads, so the stack binds the
+    compose default and collides with another checkout. Which is the exact
+    failure this module exists to remove, reintroduced by guessing.
     """
-    declared, _ = workbench.load(root)
+
+    __slots__ = ("api", "problems", "reason", "unmanaged", "web")
+
+    def __init__(
+        self,
+        *,
+        web: str,
+        api: str,
+        unmanaged: bool = False,
+        reason: str = "",
+        problems: tuple[str, ...] = (),
+    ) -> None:
+        self.web = web
+        self.api = api
+        self.unmanaged = unmanaged
+        self.reason = reason
+        self.problems = problems
+
+
+def read_seams(root: pathlib.Path) -> Seams:
+    """Read the port seams from ``workbench.json``, keeping why they are unsure.
+
+    An app with no declaration is served by the defaults — ADR 0110 decision 7,
+    and the whole template is that shape. An app with a declaration this reader
+    cannot parse is *not* served by the defaults; it gets :attr:`Seams.problems`,
+    and the caller refuses.
+    """
+    declared, findings = workbench.load(root)
     web, api = DEFAULT_WEB_PORT_ENV, DEFAULT_API_PORT_ENV
-    if declared is None or declared.unmanaged:
-        return web, api
+    if declared is None:
+        problems = tuple(
+            f"{finding.message} {finding.remedy}".strip() for finding in findings
+        )
+        return Seams(web=web, api=api, problems=problems)
+    if declared.unmanaged:
+        return Seams(web=web, api=api, unmanaged=True, reason=declared.reason)
     for entry in declared.services:
         name = entry.get("hostPortEnv")
         if not isinstance(name, str) or not name:
@@ -233,15 +360,19 @@ def declared_names(root: pathlib.Path) -> tuple[str, str]:
             web = name
         elif entry.get("role") == "api":
             api = name
-    return web, api
+    return Seams(web=web, api=api)
+
+
+def declared_names(root: pathlib.Path) -> tuple[str, str]:
+    """The names this app publishes its web and api host ports through."""
+    seams = read_seams(root)
+    return seams.web, seams.api
 
 
 def is_unmanaged(root: pathlib.Path) -> tuple[bool, str]:
     """Has this app opted out of being driven? ``(True, reason)`` if so."""
-    declared, _ = workbench.load(root)
-    if declared is not None and declared.unmanaged:
-        return True, declared.reason
-    return False, ""
+    seams = read_seams(root)
+    return seams.unmanaged, seams.reason
 
 
 def published(root: pathlib.Path, names: tuple[str, ...]) -> dict[str, int]:
@@ -418,11 +549,14 @@ def publish(root: pathlib.Path, values: Mapping[str, int]) -> tuple[bool, str]:
             )
     path = root / ".env"
     block = render_block(values)
+    if not block and not path.exists():
+        # Nothing to say and no file to say it in. Writing here would create an
+        # empty `.env` that the checkout never had, which a release must not do:
+        # tidying up is not the same as leaving something behind.
+        return True, ""
     try:
         existing = path.read_text(encoding="utf-8", newline="") if path.exists() else ""
-        path.write_text(
-            merge_block(existing, block), encoding="utf-8", newline=""
-        )
+        path.write_text(merge_block(existing, block), encoding="utf-8", newline="")
     except OSError as exc:
         return False, f"{path} could not be written ({exc})"
     return True, ""
@@ -464,9 +598,39 @@ def assign(
     checkout another tool already assigned — the alternative is picking a second
     answer and moving the ports of a stack that may well be up.
     """
-    web_env, api_env = declared_names(root)
+    seams = read_seams(root)
+    if seams.problems:
+        raise PortsError(
+            "This app's workbench.json cannot be read, so the names it "
+            "publishes its ports through are unknown:\n  "
+            + "\n  ".join(seams.problems)
+            + "\nNothing was assigned. Publishing the default names instead "
+            "would put values in .env that this app's compose file may never "
+            "read, which is the collision this command exists to prevent. Run "
+            "`terp verify --only workbench` for the full report."
+        )
+    if seams.unmanaged:
+        raise PortsError(
+            f"workbench.json declares this app unmanaged: {seams.reason}. "
+            "An app that drives its own development loop names its own ports."
+        )
+    web_env, api_env = seams.web, seams.api
     path = ledger_path()
+    with _ledger_lock():
+        return _assign_locked(root, path, web_env, api_env, reassign=reassign)
+
+
+def _assign_locked(
+    root: pathlib.Path,
+    path: pathlib.Path,
+    web_env: str,
+    api_env: str,
+    *,
+    reassign: bool,
+) -> tuple[dict[str, int], str, str]:
+    """The read-compute-replace half of :func:`assign`, under the ledger lock."""
     data = _load(path)
+    _refuse_a_newer_ledger(data)
 
     source = "fresh"
     values: dict[str, int] | None = None
@@ -508,15 +672,17 @@ def assign(
 def release(root: pathlib.Path) -> bool:
     """Drop this checkout's dev claim and its published block. ``True`` if held."""
     path = ledger_path()
-    data = _load(path)
-    held = claim_for(data, root) is not None
-    data["schemaVersion"] = SCHEMA_VERSION
-    data["claims"] = [
-        claim
-        for claim in claims(data)
-        if not (claim["path"] == _key(root) and claim.get("scope", "dev") == "dev")
-    ]
-    _store(path, data)
+    with _ledger_lock():
+        data = _load(path)
+        _refuse_a_newer_ledger(data)
+        held = claim_for(data, root) is not None
+        data["schemaVersion"] = SCHEMA_VERSION
+        data["claims"] = [
+            claim
+            for claim in claims(data)
+            if not (claim["path"] == _key(root) and claim.get("scope", "dev") == "dev")
+        ]
+        _store(path, data)
     publish(root, {})
     return held
 
@@ -560,14 +726,22 @@ def _render_list() -> int:
 
 
 def _render_show(root: pathlib.Path) -> int:
-    unmanaged, reason = is_unmanaged(root)
-    if unmanaged:
+    seams = read_seams(root)
+    if seams.unmanaged:
         print(
-            f"workbench.json declares this app unmanaged: {reason}\n"
+            f"workbench.json declares this app unmanaged: {seams.reason}\n"
             "`terp ports` does not assign for it — the app names its own ports."
         )
         return 0
-    web_env, api_env = declared_names(root)
+    if seams.problems:
+        print(
+            "This app's workbench.json cannot be read, so which names it "
+            "publishes its ports through is unknown:\n  "
+            + "\n  ".join(seams.problems)
+            + "\nRun `terp verify --only workbench` for the full report."
+        )
+        return 1
+    web_env, api_env = seams.web, seams.api
     claim = claim_for(_load(ledger_path()), root)
     if claim is None:
         print(
@@ -590,6 +764,8 @@ def _render_show(root: pathlib.Path) -> int:
 def _render_assign(root: pathlib.Path, *, reassign: bool) -> int:
     unmanaged, reason = is_unmanaged(root)
     if unmanaged:
+        # Not an error: the app said its loop is its own, and it is. Exit 0 so a
+        # caller that assigns before starting is not broken by an opt-out.
         print(
             f"workbench.json declares this app unmanaged: {reason}\n"
             "Nothing assigned: an app that drives its own development loop names "
@@ -630,6 +806,7 @@ __all__ = [
     "SPAN",
     "WEB_BASE",
     "PortsError",
+    "Seams",
     "assign",
     "claim_for",
     "claims",
@@ -643,6 +820,7 @@ __all__ = [
     "publish",
     "published",
     "release",
+    "read_seams",
     "render_block",
     "run_ports_command",
     "taken_by_others",

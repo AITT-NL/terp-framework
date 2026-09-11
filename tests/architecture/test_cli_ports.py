@@ -15,10 +15,13 @@ app that has opted out of being driven is left alone.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import socket
 import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
@@ -680,6 +683,213 @@ def test_an_unwritable_exclude_reports_failure(tmp_path, monkeypatch):
 
     monkeypatch.setattr(pathlib.Path, "write_text", _refuse)
     assert hide_from_git(root) is False
+
+
+# --------------------------------------------------------------------------- #
+# a declaration that cannot be read is not a declaration that is absent
+# --------------------------------------------------------------------------- #
+
+
+def _broken_declaration(root: pathlib.Path, body: str) -> pathlib.Path:
+    (root / "workbench.json").write_text(body, encoding="utf-8")
+    return root
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "{not json",
+        '["an array, not an object"]',
+        '{"schemaVersion": 99}',
+        '{"unmanaged": true}',
+    ],
+    ids=["invalid-json", "not-an-object", "unknown-version", "escape-without-reason"],
+)
+def test_an_unreadable_declaration_refuses_to_assign(body, tmp_path, capsys):
+    """``workbench.load`` answers ``(None, findings)`` for a declaration it cannot
+    *read*, which at the type level is the same answer as "this app has none".
+
+    Treating those two the same is how an app that renamed its port seam and then
+    broke its JSON gets ``WEB_PORT`` published — a name its compose file never
+    reads, so the stack binds the compose default and takes over another
+    checkout's containers. That is the failure this command exists to remove,
+    reintroduced by guessing, so it refuses instead.
+
+    ``{"unmanaged": true}`` with no reason is in this list on purpose: an escape
+    nobody can review is not an escape, and it must not read as one.
+    """
+    root = _broken_declaration(_checkout(tmp_path / "app"), body)
+
+    assert run_ports_command(action="assign", root=str(root)) == 1
+    out = capsys.readouterr().out
+
+    assert "workbench.json" in out
+    assert "terp verify --only workbench" in out
+    assert not (root / ".env").exists()
+    assert not ledger_path().exists()
+
+
+def test_an_unreadable_declaration_refuses_to_show(tmp_path, capsys):
+    root = _broken_declaration(_checkout(tmp_path / "app"), "{not json")
+    assert run_ports_command(action="show", root=str(root)) == 1
+    assert "cannot be read" in capsys.readouterr().out
+
+
+def test_assign_refuses_an_unmanaged_app_on_its_own(tmp_path):
+    """The guard lives in `assign`, not only in the screen above it, so no caller
+    can reach the half that would guess."""
+    root = _checkout(tmp_path / "app")
+    (root / "workbench.json").write_text(
+        json.dumps({"unmanaged": True, "reason": "a Makefile"}), encoding="utf-8"
+    )
+    with pytest.raises(PortsError, match="unmanaged"):
+        ports_module.assign(root)
+
+
+def test_seams_report_their_problems_rather_than_a_guess(tmp_path):
+    seams = ports_module.read_seams(_broken_declaration(_checkout(tmp_path / "a"), "{"))
+    assert seams.problems
+    assert seams.unmanaged is False
+
+
+# --------------------------------------------------------------------------- #
+# the ledger is not rewritten by a reader that cannot model it
+# --------------------------------------------------------------------------- #
+
+
+def test_a_newer_ledger_is_read_but_never_rewritten(tmp_path, capsys):
+    """Every write replaces the claim list wholesale and the reader drops what it
+    cannot model, so an older terp rewriting a newer ledger would delete claims
+    it merely failed to understand — and then hand out ports they hold."""
+    ledger_path().parent.mkdir(parents=True, exist_ok=True)
+    ledger_path().write_text(
+        json.dumps(
+            {
+                "schemaVersion": ports_module.SCHEMA_VERSION + 1,
+                "claims": [{"path": "/elsewhere", "ports": {"WEB_PORT": 21100}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    root = _checkout(tmp_path / "app")
+    assert run_ports_command(action="assign", root=str(root)) == 1
+    assert "newer terp" in capsys.readouterr().out
+    # And the file it refused to own is still exactly as it was.
+    assert json.loads(ledger_path().read_text(encoding="utf-8"))["claims"] == [
+        {"path": "/elsewhere", "ports": {"WEB_PORT": 21100}}
+    ]
+
+
+def test_releasing_against_a_newer_ledger_also_refuses(tmp_path):
+    ledger_path().parent.mkdir(parents=True, exist_ok=True)
+    ledger_path().write_text(
+        json.dumps({"schemaVersion": ports_module.SCHEMA_VERSION + 1, "claims": []}),
+        encoding="utf-8",
+    )
+    with pytest.raises(PortsError, match="newer terp"):
+        ports_module.release(_checkout(tmp_path / "app"))
+
+
+# --------------------------------------------------------------------------- #
+# two writers over one ledger
+# --------------------------------------------------------------------------- #
+
+
+def test_concurrent_assigns_do_not_lose_a_claim(tmp_path, capsys, monkeypatch):
+    """The read-compute-replace window, which two conversations hit routinely.
+
+    ``_store`` is slowed so the two calls reliably overlap; without the lock the
+    second write is computed from a ledger that predates the first and one claim
+    is dropped — and a dropped claim is a port handed to a second checkout.
+    """
+    real_store = ports_module._store
+
+    def _slow_store(path, data):
+        time.sleep(0.15)
+        real_store(path, data)
+
+    monkeypatch.setattr(ports_module, "_store", _slow_store)
+
+    roots = [_checkout(tmp_path / f"app{n}") for n in range(2)]
+    errors: list[BaseException] = []
+
+    def _run(root):
+        try:
+            ports_module.assign(root)
+        except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_run, args=(root,)) for root in roots]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    capsys.readouterr()
+
+    assert errors == []
+    ledger = json.loads(ledger_path().read_text(encoding="utf-8"))
+    held = [claim_for(ledger, root) for root in roots]
+    assert all(claim is not None for claim in held), ledger
+    first, second = (set(claim["ports"].values()) for claim in held)
+    assert first.isdisjoint(second)
+
+
+def test_a_stale_lock_is_broken_rather_than_waited_on(tmp_path, capsys):
+    """A crashed process must not leave a machine unable to assign a port."""
+    lock = ledger_path().with_name(ledger_path().name + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text("", encoding="utf-8")
+    old = time.time() - 3600
+    os.utime(lock, (old, old))
+
+    root = _checkout(tmp_path / "app")
+    assert run_ports_command(action="assign", root=str(root)) == 0
+    capsys.readouterr()
+    assert _ports(root)["WEB_PORT"] == WEB_BASE
+
+
+def test_a_held_lock_delays_but_does_not_block_forever(tmp_path):
+    """The timeout is deliberate: a start that waits forever is worse than one
+    that proceeds on a ledger it could not lock."""
+    lock = ledger_path().with_name(ledger_path().name + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text("", encoding="utf-8")
+
+    started = time.monotonic()
+    with ports_module._ledger_lock(timeout=0.2, stale_after=3600):
+        pass
+    assert time.monotonic() - started >= 0.2
+
+
+def test_a_lock_that_has_gone_reads_as_age_zero_not_ancient(tmp_path):
+    """Released, not stale. Calling it ancient would break a lock the next
+    caller is about to take legitimately."""
+    assert ports_module._lock_age(tmp_path / "never-existed.lock") == 0.0
+
+
+def test_a_home_that_cannot_hold_a_lock_still_yields(tmp_path, monkeypatch):
+    def _refuse(*_args, **_kwargs):
+        raise OSError("no locks here")
+
+    monkeypatch.setattr(ports_module.os, "open", _refuse)
+    entered = False
+    with ports_module._ledger_lock(timeout=0.01):
+        entered = True
+    assert entered is True
+
+
+# --------------------------------------------------------------------------- #
+# release leaves nothing behind
+# --------------------------------------------------------------------------- #
+
+
+def test_release_does_not_create_a_dotenv_that_never_existed(tmp_path, capsys):
+    """Tidying up is not the same as leaving something behind."""
+    root = _checkout(tmp_path / "app")
+    assert run_ports_command(action="release", root=str(root)) == 0
+    capsys.readouterr()
+    assert not (root / ".env").exists()
 
 
 def test_a_ledger_that_cannot_be_written_is_a_directive_error(tmp_path, monkeypatch):
