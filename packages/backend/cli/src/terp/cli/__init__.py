@@ -575,7 +575,17 @@ Stored references (Ref + OnDelete)
       RESTRICT     the parent must not vanish underneath this row (a ledger entry)
       SET NULL     a pointer allowed to go slack (an optional assignee) -- nullable
       SET_DEFAULT  point at the column default instead (that default must exist)
-      NO_ACTION    the database takes none; something above it owns this lifecycle
+      NO_ACTION    the database corrects nothing; something above it owns this
+                   lifecycle -- it still REFUSES a delete that would orphan a row
+- NO_ACTION STILL REFUSES. It means the database takes no corrective action, not that
+  it stands aside: the foreign key is enforced either way, and NO ACTION differs from
+  RESTRICT only in deferrability, never in whether the parent delete is blocked. So
+  against a HARD-deletable parent, expect the refusal and plan for it -- BaseService
+  turns it into the uniform 409 ConflictError, the same envelope as any other
+  integrity conflict, so you do not map it. Clear the children first; the _after_write
+  recipe below runs BEFORE the parent row is deleted, which is exactly what makes that
+  ordering work. (Against a soft-deletable target none of this can fire at all -- see
+  the SOFT-DELETE note below, where NO_ACTION really does mean nothing happens.)
 - NO_ACTION is a real answer, not a cop-out, and it emits NO clause at all. Two
   consequences worth knowing: adopting the declaration on an existing schema costs
   no migration (the DDL is unchanged, only the source now says the silence was

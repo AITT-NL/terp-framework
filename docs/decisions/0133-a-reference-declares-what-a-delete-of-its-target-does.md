@@ -146,9 +146,9 @@ choice stays with the author.
 
 ### 3. `NO ACTION` is a full answer, and it emits no clause
 
-`OnDelete.NO_ACTION` means "the database takes no action; something above it owns this
-lifecycle" — the honest declaration for a lifecycle a service cascades itself, and the only
-available answer when the target is soft-deletable. It compiles to **no** `ON DELETE`
+`OnDelete.NO_ACTION` means "the database takes no *corrective* action; something above it
+owns this lifecycle" — the honest declaration for a lifecycle a service cascades itself, and
+the only available answer when the target is soft-deletable. It compiles to **no** `ON DELETE`
 clause, which is exactly the DDL an undeclared foreign key already produces. Two reasons,
 and the second is what makes the rule adoptable at all:
 
@@ -160,6 +160,16 @@ and the second is what makes the rule adoptable at all:
 
 So the difference between "chose `NO ACTION`" and "chose nothing" lives in the declaration
 and never in the schema. That is the point — the schema was never the ambiguous part.
+
+The word doing the work there is *corrective*, and the first phrasing of this section left it
+out. Section 4 below is careful about it for a *soft*-deletable target; for a hard-deletable
+one the sentence stood alone and read as "the database stands aside", which it does not. An
+option-less foreign key is still enforced: against a hard-deletable parent `NO ACTION` refuses
+a delete that would orphan a row, exactly as `RESTRICT` does — the two differ in deferrability,
+not in whether they block. So "something above it owns this lifecycle" names the layer that
+*cascades*; it was never a promise that the parent delete succeeds on its own. Where the owning
+service drains the children first it does, which is why `GroupMember.group_id` is sound. Where
+it does not, the database refuses and `BaseService` maps that to the uniform 409.
 
 ### 4. An action that cannot fire is a violation
 

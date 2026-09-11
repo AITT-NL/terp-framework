@@ -113,10 +113,13 @@ a guard to make a change pass:
    form). Terp does **not** prefer an action — `CASCADE` for a part of its parent,
    `RESTRICT` for something the parent must not vanish underneath, `SET NULL` for a
    pointer allowed to go slack — only that one is named; `OnDelete.NO_ACTION` is a
-   full answer and emits no clause, so declaring it costs no migration. One trap the
-   rule also refuses: `CASCADE` / `SET NULL` against a `SoftDeleteMixin` target can
-   never fire, because that row is stamped rather than deleted — declare `RESTRICT`
-   or `NO_ACTION` and cascade the stamp from the owning service. Detail:
+   full answer and emits no clause, so declaring it costs no migration — though it
+   does **not** mean the database stands aside: an option-less foreign key still
+   refuses a delete that would orphan a row, so a hard-deletable parent needs its
+   children cleared first. One trap the rule also refuses: `CASCADE` / `SET NULL`
+   against a `SoftDeleteMixin` target can never fire, because that row is stamped
+   rather than deleted — declare `RESTRICT` or `NO_ACTION` and cascade the stamp
+   from the owning service. Detail:
    `terp guide references`.
 
 ## Frontend conventions
