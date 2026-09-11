@@ -325,6 +325,45 @@ def _rerender_offer(*, include_command: bool, blocked_because: str | None) -> li
 _GIT_TIMEOUT_SECONDS = 10
 
 
+def _git_rc(cwd: pathlib.Path, *args: str) -> int | None:
+    """Exit code of a local ``git`` call, or ``None`` when git itself could not run.
+
+    ``None`` means "no answer", never "no". Both callers below are only allowed to rule a
+    re-render out on certain evidence, so a git that is missing, refused or slow has to
+    leave the recommendation exactly as it found it.
+    """
+    # The answers-file values ride as argv elements and never as a command line, so a
+    # hostile _src_path or ref is an argument git rejects rather than anything it runs.
+    argv = ["git", "-C", str(cwd), *args]
+    try:
+        completed = subprocess.run(  # noqa: S603 — fixed argv, no shell
+            argv,
+            capture_output=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return completed.returncode
+
+
+def _is_git_checkout(root: pathlib.Path) -> bool:
+    """Whether *root* sits inside a git work tree, which ``copier update`` needs.
+
+    A ``.git`` entry is proof on its own and costs nothing to look for — it covers the
+    ordinary app, which lives at its repository root. Its ABSENCE proves nothing, so that
+    case is put to git instead: an app vendored into a subdirectory of a larger repository
+    has no ``.git`` of its own and updates perfectly well. Answering from the presence
+    check alone would reproduce this command's own bug one level down — a confident wrong
+    answer that withholds the recipe the reader needs.
+    """
+    if (root / ".git").exists():
+        return True
+    # 128 is git refusing outright: not inside a work tree. Anything else — including no
+    # answer at all — leaves the re-render on the table.
+    return _git_rc(root, "rev-parse", "--is-inside-work-tree") != 128
+
+
 def _ref_resolves(source: str, ref: str) -> bool:
     """Whether *ref* is still present in a template checkout at *source*.
 
@@ -336,19 +375,11 @@ def _ref_resolves(source: str, ref: str) -> bool:
     path = pathlib.Path(source)
     if not path.is_dir():
         return True
-    # The answers-file values ride as argv elements and never as a command line, so a
-    # hostile _src_path or ref is an argument git rejects rather than anything it runs.
-    argv = ["git", "-C", str(path), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"]
-    try:
-        completed = subprocess.run(  # noqa: S603 — fixed argv, no shell
-            argv,
-            capture_output=True,
-            timeout=_GIT_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return True
-    return completed.returncode == 0
+    # Only a clean "no such ref" (1) proves absence. 128 is git declining the question
+    # because `source` is not a repository at all, and a question nobody answered must not
+    # be reported as a pruned tag — that would name the wrong obstacle with full
+    # confidence, which is the failure this whole check exists to stop making.
+    return _git_rc(path, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}") != 1
 
 
 def _copier_update_blocker(root: pathlib.Path) -> str | None:
@@ -366,8 +397,12 @@ def _copier_update_blocker(root: pathlib.Path) -> str | None:
     step 3 is the one that says to pin every npm manifest rather than only the frontend's.
     A stale ``conformance/package.json`` is precisely what that step exists to prevent.
 
-    Local, certain checks only. Whether a *remote* ``_src_path`` still carries the ref
-    needs the network, so it is not guessed at.
+    Local, certain checks only, and every uncertain answer leaves the re-render on the
+    table: a remote ``_src_path`` needs the network, a template directory that is no
+    repository cannot be asked, an app below its repository root has no ``.git`` of its
+    own, and a git that will not run answers nothing at all. Each of those keeps the
+    re-render recipe. Trading this command's false positive for a false negative would
+    only move the damage to the other set of apps.
     """
     ref = scaffold_ref(root)
     if ref is None:
@@ -375,7 +410,7 @@ def _copier_update_blocker(root: pathlib.Path) -> str | None:
             "records no template answers file, so `copier update` has nothing to "
             "re-render from"
         )
-    if not (root / ".git").exists():
+    if not _is_git_checkout(root):
         return "is not a git checkout, which `copier update` needs to apply an update"
     source = _answers_scalar(root, "_src_path")
     if source is not None and not _ref_resolves(source, ref):

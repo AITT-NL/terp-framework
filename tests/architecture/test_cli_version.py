@@ -735,3 +735,44 @@ def test_the_recipes_count_terp_distributions_not_the_whole_lockstep_set(
     assert "All 2 terp-* distributions can move to 0.6.0" in report
     assert "2 packages can move" not in report
     assert "@terpjs/* packages move with them" in report
+
+def test_an_app_below_its_repository_root_is_still_a_git_checkout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Looking for a `.git` entry answers the ordinary app and mis-answers this one.
+
+    An app vendored into a subdirectory of a larger repository has no `.git` of its own
+    and `copier update` works there perfectly well. Blocking on the presence check alone
+    would reproduce the very bug this command was fixed for — a confident wrong answer
+    that withholds the recipe the reader actually needs — one level down.
+    """
+    repo = _template_carrying(tmp_path, "v0.5.7")  # any real repository will do
+    app = _answers(
+        repo / "app", "v0.5.7", src_path="https://example.invalid/t.git", git=False
+    )
+    report = _offered(monkeypatch, app)
+
+    assert "is not a git checkout" not in report
+    assert "copier update" in report
+    assert "Pin every terp-* dependency" not in report
+
+
+def test_a_template_directory_that_is_no_repository_is_not_a_pruned_tag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """git answers "no such ref" and "that is not a repository" with different codes, and
+    only the first is evidence.
+
+    Collapsing them reports a local `_src_path` that is simply not a checkout as a ref the
+    template "no longer carries" — naming the wrong obstacle with full confidence, which
+    is precisely the failure mode this check was added to stop making. A question nobody
+    answered leaves the recommendation alone.
+    """
+    plain = tmp_path / "plain-directory"
+    plain.mkdir()
+    app = _answers(tmp_path / "app", "v0.5.7", src_path=str(plain))
+    report = _offered(monkeypatch, app)
+
+    assert "no longer carries" not in report
+    assert "copier update" in report
+    assert "Pin every terp-* dependency" not in report
