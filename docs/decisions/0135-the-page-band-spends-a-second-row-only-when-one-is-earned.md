@@ -47,28 +47,36 @@ nor the left-aligned cluster has a place to happen. `minmax(0, ...)` rather than
 job the flex basis did: a track's automatic minimum is its content's, so without it a long
 unbreakable title still refuses to shrink.
 
-**2. The second row is conditional, and free when it is taken.** A page with badges or a lead
-line already spends a row on them; the cluster joining them there costs no height at all, and
-it buys the trail the whole of the first row — which is what stops a deep trail having to
+**2. The second row is conditional.** A page with badges or a lead
+line already spends a row on them, so the cluster joining them there costs nothing beyond the
+row itself, and it buys the trail the whole of the first row — which is what stops a deep trail having to
 truncate in the first place. A page with neither keeps the single row, and with it the
 measurement the chrome is held to. `Page` knows which it is at render time, so this is an
 attribute and not a measurement.
 
-**3. Every crumb may be cut; no crumb may be orphaned.** Both the list and its items are
+**3. Two lines are the same height.** `grid-auto-rows: 1fr`, which in a box whose height nobody
+declared is not a share of anything: `fr` rows in an indefinite container resolve to the largest
+row's content, so both lines come out at the taller one. Two content-sized rows would be a short
+trail line above a tall control line, which reads as two bands stacked rather than one band of
+two lines. It costs height — a band with meta is 81px against the 48px the token declares, where
+content-sized rows would have been 64px — and that is the price of the second row being a line
+rather than an afterthought.
+
+**4. Every crumb may be cut; no crumb may be orphaned.** Both the list and its items are
 `nowrap`, and the crumb text carries `min-width: 0` with an ellipsis. A deep trail degrades by
 losing characters rather than by growing the chrome, and a chevron never leaves its label.
 
-**4. The lead line is desktop-only, written as a correction rather than a rule.** Hidden at
+**5. The lead line is desktop-only, written as a correction rather than a rule.** Hidden at
 every width, shown again above the second cutover. A sentence about the page is the first thing
 to go when the band is short of room: the trail says where you are and the cluster says what
 you can do, and neither has a smaller form that still works.
 
-**5. The primary action keeps its label at every width.** Supporting actions drop to icons in
+**6. The primary action keeps its label at every width.** Supporting actions drop to icons in
 the middle region and fold into the overflow menu below the first cutover, above the page's own
 rare and destructive items. The primary does neither. It is the one thing the page is for, and
 a glyph or a menu line makes the main act of the screen a guess or a second tap.
 
-**6. A cluster is always a group.** `Page` wraps whatever it is handed in the `page-actions`
+**7. A cluster is always a group.** `Page` wraps whatever it is handed in the `page-actions`
 box rather than letting a caller's nodes sit loose in the band, so the cluster is one grid item
 whether or not the page reached for `PageActions`.
 

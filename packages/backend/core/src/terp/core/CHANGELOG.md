@@ -28,7 +28,10 @@ decision, 0001 onwards.
   The band now places by area. A page with badges or a lead line already spends a row on them,
   so the action cluster joining them there costs no height — and it buys the trail the whole
   first row, which is what stops a deep trail truncating at all. A page with neither keeps the
-  single row and the measurement. Crumbs may now be cut but never orphaned: both the list and
+  single row and the measurement. Two lines are the same height (`grid-auto-rows: 1fr` resolves
+  both to the taller one in a box whose height nobody declared), which costs 81px against the
+  token's 48 where content-sized rows would have cost 64 — the price of the second row being a
+  line rather than an afterthought. Crumbs may now be cut but never orphaned: both the list and
   its items are `nowrap`, the crumb text ellipsises, and a chevron can no longer be pushed onto
   the next line to point at nothing. The lead line is written as a correction rather than a
   rule — hidden at every width, shown again above the second cutover.

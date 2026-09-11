@@ -1031,6 +1031,16 @@ describe("cascade structure", () => {
     expect(withMeta, "meta sits left of the cluster on the second row").toContain(
       '"meta  actions"',
     );
+    // Same-height lines. 1fr rather than auto, and in a box whose height nobody declared that
+    // is not a share of anything: fr rows in an indefinite container resolve to the LARGEST
+    // row's content, so both lines come out at the taller one. Two content-sized rows would be
+    // a short trail line above a tall control line, which reads as two bands rather than one
+    // of two lines. The computed half is next door in the workbench, which measures the
+    // resolved tracks rather than the box: a total carries the gap and the border too, so only
+    // the tracks can say whether the two lines actually agree.
+    expect(withMeta, "a band of two lines gives them the same height").toContain(
+      "grid-auto-rows: 1fr",
+    );
     // The left group generates no box, which is what lets its two children be grid items of
     // the BAND and therefore sit on different rows. The marker survives for the scanner.
     const headingAt = base.indexOf('[data-terp="page-heading"] {');

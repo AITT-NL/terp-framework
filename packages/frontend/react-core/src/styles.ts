@@ -2026,6 +2026,12 @@ textarea[data-terp="input"] {
   grid-template-areas:
     "trail trail"
     "meta  actions";
+  /* Same-height lines, and 1fr is what spells that in a box whose height nobody declared:
+     with an indefinite container the fr rows resolve to the LARGEST row's content rather
+     than to a share of a height that does not exist, so both rows come out at the taller
+     one. A band of two content-sized rows would otherwise be a short trail line above a
+     tall control line, which reads as two different bands rather than one of two lines. */
+  grid-auto-rows: 1fr;
 }
 /* The band's left group, and it generates NO box. The trail and the meta group have to be
    grid items of the band itself -- they sit on different rows -- but the marker is published

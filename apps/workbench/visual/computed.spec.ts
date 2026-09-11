@@ -692,11 +692,16 @@ test("both chrome rows come out at the header height their shared token declares
   // picture of itself — and both of these rows had baselines the whole time. The structural
   // half is next door in styles.test.ts: it pins that the two rules spend the same padding.
   // This is the half that reads what the browser actually computed.
+  // NARROWED by ADR 0135, and narrowed rather than dropped. The band still promises to be the
+  // height this token declares -- for the pages that have nothing but a trail to show. A page
+  // with badges or a lead line now spends a second row on them and the action cluster joins it
+  // there, so the single-row claim is false of that page by design; the rows-are-equal claim
+  // below is what replaces it. `page-header` and `page-header-root` moved out of this loop for
+  // that reason: both carry meta, and asserting 48px of them now would be asserting the bug the
+  // ADR describes rather than the behaviour.
   for (const [only, selector, what] of [
     ["app-shell", '[data-terp="appshell-header"]', "the app header, which always has a control"],
-    ["page-header", '[data-terp="page-header"]', "a band with an action button"],
     ["page-header-bare", '[data-terp="page-header"]', "a band with only a title"],
-    ["page-header-root", '[data-terp="page-header"]', "a band with a badge and an action"],
   ] as const) {
     const row = await chromeRow(page, only, selector);
     expect(row.height, `${what} should render`).not.toBeNull();
@@ -726,10 +731,17 @@ test("both chrome rows come out at the header height their shared token declares
   // `styles.test.ts` ("keeps the page band one row") pins the declarations that do it;
   // this is the composition most able to beat the floor, so it is where a regression to
   // wrapping would show first.
+  // ADR 0135 made the opposite call AGAIN, and the third position is the one worth keeping:
+  // the crowded band now EARNS a second row rather than holding the floor. Holding it was only
+  // ever affordable because the lead line truncated, and truncating is what the band did
+  // instead of showing the sentence -- a trade this composition was chosen to expose. It now
+  // spends a row it was already spending on the badges and lead line, and the cluster joins
+  // them there. What replaces the floor for this composition is the equal-rows claim in "a
+  // band that earns a second row gives both rows the same height", which this specimen is
+  // measured by; asserting the floor here would assert the behaviour that ADR describes as
+  // the bug.
   const crowded = await chromeRow(page, "page-header-crowded", '[data-terp="page-header"]');
-  expect(crowded.height, "a crowded band holds the floor instead of wrapping").toBe(
-    crowded.declared,
-  );
+  expect(crowded.height, "a crowded band earns its second row").toBeGreaterThan(crowded.declared);
 });
 
 /** The ink box of an element's text, which is where a baseline mismatch shows. */
@@ -747,6 +759,38 @@ async function textRows(page: import("@playwright/test").Page, selectors: string
     });
   }, selectors);
 }
+
+test("a band that earns a second row gives both rows the same height", async ({ page }) => {
+  // The other half of the narrowing above, and the claim worth having in its place. A band with
+  // meta is two lines, and two CONTENT-sized lines would be a short trail above a tall control
+  // row -- which reads as two bands stacked rather than one band of two lines. `grid-auto-rows:
+  // 1fr` in a box whose height nobody declared resolves every row to the largest row's content,
+  // so the lines come out equal by construction.
+  //
+  // Read off the resolved template rather than measured from the box: the box's height also
+  // carries the gap, the padding and the border, so a total says nothing about whether the two
+  // TRACKS agree. This is the number that does.
+  for (const [only, what] of [
+    ["page-header", "a band with badges, a lead line and an action"],
+    ["page-header-root", "a band with a badge and an action"],
+    ["page-header-crowded", "the most crowded band the gallery ships"],
+  ] as const) {
+    await page.goto(`/?theme=light&only=${only}`);
+    await page.locator('[data-terp="page-header"]').first().waitFor({ state: "visible" });
+    const rows = await page.evaluate(() => {
+      const element = document.querySelector('[data-terp="page-header"]');
+      return element === null ? null : getComputedStyle(element).gridTemplateRows;
+    });
+    expect(rows, `${what} should render`).not.toBeNull();
+    const tracks = (rows as string).split(" ").filter((size) => size.length > 0);
+    expect(tracks, `${what} should be two rows`).toHaveLength(2);
+    expect(tracks[0], `${what}: both lines must be the same height`).toBe(tracks[1]);
+    // And a row is not a hairline: the equality would hold trivially if both collapsed.
+    expect(Number.parseFloat(tracks[0]!), `${what}: the rows should have real height`).toBeGreaterThan(
+      16,
+    );
+  }
+});
 
 test("every crumb in the trail sits on one baseline, leaf included", async ({ page }) => {
   // The trail is a row of centred items, so two line heights in it are two baselines. The
