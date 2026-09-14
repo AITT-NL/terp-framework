@@ -82,14 +82,14 @@ dev = [
 # CI-only generic backstops (NOT part of the `pytest --cov=terp` gate; they
 # complement terp-arch, never replace it). Installed in CI; optional locally.
 lint = [
-    "ruff>=0.16.6",
+    "ruff>=0.16.7",
     "pip-audit>=2.10.1",
     "deptry>=0.25.1",
     "import-linter>=2.15",
     # Pinned exactly, unlike the others: this one blocks, so a new audit must
     # arrive by a deliberate bump (Dependabot opens it) rather than by surprise
     # on an unrelated pull request.
-    "zizmor==1.30.0",
+    "zizmor==1.30.1",
 ]
 
 [tool.pytest.ini_options]
