@@ -1,3 +1,4 @@
 {
+  "arch-allow-no-hardcoded-credentials": 3,
   "arch-allow-schemas-exclude-sensitive-fields": 1
 }

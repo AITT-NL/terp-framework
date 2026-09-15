@@ -301,8 +301,7 @@ def test_no_raw_outbound_http(tmp_path: pathlib.Path) -> None:
         _write(app, "modules/notes/service.py", f"{stmt}\n")
         assert _rule_names(check_no_raw_outbound_http(app)) == {"no_raw_outbound_http"}, stmt
 
-    # The scan is scoped to app modules, and benign urllib helpers are not HTTP clients.
-    _write(app, "shared/http.py", "import httpx\n")
+    # Benign urllib helpers are not HTTP clients.
     _write(app, "modules/notes/service.py", "from urllib import parse\nfrom terp.core import BaseService\n")
     assert check_no_raw_outbound_http(app) == []
 
@@ -321,6 +320,15 @@ def test_no_raw_outbound_http(tmp_path: pathlib.Path) -> None:
     _write(app, "modules/notes/migrations/versions/0001_x.py", "import requests\n")
     assert _rule_names(check_no_raw_outbound_http(app)) == {"no_raw_outbound_http"}
 
+    # A raw client OUTSIDE modules/ is the same egress and is flagged (ADR 0136). This
+    # assertion used to read the other way — a shared helper importing httpx was
+    # asserted CLEAN — which is how the rule came to be believed enforced while the
+    # place an app actually reaches for a client (a worker, a publisher script, the
+    # composition root) was never scanned at all. Last, because the file has to stay
+    # on disk to be seen and every assertion above wants a clean tree.
+    _write(app, "modules/notes/migrations/versions/0001_x.py", "from terp.core import BaseService\n")
+    _write(app, "shared/http.py", "import httpx\n")
+    assert _rule_names(check_no_raw_outbound_http(app)) == {"no_raw_outbound_http"}
 
 
 def test_modules_declare_policy(tmp_path: pathlib.Path) -> None:
@@ -873,6 +881,18 @@ def test_no_manual_table_schema(tmp_path: pathlib.Path) -> None:
         "    title: str = Field(max_length=20)\n",
     )
     assert check_no_manual_table_schema(app) == []
+
+    # A table declared OUTSIDE modules/ escapes the managed layout just as completely
+    # (ADR 0136), and `table_models_use_base_table` has always scanned there — two rules
+    # over one declaration must agree about where a table model may live.
+    _write(
+        app,
+        "shared/models.py",
+        "class Ledger(BaseTable, table=True):\n"
+        "    __table_args__ = {'schema': 'custom'}\n"
+        "    title: str = Field(max_length=20)\n",
+    )
+    assert _rule_names(check_no_manual_table_schema(app)) == {"no_manual_table_schema"}
 
 
 def test_no_unique_columns_on_soft_delete_models(tmp_path: pathlib.Path) -> None:
@@ -1539,10 +1559,11 @@ def test_no_dynamic_sql(tmp_path: pathlib.Path) -> None:
     _write(app, "modules/notes/service.py", "stmt = text('SELECT * FROM notes WHERE id=:id')\n")
     assert check_no_dynamic_sql(app) == []
 
-    # The rule follows app-module scope, not arbitrary helper files.
-    _write(app, "helpers/sql.py", "stmt = text(query)\n")
+    # Dynamically built SQL OUTSIDE modules/ is the same injection risk (ADR 0136) —
+    # a helper, a worker, a composition root. This assertion used to read the other way.
     _write(app, "modules/notes/service.py", "stmt = text('SELECT 1')\n")
-    assert check_no_dynamic_sql(app) == []
+    _write(app, "helpers/sql.py", "stmt = text(query)\n")
+    assert _rule_names(check_no_dynamic_sql(app)) == {"no_dynamic_sql"}
 
     # tests/ and migrations/ dirs inside a module are importable code: still scanned (G1).
     _write(app, "modules/notes/tests/helper.py", "stmt = text(query)\n")
@@ -2827,10 +2848,13 @@ def test_no_hardcoded_credentials(tmp_path: pathlib.Path) -> None:
     )
     assert check_no_hardcoded_credentials(app) == []
 
-    # The rule follows app-module scope.
-    _write(app, "scripts/bootstrap.py", "password = 'dev-only'\n")
+    # A credential committed OUTSIDE modules/ is the same leak (ADR 0136), and a
+    # bootstrap script is where one most often lands. This assertion used to read the
+    # other way, which left the rule's own docstring ("a real secret is a leak wherever
+    # it is committed") true of nothing but the module tree.
     _write(app, "modules/billing/service.py", "password = ''\n")
-    assert check_no_hardcoded_credentials(app) == []
+    _write(app, "scripts/bootstrap.py", "password = 'dev-only'\n")
+    assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
 
     # tests/ and migrations/ dirs inside a module are committed source: still scanned (G1).
     _write(app, "modules/billing/tests/helper.py", "api_key = 'not-from-config'\n")

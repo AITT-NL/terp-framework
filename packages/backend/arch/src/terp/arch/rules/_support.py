@@ -337,7 +337,23 @@ def _rel(path: pathlib.Path, app_root: pathlib.Path) -> str:
 
 
 def _module_under(path: pathlib.Path, package: str) -> str | None:
-    """Return the ``modules/<name>`` a file belongs to, or ``None``."""
+    """Return the ``modules/<name>`` a file belongs to, or ``None``.
+
+    Keyed on the ``modules/`` path segment alone: *package* is accepted so every rule
+    shares one call shape, and is deliberately **not** consulted. Two things follow,
+    and both have been misread before (ADR 0136).
+
+    A file outside a ``modules/`` tree returns ``None`` — a composition root, a
+    sibling package, a capability's own source. That is the right answer for a rule
+    about a *module's* shape (one module may not import another; a grantable module
+    must be named) and the wrong one for a rule about the code's *safety*, which does
+    not stop caring at a directory boundary. Four security rules read this as a
+    package filter and so scanned nothing outside the module tree — including, when
+    the capability suite scans a capability root, nothing at all, while still
+    asserting an empty violation list. Rules of the second kind now iterate the whole
+    root and never call this; ``test_arch_harness`` pins each one against a fixture
+    placed outside ``modules/`` so the distinction cannot quietly collapse again.
+    """
     parts = path.parts
     if "modules" in parts:
         index = parts.index("modules")

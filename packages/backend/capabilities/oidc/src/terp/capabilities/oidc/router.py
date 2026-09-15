@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-import httpx
+import httpx  # arch-allow-no-raw-outbound-http: imported for the http_factory type only — this module issues no request; the protocol client in client.py owns every call. review-by: 2026-12-31
 from fastapi import APIRouter, Request, Response
 from sqlmodel import Session
 

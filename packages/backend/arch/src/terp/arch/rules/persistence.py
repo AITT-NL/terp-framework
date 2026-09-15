@@ -41,20 +41,22 @@ def _is_plain_string_literal(node: ast.expr) -> bool:
 def check_no_dynamic_sql(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
-    """Raw SQL text in app modules must be a static literal, never dynamically built.
+    """Raw SQL text in app code must be a static literal, never dynamically built.
 
     Dynamic ``text(...)`` / ``sqlalchemy.text(...)`` calls (f-strings, string
     concatenation, ``.format``, ``%`` formatting, or a variable) are not statically
     reviewable and are easy to turn into SQL injection. Keep SQL as a literal and
-    pass data through SQLAlchemy parameters / ORM expressions instead. As a
-    security rule this also scans ``tests/`` and ``migrations/`` dirs inside a
-    module — they are importable Python, so they are application surface too.
+    pass data through SQLAlchemy parameters / ORM expressions instead.
+
+    Scope is the **whole scanned root**, not ``modules/`` (ADR 0136): a security
+    rule that stopped at the module tree read as enforced everywhere while a
+    composition root, a sibling package, or a capability's own source was never
+    looked at. ``tests/`` and ``migrations/`` are scanned too — they are importable
+    Python, so they are application surface as much as a service is.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in iter_python_files(root, skip_dirs=_SECURITY_SKIP_DIRS):
-        if _module_under(path, package) is None:
-            continue
         tree = parse(path)
         rel = _rel(path, root)
         for node in ast.walk(tree):
@@ -577,12 +579,15 @@ def check_no_manual_table_schema(
     schema-free. A hand-written ``__table_args__ = {"schema": ...}`` pins one table
     to a fixed schema, silently escaping the managed layout (and breaking SQLite
     dev/test, which parses a schema prefix as an ATTACH database name).
+
+    Scope is the **whole scanned root**, not ``modules/`` (ADR 0136), matching
+    ``table_models_use_base_table`` — the two rules govern the same declarations and
+    disagreeing about where a table model may live is how one of them ends up
+    enforced and the other assumed.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in iter_python_files(root):
-        if _module_under(path, package) is None:
-            continue
         tree = parse(path)
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Assign | ast.AnnAssign)):

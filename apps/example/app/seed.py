@@ -40,7 +40,7 @@ _ADMIN_EMAIL = "admin@acme.test"
 _EDITOR_EMAIL = "editor@acme.test"
 _REVOCATION_EDITOR_EMAIL = "revocation-editor@acme.test"
 _VIEWER_EMAIL = "viewer@acme.test"
-_DEMO_PASSWORD = "correct horse battery staple"  # noqa: S105 - dev seed, not a real secret
+_DEMO_PASSWORD = "correct horse battery staple"  # noqa: S105 - dev seed, not a real secret  # arch-allow-no-hardcoded-credentials: the demo login for a seed `terp seed` refuses to run in production; the whole point is that it is printed, shared and known
 
 
 def _has_any(session: Session, model: type[BaseTable]) -> bool:

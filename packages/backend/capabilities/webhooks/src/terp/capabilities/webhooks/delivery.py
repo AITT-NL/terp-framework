@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Final
 
-import httpx
+import httpx  # arch-allow-no-raw-outbound-http: the target is already resolved and pinned by the egress capability (PinnedTarget) and redirects are refused; only the transport line is local, behind the injectable WebhookSender seam. review-by: 2026-12-31
 from sqlmodel import Field
 
 from terp.core import (

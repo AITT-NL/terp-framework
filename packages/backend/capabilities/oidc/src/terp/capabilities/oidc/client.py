@@ -17,11 +17,12 @@ transport.
 
 from __future__ import annotations
 
+import json
 from threading import Lock
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Final
 
-import httpx
+import httpx  # arch-allow-no-raw-outbound-http: the IdP protocol client, whose endpoints come from operator configuration rather than from a caller; reads are capped (MAX_RESPONSE_BYTES) and redirects refused. review-by: 2026-12-31
 import jwt
 
 from terp.core import AppError, AuthenticationError
@@ -36,6 +37,15 @@ ALLOWED_ALGORITHMS: tuple[str, ...] = ("RS256", "RS384", "RS512", "PS256", "ES25
 #: Bounded clock skew for ``exp`` / ``iat`` validation, in seconds.
 CLOCK_SKEW_LEEWAY_SECONDS = 60
 
+#: The ceiling on a single provider response body, read in flight (never buffered whole
+#: past it). A discovery document is a couple of kilobytes and a JWKS a few more, so this
+#: is generous by three orders of magnitude — the point is that a bound *exists*. Without
+#: one, every provider read was as large as the far end chose to make it: a hostile,
+#: compromised, or merely misconfigured issuer answering a JWKS fetch with an endless body
+#: takes the worker's memory with it, and the timeout does not help because the connection
+#: is never idle. The egress capability caps its reads for the same reason.
+MAX_RESPONSE_BYTES: Final[int] = 1024 * 1024
+
 _DISCOVERY_PATH = "/.well-known/openid-configuration"
 _HTTP_TIMEOUT_SECONDS = 10.0
 
@@ -49,7 +59,30 @@ class ProviderUnavailableError(AppError):
 
 
 def _default_http_factory() -> httpx.Client:
-    return httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS)
+    # Redirects are refused explicitly rather than left to the library's default: a
+    # followed redirect is a second endpoint nobody configured, and the discovery
+    # document's issuer match — the IdP mix-up defence — is checked against the URL
+    # that was *asked for*, not the one that answered.
+    return httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=False)
+
+
+def _read_capped(response: httpx.Response) -> bytes:
+    """Read a streamed provider response, refusing anything past the cap.
+
+    Counted as it arrives, so an over-long body is abandoned mid-stream rather than
+    measured after it has already been held in memory — which is the only version of
+    this check that is worth having.
+    """
+    chunks: list[bytes] = []
+    read = 0
+    for chunk in response.iter_bytes():
+        read += len(chunk)
+        if read > MAX_RESPONSE_BYTES:
+            raise ProviderUnavailableError(
+                "The identity provider's response was larger than this application accepts."
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 class OIDCClient:
@@ -75,12 +108,18 @@ class OIDCClient:
     # discovery + JWKS
     # ------------------------------------------------------------------ #
     def _get_json(self, url: str) -> dict[str, Any]:
-        """GET *url* and parse JSON; any transport / status / parse failure is a 502."""
+        """GET *url* and parse JSON; any transport / status / parse / size failure is a 502.
+
+        Streamed rather than buffered so the body is bounded as it arrives
+        (:func:`_read_capped`): the two documents this fetches — discovery and the
+        JWKS — are read on a code path a caller can reach by starting a login, and an
+        unbounded read there is an outage the provider gets to declare.
+        """
         try:
-            with self._http_factory() as client:
-                response = client.get(url)
-                response.raise_for_status()
-                payload = response.json()
+            with self._http_factory() as client, client.stream("GET", url) as response:
+                if response.status_code >= 400:
+                    raise ProviderUnavailableError()
+                payload = json.loads(_read_capped(response))
         except (httpx.HTTPError, ValueError) as exc:
             raise ProviderUnavailableError() from exc
         if not isinstance(payload, dict):
@@ -159,26 +198,27 @@ class OIDCClient:
         """
         endpoint = str(self.discovery()["token_endpoint"])
         try:
-            with self._http_factory() as client:
-                response = client.post(
-                    endpoint,
-                    data={
-                        "grant_type": "authorization_code",
-                        "code": code,
-                        "redirect_uri": self._config.redirect_uri,
-                        "client_id": self._config.client_id,
-                        "client_secret": client_secret,
-                        "code_verifier": code_verifier,
-                    },
-                )
+            with self._http_factory() as client, client.stream(
+                "POST",
+                endpoint,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": self._config.redirect_uri,
+                    "client_id": self._config.client_id,
+                    "client_secret": client_secret,
+                    "code_verifier": code_verifier,
+                },
+            ) as response:
+                if response.status_code != 200:
+                    # A refused exchange (bad / replayed / expired code) is an auth
+                    # failure, not an outage — the uniform 401.
+                    raise AuthenticationError()
+                body = _read_capped(response)
         except httpx.HTTPError as exc:
             raise ProviderUnavailableError() from exc
-        if response.status_code != 200:
-            # A refused exchange (bad / replayed / expired code) is an auth failure,
-            # not an outage — the uniform 401.
-            raise AuthenticationError()
         try:
-            payload = response.json()
+            payload = json.loads(body)
         except ValueError as exc:
             raise ProviderUnavailableError() from exc
         id_token = payload.get("id_token") if isinstance(payload, dict) else None
@@ -222,6 +262,7 @@ class OIDCClient:
 __all__ = [
     "ALLOWED_ALGORITHMS",
     "CLOCK_SKEW_LEEWAY_SECONDS",
+    "MAX_RESPONSE_BYTES",
     "OIDCClient",
     "ProviderUnavailableError",
 ]
