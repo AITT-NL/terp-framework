@@ -14,6 +14,20 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **A published host port is assigned, not guessed (ADR 0134).** The template's dev stack gave
+  its published ports in-range defaults, so two checkouts on one machine raced for the same
+  number and the second to start lost — to a Compose error that named the port and neither the
+  owner nor the remedy. Those ports are now required rather than defaulted: an unassigned
+  checkout is refused with `required variable WEB_PORT is missing a value` and the command that
+  settles it. `terp docker dev` assigns on demand, so the requirement stays invisible to anyone
+  who never learns the command exists — shipping the refusal without that would have made the
+  standalone path harder in the act of protecting it. `apps/example` keeps its in-range
+  defaults, because the conformance workflow runs that dev stack with no `.env`: one checkout
+  on an ephemeral runner, where the collision cannot occur. An in-range default stays legal for
+  any app; what is no longer legal is a published port that answers neither question — a bare
+  `${VAR}`, which Compose resolves to empty and then reports as a malformed port, naming
+  neither the variable nor the fix.
+
 - **The page band is a grid, and spends a second row only when one is earned (ADR 0135).** It
   was a wrapping flex row whose measured promise was that it matched the app header above it,
   and that promise held only while nothing in it was long. A deep trail widened the band until
@@ -47,6 +61,22 @@ decision, 0001 onwards.
   stay gated against the tokens they mirror.
 
 ### Added
+
+- **`terp ports` — one machine-scoped ledger for host ports (ADR 0134).** `assign`, `show`,
+  `list` and `release` over a per-machine record, with assignment and publication as a single
+  call: the pair is written beside the compose file that reads it, and `workbench.json` decides
+  the names. A checkout that already publishes an answer is *adopted* rather than rewritten —
+  the pair is recorded so no other checkout is handed it, and the file is left alone. That
+  predicate is explicit because the first cut did the opposite: it wrote its own managed block
+  into the same `.env` a workbench writes, and Compose takes the last definition of a name, so
+  the two agreed only until either changed its mind and then the reader watched one port while
+  the stack published the other. One definition, owned by whoever wrote it. `unmanaged` is left
+  alone, `list` names a claim whose checkout is gone, and no `.env` ever carries a second
+  definition of a name this command owns.
+
+  A workbench still keeps its own assignment, so two authorities over one resource remain —
+  what is now guaranteed is that they cannot diverge silently. The ledger only knows a checkout
+  `terp` has been run in.
 
 - **`PageActions` takes `secondaryActions`, and the cluster follows the viewport.** Supporting
   actions drop to icons alone in the middle region and fold into the overflow menu below the
