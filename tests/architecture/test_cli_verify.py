@@ -41,6 +41,10 @@ _EXAMPLE_ROOT = _REPO_ROOT / "apps" / "example"
 _KNOWN_CATEGORIES = {
     "architecture",
     "backend-tests",
+    # Its own category rather than "build": a driving tool groups a failing unit test
+    # with the other test results, not with a compile error, and the two failures ask
+    # very different things of whoever reads them.
+    "frontend-tests",
     "frontend-boundaries",
     "build",
     "conformance",
@@ -149,6 +153,11 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # profile, not to whatever steps a scaffolded workflow happens to list.
         "api-client",
         "frontend-typecheck",
+        # The layer between a type check and a browser. Conditional on the app
+        # declaring a `test` script, so an app rendered before the seam existed
+        # skips with a note rather than turning red on upgrade -- but an app that
+        # declares the script and cannot run it is a failure, not a skip.
+        "frontend-tests",
         "frontend-build",
     }
 
@@ -2229,6 +2238,101 @@ def test_dependency_hygiene_is_conditional_on_the_app_declaring_it(
     exit_code, output = _run_dependency_hygiene(tmp_path)
     assert exit_code == 0, "an app that never adopted deptry must not fail the gate"
     assert output.startswith(NOTE_PREFIX) and "deptry" in output
+
+
+def test_frontend_tests_are_conditional_on_the_app_declaring_the_script(
+    tmp_path: pathlib.Path,
+) -> None:
+    """An app rendered before the seam existed skips; one that declared it runs.
+
+    The declaration read is the `test` SCRIPT, not the presence of test files. An app
+    can have a suite it cannot run, and that is the state worth a red -- so presence of
+    the script is what promotes this from skip to verdict.
+    """
+    from terp.cli.verify import NOTE_PREFIX, _run_frontend_tests
+
+    exit_code, output = _run_frontend_tests(tmp_path / "nowhere")
+    assert (exit_code, "not applicable" in output) == (0, True)
+
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text('{"name": "x"}', encoding="utf-8")
+    exit_code, output = _run_frontend_tests(tmp_path)
+    assert exit_code == 0, "an app that never wired a frontend suite must not fail"
+    assert output.startswith(NOTE_PREFIX) and "test` script" in output
+
+    # A `scripts` table without `test`, and an empty `test`, are both "not declared" --
+    # the second because an empty command runs nothing while looking like adoption.
+    for scripts in ('{"scripts": {"build": "vite build"}}', '{"scripts": {"test": ""}}'):
+        (frontend / "package.json").write_text(scripts, encoding="utf-8")
+        exit_code, output = _run_frontend_tests(tmp_path)
+        assert (exit_code, output.startswith(NOTE_PREFIX)) == (0, True), scripts
+
+    # Unreadable is a RED, not a skip: whether the app declared a suite is unknown, and
+    # a skip there would be the fail-open this check exists to prevent.
+    (frontend / "package.json").write_text("{not json", encoding="utf-8")
+    exit_code, output = _run_frontend_tests(tmp_path)
+    assert exit_code == 1 and "unreadable" in output
+
+
+def test_verify_frontend_tests_only_skips_an_app_that_never_wired_a_suite(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End to end through the real dispatch, on a real tree that has not adopted it.
+
+    The example app declares `test:e2e` and no `test`, which is exactly the shape every
+    app rendered before this seam has. Upgrading the framework must leave it green.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "full",
+                "--root",
+                str(_EXAMPLE_ROOT),
+                "--only",
+                "frontend-tests",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    (check,) = envelope["checks"]
+    assert check["id"] == "frontend-tests" and check["ok"] is True
+
+
+def test_frontend_tests_run_when_declared_and_name_a_missing_runner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    import terp.cli.verify as verify_module
+
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text(
+        '{"scripts": {"test": "vitest run"}}', encoding="utf-8"
+    )
+
+    reached: list[str] = []
+    monkeypatch.setattr(
+        verify_module,
+        "_run_subprocess",
+        lambda check, root: (reached.append(check.id), (0, "clean"))[1],
+    )
+    assert verify_module._run_frontend_tests(tmp_path) == (0, "clean")
+    assert reached == ["frontend-tests"]
+
+    # A declared suite whose runner is not installed is checked by nothing, and the
+    # bare npm error does not say so. The note names the cause and the fix.
+    monkeypatch.setattr(
+        verify_module,
+        "_run_subprocess",
+        lambda check, root: (1, "sh: vitest: command not found"),
+    )
+    exit_code, output = verify_module._run_frontend_tests(tmp_path)
+    assert exit_code == 1
+    assert "run by nothing" in output and "devDependencies" in output
 
 
 def test_dependency_hygiene_reads_the_table_rather_than_matching_text(

@@ -305,12 +305,48 @@ export function __PASCAL__List() {
 """
 
 
+_VIEW_TEST_TSX = """// The `__NAME__` module's first frontend test, written in the same breath as the view for
+// the same reason the backend test package is (ADR 0119): a module whose default shape has
+// no test owes a debt nobody mentioned, and until the vitest seam existed the frontend had
+// nowhere to pay it. Run it with `npm --prefix frontend test`; `terp verify` runs it too.
+//
+// What belongs here is the logic between a type check and a browser -- branches, empty and
+// error states, formatters, plural rules, a column definition. The Playwright suite in
+// conformance/ still owns "does the whole app work against a real backend".
+import { render, waitFor, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { __PASCAL__List } from "./__PASCAL__List";
+
+describe("__PASCAL__List", () => {
+  it("renders its page title", () => {
+    const { container } = render(<__PASCAL__List />);
+    expect(within(container).getByText("__PASCAL__")).toBeInTheDocument();
+  });
+
+  it("shows the empty state, and no rows, until the typed client is wired", async () => {
+    const { container } = render(<__PASCAL__List />);
+    const marker = (name: string) => container.querySelector(`[data-terp="${name}"]`);
+    // The starter view lists nothing, so the empty marker is what renders. Once you wire
+    // a real endpoint this is the assertion to change -- expect a row, and expect the
+    // empty marker to be gone. Asserting BOTH sides is the point: a test that only checks
+    // the wanted element is present still passes when the unwanted one is there too.
+    await waitFor(() => expect(marker("resource-list-empty")).not.toBeNull());
+    expect(marker("resource-list-items")).toBeNull();
+  });
+});
+"""
+
+
 def _frontend_files(name: str) -> dict[str, str]:
-    """The frontend slot: a self-describing ``module.tsx`` + a starter list view."""
+    """The frontend slot: ``module.tsx``, a starter list view, and that view's first test."""
     pascal = _pascal(name)
     return {
         "module.tsx": _MODULE_TSX.replace("__PASCAL__", pascal).replace("__NAME__", name),
         f"{pascal}List.tsx": _VIEW_TSX.replace("__PASCAL__", pascal).replace("__NAME__", name),
+        f"{pascal}List.test.tsx": _VIEW_TEST_TSX.replace("__PASCAL__", pascal).replace(
+            "__NAME__", name
+        ),
     }
 
 
@@ -325,9 +361,10 @@ def new_module(
     """Scaffold the canonical ``<package>/modules/<name>/`` module under *root*.
 
     When *frontend* is true and a ``frontend/src/modules`` app exists under *root*, the
-    matching frontend slot (``module.tsx`` + a starter ``<Name>List.tsx`` view) is emitted
-    too, so the module is full-stack and auto-discovered by ``renderTerpApp`` — no central
-    registration. A backend-only repo (no frontend app) silently gets just the backend.
+    matching frontend slot (``module.tsx``, a starter ``<Name>List.tsx`` view and that
+    view's first test) is emitted too, so the module is full-stack and auto-discovered by
+    ``renderTerpApp`` — no central registration. A backend-only repo (no frontend app)
+    silently gets just the backend.
 
     Returns the created file paths. Raises :class:`SystemExit` for an invalid name or
     an existing destination, so a partial overwrite never happens.
