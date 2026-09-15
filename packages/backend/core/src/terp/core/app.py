@@ -636,6 +636,41 @@ def _request_size_override_map(
     return overrides
 
 
+def _rate_limit_override_map(
+    specs: Sequence[ModuleSpec], config: SecurityConfig
+) -> dict[str, tuple[int, int]]:
+    """The mount-prefix→(limit, window) map for the rate limiter (ADR 0138).
+
+    The rate-rate twin of :func:`_request_size_override_map`, and deliberately built
+    the same way: each **mounted** spec's declared ``rate_limit`` contributes its own
+    ``/api/v1/<name>`` prefix, and a router-less spec is skipped because an unrouted
+    prefix has nothing to limit.
+
+    A module declares this when it knows something about its own traffic that the
+    application's general limit cannot — the auth and SSO mounts verify credentials,
+    and a credential check is memory-hard on purpose, so the endpoint is the cheapest
+    place on the surface to spend the server's CPU. Installing the capability is then
+    enough; there is no composition-root line to remember and therefore none to
+    forget.
+
+    ``SecurityConfig.rate_limit_overrides`` still wins on a shared prefix. The
+    precedence is the same one every other composition seam uses — the root overrides
+    the package — and it matters more here than elsewhere: a deployment that has
+    measured its own login traffic must be able to say so, and a capability's default
+    is a floor it may move rather than a decision taken away from it.
+    """
+    overrides: dict[str, tuple[int, int]] = {}
+    for spec in specs:
+        if spec.rate_limit is not None and spec.router is not None:
+            overrides[f"/api/v1/{spec.name}"] = (
+                spec.rate_limit.requests,
+                spec.rate_limit.window_seconds,
+            )
+    for prefix, limit in config.rate_limit_overrides:
+        overrides[prefix] = (limit.requests, limit.window_seconds)
+    return overrides
+
+
 def _validate_permission_enforcement(
     specs: Sequence[ModuleSpec], permission_enforcer: PermissionEnforcer | None
 ) -> None:
@@ -1971,6 +2006,7 @@ def create_app(
             idempotency_store if idempotency_store is not None else InMemoryIdempotencyStore()
         ),
         request_size_overrides=_request_size_override_map(collected, request_size_overrides),
+        rate_limit_overrides=_rate_limit_override_map(collected, resolved_plane.security),
     )
     if principal_provider is not get_principal:
         app.dependency_overrides[get_principal] = principal_provider

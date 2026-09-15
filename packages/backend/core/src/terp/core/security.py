@@ -184,6 +184,30 @@ class RateLimit:
         """An explicitly disabled rate limit (rejected by production guardrails)."""
         return cls(requests=0)
 
+    @classmethod
+    def credentials(cls) -> RateLimit:
+        """The tighter cap a credential-verifying mount declares for itself.
+
+        The general limit is sized for an application's ordinary traffic, where a
+        request costs a query. A credential endpoint is not ordinary traffic: every
+        attempt runs a **deliberately expensive** password hash — Argon2, memory-hard
+        by design — and runs it on the miss paths too, because an unknown subject must
+        cost the same as a wrong secret or the timing difference enumerates accounts.
+        So the property that makes the credential check safe against a guesser is the
+        same property that makes the endpoint the cheapest way to spend the server's
+        CPU, and the general allowance was never chosen with that in mind.
+
+        Thirty per minute per caller: one attempt every two seconds sustained, which no
+        person reaches and no honest client needs, against an eighth of the CPU the
+        general limit would have allowed a single address to spend. It is a ceiling on
+        one address rather than a defence against many — a distributed guesser is what
+        the per-account lockout is for — and the two are deliberately different
+        controls, because a per-address lockout cannot exist (it would let anyone take
+        an office offline) and a per-account one cannot bound CPU (the attempt is paid
+        for before the account is known).
+        """
+        return cls(requests=30, window_seconds=60)
+
 
 @dataclass(frozen=True)
 class SecurityConfig:

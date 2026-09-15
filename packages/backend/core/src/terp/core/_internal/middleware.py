@@ -688,6 +688,7 @@ def install_security_middleware(
     throttle_store: ThrottleStore,
     idempotency_store: IdempotencyStore,
     request_size_overrides: Mapping[str, int] | None = None,
+    rate_limit_overrides: Mapping[str, tuple[int, int]] | None = None,
 ) -> None:
     """Attach the full security stack to *app* from its central ``SecurityConfig``.
 
@@ -726,10 +727,9 @@ def install_security_middleware(
             RateLimitMiddleware,
             limit=config.rate_limit.requests,
             window=config.rate_limit.window_seconds,
-            overrides={
-                prefix: (limit.requests, limit.window_seconds)
-                for prefix, limit in config.rate_limit_overrides
-            },
+            # Already merged by the composition root: each mounted spec's declared
+            # rate_limit, then SecurityConfig.rate_limit_overrides on top (ADR 0138).
+            overrides=dict(rate_limit_overrides or {}),
             store=throttle_store,
         )
     app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=config.trusted_proxy_hops)

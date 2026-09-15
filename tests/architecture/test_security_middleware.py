@@ -42,7 +42,7 @@ from terp.core import (
     request_id_ctx,
     settings,
 )
-from terp.core.app import register_error_handlers
+from terp.core.app import _rate_limit_override_map, register_error_handlers
 from terp.core.logging import (
     RedactingFilter,
     RequestContextFilter,
@@ -1027,3 +1027,93 @@ def test_unexpected_exception_renders_a_500_envelope() -> None:
     assert body["request_id"]
     # The raw exception detail must never leak to the client.
     assert "secret-internal-detail" not in response.text
+
+
+# --------------------------------------------------------------------------- #
+# a mount declares its own rate limit (ADR 0138)
+# --------------------------------------------------------------------------- #
+def _rate_limited_spec(name: str, rate_limit: RateLimit | None) -> ModuleSpec:
+    router = APIRouter()
+
+    @router.get("/ping")
+    def ping() -> dict:
+        return {"ok": True}
+
+    return ModuleSpec(
+        name=name,
+        router=router,
+        policy=Policy.public(reason="probe route"),
+        rate_limit=rate_limit,
+    )
+
+
+def test_a_mounted_spec_declares_the_limit_for_its_own_prefix() -> None:
+    """Installing the capability is the whole wiring — there is no root line to forget.
+
+    The mount that verifies credentials is the one that knows its attempts are
+    memory-hard; the application's general limit was sized against ordinary traffic and
+    cannot know that. So the declaration travels with the module, exactly as a file
+    capability's upload allowance does.
+    """
+    app = create_app(
+        [_rate_limited_spec("creds", RateLimit.credentials()), _rate_limited_spec("open", None)],
+        control_plane=ControlPlane(
+            security=SecurityConfig(cors=CorsPolicy.disabled(reason="probe"))
+        ),
+    )
+    client = TestClient(app)
+    assert client.get("/api/v1/creds/ping").headers["X-RateLimit-Limit"] == "30"
+    # An undeclared mount keeps the global allowance — the scoped cap is a bucket of
+    # its own, not a second ceiling on everyone.
+    assert client.get("/api/v1/open/ping").headers["X-RateLimit-Limit"] == "240"
+
+
+def test_an_explicit_override_beats_a_spec_declaration() -> None:
+    """Root overrides package, as at every other composition seam.
+
+    It matters more here than elsewhere: a deployment that has measured its own login
+    traffic must be able to say so, and a capability's default is a floor it may move
+    rather than a decision taken away from it.
+    """
+    app = create_app(
+        [_rate_limited_spec("creds", RateLimit.credentials())],
+        control_plane=ControlPlane(
+            security=SecurityConfig(
+                cors=CorsPolicy.disabled(reason="probe"),
+                rate_limit_overrides={"/api/v1/creds": RateLimit(requests=7, window_seconds=60)},
+            )
+        ),
+    )
+    assert TestClient(app).get("/api/v1/creds/ping").headers["X-RateLimit-Limit"] == "7"
+
+
+def test_an_unrouted_spec_contributes_no_prefix() -> None:
+    """A prefix nothing serves must not acquire an allowance — it has nothing to limit."""
+    overrides = _rate_limit_override_map(
+        [ModuleSpec(name="library", rate_limit=RateLimit.credentials())],
+        SecurityConfig(cors=CorsPolicy.disabled(reason="probe")),
+    )
+    assert overrides == {}
+
+
+def test_a_module_may_tighten_its_mount_but_never_exempt_it() -> None:
+    """An unlimited declaration would be a hole one prefix wide.
+
+    And a quieter one than a disabled global limit, because the global limit still
+    reads as enabled — which is exactly why production already refuses the same shape
+    in ``SecurityConfig.rate_limit_overrides``. Refused here at construction instead,
+    since a module's declaration is compiled into the package rather than configured
+    per deployment.
+    """
+    with pytest.raises(ValueError, match="not remove it"):
+        ModuleSpec(name="creds", rate_limit=RateLimit.disabled())
+    # Raising the allowance is a legitimate declaration; only removal is refused.
+    assert ModuleSpec(name="creds", rate_limit=RateLimit(requests=1000)).rate_limit
+
+
+def test_the_credential_limit_is_tighter_than_the_general_one() -> None:
+    """The point of the named constructor, asserted rather than left to the reader."""
+    credentials = RateLimit.credentials()
+    assert credentials.enabled
+    assert credentials.requests < RateLimit().requests
+    assert credentials.window_seconds == RateLimit().window_seconds
