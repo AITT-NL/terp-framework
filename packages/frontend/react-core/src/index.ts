@@ -171,6 +171,7 @@ export type {
   TextProps,
   TextTone,
   TextSize,
+  TextWeight,
   CodeProps,
   LinkProps,
 } from "./typography";

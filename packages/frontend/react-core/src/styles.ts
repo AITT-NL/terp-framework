@@ -1186,6 +1186,12 @@ textarea[data-terp="input"] {
   font-size: var(--font-size-lg);
   line-height: var(--font-line-height-relaxed);
 }
+/* Emphasis. Opt-in only: the base rule deliberately sets no font-weight, so a Text that
+   asks for nothing keeps inheriting exactly what it inherited before this axis existed.
+   Stating the default here would be tidier and would re-weight every Text nested in an
+   emphasised container, which is a rendering change dressed as a tidy-up. */
+[data-terp="text"][data-weight="medium"] { font-weight: var(--font-weight-medium); }
+[data-terp="text"][data-weight="semibold"] { font-weight: var(--font-weight-semibold); }
 [data-terp="text"][data-tone="muted"] { color: var(--color-fg-muted); }
 [data-terp="text"][data-tone="subtle"] { color: var(--color-fg-subtle); }
 [data-terp="text"][data-measure="narrow"] { max-width: 48ch; }

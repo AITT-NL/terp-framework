@@ -947,6 +947,22 @@ describe("cascade structure", () => {
     expect(base.slice(termAt, base.indexOf("}", termAt))).not.toContain("color:");
   });
 
+  it("gives body copy an emphasis step without re-weighting the copy that asks for none", () => {
+    const base = layerBody("terp.base");
+    // Both steps read the published weight tokens rather than a literal.
+    expect(base).toContain(
+      '[data-terp="text"][data-weight="medium"] { font-weight: var(--font-weight-medium); }',
+    );
+    expect(base).toContain(
+      '[data-terp="text"][data-weight="semibold"] { font-weight: var(--font-weight-semibold); }',
+    );
+    // The base rule states no weight on purpose: a Text that asks for none keeps
+    // inheriting what it inherited before the axis existed, so nothing re-renders.
+    const textAt = base.indexOf('[data-terp="text"] {');
+    expect(textAt, "the base text rule should exist").toBeGreaterThan(-1);
+    expect(base.slice(textAt, base.indexOf("}", textAt))).not.toContain("font-weight");
+  });
+
   it("keeps a Card's actions slot on the title's line, description or not", () => {
     // The measured inconsistency: `actions` is documented as a header-row slot and delivered
     // one only while `description` was unset. The heading declared min-width: 0 alone, so it
