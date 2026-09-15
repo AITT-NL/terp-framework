@@ -142,6 +142,10 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # than advisory: the failure is a green gate over an undeclared import on a
         # path no test reaches, which is a control or it is nothing.
         "dependency-hygiene",
+        # Did who-can-reach-what change without a committed baseline accepting it? The
+        # access graph could always answer it; nothing asked. On the merge bar because a
+        # widening is a one-line edit and reviewing it is the whole control.
+        "authz-surface",
         # Is anything the app depends on known to be vulnerable? Release-only until
         # the audit that found it noticed what that meant in practice: a consumer's CI
         # runs THIS profile, so the answer reached nobody until a release someone

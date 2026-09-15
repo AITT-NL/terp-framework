@@ -2638,10 +2638,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     access_parser.add_argument(
         "--format",
-        choices=("text", "json"),
+        choices=("text", "json", "surface"),
         default="text",
-        help="Output format: text (human) or json (structured, for any tool or agent "
-        "reading this; default: text)",
+        help="Output format: text (human), json (structured, for any tool or agent "
+        "reading this), or surface (the authority baseline the authz-surface check "
+        "pins — redirect it to authz-surface.json; default: text)",
     )
     capabilities_parser = inspect_subcommands.add_parser(
         "capabilities",

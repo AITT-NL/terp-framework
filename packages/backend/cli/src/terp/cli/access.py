@@ -402,7 +402,16 @@ def _render_access_text(graph: dict[str, object]) -> str:
 
 
 def render_access_graph(graph: dict[str, object], fmt: str = "text") -> str:
-    """Render a prebuilt access *graph* as ``text`` or ``json``."""
+    """Render a prebuilt access *graph* as ``text``, ``json`` or ``surface``.
+
+    ``surface`` is the authority baseline the ``authz-surface`` verify check pins
+    (:mod:`terp.cli.authz_surface`): the same projection reduced to what is an
+    authority claim, sorted at every level so the committed file is diffable.
+    """
+    if fmt == "surface":
+        from terp.cli.authz_surface import render_authz_surface
+
+        return render_authz_surface(graph)
     if fmt == "json":
         return json.dumps(graph, indent=2)
     return _render_access_text(graph)

@@ -52,6 +52,7 @@ from dataclasses import dataclass
 
 #: How much of a failing check's combined output the envelope keeps (fail-closed
 #: on unbounded output; enough to show the actual errors).
+_DEFAULT_APP_REF = "app.main:build"
 _OUTPUT_TAIL_CHARS = 20_000
 
 #: Marks output a check wants read even though it PASSED — an adoption hint, a skip
@@ -443,6 +444,14 @@ _SECRET_SCAN = VerifyCheck(
     requires="gitleaks on PATH, and a full-depth checkout (history is the point)",
 )
 
+_AUTHZ_SURFACE = VerifyCheck(
+    id="authz-surface",
+    category="architecture",
+    command="terp verify --only authz-surface",
+    scope=("app/**", "control_plane/**", "authz-surface.json"),
+    runner="authz-surface",
+)
+
 _CONFORMANCE = VerifyCheck(
     id="conformance",
     category="conformance",
@@ -480,6 +489,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _DEPENDENCY_HYGIENE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
+        _AUTHZ_SURFACE,
         _DEPENDENCY_AUDIT_PYTHON,
         _DEPENDENCY_AUDIT_NPM,
         _FRONTEND_BOUNDARIES,
@@ -499,6 +509,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _DEPENDENCY_HYGIENE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
+        _AUTHZ_SURFACE,
         _DEPENDENCY_AUDIT_PYTHON,
         _DEPENDENCY_AUDIT_NPM,
         _SECRET_SCAN,
@@ -1269,6 +1280,61 @@ def _job_actor_arrives_from_the_environment(project_root: pathlib.Path) -> bool:
     return _JOB_ACTOR_VARIABLE in declared_variables(project_root)
 
 
+def _run_authz_surface(project_root: pathlib.Path) -> tuple[int, str]:
+    """Refuse a change to who can reach what that no committed baseline accepted.
+
+    The access graph already replays enforcement — every allowance in it is `decide`'s
+    own answer, from the function the kernel guard runs — so the platform could always
+    *say* who may reach what. What nothing did was notice when the answer changed.
+    Widening a module policy from a named permission to a role tier, dropping a
+    `require_permission`, adding an endpoint under a public mount: each is a one-line
+    edit that changes the authorization surface and left every gate green.
+
+    Adoption is opt-in and half-adoption impossible, the shape `api-docs-drift` settled
+    on: with no committed baseline this skips with a note naming the command that writes
+    one, because upgrading the framework must not turn an app's gate red for a feature
+    it never wired.
+
+    A widening is never *fixed* by regenerating. The baseline is a review artifact, and
+    the diff belongs in a pull request where somebody says yes — which is why the writer
+    is a separate, explicit command and never a `--fix` on this.
+    """
+    from terp.cli._appref import load_app, push_app_root
+    from terp.cli.access import build_access_graph_for_app
+    from terp.cli.authz_surface import (
+        ADOPT_HINT,
+        SURFACE_ARTIFACT,
+        authz_surface,
+        diff_authz_surface,
+        read_baseline,
+    )
+
+    baseline = read_baseline(project_root)
+    if baseline is None:
+        return (
+            0,
+            f"{NOTE_PREFIX}no {SURFACE_ARTIFACT} - the authorization surface is not "
+            f"pinned, drift check skipped (adopt with: {ADOPT_HINT})",
+        )
+    push_app_root(project_root)
+    try:
+        app = load_app(_DEFAULT_APP_REF)
+    except (SystemExit, ImportError) as exc:
+        # A tree with no importable app (the platform's own checkout) rather than a
+        # broken one: named, not silently passed, so the difference stays visible.
+        return 0, f"{NOTE_PREFIX}no importable {_DEFAULT_APP_REF} ({exc}); skipped"
+    differences = diff_authz_surface(baseline, authz_surface(build_access_graph_for_app(app)))
+    if not differences:
+        return 0, f"{SURFACE_ARTIFACT} matches the composed authorization surface"
+    listing = "\n".join(f"  - {difference}" for difference in differences)
+    return 1, (
+        f"the authorization surface changed in {len(differences)} way(s) that "
+        f"{SURFACE_ARTIFACT} does not record:\n{listing}\n\n"
+        "If every line above is intended, re-generate the baseline IN THE SAME CHANGE "
+        f"so a reviewer sees the diff:\n  {ADOPT_HINT}"
+    )
+
+
 def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     """Refuse a tree whose declared control plane cannot boot in production.
 
@@ -1777,6 +1843,8 @@ def run_verify_command(
             exit_code, output = run_deploy_safety_check(project_root)
         elif check.runner == "production-readiness":
             exit_code, output = _run_production_readiness(project_root)
+        elif check.runner == "authz-surface":
+            exit_code, output = _run_authz_surface(project_root)
         else:
             exit_code, output = _run_subprocess(check, project_root)
             reports = _reports_in(output)

@@ -202,6 +202,29 @@ reads as complete and stops one layer short of the case that matters.
   Applied with `setdefault` like the rest, so a route that has already answered the
   question keeps its answer.
 
+- **Who can reach what is pinned now, not merely reportable (ADR 0139).** The access
+  graph has replayed enforcement since ADR 0121 — every allowance in it is `decide`'s own
+  answer, from the function the kernel guard runs — so the platform could always *say* who
+  may reach what. What nothing did was notice when the answer changed, and a widening is a
+  one-line edit: a `Policy` moving from a named permission to a role tier, a
+  `require_permission` dropped off a route, an endpoint added under a public mount, a
+  role's rank changed. Each leaves every other gate green.
+
+  `terp inspect access --format surface` renders the authority claim — the ladder, each
+  permission's floor, and per module its policy plus each endpoint's requirement, grants
+  and per-rung outcome — and the new `authz-surface` check diffs it against a committed
+  `authz-surface.json`, reporting each difference as the change a reviewer has to approve
+  ("requirement 'role:admin' -> 'viewer'", "now reachable by ['viewer']", "NEW endpoint —
+  nothing has reviewed what it requires"). In `full` as well as `release`, because a
+  widening is a merge-bar question.
+
+  Adoption is one command and one commit; an app with no baseline is skipped with a note
+  naming it, the shape `api-docs-drift` settled on, so upgrading never turns a gate red
+  for a feature nobody wired. **Regenerating is not a fix** — the writer is a separate,
+  explicit command and never a `--fix`, because the baseline is a review artifact and the
+  diff belongs in a pull request where somebody says yes. `apps/example` adopts it, so the
+  artifact is exercised by the suite rather than described by it.
+
 - **The dependency audits moved into the `full` profile**, and **`secret-scanning` joined
   the release profile** as this toolchain's realisation of the standard's new required
   lane. The audits were release-only on the argument that advisory databases move

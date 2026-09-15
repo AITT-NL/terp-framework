@@ -1,0 +1,1047 @@
+{
+  "authz_surface": 1,
+  "modules": [
+    {
+      "access": {
+        "assignable": false,
+        "label": null,
+        "platform_reason": "administering grants is the authority that hands out every other authority; a per-module admin here would be a way around the ladder"
+      },
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/access/grants",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/access/grants",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/v1/access/grants/{grant_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/access/model",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/access/subjects/{subject_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/v1/access/subjects/{subject_id}/module-roles/{module}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "PUT"
+          ],
+          "path": "/api/v1/access/subjects/{subject_id}/module-roles/{module}",
+          "requirement": "role:admin"
+        }
+      ],
+      "name": "access",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:admin",
+        "write": "role:admin"
+      }
+    },
+    {
+      "access": {
+        "assignable": false,
+        "label": null,
+        "platform_reason": "the audit log is the record every other module is answerable to, so it is never one module's to grant"
+      },
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/audit/",
+          "requirement": "role:admin"
+        }
+      ],
+      "name": "audit",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:admin",
+        "write": "role:admin"
+      }
+    },
+    {
+      "access": null,
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "public",
+            "editor": "public",
+            "viewer": "public"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/auth/login",
+          "requirement": "public"
+        },
+        {
+          "by_role": {
+            "admin": "public",
+            "editor": "public",
+            "viewer": "public"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/auth/logout",
+          "requirement": "public"
+        },
+        {
+          "by_role": {
+            "admin": "public",
+            "editor": "public",
+            "viewer": "public"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/auth/refresh",
+          "requirement": "public"
+        }
+      ],
+      "name": "auth",
+      "policy": {
+        "allows_public_writes": true,
+        "public": true,
+        "public_reason": "authentication endpoints must be reachable without a token"
+      }
+    },
+    {
+      "access": null,
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/files/",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/files/",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/v1/files/{file_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/files/{file_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "PATCH"
+          ],
+          "path": "/api/v1/files/{file_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/files/{file_id}/content",
+          "requirement": "role:admin"
+        }
+      ],
+      "name": "files",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:admin",
+        "write": "role:admin"
+      }
+    },
+    {
+      "access": {
+        "assignable": false,
+        "label": null,
+        "platform_reason": "group membership decides what grants reach whom, so it sits above any single module's roles"
+      },
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/groups/",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/groups/",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/v1/groups/{group_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/groups/{group_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "PATCH"
+          ],
+          "path": "/api/v1/groups/{group_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/groups/{group_id}/members",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/groups/{group_id}/members",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/v1/groups/{group_id}/members/{user_id}",
+          "requirement": "role:admin"
+        }
+      ],
+      "name": "groups",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:admin",
+        "write": "role:admin"
+      }
+    },
+    {
+      "access": null,
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "allowed"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/journals/",
+          "requirement": "role:viewer"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/journals/",
+          "requirement": "role:editor"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/v1/journals/{journal_id}",
+          "requirement": "role:editor"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "allowed"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/journals/{journal_id}",
+          "requirement": "role:viewer"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "PATCH"
+          ],
+          "path": "/api/v1/journals/{journal_id}",
+          "requirement": "role:editor"
+        }
+      ],
+      "name": "journals",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:viewer",
+        "write": "role:editor"
+      }
+    },
+    {
+      "access": null,
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "allowed"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/me/",
+          "requirement": "role:viewer"
+        }
+      ],
+      "name": "me",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:viewer",
+        "write": "role:editor"
+      }
+    },
+    {
+      "access": {
+        "assignable": true,
+        "label": "Notes",
+        "platform_reason": null
+      },
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "allowed"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/notes/",
+          "requirement": "role:viewer"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/notes/",
+          "requirement": "role:editor"
+        },
+        {
+          "by_role": {
+            "admin": "grant",
+            "editor": "grant",
+            "viewer": "rank"
+          },
+          "extra_permissions": [
+            "notes.delete"
+          ],
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/v1/notes/{note_id}",
+          "requirement": "role:editor"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "allowed"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/notes/{note_id}",
+          "requirement": "role:viewer"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "PATCH"
+          ],
+          "path": "/api/v1/notes/{note_id}",
+          "requirement": "role:editor"
+        }
+      ],
+      "name": "notes",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:viewer",
+        "write": "role:editor"
+      }
+    },
+    {
+      "access": null,
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "public",
+            "editor": "public",
+            "viewer": "public"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/oidc/{provider}/authorize",
+          "requirement": "public"
+        },
+        {
+          "by_role": {
+            "admin": "public",
+            "editor": "public",
+            "viewer": "public"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/oidc/{provider}/callback",
+          "requirement": "public"
+        }
+      ],
+      "name": "oidc",
+      "policy": {
+        "allows_public_writes": true,
+        "public": true,
+        "public_reason": "SSO login endpoints must be reachable without a token"
+      }
+    },
+    {
+      "access": {
+        "assignable": true,
+        "label": "Projects",
+        "platform_reason": null
+      },
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "allowed"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/projects/",
+          "requirement": "role:viewer"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/projects/",
+          "requirement": "role:editor"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/v1/projects/{item_id}",
+          "requirement": "role:editor"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "allowed"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/projects/{item_id}",
+          "requirement": "role:viewer"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "PATCH"
+          ],
+          "path": "/api/v1/projects/{item_id}",
+          "requirement": "role:editor"
+        }
+      ],
+      "name": "projects",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:viewer",
+        "write": "role:editor"
+      }
+    },
+    {
+      "access": null,
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "public",
+            "editor": "public",
+            "viewer": "public"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/realtime/sse/{channel_name}",
+          "requirement": "public"
+        },
+        {
+          "by_role": {
+            "admin": "public",
+            "editor": "public",
+            "viewer": "public"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/realtime/tickets",
+          "requirement": "public"
+        },
+        {
+          "by_role": {
+            "admin": "public",
+            "editor": "public",
+            "viewer": "public"
+          },
+          "extra_permissions": [],
+          "methods": [],
+          "path": "/api/v1/realtime/ws/{channel_name}",
+          "requirement": "public"
+        }
+      ],
+      "name": "realtime",
+      "policy": {
+        "allows_public_writes": true,
+        "public": true,
+        "public_reason": "realtime handshakes redeem one-use authenticated connection tickets"
+      }
+    },
+    {
+      "access": null,
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "allowed"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/tasks/",
+          "requirement": "role:viewer"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/tasks/",
+          "requirement": "role:editor"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/v1/tasks/{task_id}",
+          "requirement": "role:editor"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "allowed"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/tasks/{task_id}",
+          "requirement": "role:viewer"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "PATCH"
+          ],
+          "path": "/api/v1/tasks/{task_id}",
+          "requirement": "role:editor"
+        }
+      ],
+      "name": "tasks",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:viewer",
+        "write": "role:editor"
+      }
+    },
+    {
+      "access": {
+        "assignable": false,
+        "label": null,
+        "platform_reason": "provisioning and deactivating accounts is the platform's own authority, not a role anyone holds in one module"
+      },
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/users/",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/users/",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/users/{user_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "PATCH"
+          ],
+          "path": "/api/v1/users/{user_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/users/{user_id}/deactivate",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/users/{user_id}/reactivate",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/users/{user_id}/reset-password",
+          "requirement": "role:admin"
+        }
+      ],
+      "name": "users",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:admin",
+        "write": "role:admin"
+      }
+    },
+    {
+      "access": null,
+      "endpoints": [
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/webhooks/deliveries",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/webhooks/subscriptions",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/v1/webhooks/subscriptions",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/v1/webhooks/subscriptions/{subscription_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/webhooks/subscriptions/{subscription_id}",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "PATCH"
+          ],
+          "path": "/api/v1/webhooks/subscriptions/{subscription_id}",
+          "requirement": "role:admin"
+        }
+      ],
+      "name": "webhooks",
+      "policy": {
+        "authenticated": true,
+        "public": false,
+        "read": "role:admin",
+        "write": "role:admin"
+      }
+    }
+  ],
+  "permissions": [
+    {
+      "min_role": "editor",
+      "name": "notes.delete"
+    }
+  ],
+  "roles": [
+    {
+      "name": "viewer",
+      "rank": 10
+    },
+    {
+      "name": "editor",
+      "rank": 20
+    },
+    {
+      "name": "admin",
+      "rank": 30
+    }
+  ]
+}
+
