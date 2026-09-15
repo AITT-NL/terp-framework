@@ -45,6 +45,7 @@ from terp.arch import (
     check_migration_history_is_intact,
     check_table_ownership_is_not_split,
     check_no_destructive_migrations,
+    check_not_null_columns_are_backfilled,
     check_no_dynamic_sql,
     check_no_cross_module_imports,
     check_cross_module_imports_use_public_surface,
@@ -3960,6 +3961,112 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
         "def upgrade():\n    op.add_column('notes', column)\ndef downgrade():\n    op.drop_table('notes')\n",
     )
     assert check_no_destructive_migrations(app) == []
+
+
+def test_not_null_columns_are_backfilled(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    revision = "modules/notes/migrations/versions/0001_change.py"
+
+    # The shape autogenerate emits for a new non-nullable field: it succeeds on an
+    # empty database and fails on the first one holding rows.
+    unbackfilled = (
+        "def upgrade():\n    op.add_column('notes', sa.Column('rank', sa.Integer(), nullable=False))\n",
+        # The batch spelling is the same statement; the receiver does not matter.
+        "def upgrade():\n"
+        "    with op.batch_alter_table('notes') as batch_op:\n"
+        "        batch_op.add_column(sa.Column('rank', sa.Integer(), nullable=False))\n",
+        # A table the revision does not create is read as one that may hold rows, and so
+        # is a table whose name is not a literal at all.
+        "def upgrade():\n    op.add_column(table_name, sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    for source in unbackfilled:
+        _write(app, revision, source)
+        found = check_not_null_columns_are_backfilled(app)
+        assert _rule_names(found) == {"not_null_columns_are_backfilled"}, source
+        # One operation is one violation: a set of rule names would hide a double report.
+        assert len(found) == 1, source
+
+    # A server_default back-fills the existing rows as the column is added.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.add_column('notes', sa.Column('rank', sa.Integer(), nullable=False, server_default='0'))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+
+    # A nullable column has nothing to back-fill, whether it says so or takes the default.
+    for nullable in ("nullable=True", ""):
+        _write(
+            app,
+            revision,
+            f"def upgrade():\n    op.add_column('notes', sa.Column('rank', sa.Integer(), {nullable}))\n",
+        )
+        assert check_not_null_columns_are_backfilled(app) == [], nullable
+
+    # A table this same upgrade() creates cannot hold a row yet, in either spelling.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.create_table('drafts', sa.Column('id', sa.Integer()))\n"
+        "    op.add_column('drafts', sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.create_table('drafts', sa.Column('id', sa.Integer()))\n"
+        "    with op.batch_alter_table('drafts') as batch_op:\n"
+        "        batch_op.add_column(sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+
+    # create_table is out of scope entirely: its NOT NULL columns meet no rows. So is a
+    # column object built elsewhere, which carries no keywords to read here.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.create_table('notes', sa.Column('rank', sa.Integer(), nullable=False))\n"
+        "    op.add_column('notes', column)\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+
+    # Only upgrade() is read; a downgrade re-adding a dropped column is not this risk.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n    pass\n"
+        "def downgrade():\n    op.add_column('notes', sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+
+    # The standard governed escape hatch covers the reviewed case (an empty table).
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    # arch-allow-not-null-columns-are-backfilled: table is seeded by this release\n"
+        "    op.add_column('notes', sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert check_app(app) == []
+
+    # A marker without a reason is not enough.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    # arch-allow-not-null-columns-are-backfilled:\n"
+        "    op.add_column('notes', sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert _rule_names(check_app(app)) == {"ungoverned_escape_hatch"}
+
+    # Non-revision files under migrations/ are not revisions.
+    _write(app, "modules/notes/migrations/env.py", "def upgrade():\n    op.add_column('notes', sa.Column('r', sa.Integer(), nullable=False))\n")
+    _write(app, revision, "def upgrade():\n    pass\n")
+    assert check_not_null_columns_are_backfilled(app) == []
 
 
 def test_alembic_downgrades_not_empty(tmp_path: pathlib.Path) -> None:

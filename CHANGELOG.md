@@ -62,6 +62,28 @@ decision, 0001 onwards.
 
 ### Added
 
+- **A `NOT NULL` column added to an existing table must back-fill the rows it meets
+  (`not_null_columns_are_backfilled`).** Autogenerate writes
+  `add_column(sa.Column('rank', sa.Integer(), nullable=False))` for a new non-nullable
+  field, and that is the one line of a generated revision whose correctness the
+  generator cannot judge: the statement succeeds against an empty database and fails
+  against one that holds rows, because every row already there needs a value the
+  statement never supplies. What made it worth a rule rather than a paragraph is where
+  the failure lands. Every migration test upgrades a *fresh* scratch database — the
+  reversibility test inserts nothing, the drift check inserts nothing — so the revision
+  passes the suite, passes review, and then fails on the first environment with data,
+  which is production, months after the commit that wrote it. The generated header says
+  "please adjust!", and that is the single instruction in the file no gate could read.
+
+  The check reads `upgrade()` only, and only `add_column`: `create_table` meets no
+  rows, and neither does a column added to a table the same `upgrade()` creates, so
+  both stay clean without a marker. Both spellings are covered — the direct call and a
+  `batch_alter_table` block — and a table name that is not a literal is read as one
+  that may hold rows, because the populated table is the case the rule exists for. A
+  `server_default` settles it; where no literal default is right, expand/contract
+  across two releases does. `terp guide migrations` now carries the recipe, and
+  `terp guide not_null_columns_are_backfilled` carries the decision path.
+
 - **`terp ports` — one machine-scoped ledger for host ports (ADR 0134).** `assign`, `show`,
   `list` and `release` over a per-machine record, with assignment and publication as a single
   call: the pair is written beside the compose file that reads it, and `workbench.json` decides

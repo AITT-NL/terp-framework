@@ -1,10 +1,17 @@
-"""Migration safety rules: destructive DDL must be visibly justified.
+"""Migration safety rules: a revision must be safe against a database that holds rows.
 
 Terp migrations are the only supported schema-change path, so destructive DDL
 is refused unless each destructive operation carries the standard governed
 opt-out (``# arch-allow-no-destructive-migrations: <reason>`` on or immediately
 above the operation, counted by the escape-hatch budget) — the same one-marker
 contract as every other rule, never a bespoke file-wide waiver.
+
+The rules here share one shape: each catches a revision that is correct against
+the database the author tested it on and wrong against the database it will meet.
+Destructive DDL destroys rows that only exist in production; a split history
+breaks only a fresh install; a ``NOT NULL`` column with nothing to back-fill it
+breaks only a populated one. None of them can be caught by upgrading an empty
+scratch database, which is what a migration test usually does.
 """
 
 from __future__ import annotations
@@ -105,6 +112,159 @@ def check_no_destructive_migrations(
                         "migration performs destructive DDL; avoid drops/type changes or add "
                         "'# arch-allow-no-destructive-migrations: <reason>' after review "
                         "(budgeted by the escape-hatch ratchet)",
+                    )
+                )
+    return violations
+
+
+def _column_argument(call: ast.Call) -> ast.Call | None:
+    """The inline ``sa.Column(...)`` argument of an ``add_column`` call, if there is one.
+
+    The position differs by receiver — ``op.add_column(table, column)`` names the table
+    first, a batch block's ``batch_op.add_column(column)`` does not — so the column is
+    found by shape rather than by index. A column built elsewhere and passed by name
+    carries no inspectable keywords here and is left alone.
+    """
+    for argument in call.args:
+        if (
+            isinstance(argument, ast.Call)
+            and isinstance(argument.func, ast.Attribute)
+            and argument.func.attr == "Column"
+        ):
+            return argument
+    return None
+
+
+def _is_not_null_without_backfill(column: ast.Call) -> bool:
+    """True when *column* declares ``nullable=False`` and names no ``server_default``."""
+    keywords = {keyword.arg: keyword.value for keyword in column.keywords}
+    nullable = keywords.get("nullable")
+    if not (isinstance(nullable, ast.Constant) and nullable.value is False):
+        return False
+    return "server_default" not in keywords
+
+
+def _literal_name(call: ast.Call) -> str | None:
+    """The call's first positional argument when it is a string literal."""
+    if (
+        call.args
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+    ):
+        return call.args[0].value
+    return None
+
+
+def _tables_created_in(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    """Table names *function* creates — the tables that cannot hold a row yet."""
+    created: set[str] = set()
+    for node in ast.walk(function):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "create_table"
+        ):
+            name = _literal_name(node)
+            if name is not None:
+                created.add(name)
+    return created
+
+
+def _added_columns(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[tuple[ast.Call, ast.Call, str | None]]:
+    """Each ``add_column`` written in *function*, as ``(call, column, table)``.
+
+    The table is carried down from an enclosing ``batch_alter_table`` block, which is
+    the only place the batch spelling records it; the direct spelling names it on the
+    call itself. It stays ``None`` when neither is a literal, and an unresolved table
+    is then read as one that may hold rows — the conservative direction, because the
+    populated table is the case the rule exists for.
+    """
+    found: list[tuple[ast.Call, ast.Call, str | None]] = []
+
+    def walk(node: ast.AST, batch_table: str | None) -> None:
+        if isinstance(node, ast.With):
+            table = batch_table
+            for item in node.items:
+                context = item.context_expr
+                if (
+                    isinstance(context, ast.Call)
+                    and isinstance(context.func, ast.Attribute)
+                    and context.func.attr == "batch_alter_table"
+                ):
+                    table = _literal_name(context) or table
+            for statement in node.body:
+                walk(statement, table)
+            return
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_column"
+        ):
+            column = _column_argument(node)
+            if column is not None:
+                found.append((node, column, _literal_name(node) or batch_table))
+        for child in ast.iter_child_nodes(node):
+            walk(child, batch_table)
+
+    walk(function, None)
+    return found
+
+
+def check_not_null_columns_are_backfilled(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """A ``NOT NULL`` column added to an existing table must back-fill the rows it meets.
+
+    ``add_column(sa.Column(..., nullable=False))`` without a ``server_default`` is the
+    shape Alembic's autogenerate emits for a new non-nullable field, and it is the one
+    line of a generated revision whose correctness the generator cannot judge: the
+    statement succeeds against an empty database and fails against a populated one,
+    because every existing row would need a value the statement never supplies. The
+    consequence is that the revision passes a fresh-database upgrade test, passes
+    review, and then fails on the first environment that has data — production, most
+    often, long after the change that caused it.
+
+    A ``server_default`` settles it: the database fills existing rows as it adds the
+    column, and new rows still take the model-side default. Where a literal default is
+    wrong, the expand/contract shape applies instead — add the column nullable, back-fill
+    it, and tighten it in a later revision — and the deliberate case is justified through
+    the standard governed escape hatch, a
+    ``# arch-allow-not-null-columns-are-backfilled: <reason>`` marker counted against the
+    app's budget.
+
+    ``create_table`` is out of scope: a table created here has no rows to break on, and a
+    column added to a table this same ``upgrade()`` creates is exempt for the same reason.
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in _migration_files(root):
+        rel = _rel(path, root)
+        tree = parse(path)
+        for function in ast.walk(tree):
+            if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if function.name != "upgrade":
+                continue
+            created = _tables_created_in(function)
+            for call, column, table in _added_columns(function):
+                if table is not None and table in created:
+                    continue
+                if not _is_not_null_without_backfill(column):
+                    continue
+                name = _literal_name(column)
+                named = f" {name!r}" if name is not None else ""
+                violations.append(
+                    ArchViolation(
+                        "not_null_columns_are_backfilled",
+                        rel,
+                        call.lineno,
+                        f"column{named} is added NOT NULL with no server_default; the "
+                        "statement succeeds on an empty database and fails on the first "
+                        "one that holds rows. Give it a server_default to back-fill the "
+                        "existing rows, or add the column nullable and tighten it in a "
+                        "later revision",
                     )
                 )
     return violations

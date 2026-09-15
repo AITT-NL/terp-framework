@@ -95,6 +95,7 @@ from terp.arch.rules.module_roles import (
 from terp.arch.rules.migrations import (
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
+    check_not_null_columns_are_backfilled,
     check_table_ownership_is_not_split,
     check_no_destructive_migrations,
 )
@@ -224,6 +225,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "tables_have_migrations": "migrations",
     "no_manual_table_schema": "migrations",
     "no_destructive_migrations": "migrations",
+    "not_null_columns_are_backfilled": "migrations",
     "alembic_downgrades_not_empty": "migrations",
     "migration_history_is_intact": "migrations",
     "table_ownership_is_not_split": "migrations",
@@ -317,6 +319,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_tables_have_migrations,
     check_no_manual_table_schema,
     check_no_destructive_migrations,
+    check_not_null_columns_are_backfilled,
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
     check_table_ownership_is_not_split,
@@ -443,6 +446,7 @@ __all__ = [
     "check_no_adhoc_permission_literals",
     "check_no_app_instantiation",
     "check_no_destructive_migrations",
+    "check_not_null_columns_are_backfilled",
     "check_no_dynamic_sql",
     "check_no_cross_module_imports",
     "check_no_hardcoded_credentials",
