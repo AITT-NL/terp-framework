@@ -28,6 +28,10 @@ _DEFAULT_PERMISSIONS_POLICY: Final[str] = (
     "magnetometer=(), microphone=(), payment=(), usb=()"
 )
 _DEFAULT_CSP: Final[str] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+#: ``no-store`` rather than ``no-cache``: the latter permits a cache to *hold* the
+#: response and merely revalidate it, which for a token response is the part that
+#: matters. ``private`` is implied and omitted.
+_DEFAULT_CACHE_CONTROL: Final[str] = "no-store"
 _DEFAULT_HSTS: Final[str] = "max-age=63072000; includeSubDomains; preload"
 _DEFAULT_CORS_METHODS: Final[tuple[str, ...]] = (
     "GET",
@@ -50,6 +54,18 @@ class SecurityHeaders:
 
     ``hsts`` is applied only outside local development (a plain-HTTP localhost
     must not be pinned to HTTPS); set it to ``None`` to disable entirely.
+
+    ``cache_control`` defaults to ``no-store`` and is the newest of them. An API
+    that mints bearer tokens and serves per-caller data was saying nothing at all
+    about caching, which leaves the decision to every intermediary's heuristics:
+    a shared proxy, a CDN in front of the origin, or the browser's own
+    back-forward cache may retain a login response — a body whose entire content
+    is a credential — and hand it to the next reader of that URL. ``no-store`` is
+    the right default for the whole surface rather than for the token routes
+    alone, because the same argument covers every authenticated read. A route
+    that is genuinely public and cacheable sets its own ``Cache-Control`` and
+    keeps it: these headers are applied with ``setdefault``, so a handler that
+    has already answered the question wins.
     """
 
     x_content_type_options: str = "nosniff"
@@ -57,6 +73,7 @@ class SecurityHeaders:
     referrer_policy: str = "strict-origin-when-cross-origin"
     permissions_policy: str = _DEFAULT_PERMISSIONS_POLICY
     content_security_policy: str = _DEFAULT_CSP
+    cache_control: str | None = _DEFAULT_CACHE_CONTROL
     hsts: str | None = _DEFAULT_HSTS
 
     def as_headers(self, *, include_hsts: bool) -> dict[str, str]:
@@ -68,6 +85,8 @@ class SecurityHeaders:
             "Permissions-Policy": self.permissions_policy,
             "Content-Security-Policy": self.content_security_policy,
         }
+        if self.cache_control:
+            headers["Cache-Control"] = self.cache_control
         if include_hsts and self.hsts:
             headers["Strict-Transport-Security"] = self.hsts
         return headers

@@ -66,8 +66,17 @@ def apply_row_scope(model: type[SQLModel], query: SelectOfScalar) -> SelectOfSca
     return query
 
 
-def reset_scope_predicates() -> None:
-    """Clear all registered predicates (a test seam; capabilities re-register on import)."""
+def _reset_scope_predicates() -> None:
+    """Clear all registered predicates (a test seam; capabilities re-register on import).
+
+    **Private, and reachable only through** :mod:`terp.core._internal.registry_resets`
+    (ADR 0137). Emptying this list is not a neutral act: it removes the tenant filter
+    and every other registered row predicate for the whole process, in one call, with
+    no exception and nothing in the log — reads simply start returning rows they used
+    to hide. That is the shape of thing the ``no_internal_imports`` rule exists to keep
+    out of module code, which is why the public spelling now lives behind it, exactly
+    as ``allow_session_writes`` does for the write guard.
+    """
     _scope_predicates.clear()
 
 
@@ -76,5 +85,4 @@ __all__ = [
     "apply_row_scope",
     "register_scope_predicate",
     "registered_scope_predicates",
-    "reset_scope_predicates",
 ]

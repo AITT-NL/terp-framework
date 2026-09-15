@@ -428,7 +428,7 @@ register_runtime_seam(
 def reset_job_tenant_context() -> None:
     """Clear the registered tenant-context seam (a test seam; capabilities re-register on import).
 
-    Mirrors :func:`terp.core.scoping.reset_scope_predicates`: the tenant seam is a
+    Mirrors ``terp.core._internal.registry_resets.reset_scope_predicates``: the tenant seam is a
     capability registration, not per-app runtime, so resetting it is separate from
     :func:`reset_jobs_runtime`.
     """

@@ -299,6 +299,42 @@ def test_the_key_is_scoped_to_the_presented_credential() -> None:
     assert len(executions) == 2
 
 
+def test_the_key_is_scoped_to_a_cookie_credential_too() -> None:
+    """A cookie-authenticated route must not share one key namespace across callers.
+
+    The scoping used to read ``Authorization`` alone, which is correct only while every
+    authenticated route is bearer-authenticated. A route that authenticates by cookie
+    sends no such header, so two callers hashed to the same key — and on a route with
+    no body and no query (a refresh endpoint is exactly that shape) the request
+    fingerprint matched as well, so the second caller was served the first caller's
+    stored response. Here that response carries an execution counter; on the route this
+    models it carries an access token.
+
+    Asserted with no ``Authorization`` at all, because that is the case that was broken:
+    adding a bearer would hide the defect behind the half that already worked.
+    """
+    client, executions = _build_client(InMemoryIdempotencyStore())
+    key = {"Idempotency-Key": "shared-key"}
+    caller_a = {**key, "Cookie": "terp_refresh=session-a"}
+    caller_b = {**key, "Cookie": "terp_refresh=session-b"}
+    a = client.post("/api/v1/probe/things", headers=caller_a, json={})
+    b = client.post("/api/v1/probe/things", headers=caller_b, json={})
+    assert a.json() == {"execution": 1}
+    assert b.json() == {"execution": 2}
+    assert len(executions) == 2
+
+
+def test_one_cookie_caller_still_replays_its_own_retry() -> None:
+    """Scoping harder must not cost the guarantee: the same caller still gets a replay."""
+    client, executions = _build_client(InMemoryIdempotencyStore())
+    headers = {"Idempotency-Key": "same-key", "Cookie": "terp_refresh=session-a"}
+    first = client.post("/api/v1/probe/things", headers=headers, json={})
+    retry = client.post("/api/v1/probe/things", headers=headers, json={})
+    assert first.json() == retry.json() == {"execution": 1}
+    assert retry.headers["Idempotency-Replayed"] == "true"
+    assert len(executions) == 1
+
+
 def test_a_malformed_key_is_a_typed_400() -> None:
     client, executions = _build_client(InMemoryIdempotencyStore())
     for bad in ("bad key!", "x" * 129, ""):
@@ -631,7 +667,11 @@ def test_a_shared_store_in_production_warns_about_nothing(
     shared = mark_shared_idempotency_store(InMemoryIdempotencyStore())
     with caplog.at_level("WARNING", logger="terp.core"):
         create_app([_spec()], idempotency_store=shared, control_plane=_prod_plane())
-    assert "PER WORKER" not in "\n".join(r.getMessage() for r in caplog.records)
+    message = "\n".join(r.getMessage() for r in caplog.records)
+    # Named by its own subject rather than by the shared "PER WORKER" phrase: the
+    # throttle store has the same warning and this app does not wire a shared one, so
+    # matching the phrase alone would assert that the *other* seam stayed quiet too.
+    assert "idempotency keys are deduplicated PER WORKER" not in message
 
 
 def test_development_is_not_warned_about_a_deployment_property(

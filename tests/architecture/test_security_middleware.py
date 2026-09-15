@@ -102,6 +102,45 @@ def test_security_headers_render_with_and_without_hsts() -> None:
     )
 
 
+def test_security_headers_declare_a_cache_directive() -> None:
+    """An API that mints bearer tokens must not leave caching to a heuristic.
+
+    Saying nothing lets every intermediary decide: a shared proxy, a CDN, or the
+    browser's own back-forward cache may retain a login response — a body whose whole
+    content is a credential. ``no-store`` rather than ``no-cache``, because the latter
+    permits a cache to *hold* the response and merely revalidate it, which is the part
+    that matters here.
+    """
+    headers = SecurityHeaders().as_headers(include_hsts=False)
+    assert headers["Cache-Control"] == "no-store"
+    # An app that genuinely serves a cacheable public surface can turn it off, the same
+    # way HSTS can be — the control is a default, not a fixture.
+    assert "Cache-Control" not in SecurityHeaders(cache_control=None).as_headers(
+        include_hsts=False
+    )
+
+
+def test_a_handler_that_already_answered_the_cache_question_keeps_its_answer() -> None:
+    """The stack applies headers with ``setdefault``, so a route can still opt out.
+
+    Asserted rather than assumed: a security default that overwrote a deliberate
+    per-route ``Cache-Control`` would make an ordinary cacheable endpoint unserveable
+    and leave the author no way to say so.
+    """
+
+    async def cacheable(_request: Request) -> PlainTextResponse:
+        return PlainTextResponse("ok", headers={"Cache-Control": "public, max-age=60"})
+
+    app = Starlette(routes=[Route("/", cacheable, methods=["GET"])])
+    app.add_middleware(
+        SecurityHeadersMiddleware, headers=SecurityHeaders(), include_hsts=False
+    )
+    response = TestClient(app).get("/")
+    assert response.headers["Cache-Control"] == "public, max-age=60"
+    # The rest of the set still lands — the route answered one question, not all of them.
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+
 def test_cors_deny_all_is_unconfigured_and_closed() -> None:
     cors = CorsPolicy.deny_all()
     assert cors.configured is False

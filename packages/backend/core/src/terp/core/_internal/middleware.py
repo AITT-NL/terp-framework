@@ -381,9 +381,11 @@ class IdempotencyMiddleware:
     retry of the same key (marked ``Idempotency-Replayed: true``), so a timed-out
     client can safely retry a POST without double-executing it. Concretely:
 
-    - The store key is scoped to the presented ``Authorization`` credential (hashed,
-      never stored raw), so one caller can never replay — or probe — another caller's
-      responses.
+    - The store key is scoped to **every** credential the request presents — the
+      ``Authorization`` header and the ``Cookie`` header, hashed together and never
+      stored raw — so one caller can never replay, or probe, another caller's
+      responses. Scoping on ``Authorization`` alone left a cookie-authenticated route
+      (a refresh endpoint) sharing one key across callers; see ``_store_key``.
     - The request **fingerprint** (method + path + body digest) rides the entry; a key
       reused for a different request is refused with a typed 422 rather than answering
       with a response to a request that was never made.
@@ -439,11 +441,29 @@ class IdempotencyMiddleware:
         return None
 
     def _store_key(self, scope: Scope, key: str) -> str:
-        """The caller-scoped store key: hash(credential + key), never the raw pieces."""
-        credential = self._header(scope, b"authorization") or b""
+        """The caller-scoped store key: hash(every credential + key), never the raw pieces.
+
+        **Both** credential headers are folded in, and the second one is not decoration.
+        Scoping on ``Authorization`` alone is correct only while every authenticated
+        route is bearer-authenticated; a route that authenticates by **cookie** carries
+        no ``Authorization`` header at all, so two different callers hashed to one key —
+        and for a route with no body and no query (the refresh endpoint this framework
+        ships is exactly that shape) the request fingerprint matched as well. The second
+        caller to present a given ``Idempotency-Key`` was then served the first caller's
+        stored response, which on that route is their access token.
+
+        The whole ``Cookie`` header is used rather than a named session cookie, because
+        this middleware is generic and cannot know which cookie an app authenticates by.
+        The cost is that an unrelated cookie changing between a request and its retry
+        moves the key, so the retry re-executes instead of replaying — the same
+        at-least-once outcome the contract already gives a 5xx, and the safe direction
+        to be wrong in.
+        """
         digest = hashlib.sha256()
         digest.update(b"terp-idempotency-key\n")
-        digest.update(credential)
+        digest.update(self._header(scope, b"authorization") or b"")
+        digest.update(b"\n")
+        digest.update(self._header(scope, b"cookie") or b"")
         digest.update(b"\n")
         digest.update(key.encode("ascii"))
         return digest.hexdigest()

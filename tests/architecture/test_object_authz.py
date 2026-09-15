@@ -42,8 +42,8 @@ from terp.core.object_authz import (
     apply_object_authz,
     register_object_authz_predicate,
     registered_object_authz_predicates,
-    reset_object_authz_predicates,
 )
+from terp.core._internal.registry_resets import reset_object_authz_predicates
 
 
 class _OADoc(BaseTable, OwnedMixin, table=True):

@@ -1212,6 +1212,40 @@ def _warn_unshared_idempotency_in_production(
     )
 
 
+def _warn_unshared_throttle_in_production(
+    throttle_store: ThrottleStore | None, require_shared_throttle_store: bool
+) -> None:
+    """Say out loud, once, that the rate limit and login lockout are per-worker here.
+
+    The sibling of :func:`_warn_unshared_idempotency_in_production`, and it should
+    always have been one. That function exists because a promise ("this mutation runs
+    once") quietly becomes false on the second replica with nothing to announce it. The
+    throttle store carries two promises of exactly that shape and had no such line: the
+    request rate limit, and the per-account failed-login lockout. Both are counters in
+    this store, so N workers enforce N times the configured allowance — a 5-attempt
+    lockout becomes 5 × N attempts against one account, which is the control least able
+    to afford a silent multiplier.
+
+    It is a warning rather than a refusal for the same reason the idempotency one is: a
+    per-instance store is *correct* for a single-instance deployment, and refusing it
+    would break something that is not wrong. What was missing was the sentence that
+    makes the property visible before someone scales, and names the flag that turns it
+    into a boot-time guarantee.
+    """
+    if require_shared_throttle_store or is_shared_throttle_store(throttle_store):
+        return
+    _logger.warning(
+        "the rate limit and the login lockout are counted PER WORKER in this "
+        "deployment: the configured throttle_store is not a shared, multi-instance "
+        "backend. This is correct for a single instance; run more than one and each "
+        "worker enforces its own allowance, so the effective request cap and the "
+        "per-account failed-login threshold are both multiplied by the worker count. "
+        "Wire a shared store marked via terp.core.mark_shared_throttle_store(...) and "
+        "pass create_app(require_shared_throttle_store=True) to make that a boot-time "
+        "guarantee instead of a warning."
+    )
+
+
 def _with_settings_job_actor(plane: ControlPlane) -> ControlPlane:
     """Fill an unset ``job_system_actor_id`` from ``JOB_SYSTEM_ACTOR_ID`` (ADR 0129).
 
@@ -1874,6 +1908,7 @@ def create_app(
         _warn_unshared_idempotency_in_production(
             idempotency_store, require_shared_idempotency_store
         )
+        _warn_unshared_throttle_in_production(throttle_store, require_shared_throttle_store)
         security_problems = resolved_plane.security.production_problems()
         if security_problems:
             raise BootError(
