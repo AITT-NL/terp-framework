@@ -180,6 +180,23 @@ reads as complete and stops one layer short of the case that matters.
   does not help, because the connection is never idle. All three are now streamed against
   `MAX_RESPONSE_BYTES` and refuse redirects explicitly.
 
+- **`OwnedMixin` gates writes; nothing shipped the matching read filter.** The trait's
+  own docstring has always said so — a post-load boolean cannot paginate a list, so
+  visibility needs a row-scope predicate keyed on `owner_id` — and left writing that
+  predicate to the app. An exercise left undone reads exactly like a control that is
+  present, which is how the files capability came to describe itself as an "owner-scoped
+  admin router" while `GET /`, `GET /{id}` and the download stream returned any file to
+  any caller who cleared `ADMIN`. `register_owner_read_scope()` is now that predicate,
+  one composition-root line, and the files docstring says plainly which half it has.
+
+  Opt-in rather than the default, because it narrows what an already-authorized caller
+  can see: a deployment whose administrators are meant to see each other's rows would
+  find its screens quietly emptied by an automatic version. Unowned rows (written by a
+  job, a migration, a seed) stay visible to everyone, matching the write gate, which does
+  not restrict a row with no owner to protect; an actor-less read is not narrowed either,
+  since there is no self to scope to and narrowing to nothing would make background work
+  read an empty database rather than fail.
+
 - **`SecurityHeaders` declares `Cache-Control: no-store`.** An API that mints bearer
   tokens was saying nothing about caching, leaving it to every intermediary's heuristics.
   Applied with `setdefault` like the rest, so a route that has already answered the

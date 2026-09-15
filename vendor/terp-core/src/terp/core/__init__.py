@@ -191,7 +191,11 @@ from terp.core.scheduling import (
     trigger_schedule,
 )
 from terp.core.health import HealthDetail, register_health_detail
-from terp.core.scoping import ScopePredicate, register_scope_predicate
+from terp.core.scoping import (
+    ScopePredicate,
+    register_owner_read_scope,
+    register_scope_predicate,
+)
 from terp.core.secrets import (
     SecretsError,
     decrypt_config,
@@ -377,6 +381,7 @@ __all__ = [
     "register_job_tenant_context",
     "register_lease_reaper",
     "register_object_authz_predicate",
+    "register_owner_read_scope",
     "register_permission_projector",
     "register_scope_predicate",
     "release_lease",

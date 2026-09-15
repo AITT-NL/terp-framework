@@ -93,7 +93,11 @@ extend-exclude = [".venv", "**/migrations/versions"]
 
 [tool.ruff.lint]
 # The name-only heuristics (S101 assert, S105/S106 "looks like a password") are
-# excused platform-wide (ADR 0033); the high-signal rules stay on.
+# excused platform-wide (ADR 0033); the high-signal rules stay on. What makes that
+# excusal honest is the compensating control, so it is worth naming: terp.arch's
+# `no_hardcoded_credentials` reads EVERY file of the scanned root (ADR 0136), not just
+# `modules/`, and the `secret-scanning` verify check reads the git history, which no
+# source rule can. Two halves the name heuristic was standing in for, both covered.
 select = ["S"]
 ignore = ["S101", "S105", "S106"]
 
