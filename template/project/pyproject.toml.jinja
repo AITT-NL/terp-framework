@@ -94,7 +94,16 @@ extend-exclude = [".venv", "**/migrations/versions"]
 [tool.ruff.lint]
 # The name-only heuristics (S101 assert, S105/S106 "looks like a password") are
 # excused platform-wide (ADR 0033); the high-signal rules stay on.
-select = ["S"]
+#
+# `F` (pyflakes) rides along, and it is a restoration rather than an addition: `select`
+# REPLACES ruff's default, so naming only `S` turned off the `E4`/`E7`/`E9`/`F` set ruff
+# would otherwise run. That silently took F821 (undefined name) with it -- a correctness
+# rule, not a tidiness one -- along with F401 unused-import and F841 unused-variable. The
+# effect was a gate under which a file could carry a dead import, a dead local, or a
+# genuine typo'd name and still pass every check the merge bar runs, because nothing else
+# in the profile reads for it: terp.arch answers architecture questions and `S` answers
+# security ones. Neither was ever going to notice.
+select = ["S", "F"]
 ignore = ["S101", "S105", "S106"]
 
 [tool.ruff.lint.per-file-ignores]

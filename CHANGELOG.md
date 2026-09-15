@@ -14,6 +14,24 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **The generated app's AppSec baseline turns pyflakes back on.** `[tool.ruff.lint]
+  select = ["S"]` REPLACES ruff's default set rather than extending it, so naming the
+  bandit rules silently switched off the `E4`/`E7`/`E9`/`F` group ruff runs when nothing
+  is selected. `F` going quiet took F821 (undefined name) with it, which is a correctness
+  rule rather than a tidiness one, along with F401 unused-import and F841 unused-variable.
+  The result was a merge bar under which a file could carry a dead import, a dead local,
+  or a genuinely misspelled name and pass everything: `terp.arch` answers architecture
+  questions and the `S` rules answer security ones, and neither was ever going to look.
+  The baseline is now `select = ["S", "F"]`, and the app's own architecture test asserts
+  both halves, so dropping either stays a visible, reviewed decision rather than a
+  one-word edit. The excusals are unchanged -- no `F` code is ignored anywhere, and the
+  test still refuses any ignore outside the three sanctioned `S` heuristics.
+
+  It costs a fresh app nothing: the example app, which is the closest thing in this
+  repository to a generated one, reports zero `F` findings. The platform's own packages
+  are a separate matter -- they carry 21, several in CODEOWNERS-protected core -- and
+  keep the narrower baseline until those are cleared on their own branch.
+
 - **A published host port is assigned, not guessed (ADR 0134).** The template's dev stack gave
   its published ports in-range defaults, so two checkouts on one machine raced for the same
   number and the second to start lost — to a Compose error that named the port and neither the
