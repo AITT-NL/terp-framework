@@ -106,8 +106,15 @@ def test_template_ships_the_baseline_config() -> None:
     """The generated project inherits the delegation: exact config + dev dep."""
     ruff = _template_ruff_config()
     lint = ruff.get("lint", {})
-    assert lint.get("select") == ["S"], (
-        "template pyproject must select exactly the ruff `S` baseline (ADR 0085)"
+    # Exact, not a superset: the delegation is a named set, and a rule quietly added
+    # here is a rule nobody reviewed. `F` is part of that set because `select` REPLACES
+    # ruff's default rather than extending it, so naming only `S` switched pyflakes off
+    # -- taking F821 (undefined name) with it, which is correctness rather than tidiness
+    # and which nothing else in the profile answers.
+    assert lint.get("select") == ["S", "F"], (
+        "template pyproject must select exactly the ruff `S` security baseline plus the "
+        "`F` pyflakes rules (ADR 0085); dropping `F` lets a dead import, a dead local "
+        "or a typo'd name pass the whole merge bar"
     )
     assert set(lint.get("ignore", [])) == _SANCTIONED_IGNORES, (
         f"template baseline ignores must be exactly {sorted(_SANCTIONED_IGNORES)}, "

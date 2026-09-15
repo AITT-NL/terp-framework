@@ -22,9 +22,11 @@ decision, 0001 onwards.
   The result was a merge bar under which a file could carry a dead import, a dead local,
   or a genuinely misspelled name and pass everything: `terp.arch` answers architecture
   questions and the `S` rules answer security ones, and neither was ever going to look.
-  The baseline is now `select = ["S", "F"]`, and the app's own architecture test asserts
-  both halves, so dropping either stays a visible, reviewed decision rather than a
-  one-word edit. The excusals are unchanged -- no `F` code is ignored anywhere, and the
+  The baseline is now `select = ["S", "F"]`, and both guards that pin it were updated to
+  match: the generated app's own architecture test, and the platform's
+  `tests/guardrails/test_appsec_baseline.py`, which holds the template to an EXACT
+  select list rather than a superset. Dropping either half stays a visible, reviewed
+  decision rather than a one-word edit. The excusals are unchanged -- no `F` code is ignored anywhere, and the
   test still refuses any ignore outside the three sanctioned `S` heuristics.
 
   It costs a fresh app nothing: the example app, which is the closest thing in this
