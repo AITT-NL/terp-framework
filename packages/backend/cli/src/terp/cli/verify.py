@@ -395,9 +395,16 @@ _API_DOCS_DRIFT = VerifyCheck(
 )
 
 # The dependency-audit assurance lane (the spec's required generic evidence):
-# both dependency trees against known-vulnerability databases. Release-profile
-# checks (not the merge bar): advisory databases move independently of the
-# code, so a red here means "do not ship", not "this change broke something".
+# both dependency trees against known-vulnerability databases.
+#
+# In `full` as well as `release`, and that is a correction rather than a widening.
+# They used to be release-only on the argument that advisory databases move
+# independently of the code, so a red here means "do not ship" rather than "this
+# change broke something". That argument is right about the merge *bar* and was
+# wrong about the *profile*: a consumer's CI runs `full`, so a known-vulnerable
+# dependency was reported only by a release someone remembered to run, which for a
+# project that has not cut one yet is never. `full` already carries the whole
+# backend suite; these two are a few seconds beside it.
 _DEPENDENCY_AUDIT_PYTHON = VerifyCheck(
     id="dependency-audit-python",
     category="architecture",
@@ -412,6 +419,28 @@ _DEPENDENCY_AUDIT_NPM = VerifyCheck(
     command="npm --prefix frontend audit --audit-level=high",
     scope=("frontend/package.json", "frontend/package-lock.json"),
     requires="network access to the advisory databases",
+)
+
+# The secret-scanning assurance lane. The framework has run this over its own
+# repository for some time; what it never did was make it available to the apps it
+# generates, which is the gap this closes.
+#
+# It is a lane rather than a rule, and the distinction is the whole point. The catalog's
+# `no_hardcoded_credentials` reads the source, so it answers for the working tree and
+# only the working tree. A credential that was committed and then removed is gone from
+# the tree and still in the history — still fetched by every clone, still valid until
+# somebody rotates it — and that is the common shape of the incident. Only a tool that
+# reads the object graph can see it, which is not something a catalog `enforcement`
+# entry can describe.
+#
+# `--no-banner` because a verification envelope is parsed; `--redact` because a scanner
+# that prints what it found has published it a second time, into the CI log.
+_SECRET_SCAN = VerifyCheck(
+    id="secret-scanning",
+    category="architecture",
+    command="gitleaks detect --no-banner --redact",
+    scope=("**",),
+    requires="gitleaks on PATH, and a full-depth checkout (history is the point)",
 )
 
 _CONFORMANCE = VerifyCheck(
@@ -451,6 +480,8 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _DEPENDENCY_HYGIENE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
+        _DEPENDENCY_AUDIT_PYTHON,
+        _DEPENDENCY_AUDIT_NPM,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
         _API_CLIENT,
@@ -470,6 +501,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _APPSEC_BASELINE,
         _DEPENDENCY_AUDIT_PYTHON,
         _DEPENDENCY_AUDIT_NPM,
+        _SECRET_SCAN,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
         _API_CLIENT,
@@ -499,6 +531,7 @@ ASSURANCE_LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "required",
         ("dependency-audit-python", "dependency-audit-npm"),
     ),
+    ("secret-scanning", "required", ("secret-scanning",)),
     ("a11y", "recommended", ()),
     ("blackbox-conformance", "recommended", ("conformance",)),
     ("test-adequacy", "recommended", ()),

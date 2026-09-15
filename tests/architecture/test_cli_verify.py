@@ -142,6 +142,15 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # than advisory: the failure is a green gate over an undeclared import on a
         # path no test reaches, which is a control or it is nothing.
         "dependency-hygiene",
+        # Is anything the app depends on known to be vulnerable? Release-only until
+        # the audit that found it noticed what that meant in practice: a consumer's CI
+        # runs THIS profile, so the answer reached nobody until a release someone
+        # remembered to cut. The original argument — advisory databases move
+        # independently of the code, so a red here is "do not ship" rather than "this
+        # change broke something" — is about the merge bar, and it is a reason to read
+        # the result carefully rather than a reason not to produce it.
+        "dependency-audit-python",
+        "dependency-audit-npm",
         "frontend-boundaries",
         "routes-drift",
         # The generated API client is an INPUT to the typecheck below and is
@@ -249,10 +258,12 @@ def test_the_template_ci_reaches_every_blocking_check() -> None:
         check.id for check in PROFILES["release"] if f"--only {check.id}" in workflow
     }
     unreached = {check.id for check in PROFILES["release"]} - reached
-    assert unreached == {"dependency-audit-python", "dependency-audit-npm"}, (
-        "the only release checks the generated CI may leave unreached are the "
-        "dependency audits, which move with advisory databases rather than with the "
-        f"change under test — but it also leaves out {sorted(unreached)}"
+    assert unreached == set(), (
+        "every release check must be reached by the generated CI, through the full "
+        "profile or through an explicit --only step. The dependency audits were the "
+        "standing exception, on the argument that advisory databases move with the "
+        "world rather than with the change — which is a reason to read a red one "
+        f"carefully, not to withhold it from CI. It now leaves out {sorted(unreached)}"
     )
 
 
@@ -1364,6 +1375,20 @@ def _assurance_schema() -> dict:
     )
 
 
+#: Lanes this framework realises that the **pinned** spec release does not yet declare.
+#:
+#: The lane analogue of ``_AWAITING_SPEC_RELEASE`` in ``test_spec_catalog.py``, and it
+#: exists for the same ordering (ADR 0116). terp-spec's ``certify-against-reference``
+#: job resolves the standard against this framework's default branch, so the standard
+#: cannot merge a vocabulary entry the reference toolchain does not already realise —
+#: while this test reads the *installed*, pinned spec, which is still the release before
+#: it. One of the two has to move first, and it is this one.
+#:
+#: Emptying this list is a step of adopting the spec release (``docs/RELEASING.md``),
+#: alongside bumping the pin. A name left here after that adoption is caught below.
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset({"secret-scanning"})
+
+
 def test_assurance_lanes_mirror_the_pinned_spec_vocabulary() -> None:
     """The lane constants are the spec's normative vocabulary, in order —
     mirrored here (with the requirement mapping from the spec README's
@@ -1372,8 +1397,25 @@ def test_assurance_lanes_mirror_the_pinned_spec_vocabulary() -> None:
 
     schema = _assurance_schema()
     enum = schema["properties"]["lanes"]["items"]["properties"]["id"]["enum"]
-    assert [lane_id for lane_id, _requirement, _checks in ASSURANCE_LANES] == list(enum)
+    declared = [lane_id for lane_id, _requirement, _checks in ASSURANCE_LANES]
+    assert [lane for lane in declared if lane not in _AWAITING_SPEC_RELEASE] == list(enum)
     assert {req for _lane, req, _checks in ASSURANCE_LANES} == {"required", "recommended"}
+
+
+def test_no_lane_awaits_a_spec_release_it_already_had() -> None:
+    """The allowance shrinks to nothing; it must not rot into a standing exemption.
+
+    A name left here once the pinned spec declares it would silently exclude that lane
+    from the parity assertion above — which is the one place the two vocabularies are
+    held equal, so the exemption would outlive every reason for it and nothing would
+    say so.
+    """
+    schema = _assurance_schema()
+    enum = set(schema["properties"]["lanes"]["items"]["properties"]["id"]["enum"])
+    assert _AWAITING_SPEC_RELEASE.isdisjoint(enum), (
+        "these lanes are declared by the pinned spec release and no longer await it: "
+        f"{sorted(_AWAITING_SPEC_RELEASE & enum)}"
+    )
 
 
 def test_assurance_lanes_compose_only_release_profile_checks() -> None:
@@ -1427,9 +1469,13 @@ def test_assurance_emission_claims_on_required_lanes_only(
     assert document["ok"] is True
     assert document["profile"] == "release"
     lanes = {lane["id"]: lane for lane in document["lanes"]}
-    assert [lane["id"] for lane in document["lanes"]] == list(
-        schema["properties"]["lanes"]["items"]["properties"]["id"]["enum"]
-    )
+    # Every lane the pinned schema declares, in its order — plus any this framework
+    # already realises ahead of the spec release that will declare them (see
+    # ``_AWAITING_SPEC_RELEASE``). The document is emitted from the framework's own
+    # vocabulary, so it leads the schema for exactly one release cycle.
+    assert [
+        lane["id"] for lane in document["lanes"] if lane["id"] not in _AWAITING_SPEC_RELEASE
+    ] == list(schema["properties"]["lanes"]["items"]["properties"]["id"]["enum"])
     assert lanes["terp-standard"]["status"] == "passed"
     assert lanes["dependency-audit"]["status"] == "passed"
     assert lanes["dependency-audit"]["checks"] == [
