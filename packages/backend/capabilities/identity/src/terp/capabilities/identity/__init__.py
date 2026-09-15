@@ -20,6 +20,7 @@ from terp.capabilities.identity.federated import (
     FederatedIdentityLink,
     FederatedIdentityService,
     FederatedIdentityUpdate,
+    ProvisionGate,
 )
 from terp.capabilities.identity.models import (
     FederatedIdentity,
@@ -37,6 +38,7 @@ __all__ = [
     "FederatedIdentityLink",
     "FederatedIdentityService",
     "FederatedIdentityUpdate",
+    "ProvisionGate",
     "IdentityService",
     "RefreshToken",
     "RefreshTokenService",

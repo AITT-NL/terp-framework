@@ -539,6 +539,55 @@ def test_client_ip_middleware_resolves_through_declared_proxy_hops() -> None:
     assert seen == ["203.0.113.7", "testclient", "testclient"]
 
 
+def test_an_undeclared_proxy_is_named_once_when_a_forwarded_header_arrives(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Zero hops is the safe default; behind a real proxy it is a silent outage.
+
+    Every caller then resolves to the proxy's own address, so the rate limit — and
+    every other per-caller control — is one bucket for the whole deployment, which one
+    visitor can exhaust for everybody. The symptom is intermittent 429s under ordinary
+    load, which reads as a limit set too low rather than as a trust declaration that
+    was never made.
+
+    Evidence-based rather than advisory: it fires only when a request actually carried
+    the header while no hops were declared, so a directly-exposed app never sees it.
+    """
+    app = Starlette(routes=[Route("/", _ok)])
+    app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=0)
+    client = TestClient(app)
+    with caplog.at_level("WARNING", logger="terp.core"):
+        client.get("/", headers={"X-Forwarded-For": "203.0.113.7"})
+        client.get("/", headers={"X-Forwarded-For": "203.0.113.8"})
+    warnings = [r for r in caplog.records if "trusted_proxy_hops=0" in r.getMessage()]
+    # Once per process: the header is one anyone may send, so repeating would hand a
+    # caller a log-flooding primitive.
+    assert len(warnings) == 1
+    assert "SecurityConfig(trusted_proxy_hops=1)" in warnings[0].getMessage()
+
+
+def test_no_proxy_warning_without_a_forwarded_header(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A directly-exposed app is correctly configured and must not be nagged."""
+    app = Starlette(routes=[Route("/", _ok)])
+    app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=0)
+    with caplog.at_level("WARNING", logger="terp.core"):
+        TestClient(app).get("/")
+    assert not [r for r in caplog.records if "trusted_proxy_hops=0" in r.getMessage()]
+
+
+def test_no_proxy_warning_once_the_hops_are_declared(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A declared deployment has answered the question; the line has nothing to add."""
+    app = Starlette(routes=[Route("/", _ok)])
+    app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=1)
+    with caplog.at_level("WARNING", logger="terp.core"):
+        TestClient(app).get("/", headers={"X-Forwarded-For": "203.0.113.7"})
+    assert not [r for r in caplog.records if "trusted_proxy_hops=0" in r.getMessage()]
+
+
 def test_client_ip_helper_falls_back_without_the_middleware() -> None:
     from terp.core import client_ip
 

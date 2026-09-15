@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
@@ -34,6 +35,8 @@ from terp.core.security import SecurityConfig, SecurityHeaders, client_ip
 from terp.core.throttling import InMemoryThrottleStore, ThrottleStore
 
 _CallNext = Callable[[Request], Awaitable[Response]]
+
+_logger = logging.getLogger("terp.core")
 
 
 def _envelope(code: str, detail: str) -> dict[str, str]:
@@ -175,11 +178,47 @@ class ClientIpMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, *, trusted_proxy_hops: int) -> None:
         super().__init__(app)
         self._trusted_proxy_hops = trusted_proxy_hops
+        self._warned_about_forwarding = False
+
+    def _warn_once_about_an_undeclared_proxy(self) -> None:
+        """Say, once, that a forwarding header arrived where no proxy was declared.
+
+        ``trusted_proxy_hops`` defaults to ``0``, which is the only safe default —
+        absent a trust declaration ``X-Forwarded-For`` is attacker-supplied. But the
+        *consequence* of leaving it at zero behind a real proxy is invisible and
+        severe: every caller resolves to the proxy's own address, so the rate limit
+        and every other per-caller control become one shared bucket for the whole
+        deployment. One visitor can then exhaust the allowance for everybody, and the
+        symptom — intermittent 429s under perfectly ordinary load — does not point
+        anywhere near this setting. A deployment that has met this reads it as a limit
+        set too low and raises the limit, which removes the symptom and keeps the bug.
+
+        The warning is evidence-based rather than advisory, which is what makes it
+        worth having: it fires only when a request actually carried a forwarding
+        header while no hops were declared — the app IS behind something and IS
+        ignoring it — so a directly-exposed app never sees it. Once per process,
+        because a header anyone may send must not become a log-flooding primitive.
+        """
+        if self._warned_about_forwarding:
+            return
+        self._warned_about_forwarding = True
+        _logger.warning(
+            "a request arrived carrying X-Forwarded-For but SecurityConfig declares "
+            "trusted_proxy_hops=0, so the header is ignored and every caller is keyed "
+            "on the direct peer — behind a reverse proxy that is the PROXY's address, "
+            "collapsing the rate limit and every other per-caller control into one "
+            "shared bucket for the whole deployment. Declare the number of proxy hops "
+            "you actually run behind (SecurityConfig(trusted_proxy_hops=1) for a single "
+            "front proxy). If this app is directly exposed, the header was "
+            "client-supplied and ignoring it is correct — this line will not repeat."
+        )
 
     async def dispatch(self, request: Request, call_next: _CallNext) -> Response:
         resolved: str | None = None
         if self._trusted_proxy_hops > 0:
             resolved = _forwarded_client_ip(request, trusted_hops=self._trusted_proxy_hops)
+        elif "X-Forwarded-For" in request.headers:
+            self._warn_once_about_an_undeclared_proxy()
         if resolved is None:
             resolved = request.client.host if request.client is not None else "anonymous"
         request.state.client_ip = resolved
