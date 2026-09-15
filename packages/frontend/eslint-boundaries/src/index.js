@@ -788,9 +788,23 @@ const localeCatalogsComplete = {
         if (jsxName(node.name) !== "Trans") return;
         const descriptor = transDescriptor(node);
         if (descriptor === null) {
+          // A spread is the one shape with a sanctioned alternative, and the generic
+          // message sent authors looking for a way to make the spread work instead.
+          // One descriptor shared by two screens is ordinary; what cannot be shared is
+          // the JSX-body spelling of it, because the catalog is inventoried statically
+          // and `{...DESCRIPTOR}` carries no attributes to read. The resolver renders
+          // the same copy from the same constant, so name it rather than the refusal.
+          const spread = node.attributes.some(
+            (attribute) => attribute.type === "JSXSpreadAttribute",
+          );
           context.report({
             node,
-            message: "<Trans> requires static non-empty id and message attributes.",
+            message: spread
+              ? "<Trans> reads its id and message as static attributes, so a shared UiText " +
+                "constant cannot be spread into it. Render the same constant through the " +
+                "resolver instead: const text = useUiText() in the component, then " +
+                "{text(DESCRIPTOR)} where the copy goes."
+              : "<Trans> requires static non-empty id and message attributes.",
           });
           return;
         }
