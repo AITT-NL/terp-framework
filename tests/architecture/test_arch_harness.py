@@ -3978,6 +3978,14 @@ def test_not_null_columns_are_backfilled(tmp_path: pathlib.Path) -> None:
         # A table the revision does not create is read as one that may hold rows, and so
         # is a table whose name is not a literal at all.
         "def upgrade():\n    op.add_column(table_name, sa.Column('rank', sa.Integer(), nullable=False))\n",
+        # `column=` and `table_name=` are legal spellings of the same statement. A rule a
+        # keyword could switch off would be a safety net defeated by whitespace.
+        "def upgrade():\n    op.add_column('notes', column=sa.Column('rank', sa.Integer(), nullable=False))\n",
+        "def upgrade():\n"
+        "    op.add_column(table_name='notes', column=sa.Column('rank', sa.Integer(), nullable=False))\n",
+        "def upgrade():\n"
+        "    with op.batch_alter_table(table_name='notes') as batch_op:\n"
+        "        batch_op.add_column(column=sa.Column('rank', sa.Integer(), nullable=False))\n",
     )
     for source in unbackfilled:
         _write(app, revision, source)
@@ -4003,6 +4011,25 @@ def test_not_null_columns_are_backfilled(tmp_path: pathlib.Path) -> None:
             f"def upgrade():\n    op.add_column('notes', sa.Column('rank', sa.Integer(), {nullable}))\n",
         )
         assert check_not_null_columns_are_backfilled(app) == [], nullable
+
+    # The keyword spelling stays exempt where the positional one is: a server_default
+    # back-fills, and a table created here holds no rows.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.add_column(table_name='notes', column=sa.Column('rank', sa.Integer(), "
+        "nullable=False, server_default='0'))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.create_table('drafts', sa.Column('id', sa.Integer()))\n"
+        "    op.add_column(table_name='drafts', column=sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
 
     # A table this same upgrade() creates cannot hold a row yet, in either spelling.
     _write(

@@ -120,12 +120,18 @@ def check_no_destructive_migrations(
 def _column_argument(call: ast.Call) -> ast.Call | None:
     """The inline ``sa.Column(...)`` argument of an ``add_column`` call, if there is one.
 
-    The position differs by receiver — ``op.add_column(table, column)`` names the table
-    first, a batch block's ``batch_op.add_column(column)`` does not — so the column is
-    found by shape rather than by index. A column built elsewhere and passed by name
-    carries no inspectable keywords here and is left alone.
+    Found by shape rather than by position, and keywords are searched alongside
+    positional arguments. Both halves matter: the position differs by receiver
+    (``op.add_column(table, column)`` names the table first, a batch block's
+    ``batch_op.add_column(column)`` does not), and ``column=`` is a legal spelling of
+    the same statement. A rule that a keyword could switch off would be a safety net
+    defeated by whitespace — the same reasoning that makes the destructive-DDL check
+    match on the attribute name whatever the receiver is called.
+
+    A column built elsewhere and passed by name carries no inspectable keywords here
+    and is left alone.
     """
-    for argument in call.args:
+    for argument in [*call.args, *(keyword.value for keyword in call.keywords)]:
         if (
             isinstance(argument, ast.Call)
             and isinstance(argument.func, ast.Attribute)
@@ -144,14 +150,27 @@ def _is_not_null_without_backfill(column: ast.Call) -> bool:
     return "server_default" not in keywords
 
 
-def _literal_name(call: ast.Call) -> str | None:
-    """The call's first positional argument when it is a string literal."""
+def _literal_name(call: ast.Call, *, keyword: str | None = None) -> str | None:
+    """The call's leading string-literal name, positional or under *keyword*.
+
+    ``op.add_column('note', ...)`` and ``op.add_column(table_name='note', ...)`` name
+    the same table, so both are read. An unresolvable name stays ``None`` and the
+    caller treats that conservatively.
+    """
     if (
         call.args
         and isinstance(call.args[0], ast.Constant)
         and isinstance(call.args[0].value, str)
     ):
         return call.args[0].value
+    if keyword is not None:
+        for entry in call.keywords:
+            if (
+                entry.arg == keyword
+                and isinstance(entry.value, ast.Constant)
+                and isinstance(entry.value.value, str)
+            ):
+                return entry.value.value
     return None
 
 
@@ -193,7 +212,7 @@ def _added_columns(
                     and isinstance(context.func, ast.Attribute)
                     and context.func.attr == "batch_alter_table"
                 ):
-                    table = _literal_name(context) or table
+                    table = _literal_name(context, keyword="table_name") or table
             for statement in node.body:
                 walk(statement, table)
             return
@@ -204,7 +223,8 @@ def _added_columns(
         ):
             column = _column_argument(node)
             if column is not None:
-                found.append((node, column, _literal_name(node) or batch_table))
+                table = _literal_name(node, keyword="table_name") or batch_table
+                found.append((node, column, table))
         for child in ast.iter_child_nodes(node):
             walk(child, batch_table)
 
@@ -253,7 +273,7 @@ def check_not_null_columns_are_backfilled(
                     continue
                 if not _is_not_null_without_backfill(column):
                     continue
-                name = _literal_name(column)
+                name = _literal_name(column, keyword="name")
                 named = f" {name!r}" if name is not None else ""
                 violations.append(
                     ArchViolation(

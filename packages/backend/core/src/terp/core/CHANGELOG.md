@@ -77,9 +77,11 @@ decision, 0001 onwards.
 
   The check reads `upgrade()` only, and only `add_column`: `create_table` meets no
   rows, and neither does a column added to a table the same `upgrade()` creates, so
-  both stay clean without a marker. Both spellings are covered — the direct call and a
-  `batch_alter_table` block — and a table name that is not a literal is read as one
-  that may hold rows, because the populated table is the case the rule exists for. A
+  both stay clean without a marker. Every spelling of the statement is covered — the
+  direct call, a `batch_alter_table` block, and the keyword forms (`column=`,
+  `table_name=`), because a safety net a keyword can switch off is not one — and a
+  table name that is not a literal is read as one that may hold rows, since the
+  populated table is the case the rule exists for. A
   `server_default` settles it; where no literal default is right, expand/contract
   across two releases does. `terp guide migrations` now carries the recipe, and
   `terp guide not_null_columns_are_backfilled` carries the decision path.
