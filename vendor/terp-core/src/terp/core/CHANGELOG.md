@@ -90,6 +90,24 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **The oversized-file seam proposal could name a cut that does not hold.** The message's
+  value is that it hands the author the group to extract rather than a number, and its
+  promise was that moving the named group leaves no dangling name behind. That promise was
+  computed from a graph of top-level definitions alone, which is blind to three things:
+  a name bound by tuple unpacking (`MIN_LEN, MAX_LEN = 1, 200`), a name bound inside a
+  top-level `try` or `if TYPE_CHECKING` block, and a reference made from a module-level
+  statement such as a registration call. A group reading one of those looks perfectly
+  isolated in the graph while being pinned to the file in fact, and the author who follows
+  the suggestion lands two modules importing each other -- the exact outcome the rule's own
+  docstring says is worse than the bare cap.
+
+  A candidate now survives a second reading of the whole file before it is proposed: the
+  names the module binds anywhere (blocks and unpacking included) and the definitions named
+  by module-level statements both disqualify it. The next independent group is named
+  instead, and where none is, the message carries the cap alone -- which was already the
+  documented behaviour for a file with no seam, now applied to the case where the seam is
+  only apparent.
+
 - **`terp upgrade --check` recommended a re-render it never checked was runnable.** The
   provenance test behind that recommendation was a line scan for a `_commit:` key in the
   copier answers file. That is the first of the three things `copier update` needs, and it

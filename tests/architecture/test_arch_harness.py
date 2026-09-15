@@ -1891,6 +1891,94 @@ def test_oversized_file_message_proposes_a_seam(tmp_path: pathlib.Path) -> None:
     assert "alpha_one" in message and "alpha_two" in message
     assert "beta_one" not in message  # the smaller group is not the proposal
 
+
+def test_seam_skips_a_group_the_definition_graph_only_looks_independent_in(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The graph is built from definitions, so it cannot see what pins them to the file.
+
+    Three things are invisible to it, and each one makes the proposal's promise false:
+    a name bound by tuple unpacking, a name bound inside a top-level block, and a
+    reference made from a module-level statement. In each case the biggest group looks
+    perfectly isolated in the graph while reading — or being read by — something that
+    cannot move with it. Following that cut lands two modules importing each other.
+    """
+    app = tmp_path / "app"
+    body = "\n".join(f"    x{i} = {i}" for i in range(520))
+    tail = (
+        "def beta_one():\n    return 1\n\n"
+        "def beta_two():\n    return beta_one()\n"
+    )
+
+    # The alpha group is the largest, and reads a constant bound by tuple unpacking:
+    # it owns no span of its own, so no cut can carry it along.
+    unpacked = (
+        "MIN_LEN, MAX_LEN = 1, 200\n\n"
+        "def alpha_one():\n" + body + "\n    return MAX_LEN\n\n"
+        "def alpha_two():\n    return alpha_one()\n\n" + tail
+    )
+    # Same shape, with the shared name bound inside a top-level try block instead.
+    in_a_block = (
+        "try:\n    CODEC = 'fast'\nexcept ImportError:\n    CODEC = 'slow'\n\n"
+        "def alpha_one():\n" + body + "\n    return CODEC\n\n"
+        "def alpha_two():\n    return alpha_one()\n\n" + tail
+    )
+    # Same shape again, with the alpha group named by a module-level statement. It is
+    # the statement that stays behind, so the definition cannot leave without the old
+    # module importing it back.
+    named_by_residue = (
+        "REGISTRY = []\n\n"
+        "def alpha_one():\n" + body + "\n    return 1\n\n"
+        "def alpha_two():\n    return alpha_one()\n\n" + tail + "\n"
+        "REGISTRY.append(alpha_two)\n"
+    )
+    for source in (unpacked, in_a_block, named_by_residue):
+        _write(app, "modules/notes/service.py", source)
+        violations = check_no_oversized_python_files(app)
+        assert _rule_names(violations) == {"no_oversized_python_files"}
+        message = violations[0].message
+        # The bigger group is refused and the genuinely independent one is named instead.
+        assert "alpha_one" not in message and "alpha_two" not in message, source[:60]
+        assert "beta_one" in message and "beta_two" in message, source[:60]
+
+    # Every module-level binding form anchors a name the same way. A top-level
+    # annotated assignment owns a span and stays movable; a name bound by a module-level
+    # for or with does not, so the group that reads one cannot be lifted out.
+    for preamble, shared in (
+        ("for _mode in ('a', 'b'):\n    MODE = _mode\n", "MODE"),
+        ("with open('x') as HANDLE:\n    pass\n", "HANDLE"),
+    ):
+        source = (
+            "LIMIT: int = 200\n\n" + preamble + "\n"
+            "def alpha_one():\n" + body + f"\n    return {shared}\n\n"
+            "def alpha_two():\n    return alpha_one()\n\n" + tail
+        )
+        _write(app, "modules/notes/service.py", source)
+        message = check_no_oversized_python_files(app)[0].message
+        assert "alpha_one" not in message, preamble
+        assert "beta_one" in message, preamble
+
+    # When nothing survives that second reading the cap says nothing about a seam: a
+    # bare number beats a cut that does not hold.
+    nothing_liftable = (
+        "MIN_LEN, MAX_LEN = 1, 200\n\n"
+        "def alpha_one():\n" + body + "\n    return MAX_LEN\n\n"
+        "def beta_one():\n    return MAX_LEN\n"
+    )
+    _write(app, "modules/notes/service.py", nothing_liftable)
+    violations = check_no_oversized_python_files(app)
+    assert _rule_names(violations) == {"no_oversized_python_files"}
+    assert "largest group" not in violations[0].message
+
+    # A file whose every definition is connected still proposes nothing, as before.
+    one_component = (
+        "def alpha_one():\n" + body + "\n    return 1\n\n"
+        "def alpha_two():\n    return alpha_one()\n"
+    )
+    _write(app, "modules/notes/service.py", one_component)
+    violations = check_no_oversized_python_files(app)
+    assert "largest group" not in violations[0].message
+
     # A file whose definitions all reference one another has no honest seam, so the
     # message stays the bare cap rather than inventing a cut that would couple two files.
     welded = "def root():\n" + body + "\n\n" + "".join(
