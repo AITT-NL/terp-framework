@@ -104,7 +104,7 @@ def _pinned_spec_version() -> str | None:
 #: catalogued in the standard's next release. The window before it — the entries for
 #: ``modules_ship_tests`` (ADR 0119) and the three module-role rules (ADR 0121) — was
 #: shut by terp-spec 0.33.0, which the pin above names.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset({"not_null_columns_are_backfilled"})
 
 
 # --------------------------------------------------------------------------- #

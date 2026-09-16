@@ -1386,6 +1386,21 @@ Database migrations (terp migrate)
 - Destructive DDL (drop table/column or alter-column type changes) is refused by
   `terp check` unless the operation carries `# arch-allow-no-destructive-migrations:
   <reason>` on (or immediately above) its line, budgeted by the escape-hatch ratchet.
+- ADDING A NOT NULL COLUMN is the revision that passes everything you can run and then
+  fails in production. For a new non-nullable field autogenerate writes
+  `add_column(sa.Column('rank', sa.Integer(), nullable=False))`, and that statement
+  succeeds against an empty database and fails against one that holds rows - the rows
+  already there need a value it never supplies. Nothing local catches it, because a
+  migration test upgrades a FRESH scratch database, where the statement is correct.
+  Give the column a server_default and the database back-fills the existing rows as it
+  adds it; new rows still take the model-side default:
+      op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
+                                      server_default='0'))
+  Where no literal default is right, expand/contract instead - add the column nullable,
+  back-fill it in the same release, tighten it in a LATER revision. `terp check`
+  refuses the unbackfilled form (`not_null_columns_are_backfilled`); a table that
+  genuinely holds no rows yet opts out with
+  `# arch-allow-not-null-columns-are-backfilled: <reason>`.
 - MOVING A MODEL TO ANOTHER MODULE is the one edit that looks free and is not. Just
   moving the class emits NO ddl at all - the losing package stops owning the table so
   its scoped autogenerate cannot propose a drop, and the gaining package diffs against
@@ -1870,6 +1885,28 @@ not concatenate sequences), so both files have to be listed.
 _GENERATED_TOPICS: tuple[str, ...] = ("changelog", "rules")
 
 _RULE_GUIDE_DETAILS: dict[str, str] = {
+     "not_null_columns_are_backfilled": """\
+Compliant decision path for a new NOT NULL column
+
+1. Decide what the rows that already exist should hold. That is the whole question;
+    the statement fails precisely because it never answers it.
+2. When a literal answers it, give the column a server_default. The database writes it
+    into every existing row as it adds the column, and new rows still take the
+    model-side default:
+        op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
+                                        server_default='0'))
+3. When no literal is right - the value has to be computed, or looked up - use
+    expand/contract across two releases: add the column NULLABLE, back-fill it (a data
+    migration or a backfill job), and tighten it to NOT NULL in a LATER revision, once
+    nothing writes a NULL.
+4. Do not make the column nullable in the model merely to silence this. The model is
+    the contract; if the field is genuinely optional, say so there and the finding goes
+    away on its own.
+5. Opt out only for a table that genuinely holds no rows in any environment - a table
+    this release introduces, or one seeded from empty - with
+    `# arch-allow-not-null-columns-are-backfilled: <reason>` naming which. A table
+    created in the same upgrade() needs no marker; it is already exempt.
+""",
      "no_raw_outbound_http": """\
 Compliant decision path for outbound HTTP
 
