@@ -42,7 +42,7 @@ from terp.core import (
     request_id_ctx,
     settings,
 )
-from terp.core.app import register_error_handlers
+from terp.core.app import _rate_limit_override_map, register_error_handlers
 from terp.core.logging import (
     RedactingFilter,
     RequestContextFilter,
@@ -100,6 +100,45 @@ def test_security_headers_render_with_and_without_hsts() -> None:
     assert "Strict-Transport-Security" not in SecurityHeaders(hsts=None).as_headers(
         include_hsts=True
     )
+
+
+def test_security_headers_declare_a_cache_directive() -> None:
+    """An API that mints bearer tokens must not leave caching to a heuristic.
+
+    Saying nothing lets every intermediary decide: a shared proxy, a CDN, or the
+    browser's own back-forward cache may retain a login response — a body whose whole
+    content is a credential. ``no-store`` rather than ``no-cache``, because the latter
+    permits a cache to *hold* the response and merely revalidate it, which is the part
+    that matters here.
+    """
+    headers = SecurityHeaders().as_headers(include_hsts=False)
+    assert headers["Cache-Control"] == "no-store"
+    # An app that genuinely serves a cacheable public surface can turn it off, the same
+    # way HSTS can be — the control is a default, not a fixture.
+    assert "Cache-Control" not in SecurityHeaders(cache_control=None).as_headers(
+        include_hsts=False
+    )
+
+
+def test_a_handler_that_already_answered_the_cache_question_keeps_its_answer() -> None:
+    """The stack applies headers with ``setdefault``, so a route can still opt out.
+
+    Asserted rather than assumed: a security default that overwrote a deliberate
+    per-route ``Cache-Control`` would make an ordinary cacheable endpoint unserveable
+    and leave the author no way to say so.
+    """
+
+    async def cacheable(_request: Request) -> PlainTextResponse:
+        return PlainTextResponse("ok", headers={"Cache-Control": "public, max-age=60"})
+
+    app = Starlette(routes=[Route("/", cacheable, methods=["GET"])])
+    app.add_middleware(
+        SecurityHeadersMiddleware, headers=SecurityHeaders(), include_hsts=False
+    )
+    response = TestClient(app).get("/")
+    assert response.headers["Cache-Control"] == "public, max-age=60"
+    # The rest of the set still lands — the route answered one question, not all of them.
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
 
 
 def test_cors_deny_all_is_unconfigured_and_closed() -> None:
@@ -498,6 +537,55 @@ def test_client_ip_middleware_resolves_through_declared_proxy_hops() -> None:
     client.get("/", headers={"X-Forwarded-For": "spoofed-junk"})  # unresolvable → peer
     client.get("/")  # no header → peer
     assert seen == ["203.0.113.7", "testclient", "testclient"]
+
+
+def test_an_undeclared_proxy_is_named_once_when_a_forwarded_header_arrives(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Zero hops is the safe default; behind a real proxy it is a silent outage.
+
+    Every caller then resolves to the proxy's own address, so the rate limit — and
+    every other per-caller control — is one bucket for the whole deployment, which one
+    visitor can exhaust for everybody. The symptom is intermittent 429s under ordinary
+    load, which reads as a limit set too low rather than as a trust declaration that
+    was never made.
+
+    Evidence-based rather than advisory: it fires only when a request actually carried
+    the header while no hops were declared, so a directly-exposed app never sees it.
+    """
+    app = Starlette(routes=[Route("/", _ok)])
+    app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=0)
+    client = TestClient(app)
+    with caplog.at_level("WARNING", logger="terp.core"):
+        client.get("/", headers={"X-Forwarded-For": "203.0.113.7"})
+        client.get("/", headers={"X-Forwarded-For": "203.0.113.8"})
+    warnings = [r for r in caplog.records if "trusted_proxy_hops=0" in r.getMessage()]
+    # Once per process: the header is one anyone may send, so repeating would hand a
+    # caller a log-flooding primitive.
+    assert len(warnings) == 1
+    assert "SecurityConfig(trusted_proxy_hops=1)" in warnings[0].getMessage()
+
+
+def test_no_proxy_warning_without_a_forwarded_header(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A directly-exposed app is correctly configured and must not be nagged."""
+    app = Starlette(routes=[Route("/", _ok)])
+    app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=0)
+    with caplog.at_level("WARNING", logger="terp.core"):
+        TestClient(app).get("/")
+    assert not [r for r in caplog.records if "trusted_proxy_hops=0" in r.getMessage()]
+
+
+def test_no_proxy_warning_once_the_hops_are_declared(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A declared deployment has answered the question; the line has nothing to add."""
+    app = Starlette(routes=[Route("/", _ok)])
+    app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=1)
+    with caplog.at_level("WARNING", logger="terp.core"):
+        TestClient(app).get("/", headers={"X-Forwarded-For": "203.0.113.7"})
+    assert not [r for r in caplog.records if "trusted_proxy_hops=0" in r.getMessage()]
 
 
 def test_client_ip_helper_falls_back_without_the_middleware() -> None:
@@ -939,3 +1027,93 @@ def test_unexpected_exception_renders_a_500_envelope() -> None:
     assert body["request_id"]
     # The raw exception detail must never leak to the client.
     assert "secret-internal-detail" not in response.text
+
+
+# --------------------------------------------------------------------------- #
+# a mount declares its own rate limit (ADR 0138)
+# --------------------------------------------------------------------------- #
+def _rate_limited_spec(name: str, rate_limit: RateLimit | None) -> ModuleSpec:
+    router = APIRouter()
+
+    @router.get("/ping")
+    def ping() -> dict:
+        return {"ok": True}
+
+    return ModuleSpec(
+        name=name,
+        router=router,
+        policy=Policy.public(reason="probe route"),
+        rate_limit=rate_limit,
+    )
+
+
+def test_a_mounted_spec_declares_the_limit_for_its_own_prefix() -> None:
+    """Installing the capability is the whole wiring — there is no root line to forget.
+
+    The mount that verifies credentials is the one that knows its attempts are
+    memory-hard; the application's general limit was sized against ordinary traffic and
+    cannot know that. So the declaration travels with the module, exactly as a file
+    capability's upload allowance does.
+    """
+    app = create_app(
+        [_rate_limited_spec("creds", RateLimit.credentials()), _rate_limited_spec("open", None)],
+        control_plane=ControlPlane(
+            security=SecurityConfig(cors=CorsPolicy.disabled(reason="probe"))
+        ),
+    )
+    client = TestClient(app)
+    assert client.get("/api/v1/creds/ping").headers["X-RateLimit-Limit"] == "30"
+    # An undeclared mount keeps the global allowance — the scoped cap is a bucket of
+    # its own, not a second ceiling on everyone.
+    assert client.get("/api/v1/open/ping").headers["X-RateLimit-Limit"] == "240"
+
+
+def test_an_explicit_override_beats_a_spec_declaration() -> None:
+    """Root overrides package, as at every other composition seam.
+
+    It matters more here than elsewhere: a deployment that has measured its own login
+    traffic must be able to say so, and a capability's default is a floor it may move
+    rather than a decision taken away from it.
+    """
+    app = create_app(
+        [_rate_limited_spec("creds", RateLimit.credentials())],
+        control_plane=ControlPlane(
+            security=SecurityConfig(
+                cors=CorsPolicy.disabled(reason="probe"),
+                rate_limit_overrides={"/api/v1/creds": RateLimit(requests=7, window_seconds=60)},
+            )
+        ),
+    )
+    assert TestClient(app).get("/api/v1/creds/ping").headers["X-RateLimit-Limit"] == "7"
+
+
+def test_an_unrouted_spec_contributes_no_prefix() -> None:
+    """A prefix nothing serves must not acquire an allowance — it has nothing to limit."""
+    overrides = _rate_limit_override_map(
+        [ModuleSpec(name="library", rate_limit=RateLimit.credentials())],
+        SecurityConfig(cors=CorsPolicy.disabled(reason="probe")),
+    )
+    assert overrides == {}
+
+
+def test_a_module_may_tighten_its_mount_but_never_exempt_it() -> None:
+    """An unlimited declaration would be a hole one prefix wide.
+
+    And a quieter one than a disabled global limit, because the global limit still
+    reads as enabled — which is exactly why production already refuses the same shape
+    in ``SecurityConfig.rate_limit_overrides``. Refused here at construction instead,
+    since a module's declaration is compiled into the package rather than configured
+    per deployment.
+    """
+    with pytest.raises(ValueError, match="not remove it"):
+        ModuleSpec(name="creds", rate_limit=RateLimit.disabled())
+    # Raising the allowance is a legitimate declaration; only removal is refused.
+    assert ModuleSpec(name="creds", rate_limit=RateLimit(requests=1000)).rate_limit
+
+
+def test_the_credential_limit_is_tighter_than_the_general_one() -> None:
+    """The point of the named constructor, asserted rather than left to the reader."""
+    credentials = RateLimit.credentials()
+    assert credentials.enabled
+    assert credentials.requests < RateLimit().requests
+    assert credentials.window_seconds == RateLimit().window_seconds

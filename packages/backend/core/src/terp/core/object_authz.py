@@ -119,8 +119,17 @@ def apply_object_authz(
     )
 
 
-def reset_object_authz_predicates() -> None:
-    """Clear all registered predicates (a test seam; capabilities re-register on import)."""
+def _reset_object_authz_predicates() -> None:
+    """Clear all registered predicates (a test seam; capabilities re-register on import).
+
+    **Private, and reachable only through** :mod:`terp.core._internal.registry_resets`
+    (ADR 0137), for the reason :func:`terp.core.scoping._reset_scope_predicates` gives:
+    one call drops every registered per-row write policy for the process and the only
+    observable effect is that writes which used to be refused start succeeding. The
+    built-in owner check survives — it is inlined in ``apply_object_authz`` rather than
+    registered — so what a reset removes is precisely the app's own additions, which is
+    the half nothing else would notice.
+    """
     _object_authz_predicates.clear()
 
 
@@ -129,5 +138,4 @@ __all__ = [
     "apply_object_authz",
     "register_object_authz_predicate",
     "registered_object_authz_predicates",
-    "reset_object_authz_predicates",
 ]

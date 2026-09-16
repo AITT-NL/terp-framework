@@ -31,6 +31,7 @@ from terp.core import (
     ModuleSpec,
     Policy,
     Principal,
+    RateLimit,
     SessionDep,
     get_principal,
     operation,
@@ -320,6 +321,15 @@ def build_login_module(
         policy=Policy.public_write(
             reason="authentication endpoints must be reachable without a token"
         ),
+        # This mount's own cap, so installing the capability is enough and there is no
+        # composition-root line to forget (ADR 0138). Every route here verifies a
+        # credential, and a credential check is memory-hard ON PURPOSE -- including on
+        # the miss paths, because an unknown subject must cost the same as a wrong
+        # secret or the timing enumerates accounts. That makes this the cheapest place
+        # on the whole surface to spend the server's CPU, which the app's general limit
+        # was never sized against. A deployment that has measured its own login traffic
+        # overrides the prefix in SecurityConfig.rate_limit_overrides.
+        rate_limit=RateLimit.credentials(),
     )
 
 

@@ -15,7 +15,7 @@ import pathlib
 import re
 
 from terp.arch._ast import _SECURITY_SKIP_DIRS, base_name, iter_python_files, parse
-from terp.arch.rules._support import ArchViolation, _module_under, _rel
+from terp.arch.rules._support import ArchViolation, _rel
 
 _CREDENTIAL_NAME_PARTS = (
     "password",
@@ -123,22 +123,24 @@ def _self_naming_enum_member_lines(tree: ast.AST) -> set[int]:
 def check_no_hardcoded_credentials(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
-    """App modules do not hard-code credentials or recognizable secret tokens.
+    """App code does not hard-code credentials or recognizable secret tokens.
 
     A credential-shaped assignment to a non-empty string literal is almost always a
     secret that should come from sealed config / environment wiring, not source. The
-    rule also rejects common high-confidence secret literal formats anywhere in a
-    module so leaked keys are caught even when assigned to a bland variable name.
-    As a security rule this also scans ``tests/`` and ``migrations/`` dirs inside a
-    module — a real secret is a leak wherever it is committed. One shape is exempt:
-    an enum member whose literal is its own name (``SECRET_REFERENCE =
-    "secret_reference"``) is vocabulary, carrying no secret material.
+    rule also rejects common high-confidence secret literal formats anywhere in the
+    tree so leaked keys are caught even when assigned to a bland variable name.
+
+    Scope is the **whole scanned root**, not ``modules/`` (ADR 0136). A secret is a
+    leak wherever it is committed, and the places it most often lands — a
+    composition root wiring a client, a sibling worker package, a conftest — are
+    exactly the ones outside the module tree. ``tests/`` and ``migrations/`` are
+    scanned for the same reason. One shape is exempt: an enum member whose literal
+    is its own name (``SECRET_REFERENCE = "secret_reference"``) is vocabulary,
+    carrying no secret material.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in iter_python_files(root, skip_dirs=_SECURITY_SKIP_DIRS):
-        if _module_under(path, package) is None:
-            continue
         tree = parse(path)
         rel = _rel(path, root)
         vocabulary_lines = _self_naming_enum_member_lines(tree)

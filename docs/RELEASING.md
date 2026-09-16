@@ -103,14 +103,25 @@ carries the rule.
    `_AWAITING_SPEC_RELEASE` (`tests/architecture/test_spec_catalog.py`, ADR 0116). That
    list is what lets `main` carry a rule whose catalog entry is not in the *installed*
    release yet, so this merge is green instead of knowingly red.
+
+   **An assurance *lane* moves the same way, through its own list.** The spec's lane
+   vocabulary is normative and pinned in two places — the schema's enum and
+   `ASSURANCE_LANES` here — and `test_assurance_lanes_mirror_the_pinned_spec_vocabulary`
+   holds them equal against the installed release. A lane this toolchain realises ahead
+   of the release that declares it goes in `_AWAITING_SPEC_RELEASE` in
+   `tests/architecture/test_cli_verify.py`, which is a separate list from the rule one
+   and empties at the same step 4. `test_no_lane_awaits_a_spec_release_it_already_had`
+   fails on a name left behind, so the allowance cannot rot into an exemption from the
+   one assertion that holds the two vocabularies together.
 2. **terp-spec second.** Its certification now runs against a `main` that implements the
    rule, so it passes and the catalog merges normally — no override on a protected branch.
 3. **Release terp-spec.** The tag's verify job certifies against the same `main` and
    publishes.
 4. **Come back here and close the window.** Move the four declarations above to the new spec
-   version, re-lock, and **empty `_AWAITING_SPEC_RELEASE`** — a framework release cannot be
-   cut while it is non-empty, and a listed rule whose entry has since been published fails
-   the staleness check, so neither half can be forgotten.
+   version, re-lock, and **empty both `_AWAITING_SPEC_RELEASE` lists** (the rule one in
+   `test_spec_catalog.py`, the lane one in `test_cli_verify.py`) — a framework release
+   cannot be cut while either is non-empty, and a listed name whose entry has since been
+   published fails the staleness check, so no half can be forgotten.
 
 A release that only *records* behaviour this repository already ships — a residual promoted
 to required, say — collapses to step 2 alone, and that is the case most likely to be

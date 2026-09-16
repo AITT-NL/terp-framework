@@ -26,10 +26,19 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CAPS = _REPO_ROOT / "packages" / "backend" / "capabilities"
 
 # Capabilities that must be clean with zero opt-outs.
-_CLEAN_CAPS = ("access", "egress", "groups", "users", "eventbus", "oidc", "realtime")
+#
+# ``egress`` and ``oidc`` left this list when the four security rules stopped scoping
+# themselves to ``modules/`` (ADR 0136) and began seeing capability source at all. Both
+# import an HTTP client and always did; what changed is that the harness can now say so.
+# Neither moved because the rule is wrong — the egress client *is* the seam the rule
+# names, and the OIDC client speaks a protocol to an operator-configured endpoint — so
+# each carries a justified marker under its own budget instead.
+_CLEAN_CAPS = ("access", "groups", "users", "eventbus", "realtime")
 # Capabilities whose only violations are governed framework-primitive opt-outs.
 _BUDGETED_CAPS = (
     "auth",
+    "egress",
+    "oidc",
     "identity",
     "tenancy",
     "audit",

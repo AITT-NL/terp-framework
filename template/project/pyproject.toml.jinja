@@ -93,7 +93,11 @@ extend-exclude = [".venv", "**/migrations/versions"]
 
 [tool.ruff.lint]
 # The name-only heuristics (S101 assert, S105/S106 "looks like a password") are
-# excused platform-wide (ADR 0033); the high-signal rules stay on.
+# excused platform-wide (ADR 0033); the high-signal rules stay on. What makes that
+# excusal honest is the compensating control, so it is worth naming: terp.arch's
+# `no_hardcoded_credentials` reads EVERY file of the scanned root (ADR 0136), not just
+# `modules/`, and the `secret-scanning` verify check reads the git history, which no
+# source rule can. Two halves the name heuristic was standing in for, both covered.
 #
 # `F` (pyflakes) rides along, and it is a restoration rather than an addition: `select`
 # REPLACES ruff's default, so naming only `S` turned off the `E4`/`E7`/`E9`/`F` set ruff

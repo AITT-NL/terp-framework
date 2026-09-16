@@ -22,6 +22,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The secret-scanning lane reads the object graph, not the working tree: a
+          # credential that was committed and later removed is gone from the tree and
+          # still in the history, and that is the shape the incident usually takes. A
+          # shallow clone would scan one commit and report clean.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
       - uses: actions/setup-node@v4
         with:
@@ -36,10 +42,21 @@ jobs:
       # The merge bar. platform-install runs first and refuses a mixed install before the
       # rest of the run spends time proving things about a combination never released.
       - run: uv run terp verify --profile full
-      # Release-profile checks cheap and deterministic enough to gate merges too. The rest
-      # of that profile is either advisory — the dependency audits move with advisory
-      # databases rather than with this change — or needs the workbench, which is below.
+      # Release-profile checks cheap and deterministic enough to gate merges too. What is
+      # left of that profile needs the workbench, which is the job below.
       - run: uv run terp verify --profile release --only api-docs-drift
+      # The secret-scanning lane. Its own step rather than part of the profile, because
+      # the check needs a tool on PATH and a full-depth checkout — preconditions a local
+      # `terp verify --profile full` has no way to arrange, and failing there for a
+      # missing binary would teach people to skip the profile.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+        run: |
+          curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tgz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+      - run: uv run terp verify --profile release --only secret-scanning
 
   conformance:
     # The release profile's `conformance` check with the precondition its manifest entry

@@ -39,8 +39,8 @@ class SubjectKind(enum.StrEnum):
 #: — even one signed with the same shared secret (another service reusing the key,
 #: an OIDC provider, a future token type) — is refused, never confused for an
 #: access credential.
-TOKEN_ISSUER: Final[str] = "terp.auth"
-TOKEN_AUDIENCE: Final[str] = "terp.api"
+TOKEN_ISSUER: Final[str] = "terp.auth"  # arch-allow-no-hardcoded-credentials: a public registered claim VALUE, signed into every token and printed in every decode error — secrecy is not what it is for
+TOKEN_AUDIENCE: Final[str] = "terp.api"  # arch-allow-no-hardcoded-credentials: as above — the audience this API answers to, public by construction
 
 # Every claim an access token is refused without: the registered pair above plus
 # the identity/lifetime pair — a token missing any of them never authenticates.

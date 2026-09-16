@@ -43,7 +43,7 @@ from terp.capabilities.oidc import (
     code_challenge_s256,
     generate_code_verifier,
 )
-from terp.capabilities.oidc.client import _default_http_factory
+from terp.capabilities.oidc.client import MAX_RESPONSE_BYTES, _default_http_factory
 from terp.capabilities.oidc.router import _throttle_key
 from terp.core.errors import AppError
 
@@ -274,6 +274,61 @@ def test_discovery_refuses_a_non_object_document(idp: FakeIdP) -> None:
 def test_default_http_factory_builds_a_real_client() -> None:
     with _default_http_factory() as client:
         assert isinstance(client, httpx.Client)
+
+
+def test_the_default_client_refuses_redirects() -> None:
+    """A followed redirect is a second endpoint nobody configured.
+
+    It also breaks the IdP mix-up defence in a way that is hard to see: the discovery
+    document's ``issuer`` is matched against the issuer that was *asked for*, so an
+    answer collected from somewhere else would be checked against the wrong claim.
+    """
+    with _default_http_factory() as client:
+        assert client.follow_redirects is False
+
+
+def test_an_oversized_provider_response_is_refused_rather_than_read(idp: FakeIdP) -> None:
+    """An unbounded read is an outage the provider gets to declare.
+
+    The timeout does not help here: a body that keeps arriving keeps the connection
+    busy, so the worker's memory is what runs out. The bound is counted as the bytes
+    arrive rather than checked afterwards, which is the only version worth having —
+    measuring a body that is already in memory measures the damage.
+    """
+
+    def _flood(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"x" * (MAX_RESPONSE_BYTES + 1))
+
+    client = OIDCClient(
+        _config(),
+        http_factory=lambda: httpx.Client(transport=httpx.MockTransport(_flood)),
+    )
+    with pytest.raises(ProviderUnavailableError):
+        client.discovery()
+
+
+def test_a_response_at_the_cap_is_still_served(idp: FakeIdP) -> None:
+    """The bound is a ceiling, not a margin: exactly at the cap must still work.
+
+    On the boundary deliberately — an off-by-one here refuses a document that is within
+    the documented allowance, and the failure would look like a provider outage.
+    """
+    document = dict(idp.discovery)
+    document["_pad"] = ""
+    document["_pad"] = "x" * (
+        MAX_RESPONSE_BYTES - len(json.dumps(document).encode("utf-8"))
+    )
+
+    def _exact(_request: httpx.Request) -> httpx.Response:
+        body = json.dumps(document).encode("utf-8")
+        assert len(body) <= MAX_RESPONSE_BYTES
+        return httpx.Response(200, content=body, headers={"content-type": "application/json"})
+
+    client = OIDCClient(
+        _config(),
+        http_factory=lambda: httpx.Client(transport=httpx.MockTransport(_exact)),
+    )
+    assert client.discovery()["issuer"] == _ISSUER
 
 
 def test_jwks_rotation_refetches_once_for_an_unknown_kid(idp: FakeIdP, client: OIDCClient) -> None:

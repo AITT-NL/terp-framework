@@ -636,6 +636,41 @@ def _request_size_override_map(
     return overrides
 
 
+def _rate_limit_override_map(
+    specs: Sequence[ModuleSpec], config: SecurityConfig
+) -> dict[str, tuple[int, int]]:
+    """The mount-prefix→(limit, window) map for the rate limiter (ADR 0138).
+
+    The rate-rate twin of :func:`_request_size_override_map`, and deliberately built
+    the same way: each **mounted** spec's declared ``rate_limit`` contributes its own
+    ``/api/v1/<name>`` prefix, and a router-less spec is skipped because an unrouted
+    prefix has nothing to limit.
+
+    A module declares this when it knows something about its own traffic that the
+    application's general limit cannot — the auth and SSO mounts verify credentials,
+    and a credential check is memory-hard on purpose, so the endpoint is the cheapest
+    place on the surface to spend the server's CPU. Installing the capability is then
+    enough; there is no composition-root line to remember and therefore none to
+    forget.
+
+    ``SecurityConfig.rate_limit_overrides`` still wins on a shared prefix. The
+    precedence is the same one every other composition seam uses — the root overrides
+    the package — and it matters more here than elsewhere: a deployment that has
+    measured its own login traffic must be able to say so, and a capability's default
+    is a floor it may move rather than a decision taken away from it.
+    """
+    overrides: dict[str, tuple[int, int]] = {}
+    for spec in specs:
+        if spec.rate_limit is not None and spec.router is not None:
+            overrides[f"/api/v1/{spec.name}"] = (
+                spec.rate_limit.requests,
+                spec.rate_limit.window_seconds,
+            )
+    for prefix, limit in config.rate_limit_overrides:
+        overrides[prefix] = (limit.requests, limit.window_seconds)
+    return overrides
+
+
 def _validate_permission_enforcement(
     specs: Sequence[ModuleSpec], permission_enforcer: PermissionEnforcer | None
 ) -> None:
@@ -1208,6 +1243,40 @@ def _warn_unshared_idempotency_in_production(
         "on another worker re-executes the mutation, silently. Wire a shared store "
         "marked via terp.core.mark_shared_idempotency_store(...) and pass "
         "create_app(require_shared_idempotency_store=True) to make that a boot-time "
+        "guarantee instead of a warning."
+    )
+
+
+def _warn_unshared_throttle_in_production(
+    throttle_store: ThrottleStore | None, require_shared_throttle_store: bool
+) -> None:
+    """Say out loud, once, that the rate limit and login lockout are per-worker here.
+
+    The sibling of :func:`_warn_unshared_idempotency_in_production`, and it should
+    always have been one. That function exists because a promise ("this mutation runs
+    once") quietly becomes false on the second replica with nothing to announce it. The
+    throttle store carries two promises of exactly that shape and had no such line: the
+    request rate limit, and the per-account failed-login lockout. Both are counters in
+    this store, so N workers enforce N times the configured allowance — a 5-attempt
+    lockout becomes 5 × N attempts against one account, which is the control least able
+    to afford a silent multiplier.
+
+    It is a warning rather than a refusal for the same reason the idempotency one is: a
+    per-instance store is *correct* for a single-instance deployment, and refusing it
+    would break something that is not wrong. What was missing was the sentence that
+    makes the property visible before someone scales, and names the flag that turns it
+    into a boot-time guarantee.
+    """
+    if require_shared_throttle_store or is_shared_throttle_store(throttle_store):
+        return
+    _logger.warning(
+        "the rate limit and the login lockout are counted PER WORKER in this "
+        "deployment: the configured throttle_store is not a shared, multi-instance "
+        "backend. This is correct for a single instance; run more than one and each "
+        "worker enforces its own allowance, so the effective request cap and the "
+        "per-account failed-login threshold are both multiplied by the worker count. "
+        "Wire a shared store marked via terp.core.mark_shared_throttle_store(...) and "
+        "pass create_app(require_shared_throttle_store=True) to make that a boot-time "
         "guarantee instead of a warning."
     )
 
@@ -1874,6 +1943,7 @@ def create_app(
         _warn_unshared_idempotency_in_production(
             idempotency_store, require_shared_idempotency_store
         )
+        _warn_unshared_throttle_in_production(throttle_store, require_shared_throttle_store)
         security_problems = resolved_plane.security.production_problems()
         if security_problems:
             raise BootError(
@@ -1936,6 +2006,7 @@ def create_app(
             idempotency_store if idempotency_store is not None else InMemoryIdempotencyStore()
         ),
         request_size_overrides=_request_size_override_map(collected, request_size_overrides),
+        rate_limit_overrides=_rate_limit_override_map(collected, resolved_plane.security),
     )
     if principal_provider is not get_principal:
         app.dependency_overrides[get_principal] = principal_provider

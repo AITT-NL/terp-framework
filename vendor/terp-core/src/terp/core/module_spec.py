@@ -31,6 +31,7 @@ from fastapi import APIRouter
 
 from terp.core.events import EventDefinition
 from terp.core.jobs import JobDefinition
+from terp.core.security import RateLimit
 from terp.core.routing import MUTATING_METHODS
 from terp.core.permissions import (
     AuthorizationRequirement,
@@ -335,6 +336,18 @@ class ModuleSpec:
     file upload) can accept more than the global cap without widening it for
     every other endpoint (ADR 0067). ``None`` (the default) keeps the global cap.
 
+    ``rate_limit`` is the same declaration for request *rate* (ADR 0138), and is
+    the half that was missing. An app's general limit is sized for its ordinary
+    traffic; a mount that verifies credentials is not ordinary traffic, because
+    every attempt there runs a memory-hard password hash on the miss path as well
+    as the hit. The module that owns such a surface knows this and nothing else
+    does, so it declares its own cap — ``RateLimit.credentials()`` for the auth
+    and SSO mounts — and every app that installs the capability inherits it with
+    no wiring, exactly as it inherits the files capability's upload allowance. An
+    explicit ``SecurityConfig.rate_limit_overrides`` entry for the same prefix
+    still wins: a declaration by the module is a floor a deployment may move, not
+    a decision taken away from it. ``None`` (the default) keeps the global limit.
+
     ``permissions`` is the module's claim on the named permissions it owns, and it stands to
     the control plane's ``PermissionModel`` exactly as ``emits`` stands to the
     ``EventCatalog``: the module lists typed objects, the app registry declares them, and the
@@ -364,6 +377,7 @@ class ModuleSpec:
     policy: Policy | None = None
     tenant_scoped: bool = False
     max_request_bytes: int | None = None
+    rate_limit: RateLimit | None = None
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.isidentifier():
@@ -374,6 +388,15 @@ class ModuleSpec:
             raise ValueError(
                 "ModuleSpec.max_request_bytes must be positive when set, got "
                 f"{self.max_request_bytes!r}"
+            )
+        if self.rate_limit is not None and not self.rate_limit.enabled:
+            # A module may tighten its own mount, never exempt it: an unlimited
+            # declaration would be a hole one prefix wide that the global limit still
+            # reads as enabled — the same shape production already refuses in
+            # SecurityConfig.rate_limit_overrides, refused here at construction too.
+            raise ValueError(
+                "ModuleSpec.rate_limit may lower or raise this mount's allowance, not "
+                "remove it; a module cannot declare itself unlimited"
             )
 
 

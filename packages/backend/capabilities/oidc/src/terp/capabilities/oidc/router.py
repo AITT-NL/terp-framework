@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-import httpx
+import httpx  # arch-allow-no-raw-outbound-http: imported for the http_factory type only — this module issues no request; the protocol client in client.py owns every call. review-by: 2026-12-31
 from fastapi import APIRouter, Request, Response
 from sqlmodel import Session
 
@@ -35,6 +35,7 @@ from terp.core import (
     NotFoundError,
     Policy,
     Principal,
+    RateLimit,
     SessionDep,
     client_ip,
     is_sealed_config,
@@ -227,6 +228,12 @@ def build_oidc_module(
         policy=Policy.public_write(
             reason="SSO login endpoints must be reachable without a token"
         ),
+        # The same cap the password mount declares, for the same reason (ADR 0138): the
+        # callback exchanges a code and validates an ID token against the provider, so
+        # an unauthenticated caller can drive outbound requests and asymmetric signature
+        # verification from here. The per-source callback throttle bounds a guesser; the
+        # rate limit bounds the work.
+        rate_limit=RateLimit.credentials(),
     )
 
 

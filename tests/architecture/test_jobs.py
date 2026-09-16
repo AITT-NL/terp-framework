@@ -65,8 +65,8 @@ from terp.core.config import settings
 from terp.core.scoping import (
     register_scope_predicate,
     registered_scope_predicates,
-    reset_scope_predicates,
 )
+from terp.core._internal.registry_resets import reset_scope_predicates
 from terp.core._internal.job_runtime import run_job
 from terp.core._internal.session_guard import (
     WriteGuardedSession,

@@ -75,7 +75,7 @@ def _httpx_sender(
     followed — a followed redirect is a second, unvalidated target, which would put the
     SSRF check back at the mercy of the far end.
     """
-    import httpx  # noqa: PLC0415 - the one place the platform's HTTP client is imported
+    import httpx  # noqa: PLC0415 - the one place the platform's HTTP client is imported  # arch-allow-no-raw-outbound-http: this IS the sanctioned egress seam the rule points every other package at; it cannot reach the network through itself
 
     with httpx.Client(timeout=timeout_seconds, follow_redirects=False) as client:
         request = client.build_request(

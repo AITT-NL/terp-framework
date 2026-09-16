@@ -28,7 +28,7 @@ class ClientCredentialsRequest(BaseSchema):
 
 class AccessToken(BaseSchema):
     access_token: str  # arch-allow-schemas-exclude-sensitive-fields: the bearer token the login endpoint exists to mint
-    token_type: str = "bearer"
+    token_type: str = "bearer"  # arch-allow-no-hardcoded-credentials: OAuth 2.0's own response field naming the token's SCHEME, not a secret — the value is the literal the RFC fixes
 
 
 class CurrentUser(BaseSchema):

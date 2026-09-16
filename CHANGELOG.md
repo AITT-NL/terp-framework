@@ -178,6 +178,153 @@ decision, 0001 onwards.
   the same tuple shape `overflow` already does. The existing `secondary` node is unchanged, and
   is now documented as the form that cannot follow the viewport.
 
+### Security
+
+Findings from a security review of the platform, each the same shape: a control that
+reads as complete and stops one layer short of the case that matters.
+
+- **Four security rules scanned nothing outside `modules/` (ADR 0136).**
+  `no_hardcoded_credentials`, `no_dynamic_sql`, `no_raw_outbound_http` and
+  `no_manual_table_schema` all opened by skipping every file no `modules/` path segment
+  covered. The line reads like a package filter — it even takes `package` — but the
+  helper behind it ignores that argument, so in an application the composition root, any
+  shared helper, and any sibling deployable (a worker, a publisher, a CLI) were exempt.
+  Those are the places a raw HTTP client is actually reached for, a bootstrap credential
+  is actually written, and SQL is actually assembled by hand.
+
+  Inside this repository it was worse: the suite that runs the consumer harness over
+  every shipped capability asserts `check_app(cap_root) == []`, and no capability path
+  contains `modules/` — so for these four rules the assertion passed over an empty file
+  set. The harness had gone further than silence; three of its own tests asserted the gap
+  as intended behaviour ("The rule follows app-module scope, not arbitrary helper
+  files"). Those now assert the opposite, and each widened rule pins a violation placed
+  outside `modules/`.
+
+  **Adopting this release will fail some gates, and that is the point.** Everything it
+  newly reports was always a violation of a rule the app declared it was holding itself
+  to. Widening found four real cases here immediately, each escaped by proof rather than
+  by narrowing the rule: the egress client is the seam the rule names, its `ssrf.py`
+  resolves names in order to *check* them, the OIDC client speaks a protocol to an
+  operator-configured endpoint, and the example dev seed password is meant to be
+  published. Expect the name-shaped rule to produce false positives at the new reach —
+  `token_type = "bearer"` is an OAuth 2.0 response field, not a secret — and answer them
+  with a justified marker under the budget, which is what the governed opt-out is for.
+
+- **The idempotency key scoped on `Authorization` alone.** Correct only while every
+  authenticated route is bearer-authenticated. A route that authenticates by **cookie**
+  sends no such header, so two callers hashed to one store key — and on a route with no
+  body and no query, which is exactly the shape of a refresh endpoint, the request
+  fingerprint matched too. The second caller to present a given `Idempotency-Key` was
+  then served the first caller's stored response, which on that route is an access
+  token. The key now folds in the `Cookie` header as well.
+
+- **Two registry resets that disable a control were public API (ADR 0137).**
+  `reset_scope_predicates` and `reset_object_authz_predicates` clear, in one call, the
+  row-visibility predicates (the tenant filter) and every registered per-row write
+  policy. No exception, nothing in the log: reads start returning rows they used to hide
+  and refused writes start succeeding, with every architecture rule still passing. Both
+  now live behind `terp.core._internal`, where `no_internal_imports` refuses a module
+  import — the protection `allow_session_writes` has always had for the write chokepoint.
+  The secrets call-site reset stays public: it is a registered per-app runtime seam, and
+  resetting it makes decryption fail closed rather than open.
+
+- **Nothing said the throttle store was per-worker.** The idempotency store has had a
+  production warning for exactly this, on the argument that a promise quietly becomes
+  false on the second replica. The throttle store carries two promises of that shape —
+  the request rate limit and the per-account failed-login lockout — and had no such line,
+  so N workers silently enforce N times the allowance. A five-attempt lockout becoming
+  5 x N is the control least able to afford a silent multiplier.
+
+- **`trusted_proxy_hops=0` behind a real proxy is a silent outage.** Zero is the only
+  safe default, since an undeclared `X-Forwarded-For` is attacker-supplied. But left
+  there behind a front proxy, every caller resolves to the proxy's own address, so the
+  rate limit and every per-caller control become one bucket for the whole deployment that
+  a single visitor can exhaust for everybody. The symptom is intermittent 429s under
+  ordinary load, which reads as a limit set too low — raising it removes the symptom and
+  keeps the bug. `ClientIpMiddleware` now says so once per process, and only when a
+  request actually arrives carrying the header while no hops are declared, so a directly
+  exposed app never sees it. The project template, which ships the proxy, declares
+  `trusted_proxy_hops=1`.
+
+- **JIT provisioning had no statement of whose identities it accepts.**
+  `allow_provisioning=True` gated on a *verified* email, which checks the claim rather
+  than who may hold one: point an app at a multi-tenant IdP — an app registration left
+  open to any directory — and every gate still passes for an account nobody in the
+  deployment has heard of. `FederatedIdentityService` now takes `allowed_email_domains`
+  or a `provision_allowed` callback; both apply when both are given, matching is exact
+  rather than by suffix, and production refuses `allow_provisioning=True` without one at
+  construction rather than at the first stranger's login.
+
+- **A mount that verifies credentials declares its own rate limit (ADR 0138).** Every
+  route ran under the general limit, whose 240/minute default was sized for traffic where
+  a request costs a query. A credential endpoint costs an Argon2 verification,
+  memory-hard on purpose — and on the miss paths too, because an unknown subject must
+  cost the same as a wrong secret or the timing enumerates accounts.
+  `ModuleSpec.rate_limit` is the rate twin of `max_request_bytes`: auth and SSO declare
+  `RateLimit.credentials()` (thirty a minute per caller), so installing the capability is
+  the whole wiring. A module may tighten its mount and never exempt it.
+
+- **OIDC provider reads were unbounded.** Discovery, JWKS and the token exchange were
+  read with no size cap, so a hostile or merely misconfigured issuer could answer a login
+  with a body as large as it liked and take the worker's memory with it — the timeout
+  does not help, because the connection is never idle. All three are now streamed against
+  `MAX_RESPONSE_BYTES` and refuse redirects explicitly.
+
+- **`OwnedMixin` gates writes; nothing shipped the matching read filter.** The trait's
+  own docstring has always said so — a post-load boolean cannot paginate a list, so
+  visibility needs a row-scope predicate keyed on `owner_id` — and left writing that
+  predicate to the app. An exercise left undone reads exactly like a control that is
+  present, which is how the files capability came to describe itself as an "owner-scoped
+  admin router" while `GET /`, `GET /{id}` and the download stream returned any file to
+  any caller who cleared `ADMIN`. `register_owner_read_scope()` is now that predicate,
+  one composition-root line, and the files docstring says plainly which half it has.
+
+  Opt-in rather than the default, because it narrows what an already-authorized caller
+  can see: a deployment whose administrators are meant to see each other's rows would
+  find its screens quietly emptied by an automatic version. Unowned rows (written by a
+  job, a migration, a seed) stay visible to everyone, matching the write gate, which does
+  not restrict a row with no owner to protect; an actor-less read is not narrowed either,
+  since there is no self to scope to and narrowing to nothing would make background work
+  read an empty database rather than fail.
+
+- **`SecurityHeaders` declares `Cache-Control: no-store`.** An API that mints bearer
+  tokens was saying nothing about caching, leaving it to every intermediary's heuristics.
+  Applied with `setdefault` like the rest, so a route that has already answered the
+  question keeps its answer.
+
+- **Who can reach what is pinned now, not merely reportable (ADR 0139).** The access
+  graph has replayed enforcement since ADR 0121 — every allowance in it is `decide`'s own
+  answer, from the function the kernel guard runs — so the platform could always *say* who
+  may reach what. What nothing did was notice when the answer changed, and a widening is a
+  one-line edit: a `Policy` moving from a named permission to a role tier, a
+  `require_permission` dropped off a route, an endpoint added under a public mount, a
+  role's rank changed. Each leaves every other gate green.
+
+  `terp inspect access --format surface` renders the authority claim — the ladder, each
+  permission's floor, and per module its policy plus each endpoint's requirement, grants
+  and per-rung outcome — and the new `authz-surface` check diffs it against a committed
+  `authz-surface.json`, reporting each difference as the change a reviewer has to approve
+  ("requirement 'role:admin' -> 'viewer'", "now reachable by ['viewer']", "NEW endpoint —
+  nothing has reviewed what it requires"). In `full` as well as `release`, because a
+  widening is a merge-bar question.
+
+  Adoption is one command and one commit; an app with no baseline is skipped with a note
+  naming it, the shape `api-docs-drift` settled on, so upgrading never turns a gate red
+  for a feature nobody wired. **Regenerating is not a fix** — the writer is a separate,
+  explicit command and never a `--fix`, because the baseline is a review artifact and the
+  diff belongs in a pull request where somebody says yes. `apps/example` adopts it, so the
+  artifact is exercised by the suite rather than described by it.
+
+- **The dependency audits moved into the `full` profile**, and **`secret-scanning` joined
+  the release profile** as this toolchain's realisation of the standard's new required
+  lane. The audits were release-only on the argument that advisory databases move
+  independently of the code — right about the merge bar, wrong about the profile, because
+  a consumer's CI runs `full`, so a known-vulnerable dependency reached nobody until a
+  release someone remembered to cut. Secret scanning reads the object graph rather than
+  the working tree, which is the half `no_hardcoded_credentials` cannot be: a credential
+  committed and later removed is gone from the tree and still in the history. The
+  generated CI gains a full-depth checkout and a `gitleaks` step.
+
 ### Fixed
 
 - **The oversized-file seam proposal could name a cut that does not hold.** The message's

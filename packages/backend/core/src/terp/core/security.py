@@ -28,6 +28,10 @@ _DEFAULT_PERMISSIONS_POLICY: Final[str] = (
     "magnetometer=(), microphone=(), payment=(), usb=()"
 )
 _DEFAULT_CSP: Final[str] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+#: ``no-store`` rather than ``no-cache``: the latter permits a cache to *hold* the
+#: response and merely revalidate it, which for a token response is the part that
+#: matters. ``private`` is implied and omitted.
+_DEFAULT_CACHE_CONTROL: Final[str] = "no-store"
 _DEFAULT_HSTS: Final[str] = "max-age=63072000; includeSubDomains; preload"
 _DEFAULT_CORS_METHODS: Final[tuple[str, ...]] = (
     "GET",
@@ -50,6 +54,18 @@ class SecurityHeaders:
 
     ``hsts`` is applied only outside local development (a plain-HTTP localhost
     must not be pinned to HTTPS); set it to ``None`` to disable entirely.
+
+    ``cache_control`` defaults to ``no-store`` and is the newest of them. An API
+    that mints bearer tokens and serves per-caller data was saying nothing at all
+    about caching, which leaves the decision to every intermediary's heuristics:
+    a shared proxy, a CDN in front of the origin, or the browser's own
+    back-forward cache may retain a login response — a body whose entire content
+    is a credential — and hand it to the next reader of that URL. ``no-store`` is
+    the right default for the whole surface rather than for the token routes
+    alone, because the same argument covers every authenticated read. A route
+    that is genuinely public and cacheable sets its own ``Cache-Control`` and
+    keeps it: these headers are applied with ``setdefault``, so a handler that
+    has already answered the question wins.
     """
 
     x_content_type_options: str = "nosniff"
@@ -57,6 +73,7 @@ class SecurityHeaders:
     referrer_policy: str = "strict-origin-when-cross-origin"
     permissions_policy: str = _DEFAULT_PERMISSIONS_POLICY
     content_security_policy: str = _DEFAULT_CSP
+    cache_control: str | None = _DEFAULT_CACHE_CONTROL
     hsts: str | None = _DEFAULT_HSTS
 
     def as_headers(self, *, include_hsts: bool) -> dict[str, str]:
@@ -68,6 +85,8 @@ class SecurityHeaders:
             "Permissions-Policy": self.permissions_policy,
             "Content-Security-Policy": self.content_security_policy,
         }
+        if self.cache_control:
+            headers["Cache-Control"] = self.cache_control
         if include_hsts and self.hsts:
             headers["Strict-Transport-Security"] = self.hsts
         return headers
@@ -164,6 +183,30 @@ class RateLimit:
     def disabled(cls) -> RateLimit:
         """An explicitly disabled rate limit (rejected by production guardrails)."""
         return cls(requests=0)
+
+    @classmethod
+    def credentials(cls) -> RateLimit:
+        """The tighter cap a credential-verifying mount declares for itself.
+
+        The general limit is sized for an application's ordinary traffic, where a
+        request costs a query. A credential endpoint is not ordinary traffic: every
+        attempt runs a **deliberately expensive** password hash — Argon2, memory-hard
+        by design — and runs it on the miss paths too, because an unknown subject must
+        cost the same as a wrong secret or the timing difference enumerates accounts.
+        So the property that makes the credential check safe against a guesser is the
+        same property that makes the endpoint the cheapest way to spend the server's
+        CPU, and the general allowance was never chosen with that in mind.
+
+        Thirty per minute per caller: one attempt every two seconds sustained, which no
+        person reaches and no honest client needs, against an eighth of the CPU the
+        general limit would have allowed a single address to spend. It is a ceiling on
+        one address rather than a defence against many — a distributed guesser is what
+        the per-account lockout is for — and the two are deliberately different
+        controls, because a per-address lockout cannot exist (it would let anyone take
+        an office offline) and a per-account one cannot bound CPU (the attempt is paid
+        for before the account is known).
+        """
+        return cls(requests=30, window_seconds=60)
 
 
 @dataclass(frozen=True)

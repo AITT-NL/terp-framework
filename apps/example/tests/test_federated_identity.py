@@ -14,6 +14,7 @@ import pytest
 from sqlmodel import Session, select
 
 from terp.core import Roles
+from terp.core.config import settings
 
 from terp.capabilities.identity import (
     FederatedIdentity,
@@ -228,3 +229,146 @@ def test_example_resolver_provisions_then_resolves(db_session: Session) -> None:
 
     unverified = OIDCClaims(issuer=claims.issuer, subject="other", email="x@acme.test")
     assert _resolve_sso_principal(db_session, unverified) is None
+
+
+# --------------------------------------------------------------------------- #
+# whose identities may be provisioned (the allowlist seam)
+# --------------------------------------------------------------------------- #
+def test_a_domain_allowlist_refuses_a_verified_stranger(db_session: Session) -> None:
+    """Verified-email checks the claim, not who may hold one.
+
+    Against a multi-tenant IdP — an app registration left open to any directory — a
+    perfectly genuine, perfectly verified account from a directory this deployment has
+    never heard of clears every other gate here. That is open registration, and the
+    only thing that closes it is a statement about which identities are accepted.
+    """
+    service = FederatedIdentityService(
+        allow_provisioning=True, allowed_email_domains=("acme.test",)
+    )
+    outsider = service.resolve_or_provision(
+        db_session,
+        issuer=_ISSUER,
+        subject="stranger",
+        email="attacker@evil.test",
+        email_verified=True,
+    )
+    assert outsider is None
+    # And nothing was written on the way to refusing.
+    assert db_session.exec(select(User).where(User.email == "attacker@evil.test")).first() is None
+
+    insider = service.resolve_or_provision(
+        db_session,
+        issuer=_ISSUER,
+        subject="colleague",
+        email="new.person@ACME.test",  # the match is case-insensitive
+        email_verified=True,
+    )
+    assert insider is not None
+
+
+def test_a_subdomain_of_an_allowed_domain_is_not_allowed(db_session: Session) -> None:
+    """Exact match, never a suffix.
+
+    Accepting every subdomain hands provisioning to whoever controls one, and a
+    deployment that genuinely wants ``sub.acme.test`` can say so in one more entry.
+    """
+    service = FederatedIdentityService(
+        allow_provisioning=True, allowed_email_domains=("acme.test",)
+    )
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="sub",
+            email="someone@evil.acme.test",
+            email_verified=True,
+        )
+        is None
+    )
+
+
+def test_a_provision_gate_decides_per_claim(db_session: Session) -> None:
+    """The richer half: a rule that is not a list of domains still gets to be the rule."""
+    invited = {"expected@acme.test"}
+    service = FederatedIdentityService(
+        allow_provisioning=True, provision_allowed=lambda email: email in invited
+    )
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="uninvited",
+            email="walk-in@acme.test",
+            email_verified=True,
+        )
+        is None
+    )
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="invited",
+            email="expected@acme.test",
+            email_verified=True,
+        )
+        is not None
+    )
+
+
+def test_both_gates_apply_and_either_can_refuse(db_session: Session) -> None:
+    """A gate that could widen an allowlist would not be an allowlist.
+
+    Asserted on the combination because that is where the AND could silently become an
+    OR: the callback says yes to an address the domain list refuses.
+    """
+    service = FederatedIdentityService(
+        allow_provisioning=True,
+        allowed_email_domains=("acme.test",),
+        provision_allowed=lambda _email: True,
+    )
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="widened",
+            email="anyone@evil.test",
+            email_verified=True,
+        )
+        is None
+    )
+
+
+def test_an_empty_allowlist_is_refused_at_construction() -> None:
+    """An empty tuple reads as "allow nothing" and behaves as "declined to say"."""
+    with pytest.raises(ValueError, match="at least one non-empty domain"):
+        FederatedIdentityService(allow_provisioning=True, allowed_email_domains=())
+    with pytest.raises(ValueError, match="at least one non-empty domain"):
+        FederatedIdentityService(allow_provisioning=True, allowed_email_domains=("  ",))
+
+
+def test_production_refuses_provisioning_with_no_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail closed at construction, not at the first stranger's login."""
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    with pytest.raises(ValueError, match="requires an identity allowlist in production"):
+        FederatedIdentityService(allow_provisioning=True)
+    # Either gate satisfies it; provisioning-off never needed one.
+    FederatedIdentityService(allow_provisioning=True, allowed_email_domains=("acme.test",))
+    FederatedIdentityService(allow_provisioning=True, provision_allowed=lambda _e: True)
+    FederatedIdentityService()
+
+
+def test_development_still_provisions_without_an_allowlist(db_session: Session) -> None:
+    """A local run against a test IdP needs no ceremony — the refusal is production's."""
+    service = FederatedIdentityService(allow_provisioning=True)
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="dev-sub",
+            email="dev@anywhere.test",
+            email_verified=True,
+        )
+        is not None
+    )

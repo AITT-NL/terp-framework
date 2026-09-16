@@ -27,8 +27,8 @@ from terp.core.scoping import (
     apply_row_scope,
     register_scope_predicate,
     registered_scope_predicates,
-    reset_scope_predicates,
 )
+from terp.core._internal.registry_resets import reset_scope_predicates
 
 
 class _ScopedMixin(SQLModel):

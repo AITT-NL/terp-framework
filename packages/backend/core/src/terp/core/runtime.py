@@ -28,7 +28,7 @@ sixth seam cannot be added and silently left out of that isolation.
 **Per-app runtime, not capability registration.** Only state that ``create_app``
 installs *per app* belongs here. A capability registration — the job tenant-context
 seam (:func:`terp.core.jobs.reset_job_tenant_context`), the scope predicates
-(:func:`terp.core.scoping.reset_scope_predicates`) — is installed at import by the
+(``terp.core._internal.registry_resets.reset_scope_predicates``) — is installed at import by the
 capability and is *meant* to outlive a composed app, so isolating it per test would
 break the capability rather than protect the test. The naming convention carries the
 distinction: a per-app seam's reset is ``reset_<name>_runtime``.
