@@ -86,6 +86,26 @@ decision, 0001 onwards.
   across two releases does. `terp guide migrations` now carries the recipe, and
   `terp guide not_null_columns_are_backfilled` carries the decision path.
 
+- **`Text` gains an emphasis step, which `tone` never had.** Every tone is a move *away*
+  from the reader — `muted` and `subtle` recede, and the third option is not receding —
+  so secondary copy was covered and the opposite case had nothing. That case is just as
+  common: the number a stat card is about, the value in a definition row, the one word
+  in a sentence carrying it. With no step for it the reach is for `size`, which says
+  "this is bigger" when the thing meant is "this matters", and under the layout contract
+  a screen cannot fall back on rendering a heading of its own either.
+
+  `weight` takes `"normal" | "medium" | "semibold"` and reads the `--font-weight-*`
+  tokens the sheet already publishes, so this exposes an axis the design system had
+  rather than inventing one. It stays separate from `tone` because they are different
+  things and they compose: a `medium` `muted` label above a `semibold` value is an
+  ordinary pairing. `bold` is deliberately absent — body copy that needs 700 is a
+  heading wearing a disguise.
+
+  The base rule still states no `font-weight`, so a `Text` that asks for nothing keeps
+  inheriting exactly what it inherited before the axis existed and no existing screen
+  re-renders. (`tone`'s own doc comment called itself "ink weight", which was confusing
+  before there was a weight and wrong once there is; it now says ink tone.)
+
 - **`terp ports` — one machine-scoped ledger for host ports (ADR 0134).** `assign`, `show`,
   `list` and `release` over a per-machine record, with assignment and publication as a single
   call: the pair is written beside the compose file that reads it, and `workbench.json` decides

@@ -51,13 +51,14 @@ describe("Text", () => {
     expect(el).toHaveAttribute("data-terp", "text");
     expect(el.hasAttribute("data-tone")).toBe(false);
     expect(el.hasAttribute("data-size")).toBe(false);
+    expect(el.hasAttribute("data-weight")).toBe(false);
     expect(el.hasAttribute("data-measure")).toBe(false);
     expect(el.getAttribute("style")).toBeNull();
   });
 
-  it("names a tone, a step, a measure and its element", () => {
+  it("names a tone, a step, a weight, a measure and its element", () => {
     render(
-      <Text data-testid="copy" as="span" tone="muted" size="sm" measure="narrow">
+      <Text data-testid="copy" as="span" tone="muted" size="sm" weight="semibold" measure="narrow">
         body
       </Text>,
     );
@@ -65,7 +66,38 @@ describe("Text", () => {
     expect(el.tagName).toBe("SPAN");
     expect(el).toHaveAttribute("data-tone", "muted");
     expect(el).toHaveAttribute("data-size", "sm");
+    expect(el).toHaveAttribute("data-weight", "semibold");
     expect(el).toHaveAttribute("data-measure", "narrow");
+  });
+
+  it("carries emphasis on its own axis, so it composes with tone", () => {
+    // The pairing the missing axis used to force a size change for: a receding label
+    // above a value that carries the card. Both are body copy at the same step.
+    render(
+      <>
+        <Text data-testid="label" tone="muted" weight="medium">
+          Open incidents
+        </Text>
+        <Text data-testid="value" weight="semibold">
+          14
+        </Text>
+      </>,
+    );
+    expect(screen.getByTestId("label")).toHaveAttribute("data-weight", "medium");
+    expect(screen.getByTestId("label")).toHaveAttribute("data-tone", "muted");
+    const value = screen.getByTestId("value");
+    expect(value).toHaveAttribute("data-weight", "semibold");
+    // Emphasis is not a size change, which is what a screen had to reach for before.
+    expect(value.hasAttribute("data-size")).toBe(false);
+  });
+
+  it("leaves an explicit normal weight unstamped, like every other default", () => {
+    render(
+      <Text data-testid="copy" weight="normal">
+        body
+      </Text>,
+    );
+    expect(screen.getByTestId("copy").hasAttribute("data-weight")).toBe(false);
   });
 });
 

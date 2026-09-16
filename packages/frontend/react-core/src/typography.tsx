@@ -81,19 +81,39 @@ export function Heading({ level, size, children, ...rest }: HeadingProps) {
   );
 }
 
-/** Ink weight for body copy. */
+/** Ink tone for body copy. */
 export type TextTone = "default" | "muted" | "subtle";
 
 /** Type step for body copy. */
 export type TextSize = "xs" | "sm" | "base" | "lg";
 
+/**
+ * Emphasis for body copy — the axis `tone` does not have.
+ *
+ * Every tone is a step *away* from the reader: `muted` and `subtle` recede, and the third
+ * option is not receding. That covers secondary copy and leaves nothing for the opposite
+ * case, which is just as common — the number a stat card is about, the answer in a
+ * definition row, the one word in a sentence that carries it. With no step for it the
+ * reach is for `size`, which says "this is bigger" when the thing meant was "this
+ * matters", and under the layout contract a screen cannot fall back on rendering its own
+ * heading either.
+ *
+ * Weight is kept separate from tone on purpose: tone is the ink, weight is the type, and
+ * they compose (a `medium` `muted` label above a `semibold` value is an ordinary pairing).
+ * `bold` is deliberately absent — the token exists, but body copy that needs 700 is a
+ * heading wearing a disguise.
+ */
+export type TextWeight = "normal" | "medium" | "semibold";
+
 export interface TextProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
   /** The rendered element — `"p"` by default; `"span"` for text inside a line. */
   as?: "p" | "span" | "div";
-  /** Ink weight (default `"default"`; `"muted"` for secondary copy, `"subtle"` for hints). */
+  /** Ink tone (default `"default"`; `"muted"` for secondary copy, `"subtle"` for hints). */
   tone?: TextTone;
   /** Type step (default `"base"`). */
   size?: TextSize;
+  /** Emphasis step (default `"normal"`). Composes with `tone`. */
+  weight?: TextWeight;
   /**
    * Cap the line length for readability (default off).
    *
@@ -115,6 +135,7 @@ export function Text({
   as: Component = "p",
   tone = "default",
   size = "base",
+  weight = "normal",
   measure,
   children,
   ...rest
@@ -123,10 +144,12 @@ export function Text({
     <Component
       {...rest}
       data-terp="text"
-      // `default` and `base` are the base rule, so their attributes would describe the default
-      // twice — the idiom density, Button's `md`, Grid's `auto` and Card's `boxed` all use.
+      // `default`, `base` and `normal` are the base rule, so their attributes would describe
+      // the default twice — the idiom density, Button's `md`, Grid's `auto` and Card's
+      // `boxed` all use.
       data-tone={tone === "default" ? undefined : tone}
       data-size={size === "base" ? undefined : size}
+      data-weight={weight === "normal" ? undefined : weight}
       data-measure={measure}
     >
       {children}
