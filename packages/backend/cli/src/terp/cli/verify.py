@@ -69,6 +69,10 @@ CHECK_CATEGORIES: frozenset[str] = frozenset(
     {
         "architecture",
         "backend-tests",
+        # Its own category rather than "build": a driving tool files a failing unit test
+        # with the other test results, not with a compile error, and the two ask very
+        # different things of whoever reads them.
+        "frontend-tests",
         "frontend-boundaries",
         "build",
         "conformance",
@@ -376,6 +380,26 @@ _APPSEC_BASELINE = VerifyCheck(
     scope=("app/**", "control_plane/**", "tests/**"),
 )
 
+# The frontend's unit-test seam, and the counterpart to `backend-tests`. Until it existed
+# the only frontend test layer was the Playwright suite in `conformance/`, which needs a
+# running stack and answers "does the app work"; nothing ran the layer between a type check
+# and a browser. So presentation logic with branches -- an empty state, a formatter, a
+# plural rule, a column definition -- had nowhere to be tested that CI executes, and the
+# `test-adequacy` assurance lane composed nothing for the frontend because nothing existed
+# to compose.
+#
+# Conditional on the app declaring a `test` script, so an app rendered before the seam is
+# unaffected rather than newly red -- and, following `dependency-hygiene`, a declared but
+# unrunnable script is a RED rather than a skip. An app that says it has tests and cannot
+# run them is the case this is here to catch.
+_FRONTEND_TESTS = VerifyCheck(
+    id="frontend-tests",
+    category="frontend-tests",
+    command="npm --prefix frontend test",
+    scope=("frontend/**", "app/**"),
+    runner="frontend-tests",
+)
+
 _FRONTEND_BUILD = VerifyCheck(
     id="frontend-build",
     category="build",
@@ -455,6 +479,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ROUTES_DRIFT,
         _API_CLIENT,
         _FRONTEND_TYPECHECK,
+        _FRONTEND_TESTS,
         _FRONTEND_BUILD,
     ),
     "release": (
@@ -474,6 +499,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ROUTES_DRIFT,
         _API_CLIENT,
         _FRONTEND_TYPECHECK,
+        _FRONTEND_TESTS,
         _FRONTEND_BUILD,
         _API_DOCS_DRIFT,
         _CONFORMANCE,
@@ -1549,6 +1575,48 @@ def _run_dependency_hygiene(root: pathlib.Path) -> tuple[int, str]:
     return exit_code, output
 
 
+def _run_frontend_tests(root: pathlib.Path) -> tuple[int, str]:
+    """Run the frontend unit suite, if the app declares one.
+
+    Reads the `test` script out of `frontend/package.json` rather than testing for the
+    presence of test FILES: an app can have a suite it cannot run, and that is precisely
+    the state worth a red. The declaration is the app saying the seam is wired; whether
+    it then runs is the check.
+
+    Skips with a note for an app with no frontend or no `test` script -- upgrading the
+    framework must not fail a gate for a seam the app never adopted -- and `npm test`'s
+    own "no test files found" is left to speak for itself, because an app that declares
+    the script and has written nothing yet is mid-adoption, not broken.
+    """
+    manifest = root / "frontend" / "package.json"
+    if not manifest.is_file():
+        return 0, "no frontend/package.json - frontend tests not applicable"
+    try:
+        declared = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return 1, (
+            f"frontend/package.json is unreadable ({exc}), so whether this app declares "
+            "a frontend test suite cannot be established"
+        )
+    scripts = declared.get("scripts")
+    if not isinstance(scripts, dict) or not scripts.get("test"):
+        return (
+            0,
+            f"{NOTE_PREFIX}no `test` script in frontend/package.json - frontend unit "
+            "tests skipped (declare one to enable: it is the only layer that runs "
+            "presentation logic without a live stack; see `terp guide frontend`)",
+        )
+    exit_code, output = _run_subprocess(_FRONTEND_TESTS, root)
+    if exit_code != 0 and "vitest" in output and "not found" in output.lower():
+        output += (
+            "\n  This app declares a frontend `test` script but its runner is not "
+            "installed, so the suite it declared is run by nothing.\n"
+            '  Fix: add "vitest" to frontend/package.json devDependencies and '
+            "`npm --prefix frontend install`."
+        )
+    return exit_code, output
+
+
 def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     """Generate the typed API client from the live backend contract.
 
@@ -1728,6 +1796,8 @@ def run_verify_command(
             exit_code, output = _run_package_boundaries(project_root)
         elif check.runner == "dependency-hygiene":
             exit_code, output = _run_dependency_hygiene(project_root)
+        elif check.runner == "frontend-tests":
+            exit_code, output = _run_frontend_tests(project_root)
         elif check.runner == "routes-drift":
             exit_code, output = _run_routes_drift(project_root)
         elif check.runner == "env-seams":

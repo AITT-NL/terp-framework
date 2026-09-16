@@ -126,6 +126,32 @@ decision, 0001 onwards.
   re-renders. (`tone`'s own doc comment called itself "ink weight", which was confusing
   before there was a weight and wrong once there is; it now says ink tone.)
 
+- **A frontend unit-test seam, and a `frontend-tests` check that runs it.** A generated
+  app had two frontend layers and no third: the type checker, and the Playwright suite in
+  `conformance/`, which needs a running stack and answers "does the app work". Nothing
+  ran the layer between them. So presentation logic — an empty state, an error branch, a
+  formatter, a plural rule, a column definition — had nowhere to be tested that CI
+  executes, and the choice was Playwright-against-a-live-backend or nothing. The
+  `test-adequacy` assurance lane composed nothing for the frontend for the same reason:
+  there was nothing to compose.
+
+  The template now ships `vitest.config.ts` (jsdom, because in an app most of what is
+  worth unit-testing renders), a setup file that registers the jest-dom matchers and
+  cleans up between tests, a `test` script, and the four devDependencies behind them —
+  the same versions this repository's own frontend packages use. `terp verify` runs it in
+  `full` and `release`, conditional on the app declaring the script: an app rendered
+  before the seam existed skips with a note rather than turning red on upgrade, while an
+  app that declares a suite it cannot run is a failure, because that is the state worth
+  catching. The check files under its own `frontend-tests` category rather than `build`,
+  so a driving tool groups a failing test with test results instead of with compile
+  errors.
+
+  `terp new module` writes the view's first test beside the view, for the reason the
+  backend test package is already written in the same breath (ADR 0119): a module whose
+  default shape has no test owes a debt nobody mentioned. It asserts both sides of the
+  empty state — the marker present and no rows — so wiring a real endpoint makes it fail
+  honestly rather than keep passing against a list that never filled.
+
 - **`terp ports` — one machine-scoped ledger for host ports (ADR 0134).** `assign`, `show`,
   `list` and `release` over a per-machine record, with assignment and publication as a single
   call: the pair is written beside the compose file that reads it, and `workbench.json` decides
