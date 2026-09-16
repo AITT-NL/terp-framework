@@ -100,11 +100,10 @@ def _pinned_spec_version() -> str | None:
 #: left open. During certification the assertion below is trivially satisfied,
 #: because the catalog under test already contains the rule.
 #:
-#: Open: ``references_declare_delete_behaviour`` (ADR 0133) is implemented here and
-#: catalogued in the standard's next release. The window before it — the entries for
-#: ``modules_ship_tests`` (ADR 0119) and the three module-role rules (ADR 0121) — was
-#: shut by terp-spec 0.33.0, which the pin above names.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset({"not_null_columns_are_backfilled"})
+#: Open: nothing. The last window — ``not_null_columns_are_backfilled`` — was shut by
+#: terp-spec 0.35.0, which the pin above names; the one before it,
+#: ``references_declare_delete_behaviour`` (ADR 0133), by terp-spec 0.34.0.
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
 
 
 # --------------------------------------------------------------------------- #

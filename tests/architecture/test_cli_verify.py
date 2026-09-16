@@ -1399,7 +1399,10 @@ def _assurance_schema() -> dict:
 #:
 #: Emptying this list is a step of adopting the spec release (``docs/RELEASING.md``),
 #: alongside bumping the pin. A name left here after that adoption is caught below.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset({"secret-scanning"})
+#:
+#: Open: nothing. ``secret-scanning`` was awaiting terp-spec 0.35.0, which the pin now
+#: names, so the lane is held to the parity assertion like every other.
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
 
 
 def test_assurance_lanes_mirror_the_pinned_spec_vocabulary() -> None:
