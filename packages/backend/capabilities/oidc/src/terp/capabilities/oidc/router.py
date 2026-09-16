@@ -228,12 +228,16 @@ def build_oidc_module(
         policy=Policy.public_write(
             reason="SSO login endpoints must be reachable without a token"
         ),
-        # The same cap the password mount declares, for the same reason (ADR 0138): the
-        # callback exchanges a code and validates an ID token against the provider, so
-        # an unauthenticated caller can drive outbound requests and asymmetric signature
-        # verification from here. The per-source callback throttle bounds a guesser; the
-        # rate limit bounds the work.
-        rate_limit=RateLimit.credentials(),
+        # The same cap the password mount declares on its credential routes, for the
+        # same reason (ADR 0138): the callback exchanges a code and validates an ID
+        # token against the provider, so an unauthenticated caller can drive outbound
+        # requests and asymmetric signature verification from here. The per-source
+        # callback throttle bounds a guesser; the rate limit bounds the work.
+        #
+        # Keyed at "/" -- the whole mount -- rather than per route (ADR 0140), because
+        # unlike the password mount this one IS one cost class: both routes are steps of
+        # the same interactive sign-in and neither is called on an ordinary page load.
+        rate_limit={"/": RateLimit.credentials()},
     )
 
 

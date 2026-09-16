@@ -15,6 +15,7 @@ import io
 import json
 import logging
 import sys
+from collections.abc import Mapping
 
 import pytest
 from fastapi import APIRouter, FastAPI
@@ -1032,11 +1033,23 @@ def test_unexpected_exception_renders_a_500_envelope() -> None:
 # --------------------------------------------------------------------------- #
 # a mount declares its own rate limit (ADR 0138)
 # --------------------------------------------------------------------------- #
-def _rate_limited_spec(name: str, rate_limit: RateLimit | None) -> ModuleSpec:
+def _rate_limited_spec(
+    name: str, rate_limit: Mapping[str, RateLimit] | tuple[()] = ()
+) -> ModuleSpec:
+    """A two-route mount: ``/ping`` and ``/cheap``, so a route-scoped cap is visible.
+
+    One route is not enough to observe scoping — a mount-wide cap and a cap on the only
+    route it serves produce identical headers, and a test that cannot tell them apart
+    would keep passing if the scoping were dropped.
+    """
     router = APIRouter()
 
     @router.get("/ping")
     def ping() -> dict:
+        return {"ok": True}
+
+    @router.get("/cheap")
+    def cheap() -> dict:
         return {"ok": True}
 
     return ModuleSpec(
@@ -1056,16 +1069,40 @@ def test_a_mounted_spec_declares_the_limit_for_its_own_prefix() -> None:
     capability's upload allowance does.
     """
     app = create_app(
-        [_rate_limited_spec("creds", RateLimit.credentials()), _rate_limited_spec("open", None)],
+        [
+            _rate_limited_spec("creds", {"/ping": RateLimit.credentials()}),
+            _rate_limited_spec("open"),
+        ],
         control_plane=ControlPlane(
             security=SecurityConfig(cors=CorsPolicy.disabled(reason="probe"))
         ),
     )
     client = TestClient(app)
     assert client.get("/api/v1/creds/ping").headers["X-RateLimit-Limit"] == "30"
+    # The sibling route on the SAME mount keeps the general allowance: the declaration
+    # is keyed by route, not by mount (ADR 0140). This is the assertion that fails if
+    # the cap is ever widened back to the whole prefix.
+    assert client.get("/api/v1/creds/cheap").headers["X-RateLimit-Limit"] == "240"
     # An undeclared mount keeps the global allowance — the scoped cap is a bucket of
     # its own, not a second ceiling on everyone.
     assert client.get("/api/v1/open/ping").headers["X-RateLimit-Limit"] == "240"
+
+
+def test_a_mount_may_still_cap_itself_whole() -> None:
+    """``"/"`` is the mount, for a module that really is one cost class (the SSO mount).
+
+    Route keying must not cost a module the mount-wide declaration; it only stops the
+    mount being the *only* thing a module can say.
+    """
+    app = create_app(
+        [_rate_limited_spec("sso", {"/": RateLimit.credentials()})],
+        control_plane=ControlPlane(
+            security=SecurityConfig(cors=CorsPolicy.disabled(reason="probe"))
+        ),
+    )
+    client = TestClient(app)
+    assert client.get("/api/v1/sso/ping").headers["X-RateLimit-Limit"] == "30"
+    assert client.get("/api/v1/sso/cheap").headers["X-RateLimit-Limit"] == "30"
 
 
 def test_an_explicit_override_beats_a_spec_declaration() -> None:
@@ -1076,11 +1113,13 @@ def test_an_explicit_override_beats_a_spec_declaration() -> None:
     rather than a decision taken away from it.
     """
     app = create_app(
-        [_rate_limited_spec("creds", RateLimit.credentials())],
+        [_rate_limited_spec("creds", {"/ping": RateLimit.credentials()})],
         control_plane=ControlPlane(
             security=SecurityConfig(
                 cors=CorsPolicy.disabled(reason="probe"),
-                rate_limit_overrides={"/api/v1/creds": RateLimit(requests=7, window_seconds=60)},
+                rate_limit_overrides={
+                    "/api/v1/creds/ping": RateLimit(requests=7, window_seconds=60)
+                },
             )
         ),
     )
@@ -1090,7 +1129,7 @@ def test_an_explicit_override_beats_a_spec_declaration() -> None:
 def test_an_unrouted_spec_contributes_no_prefix() -> None:
     """A prefix nothing serves must not acquire an allowance — it has nothing to limit."""
     overrides = _rate_limit_override_map(
-        [ModuleSpec(name="library", rate_limit=RateLimit.credentials())],
+        [ModuleSpec(name="library", rate_limit={"/": RateLimit.credentials()})],
         SecurityConfig(cors=CorsPolicy.disabled(reason="probe")),
     )
     assert overrides == {}
@@ -1106,9 +1145,19 @@ def test_a_module_may_tighten_its_mount_but_never_exempt_it() -> None:
     per deployment.
     """
     with pytest.raises(ValueError, match="not remove it"):
-        ModuleSpec(name="creds", rate_limit=RateLimit.disabled())
+        ModuleSpec(name="creds", rate_limit={"/login": RateLimit.disabled()})
     # Raising the allowance is a legitimate declaration; only removal is refused.
-    assert ModuleSpec(name="creds", rate_limit=RateLimit(requests=1000)).rate_limit
+    assert ModuleSpec(name="creds", rate_limit={"/login": RateLimit(requests=1000)}).rate_limit
+
+
+def test_a_route_key_must_be_a_path_prefix() -> None:
+    """A key that is not a path silently never matches, so it is refused at construction.
+
+    ``"login"`` composes to ``/api/v1/authlogin``, a prefix no request can have: the cap
+    would read as declared and protect nothing.
+    """
+    with pytest.raises(ValueError, match="must start with '/'"):
+        ModuleSpec(name="creds", rate_limit={"login": RateLimit.credentials()})
 
 
 def test_the_credential_limit_is_tighter_than_the_general_one() -> None:

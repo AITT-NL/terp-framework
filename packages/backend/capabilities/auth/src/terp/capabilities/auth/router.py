@@ -321,15 +321,30 @@ def build_login_module(
         policy=Policy.public_write(
             reason="authentication endpoints must be reachable without a token"
         ),
-        # This mount's own cap, so installing the capability is enough and there is no
-        # composition-root line to forget (ADR 0138). Every route here verifies a
+        # This mount's own caps, so installing the capability is enough and there is no
+        # composition-root line to forget (ADR 0138). They are keyed by route, because
+        # this mount is not one cost class (ADR 0140): `/login` and `/token` verify a
         # credential, and a credential check is memory-hard ON PURPOSE -- including on
         # the miss paths, because an unknown subject must cost the same as a wrong
-        # secret or the timing enumerates accounts. That makes this the cheapest place
-        # on the whole surface to spend the server's CPU, which the app's general limit
-        # was never sized against. A deployment that has measured its own login traffic
-        # overrides the prefix in SecurityConfig.rate_limit_overrides.
-        rate_limit=RateLimit.credentials(),
+        # secret or the timing enumerates accounts. That makes those two the cheapest
+        # place on the whole surface to spend the server's CPU, which the app's general
+        # limit was never sized against.
+        #
+        # `/refresh` and `/logout` are deliberately NOT capped here. Neither hashes a
+        # password: `/refresh` reads a high-entropy cookie and rotates it, which costs a
+        # query, and it is the route `TerpProvider` probes on EVERY mount to restore a
+        # session -- so its volume tracks page loads, not login attempts. Capping it at
+        # the credential rate throttles ordinary navigation, and behind a shared egress
+        # address (one office, one IP) it takes that office offline, which is the exact
+        # outcome `RateLimit.credentials()` gives as the reason a per-address lockout
+        # cannot exist. They keep the app's general limit, which is still a cap.
+        #
+        # A deployment that has measured its own login traffic overrides the absolute
+        # prefix in SecurityConfig.rate_limit_overrides.
+        rate_limit={
+            "/login": RateLimit.credentials(),
+            "/token": RateLimit.credentials(),
+        },
     )
 
 

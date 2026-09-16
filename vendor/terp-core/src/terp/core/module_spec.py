@@ -23,7 +23,7 @@ rule, so an unauthenticated mutation needs a budgeted opt-out (ADR 0040).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -338,15 +338,31 @@ class ModuleSpec:
 
     ``rate_limit`` is the same declaration for request *rate* (ADR 0138), and is
     the half that was missing. An app's general limit is sized for its ordinary
-    traffic; a mount that verifies credentials is not ordinary traffic, because
+    traffic; a route that verifies credentials is not ordinary traffic, because
     every attempt there runs a memory-hard password hash on the miss path as well
     as the hit. The module that owns such a surface knows this and nothing else
-    does, so it declares its own cap — ``RateLimit.credentials()`` for the auth
-    and SSO mounts — and every app that installs the capability inherits it with
-    no wiring, exactly as it inherits the files capability's upload allowance. An
-    explicit ``SecurityConfig.rate_limit_overrides`` entry for the same prefix
+    does, so it declares its own cap and every app that installs the capability
+    inherits it with no wiring, exactly as it inherits the files capability's
+    upload allowance.
+
+    It is keyed by **route**, not by mount, because a mount is not a cost class
+    (ADR 0140). The auth mount is the proof: it holds the most expensive route on
+    the surface (``/login``, Argon2 on the miss path too) beside one of the
+    cheapest and most frequently called (``/refresh``, which ``TerpProvider``
+    probes on **every** mount to restore a session). A cap sized for the first
+    throttles ordinary navigation when it is applied to the second, and behind a
+    shared egress address — where a whole office is one caller — it takes that
+    office offline, which is the exact failure ``RateLimit.credentials()`` says a
+    per-address control must never cause.
+
+    Keys are path prefixes **relative to this mount**, so a module never spells
+    its own ``/api/v1/<name>``; ``"/"`` is the mount itself. Longest prefix wins,
+    the same resolution ``max_request_bytes`` already uses, and an unmatched route
+    keeps the app's general limit. An explicit
+    ``SecurityConfig.rate_limit_overrides`` entry for the resulting absolute prefix
     still wins: a declaration by the module is a floor a deployment may move, not
-    a decision taken away from it. ``None`` (the default) keeps the global limit.
+    a decision taken away from it. ``()`` (the default) keeps the global limit
+    everywhere on the mount.
 
     ``permissions`` is the module's claim on the named permissions it owns, and it stands to
     the control plane's ``PermissionModel`` exactly as ``emits`` stands to the
@@ -377,9 +393,14 @@ class ModuleSpec:
     policy: Policy | None = None
     tenant_scoped: bool = False
     max_request_bytes: int | None = None
-    rate_limit: RateLimit | None = None
+    #: Declared as a mapping and normalised to a tuple of pairs, for the reason
+    #: ``SecurityConfig.rate_limit_overrides`` is: every other field on this frozen
+    #: dataclass is hashable and a dict field would quietly take that away.
+    rate_limit: tuple[tuple[str, RateLimit], ...] = ()
 
     def __post_init__(self) -> None:
+        if isinstance(self.rate_limit, Mapping):
+            object.__setattr__(self, "rate_limit", tuple(self.rate_limit.items()))
         if not self.name or not self.name.isidentifier():
             raise ValueError(
                 f"ModuleSpec.name must be a valid identifier, got {self.name!r}"
@@ -389,15 +410,21 @@ class ModuleSpec:
                 "ModuleSpec.max_request_bytes must be positive when set, got "
                 f"{self.max_request_bytes!r}"
             )
-        if self.rate_limit is not None and not self.rate_limit.enabled:
-            # A module may tighten its own mount, never exempt it: an unlimited
-            # declaration would be a hole one prefix wide that the global limit still
-            # reads as enabled — the same shape production already refuses in
-            # SecurityConfig.rate_limit_overrides, refused here at construction too.
-            raise ValueError(
-                "ModuleSpec.rate_limit may lower or raise this mount's allowance, not "
-                "remove it; a module cannot declare itself unlimited"
-            )
+        for route, limit in self.rate_limit:
+            if not route.startswith("/"):
+                raise ValueError(
+                    "ModuleSpec.rate_limit keys are mount-relative path prefixes and "
+                    f"must start with '/': {route!r}"
+                )
+            if not limit.enabled:
+                # A module may tighten its own routes, never exempt one: an unlimited
+                # declaration would be a hole one prefix wide that the global limit still
+                # reads as enabled — the same shape production already refuses in
+                # SecurityConfig.rate_limit_overrides, refused here at construction too.
+                raise ValueError(
+                    "ModuleSpec.rate_limit may lower or raise a route's allowance, not "
+                    "remove it; a module cannot declare itself unlimited"
+                )
 
 
 __all__ = [

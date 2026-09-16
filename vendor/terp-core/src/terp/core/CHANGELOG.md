@@ -14,6 +14,35 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **A mount is not a cost class, so a rate-limit declaration is keyed by route (ADR 0140).**
+  ADR 0138 let a module declare its own cap and keyed that declaration to the module's
+  mount, copying how `max_request_bytes` scopes a body allowance. The auth mount is where
+  the copy stops holding, and it is the mount the rule was written for.
+  `RateLimit.credentials()` is thirty a minute and its justification is entirely about
+  cost — a memory-hard hash on the miss paths too, which makes the route the cheapest
+  place on the surface to spend the server's CPU. That is true of `/login` and `/token`.
+  It is not true of `/refresh`, which reads a high-entropy cookie and rotates it for the
+  price of a query, and which `TerpProvider` posts to on EVERY mount to restore a
+  session — so its volume tracks page loads, not login attempts.
+
+  Capping all four together rationed ordinary navigation at the rate chosen to make
+  password guessing expensive. The end-to-end suite surfaced the mild version, its
+  requests all coming from one runner address and its symptoms all looking like missing
+  elements on pages that had merely been refused. The serious version is a shared egress
+  address, where an office or a VPN exit is one caller and the application stops working
+  after thirty page loads between them — the outcome `RateLimit.credentials()` itself
+  names as the reason a per-address lockout cannot exist.
+
+  `ModuleSpec.rate_limit` now takes a mapping of mount-relative path prefix to
+  `RateLimit`, `"/"` being the mount itself; longest prefix wins, which is the resolution
+  the limiter already performed, so this contributes finer prefixes rather than adding a
+  second mechanism. Auth declares `/login` and `/token`; `/refresh` and `/logout` fall
+  through to the application's general limit, which is still a cap. The SSO mount keeps
+  `"/"`, because both of its routes are steps of one interactive sign-in and it really is
+  one cost class. A key that is not a path prefix is refused at construction, since
+  `"login"` would compose to `/api/v1/authlogin` and protect nothing while reading as
+  declared.
+
 - **The generated app's AppSec baseline turns pyflakes back on.** `[tool.ruff.lint]
   select = ["S"]` REPLACES ruff's default set rather than extending it, so naming the
   bandit rules silently switched off the `E4`/`E7`/`E9`/`F` group ruff runs when nothing

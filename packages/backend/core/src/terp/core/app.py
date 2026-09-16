@@ -639,19 +639,24 @@ def _request_size_override_map(
 def _rate_limit_override_map(
     specs: Sequence[ModuleSpec], config: SecurityConfig
 ) -> dict[str, tuple[int, int]]:
-    """The mount-prefix→(limit, window) map for the rate limiter (ADR 0138).
+    """The path-prefix→(limit, window) map for the rate limiter (ADR 0138).
 
     The rate-rate twin of :func:`_request_size_override_map`, and deliberately built
-    the same way: each **mounted** spec's declared ``rate_limit`` contributes its own
-    ``/api/v1/<name>`` prefix, and a router-less spec is skipped because an unrouted
-    prefix has nothing to limit.
+    the same way: each **mounted** spec's declared ``rate_limit`` contributes prefixes
+    under its own ``/api/v1/<name>``, and a router-less spec is skipped because an
+    unrouted prefix has nothing to limit.
 
     A module declares this when it knows something about its own traffic that the
-    application's general limit cannot — the auth and SSO mounts verify credentials,
-    and a credential check is memory-hard on purpose, so the endpoint is the cheapest
-    place on the surface to spend the server's CPU. Installing the capability is then
-    enough; there is no composition-root line to remember and therefore none to
-    forget.
+    application's general limit cannot — a credential check is memory-hard on purpose,
+    so such a route is the cheapest place on the surface to spend the server's CPU.
+    Installing the capability is then enough; there is no composition-root line to
+    remember and therefore none to forget.
+
+    The spec keys its declaration by route rather than by mount (ADR 0140), so what
+    lands here is one entry per declared route: the auth mount caps ``/login`` and
+    ``/token`` without capping ``/refresh``, which is a session probe rather than a
+    credential check and is called on every page load. ``"/"`` denotes the mount
+    itself and contributes the bare ``/api/v1/<name>``.
 
     ``SecurityConfig.rate_limit_overrides`` still wins on a shared prefix. The
     precedence is the same one every other composition seam uses — the root overrides
@@ -661,10 +666,13 @@ def _rate_limit_override_map(
     """
     overrides: dict[str, tuple[int, int]] = {}
     for spec in specs:
-        if spec.rate_limit is not None and spec.router is not None:
-            overrides[f"/api/v1/{spec.name}"] = (
-                spec.rate_limit.requests,
-                spec.rate_limit.window_seconds,
+        if spec.router is None:
+            continue
+        for route, limit in spec.rate_limit:
+            suffix = "" if route == "/" else route
+            overrides[f"/api/v1/{spec.name}{suffix}"] = (
+                limit.requests,
+                limit.window_seconds,
             )
     for prefix, limit in config.rate_limit_overrides:
         overrides[prefix] = (limit.requests, limit.window_seconds)
