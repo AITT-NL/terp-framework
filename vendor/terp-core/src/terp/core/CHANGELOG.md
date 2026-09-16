@@ -132,6 +132,17 @@ decision, 0001 onwards.
   documented behaviour for a file with no seam, now applied to the case where the seam is
   only apparent.
 
+- **A shared `UiText` constant had no JSX-body spelling, and the refusal did not say so.**
+  `<Trans {...DESCRIPTOR} />` is rejected by `locale-catalogs-complete`, correctly: the
+  catalog is inventoried statically and a spread carries no attributes to read. But one
+  descriptor used by two screens is an ordinary thing to want, and the message said only
+  that static `id` and `message` attributes are required -- which reads as "do not share
+  the constant" rather than "share it through the resolver". The sanctioned form was
+  already exported and already used by this package's own components; it was simply named
+  nowhere, in no message and no doc. The refusal for a spread now names it: `useUiText()`
+  in the component, then the resolved constant where the copy goes. Every other
+  non-static shape keeps the original wording, which is accurate for it.
+
 - **`terp upgrade --check` recommended a re-render it never checked was runnable.** The
   provenance test behind that recommendation was a line scan for a `_commit:` key in the
   copier answers file. That is the first of the three things `copier update` needs, and it

@@ -144,6 +144,18 @@ describe("locale catalog completeness", () => {
     expect(dynamicTrans.find((message) => message.ruleId === "terp/locale-catalogs-complete")?.message)
       .toContain("requires static non-empty id and message");
 
+    // A spread is still refused - the catalog is inventoried statically - but it is the
+    // one shape with a sanctioned alternative, so the refusal names it. Sharing one
+    // descriptor between two screens is ordinary; only its JSX-body spelling is not.
+    const spreadTrans = await lintWithCatalog(
+      { sourceLocale: "en", locales: { en: {}, nl: {} } },
+      'export const W = () => <Trans {...TITLE} />;',
+    );
+    const spreadMessage = spreadTrans
+      .find((message) => message.ruleId === "terp/locale-catalogs-complete")?.message;
+    expect(spreadMessage).toContain("useUiText");
+    expect(spreadMessage).toContain("text(DESCRIPTOR)");
+
     const staleAllowlist = await lintWithCatalog(
       {
         sourceLocale: "en",
