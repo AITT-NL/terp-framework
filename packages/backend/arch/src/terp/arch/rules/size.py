@@ -13,15 +13,21 @@ The cap alone is a rule with no recipe: it names a number and leaves the author
 to find the seam, which is the expensive half and the half the checker can
 already see. So the violation also **proposes a cut**. The file's top-level
 definitions form a graph — one definition references another — and the connected
-components of that graph are the groups that can move as a unit without leaving a
-dangling name behind. Naming the largest such group turns "this file is too long"
-into "these definitions are already independent of the rest; they are the file".
+components of that graph are the candidate groups. A candidate is only proposed
+once it survives a second reading of the whole file: the graph knows nothing of
+names bound by tuple unpacking or inside a top-level block, nor of references made
+from module-level statements, and a group that reads one of those is not
+independent however isolated the graph makes it look. Naming a group that passes
+both turns "this file is too long" into "these definitions are already independent
+of the rest; they are the file" — and naming none is the honest answer when no
+group is.
 """
 
 from __future__ import annotations
 
 import ast
 import pathlib
+from collections.abc import Iterator
 
 from terp.arch._ast import iter_python_files, parse
 from terp.arch.rules._support import ArchViolation, _rel
@@ -122,21 +128,146 @@ def _definition_components(tree: ast.Module) -> list[tuple[frozenset[str], int]]
     return sorted(components, key=lambda item: (-item[1], sorted(item[0])))
 
 
-def _proposed_seam(path: pathlib.Path) -> str:
-    """A sentence naming the largest movable group of definitions, or ``""``.
+def _module_level_statements(tree: ast.Module) -> Iterator[ast.stmt]:
+    """Every statement the module runs at import time, the ones inside blocks included.
 
-    Silent when there is nothing honest to say — a file whose definitions all
-    reference one another has no seam to propose, and inventing one would be worse
-    than the bare cap, because an author who follows a bad suggestion ends up with
-    two coupled files instead of one long one.
+    Recursion stops at a ``def`` / ``class``: their bodies bind locals and attributes,
+    not module names. A top-level ``if`` / ``try`` / ``with`` / ``for`` is descended,
+    because the names such a block binds are module names like any other — and they are
+    exactly the ones a definition-only reading of the file cannot see.
+    """
+    pending = list(tree.body)
+    while pending:
+        node = pending.pop()
+        yield node
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        for field in ("body", "orelse", "finalbody"):
+            pending.extend(getattr(node, field, None) or [])
+        for handler in getattr(node, "handlers", None) or []:
+            pending.extend(handler.body)
+
+
+def _module_level_bindings(tree: ast.Module) -> set[str]:
+    """Every name the module binds, including the ones no cut can carry away.
+
+    Deliberately wider than :func:`_top_level_definitions`, which answers "what could
+    move". This answers "what does this file define at all", and the gap between the two
+    is where the seam proposal used to go wrong: a name bound by tuple unpacking
+    (``MIN_LEN, MAX_LEN = 1, 200``) or inside a top-level ``try`` / ``if TYPE_CHECKING``
+    block is defined here and owns no span that could be lifted out. A group that reads
+    one is not self-contained, however isolated its own references look.
+    """
+    bound: set[str] = set()
+    for node in _module_level_statements(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            bound.add(node.name)
+            continue
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign | ast.AugAssign):
+            targets = [node.target]
+        elif isinstance(node, ast.For | ast.AsyncFor):
+            targets = [node.target]
+        elif isinstance(node, ast.With | ast.AsyncWith):
+            targets = [item.optional_vars for item in node.items if item.optional_vars]
+        for target in targets:
+            for inner in ast.walk(target):
+                if isinstance(inner, ast.Name):
+                    bound.add(inner.id)
+    return bound
+
+
+def _defines_movable(node: ast.stmt, movable: set[str]) -> bool:
+    """True when *node* is one of the definitions the component graph already covers."""
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        return node.name in movable
+    if isinstance(node, ast.Assign):
+        return any(
+            isinstance(target, ast.Name) and target.id in movable
+            for target in node.targets
+        )
+    if isinstance(node, ast.AnnAssign):
+        return isinstance(node.target, ast.Name) and node.target.id in movable
+    return False
+
+
+def _pinned_by_residue(tree: ast.Module, movable: set[str]) -> set[str]:
+    """Definitions named by module-level code that no cut can carry away.
+
+    A registration call, a conditional re-export, a constant built from a class — these
+    are statements rather than definitions, so they stay in the file whatever moves. A
+    definition one of them names therefore cannot leave without the old module importing
+    it back, and if the moved group also reads something anchored here, the two modules
+    import each other. The component graph is built from definitions alone and cannot
+    see any of that, which is why it is consulted rather than trusted.
+    """
+    pinned: set[str] = set()
+    for node in _module_level_statements(tree):
+        if _defines_movable(node, movable):
+            continue
+        for inner in ast.walk(node):
+            if (
+                isinstance(inner, ast.Name)
+                and isinstance(inner.ctx, ast.Load)
+                and inner.id in movable
+            ):
+                pinned.add(inner.id)
+    return pinned
+
+
+def _component_reads(tree: ast.Module, members: frozenset[str]) -> set[str]:
+    """Every name the definitions in *members* mention."""
+    read: set[str] = set()
+    for node in tree.body:
+        name = None
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            name = node.name
+        elif isinstance(node, ast.Assign):
+            name = next(
+                (t.id for t in node.targets if isinstance(t, ast.Name)),
+                None,
+            )
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name = node.target.id
+        if name in members:
+            read |= _referenced_names(node)
+    return read
+
+
+def _proposed_seam(path: pathlib.Path) -> str:
+    """A sentence naming the largest liftable group of definitions, or ``""``.
+
+    Silent when there is nothing honest to say — a file whose definitions all reference
+    one another has no seam to propose, and inventing one would be worse than the bare
+    cap, because an author who follows a bad suggestion ends up with two coupled files
+    instead of one long one. That silence is the reason the candidate is checked against
+    the whole file and not only against the definition graph: the graph is blind to
+    names bound by tuple unpacking or inside a top-level block, and to references made
+    from module-level statements, so a group can look perfectly isolated in it while
+    reading a constant that stays behind. Proposing that cut produced the exact failure
+    the docstring promises not to — two files importing each other.
     """
     try:
-        components = _definition_components(parse(path))
+        tree = parse(path)
     except SyntaxError:
         return ""
+    components = _definition_components(tree)
     if len(components) < 2:
         return ""
-    members, lines = components[0]
+    movable = set(_top_level_definitions(tree))
+    anchored = _module_level_bindings(tree) - movable
+    pinned = _pinned_by_residue(tree, movable)
+    for candidate, candidate_lines in components:
+        if candidate & pinned:
+            continue
+        if _component_reads(tree, candidate) & anchored:
+            continue
+        members, lines = candidate, candidate_lines
+        break
+    else:
+        return ""
     shown = sorted(members)
     listed = ", ".join(shown[:_SEAM_NAMES_SHOWN])
     if len(shown) > _SEAM_NAMES_SHOWN:
