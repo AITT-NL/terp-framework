@@ -1,1 +1,3 @@
-{}
+{
+  "arch-allow-no-hardcoded-credentials": 1
+}

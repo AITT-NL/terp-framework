@@ -1090,3 +1090,61 @@ def test_the_agent_rulebook_sends_edits_to_the_app_s_own_layer() -> None:
     rulebook = (_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8")
     assert "Never edit `frontend/src/house-style.css`" in rulebook
     assert "theme.css" in rulebook
+
+
+# --------------------------------------------------------------------------- #
+# the workspace and the template share one TypeScript
+# --------------------------------------------------------------------------- #
+def _typescript_ranges() -> dict[str, str]:
+    """Every ``typescript`` devDependency range in the repo, by manifest path.
+
+    Reads both spellings: the workspace's plain ``package.json`` files and the
+    template's ``.jinja`` ones. The jinja manifests are ordinary JSON in the places
+    that matter here (the dependency blocks carry no template expressions), so the
+    range is read with the same regex rather than by rendering the template.
+    """
+    root = pathlib.Path(__file__).resolve().parents[2]
+    manifests = [
+        root / "apps" / "example" / "frontend" / "package.json",
+        root / "apps" / "workbench" / "package.json",
+        *sorted((root / "packages" / "frontend").glob("*/package.json")),
+        *sorted((root / "template" / "project").rglob("package.json.jinja")),
+    ]
+    found: dict[str, str] = {}
+    for path in manifests:
+        match = re.search(r'"typescript":\s*"([^"]+)"', path.read_text(encoding="utf-8"))
+        if match:
+            found[str(path.relative_to(root).as_posix())] = match.group(1)
+    return found
+
+
+def test_the_workspace_and_the_template_pin_one_typescript() -> None:
+    """One TypeScript across the workspace and the generated app, or neither is tested.
+
+    ``@terpjs/contract`` ships the ``terp routes`` generator, and that generator reads an
+    app's module manifests through the **TypeScript compiler API** —
+    ``ts.createSourceFile``, ``ts.ScriptTarget``, ``ts.ScriptKind``. A major TypeScript
+    bump is therefore a breaking change to a shipped tool, not a devDependency detail.
+
+    The gap this closes is specific and was not hypothetical. Dependabot groups the
+    frontend dependencies and raises the ranges in every ``package.json`` it can see; it
+    cannot see ``package.json.jinja``, because that is not a manifest. So a major bump
+    moved the whole workspace while the template — the thing a generated app actually
+    installs — stayed behind, and the two disagreed with nothing to say so. The break
+    surfaced as fifteen red tests in a job the Python gate does not run, on ``main``,
+    after the merge.
+
+    Equality across both spellings is the assertion because the template is what a
+    generated app gets: a workspace that has moved ahead of it is testing a toolchain no
+    user has, and a template ahead of the workspace ships an untested one.
+    """
+    ranges = _typescript_ranges()
+    assert len(ranges) >= 6, (
+        f"expected the workspace and template manifests to declare typescript; found "
+        f"{sorted(ranges)} — if a manifest was renamed, this list must follow it"
+    )
+    assert len(set(ranges.values())) == 1, (
+        "the workspace and the generated app must install one TypeScript, because "
+        "`terp routes` is written against the compiler API and a major bump breaks it: "
+        f"{json.dumps(ranges, indent=2, sort_keys=True)}"
+    )
