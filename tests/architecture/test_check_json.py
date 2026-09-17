@@ -473,3 +473,29 @@ def test_cli_check_report_format_exits_by_verdict(
     assert {finding["rule"] for finding in payload["findings"]} >= {
         "backend/modules_declare_policy"
     }
+
+
+def test_an_adhoc_companion_already_declared_is_not_scanned_twice(
+    tmp_path: pathlib.Path,
+) -> None:
+    # `--companion` unions with `[tool.terp.arch]` rather than replacing it, so the same
+    # directory can arrive from both. Scanning it twice would be a correctness bug, not
+    # a waste: ONE escape-hatch budget counts the markers of every scanned root, so a
+    # duplicated root doubles every count in it and fails the ratchet — and the message
+    # would say a marker "rose", sending the reader to look for a marker nobody added.
+    _write(tmp_path / "app", "main.py", "value = 1\n")
+    _write(tmp_path / "engine", "job.py", "value = 1\n")
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.terp.arch]\ncompanions = ["engine"]\n', encoding="utf-8"
+    )
+    roots = extra_scan_roots(["engine"], root=tmp_path)
+    assert [root.package for root in roots] == ["engine"]
+
+    # And the property that actually matters, end to end: one marker stays counted once.
+    _write(tmp_path / "engine", "job.py", "print('x')  # arch-allow-no-print: a CLI prints\n")
+    budget = tmp_path / "budget.json"
+    budget.write_text(json.dumps({"arch-allow-no-print": 1}), encoding="utf-8")
+    payload = check_report(
+        str(tmp_path), budget_path=str(budget), companions=["engine"]
+    )
+    assert payload["ok"] is True, payload["violations"]
