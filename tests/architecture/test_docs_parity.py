@@ -452,3 +452,50 @@ def test_every_installed_capability_brings_its_capability_dependencies() -> None
                 f"which it declares as a dependency — the image cannot resolve, and "
                 f"only the image"
             )
+
+
+def test_the_guide_lists_exactly_the_rules_a_companion_root_is_held_to() -> None:
+    """``terp guide package-boundaries`` names the travelling rules; the registry decides them.
+
+    The topic tells an author which rules reach a second deployable, and it does so as a
+    hand-written list — the one shape in this file's subject that rots on its own, because
+    reclassifying a rule in ``RULE_ROOT_KINDS`` changes the truth without touching the
+    prose. The failure is the bad direction too: an author reads a rule's name in the
+    guide, believes their worker is held to it, and it is not.
+
+    Pinned rather than generated because the sentence around the list is doing work a
+    projection could not — it explains *why* these travel — and the projection is one
+    ``sorted()`` away in the test, which is the cheaper half to own.
+    """
+    from terp.arch import EVERY_ROOT, RULE_ROOT_KINDS, root_kinds_for
+
+    topic = guide("package-boundaries")
+    travelling = {
+        rule
+        for rule in RULE_ROOT_KINDS
+        if root_kinds_for(rule) == EVERY_ROOT
+        and rule not in {"escape_hatch_budget", "ungoverned_escape_hatch"}
+    }
+    listed = {rule for rule in travelling if f"`{rule}`" in topic}
+    missing = sorted(travelling - listed)
+    assert not missing, (
+        "terp guide package-boundaries lists the rules a companion root is held to, and "
+        f"these are held to it but not listed: {missing} — add them to the topic, or "
+        "reclassify them in RULE_ROOT_KINDS"
+    )
+    overclaimed = sorted(
+        rule
+        for rule in RULE_ROOT_KINDS
+        if rule not in travelling and f"`{rule}`" in _companion_bullet(topic)
+    )
+    assert not overclaimed, (
+        "terp guide package-boundaries names these in its companion-rule list, but a "
+        f"companion root is NOT held to them: {overclaimed} — an author would believe "
+        "their worker is covered by a rule that never runs there"
+    )
+
+
+def _companion_bullet(topic: str) -> str:
+    """The `WHAT THE COMPANION IS HELD TO` bullet alone, so the pin reads the right list."""
+    start = topic.index("- WHAT THE COMPANION IS HELD TO")
+    return topic[start : topic.index("\n- ", start + 1)]

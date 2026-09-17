@@ -9,8 +9,12 @@ import pathlib
 import re
 import sys
 from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 
 from terp.core import ControlPlane, CorsPolicy, ModuleSpec
+
+if TYPE_CHECKING:  # terp-arch stays off the common `terp guide` / `terp inspect` path
+    from terp.arch import ScanRoot
 
 from terp.cli.access import (
     build_access_graph_for_app,
@@ -677,10 +681,10 @@ Boundaries for a second top-level package (an ungated worker)
 
 - The shape: an app whose work cannot run under the gate — a legacy-DB connector, a
   device, a non-Python runtime — keeps a SECOND top-level package beside `app/`, and the
-  two must not import each other. `terp check` defaults to scanning `app/`; it
-  deliberately does not own generic import-graph checks, because a graph contract is
-  exactly what a generic tool already does better (and terp.arch would then be a second,
-  weaker copy).
+  two must not import each other. `terp check` scans `app/` plus whatever the project
+  declares as a companion (below); it deliberately does not own generic import-graph
+  checks, because a graph contract is exactly what a generic tool already does better
+  (and terp.arch would then be a second, weaker copy).
 - So declare the graph with import-linter, which the platform itself uses for its own
   layer-0 keystone. In the app's pyproject.toml:
       [tool.importlinter]
@@ -714,29 +718,49 @@ Boundaries for a second top-level package (an ungated worker)
 - What terp.arch still owns, because these are Terp semantics and not graph shape:
   `no_dynamic_sql` (SQL must be a static, reviewable literal — the containment check an
   app would otherwise hand-roll), `no_raw_outbound_http`, `no_adhoc_background_runtime`,
-  and every rule about BaseService / ModuleSpec / schemas.
-- YOU CAN SCAN THE SIDECAR, and you should. `terp check` takes the package to scan:
-      terp check --package engine
-  It runs the same rule set and reports the same file:line, so the hygiene rules that
-  apply to any Python at all — `no_print`, `no_naive_datetime`, `no_dynamic_sql`,
-  `no_raw_outbound_http` — cover the second package too. A hand-written AST test per
-  rule is not the alternative to this; it is a weaker copy of it.
-  One honest caveat: the check REPORT names the whole rule inventory, and a package that
-  is not a Terp app cannot exercise most of it (it has no modules, no ModuleSpec, no
-  schemas). So read a green here as "the rules that apply are clean", and do not publish
-  that report as a Terp Standard claim over the sidecar.
-- The worker's own gate is one command, and both halves are in it:
-      uv run terp verify             # Terp rules over app/, then the declared
-                                     # package graph over both
-  To put the sidecar's own scan in the same gate, declare it — the profile is open at
-  the app end (ADR 0106):
-      [[tool.terp.verify.checks]]
-      id = "engine-architecture"
-      command = "terp check --package engine"
-      profile = "quick"
-      scope = ["engine/**"]
-  It then runs in `quick`, `full` and `release`, appears in `terp verify --list`, and
-  carries the exit code — instead of living in a pytest wrapper the gate never reads.
+  and every rule about BaseService / ModuleSpec / schemas. The first two reach the second
+  package as well (see below); `no_adhoc_background_runtime` does not, because a worker
+  IS its own runtime.
+- SCAN IT, AND SAY SO IN ONE PLACE. Every root beyond `app/` is declared once, in the
+  app's pyproject.toml:
+      [tool.terp.arch]
+      app_packages = ["control_plane"]   # more of the app; held to every rule
+      companions = ["engine"]            # ships beside it; held to the rules below
+  `terp check` reads that with no flag, so `terp verify` picks it up too, and the app's
+  own architecture test spreads the same declaration into the harness call:
+      from terp.arch import assert_app_clean, declared_roots
+
+      assert_app_clean("app", *declared_roots(), budget_path="escape-hatch-budget.json")
+  A scaffolded app already declares `control_plane` — it has always been a second
+  package, and until this it was the app's permission, operation, event and job
+  declarations sitting outside the gate.
+  ONE declaration, because the escape-hatch budget is SHARED across the scanned roots: a
+  run that missed the companion would count its markers as absent, read that as a win to
+  lock in, and fail the ratchet. Declaring it in only one of the two gates is therefore
+  not a smaller version of this — it is a broken build. (`--companion engine` still
+  exists for an ad-hoc companion scan, and adds to the declaration rather than
+  replacing it.)
+- WHAT THE COMPANION IS HELD TO, and what it is not. A companion root gets the rules whose
+  invariant holds for any Python that ships — `no_hardcoded_credentials`, `no_dynamic_sql`,
+  `no_raw_outbound_http`, `no_adhoc_config_decrypt`, `no_internal_imports`, `no_print`,
+  `no_naive_datetime`, `no_eval_or_exec`, `no_star_imports`, `no_blocking_sleep`,
+  `no_mutable_default_args`, `no_todo_fixme`, `no_oversized_python_files`,
+  `no_empty_tests`, `no_manual_table_schema`, `frozen_values_hold_no_mutable_collection`.
+  It does NOT get the rules that are properties of being a mounted app: a route's response
+  model, a module's policy, a table's migration, the guarded session (ADR 0141). The check
+  report says which, per root, under `roots` — so a green over the companion names the
+  rules it is green about, and is a claim you can publish.
+  Expect the first declared run to be red. Sixteen rules arriving at once over a package
+  nothing has ever scanned will find things; they were violations all along.
+- WHAT A HAND-WRITTEN TEST IS STILL FOR. Not `no_dynamic_sql` or `no_print` — those now
+  reach the second package, and a bespoke AST scan beside them is a weaker copy that has
+  to be maintained. What a general tool cannot express is what to keep: an ALLOWLIST of
+  the third-party distributions the worker may import (a `forbidden` contract is a
+  denylist, and nobody can keep a list of every package that must never appear), or a
+  containment boundary particular to this worker's layout.
+- The worker's own gate is one command:
+      uv run terp verify             # Terp rules over app/ AND every declared companion,
+                                     # then the declared package graph over both
 - Sharing types across the boundary: neither package may import the other, but BOTH may
   import a third. A `contracts/` package of frozen value objects (with `max_length` caps
   declared, so the app half satisfies the input-schema rule) is one declaration and two
@@ -2156,8 +2180,51 @@ def gate_root(root: str | pathlib.Path = ".", *, package: str = "app") -> pathli
     return candidate if candidate.is_dir() else path
 
 
+def extra_scan_roots(
+    companions: Sequence[str] = (), *, root: str | pathlib.Path = ".", package: str = "app"
+) -> tuple[ScanRoot, ...]:
+    """Every root the gate scans **beyond** the app package, for a CLI invocation.
+
+    That is the project's own ``[tool.terp.arch]`` declaration — more of the application
+    (``app_packages``, scanned as ``app/`` is) and what merely ships beside it
+    (``companions``) — plus any ad-hoc ``--companion`` directories the invocation names.
+
+    *root* accepts the same two spellings :func:`gate_root` does, the project root or the
+    app package itself, so both resolve the declaration from the same place.
+
+    The declaration is always read, with no flag, and ``--companion`` *adds* to it. That
+    is what keeps the gate's two entry points from disagreeing: ``terp verify`` runs a
+    fixed ``terp check`` command carrying no flags of the app's choosing, so a root the
+    app has declared has to be picked up without one — and because the escape-hatch
+    budget is shared across the scanned roots, a run that missed one would count its
+    markers as *absent* and fail the ratchet. Both spellings are statements that a root
+    should be scanned; neither is a statement that another should not be, so the union is
+    the only reading that is not a silent narrowing.
+    """
+    from terp.arch import RootKind, ScanRoot, declared_roots
+
+    base = pathlib.Path(root)
+    if not (base / package).is_dir():
+        base = base.parent  # --root was already the app package
+    roots = list(declared_roots(base))
+    seen = {scanned.path.resolve() for scanned in roots}
+    for name in companions:
+        path = base / name
+        if path.resolve() in seen:
+            continue
+        seen.add(path.resolve())
+        roots.append(
+            ScanRoot(path, package=pathlib.Path(name).name, kind=RootKind.COMPANION)
+        )
+    return tuple(roots)
+
+
 def check_report(
-    root: str = ".", *, package: str = "app", budget_path: str | None = None
+    root: str = ".",
+    *,
+    package: str = "app",
+    budget_path: str | None = None,
+    companions: Sequence[str] = (),
 ) -> dict[str, object]:
     """The architecture gate as a structured report (the ``terp check --format json`` body).
 
@@ -2175,21 +2242,44 @@ def check_report(
     OUT of the inventory, so a consumer joining verdicts to the Terp Standard catalog
     can never claim ``escape_hatch_budget`` passed on a run that never enforced it
     (fail closed under version skew and configuration alike).
-    """
-    from terp.arch import check_app, guide_topic_for, ungoverned_marker_violations
-    from terp.arch.rules import GUIDE_TOPIC_BY_RULE
 
-    scan_root = gate_root(root, package=package)
-    violations = list(check_app(scan_root, package=package, budget_path=budget_path))
+    ``companions`` names the repository's other deployables (``--companion engine``),
+    each scanned as a :class:`terp.arch.RootKind.COMPANION` root. ``roots`` then
+    reports what was scanned and, per root, the rules that root was held to — because
+    a companion is held to fewer of them, and a scope that is not written down is the
+    thing this seam exists to stop being folklore. Top-level ``rules`` stays the union
+    over the scanned roots: it answers "did this run evaluate rule X", and with an app
+    root present the answer is unchanged, which is why an app-only run reports exactly
+    what it always did.
+    """
+    from terp.arch import check_app, guide_topic_for, root_kinds_for, ungoverned_marker_violations
+    from terp.arch.rules import GUIDE_TOPIC_BY_RULE, ScanRoot
+
+    scan_root = ScanRoot(gate_root(root, package=package), package=package)
+    roots = (scan_root, *extra_scan_roots(companions, root=root, package=package))
+    violations = list(check_app(*roots, package=package, budget_path=budget_path))
     if budget_path is None:
-        violations.extend(ungoverned_marker_violations(scan_root, package=package))
+        violations.extend(ungoverned_marker_violations(*roots, package=package))
     violations.sort(key=lambda violation: (violation.path, violation.line, violation.rule))
-    rules = set(GUIDE_TOPIC_BY_RULE)
-    if budget_path is None:
-        rules.discard("escape_hatch_budget")
+
+    def _inventory(scanned: ScanRoot) -> list[str]:
+        rules = {rule for rule in GUIDE_TOPIC_BY_RULE if scanned.kind in root_kinds_for(rule)}
+        if budget_path is None:
+            rules.discard("escape_hatch_budget")
+        return sorted(rules)
+
+    # Named by package, never by filesystem path: this report is a machine contract a
+    # tool joins to the catalog, and an absolute checkout path is neither stable across
+    # machines nor anyone else's business. The package is what names a root everywhere
+    # else in Terp.
+    per_root = [
+        {"package": scanned.package, "kind": scanned.kind.value, "rules": _inventory(scanned)}
+        for scanned in roots
+    ]
     return {
         "ok": not violations,
-        "rules": sorted(rules),
+        "rules": sorted({rule for scanned in per_root for rule in scanned["rules"]}),
+        "roots": per_root,
         "violation_count": len(violations),
         "violations": [
             {
@@ -2208,7 +2298,11 @@ def check_report(
 
 
 def check_report_envelope(
-    root: str = ".", *, package: str = "app", budget_path: str | None = None
+    root: str = ".",
+    *,
+    package: str = "app",
+    budget_path: str | None = None,
+    companions: Sequence[str] = (),
 ) -> dict[str, object]:
     """The architecture gate as a Terp Standard **check report** (``terp check
     --format check-report``).
@@ -2220,12 +2314,20 @@ def check_report_envelope(
     and findings in the finding format's shape (``fix_hint`` = the ``terp guide``
     recipe). The legacy ``--format json`` report keeps its published shape for
     existing consumers; this is the successor surface driving tools migrate to.
+
+    Companion roots are scanned and their findings reported, but the envelope carries
+    no per-root breakdown: ``app-check-report.schema.json`` is the standard's shape
+    and gains a field through the standard, not through this renderer. The inventory
+    is the union over the scanned roots, which for any run that includes an app root
+    is every rule, so the envelope means exactly what it did before.
     """
     import importlib.metadata
 
     from terp.arch import SPEC_VERSION
 
-    report = check_report(root, package=package, budget_path=budget_path)
+    report = check_report(
+        root, package=package, budget_path=budget_path, companions=companions
+    )
     try:
         version = importlib.metadata.version("terp-arch")
     except importlib.metadata.PackageNotFoundError:  # a source checkout (the platform repo)
@@ -3109,6 +3211,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--budget", default=None, help="Escape-hatch budget JSON (governs # arch-allow markers)"
     )
     check_parser.add_argument(
+        "--companion",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="A second deployable in this repo that create_app does not mount (a worker, "
+        "a publisher, a CLI). Repeatable, and added to whatever [tool.terp.arch] "
+        "declares. Held to the rules that are about the code rather than "
+        "about being a mounted app, under the same escape-hatch budget",
+    )
+    check_parser.add_argument(
         "--format",
         choices=("text", "json", "check-report"),
         default="text",
@@ -3534,26 +3646,40 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "check":
         if args.format == "check-report":
             payload = check_report_envelope(
-                args.root, package=args.package, budget_path=args.budget
+                args.root,
+                package=args.package,
+                budget_path=args.budget,
+                companions=args.companion,
             )
             print(json.dumps(payload, indent=2))
             if not payload["ok"]:
                 raise SystemExit(1)
             return
         if args.format == "json":
-            payload = check_report(args.root, package=args.package, budget_path=args.budget)
+            payload = check_report(
+                args.root,
+                package=args.package,
+                budget_path=args.budget,
+                companions=args.companion,
+            )
             print(json.dumps(payload, indent=2))
             if not payload["ok"]:
                 raise SystemExit(1)
             return
         from terp.arch import assert_app_clean
 
+        extra = extra_scan_roots(args.companion, root=args.root, package=args.package)
         assert_app_clean(
             gate_root(args.root, package=args.package),
+            *extra,
             package=args.package,
             budget_path=args.budget,
         )
-        print("terp.arch: app is clean")
+        # "app is clean" is the line a green gate has always printed; a run that scanned
+        # more than the app says what more, because a verdict that does not name its
+        # scope is the thing this whole seam exists to stop.
+        scanned = ", ".join(["app", *(root.package for root in extra)])
+        print(f"terp.arch: {scanned} are clean" if extra else "terp.arch: app is clean")
         return
     if args.command == "verify":
         raise SystemExit(

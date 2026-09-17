@@ -27,7 +27,13 @@ from terp.arch import (  # noqa: E402  (import after sys.path setup)
     ungoverned_marker_violations,
 )
 from terp.arch.rules import _ALL_RULES  # noqa: E402
-from terp.cli import check_report, gate_root, guide_topics, main  # noqa: E402
+from terp.cli import (  # noqa: E402
+    check_report,
+    extra_scan_roots,
+    gate_root,
+    guide_topics,
+    main,
+)
 
 _EXAMPLE_ROOT = _REPO_ROOT / "apps" / "example"
 
@@ -82,6 +88,12 @@ def test_check_report_is_clean_on_the_example_app() -> None:
     assert report == {
         "ok": True,
         "rules": sorted(GUIDE_TOPIC_BY_RULE),
+        # One scanned root, so the per-root inventory is the whole registry and the
+        # union above says the same thing. It stops saying the same thing the moment a
+        # companion root joins the run, which is why the breakdown is reported at all.
+        "roots": [
+            {"package": "app", "kind": "app", "rules": sorted(GUIDE_TOPIC_BY_RULE)}
+        ],
         "violation_count": 0,
         "violations": [],
     }
@@ -225,6 +237,87 @@ def test_cli_check_scopes_to_the_app_package_not_the_whole_project(
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert "no_print" not in {violation["rule"] for violation in payload["violations"]}
+
+
+def test_cli_check_scans_a_declared_companion_deployable(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The other half of the test above, and the reason that one is not the whole story:
+    # a project's second deployable is outside the gate until the project says it is
+    # there, and then it is inside. Same tree, same `print()`, one flag.
+    _write(tmp_path / "app", "main.py", "value = 1\n")
+    _write(tmp_path / "engine", "probe.py", "print('hello')\n")
+    budget = tmp_path / "budget.json"
+    budget.write_text(json.dumps({}), encoding="utf-8")
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "check",
+                "--root",
+                str(tmp_path),
+                "--budget",
+                str(budget),
+                "--companion",
+                "engine",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert {violation["rule"] for violation in payload["violations"]} == {"no_print"}
+    assert [violation["path"] for violation in payload["violations"]] == ["engine/probe.py"]
+
+
+def test_cli_check_reports_what_each_scanned_root_was_held_to(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A scope nobody can read is folklore again. The report names each root and the
+    # rules it was held to, and the companion's inventory is a strict subset — a
+    # companion holding every rule would mean the kind decided nothing.
+    _write(tmp_path / "app", "main.py", "value = 1\n")
+    _write(tmp_path / "engine", "probe.py", "value = 1\n")
+    budget = tmp_path / "budget.json"
+    budget.write_text(json.dumps({}), encoding="utf-8")
+    main(
+        [
+            "check",
+            "--root",
+            str(tmp_path),
+            "--budget",
+            str(budget),
+            "--companion",
+            "engine",
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    roots = {root["package"]: root for root in payload["roots"]}
+    assert roots["app"]["kind"] == "app"
+    assert roots["engine"]["kind"] == "companion"
+    assert set(roots["engine"]["rules"]) < set(roots["app"]["rules"])
+    assert "no_dynamic_sql" in roots["engine"]["rules"]
+    assert "modules_declare_policy" not in roots["engine"]["rules"]
+    # Top-level `rules` is the union, so an app root present means the inventory a
+    # catalog consumer joins on is unchanged by adding a companion.
+    assert payload["rules"] == roots["app"]["rules"]
+
+
+def test_extra_scan_roots_resolve_from_either_root_spelling(tmp_path: pathlib.Path) -> None:
+    # `gate_root` accepts the project root or the app package; a companion must resolve
+    # to the same directory from both, or `terp check` and the pytest gate disagree
+    # about scope again — which is the bug gate_root exists to have fixed.
+    app = tmp_path / "app"
+    app.mkdir()
+    (tmp_path / "engine").mkdir()
+    from_project = extra_scan_roots(["engine"], root=tmp_path)
+    from_package = extra_scan_roots(["engine"], root=app)
+    assert [root.path.resolve() for root in from_project] == [(tmp_path / "engine").resolve()]
+    assert [root.path.resolve() for root in from_package] == [(tmp_path / "engine").resolve()]
+    assert from_project[0].package == "engine"
+    assert from_project[0].kind.value == "companion"
 
 
 # --------------------------------------------------------------------------- #

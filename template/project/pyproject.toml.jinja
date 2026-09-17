@@ -54,6 +54,21 @@ dev = ["pytest>=8.0", "httpx>=0.27", "pytest-cov>=5.0", "terp-arch==0.23.0", "uv
 # the machine where a transitive dependency happens to be installed and dies on
 # a clean one. Declaring the table is what enables the check; delete it and the
 # check skips with a note.
+# Which roots the architecture gate scans, beyond `app/` itself. `control_plane` is
+# declared because it is not an optional extra: it holds this app's permission,
+# operation, event and job declarations, and a gate that scans only `app/` leaves them
+# unchecked (platform ADR 0141). `terp check` and `terp verify` read this table with no
+# flag, and tests/test_architecture.py spreads it into the harness call, so the two
+# entry points cannot disagree about scope -- which matters because ONE escape-hatch
+# budget covers every root listed here.
+#
+# A second DEPLOYABLE that create_app does not mount -- a worker, a publisher, a CLI --
+# goes under `companions` instead, and is held to the rules that are about the code
+# rather than about being a mounted app (`terp guide package-boundaries`):
+#     companions = ["engine"]
+[tool.terp.arch]
+app_packages = ["control_plane"]
+
 [tool.deptry]
 known_first_party = ["app", "control_plane"]
 

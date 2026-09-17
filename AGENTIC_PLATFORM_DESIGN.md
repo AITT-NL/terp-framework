@@ -514,12 +514,22 @@ part of conformance, so every stack enforces them identically.
 
 - **Shipped as a versioned dependency**, parameterised over the consuming app's
   `app/` (and `frontend/`). Clients run it; they cannot edit the rules.
+- **Every root, not only the mounted package** (ADR 0141). A project declares what it
+  has beyond `app/` once, in `[tool.terp.arch]`: `app_packages` for more of the
+  application (the scaffolded `control_plane/`, held to every rule) and `companions` for
+  a deployable that ships beside it without being mounted (a worker, a publisher, a CLI).
+  `terp check`, `terp verify` and the pytest gate all read the same table. A companion is
+  held to the rules whose invariant holds for any Python that ships and not to the ones
+  that are properties of being a mounted application; the classification is recorded per
+  rule (`RULE_ROOT_KINDS`), never inferred, and the check report names what each root was
+  held to.
 - **Delegates generic checks** to maintained tools — **Tach/import‑linter**
   (layering), **deptry/pip‑audit** (deps), **ruff** (security `S`, simplify) — and
   hand‑rolls only the domain‑specific rules from §5.10. This keeps the bespoke
   surface small.
 - **Escape‑hatch budget** (ratchet): `# arch-allow-*` marker counts must match a
-  checked‑in JSON and may only decrease. New exceptions require a justified budget
+  checked‑in JSON and may only decrease. One budget covers every scanned root, so an
+  exception cannot be relocated into a sibling package to escape its count. New exceptions require a justified budget
   bump in the same change; removed ones lock the win in.
 - **"Docs can't lie"** parity test: every "Enforced by test_X" claim in `AGENTS.md`
   resolves to a real test.

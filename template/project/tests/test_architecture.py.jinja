@@ -10,7 +10,7 @@ import importlib
 import pathlib
 import tomllib
 
-from terp.arch import assert_app_clean
+from terp.arch import assert_app_clean, declared_roots
 from terp.cli.verify import PROFILES
 from terp.core import assert_references_declare_delete_behaviour
 from terp.migrations import assert_migrations_match_models, upgrade
@@ -19,7 +19,11 @@ _APP_ROOT = pathlib.Path(__file__).resolve().parents[1] / "app"
 
 
 def test_architecture() -> None:
-    assert_app_clean("app", budget_path="escape-hatch-budget.json")
+    # `declared_roots()` reads [tool.terp.arch] in pyproject.toml, so this call and
+    # `terp check` (which reads the same table with no flag) scan the same roots. They
+    # have to: one escape-hatch budget covers all of them, so a run that scanned fewer
+    # would read the missing markers as a win to lock in and fail the ratchet.
+    assert_app_clean("app", *declared_roots(), budget_path="escape-hatch-budget.json")
 
 
 def test_generic_appsec_baseline_is_wired() -> None:
