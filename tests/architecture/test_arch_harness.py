@@ -14,6 +14,7 @@ import pathlib
 import pytest
 
 from terp.arch import (
+    ScanRoot,
     assert_app_clean,
     check_app,
     check_base_query_not_overridden,
@@ -101,6 +102,15 @@ from terp.arch import (
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _EXAMPLE_APP = _REPO_ROOT / "apps" / "example" / "app"
 _EXAMPLE_BUDGET = _REPO_ROOT / "apps" / "example" / "escape-hatch-budget.json"
+# The example app is two Python packages, which is the scaffolded shape rather than a
+# quirk of this one: `control_plane/` holds the permission, operation, event and job
+# declarations, and until the gate took several roots (ADR 0141) it was scanned by
+# nothing. Passed as a root here rather than read from `[tool.terp.arch]` because this
+# app has no pyproject.toml of its own -- it lives inside the framework workspace. The
+# declaration path a real app uses is covered in test_scan_roots.py.
+_EXAMPLE_CONTROL_PLANE = ScanRoot(
+    _REPO_ROOT / "apps" / "example" / "control_plane", package="control_plane"
+)
 
 # A single guaranteed violation we can suppress: a module importing terp.core._internal.
 _INTERNAL_IMPORT = "from terp.core._internal.engine import get_engine"
@@ -4740,7 +4750,7 @@ def test_example_app_passes_the_whole_harness() -> None:
     # justified opt-out (the journals read-visibility predicate, ADR 0061) is
     # governed by the checked-in budget.
     assert check_app(_EXAMPLE_APP) == []
-    assert_app_clean(_EXAMPLE_APP, budget_path=_EXAMPLE_BUDGET)
+    assert_app_clean(_EXAMPLE_APP, _EXAMPLE_CONTROL_PLANE, budget_path=_EXAMPLE_BUDGET)
 
 
 # --------------------------------------------------------------------------- #
@@ -4998,7 +5008,7 @@ def test_example_app_escape_hatch_budget_is_clean() -> None:
     # Dogfood: the example app's single opt-out (the journals read-visibility
     # predicate's owner_id comparison, ADR 0061) is governed â€” the budget agrees exactly.
     assert check_escape_hatch_budget(_EXAMPLE_APP, budget_path=_EXAMPLE_BUDGET) == []
-    assert_app_clean(_EXAMPLE_APP, budget_path=_EXAMPLE_BUDGET)
+    assert_app_clean(_EXAMPLE_APP, _EXAMPLE_CONTROL_PLANE, budget_path=_EXAMPLE_BUDGET)
 
 
 def test_table_ownership_is_not_split(tmp_path: pathlib.Path) -> None:

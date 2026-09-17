@@ -22,9 +22,19 @@ budget so opt-outs stay visible, greppable, and can only shrink.
 
 from __future__ import annotations
 
+from terp.arch.declaration import (
+    ARCH_TABLE,
+    ArchDeclarationError,
+    declared_roots,
+)
 from terp.arch.rules import (
+    APP_ROOT_ONLY,
+    EVERY_ROOT,
     GUIDE_TOPIC_BY_RULE,
+    RULE_ROOT_KINDS,
     ArchViolation,
+    RootKind,
+    ScanRoot,
     assert_app_clean,
     check_app,
     check_base_query_not_overridden,
@@ -108,6 +118,7 @@ from terp.arch.rules import (
     check_tenant_scoped_models_use_scoped_service,
     check_update_schemas_inherit_base_update_schema,
     guide_topic_for,
+    root_kinds_for,
     ungoverned_marker_violations,
 )
 
@@ -120,14 +131,22 @@ from terp.arch.rules import (
 SPEC_VERSION = "0.35.0"
 
 __all__ = [
+    "APP_ROOT_ONLY",
+    "ARCH_TABLE",
+    "ArchDeclarationError",
+    "EVERY_ROOT",
     "ArchViolation",
     "GUIDE_TOPIC_BY_RULE",
+    "RULE_ROOT_KINDS",
+    "RootKind",
     "SPEC_VERSION",
+    "ScanRoot",
     "assert_app_clean",
     "check_alembic_downgrades_not_empty",
     "check_migration_history_is_intact",
     "check_table_ownership_is_not_split",
     "check_app",
+    "declared_roots",
     "check_base_query_not_overridden",
     "check_canonical_module_shape",
     "check_modules_ship_tests",
@@ -206,6 +225,7 @@ __all__ = [
     "check_tenant_scoped_models_use_scoped_service",
     "check_update_schemas_inherit_base_update_schema",
     "guide_topic_for",
+    "root_kinds_for",
     "ungoverned_marker_violations",
 ]
 

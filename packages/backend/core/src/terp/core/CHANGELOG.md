@@ -10,6 +10,81 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.24.0 — 2026-09-17
+
+### Added
+
+- **The gate scans every deployable, not only the mounted one (ADR 0141).**
+  `assert_app_clean` took one root, so the code an application could hold to the eighty
+  rules was exactly the package `create_app` mounts. Everything else in the repository
+  was outside the gate by construction rather than by decision — and the thing that is
+  outside is rarely a random remainder. A worker, a publisher, a CLI, a sidecar is
+  disproportionately where a credential for a foreign system lives, where a connection is
+  opened to a database nobody on the team administers, where a statement is assembled as
+  text because the other schema is not modelled, and where the network is reached
+  directly because no capability sits between the code and the wire. Those are the exact
+  subjects of `no_hardcoded_credentials`, `no_dynamic_sql` and `no_raw_outbound_http`,
+  which 0.22.0 had just widened past `app/modules/` on the argument that a security rule
+  does not stop at a directory (ADR 0136). It still stopped at a root.
+
+  `check_app` and `assert_app_clean` now take any number of roots. A bare path is still
+  an app root on the call's `package`, so every existing call site means exactly what it
+  meant. A second deployable is a `ScanRoot(path, package=..., kind=RootKind.COMPANION)`,
+  and a project declares its own once:
+
+  ```toml
+  [tool.terp.arch]
+  app_packages = ["control_plane"]   # more of the app; held to every rule
+  companions = ["engine"]            # ships beside it, unmounted
+  ```
+
+  **`control_plane` is the case that reaches every app.** The scaffolded shape has had
+  two Python packages since it existed, and `assert_app_clean("app", ...)` scanned one of
+  them — so an app's permission, operation, event and job declarations have been outside
+  the gate in every Terp application ever generated. The template now declares it, and
+  the example app is scanned that way in this repository's own gate.
+
+  `terp check` reads that with no flag — which is what lets `terp verify`, whose
+  architecture command an app cannot add flags to, pick it up — and the test gate spreads
+  the same declaration with `assert_app_clean("app", *declared_roots(), budget_path=...)`.
+  One declaration rather than two is not tidiness: the escape-hatch budget is **shared**
+  across the scanned roots, so a run that missed a declared root would count its markers
+  as absent, read that as a win to lock in, and fail the ratchet.
+
+  Which rules a root is held to is recorded per rule in `RULE_ROOT_KINDS`, in the same
+  key space as `GUIDE_TOPIC_BY_RULE` and locked by the same kind of completeness
+  meta-test. The line is not "security rules travel and the rest do not": **a rule
+  applies to every root when its invariant holds for any Python that ships, and to app
+  roots only when its invariant is a property of being a mounted Terp application** — of
+  a module, a route, a response, a table, a migration, an event, a job, or the guarded
+  session. Sixteen travel. A worker has no route whose response model could be wrong; it
+  very much has a hardcoded credential, an f-string `text(...)`, a raw client, a naive
+  `datetime` and a frozen dataclass holding a list.
+
+  Two details that are decisions rather than mechanics. A rule the classification has
+  never heard of runs **everywhere** — a rule firing where it does not belong leaves a
+  file, a line and a fix, while a rule that quietly stops running leaves a green gate
+  that proves nothing, and the second failure is the one that needed a security review to
+  find. And a marker naming a rule its root never evaluates is now refused on its own
+  line: an opt-out that opts out of nothing still reads like a governed exception in the
+  budget, which is the same false assurance a scoped-out rule produces.
+
+  `terp check --format json` grows a `roots` array — package, kind, and that root's own
+  evaluated-rule inventory — so a green over a companion names the rules it is green
+  about. `terp guide package-boundaries` loses the caveat it used to carry about not
+  publishing such a run as a Terp Standard claim, because the report no longer overstates
+  what it checked. The Terp Standard envelope (`--format check-report`) is unchanged:
+  `app-check-report.schema.json` is the standard's shape and grows a field through the
+  standard, not through a renderer.
+
+  **Adopting this will fail a repository's gate the first time it declares a companion,
+  and that is the point.** Sixteen rules arriving at once over a package nothing has ever
+  scanned will find things that were violations the whole time. The fix is the usual one:
+  move the code behind the seam, or justify the exception with a marker and budget it.
+  No rule was added, so no catalog entry, no spec release and no pin bump: this is eighty
+  existing rules reaching code they already applied to in principle, with the scope
+  written down instead of assumed (ADR 0122).
+
 ## 0.23.0 — 2026-09-16
 
 ### Changed
