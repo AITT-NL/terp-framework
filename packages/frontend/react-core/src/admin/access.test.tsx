@@ -222,7 +222,12 @@ function makeReadGate(hold: boolean): ReadGate {
   return gate;
 }
 
-function stubAccessFetch(written: Written[], direct: Map<string, number>, gate: ReadGate) {
+function stubAccessFetch(
+  written: Written[],
+  direct: Map<string, number>,
+  gate: ReadGate,
+  { noAssignable = false } = {},
+) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const request = input as Request;
     const url = new URL(request.url);
@@ -240,7 +245,20 @@ function stubAccessFetch(written: Written[], direct: Map<string, number>, gate: 
       });
     }
     if (path.endsWith("/api/v1/access/model")) {
-      return jsonResponse(accessModel());
+      const model = accessModel();
+      // The shape of an application that never opted in: every module declares the default,
+      // which is what a `ModuleSpec` with no `access=` produces.
+      return jsonResponse(
+        noAssignable
+          ? {
+              ...model,
+              modules: model.modules.map((row) => ({
+                ...row,
+                access: { ...row.access, assignable: false },
+              })),
+            }
+          : model,
+      );
     }
     if (path.includes("/module-roles/")) {
       const module = path.split("/").pop() ?? "";
@@ -271,7 +289,10 @@ function stubAccessFetch(written: Written[], direct: Map<string, number>, gate: 
           500,
         );
       }
-      return jsonResponse(subjectAccess(path.split("/").pop() ?? SUBJECT, direct));
+      const subject = subjectAccess(path.split("/").pop() ?? SUBJECT, direct);
+      // No opt-in anywhere means no rung was ever assignable, so none can be held either —
+      // an orphan here would be describing a different application than the model does.
+      return jsonResponse(noAssignable ? { ...subject, module_roles: [] } : subject);
     }
     if (path.endsWith(`/api/v1/users/${SUBJECT}`)) {
       return jsonResponse({
@@ -311,7 +332,7 @@ function LogInOnMount() {
   return null;
 }
 
-function renderAt(initialPath: string, { gateReads = false } = {}) {
+function renderAt(initialPath: string, { gateReads = false, noAssignable = false } = {}) {
   const written: Written[] = [];
   const gate = makeReadGate(gateReads);
   const manifests: ModuleManifest[] = [
@@ -327,7 +348,7 @@ function renderAt(initialPath: string, { gateReads = false } = {}) {
     title: "Terp",
     history: createMemoryHistory({ initialEntries: [initialPath] }),
   });
-  stubAccessFetch(written, direct, gate);
+  stubAccessFetch(written, direct, gate, { noAssignable });
   render(
     <TerpProvider baseUrl="https://api.test">
       <ToastProvider>
@@ -651,5 +672,38 @@ describe("the assignment panel", () => {
     await waitFor(() => expect(written).toHaveLength(1));
     expect(written[0].method).toBe("DELETE");
     expect(written[0].path).toBe(`/api/v1/access/subjects/${SUBJECT}/module-roles/legacy`);
+  });
+
+  it("draws no section at all when the application declares no assignable module", async () => {
+    // The notice this used to render explains a `ModuleSpec` to somebody looking at a person,
+    // and no action available on the screen can ever resolve it — a heading, a description and
+    // a dead end, on every user and every group, forever. It is the panel's own rule applied
+    // to itself: a module that refuses is not listed, so a surface with no modules is not drawn.
+    renderAt(`/admin/users/${SUBJECT}`, { noAssignable: true });
+
+    // Anchored on the page actually arriving, so the absence below is a decision and not a
+    // test that outran the render. By role, not by text: the email is the page's heading
+    // *and* a row in its detail list, so a bare text query matches twice.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "jane.doe@example.com" }),
+      ).toBeInTheDocument(),
+    );
+
+    expect(screen.queryByText("Access per module")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/no module in this application accepts a role of its own/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the section when nothing is assignable but a stale rung is still held", async () => {
+    // The exception that stops the rule above from being `assignable.length === 0`: this panel
+    // is the only place an orphaned row can be cleared, so hiding on the count of assignable
+    // modules alone would strand exactly the rows ADR 0121 insists are reported.
+    await openUserPanel();
+
+    expect(screen.getByText("Access per module")).toBeInTheDocument();
+    expect(screen.getByText(/no longer accepts a role of its own/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(1);
   });
 });
