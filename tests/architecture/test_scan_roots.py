@@ -367,3 +367,20 @@ def test_the_declaration_orders_app_packages_before_companions(tmp_path: pathlib
     # application first, then what merely ships beside it — so a failure listing reads
     # outward from the app rather than in whatever order the TOML happened to be typed.
     assert [root.package for root in declared_roots(tmp_path)] == ["control_plane", "worker"]
+
+
+def test_an_unreadable_manifest_is_refused_rather_than_ignored(tmp_path: pathlib.Path) -> None:
+    # A manifest that will not parse is the one case where "no declaration" and "a
+    # declaration nobody could read" look the same from the outside, and treating them
+    # alike would silently narrow the scan to the app package. Say so instead.
+    _repo(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[tool.terp.arch\nx = 1\n', encoding="utf-8")
+    with pytest.raises(ArchDeclarationError, match="unreadable"):
+        declared_roots(tmp_path)
+
+
+def test_a_declaration_that_is_not_a_table_is_refused(tmp_path: pathlib.Path) -> None:
+    _repo(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[tool.terp]\narch = "worker"\n', encoding="utf-8")
+    with pytest.raises(ArchDeclarationError, match="not a table"):
+        declared_roots(tmp_path)
