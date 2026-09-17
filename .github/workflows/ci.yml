@@ -278,7 +278,14 @@ jobs:
           uv run terp migrate upgrade
           uv run terp migrate make records -m "create records table"
           uv run pytest
-          uv run terp check
+          # With the budget, which is the form the generated app itself uses. The bare
+          # `terp check` fails closed the moment the app holds any `# arch-allow-*`
+          # marker -- and since 0.23.0 widened the security rules past `app/modules/`
+          # (ADR 0136), the scaffolded seed's demo password carries one. So the bare
+          # form was asserting that a generated app has no governed opt-outs, which is
+          # not a property the template has or wants. Naming the budget also makes this
+          # step run the ratchet it was silently skipping.
+          uv run terp check --budget escape-hatch-budget.json
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
