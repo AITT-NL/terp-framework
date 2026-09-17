@@ -10,6 +10,71 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — 2026-09-17
+
+### Changed
+
+- **An application's rate-limit override outranks a capability's, at any depth (ADR 0142).**
+  `_rate_limit_override_map` has always promised that `SecurityConfig.rate_limit_overrides`
+  wins — "the root overrides the package … a capability's default is a floor it may move
+  rather than a decision taken away from it". That was true while a capability keyed its
+  declaration on its **mount**: the application's entry was the same dict key and replaced
+  it. 0.23.0 re-keyed the auth capability by **route** (ADR 0140, so `/refresh` would stop
+  being rationed at the rate chosen to make password guessing expensive), and because the
+  limiter resolves by **longest matching prefix**, the capability's key became the longer
+  one. From that release an application override on `/api/v1/auth` silently stopped
+  applying: declared in source, visible in review, counted by nobody, with no warning, no
+  error and no failing test.
+
+  A root override now removes the capability-declared keys at or beneath its prefix before
+  inserting itself, which is what "the root overrides the package" has to mean once the
+  package can key deeper than the root does. The separator is part of the prefix, so
+  `/api/v1/authority` is not beneath `/api/v1/auth` — without that an override silently
+  uncaps an unrelated capability, the same defect one level along.
+
+  **This is a behavioural change, not only a fix.** An application that already declares an
+  override on a mount prefix has been running with an inert declaration; after this release
+  it takes effect. If that number is loose and the deployment has been unknowingly protected
+  by the bug, the protection goes. Production therefore states once, at boot, which
+  capability limit the application is running above — naming the prefix, the new number and
+  the routes it displaced — in the shape `_warn_unshared_idempotency_in_production`
+  established. It is not a refusal: raising the number is a supported move, and
+  `production_problems` already refuses the one move that never is (disabling a limit).
+
+  The real defect was the missing test rather than the missing line: the displaced promise
+  lived in a docstring, so ADR 0140's own suite was thorough about what it changed and
+  silent about what it repealed. The tests added here assert the promise directly, so the
+  next re-keying fails instead of quietly ending it.
+
+### Fixed
+
+- **The template trusted a proxy hop on a directly published API.**
+  `template/project/control_plane/__init__.py` declared a flat `trusted_proxy_hops=1`, with
+  a comment reasoning entirely about `docker-compose.prod.yml` — where only `web` publishes
+  a port, so nginx really is the only way in — and offering "set it to 0 if you remove `web`
+  and expose the API directly" as the escape. That condition does not describe the dev
+  stack the same template ships, where `web` is present **and** `api` publishes
+  `${API_PORT}:8000`. A request can therefore arrive there having passed no proxy at all,
+  and a trusted hop lets that caller write their own `X-Forwarded-For` — not merely stepping
+  out of their own rate-limit bucket but attributing their requests to somebody else's
+  address, which poisons the login lockout and the OIDC callback throttle with it. Zero is
+  the platform default precisely because an undeclared forwarding header is
+  attacker-supplied. The template now declares `1 if get_settings().is_production else 0`,
+  and a test pins both halves against the compose files they each describe.
+
+- **The template shipped a conformance harness its own credential limit refuses.**
+  `@terpjs/conformance`'s `login()` drives the real login screen, so a suite grows one real
+  `POST /auth/login` per spec — against `RateLimit.credentials()`, thirty a minute, in its
+  own bucket. The application's general `rate_limit` cannot absorb that, and by design: an
+  override-matched path is counted in that override's own bucket (ADR 0115), so exhausting
+  one family cannot 429 another. The failure does not read as a rate limit either — whichever
+  spec crosses the line fails on a missing element, in a module with nothing to do with
+  authentication, and a different one each run. The template now declares a non-production
+  credential limit, keyed **per route** so `/refresh` keeps the exemption ADR 0140 gave it.
+
+  This went unnoticed because this repository's own example app ships one auth spec: too
+  small a suite to trip its own limit, where a real application's is not.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added
