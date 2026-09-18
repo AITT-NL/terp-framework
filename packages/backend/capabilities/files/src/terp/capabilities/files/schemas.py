@@ -10,7 +10,9 @@ the content-derived fields are append-only (see ``models``).
 ``FileRead`` deliberately **omits** ``storage_key`` and ``storage_profile``: the raw
 storage address and the named backend holding it are server-side material and never
 leave the API boundary (the ``schemas_exclude_sensitive_fields`` posture, plus a runtime
-test asserting the omission).
+test asserting the omission). It **carries** ``scan_state``, which is the opposite kind
+of field: a caller refused a download is owed the reason, and a UI that cannot read the
+state can only discover it by attempting the transfer.
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ import uuid
 from sqlmodel import Field
 
 from terp.core import BaseSchema, BaseUpdateSchema
+
+from terp.capabilities.files.scanning import SCAN_NOT_SCANNED, SCAN_STATE_MAX
 
 # Mirror the model caps so an oversized value is rejected at the boundary (a DoS cap).
 _FILENAME_MAX = 255
@@ -39,6 +43,9 @@ class FileCreate(BaseSchema):
     sha256: str = Field(max_length=_SHA256_MAX)
     storage_key: str = Field(max_length=_STORAGE_KEY_MAX)
     storage_profile: str = Field(min_length=1, max_length=_STORAGE_PROFILE_MAX)
+    scan_state: str = Field(
+        default=SCAN_NOT_SCANNED, min_length=1, max_length=SCAN_STATE_MAX
+    )
 
 
 class FileUpdate(BaseUpdateSchema):
@@ -61,6 +68,10 @@ class FileRead(BaseSchema):
     content_type: str
     size: int
     sha256: str
+    # Why a client sees this: it is the difference between a download button that is
+    # absent and one that fails. A quarantined file's bytes are refused on every path,
+    # so a UI that cannot read the state can only find out by trying.
+    scan_state: str
     owner_id: uuid.UUID | None
     version: int
     created_at: datetime.datetime
