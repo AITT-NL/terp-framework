@@ -690,7 +690,16 @@ describe("the assignment panel", () => {
       ).toBeInTheDocument(),
     );
 
-    expect(screen.queryByText("Access per module")).not.toBeInTheDocument();
+    // The page arriving is not the panel settling, and the difference is a whole round trip:
+    // `UserDetail` renders its heading as soon as `/users/{id}` returns, while the panel hides
+    // itself only once `/access/subjects/{id}` comes back and `settled` leaves its -1. Until
+    // then it is still drawing the section behind a `LoadingState`, so asserting right after
+    // the heading caught the panel mid-read rather than catching it deciding. The anchor above
+    // stays, because on its own this `waitFor` would pass at render zero with nothing on screen
+    // yet -- the absence has to be reached *after* the page is there, not instead of it.
+    await waitFor(() =>
+      expect(screen.queryByText("Access per module")).not.toBeInTheDocument(),
+    );
     expect(
       screen.queryByText(/no module in this application accepts a role of its own/i),
     ).not.toBeInTheDocument();
