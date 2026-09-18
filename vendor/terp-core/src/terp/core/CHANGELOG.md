@@ -10,6 +10,56 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — unreleased
+
+### Added
+
+- **A file carries what a scanner decided about it, and the deployment brings the scanner
+  (ADR 0144).** The files capability already refused a media type outside the deployment's
+  allowlist (ADR 0068) and bytes whose signature contradicted their declared type
+  (ADR 0076). Neither is malware detection, and together they read like coverage: a
+  signature check proves a PDF is shaped like a PDF, which is exactly what a malicious PDF
+  also is.
+
+  A platform cannot ship a scanner — which engine a deployment runs, whether it has a
+  licence for one, and what it costs per upload are all deployment questions, and a
+  capability that answered them would be forked by the first consumer that needed a
+  different answer. What it can own is the **state**: `File.scan_state`,
+  `register_file_scanner()` as the one composition-root line, and a gate that refuses to
+  hand out bytes a scanner rejected. The scanner runs inside `FileService.store` and is
+  handed the **stored** bytes — what a download would actually return — through an opener
+  rather than a `bytes`, so a scanner needing only a header can stop early on a path that
+  has taken care never to hold an upload whole.
+
+  **Nothing changes for a deployment that wires no scanner.** There is no safe default
+  available: a file cannot be `clean` without something having looked at it, so gating
+  downloads on a verdict nothing will ever produce would make every already-stored file
+  unreachable at upgrade. Such a deployment stores `not_scanned`, which is also what the
+  migration backfills onto existing rows — not `clean`, the one value that would make the
+  new column lie, in the direction that lets bytes out.
+
+  **A rejected upload is quarantined rather than discarded**: the row is created and the
+  blob stays, flagged and unservable. An operator needs to know what arrived and from
+  whom, and the uploader is told by `scan_state` on the response. It also keeps the gate
+  honest — a state nothing can reach is a comment, not a control. The gate sits in the
+  service's read chokepoint rather than on the download route, so the serve-through
+  delegation read (`load_for`) and any programmatic `load` are covered by the same
+  decision; on the route, `load_for` would have gone on serving exactly the rejected bytes
+  through another module's already-authorized row.
+
+  `FileRead` gains `scan_state` (a caller refused a download is owed the reason);
+  `FileUpdate` does not (a verdict a client could patch is not a verdict). One additive,
+  backfilled, indexed column — the index because the question it answers is a listing one:
+  *which stored files were never scanned*, asked on the day a scanner is finally wired.
+
+  **Asynchronous scanning is deliberately not included, and the blocker is not local.**
+  Recording a verdict after the row exists is a cross-owner maintenance write, and the
+  platform has no supported route for one (`terp guide ownership`: *"Genuine cross-owner
+  maintenance — NO SUPPORTED ROUTE TODAY"*). Shipping it anyway would have meant either
+  writing outside the audited chokepoint or recording the file's owner as the author of a
+  verdict they did not produce, and a security-relevant state change is the last place to
+  do either. It stays a visible platform gap with a second concrete caller.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added
