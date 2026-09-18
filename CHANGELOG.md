@@ -14,6 +14,37 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **The gate had no way to say what it deliberately does not check, so every absence read
+  as an oversight.** `terp verify --list` and the JSON manifest listed what runs and had
+  no slot for what does not — and a decision already taken, recorded in an ADR nobody
+  runs, was indistinguishable from a gap. The platform's whole proposition is that
+  insecurity requires an explicit, greppable opt-out; the same standard now applies to the
+  gate's own boundary.
+
+  `VerifyNonGoal` is `VerifyCheck`'s sibling, rendered under "not checked here
+  (deliberately)" in the listing and `not_checked_here` in the manifest. Every entry must
+  end somewhere an author can go — what covers it, or what to run instead — so an omission
+  with neither is refused by the suite rather than shipped as a shrug with a schema. A
+  second check refuses a profile that both runs and disclaims the same id.
+
+  Seeded with three. **Formatting** is stated as deliberately ungated, with `terp fmt` as
+  the command: it already shipped, `--changed` by default and with `--check` written, and
+  was reachable only from `--help`. `ruff format .` is the right formatter with the wrong
+  blast radius — it rewrites files the current change never touched, and the diff reaching
+  review is then part change and part churn, which for a platform whose consumers are
+  largely agent-built is a review-integrity problem rather than a cosmetic one. (Measured
+  while writing this: 279 of 604 files in this repository would be rewritten, and no
+  single line-length reduces it, because different files were written at different widths.
+  Gating the whole tree is a deliberate one-time convergence, not a wiring change — which
+  is exactly why the decision belongs in the listing rather than in silence.) **The
+  generic AppSec classes** — command injection, path traversal, unsafe deserialization,
+  weak randomness, secrets-in-logs — name their delegation to ruff-bandit (ADR 0085).
+  **Test efficacy** states plainly that `no_empty_tests` checks tests exist, and nothing
+  here checks a test would fail if the code were wrong.
+
+  `terp guide module` gains the formatting note, next to the commands an author already
+  runs.
+
 - **`no_raw_app_routes` refused the only composition an author reaches for, and named no
   alternative.** A module declares one flat router, which is a deliberate decision and a
   good one: the module's surface is one mounted, one-Policy thing. It is *not* a limit on

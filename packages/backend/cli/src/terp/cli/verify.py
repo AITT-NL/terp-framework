@@ -47,6 +47,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import textwrap
 import tomllib
 from dataclasses import dataclass
 
@@ -191,6 +192,79 @@ class VerifyCheck:
     # | "dependency-hygiene" | "workbench" | "deploy-safety"
     # | "production-readiness"
     runner: str = "subprocess"
+
+
+@dataclass(frozen=True)
+class VerifyNonGoal:
+    """One thing this gate deliberately does NOT check, and why.
+
+    A consumer reasons from what the gate checks to what the gate COVERS. Every
+    omission then reads as either "already handled elsewhere" or "an oversight", and
+    nothing in the tool distinguishes the two. The manifest had a slot for what runs
+    and no slot for what deliberately does not, so a decision already taken --
+    recorded in an ADR nobody runs -- was indistinguishable from a gap.
+
+    That inference has a measured cost. An agent that reaches for the obvious
+    whole-tree formatter rewrites files the current change never touched, and the diff
+    reaching review is part change and part churn. For a platform whose consumers are
+    largely agent-built, an unreviewable diff is a review-integrity problem rather than
+    a cosmetic one.
+
+    So this is the same standard the platform sells, applied to the gate's own
+    boundary: insecurity -- or here, an absence -- requires an explicit, greppable
+    statement rather than silence. *delegated_to* names what does cover it when
+    something does; *instead* names the command to reach for when nothing does.
+    """
+
+    id: str
+    reason: str
+    delegated_to: str = ""
+    instead: str = ""
+
+
+#: What `terp verify` does not answer for, stated rather than left to be inferred.
+#:
+#: Seeded from ADR 0085's delegation (the generic security classes go to ruff-bandit,
+#: "delegated, not duplicated") and from the formatting decision below, which this list
+#: is what forced: writing the entry is what turned "nobody wired the formatter" into a
+#: position someone can disagree with.
+NON_GOALS: tuple[VerifyNonGoal, ...] = (
+    VerifyNonGoal(
+        id="formatting",
+        reason=(
+            "Formatting is deliberately ungated. `ruff format .` is the right formatter "
+            "with the wrong blast radius: it rewrites files the current change never "
+            "touched, so the diff reaching review is part change and part churn, and "
+            "the author's only recourse is to check out the unrelated files one by one"
+        ),
+        instead=(
+            "terp fmt  (defaults to --changed: the files git reports as modified, "
+            "staged or untracked -- the set you are responsible for; `terp fmt --check` "
+            "reports without rewriting, and `--all` is the deliberate whole-tree pass)"
+        ),
+    ),
+    VerifyNonGoal(
+        id="generic-appsec-classes",
+        reason=(
+            "Command injection, path traversal, unsafe deserialization, weak randomness "
+            "and secrets-in-logs are NOT terp-arch rules. They are delegated, not "
+            "duplicated (ADR 0085) -- a second implementation of a solved analysis is a "
+            "second thing to keep correct"
+        ),
+        delegated_to="ruff (bandit `S` rules), run by the appsec-baseline check",
+    ),
+    VerifyNonGoal(
+        id="test-efficacy",
+        reason=(
+            "`no_empty_tests` and `modules_ship_tests` check that tests EXIST and are "
+            "not empty. Nothing here checks that a test would fail if the code were "
+            "wrong, so a suite can be green, fully populated, pass every gate, and "
+            "still not discriminate -- list filters and boundary conditions are the "
+            "usual blind spot"
+        ),
+        instead="no tooling ships for this yet; assert the exclusion case by hand",
+    ),
+)
 
 
 # Runs first in every profile, because it decides whether the rest of the run
@@ -783,6 +857,22 @@ def verify_manifest(
                 **({"requires": check.requires} if check.requires else {}),
             }
             for check in checks
+        ],
+        # The other half of the same claim. Without it a driving tool reads the check
+        # list as the coverage list, and every absence reads as an oversight or as
+        # "handled elsewhere" with nothing to say which.
+        "not_checked_here": [
+            {
+                "id": non_goal.id,
+                "reason": non_goal.reason,
+                **(
+                    {"delegated_to": non_goal.delegated_to}
+                    if non_goal.delegated_to
+                    else {}
+                ),
+                **({"instead": non_goal.instead} if non_goal.instead else {}),
+            }
+            for non_goal in NON_GOALS
         ],
     }
 
@@ -1876,6 +1966,22 @@ def run_verify_command(
             for check in resolved:
                 requires = f"  [requires {check.requires}]" if check.requires else ""
                 print(f"  {check.id:<20} {check.command}{requires}")
+            print()
+            print("not checked here (deliberately):")
+            for non_goal in NON_GOALS:
+                print(f"  {non_goal.id}")
+                for line in textwrap.wrap(f"{non_goal.reason}.", width=76):
+                    print(f"    {line}")
+                for label, value in (
+                    ("covered by", non_goal.delegated_to),
+                    ("instead", non_goal.instead),
+                ):
+                    if not value:
+                        continue
+                    wrapped = textwrap.wrap(value, width=76 - 12)
+                    print(f"    {label + ':':<12}{wrapped[0]}")
+                    for line in wrapped[1:]:
+                        print(f"    {'':<12}{line}")
         return 0
 
     results: list[dict[str, object]] = []

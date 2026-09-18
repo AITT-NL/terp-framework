@@ -125,6 +125,16 @@ Then the codegen chain, in this order — each step reads what the one before it
 something is stale, so it is the one to reach for if you are unsure what is out of date.
 Policy.default() = authenticated; read VIEWER, write EDITOR.
 
+FORMATTING: `terp fmt`, NOT `ruff format .`
+
+Formatting is deliberately ungated -- `terp verify --list` says so under "not checked
+here", with the reason. The whole-tree formatter is the right tool with the wrong blast
+radius: it rewrites files your change never touched, and the diff reaching review is
+then part change and part churn, which is a review-integrity problem rather than a
+cosmetic one. `terp fmt` defaults to `--changed` (what git reports as modified, staged
+or untracked -- the set you are responsible for); `--check` reports without rewriting,
+and `--all` is the deliberate whole-tree pass when you actually mean it.
+
 WHEN router.py GETS LONG
 
 A module declares ONE router. That is about the module's surface being one mounted,
