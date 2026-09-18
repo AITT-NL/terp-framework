@@ -51,8 +51,10 @@ can observe pairs a build-time check with a fail-closed runtime control, and a
 test is never the only control for such a rule.
 
 ```bash
-uv run pytest        # the gate (syncs the workspace)
-uv run ruff check .  # the AppSec baseline (bandit `S` rules)
+uv run coverage run -m pytest   # the gate, first half: the suite
+uv run coverage report          # second half: the 100% bar (a separate control --
+                                # a plain `pytest` run is green without it)
+uv run ruff check .             # the AppSec baseline (bandit `S` rules)
 terp fmt             # formats the files YOU touched; formatting is not gated
 ```
 
