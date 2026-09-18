@@ -27,6 +27,13 @@ export default defineConfig({
     // A jsdom + React file is heavy and a small CI runner has few cores; enough of them
     // at once starve each other's timers and fail on timing rather than on behaviour.
     // Costs wall clock, buys a green that means something.
+    //
+    // What this is NOT: a fix for a test that waits on the wrong thing. react-core carried
+    // the same flag against an intermittent failure whose real cause was a click on a
+    // still-disabled control, and serialising only widened the odds of winning that race
+    // -- the flag came back out once the race was removed. So if this suite starts failing
+    // intermittently, read vitest.setup.ts before touching this line: a lost click fails on
+    // an idle machine too, just more rarely.
     fileParallelism: false,
   },
 });

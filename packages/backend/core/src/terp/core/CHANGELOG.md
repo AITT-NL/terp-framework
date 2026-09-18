@@ -10,6 +10,75 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — 2026-09-18
+
+### Fixed
+
+- **A control disabled on an ambient load, clicked by a test that waited on the page.**
+  Four of react-core's own admin tests clicked the create form's submit button after
+  awaiting nothing but the page heading. `UserCreate` gates that button on
+  `creating || ladderLoading || role === ""`, and `role` is still `""` in the commit where
+  `ladderLoading` first clears — the effect that picks the declared ladder's lowest rung
+  runs after it — so the button is disabled for one commit longer than the access-model
+  fetch takes, while the heading renders before either. jsdom raises no submit event at all
+  for a click on a disabled control, so the click was **lost, not late**, and the failure
+  surfaced several lines later on whatever was waiting for the POST's result, as "unable to
+  find element" naming the wrong element.
+
+  This is the flake two previous rounds of work diagnosed as machine contention. The async
+  budget was widened twice (1s to 3s to 4s) and the suite was made serial; neither could
+  close it, because no budget can wait for an event that was never raised. Contention is
+  real and is a different thing — it widens the window such a race needs, and a serial run
+  measurably helped — but a test waiting on the wrong thing fails on an idle machine too,
+  just more rarely.
+
+  The four tests now wait on the submit control being enabled, which is the condition that
+  actually gates the click, and a new test holds the window open and pins it: heading up,
+  control disabled, then enabled once the ladder lands. A fifth test of the same class (a
+  menu item whose label comes from that same fetch, reached for synchronously) was found
+  while measuring and is fixed with it. The recorded diagnoses in `vitest.setup.ts` and
+  `vite.config.ts` now name the race as the cause and contention as the trigger, so nobody
+  reaches for the tolerance levers a third time, and the general form is written into the
+  generated app's test seam (`template/project/frontend/vitest.setup.ts`): a control
+  disabled on an ambient async load must give a test something deterministic to wait on.
+
+  With the cause removed, `fileParallelism: false` was re-measured on a four-vCPU machine —
+  the class of runner it was added for — and the suite ran green nine times out of nine in
+  parallel, in ~33s against ~80s serial. So the flag comes out of react-core and the wall
+  clock is given back. It stays in the generated app's `vitest.config.ts`, whose argument is
+  about jsdom weight in an app's own suite rather than about this race, now with the caveat
+  that it is not a fix for a test that waits on the wrong thing.
+
+- **A rejected realtime payload no longer kills the channel it arrived on.**
+  `useRealtimeChannel` requires the app to hand-write a `validate` type guard for a payload
+  whose authoritative shape the server already holds as the channel's `outbound_model` — and
+  validates every publish against. Nothing checks the two against each other, so the
+  realistic cause of a guard miss is not a hostile payload (the only author is the same
+  deployment's own backend, behind a one-use ticket) but drift: a field added or an enum
+  member widened on the server while the guard still describes the old shape.
+
+  The hook answered that with a transport teardown. One rejected message set `stopped`,
+  cancelled the retry timer and released the transport; the effect's deps never change on a
+  bad message and the returned state exposes no reopen, so the channel was dead for the life
+  of the mount. A message-level failure was being handled with a connection-level remedy,
+  which discarded every later message too — including the ones the guard still accepted.
+
+  The policy is now split. A payload the guard rejects is a **message** failure: it is
+  dropped, reported once per connection on `error` with the channel named, and the transport
+  stays open and keeps delivering. `status` moves to `"error"` only when the connection
+  itself fails, where the bounded-backoff remint already handles it. `RealtimeChannelOptions.validate`
+  — the one place an author reads before writing a guard — now states that it is the drift
+  boundary and what happens when it falls behind, and the capability README and
+  `terp guide realtime` say the same.
+
+### Upgrade notes
+
+- **A realtime channel no longer closes itself on a payload its guard rejects.** If an app
+  relied on `status === "error"` to notice a malformed or drifted payload, that signal now
+  stays `"open"` and the reason appears on `error` instead: read the pair, not either half.
+  `status` is the connection's verdict; `error` is the last reason of any kind. Nothing needs
+  changing for an app that renders `error` when it is set.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added

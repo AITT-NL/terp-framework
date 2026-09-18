@@ -36,7 +36,23 @@ interface RealtimePaths {
 export interface RealtimeChannelOptions<Message> {
   channel: string;
   transport?: RealtimeTransport;
-  /** Runtime validation for the channel's Pydantic JSON wire payload. */
+  /**
+   * Runtime validation for the channel's Pydantic JSON wire payload.
+   *
+   * THIS FUNCTION IS THE DRIFT BOUNDARY. The authoritative shape is the server's
+   * `RealtimeChannel.outbound_model`, which the backend validates every publish against;
+   * this guard is hand-written client-side code asserting the same thing. Nothing checks
+   * the two against each other, so the realistic way this guard fails is not an attack —
+   * the payload's only author is the same deployment's own backend, behind a one-use
+   * ticket — but a field added or an enum member widened on the server while the guard
+   * still describes the old shape.
+   *
+   * Because that is the realistic cause, a payload this guard rejects is treated as a
+   * MESSAGE failure and not a transport failure: the message is dropped, the rejection is
+   * surfaced once on `error` naming this channel, and the transport stays open and keeps
+   * delivering. Write the guard narrowly enough to be worth having and wide enough that a
+   * server-side addition does not silently blank a screen.
+   */
   validate(value: unknown): value is Message;
   /** Receive every validated message (lastMessage is also retained). */
   onMessage?(message: Message): void;
@@ -45,8 +61,19 @@ export interface RealtimeChannelOptions<Message> {
 }
 
 export interface RealtimeChannelState<Message> {
+  /**
+   * The transport's state. `"error"` means the transport itself failed and a reconnect is
+   * scheduled; a message the guard rejected does NOT move this away from `"open"`.
+   */
   status: RealtimeStatus;
   lastMessage: Message | null;
+  /**
+   * The most recent failure, which is not the same question as `status`. A rejected
+   * payload sets this while `status` stays `"open"`: the channel is still delivering, and
+   * something it was sent did not match the declared type. Read the pair, not either half
+   * — `status === "error"` is the connection's verdict, `error !== null` is the last
+   * reason of any kind.
+   */
   error: Error | null;
   /** WebSocket only; throws unless the socket is open. */
   send(message: unknown): void;
@@ -81,15 +108,20 @@ function transportUrl(
 function parseMessage<Message>(
   raw: string,
   validate: (value: unknown) => value is Message,
+  channel?: string,
 ): Message {
+  // The channel is named in the message because the reader of this error is debugging
+  // drift between one server-side model and one hand-written guard, and an app may hold
+  // several channels at once. Optional so the predicate stays callable on its own.
+  const named = channel === undefined ? "Realtime channel" : `Realtime channel "${channel}"`;
   let value: unknown;
   try {
     value = JSON.parse(raw);
   } catch {
-    throw new Error("Realtime channel received invalid JSON");
+    throw new Error(`${named} received invalid JSON`);
   }
   if (!validate(value)) {
-    throw new Error("Realtime channel received a payload outside its declared type");
+    throw new Error(`${named} received a payload outside its declared type`);
   }
   return value;
 }
@@ -116,7 +148,7 @@ export function useRealtimeChannel<Message>({
   const validateRef = useRef(validate);
   const onMessageRef = useRef(onMessage);
   const closeRef = useRef<() => void>(() => {});
-  const terminalFailureRef = useRef<(cause: unknown) => void>(() => {});
+  const messageFailureRef = useRef<(cause: unknown) => void>(() => {});
   validateRef.current = validate;
   onMessageRef.current = onMessage;
   const [status, setStatus] = useState<RealtimeStatus>(
@@ -128,17 +160,23 @@ export function useRealtimeChannel<Message>({
   const receiveRef = useRef((raw: string) => {});
   receiveRef.current = (raw: string) => {
     try {
-      const message = parseMessage(raw, validateRef.current);
+      const message = parseMessage(raw, validateRef.current, channel);
       setLastMessage(message);
       onMessageRef.current?.(message);
     } catch (cause) {
-      terminalFailureRef.current(cause);
+      // One message, one failure. The transport is fine — see `messageFailure`.
+      messageFailureRef.current(cause);
     }
+  };
+
+  const reportRef = useRef((cause: unknown) => {});
+  reportRef.current = (cause: unknown) => {
+    setError(cause instanceof Error ? cause : new Error("Realtime channel failed"));
   };
 
   const failRef = useRef((cause: unknown) => {});
   failRef.current = (cause: unknown) => {
-    setError(cause instanceof Error ? cause : new Error("Realtime connection failed"));
+    reportRef.current(cause);
     setStatus("error");
   };
 
@@ -174,14 +212,29 @@ export function useRealtimeChannel<Message>({
     };
     closeRef.current = stop;
 
-    const terminalFailure = (cause: unknown) => {
+    // A payload the guard rejects is a MESSAGE failure, not a transport failure.
+    //
+    // This used to tear the transport down: `stopped = true`, cancel the retry timer and
+    // release the socket, which left the channel dead for the life of the mount — the
+    // effect's deps never change on a bad message and the returned state exposes no reopen,
+    // so neither shipped subscriber could recover. That is a self-inflicted outage in the
+    // one case that actually happens: the payload's only author is the same deployment's
+    // own backend behind a one-use ticket, so a guard miss means the hand-written guard has
+    // fallen behind the server's model, and every LATER message — including the ones the
+    // guard still accepts — was being discarded along with it.
+    //
+    // So: drop the message, say so once on `error` with the channel named, and keep
+    // delivering. Once per connection, because a server whose shape has moved sends the
+    // same wrong shape repeatedly and one re-render per message is a second failure on top
+    // of the first; a reconnect clears the latch along with the error (`onopen`).
+    let rejectedPayloadReported = false;
+    const messageFailure = (cause: unknown) => {
       if (!active()) return;
-      stopped = true;
-      cancelRetry();
-      releaseTransport("invalid message payload");
-      failRef.current(cause);
+      if (rejectedPayloadReported) return;
+      rejectedPayloadReported = true;
+      reportRef.current(cause);
     };
-    terminalFailureRef.current = terminalFailure;
+    messageFailureRef.current = messageFailure;
 
     if (!enabled) {
       stopped = true;
@@ -189,8 +242,8 @@ export function useRealtimeChannel<Message>({
       return () => {
         cancelled = true;
         if (closeRef.current === stop) closeRef.current = () => {};
-        if (terminalFailureRef.current === terminalFailure) {
-          terminalFailureRef.current = () => {};
+        if (messageFailureRef.current === messageFailure) {
+          messageFailureRef.current = () => {};
         }
       };
     }
@@ -218,6 +271,7 @@ export function useRealtimeChannel<Message>({
           source.onopen = () => {
             if (!active() || source !== connectedSource) return;
             retryAttempt = 0;
+            rejectedPayloadReported = false;
             setError(null);
             setStatus("open");
           };
@@ -236,6 +290,7 @@ export function useRealtimeChannel<Message>({
           socket.onopen = () => {
             if (!active() || socket !== connectedSocket) return;
             retryAttempt = 0;
+            rejectedPayloadReported = false;
             setError(null);
             setStatus("open");
           };
@@ -281,8 +336,8 @@ export function useRealtimeChannel<Message>({
       cancelRetry();
       releaseTransport("component unmounted");
       if (closeRef.current === stop) closeRef.current = () => {};
-      if (terminalFailureRef.current === terminalFailure) {
-        terminalFailureRef.current = () => {};
+      if (messageFailureRef.current === messageFailure) {
+        messageFailureRef.current = () => {};
       }
     };
   }, [baseUrl, channel, client, enabled, transport]);
