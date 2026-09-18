@@ -37,6 +37,7 @@ from terp.core import (
     client_ip,
     get_principal,
     operation,
+    route_policy,
     settings,
 )
 
@@ -187,6 +188,7 @@ def build_login_router(
         )
 
     @router.post("/login", response_model=AccessToken)
+    @route_policy(Policy.public_write(reason="a caller has no token yet; this route is how they get one"))
     @operation(AUTH_LOGIN)
     def login(
         request: Request,
@@ -214,6 +216,7 @@ def build_login_router(
         verify_client = authenticate_client
 
         @router.post("/token", response_model=AccessToken)
+        @route_policy(Policy.public_write(reason="a caller has no token yet; this route is how they get one"))
         @operation(AUTH_TOKEN)
         def token(
             request: Request,
@@ -254,6 +257,11 @@ def build_login_router(
         resolve_principal = principal_resolver
 
         @router.post("/refresh", response_model=AccessToken)
+        @route_policy(
+            Policy.public_write(
+                reason="the refresh cookie is the credential; there is no bearer to gate on"
+            )
+        )
         @operation(AUTH_REFRESH)
         def refresh(
             request: Request, session: SessionDep, response: Response
@@ -277,6 +285,12 @@ def build_login_router(
     if revoke_sessions is not None or refresh_enabled:
 
         @router.post("/logout", status_code=204)
+        @route_policy(
+            Policy.public_write(
+                reason="logout is idempotent and must clear a cookie even for a caller "
+                "whose token has already expired"
+            )
+        )
         @operation(AUTH_LOGOUT)
         def logout(
             session: SessionDep,

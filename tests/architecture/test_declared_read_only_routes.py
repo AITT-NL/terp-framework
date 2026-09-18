@@ -41,6 +41,7 @@ from terp.core import (
     BaseUpdateSchema,
     ModuleSpec,
     Policy,
+    route_policy,
     SessionDep,
     create_app,
     get_session,
@@ -72,6 +73,7 @@ router = APIRouter(tags=["draft"])
 
 
 @router.post("/validation", response_model=int)
+@route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
 @read_only
 def validate_candidate(session: SessionDep, text: str = "") -> int:
     """The real shape: a POST because the candidate is a body, writing nothing."""
@@ -81,17 +83,20 @@ def validate_candidate(session: SessionDep, text: str = "") -> int:
 # NB: deliberately breaks its own promise, to exercise the runtime backstop. It
 # lives in arch-exempt test code, never in app/ or a capability.
 @router.post("/liar", response_model=str)
+@route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
 @read_only
 def liar(session: SessionDep) -> str:
     return str(_service.create(session, _DraftCreate(text="smuggled")).id)
 
 
 @router.post("/", response_model=str, status_code=201)
+@route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
 def make(session: SessionDep) -> str:
     return str(_service.create(session, _DraftCreate(text="honest")).id)
 
 
 @router.get("/count", response_model=int)
+@route_policy(Policy.public(reason="a fixture that probes this route without a token"))
 def count(session: SessionDep) -> int:
     return _service.list(session, skip=0, limit=10)[1]
 

@@ -34,6 +34,7 @@ from terp.core import (
     PermissionDeniedError,
     PermissionModel,
     Policy,
+    route_policy,
     Principal,
     Role,
     SecurityConfig,
@@ -248,6 +249,7 @@ def _echo_spec(name: str, **spec_kwargs) -> ModuleSpec:
     router = APIRouter()
 
     @router.post("/")
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
     async def echo(request: Request) -> dict:
         return {"received": len(await request.body())}
 
@@ -427,7 +429,14 @@ def test_create_app_boots_permission_policy_with_enforcer() -> None:
     assert app.title == "Terp app"
 
 
-def _mutating_router():
+def _mutating_router(declared: Policy | None = None):
+    """A one-route mutating router; *declared* is the route's own policy, if any.
+
+    Parameterised because the question these tests ask moved from the module to the
+    route (ADR 0148): whether an unauthenticated write is refused now depends on what
+    the ROUTE declares, so a fixture that hard-coded one answer could only test one of
+    the two outcomes.
+    """
     from fastapi import APIRouter
 
     router = APIRouter()
@@ -435,6 +444,8 @@ def _mutating_router():
     @router.post("/", status_code=204)
     def create() -> None: ...
 
+    if declared is not None:
+        route_policy(declared)(create)
     return router
 
 
@@ -463,6 +474,7 @@ def test_create_app_skips_the_write_tier_check_for_a_read_only_router() -> None:
     router = APIRouter()
 
     @router.get("/", response_model=dict)
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def show() -> dict: ...
 
     # No mutating route, so a low write tier under a high read tier is not a write-surface
@@ -471,21 +483,36 @@ def test_create_app_skips_the_write_tier_check_for_a_read_only_router() -> None:
     assert create_app([spec]).title == "Terp app"
 
 
-def test_create_app_fails_closed_on_public_mutating_router() -> None:
+def test_create_app_fails_closed_on_a_public_mutating_route() -> None:
+    """A route that declares itself public but not public-WRITE may not mutate."""
+    public_read = Policy.public(reason="read-only public docs")
     spec = ModuleSpec(
-        name="widgets",
-        router=_mutating_router(),
-        policy=Policy.public(reason="read-only public docs"),
+        name="widgets", router=_mutating_router(public_read), policy=public_read
     )
     with pytest.raises(BootError, match="Policy.public_write"):
         create_app([spec])
 
 
-def test_create_app_allows_explicit_public_write_opt_out() -> None:
+def test_create_app_fails_closed_on_an_undeclared_route_in_a_public_module() -> None:
+    """Silence is the case this check exists for (ADR 0148).
+
+    A public module used to admit every route under it, so a route added beside the
+    ones that had to be public became public too, with nothing said. The refusal names
+    the route rather than the module, because the module is not what has to change.
+    """
     spec = ModuleSpec(
-        name="login",
-        router=_mutating_router(),
+        name="widgets",
+        router=_mutating_router(),  # declares nothing
         policy=Policy.public_write(reason="login endpoint"),
+    )
+    with pytest.raises(BootError, match="declares no policy of its own"):
+        create_app([spec])
+
+
+def test_create_app_allows_explicit_public_write_opt_out() -> None:
+    public_write = Policy.public_write(reason="login endpoint")
+    spec = ModuleSpec(
+        name="login", router=_mutating_router(public_write), policy=public_write
     )
     assert create_app([spec]).title == "Terp app"
 
@@ -526,12 +553,14 @@ def _declaring_router(definition: OperationDefinition | None):
     if definition is None:
 
         @router.get("/", response_model=str)
+        @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
         def read() -> str:
             return "x"
 
     else:
 
         @router.get("/", response_model=str)
+        @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
         @operation(definition)
         def read() -> str:
             return "x"
@@ -730,6 +759,7 @@ def test_a_route_may_not_require_a_permission_the_control_plane_does_not_declare
     router = APIRouter()
 
     @router.post("/act", response_model=str, dependencies=[Depends(mark_required_permission(holds_it, "widgets.write"))])
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
     def act() -> str:  # pragma: no cover - never called
         return "ok"
 
@@ -1075,6 +1105,7 @@ def test_a_hand_written_summary_beside_a_declared_operation_is_refused() -> None
     router = APIRouter()
 
     @router.get("/", response_model=str, summary="Remove the file for good")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     @operation(_FILES_DELETE)
     def delete() -> str:
         return "x"

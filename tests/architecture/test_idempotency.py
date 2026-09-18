@@ -26,6 +26,7 @@ from terp.core import (
     InMemoryIdempotencyStore,
     ModuleSpec,
     Policy,
+    route_policy,
     SecurityConfig,
     StoredResponse,
     create_app,
@@ -191,26 +192,31 @@ def _build_client(store: IdempotencyStore) -> tuple[TestClient, list[int]]:
     executions: list[int] = []
 
     @router.post("/things", response_model=dict)
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
     def create_thing(payload: dict) -> dict:
         executions.append(1)
         return {"execution": len(executions)}
 
     @router.put("/things", response_model=dict)
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
     def replace_thing(payload: dict) -> dict:
         executions.append(1)
         return {"execution": len(executions)}
 
     @router.patch("/things", response_model=dict)
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
     def update_thing(payload: dict) -> dict:
         executions.append(1)
         return {"execution": len(executions)}
 
     @router.post("/broken", response_model=dict)
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
     def broken(payload: dict) -> dict:
         executions.append(1)
         raise RuntimeError("boom")
 
     @router.delete("/things", response_model=dict)
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
     def delete_thing() -> dict:
         executions.append(1)
         return {"execution": len(executions)}
@@ -590,6 +596,7 @@ def _spec() -> ModuleSpec:
     router = APIRouter()
 
     @router.get("/ping", response_model=str)
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def ping() -> str:
         return "pong"
 

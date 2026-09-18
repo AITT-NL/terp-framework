@@ -27,12 +27,14 @@ from terp.core import (
     PermissionDeniedError,
     PermissionEnforcer,
     Policy,
+    Roles,
     Principal,
     SessionDep,
     bind_audit_actor,
     get_principal,
     get_session,
     operation,
+    route_policy,
 )
 
 from terp.capabilities.realtime.broker import (
@@ -196,6 +198,17 @@ router = APIRouter(tags=["realtime"])
 
 
 @router.post("/tickets", response_model=TicketResponse, status_code=201)
+# The mint endpoint is NOT part of the public handshake -- it is the authenticated
+# step that issues the credential the handshake redeems. It was public only because
+# its module is, and its own `principal is None` check was the only thing standing
+# in front of it (ADR 0148).
+#
+# VIEWER on the write tier, not the EDITOR a bare `Policy.default()` would impose:
+# minting a ticket is a POST that subscribes, not one that changes anything, and the
+# authority that actually decides is the channel's own `_authorize` below. Defaulting
+# here would have refused every VIEWER a realtime channel, which is most of the people
+# a realtime channel exists for.
+@route_policy(Policy(read=Roles.VIEWER, write=Roles.VIEWER))
 @operation(REALTIME_MINT_TICKET)
 def mint_ticket(
     payload: TicketRequest,
@@ -204,8 +217,10 @@ def mint_ticket(
     principal: Principal | None = Depends(get_principal),
 ) -> TicketResponse:
     if principal is None:
-        # Defensive: the module guard already rejects this endpoint, but the
-        # handler remains fail-closed when called directly in tests.
+        # Defensive, and now true: this route declares `Policy.default()`, so the
+        # module guard really does reject an anonymous caller before the handler
+        # runs. The check stays because the handler is also called directly in
+        # tests, where no guard is mounted.
         from terp.core import AuthenticationError
 
         raise AuthenticationError()
@@ -291,6 +306,12 @@ async def _sse_stream(
     "/sse/{channel_name}",
     response_model=None,
     response_class=StreamingResponse,
+)
+@route_policy(
+    Policy.public(
+        reason="an EventSource constructor cannot attach a bearer; the one-use "
+        "ticket in the query is the credential"
+    )
 )
 @operation(REALTIME_SUBSCRIBE_SSE)
 def subscribe_sse(
@@ -403,6 +424,13 @@ async def _settle_websocket_tasks(*tasks: asyncio.Task[None]) -> None:
 
 
 @router.websocket("/ws/{channel_name}")
+@route_policy(
+    Policy.public_write(
+        reason="a WebSocket constructor cannot attach a bearer; the one-use ticket "
+        "in the query is the credential, and a socket has no method to read as a "
+        "safe one"
+    )
+)
 @operation(REALTIME_SUBSCRIBE_WEBSOCKET)
 async def subscribe_websocket(
     websocket: WebSocket,

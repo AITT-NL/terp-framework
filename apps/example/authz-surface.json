@@ -718,16 +718,16 @@
         },
         {
           "by_role": {
-            "admin": "public",
-            "editor": "public",
-            "viewer": "public"
+            "admin": "allowed",
+            "editor": "allowed",
+            "viewer": "allowed"
           },
           "extra_permissions": [],
           "methods": [
             "POST"
           ],
           "path": "/api/v1/realtime/tickets",
-          "requirement": "public"
+          "requirement": "role:viewer"
         },
         {
           "by_role": {

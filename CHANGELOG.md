@@ -257,6 +257,45 @@ decision, 0001 onwards.
   verdict they did not produce, and a security-relevant state change is the last place to
   do either. It stays a visible platform gap with a second concrete caller.
 
+- **A route declares its own security posture, not its neighbours' (ADR 0148).**
+  `create_app` mounts one `build_guard(spec.policy)` per module, so a `Policy` was a
+  property of a whole router. `Policy.public_write` therefore made **every** route in its
+  module unauthenticated — the ones that must be, and any route added beside them
+  afterwards, silently. The only way to tighten one route inside a public module was to
+  hang `require_permission` on it, which worked by a side effect explained in a comment
+  rather than by anything in the policy API.
+
+  **The platform was already paying for this.** The realtime capability is
+  `Policy.public_write`, because an `EventSource` or `WebSocket` constructor cannot
+  attach a bearer and the handshake redeems a one-use ticket instead. Under that policy
+  sat `POST /tickets` — the endpoint that *mints* those tickets — carrying the comment
+  *"the module guard already rejects this endpoint"*. It did not. The guard admitted
+  everyone, and a hand-rolled `principal is None` check was the only thing in front of
+  ticket minting; deleting it on the strength of that comment would have published the
+  endpoint.
+
+  `route_policy(policy)` is applied below the route decorator, beside `@operation`, and
+  **replaces** the module's policy for that route — so a public module can carry a
+  protected route and a protected module a public one. The guard and the access
+  projection resolve it through **one** function (`effective_policy`), because a
+  projection that kept describing the module while the gate enforced the route would show
+  an administrator a matrix the system disagrees with.
+
+  **Boot now refuses an undeclared route in a public module**, WebSockets included — a
+  socket has no method after the upgrade and is treated as a write, so it is the route
+  that least deserves to be public by inheritance. Every route in a public module ends up
+  marked, which reads as ceremony until the next route arrives: that one fails at boot
+  instead of being quietly published. A protected module needs no ritual; a route that
+  declares nothing still resolves to its module's policy, so nothing changes for a module
+  that was already correct.
+
+  **`POST /api/v1/realtime/tickets` is no longer public**, and the committed
+  authorization baseline records the narrowing in one line (`public` → `role:viewer`).
+  VIEWER rather than the EDITOR a bare `Policy.default()` would impose: minting a ticket
+  is a POST that subscribes, not one that changes anything, and the channel's own check
+  is the authority that decides. Defaulting would have refused every VIEWER a realtime
+  channel.
+
 ### Changed
 
 - **The `a11y` assurance lane now says why it composes nothing.** It was
