@@ -20,7 +20,7 @@ talking to the database.
 from __future__ import annotations
 
 import pytest
-from sqlmodel import Field, Session, SQLModel, create_engine, select
+from sqlmodel import Field, Session, SQLModel, create_engine, func, select
 
 from terp.core.testing import QueryLog, assert_max_queries, count_queries
 
@@ -85,6 +85,26 @@ def test_only_narrows_the_count(session: Session) -> None:
         session.exec(select(1)).all()
     assert len(queries) == 2
     assert len(queries.matching("FROM query_counting_note")) == 1
+
+
+def test_a_pattern_that_is_not_a_regex_is_matched_literally(session: Session) -> None:
+    """``only="count(*)"`` is the obvious thing to write, and it is not a valid regex.
+
+    The caller filtering a statement log is writing a fragment of SQL, not a pattern,
+    and SQL is full of characters a regex reads as syntax. Raising ``nothing to
+    repeat`` from inside an assertion helper would turn a reasonable filter into a
+    crash in the test that used it.
+
+    The quieter half of the same trap is why the fallback is a literal match rather
+    than a friendlier error: ``only="a+b"`` IS a valid regex, matches nothing, and so
+    passes any bound vacuously -- which is worse than raising, because it looks like
+    it worked.
+    """
+    with count_queries(session) as queries:
+        session.exec(select(func.count()).select_from(_Note)).all()
+    assert len(queries.matching("count(*)")) == 1, (
+        "an invalid regex must fall back to a literal substring, not raise"
+    )
 
 
 def test_the_listener_is_removed_after_the_block(session: Session) -> None:

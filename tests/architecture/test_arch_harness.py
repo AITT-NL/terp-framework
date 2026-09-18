@@ -3051,6 +3051,16 @@ def test_no_hardcoded_credentials_reads_the_value_not_only_the_name(
         _write(app, "client.py", f"import os\nTOKEN_ENV = 'SOME_API_TOKEN'\n{usage}\n")
         assert check_no_hardcoded_credentials(app) == [], usage
 
+    #    The same evidence through the bare name, which `from os import getenv`
+    #    produces. A rule that recognised only the dotted call would refuse the import
+    #    style half of Python is written in, while the module says the identical thing.
+    _write(
+        app,
+        "client.py",
+        "from os import getenv\nTOKEN_ENV = 'SOME_API_TOKEN'\nvalue = getenv(TOKEN_ENV)\n",
+    )
+    assert check_no_hardcoded_credentials(app) == [], "bare getenv"
+
     # 2. A suffix that says what the value is, WITH the grammar that claim implies.
     for source in (
         "TOKEN_ENV = 'SOME_API_TOKEN'",

@@ -14,6 +14,8 @@ import json
 import pathlib
 import sys
 
+import pytest
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
@@ -23,6 +25,7 @@ from terp.cli import capabilities as capabilities_module  # noqa: E402
 from terp.cli.capabilities import (  # noqa: E402
     CAPABILITIES,
     Capability,
+    app_sources,
     render_capabilities,
     unwired_seams,
     wiring_seams,
@@ -236,6 +239,43 @@ def test_unwired_seams_reads_the_app_not_the_package(tmp_path: pathlib.Path) -> 
     unwired = unwired_seams(leases, tmp_path)
     assert "DatabaseLeaseStore" not in unwired, "a seam the app wires is not unwired"
     assert "build_holder_router" in unwired, "a seam the app never names is unwired"
+
+
+def test_a_file_the_scan_cannot_read_does_not_abort_it(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One unreadable file must not decide the whole report.
+
+    ``app_sources`` walks an application tree it does not own, so a file can refuse a
+    read for reasons that have nothing to do with the app: a permission the checkout
+    did not carry, a mount that went away mid-walk. Without the guard the scan raises
+    and ``terp inspect capabilities`` reports nothing -- so an accident of the
+    filesystem would print "no seams wired", which is exactly what a fully wired app
+    prints. A report that cannot distinguish those two is worse than no report.
+
+    Monkeypatched rather than chmod-ed on purpose: the branch is about the filesystem
+    refusing a read, and reproducing that through permissions requires the suite not
+    to be running as root, which is not true everywhere it runs -- including in a
+    container, where a chmod-ed file stays readable and this test would pass without
+    ever entering the branch.
+    """
+    (tmp_path / "wired.py").write_text(
+        "from terp.capabilities.leases import DatabaseLeaseStore\n", encoding="utf-8"
+    )
+    (tmp_path / "refused.py").write_text("SEAM = 'never read'\n", encoding="utf-8")
+
+    readable = pathlib.Path.read_text
+
+    def refuse(self: pathlib.Path, *args: object, **kwargs: object) -> str:
+        if self.name == "refused.py":
+            raise OSError("the filesystem refused this file")
+        return readable(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pathlib.Path, "read_text", refuse)
+
+    sources = app_sources(tmp_path)
+    assert "DatabaseLeaseStore" in sources, "the readable file is still scanned"
+    assert "never read" not in sources, "the refused one is skipped, not fatal"
 
 
 def test_an_uninstalled_capability_reports_no_seams() -> None:
