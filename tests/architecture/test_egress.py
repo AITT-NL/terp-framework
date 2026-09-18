@@ -30,7 +30,7 @@ from terp.capabilities.egress import (
     is_denied_address,
     resolve_host,
 )
-from terp.capabilities.egress.client import _httpx_sender
+from terp.capabilities.egress.client import send_pinned
 
 _PUBLIC = "93.184.216.34"
 
@@ -416,6 +416,21 @@ def _mock_httpx(monkeypatch: pytest.MonkeyPatch, handler: object) -> list[httpx.
     return recorded
 
 
+def test_the_transport_is_reachable_from_the_capability_root() -> None:
+    """The one transport is public API, not a private detail of the client module.
+
+    A caller that has already done its own policy work is meant to reuse this rather
+    than write a second one, and a seam reachable only at
+    ``terp.capabilities.egress.client._httpx_sender`` is not a seam anybody is meant
+    to take. Pinned by name: an export removed from ``__all__`` still imports fine,
+    so the star-surface has to be asserted separately from the attribute.
+    """
+    import terp.capabilities.egress as egress
+
+    assert egress.send_pinned is send_pinned
+    assert "send_pinned" in egress.__all__
+
+
 def test_the_default_transport_pins_the_address_and_keeps_the_hostname(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -424,7 +439,7 @@ def test_the_default_transport_pins_the_address_and_keeps_the_hostname(
     )
     target = PinnedTarget(url="https://api.example.com/v1", host="api.example.com", ip=_PUBLIC)
 
-    response = _httpx_sender(target, "GET", None, {"accept": "application/json"}, 3.0, 4096)
+    response = send_pinned(target, "GET", None, {"accept": "application/json"}, 3.0, 4096)
 
     assert response.status_code == 200
     assert response.content == b"body"
@@ -451,7 +466,7 @@ def test_the_default_transport_sends_the_request_it_built(
     recorded = _mock_httpx(monkeypatch, lambda _r: httpx.Response(200, content=b"ok"))
     target = PinnedTarget(url="https://api.example.com/v1", host="api.example.com", ip=_PUBLIC)
 
-    _httpx_sender(
+    send_pinned(
         target, "POST", b'{"amount": 42}', {"content-type": "application/json"}, 3.0, 4096
     )
 
@@ -475,7 +490,7 @@ def test_the_default_transport_does_not_follow_redirects(
     )
     target = PinnedTarget(url="https://api.example.com/v1", host="api.example.com", ip=_PUBLIC)
 
-    response = _httpx_sender(target, "GET", None, {}, 3.0, 4096)
+    response = send_pinned(target, "GET", None, {}, 3.0, 4096)
 
     assert response.status_code == 302
     assert response.ok is False
@@ -488,5 +503,5 @@ def test_the_default_transport_refuses_an_oversized_response(
     target = PinnedTarget(url="https://api.example.com/v1", host="api.example.com", ip=_PUBLIC)
 
     with pytest.raises(EgressFailedError) as caught:
-        _httpx_sender(target, "GET", None, {}, 3.0, 100)
+        send_pinned(target, "GET", None, {}, 3.0, 100)
     assert caught.value.log_context["limit"] == 100
