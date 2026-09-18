@@ -10,6 +10,54 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — unreleased
+
+### Changed
+
+- **The login lockout is gone; failed credentials now back the caller off (ADR 0145).**
+  The throttle counted failures per account and, at five within fifteen minutes, locked
+  the account for fifteen — refusing a **correct** password for the whole window, which
+  its docstring described as a feature and a test asserted by name. That is the property
+  that makes a lockout attackable rather than defensive: anyone who knew an email address
+  could take its owner offline on demand, indefinitely, by failing five logins every
+  quarter of an hour. One piece of state, shared between attacker and user, spendable by
+  either.
+
+  What replaces it delays the **attempt** and never marks anything unusable. A caller
+  that keeps failing waits longer and longer; the moment a wait elapses the next attempt
+  is judged on its merits. Someone who mistypes twice notices nothing and on the third
+  notices two seconds, while a guesser doubles its wait every time.
+
+  **The key is `(identifier, caller address)`**, which is what disarms the weapon: an
+  attacker hammering an address from their own network slows themselves, and the
+  account's real owner, arriving from somewhere else, has a counter of zero. An
+  identifier-wide backstop remains for the distributed case, deliberately tuned to be a
+  poor lever — **fifty** failures to engage, **five minutes** of effect, against the old
+  five for fifteen.
+
+  **`POST /auth/token` is throttled for the first time.** It shipped with nothing, on an
+  argument that was right about lockouts and wrong about throttling. What that left
+  behind was worse than the brute-force question: every attempt ran a memory-hard KDF —
+  the real verification on a wrong secret, a dummy one on an unknown client id so the
+  miss path costs the same and cannot be used as an oracle — so an unauthenticated
+  caller could spend the server's CPU and memory with no valid credential at all. The
+  backoff is checked **before** verification, so a refused attempt never reaches the KDF.
+
+  **Breaking, on the wire and in the constructor.** The error code moves from
+  `account_locked` to `too_many_attempts` (`AccountLockedError` survives as an alias of
+  `TooManyAttemptsError`, so an existing `except` keeps compiling). A client showing
+  *your account is locked, contact support* when the user needs to wait four seconds is
+  describing a product that no longer exists, so the code had to move with the
+  behaviour. `max_attempts` / `lockout` give way to `free_attempts` / `base_delay` /
+  `max_delay` / `identifier_attempts`, and `check` / `record_failure` / `record_success`
+  take an optional `source=`. Omitting it collapses to identifier-only backoff, which is
+  correct for a caller whose identifier already carries the address — the OIDC callback
+  key does, and needed no change.
+
+  One trade is explicit rather than hidden: against a **single** source this is far
+  stronger than the lockout, and against fifty sources it is weaker. That is the price of
+  an account nobody can disable, and the backstop is what bounds it.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added

@@ -110,12 +110,13 @@ def test_abstract_bodies_are_callable() -> None:
 # --------------------------------------------------------------------------- #
 def test_shared_store_serves_rate_limit_and_throttle_without_key_collision() -> None:
     shared = InMemoryThrottleStore()
-    throttle = LoginThrottle(max_attempts=2, store=shared)
-    throttle.record_failure("a@x.test")
-    throttle.record_failure("a@x.test")  # locks "lt:a@x.test"
+    throttle = LoginThrottle(free_attempts=1, store=shared)
+    throttle.record_failure("a@x.test", source="203.0.113.9")
+    throttle.record_failure("a@x.test", source="203.0.113.9")  # backs off "lt:p:*"
     with pytest.raises(AccountLockedError):
-        throttle.check("a@x.test")
-    # The rate limiter keys "rl:*": shares the backend, no collision.
+        throttle.check("a@x.test", source="203.0.113.9")
+    # The rate limiter keys "rl:*", the backoff keys "lt:p:*" / "lt:i:*": one backend,
+    # three namespaces, no collision.
     count, _ = shared.hit("rl:1.2.3.4", 60)
     assert count == 1
 
@@ -132,10 +133,11 @@ def test_rate_limiter_fails_closed_on_store_error() -> None:
 def test_throttle_fails_closed_on_store_error() -> None:
     throttle = LoginThrottle(store=_RaisingStore())
     with pytest.raises(AccountLockedError):
-        throttle.check("a@x.test")
+        throttle.check("a@x.test", source="203.0.113.9")
     with pytest.raises(AccountLockedError):
-        throttle.record_failure("a@x.test")
-    throttle.record_success("a@x.test")  # best-effort cleanup never blocks a valid login
+        throttle.record_failure("a@x.test", source="203.0.113.9")
+    # Best-effort cleanup never blocks a login whose credential already verified.
+    throttle.record_success("a@x.test", source="203.0.113.9")
 
 
 def test_throttle_reset_is_noop_for_a_store_without_reset() -> None:

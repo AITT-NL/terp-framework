@@ -15,7 +15,8 @@ the store:
   token issued after any revoking change would be instantly stale);
 * ``revoke_sessions`` bumps the caller's epoch on ``POST /logout`` (mounted only when
   wired); and
-* ``throttle`` is the per-account login lockout (on by default, ADR 0031 / L3).
+* ``throttle`` is the failed-credential backoff (on by default, ADR 0031 / L3), keyed
+  by ``(identifier, caller address)`` and applied to ``/login`` **and** ``/token``.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from terp.core import (
     Principal,
     RateLimit,
     SessionDep,
+    client_ip,
     get_principal,
     operation,
     settings,
@@ -187,14 +189,20 @@ def build_login_router(
     @router.post("/login", response_model=AccessToken)
     @operation(AUTH_LOGIN)
     def login(
-        credentials: LoginRequest, session: SessionDep, response: Response
+        request: Request,
+        credentials: LoginRequest,
+        session: SessionDep,
+        response: Response,
     ) -> AccessToken:
-        active_throttle.check(credentials.email)
+        # The caller's address is half the throttle key. Without it the backoff is a
+        # property of the account, which is what let one caller spend it on another.
+        source = client_ip(request)
+        active_throttle.check(credentials.email, source=source)
         principal = authenticate(session, credentials.email, credentials.password)
         if principal is None:
-            active_throttle.record_failure(credentials.email)
+            active_throttle.record_failure(credentials.email, source=source)
             raise AuthenticationError()
-        active_throttle.record_success(credentials.email)
+        active_throttle.record_success(credentials.email, source=source)
         token = _mint_access_token(session, principal)
         if refresh_issuer is not None:
             # Open a fresh refresh-token family and set its httpOnly cookie beside the
@@ -208,19 +216,37 @@ def build_login_router(
         @router.post("/token", response_model=AccessToken)
         @operation(AUTH_TOKEN)
         def token(
-            credentials: ClientCredentialsRequest, session: SessionDep
+            request: Request,
+            credentials: ClientCredentialsRequest,
+            session: SessionDep,
         ) -> AccessToken:
-            # The non-interactive grant (ADR 0088). No throttle by account name: the
-            # credential is high-entropy and machine-held, so a lockout here would let
-            # anyone who learns a client id take an integration offline at will. No
-            # refresh cookie either — a machine holds a durable secret and simply
+            # The non-interactive grant (ADR 0088). This carried no throttle at all,
+            # for a reason that was sound about lockouts and wrong about throttling:
+            # a *lockout* keyed on a client id would let anyone who learns one take an
+            # integration offline at will. Backoff has no such property — it is keyed
+            # by (client id, caller), so a stranger failing against an integration's id
+            # slows only themselves, and the integration authenticating from its own
+            # host is untouched.
+            #
+            # What that left behind was worse than the brute-force question: every
+            # attempt ran a memory-hard KDF — the real verification on a wrong secret,
+            # a dummy one on an unknown client id so the miss path costs the same and
+            # cannot be used as an oracle. An unauthenticated endpoint that hashes
+            # before it throttles is a way to spend the server's CPU and memory that
+            # needs no valid credential at all.
+            #
+            # No refresh cookie either — a machine holds a durable secret and simply
             # re-authenticates, so there is nothing a refresh token would buy except
             # another long-lived credential to leak.
+            source = client_ip(request)
+            active_throttle.check(credentials.client_id, source=source)
             principal = verify_client(
                 session, credentials.client_id, credentials.client_secret
             )
             if principal is None:
+                active_throttle.record_failure(credentials.client_id, source=source)
                 raise AuthenticationError()
+            active_throttle.record_success(credentials.client_id, source=source)
             return AccessToken(access_token=_mint_access_token(session, principal))
 
     if refresh_rotator is not None and principal_resolver is not None:
