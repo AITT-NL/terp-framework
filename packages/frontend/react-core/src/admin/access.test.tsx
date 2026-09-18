@@ -206,7 +206,8 @@ interface ReadGate {
   /** When set, the next held read answers with a failure instead of the rows. */
   fail: boolean;
   waiting: Array<() => void>;
-  release: () => void;
+  /** Resume every read parked on the gate, waiting first for one to be parked. */
+  release: () => Promise<void>;
 }
 
 function makeReadGate(hold: boolean): ReadGate {
@@ -214,7 +215,21 @@ function makeReadGate(hold: boolean): ReadGate {
     hold,
     fail: false,
     waiting: [],
-    release: () => {
+    release: async () => {
+      // WAIT FOR THE READ TO BE PARKED, DO NOT ASSUME IT ALREADY IS. This used to splice
+      // whatever happened to be waiting at that instant, and the tests reach this line after
+      // waiting on a heading — which the panel renders without the provenance read having
+      // left the gate yet. When it had not, the release resumed nothing and the read that
+      // arrived a moment later parked on a gate nobody would open again: the panel then sat
+      // in its pre-read state until the matcher timed out, four seconds later, on a state
+      // that could no longer arrive. Nothing in the test decided which of those two landed
+      // first, so it held on an idle machine and lost on a loaded one — roughly half the
+      // time in a full-suite run here, and never once when the file ran alone, which is
+      // exactly the shape that gets diagnosed as "CI being flaky".
+      if (!gate.hold) {
+        return;
+      }
+      await waitFor(() => expect(gate.waiting.length).toBeGreaterThan(0));
       const pending = gate.waiting.splice(0, gate.waiting.length);
       for (const resume of pending) resume();
     },
@@ -559,7 +574,7 @@ describe("the assignment panel", () => {
     await waitFor(() => expect(screen.getByText("Access per module")).toBeInTheDocument());
     expect(screen.queryByRole("radiogroup", { name: "Notes" })).not.toBeInTheDocument();
 
-    gate.release();
+    await gate.release();
     await waitFor(() =>
       expect(screen.getByRole("radiogroup", { name: "Notes" })).toBeInTheDocument(),
     );
@@ -583,7 +598,7 @@ describe("the assignment panel", () => {
     expect(written).toHaveLength(1);
 
     // Once the re-read lands the strip is a control again, and it shows what the server says.
-    gate.release();
+    await gate.release();
     await waitFor(() =>
       expect(tile("Notes", "viewer")).toHaveAttribute("aria-checked", "true"),
     );
@@ -606,7 +621,7 @@ describe("the assignment panel", () => {
     await waitFor(() => expect(screen.getByText("Access per module")).toBeInTheDocument());
 
     gate.fail = true;
-    gate.release();
+    await gate.release();
 
     // Asserted through the alert role rather than by text alone: a hidden node satisfies a
     // text query, so "shown" and "present in the DOM" are two different claims and only the
@@ -617,6 +632,30 @@ describe("the assignment panel", () => {
     // No strips at all, so there is nothing to click and nothing to misread.
     expect(screen.queryByRole("radiogroup", { name: "Notes" })).not.toBeInTheDocument();
     expect(written).toEqual([]);
+  });
+
+  it("settles when the gate is released before the read reaches it", async () => {
+    // Pins the gate's own contract, because the two tests above depend on it and neither
+    // states it. They release after waiting on a heading the panel renders without the
+    // provenance read having left for the gate yet — so "released" and "parked" have no
+    // ordering between them, and the losing order is the one nobody wrote a test for.
+    //
+    // Releasing first is that order, forced. A release that only resumes what happens to be
+    // parked at that instant resumes nothing here, and the read that arrives afterwards
+    // waits on a gate nobody opens again: the panel holds its pre-read state until the
+    // matcher gives up four seconds later, reported as an element that never appeared rather
+    // than as the deadlock it is. That is the shape the same two tests hit intermittently on
+    // a loaded machine, which is why this one forces it instead of hoping to catch it.
+    const { gate } = renderAt(`/admin/users/${SUBJECT}`, { gateReads: true });
+    const released = gate.release();
+    await waitFor(() => expect(screen.getByText("Access per module")).toBeInTheDocument());
+    await released;
+
+    await waitFor(() =>
+      expect(screen.getByRole("radiogroup", { name: "Notes" })).not.toHaveAttribute(
+        "aria-disabled",
+      ),
+    );
   });
 
   it("shows a rung held in a module that no longer accepts one, and lets it be cleared", async () => {
