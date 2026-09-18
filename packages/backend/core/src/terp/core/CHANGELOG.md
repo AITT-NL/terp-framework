@@ -322,6 +322,38 @@ decision, 0001 onwards.
   to delete to turn it off. `psycopg[binary]` joins the generated dev group for the same
   reason — without the driver the PostgreSQL half could only ever skip.
 
+- **One outbound transport, and webhook delivery takes it instead of keeping its own
+  (ADR 0144).**
+  `no_raw_outbound_http` sends an author to the egress capability, and the argument it
+  makes is arithmetic: the four things that must be right about an outbound request — no
+  redirect followed, a bounded read, a pinned address, TLS verified against the *name*
+  rather than the address it was pinned to — are right in as many places as there are
+  clients. The capability shipped that as `EgressClient`, which owns a **policy**: an
+  allowlist, a timeout, a response cap, the SSRF denylist. Webhook delivery could not
+  take it, and not by oversight — its target is a URL a subscriber chose, so there is no
+  allowlist to write. What it needed was the transport underneath the policy, and that
+  was private. So it kept its own: build a request from the original URL, repoint the
+  socket at the validated IP, refuse redirects — beside a near-identical copy inside the
+  egress client, which is exactly the duplication the rule exists to argue against.
+
+  `terp.capabilities.egress.send_pinned` is that transport, now public. `EgressClient`
+  calls it, webhook delivery calls it, and the `terp-cap-webhooks` distribution no longer
+  depends on an HTTP client at all — its `arch-allow-no-raw-outbound-http` budget entry
+  is **removed rather than renewed**, which is the outcome a dated opt-out is supposed to
+  reach. One raw client remains in the platform, in the OIDC capability, and routing it
+  is its own change: an IdP's endpoints arrive from a discovery document rather than from
+  a policy, so it is a design question and not a substitution.
+
+  **A webhook's reply is now bounded, at 1 MiB** — a real behaviour change, and the
+  reason this duplication was worth removing rather than tolerating. The local transport
+  read the subscriber's response **whole, with no bound at all**, while the egress one
+  has capped its reads since it existed; two copies drift, and it is always the copy
+  nobody is looking at that drifts. Nothing reads that body — a delivery is judged by its
+  status code alone — so the cap is not a protocol limit but a bound on how much one
+  endpoint can make a worker allocate. A receiver that answers a delivery with more than
+  a megabyte now records a failed attempt and retries where it previously recorded a
+  delivery.
+
 ### Fixed
 
 - **The secret scan reported other branches' commits on your pull request.** `gitleaks

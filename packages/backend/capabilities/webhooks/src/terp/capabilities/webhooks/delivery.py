@@ -14,12 +14,14 @@ Security controls applied on every attempt:
   :mod:`terp.capabilities.webhooks.ssrf`);
 * an **HMAC-SHA256** signature over the exact JSON body, keyed by the subscription's stored
   ``secret`` — which never leaves the server;
-* a strict outbound **timeout**, a bounded outbound **payload size**, and **no redirect
-  following** (a 3xx is recorded as a failure, never chased to a possibly-disallowed host).
+* a strict outbound **timeout**, a bounded outbound **payload size**, a bounded **read** of
+  whatever the subscriber answers with, and **no redirect following** (a 3xx is recorded as
+  a failure, never chased to a possibly-disallowed host).
 
-The outbound HTTP client is the injectable :data:`WebhookSender` seam (default: ``httpx``),
-so tests drive the handler with no real network I/O — and ``httpx`` is imported only here, in
-this capability, never by an app module.
+The outbound call is the injectable :data:`WebhookSender` seam, so tests drive the handler
+with no real network I/O. Its default is the egress capability's transport rather than a
+client of this capability's own: no HTTP client is imported here at all, and the platform
+constructs exactly one, in ``terp.capabilities.egress``.
 """
 
 from __future__ import annotations
@@ -33,7 +35,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Final
 
-import httpx  # arch-allow-no-raw-outbound-http: the target is already resolved and pinned by the egress capability (PinnedTarget) and redirects are refused; only the transport line is local, behind the injectable WebhookSender seam. review-by: 2026-12-31
 from sqlmodel import Field
 
 from terp.core import (
@@ -46,6 +47,7 @@ from terp.core import (
     RetryPolicy,
 )
 
+from terp.capabilities.egress import send_pinned
 from terp.capabilities.webhooks.models import (
     OUTCOME_BLOCKED,
     OUTCOME_DELIVERED,
@@ -64,6 +66,11 @@ from terp.capabilities.webhooks.store import record_delivery
 # Conservative secure outbound limits (Tier-B-style knobs with safe defaults).
 _TIMEOUT_SECONDS: Final[float] = 10.0
 _MAX_PAYLOAD_BYTES: Final[int] = 256 * 1024  # 256 KiB cap on the signed body
+# What a subscriber may answer *with*. Nothing reads that body for meaning — only the status
+# code decides the outcome — so this is not a protocol limit but a bound on how much one
+# endpoint can make a worker allocate. The local transport this replaced read the reply whole
+# and had no bound at all, which a receiver could turn into the worker's memory.
+_MAX_RESPONSE_BYTES: Final[int] = 1024 * 1024
 _SIGNATURE_HEADER: Final[str] = "X-Terp-Signature"
 _TIMESTAMP_HEADER: Final[str] = "X-Terp-Webhook-Timestamp"
 _EVENT_HEADER: Final[str] = "X-Terp-Event"
@@ -106,35 +113,32 @@ class WebhookResponse:
 
 # A sender performs the actual POST and returns a :class:`WebhookResponse`. It is injectable
 # so tests drive the handler without real network I/O (mirroring the audit-sink / throttle-
-# store seams); the default implementation uses ``httpx``.
+# store seams); the default implementation calls the egress capability's transport.
 WebhookSender = Callable[[PinnedTarget, bytes, dict[str, str]], WebhookResponse]
 
 
-def _httpx_sender(
+def _egress_sender(
     target: PinnedTarget, body: bytes, headers: dict[str, str]
 ) -> WebhookResponse:
-    """Default sender: POST to *target*, pinned to its pre-validated IP, no redirect chasing.
+    """Default sender: POST to *target* through the platform's one outbound transport.
 
-    The request is built from the original ``https`` URL (so the ``Host`` header + path are
-    correct and TLS is verified against the hostname via the ``sni_hostname`` extension), then
-    the connection is **repointed to the validated IP** — so a DNS-rebinding attacker cannot
-    make the socket land on a private address after the SSRF check (closing the TOCTOU). A
-    strict timeout bounds the request; redirects are never followed.
+    Everything that makes the request safe is the egress capability's and no longer this
+    module's: the socket is repointed to the address :func:`resolve_pinned_target` just
+    validated (so a DNS-rebinding attacker cannot land it on a private address after the
+    check — the TOCTOU), TLS is still verified against the hostname via the
+    ``sni_hostname`` extension, the timeout bounds the request, the read is bounded, and
+    a redirect is never followed.
+
+    What is left here is the webhook-shaped part, and it is one line: a delivery is
+    judged by its status code alone.
     """
-    with httpx.Client(timeout=_TIMEOUT_SECONDS, follow_redirects=False) as client:
-        request = client.build_request(
-            "POST",
-            target.url,
-            content=body,
-            headers=headers,
-            extensions={"sni_hostname": target.host},
-        )
-        request.url = request.url.copy_with(host=target.ip)
-        response = client.send(request)
+    response = send_pinned(
+        target, "POST", body, headers, _TIMEOUT_SECONDS, _MAX_RESPONSE_BYTES
+    )
     return WebhookResponse(status_code=response.status_code)
 
 
-_active_sender: WebhookSender = _httpx_sender
+_active_sender: WebhookSender = _egress_sender
 
 
 def set_webhook_sender(sender: WebhookSender) -> None:
@@ -144,9 +148,9 @@ def set_webhook_sender(sender: WebhookSender) -> None:
 
 
 def reset_webhook_sender() -> None:
-    """Restore the default ``httpx`` sender (the test-isolation reset)."""
+    """Restore the default egress-backed sender (the test-isolation reset)."""
     global _active_sender
-    _active_sender = _httpx_sender
+    _active_sender = _egress_sender
 
 
 def active_webhook_sender() -> WebhookSender:
