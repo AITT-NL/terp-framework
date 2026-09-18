@@ -10,6 +10,64 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — 2026-09-18
+
+### Added
+
+- **`terp service-account list` and `terp service-account revoke` — a machine credential
+  can now be administered, not only issued.** `ServiceAccountService.revoke()` and the
+  `ServiceAccountRead` DTO both shipped in 0.5.0 and neither had a caller outside the
+  framework's own tests. So a credential could be issued and never turned off: a leaked or
+  stale secret had no supported revocation path, and "is this integration still running?"
+  — the question `last_used_at` is written to answer, in a column the module docstring
+  justifies by that question — had no surface anywhere that could ask it.
+
+  `list` renders the DTO (so `hashed_secret` is structurally absent, not merely omitted)
+  with rank, client id, expiry and last use, and takes `--expiring-within-days` for the
+  question a renewal is actually planned from: the default expiry is a year, so the
+  interval between "nobody is thinking about this" and "it is already broken" is the whole
+  reason to ask early. Revoked accounts are hidden unless asked for — the row stays for the
+  audit trail, and a list of every credential ever issued buries the live ones.
+
+  `revoke` calls the service's own `revoke`, which bumps the token epoch and writes through
+  the audited chokepoint, so outstanding access tokens stop working immediately rather than
+  at their own convenience. It takes the name an operator actually has, the way `terp grant`
+  already does.
+
+  There is deliberately **no `rotate`**. The secret is write-once by decision (ADR 0088:
+  "a lost secret is re-provisioned, not recovered"), and `ServiceAccountUpdate` says the
+  same from the other side. Renewal is `create` then `revoke`, in that order — which is
+  also the only order that does not interrupt the integration. Its absence is pinned by a
+  test rather than left to memory.
+
+  `ServiceAccountRead` is now exported from `terp.capabilities.identity`, so an app that
+  does want its own admin page reuses the DTO instead of assembling a second answer to the
+  same question.
+
+- **`terp outbox dead-letters` — the outbox can now name what gave up, not just count it.**
+  `last_error` is written by the worker inside `_finalize_failure`, beside
+  `status = dead_lettered`, and a repository-wide search found no reader: no schema, no
+  router, no CLI, no health field, no frontend. The platform recorded the cause of every
+  dead letter and could not be asked for it — which costs exactly the moment it is most
+  expensive, an incident where the operator can see that deliveries died and not why. Both
+  sibling capabilities that own a retrying table already expose their per-row failure reason
+  (webhooks' delivery log, sync's per-record log); the outbox was the one that did not.
+
+  Newest first and bounded, with `--name` for the one integration an incident is usually
+  about and `--since-days` for "is this still happening" after a fix goes out. The reader
+  (`terp.capabilities.outbox.dead_letters`) returns a frozen `OutboxDeadLetter` rather than
+  the ORM row, and the payload is deliberately not on it: the serialized envelope of the
+  business write can carry anything at all, including something nobody meant to print at
+  3am in a shared terminal.
+
+  There is deliberately **no redrive**. ADR 0045 §1 and the model's own docstring fix the
+  lifecycle as one-way — a row is inserted `pending` and only ever moves to `dispatched` or
+  `dead_lettered` — so putting a dead letter back changes a recorded invariant rather than
+  completing a capability, and it has real questions to answer first (what happens to
+  `attempts` and `dead_lettered_at`, and whether the evidence of the first failure survives
+  the retry). That belongs in an ADR with its own columns. The command says so where an
+  operator will read it, and `terp guide outbox` says why.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added
