@@ -776,3 +776,115 @@ def test_a_template_directory_that_is_no_repository_is_not_a_pruned_tag(
     assert "no longer carries" not in report
     assert "copier update" in report
     assert "Pin every terp-* dependency" not in report
+
+
+# --- the machine-readable half --------------------------------------------- #
+def test_the_upgrade_answer_is_available_as_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`terp upgrade --check` was the one reporting command with no structured mode.
+
+    Every other one has it — inspect control-plane/access/capabilities/schema,
+    guide --list, check, verify — so any tool asking "is this app on a current platform?"
+    had to answer it by reimplementing the question rather than by asking. The facts were
+    already computed; they were spent on prose.
+    """
+    _fake_versions(monkeypatch, {"terp-core": "0.5.4", "terp-cap-auth": "0.5.4"})
+    _uv_says(
+        monkeypatch,
+        [
+            {"name": "terp-core", "version": "0.5.4", "latest_version": "0.6.0"},
+            {"name": "terp-cap-auth", "version": "0.5.4", "latest_version": "0.6.0"},
+        ],
+    )
+    document = json.loads(version_mod.render_upgrade_check(fmt="json"))
+    assert document["current"] == "0.5.4"
+    assert document["target"] == "0.6.0"
+    assert document["covers_whole_set"] is True
+    assert document["stragglers"] == {}
+    assert document["installed"] == {"terp-cap-auth": "0.5.4", "terp-core": "0.5.4"}
+    assert document["error"] is None
+
+
+def test_being_level_is_distinguishable_from_being_behind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The distinction a version number cannot carry on its own.
+
+    "Internally consistent at X" and "X, and two releases behind" are different answers,
+    and a consumer comparing a pin against its own baked copy can only ever produce the
+    first. `target: null` is the only honest way to say "nothing newer".
+    """
+    _fake_versions(monkeypatch, {"terp-core": "0.6.0"})
+    _uv_says(monkeypatch, [])
+    document = json.loads(version_mod.render_upgrade_check(fmt="json"))
+    assert (document["current"], document["target"]) == ("0.6.0", None)
+    assert document["covers_whole_set"] is True
+
+
+def test_a_release_that_does_not_cover_the_set_says_so_in_the_data_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A straggler is a reason to WAIT, and a tool acting on this has to see it.
+
+    Upgrading into a partial release produces exactly the mixed install
+    `terp --version` warns about, so `covers_whole_set` is the field that decides.
+    """
+    _fake_versions(monkeypatch, {"terp-core": "0.5.4", "terp-cap-auth": "0.5.4"})
+    _uv_says(
+        monkeypatch,
+        [
+            {"name": "terp-core", "version": "0.5.4", "latest_version": "0.6.0"},
+            {"name": "terp-cap-auth", "version": "0.5.4", "latest_version": "0.5.9"},
+        ],
+    )
+    document = json.loads(version_mod.render_upgrade_check(fmt="json"))
+    assert document["target"] == "0.6.0"
+    assert document["covers_whole_set"] is False
+    assert document["stragglers"] == {"terp-cap-auth": "0.5.9"}
+
+
+def test_an_unreachable_index_is_an_error_field_not_a_guess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A consumer must be able to tell "up to date" from "could not find out"."""
+    _fake_versions(monkeypatch, {"terp-core": "0.5.4"})
+    monkeypatch.setattr(version_mod, "_uv_outdated", lambda: (None, "uv is not on PATH."))
+    document = json.loads(version_mod.render_upgrade_check(fmt="json"))
+    assert document["error"] == "uv is not on PATH."
+    assert document["target"] is None
+    assert document["covers_whole_set"] is False, (
+        "an unanswered question must never read as a satisfied one"
+    )
+
+
+def test_an_environment_without_terp_is_data_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_versions(monkeypatch, {})
+    document = json.loads(version_mod.render_upgrade_check(fmt="json"))
+    assert document["current"] is None and document["installed"] == {}
+    assert "no terp-* distribution is installed" in document["error"]
+
+
+def test_the_cli_dispatches_the_structured_mode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_versions(monkeypatch, {"terp-core": "0.6.0"})
+    _uv_says(monkeypatch, [])
+    main(["upgrade", "--check", "--format", "json"])
+    assert json.loads(capsys.readouterr().out)["current"] == "0.6.0"
+
+
+def test_the_recipe_hands_the_reader_a_command_that_is_already_narrowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Step 1 holds both versions, so it should not make the reader supply one.
+
+    Before this it printed a bare `terp guide changelog`, which returns the entire file
+    — thousands of lines across dozens of releases, with no way to slice to the ones this
+    reader has not seen. A document nobody reads is a channel that carries nothing.
+    """
+    _fake_versions(monkeypatch, {"terp-core": "0.5.4"})
+    _uv_says(
+        monkeypatch,
+        [{"name": "terp-core", "version": "0.5.4", "latest_version": "0.6.0"}],
+    )
+    text = version_mod.render_upgrade_check()
+    assert "terp guide changelog --since 0.5.4" in text

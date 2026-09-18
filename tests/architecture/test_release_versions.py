@@ -251,6 +251,121 @@ def test_each_version_appears_under_exactly_one_heading() -> None:
         assert not repeated, f"{version}: subsections opened more than once: {repeated}"
 
 
+#: The subsection vocabulary a release section may use. Keep a Changelog's five, plus the
+#: one this project added for a change that refuses a posture an existing app may hold.
+#:
+#: Two of these are LOAD-BEARING rather than decorative, and that is the whole reason this
+#: is a closed set. A release that closes a defect a deployment may be carrying today, and
+#: a release that will refuse a configuration an app already has, are the two kinds where
+#: the cost of not reading the notes is unbounded — and they were the two the channel could
+#: not mark. `terp guide changelog --since <version>` now leads every section with these
+#: two by name, and the published GitHub release body is the tag's own section rather than
+#: generated commit subjects. Both read the spelling, so a release that says "Security
+#: fixes" or "Breaking changes" is a release whose most important half silently stops
+#: being findable.
+_CHANGELOG_SUBSECTIONS: frozenset[str] = frozenset(
+    {
+        "Added",
+        "Changed",
+        "Deprecated",
+        "Fixed",
+        "Removed",
+        # A defect in the platform that a deployment may be carrying right now.
+        "Security",
+        # A change that refuses a posture an existing app may already hold — the thing a
+        # green gate on the OLD version cannot warn anyone about.
+        "Upgrade notes",
+    }
+)
+
+#: Subsection headings that predate the vocabulary, by the release that carries them. A
+#: ratchet, not an exemption: the list only shrinks, and an entry whose release no longer
+#: carries that heading fails, so it cannot quietly become a second vocabulary.
+_LEGACY_SUBSECTIONS: dict[str, frozenset[str]] = {
+    "0.2.0": frozenset({"Upgrading from 0.1.0"}),
+}
+
+
+def _changelog_subsections() -> dict[str, list[str]]:
+    """``{version: [subsection heading, ...]}`` for every release section."""
+    changelog = (_REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    matches = list(re.finditer(r"^## (\d+\.\d+\.\d+)", changelog, re.MULTILINE))
+    sections: dict[str, list[str]] = {}
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(changelog)
+        body = changelog[match.end() : end]
+        sections[match.group(1)] = re.findall(r"^### (.+)$", body, re.MULTILINE)
+    return sections
+
+
+def test_the_release_notes_use_the_declared_subsection_vocabulary() -> None:
+    """A classification nothing checks is a classification nothing can be built on.
+
+    `Security` and `Upgrade notes` are read by name in two places now — the `--since`
+    renderer leads with them, and the published release body is the authored section —
+    so a release that spells either of them differently loses exactly the half a reader
+    upgrading most needs. Everything else in the set is Keep a Changelog's.
+    """
+    offenders = {
+        version: sorted(
+            name
+            for name in names
+            if name not in _CHANGELOG_SUBSECTIONS
+            and name not in _LEGACY_SUBSECTIONS.get(version, frozenset())
+        )
+        for version, names in _changelog_subsections().items()
+    }
+    unexpected = {version: names for version, names in offenders.items() if names}
+    assert not unexpected, (
+        "release-note subsections outside the declared vocabulary "
+        f"({sorted(_CHANGELOG_SUBSECTIONS)}): {unexpected}. Two of those names are read "
+        "by tooling, so the set is closed — use `### Security` for a defect a deployment "
+        "may be carrying today and `### Upgrade notes` for a change that refuses a "
+        "posture an existing app may already hold."
+    )
+
+
+def test_the_legacy_subsection_allowlist_only_shrinks() -> None:
+    """An allowlist entry that outlived its subject is how a ratchet rots."""
+    sections = _changelog_subsections()
+    stale = {
+        version: sorted(names - set(sections.get(version, [])))
+        for version, names in _LEGACY_SUBSECTIONS.items()
+    }
+    lingering = {version: names for version, names in stale.items() if names}
+    assert not lingering, (
+        f"these legacy subsection allowances no longer match the changelog: {lingering} "
+        "— remove them"
+    )
+
+
+def test_the_release_workflow_publishes_the_authored_notes() -> None:
+    """The one subscribable channel must carry what the release actually says.
+
+    `--generate-notes` publishes commit subjects since the previous tag. That is a
+    different document from the one this repository writes, and the difference is the
+    whole classification: the `### Security` narrative explaining a defect a deployment
+    may be carrying reaches nobody watching releases, while the commit titles do.
+    """
+    workflow = (_REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+    # Comment lines are excluded on purpose: the step explains itself by naming the flag
+    # it no longer passes, and a check that could not tell an explanation from an
+    # invocation would make the reasoning unwritable next to the code it is about.
+    commands = "\n".join(
+        line for line in workflow.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "--notes-file" in commands, (
+        "the GitHub release body must be the tag's own CHANGELOG section (--notes-file), "
+        "not generated commit subjects"
+    )
+    assert "--generate-notes" not in commands, (
+        "--generate-notes is back: the authored release notes stop reaching the only "
+        "channel a consumer can subscribe to"
+    )
+
+
 #: Every in-repo consumer of a published Terp package — the apps, which are not published
 #: themselves and so are invisible to the lockstep checks above.
 _IN_REPO_CONSUMERS = sorted(

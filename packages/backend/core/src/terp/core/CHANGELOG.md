@@ -10,6 +10,60 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — 2026-09-18
+
+### Added
+
+- **`terp upgrade --check --format json` — the upgrade answer as data.** It was the one
+  reporting command in the CLI with no machine-readable mode: `inspect control-plane`,
+  `inspect access`, `inspect capabilities`, `inspect schema`, `guide --list`, `check` and
+  `verify` all have one. Every field was already computed and then spent on prose, so any
+  tool asking "is this app on a current platform?" had to answer it by reimplementing the
+  question rather than by asking. The document is
+  `{installed, current, target, covers_whole_set, stragglers, rerender_blocker, scaffold_ref, error}`.
+
+  `covers_whole_set` is the field that matters and the one a version number cannot carry:
+  "internally consistent at X" and "X, and the release does not cover every package" are
+  different answers, and only the second is a reason to wait. `error` is separate from
+  `target: null` for the same reason — "up to date" and "could not find out" must not be
+  the same reading.
+
+- **`terp guide changelog --since <version>`.** The notes are thousands of lines across
+  dozens of releases and the topic returned all of them, with no version argument at all.
+  The tool whose job is "read this before you upgrade" handed back a document nobody
+  reads, which makes it a channel that carries nothing. `--since` renders only the
+  releases after the reader's own version, and leads each one with its `### Security` and
+  `### Upgrade notes` subsections — ordering, not filtering, so everything the release said
+  is still there.
+
+  `terp upgrade --check` now prints step 1 with the flag already filled in: it holds both
+  the current and the target version and was printing a command that made the reader
+  supply one.
+
+### Changed
+
+- **The release-note subsection vocabulary is closed, and two of its names are
+  load-bearing.** `### Security` marks a defect in the platform that a deployment may be
+  carrying today; `### Upgrade notes` marks a change that refuses a posture an existing app
+  may already hold. Those are the two kinds of release where the cost of not reading the
+  notes is unbounded, and they were the two the channel could not mark — the census over
+  the whole history was 32 Added, 26 Fixed, 21 Changed, 1 Removed, and exactly one each of
+  Security and Upgrade notes, with no requirement on any of it.
+
+  Both names are now read by name in two places (the `--since` renderer and the published
+  release body), so the set is closed and checked: a release that says "Security fixes" or
+  "Breaking changes" is a release whose most important half silently stops being findable.
+  One pre-existing heading is recorded in a shrink-only allowlist rather than grandfathered
+  in silently.
+
+- **The published GitHub release body is the tag's own CHANGELOG section, not generated
+  commit subjects.** `--generate-notes` publishes a different document from the one this
+  repository writes, and the difference is the entire classification: the `### Security`
+  narrative that explains a defect a deployment may be carrying reached nobody watching
+  releases, while the commit titles did. The workflow now slices `## <version>` out of
+  `CHANGELOG.md` and passes `--notes-file`, and refuses to publish a release whose notes
+  nobody wrote.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added
