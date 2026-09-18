@@ -14,6 +14,36 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **`no_hardcoded_credentials` matched identifier names with no view of the value.**
+  `TOKEN_ENV = "SOME_API_TOKEN"` is the *name* of a credential; `TOKEN_PATH =
+  "/api/v1/auth/token"` is a URL path; `AUTH_TOKEN_FORMAT = "Bearer {token}"` is a wire
+  format whose secret part is precisely the part that is not there. All three read as
+  leaks, and the only exit was an escape-hatch marker on a security rule.
+
+  The cost is not noise. The escape-hatch budget is the platform's only friction metric
+  and its only ratchet, and a rule whose markers are usually nothing teaches a reviewer
+  to give the one that is something the same glance. That is how a fail-closed control
+  becomes decoration — the failure this rule exists to prevent, one level up.
+
+  Four shapes are now exempt, each a statement about the **value**; the name list is
+  untouched, because narrowing it would lose real findings. The enum-vocabulary case
+  (unchanged); a name the module itself uses as an environment key
+  (`os.environ[TOKEN_ENV]`), which is the module saying in code what the string is; a
+  `_ENV` / `_PATH` / `_HEADER` name whose value matches the grammar that suffix implies;
+  and a `_FIELD` / `_COLUMN` / `_PARAM` / `_REFERENCE` name whose value spells the name
+  itself.
+
+  Each grammar has to **refuse a password** to qualify, which is a sharper bar than
+  "looks plausible": `hunter2` is a valid identifier, a valid header name and a valid
+  environment variable name once upper-cased. So the conventions discriminate — an
+  environment variable's name is multi-word, a header's name is hyphenated, a path starts
+  at a root — and `TOKEN_ENV = "HUNTER2"` is still a finding. Nothing here weakens the
+  literal-format scan, which reads every string in the tree whatever name it is bound to,
+  so a real key pasted into any of these shapes is still caught.
+
+  Apps carrying `arch-allow-no-hardcoded-credentials` markers for these shapes can drop
+  them and shrink their budget.
+
 - **Every generated app shipped unpinned GitHub Actions and an unverified `gitleaks`
   binary.** This repository's own CI pins each action by digest and verifies the gitleaks
   download against a pinned SHA256 before running it. The workflow the template renders —
@@ -75,6 +105,27 @@ decision, 0001 onwards.
 
   Adopting this will find things, and finding them is the point. `terp guide environment`
   carries the recipe.
+
+### Changed
+
+- **The gate parses each file once per run instead of once per rule.** `check_app` ran
+  every rule over the same tree and each rule walked and parsed it independently: on a
+  32-file tree that was 2,354 `ast.parse` calls, because the redundancy factor is the
+  rule count — 79 today, and only ever up. Cost was linear in two things that both only
+  grow, and the consumer who feels it is the one with the biggest app.
+
+  A memo scoped to one scan makes it 43 parses and roughly halves the wall clock (713 ms
+  → 340 ms on the example app). The findings are identical, which is asserted against a
+  deliberately dirty tree rather than a clean one — an empty list equalling an empty list
+  proves nothing.
+
+  Scoped to a run rather than cached on the module, and that is the whole design: a
+  process-global cache would answer from a stale tree the moment anything rewrote a file
+  between scans, which is what an editor, a workbench and this repository's own rule
+  tests all do continuously. Keying on `st_mtime_ns` would paper over most of that and
+  still lose to two writes inside one timestamp tick. Outside a run, `parse` and
+  `iter_python_files` behave exactly as they always did.
+
 
 ## 0.24.0 — 2026-09-17
 

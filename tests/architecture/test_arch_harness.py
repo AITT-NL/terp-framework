@@ -2960,6 +2960,114 @@ def test_no_hardcoded_credentials(tmp_path: pathlib.Path) -> None:
     assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
 
 
+def test_no_hardcoded_credentials_reads_the_value_not_only_the_name(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Three shapes a credential cannot take, however credential-shaped the name is.
+
+    The matcher is a name match with no view of what the string holds, so
+    ``TOKEN_ENV = "SOME_API_TOKEN"`` -- the NAME of a credential -- and
+    ``TOKEN_PATH = "/api/v1/auth/token"`` -- a URL path -- both read as leaks. That is
+    not merely noisy. The escape-hatch budget is this platform's only friction metric
+    and its only ratchet, and once a reviewer learns that a marker for this rule is
+    usually nothing, the one that is something gets the same glance. A fail-closed
+    control has then become decoration, which is the failure this rule exists to
+    prevent, one level up.
+
+    The name list stays broad on purpose -- narrowing it would lose real findings -- so
+    every exemption below says something about the VALUE instead.
+    """
+    app = tmp_path / "app"
+
+    # 1. The module itself uses the literal as an environment key. That is the module
+    #    stating in code that the string NAMES a credential, and it is the strongest
+    #    evidence available without leaving the file.
+    for usage in (
+        "value = os.environ[TOKEN_ENV]",
+        "value = os.getenv(TOKEN_ENV)",
+        "value = os.environ.get(TOKEN_ENV)",
+    ):
+        _write(app, "client.py", f"import os\nTOKEN_ENV = 'SOME_API_TOKEN'\n{usage}\n")
+        assert check_no_hardcoded_credentials(app) == [], usage
+
+    # 2. A suffix that says what the value is, WITH the grammar that claim implies.
+    for source in (
+        "TOKEN_ENV = 'SOME_API_TOKEN'",
+        "TOKEN_PATH = '/api/v1/auth/token'",
+        "API_KEY_PATH = './secrets/api.json'",
+        "AUTH_TOKEN_HEADER = 'X-Auth-Token'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+    # 2b. A `_FIELD` / `_REFERENCE` name cannot be judged by grammar -- a field name and
+    #     a password are the same shape -- so the value has to SPELL THE NAME, which is
+    #     the self-naming enum case generalised.
+    for source in (
+        "CLIENT_SECRET_FIELD = 'client_secret'",
+        "API_KEY_COLUMN = 'api_key'",
+        "ACCESS_TOKEN_PARAM = 'access-token'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+    # 3. A literal with a substitution slot is a wire FORMAT: the part that would be
+    #    secret is the part that is not there.
+    for source in (
+        "AUTH_TOKEN_FORMAT = 'Bearer {token}'",
+        "API_KEY_TEMPLATE = 'key=%s'",
+        "PASSWORD_TEMPLATE = 'pw=%(value)s'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+
+def test_no_hardcoded_credentials_exemptions_need_the_value_to_earn_them(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The half that matters: a suffix is not a password. Each case below wears one of
+    the exempt shapes and holds a credential anyway."""
+    app = tmp_path / "app"
+
+    for source in (
+        # The suffix claims an environment variable's name; the value is a token.
+        "TOKEN_ENV = 'sk-live-abc123'",
+        # ...a path; still a token.
+        "TOKEN_PATH = 'sk-live-abc123'",
+        # ...a header name; a value with spaces is not one.
+        "AUTH_TOKEN_HEADER = 'Bearer abc def'",
+        # A suffix that is not in the list at all, and must not become one: `_KEY`
+        # IS the credential word.
+        "API_KEY = 'sk-live-abc123'",
+        # An env-var name must be multi-word, or the exemption swallows a password
+        # that merely happens to be upper-case.
+        "TOKEN_ENV = 'HUNTER2'",
+        # A self-naming suffix whose value does NOT spell the name is a password in
+        # a field name's clothing -- the exact case this repository's suite caught.
+        "SECRET_REFERENCE = 'hunter2'",
+        "CLIENT_SECRET_FIELD = 'hunter2'",
+        # A bearer literal has no substitution slot, so it is not a format.
+        "auth_token = 'Bearer abc.def.ghi'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert _rule_names(check_no_hardcoded_credentials(app)) == {
+            "no_hardcoded_credentials"
+        }, source
+
+    # An env-key name is exempt only in the module that actually uses it as one.
+    _write(app, "client.py", "TOKEN_ENV = 'sk-live-abc123'\n")
+    assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
+
+    # And no exemption reaches the literal-format scan, which reads every string in the
+    # tree whatever name it is bound to: a real key pasted into a "format" still fires.
+    _write(
+        app,
+        "client.py",
+        "HEADER_FORMAT = 'Bearer " + "ghp_" + "A" * 36 + " {rest}'\n",
+    )
+    assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
+
+
 def test_no_hardcoded_credentials_allows_self_naming_enum_members(tmp_path: pathlib.Path) -> None:
     # An enum member whose literal IS its own name is vocabulary, not a credential:
     # `SECRET_REFERENCE = "secret_reference"` names a parameter kind. Flagging it
