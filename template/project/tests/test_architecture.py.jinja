@@ -13,7 +13,11 @@ import tomllib
 from terp.arch import assert_app_clean, declared_roots
 from terp.cli.verify import PROFILES
 from terp.core import assert_references_declare_delete_behaviour
-from terp.migrations import assert_migrations_match_models, upgrade
+from terp.migrations import (
+    assert_migrations_match_models,
+    assert_migrations_reverse_cleanly,
+    upgrade,
+)
 
 _APP_ROOT = pathlib.Path(__file__).resolve().parents[1] / "app"
 
@@ -119,11 +123,30 @@ def test_references_declare_delete_behaviour() -> None:
     assert_references_declare_delete_behaviour()
 
 
-def test_migrations_match_models(tmp_path: pathlib.Path) -> None:
+def test_migrations_match_models(terp_db_url: str) -> None:
     # The drift half of the migration control: upgrade a scratch database to head, then
     # assert autogenerate finds nothing left over. A model changed without
     # `terp migrate make <module>` fails here, in CI — not in production against a stale
     # schema (the boot guard only catches *pending* revisions, not a missing one).
-    db_url = f"sqlite:///{tmp_path / 'drift-check.db'}"
-    upgrade(db_url, _APP_ROOT, package="app")
-    assert_migrations_match_models(db_url, _APP_ROOT, package="app")
+    #
+    # `terp_db_url` (shipped by terp-core's pytest plugin) runs this on BOTH verified
+    # dialects: SQLite always, and PostgreSQL when TERP_TEST_POSTGRES_URL points at a
+    # server -- which the CI workflow provides and a local run skips. That matters most
+    # here: SQLite does not report a foreign key's referential options, so against it
+    # Alembic compares constraints without them and an ON DELETE clause that changed is
+    # invisible. PostgreSQL does report them.
+    upgrade(terp_db_url, _APP_ROOT, package="app")
+    assert_migrations_match_models(terp_db_url, _APP_ROOT, package="app")
+
+
+def test_migrations_reverse_cleanly(terp_db_url: str) -> None:
+    # The REVERSE half, and the one that had nothing executed behind it. Your rollback
+    # plan is `terp migrate downgrade`; the catalogued rule proves only that each
+    # `downgrade()` body is not a lone `pass`, which cannot see a downgrade that dies on
+    # its first statement (easy to write: batch mode re-applies the naming convention,
+    # so a hand-written constraint name is often wrong) or one that quietly leaves a
+    # table behind for the next deploy to collide with.
+    #
+    # Rehearses the whole thing: upgrade to head, downgrade to base, check every
+    # package's history emptied and nothing was left behind, upgrade again, compare.
+    assert_migrations_reverse_cleanly(terp_db_url, _APP_ROOT, package="app")

@@ -137,9 +137,91 @@ class MigrationDriftError(MigrationError):
         )
 
 
+class MigrationReversibilityError(MigrationError):
+    """A downgrade did not put the schema back the way it found it.
+
+    Raised by :func:`terp.migrations.assert_migrations_reverse_cleanly`. Every Terp
+    app's rollback plan is ``terp migrate downgrade``, and until this existed the only
+    thing checked about that plan was that the ``downgrade()`` body was not an empty
+    stub — a source-level check that cannot see a downgrade which dies on its first
+    statement, and cannot see one that runs green and comes back with a different
+    schema.
+
+    The second is the quiet one: a downgrade that leaves a table, index or trigger
+    behind runs green, and the next upgrade either collides with the residue or reflects
+    it into a rebuilt table — so the schema you roll forward into is not the one the
+    version you rolled back to was tested against.
+
+    The differences are named as ``<object>: before | after`` so the reader can see
+    which object changed and in which direction, rather than being told only that
+    something did.
+    """
+
+    def __init__(self, differences: Sequence[str]) -> None:
+        self.differences = tuple(differences)
+        listed = "".join(f"\n  - {difference}" for difference in self.differences)
+        super().__init__(
+            f"the migration history does not reverse cleanly ({len(self.differences)} "
+            f"difference(s) after downgrade to base and upgrade again):{listed}\n"
+            "A downgrade that does not restore what it found is a rollback plan that "
+            "changes the schema under the version you are rolling back to."
+        )
+
+
+class MigrationResidueError(MigrationError):
+    """A downgrade to base left schema objects behind.
+
+    Raised by :func:`terp.migrations.assert_migrations_reverse_cleanly`. This is the
+    failure the catalogued ``alembic_downgrades_not_empty`` rule most looks like it
+    covers and cannot: a ``downgrade()`` with statements in it that simply do not undo
+    everything the ``upgrade()`` did. An index, a table, a trigger or a view the reverse
+    direction forgot.
+
+    It is quiet by construction. Nothing errors, and a down-and-up cycle usually
+    converges back to the same schema — so comparing the two ends of the cycle does not
+    see it either. What sees it is looking at the middle: after a full downgrade the
+    database should hold nothing but the (empty) ``alembic_version_<label>`` bookkeeping
+    tables, and anything else is something a rollback would leave on a production
+    database for the next deploy to collide with.
+    """
+
+    def __init__(self, leftovers: Sequence[str]) -> None:
+        self.leftovers = tuple(leftovers)
+        listed = "".join(f"\n  - {leftover}" for leftover in self.leftovers)
+        super().__init__(
+            f"downgrade to base left {len(self.leftovers)} object(s) behind:{listed}\n"
+            "After a full downgrade the database should hold nothing but the empty "
+            "alembic_version_<label> tables. Each object above is something a rollback "
+            "would leave on a production database for the next deploy to meet."
+        )
+
+
+class MigrationHistoryNotEmptiedError(MigrationError):
+    """A downgrade to base left a package's history marked as applied.
+
+    Raised by :func:`terp.migrations.assert_migrations_reverse_cleanly`. Each package
+    keeps its own ``alembic_version_<label>`` bookkeeping table, and a downgrade to
+    base must empty every one of them. A history still holding a revision after a full
+    downgrade means that package never went down, so the next upgrade skips it and the
+    tables it owns are whatever the failed downgrade left behind.
+    """
+
+    def __init__(self, labels: Sequence[str]) -> None:
+        self.labels = tuple(labels)
+        joined = ", ".join(self.labels)
+        super().__init__(
+            f"downgrade to base left a revision applied for: {joined}. Every package's "
+            "alembic_version_<label> table must be empty after a full downgrade; one "
+            "that is not means that history never went down."
+        )
+
+
 __all__ = [
     "MigrationDriftError",
     "MigrationError",
+    "MigrationHistoryNotEmptiedError",
+    "MigrationResidueError",
+    "MigrationReversibilityError",
     "MissingMigrationsError",
     "OrphanedRevisionsError",
     "PendingMigrationsError",

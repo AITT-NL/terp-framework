@@ -26,6 +26,9 @@ from terp.migrations.errors import (
     DatabaseBehindForAutogenerateError,
     MigrationDriftError,
     MigrationError,
+    MigrationHistoryNotEmptiedError,
+    MigrationResidueError,
+    MigrationReversibilityError,
     MissingMigrationsError,
     OrphanedRevisionsError,
     PendingMigrationsError,
@@ -33,6 +36,7 @@ from terp.migrations.errors import (
 from terp.migrations.guard import (
     assert_migrations_current,
     assert_migrations_match_models,
+    assert_migrations_reverse_cleanly,
     assert_no_missing_histories,
 )
 from terp.migrations.orchestrate import (
@@ -56,6 +60,9 @@ __all__ = [
     "DatabaseBehindForAutogenerateError",
     "MigrationDriftError",
     "MigrationError",
+    "MigrationHistoryNotEmptiedError",
+    "MigrationResidueError",
+    "MigrationReversibilityError",
     "MigrationStatus",
     "MissingMigrationsError",
     "OrphanedRevisionsError",
@@ -63,6 +70,7 @@ __all__ = [
     "adopt_schemas",
     "assert_migrations_current",
     "assert_migrations_match_models",
+    "assert_migrations_reverse_cleanly",
     "assert_no_missing_histories",
     "assert_no_orphaned_revisions",
     "downgrade",
