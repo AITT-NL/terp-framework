@@ -329,7 +329,7 @@ def test_both_credential_routes_key_the_backoff_by_caller() -> None:
     either way — with no `source=` it simply keys on the identifier alone, which is a
     supported mode — so a route that forgot to pass one would go on throttling, pass
     every behavioural test, and quietly be per-account again: exactly the lockout
-    property ADR 0145 exists to remove.
+    property ADR 0147 exists to remove.
     """
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

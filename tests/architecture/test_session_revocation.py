@@ -62,7 +62,7 @@ def _at(monkeypatch: pytest.MonkeyPatch) -> list[datetime.datetime]:
 
 
 # --------------------------------------------------------------------------- #
-# LoginThrottle — failed-credential backoff (ADR 0145)
+# LoginThrottle — failed-credential backoff (ADR 0147)
 #
 # This block replaced a lockout suite, and one of the tests it replaced is worth
 # naming: `test_throttle_locks_at_the_threshold_and_refuses_even_a_valid_credential`

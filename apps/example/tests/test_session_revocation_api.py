@@ -4,7 +4,7 @@ Drives the *shipped* example composition (``main.build()`` wires the revocable
 ``principal_provider`` + ``require_token_revocation=True`` + the login throttle), so it
 proves the whole path over real HTTP: a still-unexpired token stops working the moment
 its user is deactivated, demoted, password-reset, or logged out, and repeated failed
-logins slow the caller down without ever disabling the account (ADR 0145).
+logins slow the caller down without ever disabling the account (ADR 0147).
 """
 
 from __future__ import annotations

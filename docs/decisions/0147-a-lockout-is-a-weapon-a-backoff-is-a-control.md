@@ -1,4 +1,4 @@
-# 0145 — A lockout is a weapon; a backoff is a control
+# 0147 — A lockout is a weapon; a backoff is a control
 
 - **Status:** Accepted and implemented. `LoginThrottle` applies exponential backoff keyed
   by `(identifier, caller address)` with a high identifier-wide backstop; nothing is ever
