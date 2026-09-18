@@ -118,6 +118,31 @@ decision, 0001 onwards.
   boundary and what happens when it falls behind, and the capability README and
   `terp guide realtime` say the same.
 
+- **A code-split screen was torn down by the guard meant to protect it.** `buildAppRouter`
+  refuses a routed view that renders no page archetype, and gave it a grace window first so a
+  frame arriving a moment late was not mistaken for one that never arrives. That window was one
+  macrotask — and one macrotask cannot hold the case the guard's own comment named. A lazily
+  loaded inner component resolves over a *chunk fetch*, so its frame was unreachable inside the
+  window by construction: every code-split view was refused, deterministically, and the slower
+  the connection the more certain the refusal — on exactly the devices code splitting exists to
+  serve. A view framing one ordinary `useEffect` later was a coin toss instead, because that
+  commit goes through React's scheduler while the deadline is a timer, so a loaded machine could
+  let the timer win. What the user saw in both cases was a correct screen replaced by an error.
+
+  The window is now a named budget generous enough for a chunk over a slow link, and the
+  reasoning sits on the constant rather than in a commit message: refusing early destroys a
+  working screen in front of a user, refusing late only delays a message a developer reads, and
+  between those two mistakes there is no contest. It is still a deadline — a chunk slower than
+  the budget is still refused — and the constant says so instead of implying otherwise, which
+  matters more here than it would elsewhere: unlike the layout contract, this control has no
+  build-time half, so the budget is the whole of the judgement.
+
+  Two regression tests pin the shapes that were failing: a frame arriving a timer later, and a
+  frame arriving with a `lazy()` chunk. Both fail against the old window, which is also why the
+  suite's most intermittent failure was intermittent — the existing test framed on the very next
+  commit, so it passed on an idle machine and failed on whichever file CI happened to be busy
+  with.
+
 ### Upgrade notes
 
 - **A realtime channel no longer closes itself on a payload its guard rejects.** If an app
