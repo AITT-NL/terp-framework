@@ -1,4 +1,4 @@
-# 0144 — The deployment brings the scanner, the platform keeps the verdict
+# 0146 — The deployment brings the scanner, the platform keeps the verdict
 
 - **Status:** Accepted and implemented. `File.scan_state` is a column,
   `register_file_scanner` is the seam, and `FileService.open_stream` refuses to hand out

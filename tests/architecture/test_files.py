@@ -421,7 +421,7 @@ def test_load_for_maps_an_empty_reference_to_a_typed_404(
 
 
 # --------------------------------------------------------------------------- #
-# The scan seam (ADR 0144): the deployment brings the engine, the capability
+# The scan seam (ADR 0146): the deployment brings the engine, the capability
 # owns the state and refuses to serve what the engine rejected.
 # --------------------------------------------------------------------------- #
 def test_an_unwired_deployment_stores_not_scanned_and_serves_as_before(
