@@ -14,6 +14,30 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **Backup and restore amounted to one sentence, on a stack whose recovery path runs
+  through itself.** `docs/DEPLOYMENT.md` named the volume the state lives in, and that was
+  the whole of it. Backup is the one operational control with no partial credit, and it is
+  the last thing anyone writes.
+
+  What makes it sharper here than in most stacks is the per-package layout. A Terp app's
+  schema is not one history: every table-owning package keeps its own behind its own
+  `alembic_version_<label>` table, and the boot guard refuses to start when any package's
+  schema is behind. So a restore that loses one of those bookkeeping tables does not fail
+  at restore time — every real table and every row arrives, and nothing complains. It
+  fails at the next boot, with a message about pending migrations, which reads as a deploy
+  problem rather than as a bad backup. ADR 0090 records that as a docstring aside; it is
+  now three tests in the PostgreSQL conformance lane.
+
+  A fully migrated database is dumped, restored into a *clean* second database — restoring
+  over the source would prove nothing — and then booted: the same `assert_migrations_current`
+  a deploy runs. Each of the thirteen histories must arrive with its revision intact. And
+  the drill proves it is measuring something: a dump that omits one bookkeeping table
+  restores without error and is then refused at boot, which is the failure mode in full.
+
+  The lane installs a PostgreSQL client matching the pinned server, because `pg_dump`
+  refuses a server newer than itself and the runner image's client trails it — without
+  that the drill would *skip*, which is the worst available outcome for a backup check.
+
 - **Nothing measured what a query costs, so an N+1 was found by a customer rather than by
   a test.** The gate makes a strong claim about what a Terp app cannot get structurally
   wrong and no claim at all about what it costs to run — and the absences reinforce each

@@ -11,8 +11,12 @@ fail-closed boot guard, the status view, the ``terp migrate`` CLI, and the
 
 from __future__ import annotations
 
+import contextlib
 import os
 import pathlib
+import re
+import shutil
+import subprocess
 import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
@@ -911,3 +915,187 @@ def test_cli_grant_runtime_fails_closed(capsys: pytest.CaptureFixture[str]) -> N
         )
     assert excinfo.value.code == 1
     assert "plain identifier" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- #
+# The restore drill                                                             #
+# --------------------------------------------------------------------------- #
+#
+# Backup is the one operational control with no partial credit, and it is the last
+# thing anyone writes. What this stack has instead is one sentence in DEPLOYMENT.md
+# naming the volume the state lives in.
+#
+# The reason that is not enough here is specific to the per-package layout. A Terp app's
+# schema is not one history: every table-owning package keeps its own, behind its own
+# `alembic_version_<label>` table, and the boot guard refuses to start when ANY package's
+# schema is behind. So a restore that loses or truncates one of those bookkeeping tables
+# does not fail loudly at restore time -- it fails at the next boot, with a message about
+# pending migrations, which reads as a deploy problem rather than as a bad backup. ADR
+# 0090 records that observation as a docstring aside. This makes it a test.
+
+
+def _libpq_url(url: str) -> str:
+    """The SQLAlchemy URL as something ``pg_dump`` will accept."""
+    return make_url(url).set(drivername="postgresql").render_as_string(hide_password=False)
+
+
+def _pg_client_version() -> tuple[int, ...] | None:
+    """The local ``pg_dump``'s version, or ``None`` when it is not installed."""
+    binary = shutil.which("pg_dump")
+    if binary is None:
+        return None
+    result = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [binary, "--version"], capture_output=True, text=True, check=False
+    )
+    match = re.search(r"(\d+)(?:\.(\d+))?", result.stdout)
+    return tuple(int(part) for part in match.groups() if part) if match else None
+
+
+def _server_major(url: str) -> int:
+    engine = create_engine(url, poolclass=NullPool)
+    try:
+        with engine.connect() as conn:
+            return int(conn.exec_driver_sql("SHOW server_version_num").scalar()) // 10000
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def pg_url_pair() -> Iterator[tuple[str, str]]:
+    """Two independent scratch databases: one to migrate and dump, one to restore into.
+
+    Restoring over the database the dump came from would prove nothing -- the tables are
+    already there and already current, so every assertion passes whatever the dump
+    contains. The clean target is the whole point.
+    """
+    generators = [_postgres_scratch_database(), _postgres_scratch_database()]
+    urls = tuple(next(generator) for generator in generators)
+    try:
+        yield urls  # type: ignore[misc]
+    finally:
+        for generator in generators:
+            with contextlib.suppress(StopIteration):
+                next(generator)
+
+
+def _require_pg_client(url: str) -> None:
+    client = _pg_client_version()
+    if client is None:
+        pytest.skip("pg_dump is not installed — the restore drill needs the client tools")
+    if client[0] < _server_major(url):
+        pytest.skip(
+            f"pg_dump is {client[0]} and the server is {_server_major(url)}; pg_dump "
+            "refuses a newer server. Install the matching postgresql-client to run the "
+            "restore drill"
+        )
+
+
+def _dump(url: str, target: pathlib.Path, *, exclude: str | None = None) -> None:
+    argv = ["pg_dump", "--format=custom", f"--file={target}"]
+    if exclude is not None:
+        argv.append(f"--exclude-table={exclude}")
+    argv.append(_libpq_url(url))
+    subprocess.run(argv, check=True, capture_output=True)  # noqa: S603, S607
+
+
+def _restore(dump: pathlib.Path, url: str) -> None:
+    subprocess.run(  # noqa: S603, S607
+        [
+            "pg_restore",
+            "--no-owner",
+            "--no-privileges",
+            f"--dbname={_libpq_url(url)}",
+            str(dump),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_a_restored_database_boots(
+    pg_url_pair: tuple[str, str], tmp_path: pathlib.Path
+) -> None:
+    """Dump a fully migrated database, restore it into a clean one, and boot.
+
+    The assertion that matters is the boot guard, not the table count: it is what a
+    deploy actually runs, and it is what a lost `alembic_version_<label>` breaks.
+    """
+    source, target = pg_url_pair
+    _require_pg_client(source)
+    upgrade(source, APP_ROOT, package="app")
+
+    dump = tmp_path / "terp.dump"
+    _dump(source, dump)
+    _restore(dump, target)
+
+    assert _table_names(target) == _table_names(source), (
+        "the restored database does not hold the same tables as the one dumped"
+    )
+    engine = create_engine(target)
+    try:
+        assert_migrations_current(engine, APP_ROOT, package="app")  # no raise
+    finally:
+        engine.dispose()
+
+
+def test_every_package_history_survives_the_round_trip(
+    pg_url_pair: tuple[str, str], tmp_path: pathlib.Path
+) -> None:
+    """Thirteen histories, thirteen bookkeeping tables, and each one has to arrive with
+    its revision intact — a restored `alembic_version_notes` holding no row is a
+    database that boots into "notes is behind" and re-runs a migration over live data."""
+    source, target = pg_url_pair
+    _require_pg_client(source)
+    upgrade(source, APP_ROOT, package="app")
+
+    dump = tmp_path / "terp.dump"
+    _dump(source, dump)
+    _restore(dump, target)
+
+    for label in _EXPECTED_LABELS:
+        before = _version_row(source, label)
+        after = _version_row(target, label)
+        assert before is not None, f"alembic_version_{label} was never written"
+        assert after == before, (
+            f"alembic_version_{label} did not survive the round trip "
+            f"({before!r} -> {after!r})"
+        )
+
+
+def test_a_restore_that_loses_one_history_is_refused_at_boot(
+    pg_url_pair: tuple[str, str], tmp_path: pathlib.Path
+) -> None:
+    """The drill's own proof that it is measuring something.
+
+    A dump that omits one bookkeeping table restores WITHOUT ERROR: every real table is
+    there, the data is there, nothing complains. The damage only appears when the app
+    starts — which is exactly why this belongs in a test rather than in a runbook.
+    """
+    source, target = pg_url_pair
+    _require_pg_client(source)
+    upgrade(source, APP_ROOT, package="app")
+
+    dump = tmp_path / "partial.dump"
+    _dump(source, dump, exclude="alembic_version_notes")
+    _restore(dump, target)
+
+    assert "note" in _table_names(target), "the data tables restored fine — that is the trap"
+    engine = create_engine(target)
+    try:
+        with pytest.raises(PendingMigrationsError):
+            assert_migrations_current(engine, APP_ROOT, package="app")
+    finally:
+        engine.dispose()
+
+
+def _version_row(url: str, label: str) -> str | None:
+    engine = create_engine(url, poolclass=NullPool)
+    try:
+        with engine.connect() as conn:
+            return conn.exec_driver_sql(
+                f"SELECT version_num FROM alembic_version_{label}"  # noqa: S608
+            ).scalar()
+    except DBAPIError:
+        return None
+    finally:
+        engine.dispose()
