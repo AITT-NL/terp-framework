@@ -1,4 +1,4 @@
-# 0142 — One transport, and the caller that brings its own policy
+# 0144 — One transport, and the caller that brings its own policy
 
 - **Status:** Accepted and implemented. `terp.capabilities.egress.send_pinned` is public
   API; `EgressClient` and the `WEBHOOK_DELIVER` job both call it, and
