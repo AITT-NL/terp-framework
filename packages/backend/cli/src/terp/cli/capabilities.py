@@ -87,6 +87,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         guide="files",
     ),
     Capability(
+        name="mfa",
+        summary="A TOTP second factor with recovery codes, wired into login through the second_factor seam.",
+        kind="library",
+        wiring="build_login_module(..., second_factor=MfaService()) + specs=[mfa.module]",
+        guide="passwords",
+    ),
+    Capability(
         name="groups",
         summary="Admin-managed user groups that bundle access-grant permissions.",
         kind="routed",

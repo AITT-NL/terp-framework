@@ -42,6 +42,7 @@ on:
           - packages/backend/capabilities/jobs_celery
           - packages/backend/capabilities/egress
           - packages/backend/capabilities/leases
+          - packages/backend/capabilities/mfa
           - packages/backend/capabilities/oidc
           - packages/backend/capabilities/outbox
           - packages/backend/capabilities/realtime

@@ -12,6 +12,12 @@ from terp.core import BaseSchema
 class LoginRequest(BaseSchema):
     email: str = Field(max_length=320)
     password: str = Field(max_length=256)
+    #: A second-factor code, where the account has one. Optional because most
+    #: accounts do not, and because a client cannot know in advance whether this
+    #: one does: it posts the pair, is told a factor is required, and posts again
+    #: with the code. See ``MfaRequiredError`` for why that is one route rather
+    #: than a challenge token.
+    mfa_code: str | None = Field(default=None, max_length=32)
 
 
 class ClientCredentialsRequest(BaseSchema):
