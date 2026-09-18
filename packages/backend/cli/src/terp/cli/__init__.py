@@ -2156,7 +2156,54 @@ def _read_release_notes(
     return None
 
 
-def _render_changelog_topic() -> str:
+#: A ``## <version>`` heading in the release notes.
+_CHANGELOG_VERSION_RE = re.compile(r"^## (\d+\.\d+\.\d+)", re.MULTILINE)
+
+#: The two subsections a reader must not miss, in the order they are read. A release
+#: that closes a hole a deployment may be carrying today, and one that refuses a posture
+#: an existing app may already hold, are the two kinds where the cost of not reading the
+#: notes is unbounded — so ``--since`` leads with them rather than making the reader find
+#: them inside whatever else the release contained.
+_LOAD_BEARING_SUBSECTIONS: tuple[str, ...] = ("Security", "Upgrade notes")
+
+
+def _changelog_sections(text: str) -> list[tuple[str, str]]:
+    """``[(version, body)]`` in document order — newest first, as the file is written."""
+    matches = list(_CHANGELOG_VERSION_RE.finditer(text))
+    return [
+        (
+            match.group(1),
+            text[match.end() : matches[index + 1].start() if index + 1 < len(matches) else len(text)],
+        )
+        for index, match in enumerate(matches)
+    ]
+
+
+def _lead_with_what_cannot_be_missed(body: str) -> str:
+    """Move a section's ``### Security`` / ``### Upgrade notes`` blocks to the front.
+
+    Ordering, not filtering: everything the release said is still here. But a reader
+    running this is deciding whether to upgrade, and the two subsections that answer
+    "am I exposed right now" and "will this refuse the posture I hold" must not be
+    somewhere below a long Added block.
+    """
+    parts = re.split(r"(?m)^(### .+)$", body)
+    if len(parts) == 1:
+        return body
+    preamble, rest = parts[0], parts[1:]
+    blocks = [(rest[index], rest[index + 1]) for index in range(0, len(rest) - 1, 2)]
+    leading = [
+        block
+        for block in blocks
+        if block[0].removeprefix("### ").strip() in _LOAD_BEARING_SUBSECTIONS
+    ]
+    if not leading:
+        return body
+    trailing = [block for block in blocks if block not in leading]
+    return preamble + "".join(heading + rest for heading, rest in leading + trailing)
+
+
+def _render_changelog_topic(since: str | None = None) -> str:
     """The platform's release notes, read from the installed ``terp-core``.
 
     An app cannot judge an upgrade it cannot read about. The notes ship inside
@@ -2165,6 +2212,12 @@ def _render_changelog_topic() -> str:
     index to reach. Until this existed the template's own pyproject pointed at
     "the platform CHANGELOG", a document that shipped nowhere: the one pointer
     the code gave was a dead reference.
+
+    *since* renders only the releases AFTER that version, leading each one with its
+    ``### Security`` and ``### Upgrade notes`` subsections. Without it the whole file
+    comes back — thousands of lines across dozens of releases with no way to slice to
+    the ones the reader has not seen, which is a document nobody reads and therefore a
+    channel that carries nothing.
     """
     from terp.cli.version import platform_version
 
@@ -2191,7 +2244,39 @@ def _render_changelog_topic() -> str:
         if version
         else "Terp release notes\n"
     )
-    return header + "\n" + text
+    if since is None:
+        return header + "\n" + text
+
+    from terp.cli.version import _version_key
+
+    sections = _changelog_sections(text)
+    if not any(release == since for release, _ in sections):
+        known = ", ".join(release for release, _ in sections[:5])
+        raise SystemExit(
+            f"terp guide changelog: no release {since!r} in these notes (newest first: "
+            f"{known}, ...). Pass the version this app is ON — `terp --version` — so "
+            "what comes back is what you have not read."
+        )
+    newer = [
+        (release, body)
+        for release, body in sections
+        if _version_key(release) > _version_key(since)
+    ]
+    if not newer:
+        return (
+            f"{header}\nNothing in these notes is newer than {since}.\n"
+            "The copy that ships with a release ends at that release, so to read a "
+            "version this app does not have yet:\n"
+            "  uvx --from terp-cli==<version> terp guide changelog --since "
+            f"{since}\n"
+        )
+    rendered = "".join(
+        f"## {release}{_lead_with_what_cannot_be_missed(body)}" for release, body in newer
+    )
+    return (
+        f"{header}\n{len(newer)} release(s) after {since}, newest first. "
+        "Security and Upgrade notes lead each one.\n\n" + rendered
+    )
 
 
 def _render_rule_guide(rule_name: str) -> str:
@@ -2224,7 +2309,7 @@ def _render_rule_guide(rule_name: str) -> str:
     )
 
 
-def guide(topic: str | None = None) -> str:
+def guide(topic: str | None = None, *, since: str | None = None) -> str:
     """Return the Terp authoring guide, or a focused recipe for *topic*.
 
     The deterministic, in-terminal instruction surface for agents (and humans): an
@@ -2238,7 +2323,7 @@ def guide(topic: str | None = None) -> str:
     if topic == "rules":
         return _render_rules_topic()
     if topic == "changelog":
-        return _render_changelog_topic()
+        return _render_changelog_topic(since)
     if topic in _GUIDE_TOPICS:
         return _GUIDE_TOPICS[topic]
     return _render_rule_guide(topic)
@@ -2925,6 +3010,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output format for --list: text (one topic per line) or json "
         "(default: text)",
     )
+    guide_parser.add_argument(
+        "--since",
+        default=None,
+        metavar="VERSION",
+        help="changelog only: render just the releases AFTER this version, each one "
+        "led by its Security and Upgrade notes. Pass the version this app is on",
+    )
 
     upgrade_parser = subcommands.add_parser(
         "upgrade",
@@ -2935,6 +3027,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Report the available release and the bump recipe (the only mode: "
         "Terp reports, it does not edit your manifests)",
+    )
+    upgrade_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (the recipe) or json (the same facts as data — "
+        "installed, current, target, covers_whole_set, stragglers, rerender_blocker)",
     )
 
     migrate_parser = subcommands.add_parser(
@@ -3674,7 +3773,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                 f"terp guide: unknown topic or rule {args.topic!r}; run `terp guide` "
                 "for the topic list or `terp guide rules` for every rule name"
             )
-        print(guide(args.topic))
+        if args.since is not None and args.topic != "changelog":
+            raise SystemExit(
+                "terp guide: --since applies to the changelog topic only "
+                "(`terp guide changelog --since <version>`); every other topic is the "
+                "current recipe, which has no history to slice"
+            )
+        print(guide(args.topic, since=args.since))
         return
     if args.command == "upgrade":
         from terp.cli.version import render_upgrade_check
@@ -3686,7 +3791,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "a lockstep bump spans pyproject.toml and frontend/package.json and "
                 "must be reviewed as one change."
             )
-        print(render_upgrade_check())
+        print(render_upgrade_check(fmt=args.format))
         return
     if args.command == "migrate":
         from terp.migrations import migrate_main

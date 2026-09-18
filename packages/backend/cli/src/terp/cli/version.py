@@ -21,6 +21,7 @@ import json
 import pathlib
 import re
 import subprocess
+from dataclasses import dataclass
 from importlib import metadata
 
 #: Distribution-name prefix every platform package shares (``terp-core``,
@@ -442,7 +443,8 @@ def _rerender_recipe(target: str, current: str, count: int) -> list[str]:
         "pyproject.toml and both npm manifests, so the re-render writes every pin",
         "itself, and it refuses to run on a tree with uncommitted changes:",
         "",
-        f"  1. Read what changed:  uvx --from terp-cli=={target} terp guide changelog",
+        "  1. Read what changed — only what you have not seen, Security first:",
+        f"       uvx --from terp-cli=={target} terp guide changelog --since {current}",
         f"     (the {target} notes; the copy installed here ends at {current}).",
         "  2. Commit or discard what you have. A re-render on a dirty tree is refused,",
         "     and its own diff is much easier to review on its own.",
@@ -492,7 +494,8 @@ def _hand_pin_recipe(target: str, current: str, count: int, reason: str) -> list
         f"This app {reason};",
         "the pins have to be written by hand:",
         "",
-        f"  1. Read what changed:  uvx --from terp-cli=={target} terp guide changelog",
+        "  1. Read what changed — only what you have not seen, Security first:",
+        f"       uvx --from terp-cli=={target} terp guide changelog --since {current}",
         f"     (the {target} notes; the copy installed here ends at {current}).",
         f"  2. Pin every terp-* dependency to =={target} in pyproject.toml",
         "     (including the dev group — a forgotten pin is a mixed install).",
@@ -509,37 +512,90 @@ def _hand_pin_recipe(target: str, current: str, count: int, reason: str) -> list
     ]
 
 
-def render_upgrade_check(root: pathlib.Path | None = None) -> str:
-    """Report whether the whole lockstep set can move, and to what."""
+@dataclass(frozen=True)
+class UpgradeStatus:
+    """The upgrade question as data, before anybody renders a sentence about it.
+
+    Every field here was already computed by ``render_upgrade_check`` and then spent on
+    prose. That made ``terp upgrade --check`` the one reporting command in the CLI with
+    no machine-readable mode, against ``inspect``, ``guide --list``, ``check`` and
+    ``verify``, which all have one — so any tool asking "is this app on a current
+    platform?" had to answer it by reimplementing the question rather than by asking.
+
+    ``covers_whole_set`` is the distinction a version number cannot carry on its own:
+    "internally consistent at X" and "X, and the release does not cover every package"
+    are different answers, and only the second is a reason to wait.
+    """
+
+    installed: dict[str, str]
+    current: str | None
+    target: str | None
+    covers_whole_set: bool
+    stragglers: dict[str, str]
+    rerender_blocker: str | None
+    scaffold_ref: str | None
+    error: str | None
+
+    def as_dict(self) -> dict[str, object]:
+        """A JSON-safe rendering (``terp upgrade --check --format json``)."""
+        return {
+            "installed": dict(sorted(self.installed.items())),
+            "current": self.current,
+            "target": self.target,
+            "covers_whole_set": self.covers_whole_set,
+            "stragglers": dict(sorted(self.stragglers.items())),
+            "rerender_blocker": self.rerender_blocker,
+            "scaffold_ref": self.scaffold_ref,
+            "error": self.error,
+        }
+
+
+def upgrade_status(root: pathlib.Path | None = None) -> UpgradeStatus:
+    """Answer the upgrade question for *root* without rendering anything.
+
+    Reads uv rather than the package index directly: Terp deliberately ships no HTTP
+    client for this, so the answer resolves against exactly the index the app's own
+    install uses.
+    """
     project_root = pathlib.Path(".") if root is None else root
     installed = installed_terp_versions()
     current = platform_version(installed)
     if not installed or current is None:
-        return (
-            "No terp-* distribution is installed in this environment, so there is "
-            "nothing to upgrade.\nRun this from the app's environment "
-            "(`uv run terp upgrade --check`)."
+        return UpgradeStatus(
+            installed=installed,
+            current=None,
+            target=None,
+            covers_whole_set=False,
+            stragglers={},
+            rerender_blocker=None,
+            scaffold_ref=scaffold_ref(project_root),
+            error="no terp-* distribution is installed in this environment",
         )
 
     packages, error = _uv_outdated()
     if error is not None:
-        return (
-            f"Could not check for a newer Terp: {error}\n\n"
-            f"This app is on {current}. Terp does not reach the package index itself "
-            "— it reads uv,\nwhich resolves against the same index your install uses."
+        return UpgradeStatus(
+            installed=installed,
+            current=current,
+            target=None,
+            covers_whole_set=False,
+            stragglers={},
+            rerender_blocker=None,
+            scaffold_ref=scaffold_ref(project_root),
+            error=error,
         )
 
     upgrades = _terp_upgrades(packages or [])
     if not upgrades:
-        # The most valuable place to say this: packages current, so nothing else in the
-        # toolchain will mention the scaffolding again.
-        return "\n".join(
-            [f"Up to date: all {len(installed)} terp-* distributions are on {current}."]
-            + _scaffold_lines(
-                project_root,
-                current,
-                blocked_because=_copier_update_blocker(project_root),
-            )
+        return UpgradeStatus(
+            installed=installed,
+            current=current,
+            target=None,
+            covers_whole_set=True,
+            stragglers={},
+            rerender_blocker=_copier_update_blocker(project_root),
+            scaffold_ref=scaffold_ref(project_root),
+            error=None,
         )
 
     # The lockstep question: after this upgrade, does every package land on the
@@ -548,6 +604,55 @@ def render_upgrade_check(root: pathlib.Path | None = None) -> str:
     landing = {name: upgrades.get(name, found) for name, found in installed.items()}
     target = max(landing.values(), key=_version_key)
     stragglers = {name: at for name, at in landing.items() if at != target}
+    return UpgradeStatus(
+        installed=installed,
+        current=current,
+        target=target,
+        covers_whole_set=not stragglers,
+        stragglers=stragglers,
+        rerender_blocker=_copier_update_blocker(project_root),
+        scaffold_ref=scaffold_ref(project_root),
+        error=None,
+    )
+
+
+def render_upgrade_check(root: pathlib.Path | None = None, *, fmt: str = "text") -> str:
+    """Report whether the whole lockstep set can move, and to what."""
+    project_root = pathlib.Path(".") if root is None else root
+    status = upgrade_status(project_root)
+    if fmt == "json":
+        return json.dumps(status.as_dict(), indent=2)
+
+    installed, current = status.installed, status.current
+    if status.error is not None and current is None:
+        return (
+            "No terp-* distribution is installed in this environment, so there is "
+            "nothing to upgrade.\nRun this from the app's environment "
+            "(`uv run terp upgrade --check`)."
+        )
+
+    if status.error is not None:
+        return (
+            f"Could not check for a newer Terp: {status.error}\n\n"
+            f"This app is on {current}. Terp does not reach the package index itself "
+            "— it reads uv,\nwhich resolves against the same index your install uses."
+        )
+
+    if status.target is None:
+        # The most valuable place to say this: packages current, so nothing else in the
+        # toolchain will mention the scaffolding again.
+        return "\n".join(
+            [f"Up to date: all {len(installed)} terp-* distributions are on {current}."]
+            + _scaffold_lines(
+                project_root,
+                current,
+                blocked_because=status.rerender_blocker,
+            )
+        )
+
+    target = status.target
+    landing = {**installed, **status.stragglers}
+    stragglers = status.stragglers
 
     lines = [f"Terp {target} is available (this app is on {current})."]
     if stragglers:
@@ -575,7 +680,7 @@ def render_upgrade_check(root: pathlib.Path | None = None) -> str:
     # no answers file writes them by hand. Printing both, or the hand-pin one to an
     # app that could re-render, is what produced two needless installs and a stash
     # halfway through.
-    blocker = _copier_update_blocker(project_root)
+    blocker = status.rerender_blocker
     if blocker is None:
         lines += _rerender_recipe(target, current, len(landing))
     else:

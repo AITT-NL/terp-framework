@@ -117,6 +117,100 @@ def test_changelog_topic_reports_the_release_notes_and_the_current_version() -> 
     assert "uvx --from terp-cli==<version> terp guide changelog" in text
 
 
+def test_the_changelog_can_be_sliced_to_what_the_reader_has_not_seen() -> None:
+    """The whole file is a channel that carries nothing.
+
+    The notes are thousands of lines across dozens of releases, and the topic returned
+    all of them with no version argument at all — so the tool whose job is "read this
+    before you upgrade" handed back a document nobody reads. `--since` renders only what
+    is newer than the version the reader is on.
+    """
+    from terp.cli import _changelog_sections, _read_release_notes
+
+    import terp.core
+
+    text = _read_release_notes(
+        pathlib.Path(terp.core.__file__).parent, _CLI_SRC / "terp" / "cli"
+    )
+    assert text is not None
+    releases = [release for release, _ in _changelog_sections(text)]
+    assert len(releases) > 2, "this test needs a few releases to slice between"
+
+    sliced = guide("changelog", since=releases[2])
+    assert f"## {releases[0]}" in sliced and f"## {releases[1]}" in sliced
+    assert f"## {releases[2]}" not in sliced, "the reader's own version is not news"
+    assert f"## {releases[3]}" not in sliced
+    assert "2 release(s) after" in sliced
+
+
+def test_the_slice_leads_with_what_cannot_be_missed() -> None:
+    """Ordering, not filtering.
+
+    A reader running this is deciding whether to upgrade. The two subsections that
+    answer "am I exposed right now" and "will this refuse the posture I hold" must not
+    sit below a long Added block — those are the two kinds of release where the cost of
+    not reading the notes is unbounded, and they were the two the channel could not mark.
+    """
+    from terp.cli import _lead_with_what_cannot_be_missed
+
+    body = (
+        "\n\n### Added\n\n- a thing\n\n### Security\n\n- a hole\n\n"
+        "### Fixed\n\n- a bug\n\n### Upgrade notes\n\n- a refusal\n"
+    )
+    led = _lead_with_what_cannot_be_missed(body)
+    order = [
+        line for line in led.splitlines() if line.startswith("### ")
+    ]
+    assert order == ["### Security", "### Upgrade notes", "### Added", "### Fixed"]
+    for heading in ("Added", "Fixed", "Security", "Upgrade notes"):
+        assert f"### {heading}" in led, "everything the release said is still here"
+
+
+def test_a_section_with_no_load_bearing_subsection_is_left_alone() -> None:
+    from terp.cli import _lead_with_what_cannot_be_missed
+
+    body = "\n\n### Added\n\n- a thing\n\n### Fixed\n\n- a bug\n"
+    assert _lead_with_what_cannot_be_missed(body) == body
+
+
+def test_a_section_with_no_subsections_at_all_is_left_alone() -> None:
+    from terp.cli import _lead_with_what_cannot_be_missed
+
+    body = "\n\nJust prose, no subsections.\n"
+    assert _lead_with_what_cannot_be_missed(body) == body
+
+
+def test_asking_for_a_version_these_notes_do_not_have_says_so() -> None:
+    """Silently rendering everything would be the worst answer: the reader asked for a
+    slice precisely because they do not want the whole file."""
+    with pytest.raises(SystemExit, match="no release '9.9.9'"):
+        guide("changelog", since="9.9.9")
+
+
+def test_asking_from_the_newest_release_says_there_is_nothing_newer() -> None:
+    from terp.cli import _changelog_sections, _read_release_notes
+
+    import terp.core
+
+    text = _read_release_notes(
+        pathlib.Path(terp.core.__file__).parent, _CLI_SRC / "terp" / "cli"
+    )
+    assert text is not None
+    newest = _changelog_sections(text)[0][0]
+    answer = guide("changelog", since=newest)
+    assert "Nothing in these notes is newer" in answer
+    assert "uvx --from terp-cli==" in answer, (
+        "and it says where a newer release's notes live, since they ship with it"
+    )
+
+
+def test_since_is_refused_on_a_topic_that_has_no_history() -> None:
+    """Accepting and ignoring a flag is worse than refusing it: the reader believes
+    they narrowed something."""
+    with pytest.raises(SystemExit, match="--since applies to the changelog topic only"):
+        main(["guide", "module", "--since", "0.1.0"])
+
+
 def test_the_shipped_release_notes_match_the_repository_changelog() -> None:
     """The notes ship as a checked-in copy inside terp-core, because a
     force-include reaching outside the package cannot survive the sdist round-trip

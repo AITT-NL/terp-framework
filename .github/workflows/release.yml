@@ -356,7 +356,24 @@ jobs:
             echo "release $GITHUB_REF_NAME already exists — skipping"
             exit 0
           fi
+          # Publish the AUTHORED notes, not generated commit subjects. The two are
+          # different documents, and the difference is the whole classification: the
+          # `### Security` narrative that explains a defect a deployment may be carrying
+          # today reaches nobody watching releases under --generate-notes, while the
+          # commit titles do. This slices the tag's own `## <version>` section out of
+          # CHANGELOG.md. Held by test_the_release_workflow_publishes_the_authored_notes.
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="$version" '
+            $0 == "## " version || index($0, "## " version " ") == 1 { inside = 1; next }
+            inside && /^## [0-9]+\.[0-9]+\.[0-9]+/ { exit }
+            inside { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::CHANGELOG.md has no '## $version' section - refusing to " \
+                 "publish a release whose notes nobody wrote"
+            exit 1
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --title "Terp $GITHUB_REF_NAME" \
-            --generate-notes --verify-tag \
+            --notes-file release-notes.md --verify-tag \
             scorecard-*.json
