@@ -10,6 +10,59 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — 2026-09-18
+
+### Changed
+
+- **The `a11y` assurance lane now says why it composes nothing.** It was
+  `("a11y", "recommended", ())` — an empty composing tuple with no stated reason, sitting
+  next to `test-adequacy`, which has one, while three neighbours shipped `required` with
+  real checks in the same wave. The lane is honest (it emits `not-run`, never a false
+  pass), so nothing was wrong; what was missing was the sentence that separates a
+  deliberate gap from an oversight.
+
+  Written now, in the register `test-adequacy` set: a11y asks whether the rendered UI is
+  usable by someone not using a mouse and a pair of eyes, which is a question about pixels
+  and a live accessibility tree. Every check in the release profile reads source or builds
+  artifacts — `frontend-boundaries` constrains what is composed and says nothing about
+  what a screen reader receives; `frontend-build` proves the bundle compiles. The evidence
+  the lane needs is an axe pass over a running app, so its natural home is the
+  `conformance` check, and wiring it has a real question underneath: **whose** screens are
+  the subject. The framework renders none of its own, and a lane that failed the
+  platform's release over an app's markup would be measuring the wrong thing. Until that
+  is answered, `not-run` is the honest verdict — and it is not the same as forgotten.
+
+- **`no_dynamic_sql` states what it sees.** The rule fires on one construct: a call whose
+  callee name is `text`. That is SQLAlchemy's, and it is the shape a Terp app uses — but a
+  package that does not model the schema it talks to, which is the usual reason a companion
+  root exists, drives a DB-API cursor instead, and `cursor.execute(f"...")` is invisible to
+  it however the statement was built. The title ("raw SQL text in app code must be a static
+  literal") and `terp guide package-boundaries` ("not `no_dynamic_sql` — those now reach the
+  second package") both read as blanket coverage.
+
+  That shape is governed, just not by this rule: ADR 0085 §2 delegates it to ruff's bandit
+  set, where `S608` is "SQL string construction", blocking in this repository and in every
+  generated project, with an architecture test parsing the stanza so it cannot be quietly
+  weakened. The rule is deliberately **not** widened to cover it — §1 says the catalog never
+  grows an entry whose only content is what a stock analyzer already detects well. Both the
+  docstring and the guide now say so, because the two lanes together are the coverage and
+  either one read alone overstates.
+
+- **`bespoke` stops reading like a layout contract.** `LAYOUT_CONTRACTS` has one key,
+  `standard`, and its own description ended "a bespoke screen composes the plain `Page`" —
+  the violation message said the same, and `contract: "bespoke"` is pinned by a test to
+  throw. At speed both read as naming a second contract.
+
+  Decided and recorded in ADR 0079 rather than left for the next reader: `bespoke` is not
+  and should not become a declarable contract. A contract is declared once for the whole
+  app and its content is per-archetype slot specs; an unconstrained entry would be a second
+  spelling of declaring none, which the platform refuses elsewhere for the same reason. The
+  word was doing adjective duty — a *bespoke screen* is one composing the plain `Page`,
+  which the contract leaves alone by design — so both prose sites now say "a screen that
+  needs no contract". The throw already named the known contracts; the test now asserts
+  that half of the message too, so an author who reads `bespoke` as a value is told what
+  the values are rather than only that this is not one.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added

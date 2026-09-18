@@ -43,8 +43,8 @@ export const LAYOUT_CONTRACTS = {
       "sections and no Field at the top level, so the body is always a container rather " +
       "than a loose run of controls; a settings body is Card sections and holds no " +
       "collection; and a split " +
-      "body is two SplitPanes and nothing else. A bespoke screen composes " +
-      "the plain Page, which the contract deliberately leaves unconstrained.",
+      "body is two SplitPanes and nothing else. A screen that needs no contract " +
+      "composes the plain Page, which this contract deliberately leaves unconstrained.",
     slots: {
       HubPage: {
         components: { HubCard: "hubcard" },
@@ -127,7 +127,8 @@ export function slotViolationMessage(contractId, slotOwner, found) {
   return (
     `Layout contract "${contractId}": the ${slotOwner} body slot accepts only ` +
     `${allowed.join(" / ")}; found ${found}. Compose the body from those react-core ` +
-    "components (recipe: terp guide layouts), move bespoke content to a plain Page, " +
+    "components (recipe: terp guide layouts), move content that needs no contract to a " +
+    "plain Page, " +
     "or opt out on this line with a justified // terp-allow-layout-contract: <reason> " +
     "marker (counted by the escape-hatch budget)."
   );

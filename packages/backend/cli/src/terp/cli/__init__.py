@@ -754,7 +754,13 @@ Boundaries for a second top-level package (an ungated worker)
   nothing has ever scanned will find things; they were violations all along.
 - WHAT A HAND-WRITTEN TEST IS STILL FOR. Not `no_dynamic_sql` or `no_print` — those now
   reach the second package, and a bespoke AST scan beside them is a weaker copy that has
-  to be maintained. What a general tool cannot express is what to keep: an ALLOWLIST of
+  to be maintained. One qualification on the first, because the companion is exactly where
+  it bites: `no_dynamic_sql` fires on SQLAlchemy's `text(...)` construct, and a package
+  that does not model the foreign schema usually drives a raw DB-API cursor instead --
+  `cursor.execute(f"...")` is not that construct and this rule does not see it. String-
+  built SQL handed to a driver is the delegated baseline's `S608` (ADR 0085), which runs
+  blocking on this root too. Both lanes, not one.
+  What a general tool cannot express is what to keep: an ALLOWLIST of
   the third-party distributions the worker may import (a `forbidden` contract is a
   denylist, and nobody can keep a list of every package that must never appear), or a
   containment boundary particular to this worker's layout.
