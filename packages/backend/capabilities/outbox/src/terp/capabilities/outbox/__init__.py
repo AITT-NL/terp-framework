@@ -46,7 +46,12 @@ from terp.capabilities.outbox.models import (
     OutboxMessage,
 )
 from terp.capabilities.outbox.queue import OutboxJobQueue, outbox_event_dispatcher
-from terp.capabilities.outbox.store import OutboxBacklog, backlog
+from terp.capabilities.outbox.store import (
+    OutboxBacklog,
+    OutboxDeadLetter,
+    backlog,
+    dead_letters,
+)
 from terp.capabilities.outbox.worker import (
     DrainResult,
     OutboxWorker,
@@ -61,10 +66,12 @@ __all__ = [
     "STATUS_PENDING",
     "DrainResult",
     "OutboxBacklog",
+    "OutboxDeadLetter",
     "OutboxJobQueue",
     "OutboxMessage",
     "OutboxWorker",
     "backlog",
+    "dead_letters",
     "deliver_event_in_process",
     "outbox_event_dispatcher",
 ]

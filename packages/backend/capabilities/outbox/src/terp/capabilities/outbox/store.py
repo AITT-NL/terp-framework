@@ -33,6 +33,7 @@ mutation, but the guard cannot tell that from an ``# arch-allow-*`` comment alon
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -166,7 +167,15 @@ def finalize(session: Session) -> None:
         session.commit()  # arch-allow-mutations-emit-audit: persist the worker's status transition (dispatched / rescheduled / dead-lettered)
 
 
-__all__ = ["OutboxBacklog", "append", "backlog", "claim_due", "finalize"]
+__all__ = [
+    "OutboxBacklog",
+    "OutboxDeadLetter",
+    "append",
+    "backlog",
+    "claim_due",
+    "dead_letters",
+    "finalize",
+]
 
 
 def backlog(session: Session, *, now: datetime | None = None) -> OutboxBacklog:
@@ -213,3 +222,96 @@ def backlog(session: Session, *, now: datetime | None = None) -> OutboxBacklog:
             None if oldest_due is None else max(0.0, (moment - oldest_due).total_seconds())
         ),
     )
+
+
+@dataclass(frozen=True)
+class OutboxDeadLetter:
+    """One delivery that gave up, with the reason it did.
+
+    The aggregate in :class:`OutboxBacklog` answers "did anything die"; this answers
+    "what, and why" — the question an operator has at exactly the moment the first one
+    stops being useful. ``last_error`` was already written by the worker and read by
+    nothing: no schema, no router, no command, no health field. Counting a failure whose
+    cause the system is holding and will not say is the most expensive kind of silence,
+    because it costs its own incident.
+
+    Deliberately not the ORM row. A dead letter is read by an operator and by whatever
+    they pipe it into, and the payload — the serialized envelope of the business write
+    that produced it — is the one field that can carry anything at all, including
+    something nobody meant to print at 3am in a shared terminal. It is not on here.
+    """
+
+    id: uuid.UUID
+    kind: str
+    name: str
+    attempts: int
+    created_at: datetime
+    dead_lettered_at: datetime | None
+    last_error: str | None
+
+    def as_dict(self) -> dict[str, object]:
+        """A JSON-safe rendering (the CLI's ``--format json``)."""
+        return {
+            "id": str(self.id),
+            "kind": self.kind,
+            "name": self.name,
+            "attempts": self.attempts,
+            "created_at": self.created_at.isoformat(),
+            "dead_lettered_at": (
+                None if self.dead_lettered_at is None else self.dead_lettered_at.isoformat()
+            ),
+            "last_error": self.last_error,
+        }
+
+
+def dead_letters(
+    session: Session,
+    *,
+    name: str | None = None,
+    since: datetime | None = None,
+    limit: int = 50,
+) -> list[OutboxDeadLetter]:
+    """The deliveries that gave up, newest first. Reads only; writes nothing.
+
+    Bounded by *limit* rather than unbounded, because the shape of this failure is a
+    downstream that went away and took a batch with it: the useful answer is the most
+    recent ones and the count beside them, not every row since the table was created.
+
+    *name* narrows to one job or event — an incident is usually about one integration —
+    and *since* to a window, which is how an operator asks "is this still happening" after
+    a fix goes out.
+    """
+    statement = select(OutboxMessage).where(
+        col(OutboxMessage.status) == STATUS_DEAD_LETTERED
+    )
+    if name is not None:
+        statement = statement.where(col(OutboxMessage.name) == name)
+    if since is not None:
+        statement = statement.where(col(OutboxMessage.dead_lettered_at) >= since)
+    rows = session.exec(
+        statement.order_by(col(OutboxMessage.dead_lettered_at).desc()).limit(limit)
+    )
+    return [
+        OutboxDeadLetter(
+            id=row.id,
+            kind=row.kind,
+            name=row.name,
+            attempts=row.attempts,
+            created_at=_as_utc(row.created_at),
+            dead_lettered_at=(
+                None if row.dead_lettered_at is None else _as_utc(row.dead_lettered_at)
+            ),
+            last_error=row.last_error,
+        )
+        for row in rows
+    ]
+
+
+def _as_utc(moment: datetime) -> datetime:
+    """A stored timestamp as aware UTC.
+
+    SQLite hands back a naive value for a timezone-aware column and PostgreSQL does not,
+    so a caller comparing or formatting these would get two different answers from the
+    same code. The column is written in UTC, so that is what a naive stamp is.
+    """
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)

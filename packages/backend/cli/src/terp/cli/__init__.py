@@ -60,10 +60,14 @@ from terp.cli.grants import (
     grant_list_command,
     grant_revoke_command,
 )
-from terp.cli.service_accounts import create_service_account_command
+from terp.cli.service_accounts import (
+    create_service_account_command,
+    render_service_accounts,
+    revoke_service_account_command,
+)
 from terp.cli.users import create_user_command
 from terp.cli.envfile import run_env_command
-from terp.cli.outbox import render_backlog
+from terp.cli.outbox import render_backlog, render_dead_letters
 from terp.cli.ports import run_ports_command
 from terp.cli.verify import (
     profile_ids,
@@ -772,9 +776,18 @@ Boundaries for a second top-level package (an ungated worker)
   declared, so the app half satisfies the input-schema rule) is one declaration and two
   consumers — rather than twin modules pinned against drift by a test.
 - Reaching the app over HTTP is the sanctioned direction: the worker holds a service
-  account credential (`terp service-accounts create`), so its writes pass the same guard,
+  account credential (`terp service-account create`), so its writes pass the same guard,
   the same audit trail and the same actor stamping as anyone's. Give it a lease
   (`terp guide leases`) so a claim it takes and dies on is recoverable.
+- That credential has a lifecycle, and the whole of it is on the same command:
+      terp service-account list                        # rank, expiry, last use
+      terp service-account list --expiring-within-days 30
+      terp service-account revoke <name>               # audited; kills live tokens now
+  The default expiry is a year, so the renewal question has to be asked before the thing
+  stops. `list` answers "is this integration still running?" from `last_used_at`, which
+  is what makes anyone willing to revoke. There is no `rotate`: the secret is write-once
+  (ADR 0088), so renewal is `create` then `revoke` -- in that order, which is also the
+  only order that does not interrupt the integration.
 """,
     "ownership": """\
 Object-level (per-row) authorization (OwnedMixin)
@@ -1248,6 +1261,17 @@ Durable post-commit delivery (outbox capability)
   have rows. Note that /health/detail is an OBSERVATION and always answers 200: a
   backlog is a reason to page someone, not a reason to take the instance out of the
   load balancer, which would turn a delivery problem into an outage.
+- WHEN dead_lettered IS NON-ZERO, ASK WHAT DIED. The count is the aggregate; the reason
+  is per row, and the worker already recorded it in `last_error` on the way down:
+      terp outbox dead-letters                       # or --format json
+      terp outbox dead-letters --name invoices.sync --since-days 1
+  Each line names the kind, the job/event name, how many attempts it burned, when it
+  gave up, and the error it gave up on.
+- A DEAD LETTER IS TERMINAL. A row goes pending -> dispatched or pending -> dead_lettered
+  and never back (ADR 0045): there is no redrive, on purpose. The outbox guarantees the
+  delivery of an INTENT recorded with the business write; replaying one after the cause
+  is fixed is a decision about that work, and belongs to whatever produced it -- re-run
+  the job, re-emit the event -- not to a generic reset of the delivery table.
 """,
     "idempotency": """\
 Idempotency (the Idempotency-Key header, terp.core.idempotency)
@@ -3055,7 +3079,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     outbox_parser = subcommands.add_parser(
         "outbox",
-        help="Report the durable outbox's backlog - whether anything is draining it",
+        help="Report the durable outbox: whether anything is draining it, and what gave up",
     )
     outbox_subcommands = outbox_parser.add_subparsers(dest="outbox_command", required=True)
     outbox_backlog_parser = outbox_subcommands.add_parser(
@@ -3071,6 +3095,45 @@ def _build_parser() -> argparse.ArgumentParser:
         "--app-root", default=".", help="App root placed first on sys.path (default: .)"
     )
     outbox_backlog_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format (default: text)",
+    )
+    # The backlog counts what gave up; this names them and says why. `last_error` was
+    # written by the worker and read by nothing, so the cause of every dead letter was
+    # recorded and unaskable. There is no `redrive` beside it on purpose: a dead letter
+    # is terminal by ADR 0045 §1, and changing that is an ADR, not a subcommand.
+    outbox_dead_letters_parser = outbox_subcommands.add_parser(
+        "dead-letters",
+        help="Name the deliveries that gave up, and the error each one gave up on",
+    )
+    outbox_dead_letters_parser.add_argument(
+        "--name",
+        default=None,
+        help="Only this job or event name (an incident is usually about one integration)",
+    )
+    outbox_dead_letters_parser.add_argument(
+        "--since-days",
+        type=int,
+        default=None,
+        help="Only rows that gave up within this many days (is it still happening?)",
+    )
+    outbox_dead_letters_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Most recent N (default: 50)",
+    )
+    outbox_dead_letters_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app or factory (default: app.main:app)",
+    )
+    outbox_dead_letters_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+    outbox_dead_letters_parser.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -3380,6 +3443,47 @@ def _build_parser() -> argparse.ArgumentParser:
     sa_create_parser.add_argument(
         "--app-root", default=".", help="App root placed first on sys.path (default: .)"
     )
+    # There is deliberately no `rotate`: the secret is write-once (ADR 0088), so renewal
+    # is `create` then `revoke` — which is also the only order that does not interrupt
+    # the integration.
+    sa_list_parser = sa_subcommands.add_parser(
+        "list",
+        help="Show the issued machine credentials: rank, expiry and last use",
+    )
+    sa_list_parser.add_argument(
+        "--expiring-within-days",
+        type=int,
+        default=None,
+        help="Only credentials lapsing within this many days (the renewal question)",
+    )
+    sa_list_parser.add_argument(
+        "--include-revoked",
+        action="store_true",
+        help="Also show deactivated accounts (kept for the audit trail)",
+    )
+    sa_list_parser.add_argument(
+        "--format",
+        dest="fmt",
+        choices=("text", "json"),
+        default="text",
+        help="Output format (default: text)",
+    )
+    sa_revoke_parser = sa_subcommands.add_parser(
+        "revoke",
+        help="Deactivate a credential and kill its outstanding tokens now (audited)",
+    )
+    sa_revoke_parser.add_argument(
+        "subject", help="The service account's name, or its subject UUID"
+    )
+    for _sa_parser in (sa_list_parser, sa_revoke_parser):
+        _sa_parser.add_argument(
+            "--app",
+            default="app.main:app",
+            help="Dotted module:attribute of the FastAPI app (default: app.main:app)",
+        )
+        _sa_parser.add_argument(
+            "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+        )
 
     grant_parser = subcommands.add_parser(
         "grant",
@@ -3637,6 +3741,18 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
         return
+    if args.command == "outbox" and args.outbox_command == "dead-letters":
+        print(
+            render_dead_letters(
+                app_ref=args.app,
+                app_root=args.app_root,
+                name=args.name,
+                since_days=args.since_days,
+                limit=args.limit,
+                fmt=args.format,
+            )
+        )
+        return
     if args.command == "leases" and args.leases_command == "list":
         print(
             render_leases(
@@ -3773,6 +3889,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
         return
+    if args.command == "service-account" and args.service_account_command == "list":
+        print(
+            render_service_accounts(
+                app_ref=args.app,
+                app_root=args.app_root,
+                expiring_within_days=args.expiring_within_days,
+                include_revoked=args.include_revoked,
+                fmt=args.fmt,
+            )
+        )
+        return
+    if args.command == "service-account" and args.service_account_command == "revoke":
+        print(
+            revoke_service_account_command(
+                args.subject, app_ref=args.app, app_root=args.app_root
+            )
+        )
+        return
     if args.command == "grant":
         _commands = {
             "add": grant_add_command,
@@ -3848,6 +3982,8 @@ __all__ = [
     "check_report_envelope",
     "changed_python_files",
     "create_service_account_command",
+    "render_service_accounts",
+    "revoke_service_account_command",
     "create_user_command",
     "grant_add_command",
     "grant_list_command",
