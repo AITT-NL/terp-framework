@@ -34,6 +34,7 @@ import pathlib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
+from terp.arch._ast import scan_cache
 from terp.arch.rules._support import (
     ArchViolation,
     _apply_suppressions,
@@ -560,13 +561,18 @@ def check_app(
         if not root.path.is_dir():
             raise NotADirectoryError(f"{root.kind.value} root not found: {root.path}")
     violations: list[ArchViolation] = []
-    for root in roots:
-        raw: list[ArchViolation] = []
-        for rule in _ALL_RULES:
-            if root.kind not in root_kinds_for(rule.__name__.removeprefix("check_")):
-                continue
-            raw.extend(rule(root.path, package=root.package))
-        violations.extend(_apply_suppressions(raw, _scan_allow_markers(root.path)))
+    # One parse of each file per run, instead of one per rule. Every rule walks the same
+    # tree and none of them mutate it, so the redundant work was the rule count -- 2,354
+    # `ast.parse` calls over a 32-file tree -- and the rule count only goes up. Scoped to
+    # this call so nothing is ever answered from a tree the filesystem has moved past.
+    with scan_cache():
+        for root in roots:
+            raw: list[ArchViolation] = []
+            for rule in _ALL_RULES:
+                if root.kind not in root_kinds_for(rule.__name__.removeprefix("check_")):
+                    continue
+                raw.extend(rule(root.path, package=root.package))
+            violations.extend(_apply_suppressions(raw, _scan_allow_markers(root.path)))
     if budget_path is not None:
         violations.extend(check_escape_hatch_budget(*roots, budget_path=budget_path, package=package))
     return sorted(violations, key=lambda violation: (violation.path, violation.line, violation.rule))
