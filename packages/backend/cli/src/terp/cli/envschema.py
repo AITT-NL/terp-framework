@@ -146,9 +146,23 @@ FORMAT_VALUES = frozenset({"secret", "port", "hostname", "plain"})
 #: same way. Deliberately a small, unambiguous list: the check's cost is a one-word
 #: opt-out on a false positive, and its value is catching the variable whose declaration
 #: forgot the single field that decides whether its value is sealed at rest.
+#:
+#: A TRAILING ``S`` IS THE SAME WORD. The first version of this list held ``CREDENTIALS``
+#: and no other plural, so ``API_KEYS``, ``CLIENT_SECRETS``, ``VENDOR_TOKENS`` and
+#: ``DB_PASSWORDS`` all walked past the check -- the exact declaration it exists for,
+#: defeated by one letter. The plural is folded in :func:`_credential_word` rather than
+#: written out twice, so adding a word cannot reintroduce the hole.
 CREDENTIAL_NAME_WORDS = frozenset(
-    {"SECRET", "TOKEN", "PASSWORD", "PASSPHRASE", "KEY", "CREDENTIAL", "CREDENTIALS"}
+    {"SECRET", "TOKEN", "PASSWORD", "PASSPHRASE", "KEY", "CREDENTIAL"}
 )
+
+def _is_credential_word(segment: str) -> bool:
+    """Is this name's last segment a credential word, singular or plural?"""
+    upper = segment.upper()
+    return upper in CREDENTIAL_NAME_WORDS or (
+        upper.endswith("S") and upper[:-1] in CREDENTIAL_NAME_WORDS
+    )
+
 
 _NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _SERVICE_RE = re.compile(SERVICE_NAME_PATTERN)
@@ -334,7 +348,7 @@ def _property_findings(name: object, prop: object) -> list[ManifestFinding]:
         # `"format": "secret"`, and that is the identical fix -- saying it twice
         # buries the one line the author has to change.
         and "secret" not in prop
-        and name.rsplit("_", 1)[-1] in CREDENTIAL_NAME_WORDS
+        and _is_credential_word(name.rsplit("_", 1)[-1])
     ):
         findings.append(
             ManifestFinding(

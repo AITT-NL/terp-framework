@@ -3083,6 +3083,66 @@ def test_no_hardcoded_credentials_reads_the_value_not_only_the_name(
         assert check_no_hardcoded_credentials(app) == [], source
 
 
+def test_a_credential_containing_a_brace_is_not_a_wire_format(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The worst bug this rule has had, pinned so it cannot come back.
+
+    The wire-format exemption was first written to consult the VALUE alone -- any
+    literal with a brace pair or a %-slot was a format. Consulted for every
+    credential-shaped name, that exempts the secrets that happen to contain one, and
+    generated passwords and pasted service-account JSON routinely do. Five shapes that
+    the rule caught before the exemption existed went silently clean, and the
+    literal-format scan does not cover them either: it only knows AKIA, ghp_,
+    github_pat_ and PEM headers.
+
+    A format now has to SAY it is one, which costs nothing: the name is what the author
+    controls, and every real instance of this shape is already called `*_FORMAT` or
+    `*_TEMPLATE`.
+    """
+    app = tmp_path / "app"
+    for source in (
+        'DB_PASSWORD = "aB3{xY9}qZ"',
+        'SERVICE_TOKEN = "tok{}en"',
+        'CLIENT_SECRET = "s3cr3t%s"',
+        'ADMIN_PASSWORD = "50%d0llars"',
+        'API_SECRET = \'{"type": "service_account", "private_key_id": "abc"}\'',
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert _rule_names(check_no_hardcoded_credentials(app)) == {
+            "no_hardcoded_credentials"
+        }, source
+
+    # ...while a name that declares itself a format keeps the exemption.
+    for source in (
+        'AUTH_TOKEN_FORMAT = "Bearer {token}"',
+        'API_KEY_TEMPLATE = "key=%s"',
+        'SECRET_PATTERN = "pw=%(value)s"',
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+
+def test_the_header_exemption_covers_the_header_apps_actually_name(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A hyphen-only grammar refused `Authorization`, which is the header an app wiring
+    a client names -- so most of the markers this exemption exists to retire could not
+    be retired, which is the cost the whole change is about. A registered header name is
+    not a password shape: a password does not happen to equal one."""
+    app = tmp_path / "app"
+    for value in ("Authorization", "Authentication", "Cookie", "X-Auth-Token"):
+        _write(app, "client.py", f'AUTH_TOKEN_HEADER = "{value}"\n')
+        assert check_no_hardcoded_credentials(app) == [], value
+
+    # An unregistered single word is still a password shape.
+    for value in ("hunter2", "Bearer abc def"):
+        _write(app, "client.py", f'AUTH_TOKEN_HEADER = "{value}"\n')
+        assert _rule_names(check_no_hardcoded_credentials(app)) == {
+            "no_hardcoded_credentials"
+        }, value
+
+
 def test_no_hardcoded_credentials_exemptions_need_the_value_to_earn_them(
     tmp_path: pathlib.Path,
 ) -> None:

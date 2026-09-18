@@ -248,7 +248,57 @@ def wiring_seams(capability: Capability) -> tuple[str, ...]:
     return tuple(sorted(found))
 
 
-def unwired_seams(capability: Capability, root: pathlib.Path) -> tuple[str, ...]:
+#: Directories whose contents are not this app's source. Deliberately the harness's own
+#: list rather than a shorter one written here: an app whose virtualenv is called `venv`
+#: instead of `.venv` would otherwise have all of site-packages read into the blob, where
+#: every seam name appears and the report goes silently empty.
+_SKIP_DIRS = frozenset(
+    {
+        "__pycache__",
+        ".venv",
+        "venv",
+        "env",
+        ".tox",
+        "site-packages",
+        "node_modules",
+        "build",
+        "dist",
+        ".git",
+    }
+)
+
+
+def app_sources(root: pathlib.Path | str) -> str:
+    """Every Python source under *root*, concatenated once.
+
+    Built once per run and passed down rather than rebuilt per capability. The per-
+    capability version walked the tree and re-read every file for each of ~19 installed
+    capabilities -- 2.75s and 505 files read nineteen times on this repository -- for a
+    blob that cannot change between them.
+
+    `rglob` yields directories and dangling symlinks that match the glob too, so the
+    `is_file()` guard is not defensive noise: a directory named `generated.py/` would
+    otherwise take the whole command down with `IsADirectoryError`, and this command is
+    explicitly information rather than a finding.
+    """
+    parts = []
+    for path in sorted(pathlib.Path(root).rglob("*.py")):
+        if any(part in _SKIP_DIRS for part in path.parts) or not path.is_file():
+            continue
+        try:
+            parts.append(path.read_text(encoding="utf-8", errors="ignore"))
+        except OSError:
+            continue
+    return "\n".join(parts)
+
+
+def unwired_seams(
+    capability: Capability,
+    root: pathlib.Path | str,
+    *,
+    seams: tuple[str, ...] | None = None,
+    sources: str | None = None,
+) -> tuple[str, ...]:
     """The installed capability's wiring points this app's source never mentions.
 
     The question a consumer cannot currently ask. The registry answers "do I have this
@@ -262,18 +312,14 @@ def unwired_seams(capability: Capability, root: pathlib.Path) -> tuple[str, ...]
     negatives that matter (referencing a seam without writing its name is not a thing),
     and a false positive costs a reader one glance. Reporting nothing is the failure
     mode worth avoiding here, not reporting one thing twice.
+
+    *seams* and *sources* let a caller reporting on many capabilities compute each once;
+    both default to doing it here, so a single call still works on its own.
     """
-    seams = wiring_seams(capability)
+    seams = wiring_seams(capability) if seams is None else seams
     if not seams:
         return ()
-    sources = [
-        path.read_text(encoding="utf-8", errors="ignore")
-        for path in sorted(pathlib.Path(root).rglob("*.py"))
-        if "__pycache__" not in path.parts
-        and ".venv" not in path.parts
-        and "node_modules" not in path.parts
-    ]
-    blob = "\n".join(sources)
+    blob = app_sources(root) if sources is None else sources
     return tuple(
         seam for seam in seams if not re.search(rf"\b{re.escape(seam)}\b", blob)
     )
@@ -298,8 +344,17 @@ def render_capabilities(*, fmt: str = "text", root: str | pathlib.Path = ".") ->
     pin = platform_version()
     # Only for what is installed: an unadopted capability's unused seams are the whole
     # package, which is what the "available to adopt" section already says.
+    #
+    # The source blob and each capability's seam tuple are computed ONCE and shared: the
+    # text cannot change between capabilities, and both halves of the JSON manifest below
+    # are then the same traversal rather than two that could drift.
+    installed_names = [cap.name for cap, version in rows if version is not None]
+    sources = app_sources(root) if installed_names else ""
+    seams = {
+        cap.name: wiring_seams(cap) for cap, version in rows if version is not None
+    }
     unwired = {
-        cap.name: unwired_seams(cap, pathlib.Path(root))
+        cap.name: unwired_seams(cap, root, seams=seams[cap.name], sources=sources)
         for cap, version in rows
         if version is not None
     }
@@ -318,7 +373,7 @@ def render_capabilities(*, fmt: str = "text", root: str | pathlib.Path = ".") ->
                         "guide": cap.guide,
                         "installed": version is not None,
                         "version": version,
-                        "seams": list(wiring_seams(cap)) if version is not None else [],
+                        "seams": list(seams.get(cap.name, ())),
                         "unwired_seams": list(unwired.get(cap.name, ())),
                     }
                     for cap, version in rows

@@ -126,11 +126,24 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends postgresql-client-17
-          pg_dump --version
+          # Assert the major, rather than printing it. `pg_wrapper` can keep selecting
+          # the runner image's older client, and the failure mode of that is a SKIPPED
+          # drill -- which is green. Bumping the service image without bumping this
+          # package fails here, where the cause is obvious, instead of there.
+          installed="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"
+          [ "$installed" = "17" ] || {
+            echo "pg_dump is $installed; the service above is postgres:17 — the restore" \
+                 "drill would skip. Bump postgresql-client-* and the service together."
+            exit 1
+          }
 
       - name: Run the migrations conformance suite against PostgreSQL
         env:
           TERP_TEST_POSTGRES_URL: postgresql+psycopg://postgres:terp@localhost:5432/postgres
+          # A skipped backup check is green, which is the worst outcome available: the
+          # green implies the drill ran. This lane installs a matching client on
+          # purpose, so here a skip is a failure.
+          TERP_REQUIRE_POSTGRES_LANE: "1"
         run: uv run pytest tests/architecture/test_migrations_conformance.py -q
 
   # Generic, tool-independent backstops layered ON TOP of the gate — they never

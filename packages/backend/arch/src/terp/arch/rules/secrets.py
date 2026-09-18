@@ -101,8 +101,16 @@ _STRUCTURAL_SUFFIXES = {
     "env": re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$"),
     # A URL or filesystem path, which starts at a root or at the current directory.
     "path": re.compile(r"^[./][^\s]*$"),
-    # An HTTP header's name, which is hyphenated.
-    "header": re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+$"),
+    # An HTTP header's name: hyphenated, or one of the registered single words.
+    #
+    # The hyphen rule alone refused `AUTH_TOKEN_HEADER = "Authorization"` -- the header
+    # an app wiring a client actually names, and therefore most of the markers this
+    # exemption exists to retire. A registered header name is not a password shape:
+    # a password does not happen to equal one.
+    "header": re.compile(
+        r"^(?:[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+"
+        r"|Authorization|Authentication|Cookie|Origin|Referer)$"
+    ),
 }
 
 #: Suffixes whose value is only exempt when it SPELLS THE NAME ITSELF -- the same
@@ -113,10 +121,22 @@ _STRUCTURAL_SUFFIXES = {
 _SELF_NAMING_SUFFIXES = frozenset({"field", "column", "param", "reference"})
 
 #: A literal with a substitution slot is a wire FORMAT, not a credential: the part that
-#: would be secret is the part that is not there. A real key pasted inside one is still
-#: caught -- the literal-format scan below reads every string in the tree regardless of
-#: what name it is bound to.
+#: would be secret is the part that is not there.
+#:
+#: Gated on the NAME as well, and the first version was not -- which made it by far the
+#: worst thing in this file. Consulted for every credential-shaped name, it exempts any
+#: secret that happens to contain a brace pair or a %-slot, and generated passwords and
+#: pasted service-account JSON routinely do: `DB_PASSWORD = "aB3{xY9}qZ"` and
+#: `API_SECRET = '{"type": "service_account", ...}'` both went silently clean. The
+#: literal-format scan does not cover them either, because it only knows AKIA / ghp_ /
+#: github_pat_ / PEM headers.
+#:
+#: So a format has to SAY it is one. That is no loss: a name is what the author controls,
+#: and every real case of this shape is already called `*_FORMAT` or `*_TEMPLATE`.
 _TEMPLATE_RE = re.compile(r"\{[^{}]*\}|%\([A-Za-z_][A-Za-z0-9_]*\)[sdr]|%[sdr](?![A-Za-z])")
+
+#: Name endings that declare a value to be a wire format rather than a value.
+_FORMAT_SUFFIXES = frozenset({"format", "template", "pattern"})
 
 
 def _environment_key_names(tree: ast.AST) -> set[str]:
@@ -158,10 +178,10 @@ def _structurally_not_a_credential(name: str, literal: str, env_keys: set[str]) 
     """
     if name in env_keys:
         return True
-    if _TEMPLATE_RE.search(literal):
-        return True
     stem, _, suffix = name.rpartition("_")
     suffix = suffix.lower()
+    if suffix in _FORMAT_SUFFIXES and _TEMPLATE_RE.search(literal):
+        return True
     grammar = _STRUCTURAL_SUFFIXES.get(suffix)
     if grammar is not None:
         return bool(grammar.fullmatch(literal))
@@ -240,8 +260,10 @@ def check_no_hardcoded_credentials(
       the name itself (``CLIENT_SECRET_FIELD = "client_secret"``) -- the enum case
       generalised. No grammar can serve here, because a field name and a password are
       the same shape; only the equality is evidence;
-    * a literal carrying a substitution slot (``"Bearer {token}"``) is a wire
-      FORMAT: the part that would be secret is the part that is not there.
+    * a ``_FORMAT`` / ``_TEMPLATE`` / ``_PATTERN`` name whose literal carries a
+      substitution slot (``"Bearer {token}"``) is a wire FORMAT: the part that would
+      be secret is the part that is not there. The suffix is required, because a
+      generated password or a pasted service-account JSON contains a brace pair too.
 
     None of them weakens the literal-format scan, which reads every string in the
     tree regardless of the name it is bound to -- so a real key pasted into any of

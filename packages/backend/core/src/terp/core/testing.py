@@ -118,13 +118,25 @@ class QueryLog:
         return len(self.statements)
 
     def matching(self, pattern: str) -> list[str]:
-        """The statements matching *pattern* (case-insensitive substring or regex).
+        """The statements matching *pattern*, case-insensitively.
 
         For narrowing an assertion to the part of the block under test -- the SELECTs
         against one table, say -- when the block legitimately does other work too.
+
+        A regex when the string is one, and a literal substring when it is not. That
+        fallback is the difference between a usable tool and a trap here, because the
+        obvious pattern to write is a fragment of SQL: ``only="count(*)"`` is not a
+        valid regex (``nothing to repeat``) and would raise instead of asserting, and
+        ``only="a+b"`` is valid, matches nothing, and would pass the bound vacuously --
+        which is worse, because it looks like it worked.
         """
-        expression = re.compile(pattern, re.IGNORECASE)
-        return [statement for statement in self.statements if expression.search(statement)]
+        try:
+            expression = re.compile(pattern, re.IGNORECASE)
+        except re.error:
+            expression = re.compile(re.escape(pattern), re.IGNORECASE)
+        return [
+            statement for statement in self.statements if expression.search(statement)
+        ]
 
     @property
     def selects(self) -> list[str]:

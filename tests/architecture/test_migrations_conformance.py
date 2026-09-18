@@ -80,12 +80,30 @@ _DOMAIN_TABLES = {
 
 _POSTGRES_URL_ENV = "TERP_TEST_POSTGRES_URL"
 
+#: Set by CI to turn this lane's skips into failures. A skip is GREEN, and a check that
+#: silently does not run is worse than not having one, because the green implies it ran.
+#: Locally the skip is right -- a developer with no PostgreSQL should not be blocked by a
+#: PostgreSQL-only lane. In the lane, where the workflow starts a server and installs a
+#: matching client on purpose, a skip means one of those steps stopped working and
+#: nothing else would say so.
+_REQUIRE_LANE_ENV = "TERP_REQUIRE_POSTGRES_LANE"
+
+
+def _absent_lane(reason: str) -> None:
+    """Skip, or fail when the running lane declared that it must not have to."""
+    if os.environ.get(_REQUIRE_LANE_ENV):
+        pytest.fail(
+            f"{reason}. {_REQUIRE_LANE_ENV} is set, so this is a failure rather than a "
+            "skip: the lane is configured to run these tests and cannot"
+        )
+    pytest.skip(reason)
+
 
 def _postgres_scratch_database() -> Iterator[str]:
     """A scratch PostgreSQL database for one test (skips without a configured server)."""
     admin_url = os.environ.get(_POSTGRES_URL_ENV)
     if not admin_url:
-        pytest.skip(f"set {_POSTGRES_URL_ENV} to run the PostgreSQL conformance lane")
+        _absent_lane(f"set {_POSTGRES_URL_ENV} to run the PostgreSQL conformance lane")
     scratch = f"terp_conformance_{uuid.uuid4().hex[:12]}"
     admin = create_engine(admin_url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
     try:
@@ -968,25 +986,43 @@ def pg_url_pair() -> Iterator[tuple[str, str]]:
     already there and already current, so every assertion passes whatever the dump
     contains. The clean target is the whole point.
     """
-    generators = [_postgres_scratch_database(), _postgres_scratch_database()]
-    urls = tuple(next(generator) for generator in generators)
+    started: list[Iterator[str]] = []
+    urls: list[str] = []
     try:
-        yield urls  # type: ignore[misc]
+        for _ in range(2):
+            generator = _postgres_scratch_database()
+            # Appended BEFORE it is advanced, so a failure in the second CREATE DATABASE
+            # still tears the first one down. Building the list first and advancing it
+            # after leaked a `terp_conformance_<hex>` database on every such failure, on
+            # a server this suite shares with itself.
+            started.append(generator)
+            urls.append(next(generator))
+        yield (urls[0], urls[1])
     finally:
-        for generator in generators:
-            with contextlib.suppress(StopIteration):
+        for generator in started:
+            # Each drop is independent: an error dropping the first must not skip the
+            # second. StopIteration is the normal end of the fixture's own teardown.
+            with contextlib.suppress(StopIteration, DBAPIError, OSError):
                 next(generator)
 
 
+#: Set by CI to turn this lane's skips into failures.
+#:
+#: A skip is GREEN, and a check that silently does not run is worse than not having one,
+#: because the green implies it ran. Locally the skip is right -- a developer with no
+#: PostgreSQL and no client tools should not be blocked by a PostgreSQL-only lane. In the
+#: lane, where the workflow starts a server and installs a matching client on purpose, a
+#: skip means one of those steps stopped working and nothing else would say so.
 def _require_pg_client(url: str) -> None:
     client = _pg_client_version()
     if client is None:
-        pytest.skip("pg_dump is not installed — the restore drill needs the client tools")
-    if client[0] < _server_major(url):
-        pytest.skip(
-            f"pg_dump is {client[0]} and the server is {_server_major(url)}; pg_dump "
-            "refuses a newer server. Install the matching postgresql-client to run the "
-            "restore drill"
+        _absent_lane("pg_dump is not installed — the restore drill needs the client tools")
+        return
+    server = _server_major(url)
+    if client[0] < server:
+        _absent_lane(
+            f"pg_dump is {client[0]} and the server is {server}; pg_dump refuses a "
+            "newer server, so install the matching postgresql-client"
         )
 
 

@@ -236,19 +236,29 @@ decision, 0001 onwards.
   to give the one that is something the same glance. That is how a fail-closed control
   becomes decoration — the failure this rule exists to prevent, one level up.
 
-  Four shapes are now exempt, each a statement about the **value**; the name list is
+  Five shapes are now exempt, each a statement about the **value**; the name list is
   untouched, because narrowing it would lose real findings. The enum-vocabulary case
   (unchanged); a name the module itself uses as an environment key
   (`os.environ[TOKEN_ENV]`), which is the module saying in code what the string is; a
   `_ENV` / `_PATH` / `_HEADER` name whose value matches the grammar that suffix implies;
-  and a `_FIELD` / `_COLUMN` / `_PARAM` / `_REFERENCE` name whose value spells the name
-  itself.
+  a `_FIELD` / `_COLUMN` / `_PARAM` / `_REFERENCE` name whose value spells the name
+  itself; and a `_FORMAT` / `_TEMPLATE` / `_PATTERN` name whose value carries a
+  substitution slot.
+
+  That last one is stated by name for a reason. Deciding it on the value alone — any
+  literal with a brace pair or a %-slot is a format — exempts the secrets that happen to
+  contain one, and generated passwords and pasted service-account JSON do:
+  `DB_PASSWORD = "aB3{xY9}qZ"` goes silently clean, and the literal-format scan does not
+  cover it, because that only knows AKIA, ghp_, github_pat_ and PEM headers. The suffix
+  costs nothing, because the name is what the author controls.
 
   Each grammar has to **refuse a password** to qualify, which is a sharper bar than
   "looks plausible": `hunter2` is a valid identifier, a valid header name and a valid
   environment variable name once upper-cased. So the conventions discriminate — an
-  environment variable's name is multi-word, a header's name is hyphenated, a path starts
-  at a root — and `TOKEN_ENV = "HUNTER2"` is still a finding. Nothing here weakens the
+  environment variable's name is multi-word, a path starts at a root, and a header's
+  name is hyphenated *or* one of the registered single words (`Authorization`,
+  `Authentication`, `Cookie`) — hyphen-only refused the header an app wiring a client
+  actually names. `TOKEN_ENV = "HUNTER2"` is still a finding. Nothing here weakens the
   literal-format scan, which reads every string in the tree whatever name it is bound to,
   so a real key pasted into any of these shapes is still caught.
 
@@ -308,12 +318,20 @@ decision, 0001 onwards.
     the reason `resolvedBy` already has one. A near miss like `"secrt"` is not a weaker
     seal, it is no seal, and an open vocabulary cannot say so.
   - **A credential-shaped name must say which it is.** A variable whose last word is
-    `SECRET`, `TOKEN`, `PASSWORD`, `PASSPHRASE`, `KEY`, `CREDENTIAL` or `CREDENTIALS` and
-    declares no `format` is refused: silence there is indistinguishable from a decision.
+    `SECRET`, `TOKEN`, `PASSWORD`, `PASSPHRASE`, `KEY` or `CREDENTIAL` — singular or
+    plural — and declares no `format` is refused: silence there is indistinguishable
+    from a decision.
     `"format": "secret"` seals it; `"format": "plain"` records that this one holds no
     credential — a public key, a sort key. One word, in the file and in the diff, which
     is the standard the platform applies to every other insecurity.
 
+
+  **Upgrade note.** The dialect is closed, not merely spell-checked: the manifest is
+  *authored* as JSON Schema, so an existing app that wrote a standard keyword on a
+  declaration — `pattern`, `minLength`, `minimum`, `const`, `examples`, `deprecated` —
+  now fails the gate. That is deliberate and is the same finding as `secret`: the deploy
+  side has always dropped those fields, so a `"pattern"` on a declaration validates
+  nothing and never did. Delete them. `$`-prefixed keys (`$comment`) stay legal.
   Adopting this will find things, and finding them is the point. `terp guide environment`
   carries the recipe.
 

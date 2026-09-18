@@ -647,6 +647,27 @@ def test_a_credential_shaped_name_must_say_whether_it_holds_one(
         assert '"secret"' in defects[0] and '"plain"' in defects[0]
 
 
+def test_a_plural_credential_name_is_the_same_word(tmp_path: pathlib.Path) -> None:
+    """The first version of the word list held `CREDENTIALS` and no other plural, so
+    `API_KEYS`, `CLIENT_SECRETS`, `VENDOR_TOKENS` and `DB_PASSWORDS` walked straight
+    past the check -- the exact declaration it exists for, defeated by one letter."""
+    for name in ("API_KEYS", "CLIENT_SECRETS", "VENDOR_TOKENS", "DB_PASSWORDS", "TOKENS"):
+        defects = _defects(_schema(tmp_path, _named(name, {"type": "string"})))
+        assert len(defects) == 1, (name, defects)
+        assert f"{name}.format" in defects[0]
+
+    # Sealed, it passes -- the plural is the same word in both directions.
+    root = _schema(tmp_path, _named("API_KEYS", {"type": "string", "format": "secret"}))
+    assert _defects(root) == []
+
+
+def test_stripping_an_s_does_not_invent_a_credential(tmp_path: pathlib.Path) -> None:
+    """`ADDRESS` ends in S and `ADDRES` is not a credential word — the plural rule must
+    not turn every trailing S into a match."""
+    for name in ("SOME_ADDRESS", "SOME_STATUS", "SOME_HEADERS"):
+        assert _defects(_schema(tmp_path, _named(name, {"type": "string"}))) == [], name
+
+
 def test_declaring_it_plain_is_the_opt_out(tmp_path: pathlib.Path) -> None:
     """A public key is a credential-shaped name that holds no credential. The opt-out
     is one word, in the file, in the diff and greppable -- which is the platform's own
