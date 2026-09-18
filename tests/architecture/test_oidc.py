@@ -1,10 +1,18 @@
 """Pluggable SSO/OIDC capability (ADR 0058): protocol, validation, and router coverage.
 
-A fake IdP lives entirely in-process: a real RSA keypair signs ID tokens, and an
-``httpx.MockTransport`` serves the discovery document, the JWKS, and the token
-endpoint — so the full Authorization Code + PKCE flow (and every fail-closed
-validation branch: bad signature, wrong audience/issuer, expired, nonce mismatch,
-replayed state, unknown provider, refused identity) is proven without a network.
+A fake IdP lives entirely in-process: a real RSA keypair signs ID tokens, and a
+handler serves the discovery document, the JWKS, and the token endpoint — so the full
+Authorization Code + PKCE flow (and every fail-closed validation branch: bad
+signature, wrong audience/issuer, expired, nonce mismatch, replayed state, unknown
+provider, refused identity) is proven without a network.
+
+The handler is reached through the **egress** capability's ``sender`` seam, so every
+test here runs the real :class:`~terp.capabilities.egress.EgressClient` — its scheme
+check, its allowlist, its SSRF denylist and its address pinning — with only the socket
+replaced. The ``resolve`` seam is injected for the same reason and is not optional: a
+test that let a name go to real DNS would fail to resolve ``.test`` and be refused,
+and several of the assertions below would then pass for that reason instead of the
+one they are written for.
 """
 
 from __future__ import annotations
@@ -13,7 +21,7 @@ import datetime
 import json
 import logging
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Mapping
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -33,6 +41,13 @@ from terp.core.app import register_error_handlers
 from terp.core.config import settings
 
 from terp.capabilities.auth import LoginThrottle, decode_access_token
+from terp.capabilities.egress import (
+    EgressAttempt,
+    EgressFailedError,
+    EgressResponse,
+    PinnedTarget,
+    Sender,
+)
 from terp.capabilities.oidc import (
     InMemoryStateStore,
     OIDCClaims,
@@ -44,7 +59,7 @@ from terp.capabilities.oidc import (
     code_challenge_s256,
     generate_code_verifier,
 )
-from terp.capabilities.oidc.client import MAX_RESPONSE_BYTES, _default_http_factory
+from terp.capabilities.oidc.client import MAX_RESPONSE_BYTES
 from terp.capabilities.oidc.router import _throttle_key
 from terp.core.errors import AppError
 
@@ -52,6 +67,9 @@ _KEY = "terp-oidc-test-secret-key-0123456789abcdef"
 _ISSUER = "https://idp.example.test"
 _CLIENT_ID = "terp-test-client"
 _KID = "test-key-1"
+#: Every provider host resolves here unless a test says otherwise — a public address,
+#: so the denylist is satisfied and what a test proves is what it set out to prove.
+_PUBLIC_IP = "93.184.216.34"
 
 
 # --------------------------------------------------------------------------- #
@@ -67,8 +85,46 @@ def _jwk(public_key, kid: str) -> dict:
     return entry
 
 
+def _sender_for(handler: Callable[[httpx.Request], httpx.Response]) -> Sender:
+    """Adapt a plain ``httpx.Request -> httpx.Response`` handler to the egress seam.
+
+    It honours ``max_response_bytes`` because a conforming transport does: the real one
+    counts bytes as they arrive and raises :class:`EgressFailedError`. That the real one
+    actually counts is proven in ``test_egress.py``, where the transport lives; what the
+    cap tests here prove is that this capability *declares* the bound and that exceeding
+    it surfaces as the uniform 502 rather than a parse error. The comparison is ``>``,
+    matching the transport exactly — an inclusive bound tested against a fake that
+    rounded the other way would be a test of the fake.
+    """
+
+    def _send(
+        target: PinnedTarget,
+        method: str,
+        body: bytes | None,
+        headers: Mapping[str, str],
+        timeout_seconds: float,
+        max_response_bytes: int,
+    ) -> EgressResponse:
+        response = handler(
+            httpx.Request(method, target.url, content=body, headers=dict(headers))
+        )
+        content = response.content
+        if len(content) > max_response_bytes:
+            raise EgressFailedError(
+                "The upstream response was larger than this application accepts.",
+                log_context={"host": target.host, "limit": max_response_bytes},
+            )
+        return EgressResponse(
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            content=content,
+        )
+
+    return _send
+
+
 class FakeIdP:
-    """A configurable in-process IdP served over ``httpx.MockTransport``."""
+    """A configurable in-process IdP, reached through the egress ``sender`` seam."""
 
     def __init__(self, *, issuer: str = _ISSUER) -> None:
         self.issuer = issuer
@@ -101,8 +157,15 @@ class FakeIdP:
             return httpx.Response(self.token_status, json=self.token_body)
         raise AssertionError(f"unexpected IdP request: {request.url}")  # pragma: no cover
 
-    def http_factory(self) -> httpx.Client:
-        return httpx.Client(transport=httpx.MockTransport(self.handler))
+    @property
+    def sender(self) -> Sender:
+        """This IdP as an egress transport (the socket, and nothing above it)."""
+        return _sender_for(self.handler)
+
+    @staticmethod
+    def resolve(host: str) -> list[str]:
+        """Name resolution for the suite: one public address, no DNS."""
+        return [_PUBLIC_IP]
 
     def id_token(
         self,
@@ -148,7 +211,7 @@ def idp() -> FakeIdP:
 
 @pytest.fixture
 def client(idp: FakeIdP) -> OIDCClient:
-    return OIDCClient(_config(), http_factory=idp.http_factory)
+    return OIDCClient(_config(), sender=idp.sender, resolve=idp.resolve)
 
 
 # --------------------------------------------------------------------------- #
@@ -285,63 +348,59 @@ def test_discovery_refuses_a_missing_endpoint(idp: FakeIdP, client: OIDCClient) 
 def test_discovery_maps_transport_and_status_failures_to_502(idp: FakeIdP) -> None:
     idp.discovery_status = 500
     with pytest.raises(ProviderUnavailableError):
-        OIDCClient(_config(), http_factory=idp.http_factory).discovery()
+        OIDCClient(_config(), sender=idp.sender, resolve=idp.resolve).discovery()
 
     def _explode(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("boom")
 
-    down = OIDCClient(
-        _config(),
-        http_factory=lambda: httpx.Client(transport=httpx.MockTransport(_explode)),
-    )
+    down = OIDCClient(_config(), sender=_sender_for(_explode), resolve=idp.resolve)
     with pytest.raises(ProviderUnavailableError):
         down.discovery()
+
+
+def test_a_document_that_is_not_json_at_all_is_a_502(idp: FakeIdP) -> None:
+    """A provider answering 200 with something that will not parse is still an outage.
+
+    This behaviour was never actually exercised. The previous client caught the
+    transport error and the parse error in a single ``except (httpx.HTTPError,
+    ValueError)``, so the transport test covered the line and no test ever had to serve
+    a malformed document. Splitting them — a refusal by this application's own address
+    policy is not the same event as a body that will not parse, and only one of them
+    says anything about the provider — is what made the gap visible.
+
+    A captive portal or a proxy error page is the realistic shape: HTTP 200, HTML body.
+    """
+
+    def _garbage(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"<html>not json</html>")
+
+    client = OIDCClient(_config(), sender=_sender_for(_garbage), resolve=idp.resolve)
+    with pytest.raises(ProviderUnavailableError):
+        client.discovery()
 
 
 def test_discovery_refuses_a_non_object_document(idp: FakeIdP) -> None:
     def _array(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=[1, 2, 3])
 
-    client = OIDCClient(
-        _config(),
-        http_factory=lambda: httpx.Client(transport=httpx.MockTransport(_array)),
-    )
+    client = OIDCClient(_config(), sender=_sender_for(_array), resolve=idp.resolve)
     with pytest.raises(ProviderUnavailableError):
         client.discovery()
-
-
-def test_default_http_factory_builds_a_real_client() -> None:
-    with _default_http_factory() as client:
-        assert isinstance(client, httpx.Client)
-
-
-def test_the_default_client_refuses_redirects() -> None:
-    """A followed redirect is a second endpoint nobody configured.
-
-    It also breaks the IdP mix-up defence in a way that is hard to see: the discovery
-    document's ``issuer`` is matched against the issuer that was *asked for*, so an
-    answer collected from somewhere else would be checked against the wrong claim.
-    """
-    with _default_http_factory() as client:
-        assert client.follow_redirects is False
 
 
 def test_an_oversized_provider_response_is_refused_rather_than_read(idp: FakeIdP) -> None:
     """An unbounded read is an outage the provider gets to declare.
 
-    The timeout does not help here: a body that keeps arriving keeps the connection
-    busy, so the worker's memory is what runs out. The bound is counted as the bytes
-    arrive rather than checked afterwards, which is the only version worth having —
-    measuring a body that is already in memory measures the damage.
+    The timeout does not help: a body that keeps arriving keeps the connection busy, so
+    the worker's memory is what runs out. The counting now belongs to the egress
+    transport and is proven there; what is proven here is that this capability declares
+    the bound on its policy and that being over it is the uniform 502.
     """
 
     def _flood(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"x" * (MAX_RESPONSE_BYTES + 1))
 
-    client = OIDCClient(
-        _config(),
-        http_factory=lambda: httpx.Client(transport=httpx.MockTransport(_flood)),
-    )
+    client = OIDCClient(_config(), sender=_sender_for(_flood), resolve=idp.resolve)
     with pytest.raises(ProviderUnavailableError):
         client.discovery()
 
@@ -349,8 +408,10 @@ def test_an_oversized_provider_response_is_refused_rather_than_read(idp: FakeIdP
 def test_a_response_at_the_cap_is_still_served(idp: FakeIdP) -> None:
     """The bound is a ceiling, not a margin: exactly at the cap must still work.
 
-    On the boundary deliberately — an off-by-one here refuses a document that is within
-    the documented allowance, and the failure would look like a provider outage.
+    On the boundary deliberately — an off-by-one in the *wiring* (a policy handed one
+    byte less than the constant says) refuses a document that is within the documented
+    allowance, and the failure would look like a provider outage. The transport's own
+    boundary is pinned separately, in ``test_egress.py``.
     """
     document = dict(idp.discovery)
     document["_pad"] = ""
@@ -360,14 +421,149 @@ def test_a_response_at_the_cap_is_still_served(idp: FakeIdP) -> None:
 
     def _exact(_request: httpx.Request) -> httpx.Response:
         body = json.dumps(document).encode("utf-8")
-        assert len(body) <= MAX_RESPONSE_BYTES
+        assert len(body) == MAX_RESPONSE_BYTES
         return httpx.Response(200, content=body, headers={"content-type": "application/json"})
 
-    client = OIDCClient(
-        _config(),
-        http_factory=lambda: httpx.Client(transport=httpx.MockTransport(_exact)),
-    )
+    client = OIDCClient(_config(), sender=_sender_for(_exact), resolve=idp.resolve)
     assert client.discovery()["issuer"] == _ISSUER
+
+
+# --------------------------------------------------------------------------- #
+# the address policy: whose host is it?
+# --------------------------------------------------------------------------- #
+def test_the_issuer_host_may_be_private_and_a_host_the_document_named_may_not() -> None:
+    """On-premises SSO is a deployment shape; a document steering the server is not.
+
+    The operator configured the issuer, so an IdP inside the network is something they
+    said. Every other host reaching the client was named by the **discovery document** —
+    that is, by the far end — and a party that can edit its own document must not
+    thereby be able to aim this server at an internal service or a metadata endpoint.
+
+    One resolver answers ``10.0.0.5`` for everything, so the only thing separating the
+    two outcomes below is whose host it is.
+    """
+    idp = FakeIdP()
+    idp.discovery["jwks_uri"] = "https://keys.elsewhere.test/keys"
+    client = OIDCClient(_config(), sender=idp.sender, resolve=lambda _host: ["10.0.0.5"])
+
+    assert client.discovery()["issuer"] == _ISSUER  # the operator's own host: permitted
+
+    with pytest.raises(ProviderUnavailableError):  # a host the document introduced
+        client.validate_id_token(idp.id_token(nonce="n"), nonce="n")
+
+
+def test_an_https_issuer_does_not_admit_an_http_endpoint(idp: FakeIdP) -> None:
+    """A discovery document cannot downgrade the connection the operator configured.
+
+    The token endpoint is where the client secret goes, so an ``http`` one named by the
+    provider would put it on the wire in clear text.
+    """
+    idp.discovery["token_endpoint"] = "http://idp.example.test/token"
+    client = OIDCClient(_config(), sender=idp.sender, resolve=idp.resolve)
+    with pytest.raises(ProviderUnavailableError):
+        client.exchange_code(code="c", code_verifier="v", client_secret="s")
+
+
+def test_a_plain_http_issuer_on_a_private_address_still_works() -> None:
+    """The setup people develop against: a local IdP, plain http, on loopback.
+
+    Both relaxations at once, and both follow from the same fact — the operator named
+    this issuer. A capability that refused this would be secure and unusable, and would
+    be worked around rather than configured.
+    """
+    issuer = "http://localhost:8080/realms/dev"
+    idp = FakeIdP(issuer=issuer)
+    client = OIDCClient(
+        _config(issuer=issuer), sender=idp.sender, resolve=lambda _host: ["127.0.0.1"]
+    )
+    assert client.discovery()["issuer"] == issuer
+
+
+def test_an_endpoint_that_is_not_a_url_is_a_502(idp: FakeIdP) -> None:
+    """There is no host to hold to an address policy, so it is refused, not attempted."""
+    idp.discovery["jwks_uri"] = "not-a-url"
+    client = OIDCClient(_config(), sender=idp.sender, resolve=idp.resolve)
+    with pytest.raises(ProviderUnavailableError):
+        client.validate_id_token(idp.id_token(nonce="n"), nonce="n")
+
+
+def test_a_token_endpoint_that_is_not_a_url_is_a_502(idp: FakeIdP) -> None:
+    """The same guard on the POST path — ``discovery()`` only checks the key is present."""
+    idp.discovery["token_endpoint"] = "not-a-url"
+    client = OIDCClient(_config(), sender=idp.sender, resolve=idp.resolve)
+    with pytest.raises(ProviderUnavailableError):
+        client.exchange_code(code="c", code_verifier="v", client_secret="s")
+
+
+def test_an_endpoint_that_does_not_parse_at_all_is_a_502(idp: FakeIdP) -> None:
+    """``urlsplit`` does not fail quietly on a malformed URL — it raises.
+
+    The two tests above serve ``"not-a-url"``, which parses fine and simply has no host.
+    An unterminated IPv6 literal is the other shape, and it does not return: ``urlsplit``
+    raises ``ValueError("Invalid IPv6 URL")`` before ``.hostname`` is ever reached. Both
+    endpoints come out of a document the provider wrote rather than out of an operator's
+    configuration, so the difference between the two decided whether a broken discovery
+    document left as this capability's uniform 502 or as a bare, untyped 500.
+    """
+    idp.discovery["jwks_uri"] = "https://[::1"
+    client = OIDCClient(_config(), sender=idp.sender, resolve=idp.resolve)
+    with pytest.raises(ProviderUnavailableError):
+        client.validate_id_token(idp.id_token(nonce="n"), nonce="n")
+
+    idp.discovery["token_endpoint"] = "https://[::1"
+    token_client = OIDCClient(_config(), sender=idp.sender, resolve=idp.resolve)
+    with pytest.raises(ProviderUnavailableError):
+        token_client.exchange_code(code="c", code_verifier="v", client_secret="s")
+
+
+def test_an_endpoint_host_the_address_policy_refuses_is_a_502(idp: FakeIdP) -> None:
+    """``EgressPolicy`` holds an exact hostname, and refuses one it cannot hold.
+
+    A `*` in the host makes the allowlist entry a pattern, which the policy rejects by
+    construction — correctly, since an allowlist that silently accepted a wildcard would
+    be no allowlist. But the policy is built from a host the PROVIDER named, so that
+    refusal is reachable from a discovery document, and it arrived as a `ValueError` out
+    of a constructor rather than as this capability's declared outcome.
+    """
+    idp.discovery["jwks_uri"] = "https://keys.*.example.test/keys"
+    client = OIDCClient(_config(), sender=idp.sender, resolve=idp.resolve)
+    with pytest.raises(ProviderUnavailableError):
+        client.validate_id_token(idp.id_token(nonce="n"), nonce="n")
+
+
+def test_the_router_hands_its_egress_seams_to_the_client_it_builds(idp: FakeIdP) -> None:
+    """A seam wired at the composition root has to survive the trip to the client.
+
+    Worth its own test because the failure is silent: an application that wires metering
+    through ``build_oidc_module`` and then sees no attempts cannot tell that from a
+    provider it never called. The client-level observer test below cannot catch it
+    either — it builds its own client and never goes through the router at all.
+    """
+    seen: list[EgressAttempt] = []
+    app, _store = _sso_app(idp, lambda _s, _c: None, observer=seen.append)
+
+    # ``/authorize`` reads the discovery document, so exactly one attempt goes out.
+    assert TestClient(app).get("/oidc/idp/authorize").status_code == 200
+    assert [attempt.host for attempt in seen] == ["idp.example.test"]
+
+
+def test_every_provider_call_reaches_the_egress_observer(idp: FakeIdP) -> None:
+    """Metering and egress auditing attach here, and an SSO login is worth metering.
+
+    This is what routing through the capability buys beyond the shared transport: the
+    hook exists for every outbound call in the platform, so provider traffic stops being
+    the one kind that no observer could see.
+    """
+    seen: list[EgressAttempt] = []
+    client = OIDCClient(
+        _config(), sender=idp.sender, resolve=idp.resolve, observer=seen.append
+    )
+    client.discovery()
+
+    assert [attempt.host for attempt in seen] == ["idp.example.test"]
+    assert seen[0].method == "GET"
+    assert seen[0].status_code == 200
+    assert seen[0].refused is False
 
 
 def test_jwks_rotation_refetches_once_for_an_unknown_kid(idp: FakeIdP, client: OIDCClient) -> None:
@@ -425,7 +621,7 @@ def test_authorization_url_carries_only_code_flow_pkce_parameters(client: OIDCCl
 
 def test_authorization_url_appends_to_an_endpoint_with_a_query(idp: FakeIdP) -> None:
     idp.discovery["authorization_endpoint"] = f"{_ISSUER}/authorize?tenant=t1"
-    client = OIDCClient(_config(), http_factory=idp.http_factory)
+    client = OIDCClient(_config(), sender=idp.sender, resolve=idp.resolve)
     url = client.authorization_url(state="s", nonce="n", code_challenge="c")
     assert "?tenant=t1&" in url
 
@@ -445,6 +641,12 @@ def test_exchange_posts_the_code_flow_form_and_returns_the_id_token(
     assert form["code_verifier"] == ["v"]
     assert form["client_secret"] == ["s"]
     assert form["redirect_uri"] == ["https://app.example.test/auth/callback/idp"]
+    # Declared rather than inferred, now that the body reaches the transport as bytes:
+    # nothing derives a content type from the argument any more, and a token endpoint
+    # handed a form POST without one is entitled to refuse it.
+    assert (
+        idp.requests[-1].headers["content-type"] == "application/x-www-form-urlencoded"
+    )
 
 
 def test_exchange_maps_refusal_transport_and_malformed_bodies(
@@ -474,10 +676,7 @@ def test_exchange_transport_failure_is_a_502(idp: FakeIdP) -> None:
             raise httpx.ConnectError("down")
         return idp.handler(request)
 
-    client = OIDCClient(
-        _config(),
-        http_factory=lambda: httpx.Client(transport=httpx.MockTransport(_flaky)),
-    )
+    client = OIDCClient(_config(), sender=_sender_for(_flaky), resolve=idp.resolve)
     del calls
     with pytest.raises(ProviderUnavailableError):
         client.exchange_code(code="c", code_verifier="v", client_secret="s")
@@ -570,7 +769,8 @@ def _sso_app(
         [config if config is not None else _config()],
         resolver,
         state_store=store,
-        http_factory=idp.http_factory,
+        sender=idp.sender,
+        resolve=idp.resolve,
         **kwargs,
     )
     assert module.name == "oidc"

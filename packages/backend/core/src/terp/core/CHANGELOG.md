@@ -340,9 +340,51 @@ decision, 0001 onwards.
   calls it, webhook delivery calls it, and the `terp-cap-webhooks` distribution no longer
   depends on an HTTP client at all — its `arch-allow-no-raw-outbound-http` budget entry
   is **removed rather than renewed**, which is the outcome a dated opt-out is supposed to
-  reach. One raw client remains in the platform, in the OIDC capability, and routing it
-  is its own change: an IdP's endpoints arrive from a discovery document rather than from
-  a policy, so it is a design question and not a substitution.
+  reach. The OIDC capability's client is the other half of this, immediately below.
+
+- **SSO provider calls leave through the egress capability, and the address rule is whose
+  host it is (ADR 0145).** The OIDC capability held the platform's last two raw
+  outbound-HTTP opt-outs. Routing it was not a substitution: `EgressClient` is a policy
+  whose centre is an exact-hostname allowlist, and an IdP's endpoints are not properties
+  of its issuer — they are fields in a discovery document fetched *from* it, and a
+  provider in wide use answers discovery on one hostname, serves its token endpoint on a
+  second and its JWKS on a third. An allowlist of the issuer host refuses two of the
+  three calls a login makes, and the symptom is SSO failing at the first attempt after an
+  upgrade. An allowlist the operator fills in by hand fails the same way with a worse
+  shape: correct for whoever tried it, wrong for the next provider.
+
+  So for this caller **the allowlist cannot be a constraint** — the hosts are not knowable
+  until the document naming them has been read. It is kept as a *record* of who a provider
+  talks to, which is what the egress observer and any egress audit see, and the constraint
+  is the half of the policy that needs no advance knowledge: **the issuer's own host may
+  resolve into a private range, and a host the discovery document introduced may not.**
+  The operator named the issuer, so an IdP on the internal network is a deployment shape
+  they chose and on-premises SSO keeps working unchanged; every other host arrives from
+  the far end, and a party that can edit its own discovery document does not thereby get
+  to choose which network this server reaches into. The scheme allowance follows the same
+  principle: an `https` issuer admits only `https` endpoints, so a document cannot
+  downgrade the leg that carries the client secret, while a plain-`http` issuer — already
+  permitted outside production — admits both, so local development works.
+
+  **Provider calls are SSRF-checked and address-pinned for the first time.** Nothing
+  checked them before: a discovery document naming a loopback, RFC-1918 or cloud-metadata
+  address was simply fetched, and at the token endpoint that meant posting the **client
+  secret** to it.
+
+  **Breaking:** `http_factory` is gone from `OIDCClient`, `build_oidc_router` and
+  `build_oidc_module`, replaced by the egress `sender` / `resolve` / `observer` seams.
+  There was no non-breaking version — the old parameter's type *is* an HTTP client, which
+  is what the markers existed for. Code that injected a factory passes `sender=` instead;
+  anything using a hostname it does not own should pass `resolve=` too, or the name goes
+  to real DNS and a test can pass for the wrong reason.
+
+  `terp-cap-oidc` drops `httpx`, declares `terp-cap-egress`, and now carries **no
+  escape-hatch budget at all** — both markers removed rather than re-justified — so the
+  capability rejoins the set that passes the whole harness outright. With webhook
+  delivery's client gone in the same release, ADR 0117's recorded consequence
+  (“`httpx` becomes a dependency of exactly one distribution”) is true for the first time
+  since it was written. An SSO login is also now visible to the egress observer, where
+  metering and egress auditing attach.
 
   **A webhook's reply is now bounded, at 1 MiB** — a real behaviour change, and the
   reason this duplication was worth removing rather than tolerating. The local transport

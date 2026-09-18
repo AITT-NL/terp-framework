@@ -505,3 +505,22 @@ def test_the_default_transport_refuses_an_oversized_response(
     with pytest.raises(EgressFailedError) as caught:
         send_pinned(target, "GET", None, {}, 3.0, 100)
     assert caught.value.log_context["limit"] == 100
+
+
+def test_a_response_exactly_at_the_cap_is_served(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cap is a ceiling, not a margin: a body *at* the limit must still arrive.
+
+    On the boundary deliberately. The check is ``read > max_response_bytes``, and the
+    off-by-one costs more than it looks: it would refuse a payload inside the
+    documented allowance, and the caller would read that as the far end failing. The
+    refusal test above passes just as happily against ``>=``, so it cannot see this.
+    """
+    _mock_httpx(monkeypatch, lambda _r: httpx.Response(200, content=b"x" * 100))
+    target = PinnedTarget(url="https://api.example.com/v1", host="api.example.com", ip=_PUBLIC)
+
+    response = send_pinned(target, "GET", None, {}, 3.0, 100)
+
+    assert response.status_code == 200
+    assert response.content == b"x" * 100
