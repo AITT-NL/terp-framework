@@ -56,6 +56,11 @@ class AccessTokenClaims:
     tenant: uuid.UUID | None = None
     token_version: int = 0
     kind: SubjectKind = SubjectKind.USER
+    #: How the session was authenticated (RFC 8176 ``amr``), in the order the
+    #: factors were satisfied: ``("pwd",)`` for a password alone, ``("pwd", "otp")``
+    #: when a second factor was also proved. Empty for a token minted before this
+    #: claim existed, which is the honest answer rather than a guessed one.
+    amr: tuple[str, ...] = ()
 
 
 def create_access_token(
@@ -65,6 +70,7 @@ def create_access_token(
     tenant: uuid.UUID | None = None,
     token_version: int = 0,
     kind: SubjectKind = SubjectKind.USER,
+    amr: tuple[str, ...] = (),
     expires_in: datetime.timedelta = DEFAULT_ACCESS_TOKEN_TTL,
 ) -> str:
     """Issue a short-lived HS256 access token for *subject* with *role*.
@@ -84,6 +90,12 @@ def create_access_token(
     *kind* signs which store owns the subject (ADR 0088), so the revocation
     validator reads the right table's epoch instead of guessing from a lookup
     order. It defaults to a human user, which is what an unmarked legacy token is.
+
+    *amr* signs **how** the session was authenticated (RFC 8176), so a later decision
+    can tell a password-only session from one that also proved a second factor. It is
+    only signed when non-empty: a token minted without being told carries no claim at
+    all, which is the honest shape — an ``amr`` of ``["pwd"]`` asserted by default
+    would be an unverified statement about a mint that never checked.
 
     Every token also signs the fixed :data:`TOKEN_ISSUER` / :data:`TOKEN_AUDIENCE`
     pair (ADR 0076), which :func:`decode_access_token` requires — scoping the
@@ -105,6 +117,11 @@ def create_access_token(
     }
     if tenant is not None:
         payload["tenant"] = str(tenant)
+    if amr:
+        # Omitted rather than emitted empty: a token that says it was authenticated
+        # by nothing is a claim, and an absent claim is the truthful shape for a
+        # mint that was never told. `AccessTokenClaims.amr` reads the absence as ().
+        payload["amr"] = list(amr)
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=_ALGORITHM)
 
 
@@ -158,6 +175,10 @@ def decode_access_token(token: str) -> AccessTokenClaims:
             tenant=uuid.UUID(raw_tenant) if raw_tenant is not None else None,
             token_version=int(payload.get("tv", 0)),
             kind=SubjectKind(str(payload.get("kind", SubjectKind.USER))),
+            # Absent claim -> empty tuple. A token minted before this claim existed says
+            # nothing about how it was obtained, and reading that silence as "password"
+            # would invent a fact the signature does not carry.
+            amr=tuple(str(method) for method in payload.get("amr", ())),
         )
     except (KeyError, ValueError, TypeError) as exc:
         raise AuthenticationError() from exc

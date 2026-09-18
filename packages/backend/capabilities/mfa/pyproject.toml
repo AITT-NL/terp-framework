@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-mfa"
+version = "0.24.0"
+description = "Terp MFA capability — a TOTP second factor with recovery codes, sealed at rest and recorded in the token that results."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.24.0",
+    # The enrolment secret is sealed at rest with the same Fernet-over-HKDF shape the
+    # webhooks capability uses for its signing secret, under an MFA-specific label.
+    "cryptography>=50",
+]
+
+# A LIBRARY capability: it owns tables and a router, and declares NO `terp.capabilities`
+# auto-discovery entry point. A second factor is not something an application should
+# acquire by installing a package — the login route has to consult it, which is an
+# explicit wiring decision (`build_login_module(second_factor=...)`), and mounting
+# enrolment in an app whose login never checks a factor would publish a control that
+# does nothing.
+
+# Owns the `mfa_enrolment` and `mfa_recovery_code` tables, so it ships an independent,
+# linear Alembic history (its own `alembic_version_mfa` table). `terp migrate` discovers
+# this via the `terp.migrations` group (ADR 0027).
+[project.entry-points."terp.migrations"]
+mfa = "terp.capabilities.mfa"
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.mfa`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/mfa"]
+
+# Where this package comes from. The shipped changelog (`terp guide changelog`)
+# ends at the installed version; the notes for a release you do not have yet
+# live at these URLs, which `pip show` and the index page both surface.
+[project.urls]
+Repository = "https://github.com/AITT-NL/terp-framework"
+Changelog = "https://github.com/AITT-NL/terp-framework/blob/main/CHANGELOG.md"

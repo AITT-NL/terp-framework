@@ -10,6 +10,56 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — unreleased
+
+### Added
+
+- **A second factor the platform owns (ADR 0150).** Authentication was password-only,
+  with OIDC as the single way to delegate a second factor to somebody else's identity
+  provider — so an application whose most dangerous surface is reached by an ordinary
+  administrator password had nothing to offer unless its customer already ran an IdP.
+
+  `terp-cap-mfa` ships TOTP enrolment, verification and single-use recovery codes.
+  **RFC 6238 on the standard library**, because the specification publishes test vectors:
+  correctness is checkable rather than asserted, which is what made hand-rolling twenty
+  lines defensible instead of taking a dependency every consumer inherits. The shared
+  secret is **sealed at rest** under an MFA-specific HKDF label — it *is* the factor and
+  is never rotated by its owner, so a plaintext leak hands over every enrolled account
+  silently — and unlike the webhook secret there is no legacy-plaintext tolerance,
+  because no row here predates the control.
+
+  **Enrolment is two steps**: a secret is issued and gates nothing until a code generated
+  from it comes back. A mis-scanned QR code treated as live is a lockout at the next
+  login, which is the failure that makes an organisation turn the feature off. Recovery
+  codes ship with the enrolment for the same reason, and there is deliberately **no
+  administrative disable route** — an operator who can turn off somebody else's factor is
+  the weakest link in the control.
+
+  Login consults it through a new `second_factor` seam, and the access token now carries
+  an RFC 8176 **`amr`** claim recording how the session was authenticated (`("pwd",)`, or
+  `("pwd", "otp")`). The claim is omitted when empty rather than defaulted: a token minted
+  without being told says nothing, and reading that silence as "password" would invent a
+  fact the signature does not carry.
+
+  **The code rides on the login body**, and `POST /login` answers a typed `mfa_required`
+  401 so a client knows to prompt. The two-round-trip alternative was considered and not
+  taken: a challenge credential is a second bearer token to mint, expire, revoke and leak,
+  whose only job is to remember a password check from four seconds ago. The cost is
+  stated rather than hidden — an attacker already holding a valid password learns from
+  that refusal that the account has a factor.
+
+  **An adopting application names itself** with one composition-root line,
+  `configure_mfa_issuer("Acme")` — the issuer is the label an authenticator app prints
+  beside the digits, and the only thing telling one unlabelled six-digit row from another
+  on a phone that holds five. It is configuration and never client data: a caller who
+  could set it could make their enrolment appear under the name of a system the victim
+  trusts. An application that never calls it gets the framework's own name, not a blank.
+
+  **Nothing changes for an application that does not wire the seam.** `LoginRequest`
+  gains an optional `mfa_code` (additive), and two tables arrive with a migration.
+  WebAuthn and step-up re-authentication are not here; `amr` is the half of step-up that
+  had to exist first.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added

@@ -45,6 +45,7 @@ _BUDGETED_CAPS = (
     "outbox",
     "jobs_celery",
     "leases",
+    "mfa",
     "webhooks",
     "files",
     "scheduler_apscheduler",
