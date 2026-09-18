@@ -322,6 +322,129 @@ def test_the_token_route_mints_for_a_real_credential_and_refuses_a_bad_one() -> 
         )
 
 
+def test_both_credential_routes_key_the_backoff_by_caller() -> None:
+    """The routes must hand the caller's address to the throttle, or the weapon is back.
+
+    This is the one regression the unit tests cannot see. `LoginThrottle` is correct
+    either way — with no `source=` it simply keys on the identifier alone, which is a
+    supported mode — so a route that forgot to pass one would go on throttling, pass
+    every behavioural test, and quietly be per-account again: exactly the lockout
+    property ADR 0147 exists to remove.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy.pool import StaticPool
+
+    from terp.capabilities.auth import LoginThrottle
+    from terp.core.db import get_session
+
+    seen: list[tuple[str, str | None]] = []
+
+    class _RecordingThrottle(LoginThrottle):
+        def check(self, identifier: str, *, source: str | None = None) -> None:
+            seen.append((identifier, source))
+            super().check(identifier, source=source)
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    session = Session(engine)
+    service = ServiceAccountService()
+    account, secret = _provision(service, session)
+
+    app = FastAPI()
+    app.include_router(
+        build_login_router(
+            _authenticate,
+            authenticate_client=service.authenticate_client,
+            service_token_version_resolver=service.token_version_for,
+            throttle=_RecordingThrottle(),
+        )
+    )
+    app.dependency_overrides[get_session] = lambda: session
+    client = TestClient(app)
+
+    client.post("/token", json={"client_id": account.client_id, "client_secret": secret})
+    with pytest.raises(AuthenticationError):
+        client.post("/login", json={"email": "nobody@x.test", "password": "wrong"})
+
+    assert len(seen) == 2
+    assert [identifier for identifier, _ in seen] == [account.client_id, "nobody@x.test"]
+    for identifier, source in seen:
+        assert source, f"{identifier} was throttled with no caller address"
+
+
+def test_the_token_route_backs_a_failing_caller_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The client-credentials grant is throttled now, and the reason it was not is gone.
+
+    It shipped with nothing, on an argument that was right about lockouts and wrong
+    about throttling: a *lockout* keyed on a client id would let anyone who learns one
+    take an integration offline. Backoff has no such property — it is keyed by
+    ``(client id, caller)``, so a stranger failing against an integration's id slows
+    only themselves.
+
+    What that left behind was worse than the brute-force question. Every attempt ran a
+    memory-hard KDF: the real verification on a wrong secret, a dummy one on an unknown
+    client id so the miss path costs the same and cannot be used as an oracle. An
+    unauthenticated endpoint that hashes before it throttles is a way to spend the
+    server's CPU and memory that needs no valid credential at all — which is why the
+    check below has to come *before* the verification, not after it.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy.pool import StaticPool
+
+    from terp.capabilities.auth import LoginThrottle, TooManyAttemptsError
+    from terp.core.db import get_session
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    session = Session(engine)
+    service = ServiceAccountService()
+    account, secret = _provision(service, session)
+
+    verifications: list[str] = []
+
+    def _counting_verify(sess, client_id: str, client_secret: str):  # type: ignore[no-untyped-def]
+        verifications.append(client_id)
+        return service.authenticate_client(sess, client_id, client_secret)
+
+    app = FastAPI()
+    app.include_router(
+        build_login_router(
+            _authenticate,
+            authenticate_client=_counting_verify,
+            service_token_version_resolver=service.token_version_for,
+            throttle=LoginThrottle(free_attempts=1),
+        )
+    )
+    app.dependency_overrides[get_session] = lambda: session
+    client = TestClient(app)
+
+    for _ in range(2):
+        with pytest.raises(AuthenticationError):
+            client.post(
+                "/token",
+                json={"client_id": account.client_id, "client_secret": "wrong"},
+            )
+    assert len(verifications) == 2
+
+    # Past the allowance the attempt is refused BEFORE the KDF runs, which is the point:
+    # the call count must not move.
+    with pytest.raises(TooManyAttemptsError):
+        client.post(
+            "/token", json={"client_id": account.client_id, "client_secret": secret}
+        )
+    assert len(verifications) == 2
+
+
 def test_the_token_route_is_mounted_only_when_the_seams_are_wired() -> None:
     bare = build_login_router(_authenticate)
     assert "/token" not in {route.path for route in bare.routes}

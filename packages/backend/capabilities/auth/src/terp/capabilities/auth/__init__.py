@@ -58,7 +58,11 @@ from terp.capabilities.auth.schemas import (
     CurrentUser,
     LoginRequest,
 )
-from terp.capabilities.auth.throttle import AccountLockedError, LoginThrottle
+from terp.capabilities.auth.throttle import (
+    AccountLockedError,
+    LoginThrottle,
+    TooManyAttemptsError,
+)
 from terp.capabilities.auth.tokens import (
     TOKEN_AUDIENCE,
     TOKEN_ISSUER,
@@ -92,6 +96,7 @@ __all__ = [
     "RefreshRotator",
     "ServiceTokenVersionResolver",
     "SubjectKind",
+    "TooManyAttemptsError",
     "TOKEN_AUDIENCE",
     "TOKEN_ISSUER",
     "TokenRevoker",

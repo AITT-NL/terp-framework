@@ -846,7 +846,7 @@ def test_unknown_provider_is_a_404_on_both_routes(idp: FakeIdP) -> None:
 
 def test_replayed_or_unknown_state_is_refused_and_counted(idp: FakeIdP) -> None:
     principal = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
-    throttle = LoginThrottle(max_attempts=2)
+    throttle = LoginThrottle(free_attempts=1)
     app, _ = _sso_app(idp, lambda _s, _c: principal, throttle=throttle)
     http = TestClient(app)
 
@@ -858,7 +858,9 @@ def test_replayed_or_unknown_state_is_refused_and_counted(idp: FakeIdP) -> None:
     # the state was consumed: replaying the exact same callback is refused...
     assert http.post("/oidc/idp/callback", json={"code": "c", "state": state}).status_code == 401
     assert http.post("/oidc/idp/callback", json={"code": "c", "state": state}).status_code == 401
-    # ...and the failures crossed the throttle threshold: the source is locked out (429).
+    # ...and the failures passed the free allowance, so this source is now backed off
+    # (429). The callback key already carries the caller's address, which is why it
+    # needs no separate `source=`.
     assert http.post("/oidc/idp/callback", json={"code": "c", "state": state}).status_code == 429
 
 
