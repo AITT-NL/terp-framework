@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModuleManifest } from "@terpjs/contract";
 
@@ -657,9 +657,12 @@ describe("buildAppRouter", () => {
       </TerpProvider>,
     );
 
-    // The bare view mounts, the post-mount check bites, and the screen is torn down.
-    await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Bare view" })).not.toBeInTheDocument(),
+    // The bare view mounts, the post-mount check bites, and the screen is torn down. The
+    // timeout clears the guard's grace budget: this is the one test that waits out the whole
+    // window, because it is the one asserting the refusal actually arrives.
+    await waitFor(
+      () => expect(screen.queryByRole("heading", { name: "Bare view" })).not.toBeInTheDocument(),
+      { timeout: 4000 },
     );
   });
 
@@ -685,6 +688,86 @@ describe("buildAppRouter", () => {
       [{ name: "late", routes: [{ path: "/late", view: "LateView" }], nav: [] }],
       {
         views: { LateView: LateFramedView },
+        title: "Terp",
+        history: createMemoryHistory({ initialEntries: ["/late"] }),
+      },
+    );
+
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Late view" })).toBeInTheDocument(),
+    );
+  });
+
+  it("accepts a view whose page archetype lands a timer later, not merely a commit later", async () => {
+    // The case above frames on the very next commit, which the old one-macrotask window
+    // happened to cover on an idle machine and lost on a busy one — this suite's flakiest
+    // failure. A view that frames after a *timer* is the same thing without the coin toss:
+    // it was refused every time, and it is the ordinary shape of a screen waiting on
+    // anything at all before it can draw its frame.
+    vi.stubGlobal("fetch", sessionFetch());
+
+    function TimerFramedView() {
+      const [ready, setReady] = useState(false);
+      useEffect(() => {
+        const timer = setTimeout(() => setReady(true), 25);
+        return () => clearTimeout(timer);
+      }, []);
+      return ready ? <Page title="Late view">late body</Page> : null;
+    }
+
+    const router = buildAppRouter(
+      [{ name: "late", routes: [{ path: "/late", view: "LateView" }], nav: [] }],
+      {
+        views: { LateView: TimerFramedView },
+        title: "Terp",
+        history: createMemoryHistory({ initialEntries: ["/late"] }),
+      },
+    );
+
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <RouterProvider router={router} />
+      </TerpProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Late view" })).toBeInTheDocument(),
+    );
+  });
+
+  it("accepts a view whose page archetype arrives with a lazily loaded chunk", async () => {
+    // The literal case the grace window's own comment named and did not cover: a code-split
+    // screen. `lazy()` resolves over a chunk fetch, so the frame is unreachable within one
+    // macrotask by construction — the guard refused every such view, deterministically, and
+    // hardest on the slow connections code splitting exists to serve.
+    vi.stubGlobal("fetch", sessionFetch());
+
+    const LazyFramed = lazy(
+      () =>
+        new Promise<{ default: typeof Page }>((resolve) =>
+          setTimeout(() => resolve({ default: Page }), 25),
+        ),
+    );
+    function ChunkedView() {
+      return (
+        <Suspense fallback={null}>
+          <LazyFramed title="Late view">late body</LazyFramed>
+        </Suspense>
+      );
+    }
+
+    const router = buildAppRouter(
+      [{ name: "late", routes: [{ path: "/late", view: "LateView" }], nav: [] }],
+      {
+        views: { LateView: ChunkedView },
         title: "Terp",
         history: createMemoryHistory({ initialEntries: ["/late"] }),
       },
