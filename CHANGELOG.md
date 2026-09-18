@@ -14,6 +14,37 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **Frontend manifests re-declared backend permissions as unchecked string literals.**
+  A client gates a route, a nav entry and a control on the same names the backend
+  declares, spelled as bare strings. A renamed or re-floored permission then failed in
+  one of two silent directions — over-gating, where a screen 403s for someone who may
+  use it, or under-gating, where a link renders and every request behind it fails — and
+  only a hand-written end-to-end test caught either. The platform had already solved this
+  class twice, both times by putting the vocabulary in the contract the client is
+  generated from: OpenAPI → `schema.d.ts` for data, manifests → `routes.gen.d.ts` for
+  paths.
+
+  `terp openapi` now emits `TerpPermission` and `TerpRole` as enums, so
+  `openapi-typescript` turns them into string-literal unions, and
+  `@terpjs/contract` exposes `TerpAccessVocabulary` for an app to hand those unions to.
+  Six lines in the app narrow `ModuleRoute.permission`, `NavItem.permission`,
+  `AuthorizedProps.permission` and `useHasPermission` — and they name *types*, not
+  values, so unlike the strings they replace they cannot themselves drift. A misspelled
+  permission then fails `npm run typecheck` at every site that used it.
+
+  It degrades rather than imposes: an app that declares no vocabulary keeps plain
+  `string`, which every app has today, so adopting is opt-in and skipping costs nothing.
+  The scaffold deliberately does *not* ship the file — a freshly generated app declares
+  no permissions, no `TerpPermission` schema is emitted (an empty enum would generate
+  `never` and break every client that touched the type), and the recipe belongs at the
+  moment the first permission exists. `terp guide permissions` carries it.
+
+  The exported type is `TerpPermissionName`, `Terp`-first on purpose: `lib.dom.d.ts`
+  declares a **global** `PermissionName` (the browser's `"geolocation" |
+  "notifications" | …`), so a file using the short name and forgetting the import does
+  not fail — it silently type-checks against the browser's vocabulary and then reports a
+  union nobody in the app recognises. Writing this hit exactly that.
+
 - **Backup and restore amounted to one sentence, on a stack whose recovery path runs
   through itself.** `docs/DEPLOYMENT.md` named the volume the state lives in, and that was
   the whole of it. Backup is the one operational control with no partial credit, and it is

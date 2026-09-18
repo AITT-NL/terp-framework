@@ -1,4 +1,4 @@
-import type { Action } from "@terpjs/contract";
+import type { Action, TerpPermissionName } from "@terpjs/contract";
 import type { ReactNode } from "react";
 
 import { useAuth } from "./TerpProvider";
@@ -33,7 +33,7 @@ export function usePermissions(): readonly string[] {
 }
 
 /** Whether the current user holds the named permission grant (the UI gate). */
-export function useHasPermission(permission: string): boolean {
+export function useHasPermission(permission: TerpPermissionName): boolean {
   return usePermissions().includes(permission);
 }
 
@@ -49,7 +49,7 @@ export interface AuthorizedProps {
    * `Permission` enforces the permission's role floor **and** the grant, so a UI that
    * checked only one would disagree with the endpoint in one direction or the other.
    */
-  permission?: string;
+  permission?: TerpPermissionName;
   /** Rendered when the user may not perform `action` (default: nothing). */
   fallback?: ReactNode;
 }

@@ -520,6 +520,38 @@ THE FAILURE MODE THIS EXISTS TO PREVENT
   makes it an admin "for now". Least privilege loses to a ten-second workaround. If
   you catch yourself widening a role to unblock one call, that call wants a
   permission - and the grant is one command (ADR 0089).
+
+LET THE FRONTEND'S COPIES STOP TYPE-CHECKING WHEN YOU RENAME ONE
+
+  A client gates a route, a nav entry and a control on the same names you declared
+  here. Spelled as bare strings they fail in one of two SILENT directions when you
+  rename or re-floor a permission: over-gating, where a screen 403s for someone who
+  may use it, or under-gating, where a link renders and every request behind it
+  fails. Only a hand-written end-to-end test catches either.
+
+  `terp openapi` emits your permission and role names into the contract as enums, so
+  `npm run generate` turns them into string-literal unions. Six lines hand them to
+  the manifest types:
+
+      // frontend/src/access.d.ts
+      import type { components } from "./api/schema";
+
+      declare module "@terpjs/contract" {
+        interface TerpAccessVocabulary {
+          permission: components["schemas"]["TerpPermission"];
+          role: components["schemas"]["TerpRole"];
+        }
+      }
+
+  After that a misspelled or removed permission fails at `npm run typecheck`, at
+  every manifest and every `useHasPermission` call that used it. The file names TYPES
+  rather than values, so unlike the strings it replaces it cannot itself drift.
+
+  ADOPT IT ONCE YOU HAVE A PERMISSION, not before. An app that declares none emits no
+  `TerpPermission` schema -- an empty enum would generate `never` and break every
+  client that touched the type -- so the scaffold does not ship this file. Without it
+  both props stay plain `string`, exactly as before, which is why adopting is opt-in
+  and skipping costs nothing.
 """,
     "access": """\
 The access model (three layers) — profiles + the access graph

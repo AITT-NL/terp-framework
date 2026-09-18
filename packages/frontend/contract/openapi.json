@@ -1121,6 +1121,16 @@
         "title": "SubjectRefRead",
         "type": "object"
       },
+      "TerpRole": {
+        "description": "Every role name this app's modules declare, for the same reason.",
+        "enum": [
+          "admin",
+          "editor",
+          "viewer"
+        ],
+        "title": "TerpRole",
+        "type": "string"
+      },
       "UserAdminUpdate": {
         "additionalProperties": false,
         "description": "Admin edits a user's email / role rank (OCC ``version`` required).\n\nActivation state is changed through the dedicated ``deactivate`` /\n``reactivate`` actions, not this generic patch.",
