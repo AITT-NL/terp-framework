@@ -16,7 +16,11 @@ the package declares a ``terp.capabilities`` router entry point.
 
 from __future__ import annotations
 
+import importlib
+import inspect
 import json
+import pathlib
+import re
 from dataclasses import dataclass
 from importlib import metadata
 
@@ -205,7 +209,77 @@ def _installed_version(capability: Capability) -> str | None:
         return None
 
 
-def render_capabilities(*, fmt: str = "text") -> str:
+#: Names that are a WIRING POINT rather than a value: something a composition root
+#: calls or constructs and hands to ``create_app``. The vocabulary is the platform's
+#: own -- ``build_*`` makes a router or a module, ``register_*`` adds to a registry, and
+#: the ``*Store`` / ``*Queue`` / ``*Scheduler`` / ``*Middleware`` / ``*Resolver`` suffixes
+#: name the implementations a seam takes.
+#:
+#: Deliberately not "everything the package exports": that is 391 names across twenty
+#: capabilities, most of them operation ids, error types and status literals, and a
+#: report of 391 things is a report of nothing.
+_WIRING_SEAM = re.compile(
+    r"^(?:build_|register_|make_)"
+    r"|(?:Store|Queue|Scheduler|Middleware|Resolver|Reaper|Sink)$"
+)
+
+
+def wiring_seams(capability: Capability) -> tuple[str, ...]:
+    """Every wiring point an INSTALLED capability exports, from its own ``__all__``.
+
+    Computed rather than curated, and that is the point: a hand-written seam list is a
+    second place to forget, and forgetting is the whole failure here. A capability that
+    grows a seam after an app adopted it gets it listed on the next run, with no edit
+    anywhere.
+
+    Empty for a capability that is not installed -- reading its surface needs the import.
+    """
+    try:
+        module = importlib.import_module(capability.module)
+    except Exception:  # noqa: BLE001 - a broken optional import is "no seams to report"
+        return ()
+    found = []
+    for name in getattr(module, "__all__", ()):
+        if not _WIRING_SEAM.search(name):
+            continue
+        member = getattr(module, name, None)
+        if inspect.isfunction(member) or inspect.isclass(member):
+            found.append(name)
+    return tuple(sorted(found))
+
+
+def unwired_seams(capability: Capability, root: pathlib.Path) -> tuple[str, ...]:
+    """The installed capability's wiring points this app's source never mentions.
+
+    The question a consumer cannot currently ask. The registry answers "do I have this
+    capability", and an installed-and-mounted capability looks finished at that
+    granularity -- so a seam the package grows later is invisible from inside the
+    project forever. `POST /custody/{kind}/{key}/heartbeat` shipped in 0.11.0 and an app
+    on 0.24.0 still stated in four places that it did not exist. Thirteen releases, a
+    6,842-line changelog, and no consumer reads the delta.
+
+    A name match over the app's own sources, deliberately: it is cheap, it has no false
+    negatives that matter (referencing a seam without writing its name is not a thing),
+    and a false positive costs a reader one glance. Reporting nothing is the failure
+    mode worth avoiding here, not reporting one thing twice.
+    """
+    seams = wiring_seams(capability)
+    if not seams:
+        return ()
+    sources = [
+        path.read_text(encoding="utf-8", errors="ignore")
+        for path in sorted(pathlib.Path(root).rglob("*.py"))
+        if "__pycache__" not in path.parts
+        and ".venv" not in path.parts
+        and "node_modules" not in path.parts
+    ]
+    blob = "\n".join(sources)
+    return tuple(
+        seam for seam in seams if not re.search(rf"\b{re.escape(seam)}\b", blob)
+    )
+
+
+def render_capabilities(*, fmt: str = "text", root: str | pathlib.Path = ".") -> str:
     """Render every adoptable capability, marking the ones this app already has.
 
     Answers the question the gate never could: *what else is on the shelf?* Installed
@@ -222,6 +296,13 @@ def render_capabilities(*, fmt: str = "text") -> str:
 
     rows = [(cap, _installed_version(cap)) for cap in CAPABILITIES]
     pin = platform_version()
+    # Only for what is installed: an unadopted capability's unused seams are the whole
+    # package, which is what the "available to adopt" section already says.
+    unwired = {
+        cap.name: unwired_seams(cap, pathlib.Path(root))
+        for cap, version in rows
+        if version is not None
+    }
     if fmt == "json":
         return json.dumps(
             {
@@ -237,6 +318,8 @@ def render_capabilities(*, fmt: str = "text") -> str:
                         "guide": cap.guide,
                         "installed": version is not None,
                         "version": version,
+                        "seams": list(wiring_seams(cap)) if version is not None else [],
+                        "unwired_seams": list(unwired.get(cap.name, ())),
                     }
                     for cap, version in rows
                 ],
@@ -261,10 +344,20 @@ def render_capabilities(*, fmt: str = "text") -> str:
         "",
         f"Installed in this app ({len(installed)})",
         "",
+        "  `not used here` names wiring points the package exports and this app's",
+        "  source never mentions. It is information, not a finding: most of them are",
+        "  alternatives you correctly did not take. It exists because an installed",
+        "  capability looks finished, so a seam it grows afterwards is invisible from",
+        "  inside the project -- which is how a liveness endpoint shipped, and an app",
+        "  went on stating in its own source that there was none.",
+        "",
     ]
     for cap, version in installed:
         lines.append(f"  {cap.distribution:<32} {version:<10} {cap.kind}")
         lines.append(f"      {cap.summary}")
+        missing = unwired.get(cap.name, ())
+        if missing:
+            lines.append(f"      not used here: {', '.join(missing)}")
     if not installed:
         lines.append("  (none)")
     lines += ["", f"Available to adopt ({len(available)})", ""]

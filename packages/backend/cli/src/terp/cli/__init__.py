@@ -1372,7 +1372,13 @@ Using capabilities
 - SEE WHAT EXISTS BEFORE YOU BUILD IT:
       terp inspect capabilities
   lists every maintained capability, whether this app already has it, the exact
-  `uv add` line and the composition-root wiring it expects. Durable delivery, realtime
+  `uv add` line and the composition-root wiring it expects. For a capability you
+  ALREADY have it also prints `not used here`: wiring points the package exports and
+  your source never mentions. That line exists because an installed capability looks
+  finished -- so a seam it grows in a later release is invisible from inside the
+  project, and at a release every day or two nobody reads the changelog delta. Most
+  of what it lists are alternatives you correctly did not take; it is information,
+  not a finding. Durable delivery, realtime
   push, tenancy, files, webhooks, scheduling and shared multi-replica state are all
   already solved — hand-rolling one of them is a defect, not a shortcut.
 - A routed capability self-registers: create_app(specs, discover_capabilities=True)
@@ -2853,6 +2859,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output format: text (human) or json (structured, for any tool or agent "
         "reading this; default: text)",
     )
+    capabilities_parser.add_argument(
+        "--app-root",
+        default=".",
+        help="Project root whose sources are read to see which wiring points an "
+        "installed capability offers that this app does not use (default: .)",
+    )
     schema_parser = inspect_subcommands.add_parser(
         "schema",
         help="The schema graph: every table with ownership, traits, and fail-visible "
@@ -3544,7 +3556,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(inspect_schema(app_root=args.app_root, package=args.package, fmt=args.format))
         return
     if args.command == "inspect" and args.inspect_command == "capabilities":
-        print(render_capabilities(fmt=args.format))
+        print(render_capabilities(fmt=args.format, root=args.app_root))
         return
     if args.command == "guide":
         if args.list:

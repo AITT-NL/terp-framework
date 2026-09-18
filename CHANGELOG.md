@@ -14,6 +14,32 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **Capability discoverability was package-granular, so a shipped seam stayed invisible
+  for thirteen releases.** `terp inspect capabilities` answered "do I have this
+  capability", and at that granularity an installed-and-mounted capability looks
+  finished. A seam the package grows *after* an app adopts it is then invisible from
+  inside the project, permanently: `build_holder_router` — how a holder outside the
+  process keeps a lease alive — shipped in 0.11.0, and an app on 0.24.0 still stated in
+  four places that no such endpoint existed. At a release every day or two and a
+  6,842-line changelog, no consumer reads the delta, and the one tool built to answer
+  "what does the platform already offer" was answering a package-shaped question.
+
+  For each installed capability the listing now prints `not used here`: the wiring points
+  the package exports and this app's source never mentions. The JSON manifest carries
+  both `seams` and `unwired_seams`, so a driving tool can tell "no seams" from "all seams
+  wired".
+
+  The seam list is **computed from each package's own `__all__`**, not curated. A
+  hand-written list is a second place to forget, and forgetting is the entire failure
+  here — so a capability that grows a seam gets it listed on the next run with no edit
+  anywhere. The vocabulary is the platform's own (`build_*`, `register_*`, and the
+  `*Store` / `*Queue` / `*Scheduler` / `*Middleware` / `*Resolver` suffixes), which keeps
+  the report to wiring points rather than to all 391 exported names — most of which are
+  operation ids, error types and status literals, and a report of 391 things is a report
+  of nothing.
+
+  It fails nothing. Most of what it lists are alternatives an app correctly did not take.
+
 - **The framework exempted its own packages from the harness it ships.** The 500-line cap
   applies to every file of every consuming app; `core`, `arch`, `cli` and `migrations`
   were not self-scanned at all — roughly 38,000 lines outside the gate this repository

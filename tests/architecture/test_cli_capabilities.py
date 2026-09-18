@@ -22,7 +22,10 @@ from terp.cli import guide_choices, main  # noqa: E402  (import after sys.path s
 from terp.cli import capabilities as capabilities_module  # noqa: E402
 from terp.cli.capabilities import (  # noqa: E402
     CAPABILITIES,
+    Capability,
     render_capabilities,
+    unwired_seams,
+    wiring_seams,
 )
 
 _CAPABILITY_PACKAGES = _REPO_ROOT / "packages" / "backend" / "capabilities"
@@ -167,6 +170,8 @@ def test_json_output_is_machine_readable() -> None:
             "wiring",
             "guide",
             "installed",
+            "seams",
+            "unwired_seams",
             "version",
         }
         assert isinstance(entry["installed"], bool)
@@ -177,3 +182,89 @@ def test_cli_dispatches_the_subcommand(capsys) -> None:
     assert "Available to adopt" in capsys.readouterr().out
     main(["inspect", "capabilities", "--format", "json"])
     assert json.loads(capsys.readouterr().out)["capabilities"]
+
+
+# --------------------------------------------------------------------------- #
+# Seam-granular discovery                                                       #
+# --------------------------------------------------------------------------- #
+#
+# The registry answers "do I have this capability", and at that granularity an
+# installed-and-mounted capability looks finished. So a seam the package grows AFTER an
+# app adopts it is invisible from inside the project, permanently: the holder-heartbeat
+# router shipped in 0.11.0 and an app on 0.24.0 still said in four places that no such
+# endpoint existed. Thirteen releases, a 6,842-line changelog, and no consumer reads the
+# delta — the one tool built to answer "what does the platform already offer" answered a
+# package-shaped question.
+
+
+def _capability(name: str):
+    (found,) = [cap for cap in CAPABILITIES if cap.name == name]
+    return found
+
+
+def test_the_seam_scan_finds_something() -> None:
+    """Discovery that quietly finds nothing reports "nothing unused" for every app —
+    green, useless, and indistinguishable from a working scan."""
+    total = sum(len(wiring_seams(cap)) for cap in CAPABILITIES)
+    assert total > 10, (
+        f"the wiring-seam vocabulary matched {total} names across every capability — "
+        "it has stopped matching, and an empty scan reports every app fully wired"
+    )
+
+
+def test_the_seam_that_was_invisible_is_found() -> None:
+    """The case this exists for, named. `build_holder_router` is how a holder outside
+    the process keeps a lease alive; it shipped in 0.11.0 and stayed undiscoverable."""
+    assert "build_holder_router" in wiring_seams(_capability("leases"))
+
+
+def test_a_seam_is_a_wiring_point_not_every_export() -> None:
+    """391 names are exported across the capabilities, most of them operation ids,
+    error types and status literals. A report of 391 things is a report of nothing."""
+    leases = wiring_seams(_capability("leases"))
+    assert "LEASES_HEARTBEAT" not in leases, "an operation id is not a wiring point"
+    assert all(not name.isupper() for name in leases), leases
+
+
+def test_unwired_seams_reads_the_app_not_the_package(tmp_path: pathlib.Path) -> None:
+    leases = _capability("leases")
+    (tmp_path / "main.py").write_text(
+        "from terp.capabilities.leases import DatabaseLeaseStore\n"
+        "app = create_app(lease_store=DatabaseLeaseStore())\n",
+        encoding="utf-8",
+    )
+    unwired = unwired_seams(leases, tmp_path)
+    assert "DatabaseLeaseStore" not in unwired, "a seam the app wires is not unwired"
+    assert "build_holder_router" in unwired, "a seam the app never names is unwired"
+
+
+def test_an_uninstalled_capability_reports_no_seams() -> None:
+    """Reading a package's surface needs the import, so an unadopted capability has
+    nothing to say here — and the "available to adopt" section already says it."""
+
+    phantom = Capability(
+        name="not_a_real_capability",
+        summary="—",
+        kind="library",
+        wiring="—",
+    )
+    assert wiring_seams(phantom) == ()
+    assert unwired_seams(phantom, pathlib.Path(".")) == ()
+
+
+def test_the_listing_names_the_unused_seams(tmp_path: pathlib.Path) -> None:
+    text = render_capabilities(root=tmp_path)
+    assert "not used here" in text
+    assert "build_holder_router" in text, (
+        "an app that wires nothing must be told about the seams it is not using — "
+        "that is the whole report"
+    )
+
+
+def test_the_json_manifest_carries_both_halves(tmp_path: pathlib.Path) -> None:
+    """A driving tool reads this; giving it only the unused half would leave it unable
+    to tell "no seams" from "all seams wired"."""
+    document = json.loads(render_capabilities(fmt="json", root=tmp_path))
+    leases = [c for c in document["capabilities"] if c["name"] == "leases"][0]
+    assert "build_holder_router" in leases["seams"]
+    assert "build_holder_router" in leases["unwired_seams"]
