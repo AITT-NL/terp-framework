@@ -11,10 +11,8 @@ fail-closed boot guard, the status view, the ``terp migrate`` CLI, and the
 
 from __future__ import annotations
 
-import os
 import pathlib
 import uuid
-from collections.abc import Iterator
 from types import SimpleNamespace
 
 import pytest
@@ -35,9 +33,9 @@ from terp.migrations import (
     adopt_schemas,
     assert_migrations_current,
     assert_migrations_match_models,
+    assert_migrations_reverse_cleanly,
     downgrade,
     grant_runtime_role,
-    heads,
     migration_status,
     stamp,
     upgrade,
@@ -74,46 +72,29 @@ _DOMAIN_TABLES = {
 }
 
 
-_POSTGRES_URL_ENV = "TERP_TEST_POSTGRES_URL"
-
-
-def _postgres_scratch_database() -> Iterator[str]:
-    """A scratch PostgreSQL database for one test (skips without a configured server)."""
-    admin_url = os.environ.get(_POSTGRES_URL_ENV)
-    if not admin_url:
-        pytest.skip(f"set {_POSTGRES_URL_ENV} to run the PostgreSQL conformance lane")
-    scratch = f"terp_conformance_{uuid.uuid4().hex[:12]}"
-    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
-    try:
-        with admin.connect() as conn:
-            conn.exec_driver_sql(f'CREATE DATABASE "{scratch}"')
-        yield make_url(admin_url).set(database=scratch).render_as_string(hide_password=False)
-    finally:
-        with admin.connect() as conn:
-            conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
-        admin.dispose()
-
-
-@pytest.fixture(params=["sqlite", "postgresql"])
-def db_url(request: pytest.FixtureRequest, tmp_path: pathlib.Path) -> Iterator[str]:
+@pytest.fixture
+def db_url(terp_db_url: str) -> str:
     """Every conformance test runs on SQLite and on the verified production dialect.
+
+    This is now the SHIPPED fixture (``terp_db_url``, from ``terp.core.testing``) under
+    the local name these tests already use. It used to be a private copy living here,
+    which meant the platform proved its own migrations on both dialects while a
+    consumer's — the ones carrying the business schema — could only ever be proven on
+    SQLite. Consuming the published fixture rather than a copy of it is what keeps the
+    two from drifting: if the shipped one breaks, this suite is what says so.
 
     The PostgreSQL lane (ADR 0069) runs when ``TERP_TEST_POSTGRES_URL`` points at a
     server (CI provides one; locally the lane skips). SQLite alone would keep masking
     real differences — VARCHAR length enforcement, timezone-aware datetimes, native
-    ALTER vs batch mode — so the migration subsystem must hold on both. Each test
-    gets its own scratch database so runs are isolated and repeatable.
+    ALTER vs batch mode — so the migration subsystem must hold on both.
     """
-    if request.param == "sqlite":
-        yield f"sqlite:///{tmp_path / 'conformance.db'}"
-        return
-    yield from _postgres_scratch_database()
+    return terp_db_url
 
 
 @pytest.fixture
-def pg_url() -> Iterator[str]:
+def pg_url(terp_pg_url: str) -> str:
     """A PostgreSQL-only scratch database (the per-module layout is PG-only)."""
-    yield from _postgres_scratch_database()
+    return terp_pg_url
 
 
 def _table_names(url: str) -> set[str]:
@@ -136,6 +117,18 @@ def test_upgrade_creates_every_table_then_downgrade_removes_them(db_url: str) ->
     reverted = downgrade(db_url, APP_ROOT, package="app")
     assert reverted == list(reversed(_EXPECTED_LABELS))
     assert _DOMAIN_TABLES.isdisjoint(_table_names(db_url))
+
+
+def test_the_whole_history_reverses_cleanly_on_both_dialects(db_url: str) -> None:
+    """The reverse direction, executed rather than read.
+
+    The test above walks down and back once and checks the domain tables are gone. This
+    is the shipped helper a consumer runs on its own history, pointed at the platform's
+    thirteen — so the thing an app is told to rely on is proven here first, on both
+    verified dialects, where the two fail differently: SQLite exercises batch mode, and
+    PostgreSQL exercises native ALTER and the constraint names a server will accept.
+    """
+    assert_migrations_reverse_cleanly(db_url, APP_ROOT, package="app")
 
 
 def test_audit_trail_is_append_only_at_the_database(db_url: str) -> None:

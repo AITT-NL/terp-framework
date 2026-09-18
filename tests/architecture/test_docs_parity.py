@@ -143,7 +143,16 @@ def test_generated_agents_md_lists_every_guide_topic() -> None:
 # _ALL_RULES member nor a real test. Drift-guarded by
 # test_reference_allowlist_has_no_stale_entries (a stale entry fails), mirroring
 # test_every_built_capability_is_covered.
-_REFERENCE_ALLOWLIST: dict[str, str] = {}
+_REFERENCE_ALLOWLIST: dict[str, str] = {
+    # Tests in the GENERATED app, not in this repository. `template/project/tests/` is
+    # rendered into someone else's checkout, so these names are real and this suite is
+    # structurally unable to resolve them — the alternative is release notes that cannot
+    # say what a generated project gains, which is the thing the notes are for.
+    "test_architecture": "template/project/tests/test_architecture.py, in a generated app",
+    "test_migrations_reverse_cleanly": (
+        "template/project/tests/test_architecture.py, in a generated app"
+    ),
+}
 
 # A snake_case token presented as "<name> rule" in prose claims a real arch rule.
 _RULE_CLAIM_RE = re.compile(r"`?([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`?\s+rules?\b")

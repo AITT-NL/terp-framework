@@ -10,6 +10,76 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — 2026-09-18
+
+### Added
+
+- **`assert_migrations_reverse_cleanly` — the rollback plan is now rehearsed, not read.**
+  Every Terp app's rollback plan is `terp migrate downgrade`, and the catalogued
+  `alembic_downgrades_not_empty` rule proves only that each `downgrade()` body is not a
+  lone `pass`. That is a source-level check. It cannot see a downgrade that dies on its
+  first statement — easy to write, because batch mode re-applies the naming convention and
+  a hand-written constraint name is often wrong — and it cannot see one that runs green
+  and leaves a table behind for the next deploy to collide with. The forward direction has
+  had an executed check since `assert_migrations_match_models` shipped; the reverse
+  direction had reading.
+
+  The helper upgrades to head, snapshots, downgrades to base, checks every package's
+  `alembic_version_<label>` emptied **and that nothing was left behind**, upgrades again
+  and compares. Both middle checks are deliberately in the middle: the second upgrade
+  re-stamps every version table and rebuilds every dropped object, so afterwards a history
+  that never went down is indistinguishable from one that went down and came back — and a
+  down-and-up cycle usually converges to the same schema even when the downgrade forgot
+  something, so comparing the two ends finds that either.
+
+  The snapshot is read from the database's **own catalogue**, never through the SQLAlchemy
+  inspector: `sqlite_master.sql` on SQLite, `pg_get_indexdef` / `pg_get_constraintdef` on
+  PostgreSQL. Reflection is exactly the layer that drops a partial index's `WHERE`
+  predicate and a CHECK's text, so a check built on it would be blind to the class of
+  difference it exists to see, and green. Verified against a real PostgreSQL: the
+  predicate and the CHECK both survive into the snapshot. The one normalisation is the
+  emission order of a `CREATE TABLE`'s trailing `CONSTRAINT` run, which is not stable
+  across two upgrades in one process and carries no meaning; column order is left as
+  found.
+
+  Its limit is stated in the docstring rather than left to be discovered: a defect both
+  walks share is invisible to it — in particular a *forward* batch rebuild dropping a
+  partial index's predicate, since the rebuild happens identically on the way back. That
+  class is `assert_migrations_match_models`' job, which is why the two belong in the same
+  suite rather than one standing in for the other.
+
+- **`terp_db_url` and `terp_pg_url` — the two-dialect matrix is now a fixture a consumer
+  can name.** ADR 0069 makes SQLite and PostgreSQL normative and the platform refuses an
+  unverified dialect at runtime, so an app owner is told the matrix is real. The executed
+  proof of it was a parametrized fixture in the framework's own private test tree, in no
+  shipped distribution — so the platform's migrations were held to both dialects while a
+  consumer's, which carry the business schema, could only ever be held to SQLite. Every
+  hand-reasoned portability decision (a partial index's predicate, a CHECK's spelling, a
+  conditional aggregate, how a UUID compares) sat in that gap.
+
+  Both fixtures ship on terp-core's pytest plugin, so they need no `conftest.py` line.
+  Behaviour is unchanged from the private copy: a test taking `terp_db_url` runs twice,
+  and the PostgreSQL run skips unless `TERP_TEST_POSTGRES_URL` names a server — so an
+  offline checkout is exactly as it was. The framework's own conformance suite now
+  consumes the published fixture rather than a copy, which is what keeps the two from
+  drifting.
+
+### Changed
+
+- **A generated app is born with both migration directions covered, on both dialects.**
+  `tests/test_architecture.py` gains `test_migrations_reverse_cleanly`, and the existing
+  drift test moves from a hardcoded SQLite path onto `terp_db_url` — which matters most
+  there, because SQLite does not report a foreign key's referential options, so against it
+  Alembic compares constraints without them and an `ON DELETE` clause that changed is
+  invisible.
+
+  The generated CI workflow gains a `postgres:17-alpine` service and the env line that
+  points the fixture at it, **on by default**. A commented-out service is an opt-in nobody
+  is told about, and the point of shipping the fixture is that two-dialect testing stops
+  being something each project has to think of; the block carries the reason and says what
+  to delete to turn it off. `psycopg[binary]` joins the generated dev group for the same
+  reason — without the driver the PostgreSQL half could only ever skip.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added

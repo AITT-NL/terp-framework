@@ -20,6 +20,34 @@ on:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    # The second verified dialect (ADR 0069). Terp supports SQLite for development and
+    # test and PostgreSQL for production, and refuses an unverified one at runtime — so
+    # an app owner is told the matrix is real. Without a server here it would be real for
+    # exactly one half of itself: every test taking `terp_db_url` would run on SQLite,
+    # skip PostgreSQL, and report green, while the schema that ships is the one nobody
+    # exercised.
+    #
+    # ON BY DEFAULT, deliberately. A commented-out service is an opt-in nobody is told
+    # about, and the whole point of the fixture is that two-dialect testing stops being
+    # something each project has to think of. It costs a container start; drop the block
+    # and the env line below to turn it off, and the PostgreSQL half of every such test
+    # goes back to skipping rather than failing.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      # Each test creates and force-drops its own scratch database on this server, so
+      # the URL points at the maintenance database rather than at one they share.
+      TERP_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
         with:
