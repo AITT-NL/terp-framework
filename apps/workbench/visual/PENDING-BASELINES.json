@@ -1,0 +1,22 @@
+{
+  "$comment": "Baselines recorded on one platform and not the other. A RATCHET: it only shrinks. Record the missing specimen on the platform that lacks it and delete its entry; nothing new may join, and an entry whose baseline now exists fails the test rather than sitting here as a permanent excuse. Held by tests/architecture/test_visual_baselines.py.",
+  "win32": [
+    "dark-app-shell-brand-pair.png",
+    "dark-app-shell-header-nav-groups.png",
+    "dark-app-shell-header-nav.png",
+    "dark-app-shell-nav-groups-collapsed.png",
+    "dark-app-shell-nav-groups-drawer.png",
+    "dark-app-shell-nav-groups.png",
+    "dark-icons.png",
+    "dark-tooltip-open.png",
+    "light-app-shell-brand-pair.png",
+    "light-app-shell-header-nav-groups.png",
+    "light-app-shell-header-nav.png",
+    "light-app-shell-nav-groups-collapsed.png",
+    "light-app-shell-nav-groups-drawer.png",
+    "light-app-shell-nav-groups.png",
+    "light-icons.png",
+    "light-tooltip-open.png"
+  ],
+  "linux": []
+}
