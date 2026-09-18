@@ -126,6 +126,16 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends postgresql-client-17
+          # Installing the package is not enough, and this is the trap the assertion
+          # below caught: `/usr/bin/pg_dump` is postgresql-common's `pg_wrapper`, which
+          # dispatches to the DEFAULT cluster version rather than the newest installed.
+          # The runner image already ships client 16, so `pg_dump --version` still says
+          # 16 after `postgresql-client-17` installs cleanly. Put the versioned bin
+          # directory first, so the client that runs is the one this step installed:
+          # `$GITHUB_PATH` for the pytest step below, `export` for the check right here,
+          # which the former does not affect.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
           # Assert the major, rather than printing it. `pg_wrapper` can keep selecting
           # the runner image's older client, and the failure mode of that is a SKIPPED
           # drill -- which is green. Bumping the service image without bumping this
