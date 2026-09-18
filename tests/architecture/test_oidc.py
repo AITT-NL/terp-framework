@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import uuid
 from collections.abc import Iterator
 from urllib.parse import parse_qs, urlparse
@@ -180,6 +181,44 @@ def test_config_requires_https_in_production(monkeypatch: pytest.MonkeyPatch) ->
     with pytest.raises(ValueError, match="https in production"):
         _config(redirect_uri="http://app.example.test/cb")
     _config()  # https everywhere is accepted
+
+
+def test_the_https_verdict_is_answerable_without_being_in_production() -> None:
+    """A production refusal that exists only inside a production branch is unaskable.
+
+    The constructor's raise is the enforcement, not the answer: nothing else can ask
+    "would this configuration boot in production" from a dev machine or a CI runner,
+    which is how a tree carries a green pre-ship gate into a deployment that will not
+    start. `production_problems()` is the environment-independent answer, the same shape
+    `ControlPlane` already exposes for the refusals the gate does reach.
+    """
+    assert _config().production_problems() == []
+    plaintext = _config(issuer="http://idp.example.test")
+    assert plaintext.production_problems() == [
+        "OIDC provider 'idp' issuer must be https in production "
+        "(a plaintext redirect leaks the authorization code)"
+    ]
+    both = _config(
+        issuer="http://idp.example.test", redirect_uri="http://app.example.test/cb"
+    )
+    assert len(both.production_problems()) == 2, "each plaintext URL is its own problem"
+
+
+def test_a_plaintext_provider_outside_production_is_permitted_but_never_silent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Permissive in the inner loop, never quiet — the asymmetry ADR 0128 names.
+
+    Before this, the state was completely silent outside production: no warning, no
+    verdict, nothing in any dev run or CI log. The first mention of it was the
+    production boot that refused, which is the failure ADR 0128 exists to end, one
+    layer out from the control-plane declarations that lane reads.
+    """
+    with caplog.at_level(logging.WARNING, logger="terp.capabilities.oidc.config"):
+        _config(issuer="http://idp.example.test")
+    assert "PLAINTEXT" in caplog.text
+    assert "REFUSED" in caplog.text, "the dev warning must say what production does"
+    assert "idp" in caplog.text, "...and which provider it is about"
 
 
 # --------------------------------------------------------------------------- #

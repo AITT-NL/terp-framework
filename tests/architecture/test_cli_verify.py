@@ -1029,6 +1029,52 @@ def test_manifest_lists_the_profile_checks() -> None:
     ]
 
 
+def test_the_manifest_publishes_the_vocabulary_it_was_written_with() -> None:
+    """A consumer must be able to tell a NEW category from a CORRUPT document.
+
+    Without the vocabulary in the document those are the same observation, and the
+    safe-looking reading of "I do not know this word" is to distrust the whole
+    manifest — which means falling back to whatever list the tool shipped with and
+    presenting it as the project's gate. Nothing goes red; the gate just quietly
+    becomes an older one. `frontend-tests` (0.23.0) is the worked example.
+    """
+    from terp.cli.verify import CHECK_CATEGORIES
+
+    manifest = verify_manifest("full")
+    assert manifest["categories"] == sorted(CHECK_CATEGORIES)
+    assert {entry["category"] for entry in manifest["checks"]} <= set(manifest["categories"]), (
+        "every emitted category must be in the published vocabulary, or publishing it "
+        "is worse than useless"
+    )
+
+
+def test_the_checked_in_manifest_fixture_is_the_real_shape() -> None:
+    """`tests/fixtures/verify-manifest.full.json` is a cross-repository pin.
+
+    The category vocabulary was already pinned twice INSIDE this repository — the
+    runtime constant and this file's independent statement of it — and both copies
+    are on the same side of the boundary the seam was written for. A consuming tool
+    parses this document; nothing here proved its parser met the real shape, so a
+    field added or a category introduced reached that parser first at runtime.
+
+    Refresh after an intentional manifest change with::
+
+        python -c "import json,pathlib; from terp.cli.verify import verify_manifest; \
+            pathlib.Path('tests/fixtures/verify-manifest.full.json').write_text( \
+            json.dumps(verify_manifest('full'), indent=2) + chr(10), encoding='utf-8')"
+    """
+    fixture = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "verify-manifest.full.json"
+    assert fixture.is_file(), (
+        "the manifest fixture must exist — it is what a consuming repository asserts "
+        "its parser against"
+    )
+    assert json.loads(fixture.read_text(encoding="utf-8")) == verify_manifest("full"), (
+        "tests/fixtures/verify-manifest.full.json has drifted from the manifest "
+        "verify_manifest('full') emits — refresh it (see this test's docstring), and "
+        "tell the consumers whose parsers read it"
+    )
+
+
 def test_manifest_refuses_an_unknown_profile() -> None:
     with pytest.raises(SystemExit, match="unknown profile"):
         verify_manifest("nightly")

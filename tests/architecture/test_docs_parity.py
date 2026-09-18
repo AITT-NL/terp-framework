@@ -289,6 +289,107 @@ def test_trait_seam_coverage_fails_closed_on_an_undocumented_primitive() -> None
 
 
 # --------------------------------------------------------------------------- #
+# (4) control-plane declaration coverage — a refused boot must have a recipe
+# --------------------------------------------------------------------------- #
+# The trait/seam guard above reaches model primitives and capability seams. It never
+# reached a CONTROL-PLANE DECLARATION, which is the one class of thing `create_app`
+# refuses a production boot over — so a field could be added to `SecurityConfig`, ship,
+# be refused at someone's deploy, and be explained nowhere, with nothing going red.
+#
+# Scoped to the STATIC topic bodies rather than `_full_guide_text()`, and the distinction
+# is load-bearing rather than pedantic: `changelog` is a generated topic whose body is the
+# entire release notes, and the release notes name every one of these classes. A guard
+# built on the full text would pass today with no topic written at all.
+
+
+def _static_guide_text() -> str:
+    """Every AUTHORED topic body — not the generated ones (`changelog`).
+
+    A guard over the generated text asserts that something was once released, which is
+    not the same claim as "an author can find out how to declare this".
+    """
+    from terp.cli.__init__ import _GUIDE_TOPICS
+
+    return "\n".join(_GUIDE_TOPICS.values())
+
+
+def _declarations_refused_at_boot() -> list[type]:
+    """Every public `terp.core` declaration that owns a `production_problems()`.
+
+    That method IS the definition of this class of thing: it is what `create_app` reads
+    to decide whether the app may boot, and what the production-readiness verify lane
+    reads to say so first.
+    """
+    import terp.core
+
+    return [
+        obj
+        for name in _CORE_ALL
+        if isinstance(obj := getattr(terp.core, name), type)
+        and callable(getattr(obj, "production_problems", None))
+    ]
+
+
+def _undeclared_declaration_fields(text: str) -> dict[str, list[str]]:
+    """Declaration class -> the fields of it the guide never names."""
+    import dataclasses
+
+    undocumented: dict[str, list[str]] = {}
+    for cls in _declarations_refused_at_boot():
+        if not dataclasses.is_dataclass(cls):  # pragma: no cover - all of them are today
+            continue
+        missing = [
+            declared.name
+            for declared in dataclasses.fields(cls)
+            if declared.name not in text
+        ]
+        if cls.__name__ not in text:
+            missing.append(cls.__name__)
+        if missing:
+            undocumented[cls.__name__] = sorted(missing)
+    return undocumented
+
+
+def test_every_declaration_that_refuses_a_boot_is_explained_in_the_guide() -> None:
+    undocumented = _undeclared_declaration_fields(_static_guide_text())
+    assert undocumented == {}, (
+        "a control-plane declaration `create_app` can refuse a production boot over must "
+        "be taught in `terp guide`, field by field — otherwise the next field added to it "
+        "lands unexplained and is first met at someone's deploy. Missing: "
+        f"{undocumented}"
+    )
+
+
+def test_the_declaration_guard_finds_the_classes_it_is_about() -> None:
+    """Fails closed if `production_problems()` is renamed: an empty set of subjects
+    would make the guard above vacuously true."""
+    names = {cls.__name__ for cls in _declarations_refused_at_boot()}
+    assert {"SecurityConfig", "PasswordPolicy", "ControlPlane"} <= names, (
+        f"the production-refusal declarations are no longer discoverable: found {names}"
+    )
+
+
+def test_declaration_coverage_fails_closed_on_an_unexplained_field() -> None:
+    """A field the guide does not name is reported — the guard bites."""
+    undocumented = _undeclared_declaration_fields(
+        _static_guide_text().replace("trusted_proxy_hops", "")
+    )
+    assert undocumented == {"SecurityConfig": ["trusted_proxy_hops"]}
+
+
+def test_the_boot_refusal_routes_to_its_own_recipe() -> None:
+    """A refusal that does not name where the answer is written is half a control.
+
+    The same move a rule violation already makes when it prints `terp guide <topic>`.
+    """
+    app_source = (
+        _REPO_ROOT / "packages" / "backend" / "core" / "src" / "terp" / "core" / "app.py"
+    ).read_text(encoding="utf-8")
+    assert "terp guide security" in app_source
+    assert "terp guide passwords" in app_source
+
+
+# --------------------------------------------------------------------------- #
 # (5) the base profile — stated in three documents, installed by one manifest
 # --------------------------------------------------------------------------- #
 _TEMPLATE_PYPROJECT = _REPO_ROOT / "template" / "project" / "pyproject.toml.jinja"
