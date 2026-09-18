@@ -171,7 +171,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: uv run --group lint zizmor .github/workflows
 
-      - name: gitleaks — secrets anywhere in the git history
+      - name: gitleaks — secrets anywhere in this branch's history
         env:
           GITLEAKS_VERSION: "8.30.1"
           GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
@@ -179,7 +179,21 @@ jobs:
           curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
           tar -xzf gitleaks.tgz gitleaks
-          ./gitleaks detect --source . --redact --no-banner
+          # --log-opts HEAD scopes the walk to the history UNDER TEST. Without it
+          # `gitleaks detect` walks every ref in the clone, and `fetch-depth: 0` above
+          # fetches every remote branch -- so one unmerged branch anywhere in the
+          # repository turns this step red on every OTHER open pull request, naming
+          # commits their authors have never seen. That is a false positive with the
+          # worst possible shape for a security control: it arrives on somebody else's
+          # change, it cannot be fixed there, and the only way to make it go away is to
+          # stop reading the check.
+          #
+          # This is not a narrowing of the control. Every branch's own history is still
+          # scanned in full -- main's on every push, a pull request's on its own run,
+          # and the merge ref carries the base -- so a secret still cannot reach the
+          # default branch unscanned. What stops happening is one branch's fixtures
+          # failing another branch's build.
+          ./gitleaks detect --source . --redact --no-banner --log-opts HEAD
 
       - name: trivy — the Dockerfiles a generated app inherits
         # The template's four images are what every project ships, so a
