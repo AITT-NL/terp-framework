@@ -143,6 +143,14 @@ describe("renderTerpApp", () => {
     //
     // Mutation: delete `layout: options.layout` from the buildAppRouter call, and this stops
     // throwing.
+    //
+    // `"bespoke"` is the value used here on purpose, and the assertion covers the whole
+    // message rather than only the rejection. The word appears in the contract's own
+    // description and in its violation text, where it reads as though it might name a
+    // second contract; it does not, and ADR 0079 records why (a contract is declared once
+    // for the whole app and is per-archetype slot specs, so an unconstrained one would be
+    // a second spelling of declaring none). An author who reads it as a value should be
+    // told what the values ARE, not only that this is not one.
     const root = document.createElement("div");
     document.body.appendChild(root);
     try {
@@ -153,7 +161,7 @@ describe("renderTerpApp", () => {
           layout: { contract: "bespoke" },
           rootElement: root,
         }),
-      ).toThrow(/Unknown layout contract "bespoke"/);
+      ).toThrow(/Unknown layout contract "bespoke"; known contracts: standard\./);
     } finally {
       root.remove();
     }

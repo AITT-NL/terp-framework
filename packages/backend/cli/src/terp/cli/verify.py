@@ -556,10 +556,33 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
 #: the pinned spec's schema by the framework gate. ``a11y`` and
 #: ``test-adequacy`` are declared but not realised by this toolchain yet: they
 #: are emitted ``not-run`` (a lane is never dropped and never counted as passed
-#: without evidence). ``test-adequacy`` asks whether the suite could have
-#: failed, which no check in the release profile answers — coverage reports
-#: which lines ran, not whether anything would notice them changing — so it
-#: composes nothing rather than borrowing evidence that does not bear on it.
+#: without evidence).
+#:
+#: Each composes nothing for a stated reason, and both reasons are the same
+#: shape — nothing in the release profile bears on the question the lane asks,
+#: so composing it from what is there would be borrowing evidence rather than
+#: having it.
+#:
+#: ``test-adequacy`` asks whether the suite could have failed. Coverage reports
+#: which lines ran, not whether anything would notice them changing, so it
+#: cannot answer that; what would is a mutation run, which is minutes of CPU
+#: per change rather than seconds and is a decision about the merge bar rather
+#: than a missing wire.
+#:
+#: ``a11y`` asks whether the rendered UI is usable by someone who is not using a
+#: mouse and a pair of eyes. That is a question about pixels and a live
+#: accessibility tree, and every check in the release profile reads source or
+#: builds artifacts: ``frontend-boundaries`` holds the component surface, which
+#: constrains what is composed and says nothing about what a screen reader
+#: receives, and ``frontend-build`` proves the bundle compiles. The evidence
+#: the lane would need is an axe (or equivalent) pass over a running app, so
+#: the natural home is the ``conformance`` check — the one place a browser is
+#: already driving the built frontend — and wiring it is a product decision
+#: with a real question underneath it: WHOSE screens are the subject. The
+#: framework renders none of its own; a generated app's are the app's, and a
+#: lane that failed the platform's release over an app's markup would be
+#: measuring the wrong thing. Until that is answered, ``not-run`` is the honest
+#: verdict, and it is not the same as forgotten.
 ASSURANCE_LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("terp-standard", "required", ("architecture", "frontend-boundaries")),
     ("appsec-baseline", "required", ("appsec-baseline",)),

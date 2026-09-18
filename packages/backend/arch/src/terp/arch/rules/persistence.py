@@ -53,6 +53,21 @@ def check_no_dynamic_sql(
     composition root, a sibling package, or a capability's own source was never
     looked at. ``tests/`` and ``migrations/`` are scanned too — they are importable
     Python, so they are application surface as much as a service is.
+
+    **What it sees, said plainly, because the title does not say it.** This rule fires
+    on one construct: a call whose callee name is ``text``. That is SQLAlchemy's, and it
+    is the shape a Terp app uses. A package that does **not** model the schema it talks
+    to — the reason a companion root usually exists — drives a DB-API cursor instead,
+    and ``cursor.execute(f"SELECT ... FROM {table}")`` is invisible here however the
+    statement was built.
+
+    That shape is governed, just not by this rule. ADR 0085 §2 delegates it to ruff's
+    bandit set, where ``S608`` is "SQL string construction", running as a blocking step
+    in this repository and in every generated project, with an architecture test parsing
+    the stanza so it cannot be quietly weakened. The delegation is deliberate: §1 says
+    the catalog never grows an entry whose only content is what a stock analyzer already
+    detects well, which is why this rule is not widened to cover it. The two lanes
+    together are the coverage; either one read alone overstates.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
