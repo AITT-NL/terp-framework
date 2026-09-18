@@ -143,7 +143,13 @@ def test_generated_agents_md_lists_every_guide_topic() -> None:
 # _ALL_RULES member nor a real test. Drift-guarded by
 # test_reference_allowlist_has_no_stale_entries (a stale entry fails), mirroring
 # test_every_built_capability_is_covered.
-_REFERENCE_ALLOWLIST: dict[str, str] = {}
+_REFERENCE_ALLOWLIST: dict[str, str] = {
+    # A worked example in `terp guide testing`, not a claim about a test here. The
+    # guide has to show a whole pytest function for the query-count recipe to be
+    # copyable, and a pytest function is named `test_*` — so the shape that makes the
+    # recipe usable is the shape this check reads as a reference.
+    "test_listing_invoices_does_not_scale_with_rows": "worked example in `terp guide testing`",
+}
 
 # A snake_case token presented as "<name> rule" in prose claims a real arch rule.
 _RULE_CLAIM_RE = re.compile(r"`?([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`?\s+rules?\b")

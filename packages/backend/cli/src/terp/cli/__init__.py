@@ -1063,6 +1063,31 @@ app had to cut. WHERE they go:
   The rule asks only that the tests EXIST and are attributable. Whether they are any
   good is `no_empty_tests` (a body that cannot fail is not a test) and your coverage gate.
 
+COUNT THE QUERIES A LIST ROUTE RUNS. The gate says a great deal about what your code
+cannot get structurally wrong and nothing about what it costs to run, and the shape that
+bites is dull: an endpoint loads N rows and touches a relationship per row, so the count
+is 1 + N. The response is fine on the twelve rows your fixture creates, nothing in the
+code looks wrong, every test passes -- until the table has real data in it.
+
+      from terp.core.testing import assert_max_queries
+
+      def test_listing_invoices_does_not_scale_with_rows(client, session):
+          with assert_max_queries(session, 2, only="FROM invoice"):
+              client.get("/api/v1/invoices/")
+
+  Statements, not seconds: the count is deterministic and small where a wall clock is
+  neither, so this survives a slow runner and still fails the moment a loop starts
+  talking to the database. `count_queries(session)` is the same thing without the
+  assertion, for when you want to look. A failure prints every statement that ran,
+  because "expected at most 2, got 14" without the fourteen is a puzzle -- and the
+  fourteen are almost always one SELECT with a different id, which is the diagnosis.
+
+  PICK THE LIMIT FROM WHAT THE ENDPOINT SHOULD DO, not from what it currently does. A
+  bound recorded from present behaviour passes forever and asserts nothing. The number
+  is a claim about the SHAPE of the query, and the claim is that adding a row to the
+  fixture must not change it -- so write the test with several rows in the fixture, or
+  it cannot tell the two apart.
+
 WHAT YOU MUST STILL DO YOURSELF. The platform UNDOES a runtime; it never INSTALLS the
 one your test needs. That distinction is the whole of testing on Terp:
       * whole runtime -> compose the app in a fixture (see apps/example/tests/conftest.py,

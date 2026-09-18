@@ -14,6 +14,29 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **Nothing measured what a query costs, so an N+1 was found by a customer rather than by
+  a test.** The gate makes a strong claim about what a Terp app cannot get structurally
+  wrong and no claim at all about what it costs to run — and the absences reinforce each
+  other: nothing on the server reports latency, so nothing in the suite asserts a bound.
+
+  `terp.core.testing` now ships `count_queries(session)` and
+  `assert_max_queries(session, limit, only=...)`. The failure shape they catch is dull
+  and specific: an endpoint loads N rows and touches a relationship per row, so the count
+  is 1 + N, the response is fine on the twelve rows the fixture creates, nothing in the
+  code looks wrong, every test passes — until the table has real data in it.
+
+  Statements, not seconds. The count is deterministic and small where a wall clock is
+  neither, so the assertion survives a slow runner, a cold cache and a shared machine and
+  still fails the moment a loop starts talking to the database. A failure prints every
+  statement that ran, because "expected at most 2, got 14" without the fourteen is a
+  puzzle — and the fourteen are almost always one SELECT with a different id, which is
+  the whole diagnosis.
+
+  `terp guide testing` carries the recipe, including the part that decides whether the
+  test is worth anything: pick the limit from what the endpoint *should* do, not from
+  what it currently does. A bound recorded from present behaviour passes forever and
+  asserts nothing.
+
 - **Capability discoverability was package-granular, so a shipped seam stayed invisible
   for thirteen releases.** `terp inspect capabilities` answered "do I have this
   capability", and at that granularity an installed-and-mounted capability looks
