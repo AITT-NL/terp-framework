@@ -769,11 +769,18 @@ def verify_manifest(
     *root* includes the app's own ``[[tool.terp.verify.checks]]``, so a driving
     tool reading the manifest sees the whole gate rather than the platform half
     of it. Omitting it yields the platform floor.
+
+    ``categories`` publishes the vocabulary this document was written with, so a
+    consumer can tell a category it has not seen before from a corrupt document.
+    Without it the two are indistinguishable, and the safe-looking reading — "I do
+    not know this word, so I do not trust this document" — throws the whole gate
+    away over one added word. ADR 0106 §5 states what a consumer owes in return.
     """
     checks = profile_checks(profile, root)
     return {
         "terp_verify_manifest": 1,
         "profile": profile,
+        "categories": sorted(CHECK_CATEGORIES),
         "checks": [
             {
                 "id": check.id,
@@ -1368,9 +1375,12 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     plane declares — no environment, no database, no request. `create_app` raises
     `BootError` on each of them under `ENVIRONMENT == "production"`: an unsafe
     security config, a password policy with no strength floor, and background work
-    that names no actor to stamp its writes with (ADR 0125). Outside production the
-    same states log a warning and keep booting, on purpose, because a developer who
-    has not wired a system principal yet should not be blocked by one.
+    that names no actor to stamp its writes with (ADR 0125). Outside production all
+    three keep booting, on purpose, because a developer who has not wired a system
+    principal yet should not be blocked by one — though only the background-writes
+    one currently says so out loud (`_warn_unstamped_background_writes`); the other
+    two are evaluated nowhere but inside the production branch, which is a separate
+    and smaller gap than the one this lane closes.
 
     Nothing gated the gap between those two behaviours. An app could declare a job,
     never set `job_system_actor_id`, and take a green `--profile full` all the way to
@@ -1384,6 +1394,15 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     and can sit in every profile. The audit refusal is deliberately not among the
     three: it turns on `create_app(audit_sink=...)`, a runtime argument this check
     cannot see, and a check that pretended to cover it would be worse than the gap.
+
+    That carve-out is no longer the only one, and the set is no longer folklore. Two
+    capability constructors hold production-only refusals of the same class — the
+    federated-identity allowlist and an OIDC provider's plaintext URLs — and the app
+    builds those objects itself, so no `ControlPlane` field reaches them and this lane
+    cannot ask. `tests/architecture/test_production_refusals.py` is the record: every
+    `settings.is_production`-conditional raise under `packages/backend/` is either
+    reached from here or listed with the reason it is not, so the next one written
+    outside this lane cannot join the class silently.
 
     Skips with a note for a tree with no importable control plane — the platform's own
     checkout, and an app whose authority surface predates the module. A plane that
@@ -1442,9 +1461,9 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
         return 1, (
             "this app's control plane refuses a production boot:\n"
             + "".join(f"  {problem}\n" for problem in problems)
-            + "Each of these raises BootError under ENVIRONMENT=production and only "
-            "logs a warning outside it, so a green gate over this state is a gate "
-            "that agrees with a deployment that will not start.\n"
+            + "Each of these raises BootError under ENVIRONMENT=production and keeps "
+            "booting outside it, so a green gate over this state is a gate that "
+            "agrees with a deployment that will not start.\n"
             "  A job actor that is a deployment fact rather than a source constant is "
             "declared, not hard-coded: put JOB_SYSTEM_ACTOR_ID in "
             "environment.schema.json and create_app will resolve it (ADR 0129)."

@@ -916,6 +916,49 @@ Multi-tenant rows (tenancy capability)
   Sign the tenant into the token at login with
   build_login_module(authenticate, tenant_resolver=...).
 """,
+    "security": """\
+The security declaration (SecurityConfig, refused at production boot)
+
+- ONE declaration, wired on the control plane, read by create_app:
+      from terp.core import ControlPlane, CorsPolicy, RateLimit, SecurityConfig
+      control_plane = ControlPlane(security=SecurityConfig(
+          cors=CorsPolicy.allow(["https://app.example.com"]),
+          trusted_proxy_hops=1,
+      ))
+- FOUR of its states refuse a production boot (SecurityConfig.production_problems();
+  create_app raises BootError "insecure production security config"). Each has exactly
+  one declaration that answers it:
+    1. CORS unset            -> CorsPolicy.allow([...]) or CorsPolicy.disabled(reason=...)
+    2. CORS allowing '*'     -> name the origins; a wildcard with credentials is no origin check
+    3. rate_limit disabled   -> RateLimit(requests=..., window_seconds=...)
+    4. an override disabled  -> an override may LOWER or RAISE a limit, never remove it
+  Declining is a full answer and must be said out loud: CorsPolicy.disabled(reason=...)
+  is the same-origin deployment's answer, and the reason is the point of it.
+  `terp verify --only production-readiness` asks these before you ship, so the refusal
+  arrives in the gate rather than at the deploy.
+- rate_limit_overrides is a PER-PREFIX BUCKET, not a shared counter (ADR 0115):
+      SecurityConfig(rate_limit_overrides={"/api/v1/auth": RateLimit.for_credentials()})
+  Longest prefix wins; everything unmatched keeps rate_limit. Separate buckets on
+  purpose - a credential endpoint and an asset read share a process, not a counter, so
+  exhausting one family must not 429 the other. The shape mirrors the per-mount
+  max_request_bytes map: one way to scope a limit to a path, not two.
+- trusted_proxy_hops: NAME THE PROXY YOU ACTUALLY RUN BEHIND. It defaults to 0, meaning
+  the direct TCP peer identifies the caller and X-Forwarded-For is ignored as
+  attacker-supplied. Behind one reverse proxy (the shipped nginx profile) set 1, or every
+  caller collapses onto the proxy's address and your per-caller controls - the rate limit,
+  the OIDC callback throttle - stop being per-caller. The symptom is intermittent 429s
+  that look like a traffic spike. Nothing refuses this at boot, because 0 is correct for a
+  directly-exposed app: it is a deployment fact only you know.
+- expose_api_docs is a deliberate opt-in, OFF in production: /docs, /redoc and
+  /openapi.json are hidden there because a production API's full schema is not public
+  information. Development always serves them, and `terp openapi` exports the document
+  either way - so turning this on is a choice to publish, not a way to get the file.
+- headers ships a safe SecurityHeaders set; max_request_bytes (1 MiB) is the body cap and
+  is per-mount overridable (ADR 0067); request_id_header names the correlation header
+  ("X-Request-ID") echoed on every response.
+- No terp.arch check applies - there is no module code shape to police. Enforcement is
+  the create_app production fail-fast plus the production-readiness verify lane.
+""",
     "passwords": """\
 Password strength (PasswordPolicy, Tier-B)
 
@@ -926,7 +969,9 @@ Password strength (PasswordPolicy, Tier-B)
   (length over forced complexity, NIST-aligned). Tier-B: override the VALUES, not shape:
       from terp.core import PasswordPolicy, ControlPlane
       control_plane = ControlPlane(passwords=PasswordPolicy(min_length=16, min_character_classes=3))
-- Relaxing strength is an explicit, justified opt-out and is refused at production boot:
+- Relaxing strength is an explicit, justified opt-out and is refused at production boot.
+  The reason is the opt-out: it is stored as `relaxed_reason` and named back to you in the
+  BootError, so "why is this off" always has an answer that travels with the declaration.
       PasswordPolicy.relaxed(reason="legacy bulk import")
 - No terp.arch check applies (no module code shape to police) — enforcement is the
   service chokepoint plus the create_app production fail-fast.

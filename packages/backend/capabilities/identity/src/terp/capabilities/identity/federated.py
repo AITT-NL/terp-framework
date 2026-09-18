@@ -25,6 +25,7 @@ ceremony; in production its absence refuses at construction.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Callable, Iterable
 
@@ -46,6 +47,8 @@ from terp.capabilities.identity.models import FederatedIdentity, User
 #: domains" (a directory lookup, a joiners feed, an invitation table) writes it here
 #: rather than being pushed back onto verified-email-only, which is no rule at all.
 ProvisionGate = Callable[[str], bool]
+
+_logger = logging.getLogger("terp.capabilities.identity.federated")
 
 
 class FederatedIdentityLink(BaseSchema):
@@ -89,25 +92,57 @@ class FederatedIdentityService(
                 "allowed_email_domains must name at least one non-empty domain; pass "
                 "None to decline the allowlist (and supply provision_allowed instead)"
             )
-        if allow_provisioning and settings.is_production and domains is None and provision_allowed is None:
-            # Fail-closed at construction, the shape OIDCProviderConfig already uses for
-            # its own production invariants. Verified-email is a check on the *claim*,
-            # not on who may hold one: against a multi-tenant IdP — an app registration
-            # left open to any directory, which is a configuration mistake and not an
-            # exotic one — every gate below still passes for an account nobody here has
-            # ever heard of, and the result is open registration into the platform. The
-            # answer has to be a statement about which identities this deployment
-            # accepts, and there is no safe value to guess.
-            raise ValueError(
-                "FederatedIdentityService(allow_provisioning=True) requires an identity "
-                "allowlist in production: pass allowed_email_domains=(...) for the usual "
-                "case, or provision_allowed=<callable> to decide per claim. Verified-email "
-                "alone means anyone the configured IdP will authenticate gets an account."
-            )
         self._allow_provisioning = allow_provisioning
         self._provisioned_rank = provisioned_rank
         self._allowed_email_domains = domains
         self._provision_allowed = provision_allowed
+
+        # Fail-closed at construction, the shape OIDCProviderConfig already uses for its
+        # own production invariants — but decided by an environment-INDEPENDENT predicate,
+        # so the answer exists somewhere a gate can read it and not only inside a branch
+        # that runs on the production host. Outside production the same state is spoken
+        # aloud rather than tolerated in silence: permissive in the inner loop, never
+        # quiet, which is the asymmetry ADR 0128 names as deliberate.
+        problems = self.production_problems()
+        if problems:
+            if settings.is_production:
+                raise ValueError(
+                    "; ".join(problems)
+                    + ". Pass allowed_email_domains=(...) for the usual case, or "
+                    "provision_allowed=<callable> to decide per claim."
+                )
+            _logger.warning(
+                "federated identity is UNGATED in this deployment: %s. A production boot "
+                "is REFUSED in this state.",
+                "; ".join(problems),
+            )
+
+    def production_problems(self) -> list[str]:
+        """What a production boot refuses about this declaration, environment-independent.
+
+        The same shape ``ControlPlane`` uses, and for the same reason: the question "would
+        this configuration boot in production" must be answerable off the production host,
+        by a gate, from the declaration alone. A constructor that raises is the enforcement;
+        it is not an answer anything else can ask for.
+
+        Verified-email is a check on the *claim*, not on who may hold one. Against a
+        multi-tenant IdP — an app registration left open to any directory, which is an
+        ordinary configuration mistake and not an exotic one — every other gate here still
+        passes for an account nobody in this deployment has heard of, and the result is open
+        registration into the platform. The answer has to be a statement about which
+        identities this deployment accepts, and there is no safe value to guess.
+        """
+        if (
+            self._allow_provisioning
+            and self._allowed_email_domains is None
+            and self._provision_allowed is None
+        ):
+            return [
+                "FederatedIdentityService(allow_provisioning=True) requires an identity "
+                "allowlist in production: verified-email alone means anyone the configured "
+                "IdP will authenticate gets an account"
+            ]
+        return []
 
     def _may_provision(self, email: str) -> bool:
         """Whether *email* is an identity this deployment provisions accounts for.

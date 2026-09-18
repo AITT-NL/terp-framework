@@ -1955,12 +1955,16 @@ def create_app(
         security_problems = resolved_plane.security.production_problems()
         if security_problems:
             raise BootError(
-                "insecure production security config: " + "; ".join(security_problems)
+                "insecure production security config: "
+                + "; ".join(security_problems)
+                + " — see: terp guide security"
             )
         password_problems = resolved_plane.passwords.production_problems()
         if password_problems:
             raise BootError(
-                "insecure production password policy: " + "; ".join(password_problems)
+                "insecure production password policy: "
+                + "; ".join(password_problems)
+                + " — see: terp guide passwords"
             )
         if resolved_plane.audit.enabled and not is_durable_audit_sink(audit_sink):
             raise BootError(

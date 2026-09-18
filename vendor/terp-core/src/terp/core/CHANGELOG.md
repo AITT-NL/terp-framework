@@ -10,6 +10,93 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — 2026-09-18
+
+### Added
+
+- **`terp guide security` — the declaration `create_app` refuses a production boot over.**
+  `SecurityConfig` is the one control-plane declaration with four production refusals
+  behind it, and it had no recipe: 32 guide topics and none of them named the class, the
+  per-prefix rate-limit map, or the docs opt-in. The refusal arrived at the deploy and the
+  answer lived in a docstring. The new topic is in the same register as `passwords` — the
+  wiring, each of the four refusals beside the declaration that answers it, and the two
+  fields nothing refuses over and which therefore no gate can teach you about:
+  `trusted_proxy_hops` ("name the proxy you actually run behind, or every caller collapses
+  onto its address and your per-caller limits stop being per-caller"), and
+  `expose_api_docs` as a deliberate choice to publish rather than a way to get the file.
+
+  Paired with a coverage guard, because the point is that the *next* field cannot land
+  unexplained: every public declaration owning a `production_problems()` must have every
+  one of its fields named in an authored guide topic. Deliberately scoped to the authored
+  topic bodies and not the whole guide surface — `changelog` is a generated topic whose
+  body is the entire release notes, which name every one of these classes, so a guard over
+  the full text would have passed with no topic written at all.
+
+  And the refusal now routes to its own recipe: the `BootError` ends with
+  `— see: terp guide security` (and `terp guide passwords`), the move a rule violation
+  already makes when it prints the topic that fixes it.
+
+### Changed
+
+- **The verify manifest publishes the vocabulary it was written with.** `--list --format
+  json` emitted each check's `category` and stamped `terp_verify_manifest: 1`, and nothing
+  told a consumer what the vocabulary was. "A category I have not seen" and "a document I
+  should not trust" were therefore the same observation, and the safe-looking reading of
+  the second is to fall back to a hardcoded list — which silently replaces the project's
+  real gate with the tool's memory of an older one. `frontend-tests`, added in 0.23.0, is
+  the worked example: a driving tool holding a five-category list has met one new word and
+  can no longer file two checks it should be running.
+
+  The manifest now carries a top-level `categories` array, and
+  `tests/fixtures/verify-manifest.full.json` is checked in and held to the live manifest by
+  the suite, so a consuming repository can assert its parser against the real shape. The
+  category vocabulary was already pinned twice — the runtime constant and the suite's
+  independent statement of it — and both copies sat on the same side of the boundary the
+  seam was written for; this extends the pinning across it.
+
+  ADR 0106 gains §5, stating what a consumer owes in return: degrade **per entry**, never
+  wholesale; an unfamiliar category is filed under a documented fallback bucket and the
+  check **still runs**; discard an entry only when it has no `id` or no `command`; never
+  answer from a hardcoded copy. This extends §3 rather than reversing it — a refusal at
+  the app-declaration boundary is loud and fixable by the author who wrote the line; a
+  refusal at parse time in a consumer silently discards a gate definition the project did
+  own.
+
+### Fixed
+
+- **A capability's production refusal is no longer silent outside production, and the set
+  of refusals the gate cannot see is no longer folklore.** Two capability constructors
+  refuse a production boot — `FederatedIdentityService(allow_provisioning=True)` with no
+  identity allowlist, and an OIDC provider with a plaintext issuer or redirect URI — and
+  both said nothing at all outside production. An app in that state ran a green
+  `terp verify --profile full` and found out at the deploy, which is the exact failure
+  ADR 0128 was written to end, recurring one layer out from the control-plane declarations
+  that lane reads.
+
+  Both now decide by an environment-independent `production_problems()`, the same shape
+  `ControlPlane` already exposes, so "would this configuration boot in production" is
+  answerable off the production host instead of existing only inside a branch that runs
+  there. The constructors still raise in production; outside it they warn, naming the
+  state and what production does with it — permissive in the inner loop, never quiet.
+
+  The part that keeps this from recurring is a record rather than a mechanism:
+  `tests/architecture/test_production_refusals.py` asserts that every
+  `settings.is_production`-conditional `raise` under `packages/backend/` is either reached
+  by the production-readiness lane or listed with the reason it cannot be, one entry per
+  raise. The count is part of the contract, because the carve-out that most needed
+  recording — the durable audit sink, decided by a runtime argument the lane cannot see —
+  lives inside `create_app`, which the lane otherwise models completely. The list starts
+  with that already-documented carve-out, so it begins honest rather than as a blanket
+  exemption.
+
+- **The production-readiness lane no longer overstates what happens outside production.**
+  Its failure text said all three control-plane refusals "only log a warning outside it".
+  Only the background-writes one does; the security and password refusals are evaluated
+  nowhere but inside the production branch. The argument the lane rests on is untouched —
+  a green gate over this state still agrees with a deployment that will not start — but a
+  gate that misdescribes the system it gates is one a reader stops trusting. The remaining
+  asymmetry is named in the docstring as the separate, smaller gap it is.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added

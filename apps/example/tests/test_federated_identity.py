@@ -8,6 +8,7 @@ resolution rule (never email matching), the SSO-only nullable-password user shap
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 import pytest
@@ -357,6 +358,57 @@ def test_production_refuses_provisioning_with_no_allowlist(
     FederatedIdentityService(allow_provisioning=True, allowed_email_domains=("acme.test",))
     FederatedIdentityService(allow_provisioning=True, provision_allowed=lambda _e: True)
     FederatedIdentityService()
+
+
+def test_the_allowlist_verdict_is_answerable_without_being_in_production() -> None:
+    """A production refusal that exists only inside a production branch is unaskable.
+
+    The constructor's raise is the enforcement, not the answer: nothing else can ask
+    "would this configuration boot in production" from a dev machine or a CI runner,
+    which is how a tree carries a green pre-ship gate into a deployment that will not
+    start. `production_problems()` is the environment-independent answer, the same shape
+    `ControlPlane` already exposes for the refusals the gate does reach.
+    """
+    assert FederatedIdentityService().production_problems() == []
+    assert (
+        FederatedIdentityService(
+            allow_provisioning=True, allowed_email_domains=("acme.test",)
+        ).production_problems()
+        == []
+    )
+    assert (
+        FederatedIdentityService(
+            allow_provisioning=True, provision_allowed=lambda _e: True
+        ).production_problems()
+        == []
+    )
+    (problem,) = FederatedIdentityService(allow_provisioning=True).production_problems()
+    assert "requires an identity allowlist in production" in problem
+
+
+def test_an_ungated_provisioner_outside_production_is_permitted_but_never_silent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Permissive in the inner loop, never quiet — the asymmetry ADR 0128 names.
+
+    Before this, the state was completely silent outside production: no warning, no
+    verdict, nothing in any dev run or CI log. The first mention of it was the production
+    boot that refused, which is the failure ADR 0128 exists to end, one layer out from
+    the control-plane declarations that lane reads.
+    """
+    with caplog.at_level(
+        logging.WARNING, logger="terp.capabilities.identity.federated"
+    ):
+        FederatedIdentityService(allow_provisioning=True)
+    assert "UNGATED" in caplog.text
+    assert "REFUSED" in caplog.text, "the dev warning must say what production does"
+
+    caplog.clear()
+    with caplog.at_level(
+        logging.WARNING, logger="terp.capabilities.identity.federated"
+    ):
+        FederatedIdentityService(allow_provisioning=True, allowed_email_domains=("acme.test",))
+    assert caplog.text == "", "a gated provisioner has nothing to warn about"
 
 
 def test_development_still_provisions_without_an_allowlist(db_session: Session) -> None:
