@@ -105,6 +105,39 @@ def _pinned_spec_version() -> str | None:
 #: ``references_declare_delete_behaviour`` (ADR 0133), by terp-spec 0.34.0.
 _AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
 
+#: The same window, one level down: runtime enforcement refs whose SPELLING this
+#: repository has changed and the published catalog has not caught up with yet.
+#:
+#: Thirteen boot-time controls carried a leading underscore while a released artifact in
+#: another repository cited them by name. Both halves of that were wrong at once. A
+#: private name says "this may be renamed without notice", so a refactor the design
+#: explicitly permits would have broken a published catalog and cost a spec release to
+#: repair — and in the other direction, a private name is unusable by any second
+#: implementation, which is exactly the property stack-neutrality promises.
+#:
+#: Listing a ref here says: renamed to its public spelling in this repository,
+#: not yet renamed in a published catalog. The assertion below then resolves the PUBLIC
+#: name, so the allowance still proves the control exists rather than waving it through,
+#: and ``test_release_versions`` requires the set to be empty to cut a release — the same
+#: shape, and the same closing moment, as the rule allowance above.
+_AWAITING_SPEC_REF_RENAME: frozenset[str] = frozenset(
+    {
+        "_freeze_app_middleware_registration",
+        "_freeze_app_route_registration",
+        "_freeze_dependency_overrides",
+        "_reject_positional_tuple_schemas",
+        "_validate_background_jobs_preserve_ownership",
+        "_validate_declared_operations",
+        "_validate_list_routes_paginate",
+        "_validate_policy_write_tiers",
+        "_validate_public_modules_read_only",
+        "_validate_requires",
+        "_validate_router_response_models",
+        "_validate_routes_declare_response_model",
+        "_validate_schemas_exclude_sensitive_fields",
+    }
+)
+
 
 # --------------------------------------------------------------------------- #
 # backend: catalog <-> terp.arch, both directions
@@ -411,6 +444,11 @@ def test_runtime_enforcement_refs_resolve_to_real_symbols() -> None:
                     f"(add it to _RUNTIME_TOOL_SOURCES)"
                 )
                 symbol = enforcement["ref"]
+                if symbol in _AWAITING_SPEC_REF_RENAME:
+                    # The rename window. Resolve the PUBLIC spelling this repository now
+                    # carries, so the allowance still proves the control is there — it
+                    # permits a stale NAME, never a missing control.
+                    symbol = symbol.lstrip("_")
                 pattern = re.compile(
                     rf"\b(?:class|(?:async\s+)?def|function)\s+{re.escape(symbol)}\b"
                 )
@@ -449,3 +487,40 @@ def test_black_box_enforcement_refs_resolve_to_conformance_probes() -> None:
         "a rule classified layer=black-box must name its @terpjs/conformance probe "
         f"(a black-box enforcement entry): {sorted(black_box_layer_rules)}"
     )
+
+
+def test_the_ref_rename_allowance_is_real_and_still_waiting() -> None:
+    """The allowance may not rot, in either direction.
+
+    An entry whose public counterpart does not exist would permit a ref that names
+    nothing — the exact hole the resolver test is for. An entry whose PRIVATE name is
+    still defined here means the rename never happened, so the allowance is covering a
+    change nobody made. And an entry the published catalog no longer cites is dead
+    weight in a list whose whole value is that it empties.
+    """
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for root in _RUNTIME_TOOL_SOURCES.values()
+        for path in root.rglob("*.py")
+    )
+    cited = {
+        enforcement["ref"]
+        for surface in ("backend", "frontend")
+        for entry in _entries(surface).values()
+        for enforcement in entry["enforcement"]
+        if enforcement["kind"] == "runtime"
+    }
+    for private in sorted(_AWAITING_SPEC_REF_RENAME):
+        public = private.lstrip("_")
+        assert re.search(rf"\bdef {re.escape(public)}\b", source), (
+            f"{private!r} is allowed as a stale spelling of {public!r}, and {public!r} "
+            "is not defined — the allowance would permit a ref naming nothing"
+        )
+        assert not re.search(rf"\bdef {re.escape(private)}\b", source), (
+            f"{private!r} is still defined here, so the rename it allows for never "
+            "happened — drop the entry rather than carrying an allowance for nothing"
+        )
+        assert private in cited, (
+            f"the published catalog no longer cites {private!r} — the window is shut, "
+            "so remove it from _AWAITING_SPEC_REF_RENAME"
+        )

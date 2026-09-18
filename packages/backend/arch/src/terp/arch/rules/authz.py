@@ -170,7 +170,7 @@ def _module_policy_calls(tree: ast.Module) -> list[ast.Call]:
 # The default role ladder's ranks, so the build rule can compare a statically
 # resolvable read/write tier (``Roles.VIEWER`` / the ``VIEWER`` constant / ``x.ADMIN``).
 # A *custom* role's rank is not knowable from a source scan, so those are compared by
-# their resolved rank at boot (``create_app`` -> ``_validate_policy_write_tiers``); this
+# their resolved rank at boot (``create_app`` -> ``validate_policy_write_tiers``); this
 # rule is the early-warning build-time half.
 _DEFAULT_ROLE_RANKS: dict[str, int] = {"VIEWER": 10, "EDITOR": 20, "ADMIN": 30}
 
@@ -210,7 +210,7 @@ def check_mutations_require_write_role(
     lower ``EDITOR``). ``Policy.default()`` (read=VIEWER, write=EDITOR) is the safe
     default; ``ADMIN`` is fine. A *custom* role ladder's ranks are not knowable from a
     source scan, so those are enforced by the boot-time check
-    (``create_app`` -> ``_validate_policy_write_tiers``) — this rule is the early-warning
+    (``create_app`` -> ``validate_policy_write_tiers``) — this rule is the early-warning
     build-time half. A public module is governed by ``public_modules_are_read_only``
     instead. The check is tied to the policy bound to the module's ``ModuleSpec(policy=…)``.
     """

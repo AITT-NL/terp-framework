@@ -14,6 +14,61 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **The framework exempted its own packages from the harness it ships.** The 500-line cap
+  applies to every file of every consuming app; `core`, `arch`, `cli` and `migrations`
+  were not self-scanned at all — roughly 38,000 lines outside the gate this repository
+  sells, thirty of them in files over the cap.
+
+  Two costs, and the second is the expensive one. A consumer who hits the cap and looks
+  at the framework finds a 3,818-line file, so the rule reads as arbitrary rather than
+  principled, and the first thing they ask for is an exemption. And the unscanned lines
+  are where a real regression would live — `capabilities` were exactly this until they
+  were scanned, and scanning them found two service bypasses.
+
+  `migrations` now passes the whole harness outright, with no opt-outs. `arch` passes
+  with a checked-in budget: six oversized rule modules and one build-time CLI diagnostic,
+  each carrying a justified, greppable, shrink-only marker in place of a silent
+  exemption.
+
+  `core` (72 findings) and `cli` (124, of which 98 are `no_print` — a CLI prints) are not
+  scanned yet, and `packages/backend/UNSCANNED.json` records exactly what each one finds
+  so the debt is counted rather than invisible. That is deliberate: many of those
+  findings are inherent to being the kernel — `no_app_instantiation` fires on
+  `create_app`, whose whole job is to instantiate the app — and each needs a per-finding
+  judgement, with some of them likely to be real bugs rather than exemptions. Stamping
+  196 markers to turn the suite green is the budget-as-decoration failure the ratchet
+  exists to prevent.
+
+  The record is held like every other ratchet here: a count may fall and never rise, a
+  new rule appearing fails, lowering a count without lowering the record fails, and a
+  package that empties leaves the file and joins the scanned list.
+
+- **Thirteen boot-time controls were named privately while a released standard cited them
+  by name.** The Terp Standard's catalog names each fail-closed runtime control as the
+  `runtime` enforcement ref of the rule it enforces, and sixteen of forty of those refs
+  carried a leading underscore. Two incompatible positions, both paid for here: renaming
+  a private validator inside `create_app` — a refactor the design explicitly permits —
+  would have broken a catalog in a separate released repository, and a private name is
+  unusable by any second implementation, which is the property stack-neutrality promises.
+
+  `validate_declared_operations`, `freeze_app_route_registration`,
+  `validate_policy_write_tiers` and ten more now carry their public spelling. They are
+  **not** application API and are deliberately absent from `terp.core.__all__` — an app
+  author never calls one; `create_app` does, once, at composition. Public here means
+  "stable enough to be cited", not "for you", and the comment above them says so.
+
+  The remaining two refs are methods on `BaseService`, where renaming would change what a
+  subclass may call. The standard cites the class instead, which is both stable and
+  accurate: the control is the audited write chokepoint that class owns.
+
+  The cross-repository window this opens is self-closing. `_AWAITING_SPEC_REF_RENAME`
+  lets this repository carry the new names while the published catalog still has the old
+  ones — resolving the *public* symbol, so it permits a stale name and never a missing
+  control — and `test_release_versions` refuses to cut a release while it is non-empty. A
+  rot guard refuses an entry whose public counterpart does not exist, whose private name
+  is still defined (the rename never happened), or that the published catalog no longer
+  cites.
+
 - **The gate had no way to say what it deliberately does not check, so every absence read
   as an oversight.** `terp verify --list` and the JSON manifest listed what runs and had
   no slot for what does not — and a decision already taken, recorded in an ADR nobody

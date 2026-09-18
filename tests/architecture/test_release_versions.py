@@ -214,6 +214,14 @@ def test_no_rule_awaits_a_spec_release() -> None:
 
     from tests.architecture.test_spec_catalog import _AWAITING_SPEC_RELEASE
 
+    from tests.architecture.test_spec_catalog import _AWAITING_SPEC_REF_RENAME
+
+    assert _AWAITING_SPEC_REF_RENAME == frozenset(), (
+        "these runtime enforcement refs are still spelled privately in the published "
+        f"catalog: {sorted(_AWAITING_SPEC_REF_RENAME)} — adopt the spec release that "
+        "renames them before cutting a framework release, or the published Standard "
+        "cites names this repository no longer has"
+    )
     assert _AWAITING_SPEC_RELEASE == frozenset(), (
         "these rules are implemented but their catalog entries are unreleased: "
         f"{sorted(_AWAITING_SPEC_RELEASE)} — adopt the spec release that carries them "
