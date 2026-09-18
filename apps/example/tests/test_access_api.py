@@ -28,6 +28,7 @@ from terp.core import (
     Permission,
     PermissionModel,
     Policy,
+    route_policy,
     Principal,
     Roles,
     create_app,
@@ -88,6 +89,7 @@ def gated_app() -> Iterator[tuple[FastAPI, Engine]]:
         response_model=str,
         dependencies=[Depends(require_permission(widgets_write))],
     )
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
     async def act() -> str:
         return "ok"
 

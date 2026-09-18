@@ -179,6 +179,7 @@ from terp.core.references import (
 )
 from terp.core.routing import (
     declared_operation,
+    route_policy,
     mark_required_permission,
     operation,
     read_only,
@@ -391,6 +392,7 @@ __all__ = [
     "resolve_all_migration_trees",
     "resolve_migration_target",
     "resolve_migration_trees",
+    "route_policy",
     "settings",
     "trigger_schedule",
     "undeclared_references",

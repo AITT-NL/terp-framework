@@ -21,6 +21,7 @@ from terp.core import (
     InMemoryThrottleStore,
     ModuleSpec,
     Policy,
+    route_policy,
     SecurityConfig,
     ThrottleStore,
     create_app,
@@ -156,6 +157,7 @@ def test_create_app_accepts_a_shared_store() -> None:
     router = APIRouter()
 
     @router.get("/ping")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def ping() -> dict[str, str]:
         return {"ok": "1"}
 
@@ -172,6 +174,7 @@ def _warning_spec() -> ModuleSpec:
     router = APIRouter()
 
     @router.get("/ping")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def ping() -> dict[str, str]:
         return {"ok": "1"}
 

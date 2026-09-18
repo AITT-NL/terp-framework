@@ -35,6 +35,7 @@ from terp.core import (
     ModuleSpec,
     NotFoundError,
     Policy,
+    route_policy,
     RateLimit,
     SecurityConfig,
     SecurityHeaders,
@@ -79,6 +80,7 @@ def _probe_app(security: SecurityConfig) -> FastAPI:
     router = APIRouter()
 
     @router.get("/ping")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def ping() -> dict:
         return {"ok": True}
 
@@ -1013,6 +1015,7 @@ def test_unexpected_exception_renders_a_500_envelope() -> None:
     router = APIRouter()
 
     @router.get("/kaboom")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def kaboom() -> dict:
         raise RuntimeError("secret-internal-detail")
 
@@ -1045,10 +1048,12 @@ def _rate_limited_spec(
     router = APIRouter()
 
     @router.get("/ping")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def ping() -> dict:
         return {"ok": True}
 
     @router.get("/cheap")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def cheap() -> dict:
         return {"ok": True}
 

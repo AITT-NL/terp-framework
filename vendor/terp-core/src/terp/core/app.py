@@ -78,7 +78,9 @@ from terp.core.module_spec import ModuleSpec, Policy, decide
 from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
 from terp.core.routing import (
+    declared_route_policy,
     MUTATING_METHODS,
+    effective_policy,
     declared_operation,
     is_read_only,
     iter_declaring_routes,
@@ -228,8 +230,19 @@ def build_guard(
         # WebSocket, so the SAME deny-by-default module guard protects both
         # transports. A WebSocket has no HTTP method after upgrade and defaults
         # to the write tier; a capability may apply finer per-message authority.
+        #
+        # The matched route is in the scope before any dependency runs, so this one
+        # dependency can still hold each route to its OWN declared policy (ADR 0148)
+        # where it declares one. Resolved per request rather than per mount, because a
+        # router-level dependency is built once and serves every route under it.
+        # `getattr` rather than `connection.scope`: the guard is also called directly,
+        # with a stand-in connection, by tests that are about the decision and not about
+        # routing. A missing scope simply means no route was matched, which is exactly
+        # the case where the module policy is the only answer available.
+        scope = getattr(connection, "scope", None) or {}
+        applied = effective_policy(policy, getattr(scope.get("route"), "endpoint", None))
         decision = decide(
-            policy,
+            applied,
             method=request_method(connection),
             role=None if principal is None else principal.role,
             role_is_registered=(
@@ -1049,17 +1062,65 @@ def _apply_declared_operations(specs: Sequence[ModuleSpec]) -> None:
             route.operation_id = declared.id
 
 
+def _validate_public_routes_are_declared(specs: Sequence[ModuleSpec]) -> None:
+    """Every route in a public module must declare its own policy (ADR 0148).
+
+    A module ``Policy`` covers its whole router, so ``Policy.public`` admitted every route
+    under it — the ones that genuinely must be reachable without a token, and any route
+    added beside them afterwards. Nothing announced the second case: an author adding an
+    endpoint to the auth module got an unauthenticated one and no diagnostic, because
+    public was a property of the neighbourhood rather than of the route.
+
+    So a public module now has to say so once per route. Every one of them ends up marked
+    ``route_policy(Policy.public...)``, which looks like ceremony until the next route
+    arrives: that one fails at boot instead of being quietly published. The check is for
+    the *absence* of a declaration, so it cannot be satisfied by accident, and it is only
+    asked of public modules — a protected module's routes inherit a safe default and need
+    no ritual.
+    """
+    for spec in specs:
+        policy = spec.policy
+        if policy is None or not policy.is_public or spec.router is None:
+            continue
+        # `iter_declaring_routes`, not `_iter_api_routes`: the latter yields HTTP routes
+        # only, and a WebSocket is exactly the route that must not be quietly public --
+        # it has no method after the upgrade, so the guard treats it as a write.
+        for route in iter_declaring_routes(spec.router.routes):
+            if declared_route_policy(getattr(route, "endpoint", None)) is not None:
+                continue
+            raise BootError(
+                f"module {spec.name!r} is public and route "
+                f"{getattr(route, 'path', '?')!r} declares no "
+                "policy of its own; a public module admits nobody by neighbourhood -- "
+                "mark the route route_policy(Policy.public(reason=...)) (or "
+                "Policy.public_write(...)) if it must be reachable without a token, or "
+                "route_policy(Policy.default()) if it must not"
+            )
+
+
 def _validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed when a public router exposes writes without the stronger opt-out."""
     for spec in specs:
         policy = spec.policy
         if policy is None or not policy.is_public or spec.router is None:
             continue
-        if _router_has_mutating_route(spec.router) and not policy.allows_public_writes:
+        for route in _iter_api_routes(spec.router.routes):
+            if not MUTATING_METHODS & {m.upper() for m in (route.methods or ())}:
+                continue
+            # The route's own policy where it has one: a route that declared itself
+            # protected inside a public module is not an unauthenticated write, and
+            # measuring it against the module's policy would demand an opt-out for a
+            # door that is shut.
+            applied = effective_policy(policy, route.endpoint)
+            if applied is None or not applied.is_public:
+                continue
+            if applied.allows_public_writes:
+                continue
             raise BootError(
-                f"module {spec.name!r} is public but exposes a mutating route; "
-                "unauthenticated writes require Policy.public_write(reason=...) so the "
-                "runtime opt-out is explicit and greppable"
+                f"module {spec.name!r} exposes the unauthenticated mutating route "
+                f"{route.path!r}; unauthenticated writes require "
+                "Policy.public_write(reason=...) so the runtime opt-out is explicit "
+                "and greppable"
             )
 
 
@@ -1933,6 +1994,7 @@ def create_app(
     _validate_no_inert_declarations(collected)
     _validate_token_revocation(principal_provider, require_token_revocation)
     _validate_policy_write_tiers(collected)
+    _validate_public_routes_are_declared(collected)
     _validate_public_modules_read_only(collected)
     _validate_declared_operations(collected, resolved_plane.operations)
     _apply_declared_operations(collected)

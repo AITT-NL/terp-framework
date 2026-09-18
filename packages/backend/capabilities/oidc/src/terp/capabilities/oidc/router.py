@@ -40,6 +40,7 @@ from terp.core import (
     client_ip,
     is_sealed_config,
     operation,
+    route_policy,
 )
 
 from terp.capabilities.auth import (
@@ -147,6 +148,11 @@ def build_oidc_router(
     router = APIRouter(tags=["auth"])
 
     @router.get("/{provider}/authorize", response_model=AuthorizationRequest)
+    @route_policy(
+        Policy.public_write(
+            reason="an SSO flow starts before the caller has any session to gate on"
+        )
+    )
     @operation(OIDC_AUTHORIZE)
     def authorize(provider: str) -> AuthorizationRequest:
         client = _client(provider)
@@ -161,6 +167,12 @@ def build_oidc_router(
         )
 
     @router.post("/{provider}/callback", response_model=AccessToken)
+    @route_policy(
+        Policy.public_write(
+            reason="the provider redirects an unauthenticated browser here; the code "
+            "and the single-use state are the credentials"
+        )
+    )
     @operation(OIDC_CALLBACK)
     def callback(
         provider: str,

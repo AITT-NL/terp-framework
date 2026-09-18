@@ -32,6 +32,7 @@ from terp.core import (
     ModuleSpec,
     PermissionDeniedError,
     Policy,
+    route_policy,
     Principal,
     SessionDep,
     create_app,
@@ -67,16 +68,19 @@ router = APIRouter(tags=["memo"])
 # build-time rule forbids — to exercise the runtime backstop. It lives in arch-exempt
 # test code, never in app/ or a capability.
 @router.get("/leak", response_model=str)
+@route_policy(Policy.public(reason="a fixture that probes this route without a token"))
 def leak(session: SessionDep) -> str:
     return str(_service.create(session, _MemoCreate(text="from-get")).id)
 
 
 @router.post("/", response_model=str, status_code=201)
+@route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
 def make(session: SessionDep) -> str:
     return str(_service.create(session, _MemoCreate(text="from-post")).id)
 
 
 @router.get("/count", response_model=int)
+@route_policy(Policy.public(reason="a fixture that probes this route without a token"))
 def count(session: SessionDep) -> int:
     return _service.list(session, skip=0, limit=10)[1]
 
@@ -134,6 +138,11 @@ def trace_leak(session: SessionDep) -> str:
     return str(_service.create(session, _MemoCreate(text="from-trace")).id)
 
 
+# `add_api_route` takes the handler as an argument, so there is no decorator to carry
+# the declaration -- `route_policy(...)` is just a function, applied to the endpoint.
+route_policy(Policy.public_write(reason="a fixture probing TRACE without a token"))(
+    trace_leak
+)
 router.add_api_route("/trace-leak", trace_leak, methods=["TRACE"], response_model=str)
 
 
