@@ -97,6 +97,59 @@ STUDIO_RENDERS_SCOPED_FILES = False
 #: Property fields Studio requires to be short strings.
 _TEXT_FIELDS = ("type", "title", "description", "format", "group", "resolvedBy")
 
+#: Every field a declaration may carry. Studio's reader keeps exactly its own list and
+#: **drops** the rest -- the module docstring above says so, and that drop is silent.
+#: For most fields that is harmless. For one it inverts the platform's central claim:
+#: an author who writes ``"secret": true`` instead of ``"format": "secret"`` has written
+#: a key nothing recognises, so the variable is stored as an ordinary shared value in
+#: plain records rather than routed through sealed custody -- and every check stays
+#: green, because a dropped key leaves nothing behind to disagree with. Insecurity is
+#: then not an explicit, greppable, budgeted opt-out; it is a typo, and it is invisible.
+#: The manifest is the seam to the pipeline that holds real credentials, it is written
+#: once per app, and it is rarely re-read, so "invisible" means "permanent".
+#:
+#: Refusing an unrecognised key here is the whole fix: the gate runs where the edit
+#: happens. ``$``-prefixed keys are exempt because they are JSON Schema's own annotation
+#: convention and carry no behaviour -- the shipped manifests use ``$comment`` for
+#: exactly that.
+#: ``default`` and ``services`` are this half's own: ``terp env init`` fills a default in
+#: and ``env-seams`` judges a loopback one, and the deploy side's field list carries
+#: neither -- so it drops both, which is the same hazard as ``secret`` pointed the other
+#: way and is tracked separately. Listing them here is not a claim that they travel; it is
+#: the honest set of fields SOMETHING in the platform reads, which is what decides whether
+#: writing one is a mistake.
+PROPERTY_FIELDS = frozenset(
+    {
+        "type",
+        "title",
+        "description",
+        "format",
+        "enum",
+        "group",
+        "resolvedBy",
+        "default",
+        "services",
+    }
+)
+
+#: What ``format`` may say, closed for the same reason ``resolvedBy`` is closed: a typo
+#: in an open vocabulary is silently inert, and this is the one field whose value decides
+#: whether a value is sealed. ``secret`` routes through sealed custody; ``port`` and
+#: ``hostname`` are the narrowed inputs the deploy-target kinds already render; ``plain``
+#: is the author saying a credential-shaped name does not hold a credential, which is the
+#: one opt-out :data:`CREDENTIAL_NAME_WORDS` accepts -- in the file, in the diff, and
+#: greppable, rather than by saying nothing.
+FORMAT_VALUES = frozenset({"secret", "port", "hostname", "plain"})
+
+#: Final name segments that mean "this holds a credential". Matched on the last
+#: underscore-separated word, so both ``API_TOKEN`` and a bare ``TOKEN`` are read the
+#: same way. Deliberately a small, unambiguous list: the check's cost is a one-word
+#: opt-out on a false positive, and its value is catching the variable whose declaration
+#: forgot the single field that decides whether its value is sealed at rest.
+CREDENTIAL_NAME_WORDS = frozenset(
+    {"SECRET", "TOKEN", "PASSWORD", "PASSPHRASE", "KEY", "CREDENTIAL", "CREDENTIALS"}
+)
+
 _NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _SERVICE_RE = re.compile(SERVICE_NAME_PATTERN)
 
@@ -202,6 +255,32 @@ def _property_findings(name: object, prop: object) -> list[ManifestFinding]:
         return [ManifestFinding(name, 'must be an object, e.g. {"type": "string"}')]
 
     findings: list[ManifestFinding] = []
+    for field in sorted(k for k in prop if isinstance(k, str)):
+        if field in PROPERTY_FIELDS or field.startswith("$"):
+            continue
+        if field == "secret":
+            # The mis-key this whole check exists for, named with its exact fix. It is
+            # the plausible spelling -- Studio's own GUI calls the concept "secret" and
+            # its authoring API takes `secret=True` -- which is why it has to be refused
+            # rather than left to be noticed.
+            findings.append(
+                ManifestFinding(
+                    f"{name}.secret",
+                    'is not a field this dialect has -- write "format": "secret", which '
+                    "is what routes the value through sealed custody; an unrecognised "
+                    "key is DROPPED, so this variable would be stored as an ordinary "
+                    "shared value in plain records with nothing to say so",
+                )
+            )
+            continue
+        findings.append(
+            ManifestFinding(
+                f"{name}.{field}",
+                "is not a field this dialect has, and the deploy side drops what it "
+                "does not recognise rather than refusing it -- so a misspelled field "
+                f"silently does nothing; use one of {', '.join(sorted(PROPERTY_FIELDS))}",
+            )
+        )
     for field in _TEXT_FIELDS:
         value = prop.get(field)
         if value is None:
@@ -235,6 +314,34 @@ def _property_findings(name: object, prop: object) -> list[ManifestFinding]:
                 f"is {resolved_by!r} -- use one of "
                 f"{', '.join(sorted(RESOLVED_BY_VALUES))} (who resolves the address: a "
                 "service on the compose network, your shell, or the user's browser)",
+            )
+        )
+    fmt = prop.get("format")
+    # Same shape as the resolvedBy check above, and the same reason: judge the vocabulary
+    # only once the value cleared the string/length check, so one mistake is one offence.
+    if isinstance(fmt, str) and len(fmt) <= MAX_TEXT and fmt not in FORMAT_VALUES:
+        findings.append(
+            ManifestFinding(
+                f"{name}.format",
+                f"is {fmt!r} -- use one of {', '.join(sorted(FORMAT_VALUES))}. Only "
+                '"secret" seals a value; every other spelling, including a near miss '
+                'like "secrt", is inert and leaves the value in plain records',
+            )
+        )
+    elif (
+        fmt is None
+        # A property that carries the mis-key has already been told to write
+        # `"format": "secret"`, and that is the identical fix -- saying it twice
+        # buries the one line the author has to change.
+        and "secret" not in prop
+        and name.rsplit("_", 1)[-1] in CREDENTIAL_NAME_WORDS
+    ):
+        findings.append(
+            ManifestFinding(
+                f"{name}.format",
+                'is absent on a credential-shaped name -- declare "format": "secret" so '
+                'the value is sealed at rest and write-only in the UI, or "format": '
+                '"plain" to record that this one does not hold a credential',
             )
         )
     enum = prop.get("enum")

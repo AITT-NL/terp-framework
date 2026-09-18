@@ -1838,10 +1838,32 @@ configuration, so `env-seams` checks the shape first and reports every defect at
     variable well is easily longer than that. Write the long version in AGENTS.md or the
     code, and keep the manifest's to a sentence or two.
   - resolvedBy is one of host | container | browser.
+  - format is one of secret | port | hostname | plain.
   - enum is a list of at most 50 strings of at most 200 characters each.
 
-Unknown fields are dropped rather than refused, so anything outside that set is not
-carried to Studio -- do not encode meaning in one.
+A FIELD OUTSIDE THAT SET IS REFUSED HERE, because the deploy side DROPS what it does not
+recognise rather than refusing it -- so a misspelled field silently does nothing, and the
+manifest still reads as deliberate. One spelling makes that a security defect rather than
+a puzzle:
+
+    "MY_API_TOKEN": { "type": "string", "secret": true }     # WRONG -- refused
+    "MY_API_TOKEN": { "type": "string", "format": "secret" } # what seals the value
+
+`"secret": true` is the plausible mistake, not an exotic one: the deploy side's own UI
+calls the concept "secret" and its authoring API takes secret=True. Written that way the
+key is dropped, the value is stored as an ordinary shared value in plain records rather
+than through sealed custody, and nothing anywhere disagrees. A near miss in `format`
+itself (`"secrt"`) does the same, which is why that vocabulary is closed too.
+
+A CREDENTIAL-SHAPED NAME MUST SAY WHICH IT IS. A variable whose last word is SECRET,
+TOKEN, PASSWORD, PASSPHRASE, KEY, CREDENTIAL or CREDENTIALS and declares no `format` is
+refused: silence there is indistinguishable from a decision. Declare `"format": "secret"`
+to seal it, or `"format": "plain"` to record that this one holds no credential -- a
+public key, a sort key. The opt-out is one word, in the file and in the diff, which is
+the standard the platform applies to every other insecurity.
+
+$-prefixed keys ($comment and friends) are JSON Schema's own annotation convention and
+are not misspellings -- the shipped manifests use $comment for exactly that.
 
 `terp env` IS THE COMMAND FOR THE MACHINE YOU ARE ON. A deploy tool renders and
 seals .app.env per environment; for the working copy the only seam used to be a

@@ -10,6 +10,43 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.25.0 — 2026-09-18
+
+### Fixed
+
+- **A mis-keyed secret in `environment.schema.json` was silently plaintext, and the gate
+  stayed green (`terp verify --only env-seams`).** An app marks a declared variable
+  write-only with `"format": "secret"`; that is what routes its value through sealed
+  custody instead of storing it in plain records. The plausible mistake is
+  `"secret": true` — the deploy side's own interface calls the concept "secret" and its
+  authoring API takes `secret=True` — and the deploy side keeps its own field list and
+  **drops** what it does not recognise rather than refusing it. So the key left nothing
+  behind to disagree with: the variable was stored as an ordinary shared value, the
+  manifest read as deliberate, and every check passed.
+
+  That is the platform's central claim inverted. "Insecurity needs an explicit,
+  greppable, budgeted opt-out" became "insecurity is a typo, and it is invisible" — in
+  the one file that is the seam to the pipeline holding real credentials, written once
+  per app and rarely re-read.
+
+  Three checks close it, all in the app's own gate, where the edit happens:
+
+  - **A property field outside the dialect is refused**, `"secret"` by name and with its
+    exact fix. `$`-prefixed keys stay legal: they are JSON Schema's own annotation
+    convention and the shipped manifests use `$comment` for exactly that.
+  - **`format` has a closed vocabulary** — `secret`, `port`, `hostname`, `plain` — for
+    the reason `resolvedBy` already has one. A near miss like `"secrt"` is not a weaker
+    seal, it is no seal, and an open vocabulary cannot say so.
+  - **A credential-shaped name must say which it is.** A variable whose last word is
+    `SECRET`, `TOKEN`, `PASSWORD`, `PASSPHRASE`, `KEY`, `CREDENTIAL` or `CREDENTIALS` and
+    declares no `format` is refused: silence there is indistinguishable from a decision.
+    `"format": "secret"` seals it; `"format": "plain"` records that this one holds no
+    credential — a public key, a sort key. One word, in the file and in the diff, which
+    is the standard the platform applies to every other insecurity.
+
+  Adopting this will find things, and finding them is the point. `terp guide environment`
+  carries the recipe.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added
