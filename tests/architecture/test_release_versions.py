@@ -17,6 +17,7 @@ import re
 import tomllib
 
 import pytest
+import yaml
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -296,3 +297,71 @@ def test_in_repo_consumers_track_the_workspace(path: pathlib.Path) -> None:
                     f"('^{_RELEASE_VERSION}'), or npm silently installs the previous release "
                     f"from the registry at the next bump"
                 )
+
+# --------------------------------------------------------------------------- #
+# The manual-publish dropdown                                                   #
+# --------------------------------------------------------------------------- #
+#
+# `release.yml`'s `workflow_dispatch` lists every backend distribution by path, so a
+# maintainer can create a brand-new PyPI project or backfill one whose upload failed
+# mid-release. The list is hand-maintained and, until this pair of assertions, held by
+# nothing: the parametrisation above reads discovered manifests for *versions* and never
+# for this list. The stated direction is more decomposition into capabilities, so the
+# list grows — and the failure surfaces at the worst possible moment, when a release is
+# already half-published and the missing distribution is the one that cannot be pushed.
+
+_RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yml"
+
+
+def _dispatch_package_options() -> list[str]:
+    document = yaml.safe_load(_RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    # YAML 1.1 reads a bare `on:` as the boolean True, which is what PyYAML hands back
+    # for a workflow's trigger block. Accept either spelling rather than depending on
+    # which one the loader chose.
+    triggers = document.get("on", document.get(True))
+    assert triggers, f"{_RELEASE_WORKFLOW.name} declares no triggers"
+    return list(triggers["workflow_dispatch"]["inputs"]["package"]["options"])
+
+
+def _discovered_package_paths() -> list[str]:
+    return sorted(
+        path.parent.relative_to(_REPO_ROOT).as_posix() for path in _BACKEND_PYPROJECTS
+    )
+
+
+def test_the_manual_publish_dropdown_offers_every_backend_distribution() -> None:
+    """A distribution the dropdown cannot name cannot be created or backfilled.
+
+    0.19.0 shipped partially published and uninstallable for exactly this shape of
+    reason — a new distribution stopping the release with its siblings already live.
+    Trusted publishing cannot pre-register a not-yet-existing project, so the *only*
+    path for a brand-new package is this dropdown, and the moment it is missing an
+    entry the recovery route is editing a workflow under release pressure.
+    """
+    missing = sorted(
+        set(_discovered_package_paths()) - set(_dispatch_package_options())
+    )
+    assert missing == [], (
+        "these backend distributions ship a pyproject.toml but release.yml's "
+        f"workflow_dispatch cannot publish them: {missing} — add each to "
+        "`on.workflow_dispatch.inputs.package.options`"
+    )
+
+
+def test_the_manual_publish_dropdown_offers_nothing_that_moved() -> None:
+    """The other direction, for the same reason `test_codeowners` checks it: a stale
+    option is indistinguishable from a live one until someone selects it, and the moment
+    someone selects it is the moment a release is already going wrong."""
+    stale = sorted(set(_dispatch_package_options()) - set(_discovered_package_paths()))
+    assert stale == [], (
+        "release.yml offers these paths for publication and no pyproject.toml lives "
+        f"there: {stale} — the distribution moved or was withdrawn, so drop the option"
+    )
+
+
+def test_the_dropdown_lists_each_distribution_once() -> None:
+    options = _dispatch_package_options()
+    duplicates = sorted({option for option in options if options.count(option) > 1})
+    assert duplicates == [], (
+        f"release.yml lists these paths more than once: {duplicates}"
+    )
