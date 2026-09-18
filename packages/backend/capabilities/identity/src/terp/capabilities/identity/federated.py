@@ -21,6 +21,16 @@ directory, which is an ordinary configuration mistake) and every other gate here
 still passes for an account nobody in this deployment has heard of. Outside
 production the allowlist is optional, so a local run against a test IdP needs no
 ceremony; in production its absence refuses at construction.
+
+What the allowlist cannot say is "let them in, but not yet". Both of the knobs above
+are admission rules evaluated once, and the account they admit is live the moment it
+exists — because the *lowest* rank is not "no access": a rung is a floor that modules
+read, so `viewer` is already whatever an application's `role:viewer` routes chose to
+expose. An application wanting the ordinary internal-tool shape — anyone the directory
+vouches for may ask for an account, a human decides whether it opens — had nowhere to
+put the second half. ``provisioned_active=False`` is that seam: the row and its link
+are written, this login is refused, and the account waits for an administrator exactly
+as a deactivated one does (ADR 0142).
 """
 
 from __future__ import annotations
@@ -76,6 +86,7 @@ class FederatedIdentityService(
         *,
         allow_provisioning: bool = False,
         provisioned_rank: int = int(Roles.VIEWER),
+        provisioned_active: bool = True,
         allowed_email_domains: Iterable[str] | None = None,
         provision_allowed: ProvisionGate | None = None,
     ) -> None:
@@ -106,6 +117,7 @@ class FederatedIdentityService(
             )
         self._allow_provisioning = allow_provisioning
         self._provisioned_rank = provisioned_rank
+        self._provisioned_active = provisioned_active
         self._allowed_email_domains = domains
         self._provision_allowed = provision_allowed
 
@@ -159,6 +171,13 @@ class FederatedIdentityService(
         then only with a **verified** email claim, and never when a user with that
         email already exists (auto-linking by email is the account-takeover vector;
         link the existing account explicitly via :meth:`link` instead).
+
+        Under ``provisioned_active=False`` a first login **writes** the account and its
+        link and still returns ``None``: the rows record that someone asked, and an
+        administrator decides whether the door opens. Every later attempt then takes the
+        linked path above and is refused by the same ``is_active`` check that holds a
+        deactivated account, so activation is the one act that admits them and no second
+        state has to be invented for it.
         """
         existing = self.get_link(session, issuer, subject)
         if existing is not None:
@@ -182,9 +201,17 @@ class FederatedIdentityService(
             email=email,
             hashed_password=None,  # SSO-only: no local credential (ADR 0058)
             role=self._provisioned_rank,
+            is_active=self._provisioned_active,
         )
         self._save(session, user, AuditAction.CREATED)  # type: ignore[arg-type]
         self.link(session, user_id=user.id, issuer=issuer, subject=subject)
+        if not self._provisioned_active:
+            # Refusing *here* is the whole of the feature, and returning the row would
+            # undo it: the active check sits on the linked path above, which a first
+            # login never reaches, so handing this user back would mint a session for an
+            # account that is inactive in the database — the one state the caller has no
+            # way to notice, since it receives a principal like any other.
+            return None
         return user
 
 
