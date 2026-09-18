@@ -103,6 +103,15 @@ class ScanSubject:
     Not the :class:`~terp.capabilities.files.File` row: at scan time there is no row yet
     (the verdict decides what its ``scan_state`` will be), and handing a scanner a
     half-built ORM object invites it to write to one.
+
+    ``open_stream()`` returns a fresh readable stream over the stored bytes, and **the
+    scanner owns it** — the same contract as :meth:`FileService.open_stream`, which is
+    where the handle comes from. Close it, or a deployment leaks one file handle per
+    upload and finds out under load rather than in review::
+
+        def scanner(subject: ScanSubject) -> str:
+            with subject.open_stream() as stream:
+                return SCAN_CLEAN if engine.is_clean(stream) else SCAN_REJECTED
     """
 
     __slots__ = ("content_type", "filename", "open_stream", "sha256", "size")
