@@ -102,6 +102,30 @@ def test_platform_ci_runs_the_baseline_blocking() -> None:
     )
 
 
+def test_the_secret_scan_is_scoped_to_the_history_under_test() -> None:
+    """`gitleaks detect` walks every ref in the clone unless told otherwise.
+
+    The checkout above it uses ``fetch-depth: 0``, which fetches every remote branch —
+    so without ``--log-opts`` this step reports secrets from branches the pull request
+    under test has never touched. That is a false positive with the worst possible shape
+    for a security control: it lands on somebody else's change, it cannot be fixed there,
+    and the only way to make it go away is to stop reading the check. A control people
+    learn to scroll past has already failed.
+
+    Scoping to ``HEAD`` is not a narrowing. Every branch's own history is still scanned
+    in full — main's on every push, a pull request's on its own run, and the merge ref
+    carries the base — so a secret still cannot reach the default branch unscanned.
+    """
+    ci = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    match = re.search(r"^\s+\./gitleaks detect .*$", ci, re.MULTILINE)
+    assert match, "ci.yml must run `gitleaks detect` in the generic-checks job"
+    command = match.group(0)
+    assert "--log-opts HEAD" in command, (
+        "the secret scan must be scoped to the history under test "
+        f"(--log-opts HEAD); found: {command.strip()}"
+    )
+
+
 def test_template_ships_the_baseline_config() -> None:
     """The generated project inherits the delegation: exact config + dev dep."""
     ruff = _template_ruff_config()

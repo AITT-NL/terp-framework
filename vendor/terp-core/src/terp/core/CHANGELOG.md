@@ -59,6 +59,29 @@ decision, 0001 onwards.
   This does **not** watch the directory. An account admitted once stays admitted until
   someone deactivates it; membership that changes at the source is not noticed here.
 
+### Fixed
+
+- **The secret scan reported other branches' commits on your pull request.** `gitleaks
+  detect` walks every ref in the clone unless told otherwise, and the checkout above it
+  uses `fetch-depth: 0`, which fetches every remote branch. So one unmerged branch
+  anywhere in the repository turned `generic-checks` red on every **other** open pull
+  request, naming files and commits their authors had never touched — and nothing about
+  the failure said where it came from, because the step reports a count and not the
+  findings.
+
+  That is a false positive with the worst possible shape for a security control: it
+  arrives on somebody else's change, it cannot be fixed there, and the only way to make it
+  go away is to stop reading the check. A control people learn to scroll past has already
+  failed, whatever it would catch.
+
+  The scan is now scoped with `--log-opts HEAD`. This narrows nothing that matters: every
+  branch's own history is still scanned in full — main's on every push, a pull request's
+  on its own run, and the merge ref carries the base — so a secret still cannot reach the
+  default branch unscanned. Mutation-checked both ways: with the scope, a secret committed
+  on the branch is still found; without it, five findings from an unrelated branch come
+  back. A guard in `test_appsec_baseline.py` holds the scope, because the failure it
+  prevents is invisible until somebody else pushes.
+
 ## 0.24.0 — 2026-09-17
 
 ### Added
