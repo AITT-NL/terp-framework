@@ -14,6 +14,27 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **`no_raw_app_routes` refused the only composition an author reaches for, and named no
+  alternative.** A module declares one flat router, which is a deliberate decision and a
+  good one: the module's surface is one mounted, one-Policy thing. It is *not* a limit on
+  how many routes a module may have — routes can be declared on that one router from any
+  number of files — but nothing said so.
+
+  So an author whose `router.py` outgrew the 500-line cap reached for
+  `router.include_router(sub)`, met a refusal from a security-adjacent rule, and was left
+  with two apparent exits: an escape-hatch marker, or splitting the module. Splitting a
+  module splits a `Policy`, a `requires` edge, a nav group and a migration history —
+  a large price for a file that got long.
+
+  The rule is unchanged. The failure message now carries the seam (`from .router import
+  router` in a sibling file, imported from `router.py`), and `terp guide module` gains a
+  "when router.py gets long" section showing it. The recipe is appended to the
+  `include_router` case only: a mounted sub-app has no such alternative, and offering it
+  there would read as though the mount could be rewritten that way.
+
+  The canonical five files are a required set, not a maximum — which the gate already
+  allowed and nobody had written down.
+
 - **`no_hardcoded_credentials` matched identifier names with no view of the value.**
   `TOKEN_ENV = "SOME_API_TOKEN"` is the *name* of a credential; `TOKEN_PATH =
   "/api/v1/auth/token"` is a URL path; `AUTH_TOKEN_FORMAT = "Bearer {token}"` is a wire

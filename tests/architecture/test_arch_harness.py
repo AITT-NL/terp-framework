@@ -1264,6 +1264,67 @@ def test_no_raw_app_routes(tmp_path: pathlib.Path) -> None:
     assert check_no_raw_app_routes(app) == []
 
 
+def test_no_raw_app_routes_names_the_way_to_split_a_long_router(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The rule stays as decided; what was missing is what to do instead.
+
+    `router.include_router(sub)` is refused because a module declares ONE flat router.
+    That decision does not cap how many routes a module may have — routes can be
+    declared on that one router from any number of files — but nothing said so. An
+    author whose router outgrows the 500-line cap reaches for the obvious composition,
+    meets a refusal from a security-adjacent rule, and concludes the only exits are an
+    escape hatch or splitting the module: a Policy, a `requires` edge, a nav group and a
+    migration history, all split, because a file got long.
+
+    So the failure message carries the seam. On this case only — `mount` and the raw
+    route adders have no such alternative and must not imply one.
+    """
+    app = tmp_path / "app"
+
+    _write(app, "modules/notes/router.py", "router.include_router(subrouter)\n")
+    findings = check_no_raw_app_routes(app)
+    assert _rule_names(findings) == {"no_raw_app_routes"}
+    assert "from .router import router" in findings[0].message, findings[0].message
+
+    _write(app, "main.py", "app.mount('/static', files_app)\n")
+    mounted = check_no_raw_app_routes(app)
+    assert _rule_names(mounted) == {"no_raw_app_routes"}
+    assert "from .router import router" not in mounted[0].message, (
+        "a mounted sub-app has no one-router alternative — offering the recipe here "
+        "would read as though the mount could be rewritten that way"
+    )
+
+
+def test_a_module_may_already_split_its_routes_across_files(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The claim the message makes has to be true, or it is worse than no message.
+
+    One router object, declared on from a sibling file, imported by `router.py`. The
+    routes land on the module's declared router, so they are mounted behind the same
+    guard and attributable to the same Policy — the invariant the rule protects is
+    untouched.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from fastapi import APIRouter\n"
+        "router = APIRouter()\n"
+        "from app.modules.notes import routes_reports  # noqa: E402,F401\n",
+    )
+    _write(
+        app,
+        "modules/notes/routes_reports.py",
+        "from app.modules.notes.router import router\n"
+        "@router.get('/reports/', response_model=Page[NoteRead])\n"
+        "def list_reports() -> Page[NoteRead]:\n"
+        "    ...\n",
+    )
+    assert check_no_raw_app_routes(app) == []
+
+
 def test_no_dependency_overrides(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     # Rebinding the principal seam in app code silently disables authentication.

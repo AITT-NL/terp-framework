@@ -124,6 +124,32 @@ Then the codegen chain, in this order — each step reads what the one before it
 `terp verify` runs the drift halves of that chain and names the command to re-run when
 something is stale, so it is the one to reach for if you are unsure what is out of date.
 Policy.default() = authenticated; read VIEWER, write EDITOR.
+
+WHEN router.py GETS LONG
+
+A module declares ONE router. That is about the module's surface being one mounted,
+one-Policy thing -- it is NOT a limit on how many routes the module may have, and the
+file cap is not one either. More files, same router:
+
+    # app/modules/notes/routes_reports.py
+    from app.modules.notes.router import router
+
+    @router.get("/reports/", response_model=Page[ReportRead])
+    def list_reports() -> Page[ReportRead]: ...
+
+    # app/modules/notes/router.py -- import it so the decorators run
+    from fastapi import APIRouter
+    router = APIRouter(tags=["notes"])
+    from app.modules.notes import routes_reports  # noqa: E402,F401
+
+Those routes are on the module's declared router, so they mount behind the same guard
+and answer to the same Policy. The canonical five files are a REQUIRED set, not a
+maximum, so the extra file is fine where it is.
+
+What is refused is composing a SECOND router into the first
+(`router.include_router(sub)`, `no_raw_app_routes`). Splitting the module instead is
+the expensive mistake this section exists to prevent: that splits a Policy, a
+`requires` edge, a nav group and a migration history, because a file got long.
 """,
     "dependencies": """\
 One module needs another (declared edges)
