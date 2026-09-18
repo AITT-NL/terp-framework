@@ -92,3 +92,15 @@ native transport internally, and validates every JSON payload with the supplied
 type guard before exposing it. A transient disconnect closes the consumed-ticket
 transport and remints with bounded exponential backoff; `close()` cancels both a
 pending mint and scheduled reconnects.
+
+`validate` is the drift boundary, and worth naming as such: the authoritative
+shape is this channel's `outbound_model`, which the server validates every publish
+against, while the guard is hand-written client code asserting the same thing.
+Nothing checks the two against each other. So the realistic cause of a rejection
+is not a hostile payload — the only author is this deployment's own backend,
+behind a one-use ticket — but a field added on the server while the guard still
+describes the old shape. A rejected payload is therefore a **message** failure,
+not a transport failure: the message is dropped, the rejection is surfaced once
+on the hook's `error` with the channel named, and the transport stays open and
+keeps delivering. `status` moves to `"error"` only when the connection itself
+fails.

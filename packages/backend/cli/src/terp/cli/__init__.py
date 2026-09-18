@@ -1273,6 +1273,14 @@ Realtime push (realtime capability)
 - Frontend: useRealtimeChannel({ channel: "runs.progress", validate }) from
   @terpjs/react-core performs the whole dance. Never hand-roll EventSource or WebSocket -
   the boundary lint refuses both.
+- THAT validate IS THE DRIFT BOUNDARY. outbound_model is authoritative and the server
+  validates every publish against it; the guard is hand-written client code asserting the
+  same shape, and nothing checks the two against each other. So a guard miss almost never
+  means a hostile payload - the only author is your own backend behind a one-use ticket -
+  it means the guard has fallen behind the model. A rejected payload is handled as a
+  MESSAGE failure: dropped, reported once on the hook's error with the channel named, and
+  the transport stays open and keeps delivering. status goes to "error" only when the
+  connection itself fails. Widen the model, widen the guard in the same change.
 - Inbound (websocket) messages are size-capped, validated against inbound_model, gated by
   inbound_requirement, and handled by on_message with a real session - so a client message
   goes through the same audited service path as an HTTP write.
