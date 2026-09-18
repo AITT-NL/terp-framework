@@ -1,3 +1,4 @@
+# arch-allow-no-oversized-python-files: one themed rule module, and the theme is the unit a reader looks for. Due a split by sub-theme (routing / response models / middleware); tracked here rather than by being invisible
 """HTTP / app-composition rules: response models out, no hand-rolled app or middleware.
 
 ``create_app`` owns composition (deny-by-default guards, the error envelope,

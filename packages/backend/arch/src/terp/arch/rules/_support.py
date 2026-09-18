@@ -1,3 +1,4 @@
+# arch-allow-no-oversized-python-files: the shared substrate every rule module imports -- violation type, path helpers, the marker and suppression machinery. Splitting it would put the escape-hatch contract in two places
 """Shared machinery for the ``terp.arch`` rule modules.
 
 The :class:`ArchViolation` value type, the scan constants, the small AST/path

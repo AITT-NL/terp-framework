@@ -1,3 +1,4 @@
+# arch-allow-no-oversized-python-files: the rule REGISTRY: one import and one table row per rule, plus the root-kind map. Splitting it hides which rules exist, which is the one thing this file is for
 """The Terp secure-by-default fitness rules (design Â§5.10), shipped as a dependency.
 
 Each rule is a pure function that scans a client app's source tree and returns a

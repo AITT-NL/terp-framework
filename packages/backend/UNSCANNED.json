@@ -1,0 +1,35 @@
+{
+  "$comment": "Framework packages the harness does NOT yet scan, and exactly what it finds in each today. A RATCHET: a count may fall and never rise, a rule that reaches zero leaves the record, and a package that empties leaves it entirely -- at which point it joins the scanned list in tests/architecture/test_framework_package_arch.py. Nothing new may join. Held by that same test.",
+  "packages": {
+    "core": {
+      "base_query_not_overridden": 1,
+      "mutations_emit_audit": 7,
+      "no_adhoc_background_runtime": 4,
+      "no_adhoc_middleware": 11,
+      "no_app_instantiation": 1,
+      "no_dependency_overrides": 3,
+      "no_exception_text_in_responses": 3,
+      "no_hardcoded_credentials": 2,
+      "no_internal_imports": 13,
+      "no_manual_actor_stamping": 2,
+      "no_manual_ownership_checks": 5,
+      "no_manual_scope_filtering": 4,
+      "no_oversized_python_files": 5,
+      "no_raw_app_routes": 2,
+      "no_raw_connection_access": 1,
+      "no_raw_session_construction": 1,
+      "path_id_params_are_uuid": 3,
+      "routes_declare_response_model": 4
+    },
+    "cli": {
+      "no_adhoc_background_runtime": 2,
+      "no_blocking_sleep": 2,
+      "no_exception_text_in_responses": 1,
+      "no_internal_imports": 5,
+      "no_oversized_python_files": 8,
+      "no_print": 98,
+      "no_raw_outbound_http": 3,
+      "no_raw_session_construction": 5
+    }
+  }
+}

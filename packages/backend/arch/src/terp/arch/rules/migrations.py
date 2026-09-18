@@ -1,3 +1,4 @@
+# arch-allow-no-oversized-python-files: one themed rule module; the essays above each check are why a reader can work in it at all, and they are most of the length
 """Migration safety rules: a revision must be safe against a database that holds rows.
 
 Terp migrations are the only supported schema-change path, so destructive DDL
