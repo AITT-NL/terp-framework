@@ -143,6 +143,21 @@ decision, 0001 onwards.
   commit, so it passed on an idle machine and failed on whichever file CI happened to be busy
   with.
 
+- **A test gate that dropped a release nobody had arrived for.** The access panel's suite holds
+  the provenance read behind a gate so each step of the settling state machine is a decision the
+  test takes rather than a race. `release()` resumed whatever was parked *at that instant* — and
+  the tests reach it after waiting on a heading the panel renders before that read has left for
+  the gate. When it had not, the release resumed nothing and the read arriving a moment later
+  parked on a gate nobody would open again. The panel then held its pre-read state until the
+  matcher gave up, and the report named an element that never appeared rather than the deadlock
+  underneath it.
+
+  Nothing in the test decided which of the two landed first, so it held on an idle machine and
+  lost on a loaded one — which is how a latent deadlock gets filed as "CI being flaky". The gate
+  now waits for a read to be parked before resuming it, and a regression test forces the losing
+  order instead of hoping to catch it: it fails against the old gate at exactly the matcher
+  budget, every time.
+
 ### Upgrade notes
 
 - **A realtime channel no longer closes itself on a payload its guard rejects.** If an app
