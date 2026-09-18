@@ -256,6 +256,17 @@ jobs:
           # template as shipped passes its own baseline.
           uv run ruff check .
 
+      # The workflow a client actually runs is held to the bar this repository
+      # holds itself to. It is the one artifact that reaches every consumer, so a
+      # weakness here scales in the wrong direction: the more apps, the more
+      # copies, each one already checked in and rarely re-read. Online mode adds
+      # the audits that need the API, which is where a known-vulnerable action is
+      # reported.
+      - name: zizmor — the workflow every generated app inherits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --group lint zizmor /tmp/acceptance-app/.github/workflows
+
       - name: Grow the app the real way — terp new module + gate (hub variant)
         if: matrix.variant == 'hub-all-capabilities'
         working-directory: /tmp/acceptance-app

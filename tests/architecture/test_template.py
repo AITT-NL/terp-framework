@@ -1148,3 +1148,116 @@ def test_the_workspace_and_the_template_pin_one_typescript() -> None:
         "`terp routes` is written against the compiler API and a major bump breaks it: "
         f"{json.dumps(ranges, indent=2, sort_keys=True)}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# The workflow every generated app inherits                                     #
+# --------------------------------------------------------------------------- #
+#
+# This file is the single artifact that reaches every consumer, so a weakness in it
+# scales in the wrong direction: the more apps, the more copies, each already checked
+# in and rarely re-read again. The framework's own CI verifies its gitleaks download
+# against a pinned SHA256 and SHA-pins every action; the template shipped neither, so
+# the mandate this platform sells was inverted in the one place it travels furthest —
+# the unsafe path was the default, it was not greppable, and it carried no budget entry.
+
+_FRAMEWORK_CI = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
+_TEMPLATE_CI = _PROJECT / ".github/workflows/ci.yml.jinja"
+
+#: `uses: owner/repo@<40 hex>` — a tag is a pointer its owner can move, and moving it
+#: changes what runs inside a client's CI with the client's repository checked out.
+_PINNED_USES = re.compile(r"uses:\s*\S+@[0-9a-f]{40}\b")
+_ANY_USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(\S+)", re.M)
+
+
+def _gitleaks_literals(text: str) -> tuple[str | None, str | None]:
+    version = re.search(r'GITLEAKS_VERSION:\s*"([^"]+)"', text)
+    digest = re.search(r'GITLEAKS_SHA256:\s*"([0-9a-f]{64})"', text)
+    return (version.group(1) if version else None, digest.group(1) if digest else None)
+
+
+def test_the_generated_workflow_pins_every_action_by_digest() -> None:
+    floating = [
+        f"{number}: {match.group(1)}"
+        for number, line in enumerate(_TEMPLATE_CI.read_text(encoding="utf-8").splitlines(), 1)
+        if (match := _ANY_USES.match(line)) and not _PINNED_USES.search(line)
+    ]
+    assert floating == [], (
+        "the workflow every generated app inherits references these actions by a movable "
+        f"tag: {floating} — pin as `owner/repo@<sha> # vX.Y.Z`. This is the one artifact "
+        "that scales with the number of clients, so it gets the posture this repository "
+        "applies to itself, not a weaker one"
+    )
+
+
+def test_the_generated_app_ships_an_updater_for_those_pins() -> None:
+    """Pinning without an updater trades a live supply-chain risk for a stale one, and
+    a generated app is long-lived by definition — nobody hand-bumps a digest they have
+    never looked at."""
+    config = _PROJECT / ".github/dependabot.yml"
+    assert config.is_file(), (
+        "the template pins every action by digest and ships nothing to move those pins "
+        "forward — every generated app would freeze its actions at the day it was rendered"
+    )
+    text = config.read_text(encoding="utf-8")
+    for ecosystem in ("github-actions", "pip", "npm", "docker"):
+        assert f"package-ecosystem: {ecosystem}" in text, (
+            f"a generated app ships a {ecosystem} surface that nothing updates"
+        )
+
+
+def test_the_generated_workflow_verifies_the_binary_it_downloads() -> None:
+    """It fetches a binary over the network and runs it against a full-depth checkout.
+    An unverified fetch is the supply-chain hole the tool it installs exists to find,
+    one layer down."""
+    text = _TEMPLATE_CI.read_text(encoding="utf-8")
+    assert "GITLEAKS_SHA256" in text and "sha256sum -c -" in text, (
+        "the generated workflow downloads gitleaks and runs it without checking what "
+        "arrived — verify it against a pinned SHA256 first, as .github/workflows/ci.yml "
+        "does in this repository"
+    )
+
+
+def test_the_two_gitleaks_pins_never_drift_apart() -> None:
+    """Two copies of a version-plus-digest pair, in two files, bumped by hand. The
+    failure mode is not that the template's is wrong — it is that it is a year old,
+    silently, while this repository's moved on."""
+    framework = _gitleaks_literals(_FRAMEWORK_CI.read_text(encoding="utf-8"))
+    template = _gitleaks_literals(_TEMPLATE_CI.read_text(encoding="utf-8"))
+    assert all(framework), f".github/workflows/ci.yml no longer pins gitleaks: {framework}"
+    assert framework == template, (
+        f"this repository pins gitleaks {framework} and the template ships {template} — "
+        "bump both together, or the workflow every client runs verifies a different "
+        "binary from the one this repository proved"
+    )
+
+
+def test_the_generated_workflow_declares_read_only_permissions() -> None:
+    """Without the block a job inherits the repository default, which on many
+    repositories is write: a compromised dependency in any step could then push."""
+    text = _TEMPLATE_CI.read_text(encoding="utf-8")
+    assert re.search(r"^permissions:\n\s+contents: read", text, re.M), (
+        "the generated workflow inherits whatever the client's repository defaults to — "
+        "declare `permissions: contents: read` at the top; nothing in it writes"
+    )
+
+
+def test_the_generated_workflow_leaves_no_credential_in_the_checkout() -> None:
+    checkouts = _TEMPLATE_CI.read_text(encoding="utf-8").count("uses: actions/checkout@")
+    persisted = _TEMPLATE_CI.read_text(encoding="utf-8").count("persist-credentials: false")
+    assert checkouts and persisted == checkouts, (
+        f"{checkouts} checkout(s) and {persisted} `persist-credentials: false` — a "
+        "persisted token stays readable in .git/config by every later step, including "
+        "anything a dependency brought along, and nothing here pushes"
+    )
+
+
+def test_the_acceptance_lane_audits_the_rendered_workflow() -> None:
+    """The template's own posture is only as good as what actually renders. Checking
+    the .jinja source cannot see what copier produces from it."""
+    text = _FRAMEWORK_CI.read_text(encoding="utf-8")
+    assert "zizmor /tmp/acceptance-app/.github/workflows" in text, (
+        "template-acceptance renders the project and never audits the workflow it "
+        "rendered — add the zizmor step, so the artifact a client receives meets the "
+        "same bar as the one this repository runs"
+    )

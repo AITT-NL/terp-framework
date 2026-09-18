@@ -14,6 +14,35 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **Every generated app shipped unpinned GitHub Actions and an unverified `gitleaks`
+  binary.** This repository's own CI pins each action by digest and verifies the gitleaks
+  download against a pinned SHA256 before running it. The workflow the template renders —
+  the one artifact that reaches every client — did neither: seven actions by movable tag,
+  and a `curl … | tar | sudo install` with nothing checking what arrived.
+
+  That is the headline mandate inverted in the place it travels furthest. The unsafe path
+  was the default, it was not greppable, it carried no budget entry, and it scales in the
+  wrong direction: the more apps, the more copies, each already checked in and rarely
+  re-read.
+
+  The rendered workflow now pins every action by digest, verifies the gitleaks download,
+  declares `permissions: contents: read` rather than inheriting whatever the client's
+  repository defaults to, and checks out with `persist-credentials: false` so no token is
+  left readable in `.git/config` by later steps. A generated app also ships
+  `.github/dependabot.yml` covering actions, pip, npm (both manifests that pin
+  `@terpjs/*`) and docker — pinning without an updater only trades a live supply-chain
+  risk for a stale one, and a generated app is long-lived by definition.
+
+  Two checks keep it true rather than true-once. `template-acceptance` now runs `zizmor`
+  over the *rendered* workflow, so the artifact a client receives meets the bar this
+  repository runs on itself — checking the `.jinja` source cannot see what copier produces
+  from it. And a parity test refuses the two gitleaks pins drifting apart, because the
+  failure mode is not that the template's digest is wrong, it is that it is silently a
+  year old while this repository's moved on.
+
+  `copier update` carries all of it. Both new files are template-owned, so an app that has
+  edited neither takes them cleanly.
+
 - **A mis-keyed secret in `environment.schema.json` was silently plaintext, and the gate
   stayed green (`terp verify --only env-seams`).** An app marks a declared variable
   write-only with `"format": "secret"`; that is what routes its value through sealed

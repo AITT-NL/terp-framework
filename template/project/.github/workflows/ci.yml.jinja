@@ -13,23 +13,40 @@ name: ci
 # belongs in the profile, where every driver of the gate — CI, an agent, Terp Studio —
 # picks it up at once.
 
+# Every `uses:` below is pinned BY DIGEST rather than by tag. A tag is a pointer
+# its owner can move, and moving it changes what runs inside your CI with your
+# repository checked out. `.github/dependabot.yml` beside this file is the other
+# half: pinning without an updater only trades a live supply-chain risk for a
+# stale one, so the two are shipped together and neither works alone.
+
 on:
   push:
   pull_request:
+
+# Read-only, declared rather than inherited. Without this block every job gets
+# the repository default, which on many repositories is write — so a compromised
+# dependency in any step below could push to your branches. Nothing here writes
+# to the repository; a job that needs more says so for itself.
+permissions:
+  contents: read
 
 jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          # The checkout does not leave a credential behind in .git/config. Nothing
+          # here pushes, and a persisted token is readable by every later step —
+          # including anything a dependency brought along.
+          persist-credentials: false
           # The secret-scanning lane reads the object graph, not the working tree: a
           # credential that was committed and later removed is gone from the tree and
           # still in the history, and that is the shape the incident usually takes. A
           # shallow clone would scan one commit and report clean.
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/setup-node@v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
       - run: uv sync
@@ -49,11 +66,19 @@ jobs:
       # the check needs a tool on PATH and a full-depth checkout — preconditions a local
       # `terp verify --profile full` has no way to arrange, and failing there for a
       # missing binary would teach people to skip the profile.
+      # The download is CHECKSUM-VERIFIED before it runs, and that is not ceremony:
+      # this step fetches a binary over the network and executes it in a job that
+      # has the repository checked out at full depth. An unverified fetch is the
+      # exact supply-chain hole the tool it installs exists to find, one layer
+      # down. Bump the version and the digest together -- a stale digest fails
+      # loudly at `sha256sum -c`, which is the failure you want.
       - name: Install gitleaks
         env:
           GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
         run: |
           curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
           tar -xzf gitleaks.tgz gitleaks
           sudo install gitleaks /usr/local/bin/gitleaks
       - run: uv run terp verify --profile release --only secret-scanning
@@ -65,9 +90,11 @@ jobs:
     # job so a browser-level failure reads as one, and so the merge bar above stays fast.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
       - run: uv sync
@@ -84,7 +111,7 @@ jobs:
       - run: uv run terp verify --profile release --only conformance
       - name: Upload the Playwright report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report
           path: conformance/playwright-report/
