@@ -951,6 +951,8 @@ export interface components {
             id: string;
             /** Owner Id */
             owner_id: string | null;
+            /** Scan State */
+            scan_state: string;
             /** Sha256 */
             sha256: string;
             /** Size */
