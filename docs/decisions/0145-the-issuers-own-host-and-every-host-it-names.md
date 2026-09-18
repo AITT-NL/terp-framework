@@ -1,4 +1,4 @@
-# 0143 — The issuer's own host, and every host it names
+# 0145 — The issuer's own host, and every host it names
 
 - **Status:** Accepted and implemented. Discovery, JWKS and the token exchange go out
   through `terp.capabilities.egress`; `OIDCClient` takes the egress `sender` / `resolve`
@@ -6,7 +6,7 @@
   client. The capability carries no escape-hatch budget. Held by
   `tests/architecture/test_oidc.py` and `tests/architecture/test_capability_arch.py`.
 - **Date:** 2026-09-18
-- **Relates:** [ADR 0142](0142-one-transport-and-the-caller-that-brings-its-own-policy.md)
+- **Relates:** [ADR 0144](0144-one-transport-and-the-caller-that-brings-its-own-policy.md)
   (the transport this one no longer needed to reimplement),
   [ADR 0117](0117-the-egress-capability-the-rule-was-already-naming.md) (the capability,
   and the consequence this finally makes true),

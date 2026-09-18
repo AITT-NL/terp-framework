@@ -82,7 +82,7 @@ decision, 0001 onwards.
   reach. The OIDC capability's client is the other half of this, immediately below.
 
 - **SSO provider calls leave through the egress capability, and the address rule is whose
-  host it is (ADR 0143).** The OIDC capability held the platform's last two raw
+  host it is (ADR 0145).** The OIDC capability held the platform's last two raw
   outbound-HTTP opt-outs. Routing it was not a substitution: `EgressClient` is a policy
   whose centre is an exact-hostname allowlist, and an IdP's endpoints are not properties
   of its issuer — they are fields in a discovery document fetched *from* it, and a
