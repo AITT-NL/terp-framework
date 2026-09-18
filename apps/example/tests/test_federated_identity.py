@@ -175,6 +175,82 @@ def test_provisioning_can_target_a_custom_rank(db_session: Session) -> None:
     assert user is not None and user.role == int(Roles.EDITOR)
 
 
+def test_provisioning_lands_active_by_default(db_session: Session) -> None:
+    """The default is unchanged, and pinned: a flipped default is a silent lockout."""
+    service = FederatedIdentityService(allow_provisioning=True)
+    user = service.resolve_or_provision(
+        db_session,
+        issuer=_ISSUER,
+        subject="a-sub",
+        email="a@acme.test",
+        email_verified=True,
+    )
+    assert user is not None and user.is_active is True
+
+
+def test_a_pending_account_is_written_and_the_login_still_refused(
+    db_session: Session,
+) -> None:
+    """``provisioned_active=False``: the rows record the request, entry is not granted."""
+    service = FederatedIdentityService(allow_provisioning=True, provisioned_active=False)
+
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="p-sub",
+            email="pending@acme.test",
+            email_verified=True,
+        )
+        is None
+    )
+
+    stored = db_session.exec(select(User).where(User.email == "pending@acme.test")).first()
+    assert stored is not None and stored.is_active is False
+    assert service.get_link(db_session, _ISSUER, "p-sub") is not None
+
+
+def test_a_pending_account_is_admitted_only_once_activated(db_session: Session) -> None:
+    """Both sides of the guard: refused while inactive, resolved after activation."""
+    service = FederatedIdentityService(allow_provisioning=True, provisioned_active=False)
+    service.resolve_or_provision(
+        db_session,
+        issuer=_ISSUER,
+        subject="p2-sub",
+        email="pending2@acme.test",
+        email_verified=True,
+    )
+
+    # A second attempt takes the *linked* path and is refused there — no duplicate row,
+    # and no admission the first refusal was supposed to withhold.
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="p2-sub",
+            email="pending2@acme.test",
+            email_verified=True,
+        )
+        is None
+    )
+    assert len(db_session.exec(select(User).where(User.email == "pending2@acme.test")).all()) == 1
+
+    stored = db_session.exec(select(User).where(User.email == "pending2@acme.test")).first()
+    assert stored is not None
+    stored.is_active = True
+    db_session.add(stored)
+    db_session.commit()
+
+    admitted = service.resolve_or_provision(
+        db_session,
+        issuer=_ISSUER,
+        subject="p2-sub",
+        email="pending2@acme.test",
+        email_verified=True,
+    )
+    assert admitted is not None and admitted.id == stored.id
+
+
 # --------------------------------------------------------------------------- #
 # identity service — SSO-only users and the federated principal resolver
 # --------------------------------------------------------------------------- #
