@@ -72,6 +72,7 @@ from terp.arch import (
     check_no_dependency_overrides,
     check_no_raw_app_routes,
     check_no_raw_file_references,
+    check_permission_gated_reads_disclose,
     check_no_manual_scope_filtering,
     check_no_raw_connection_access,
     check_no_raw_outbound_http,
@@ -3690,6 +3691,105 @@ def test_ownership_clause_terminates_on_a_malformed_tree(tmp_path: pathlib.Path)
     assert _rule_names(check_no_manual_ownership_checks(app)) == {
         "no_manual_ownership_checks"
     }
+
+
+def test_permission_gated_reads_disclose(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # A read behind a named grant that records nothing. The grant is how this application
+    # said the data is sensitive; the trail then answers who changed it and never who
+    # looked, which for a listing like this is the whole of the harm.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        "@router.get(\n"
+        '    "/", response_model=list[ProfileRead],\n'
+        "    dependencies=[Depends(require_permission(PROFILES_READ))],\n"
+        ")\n"
+        "def list_profiles(session: SessionDep) -> list[ProfileRead]:\n"
+        "    return [ProfileRead.model_validate(row) for row in _service.list(session)]\n",
+    )
+    assert _rule_names(check_permission_gated_reads_disclose(app)) == {
+        "permission_gated_reads_disclose"
+    }
+
+    # The same route, disclosing before it answers.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        "@router.get(\n"
+        '    "/", response_model=list[ProfileRead],\n'
+        "    dependencies=[Depends(require_permission(PROFILES_READ))],\n"
+        ")\n"
+        "def list_profiles(session: SessionDep) -> list[ProfileRead]:\n"
+        "    rows = _service.list(session)\n"
+        '    emit_disclosure(target_type="profile", target_id="*")\n'
+        "    return [ProfileRead.model_validate(row) for row in rows]\n",
+    )
+    assert check_permission_gated_reads_disclose(app) == []
+
+    # The other spelling of the marker: declared in the endpoint signature. A rule that
+    # read only `dependencies=` would be blind to exactly the form the runtime projection
+    # had to be fixed to notice.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        '@router.get("/{profile_id}", response_model=ProfileRead)\n'
+        "def read_profile(\n"
+        "    profile_id: uuid.UUID,\n"
+        "    session: SessionDep,\n"
+        "    _granted: None = Depends(require_permission(PROFILES_READ)),\n"
+        ") -> ProfileRead:\n"
+        "    return ProfileRead.model_validate(_service.get(session, profile_id))\n",
+    )
+    assert _rule_names(check_permission_gated_reads_disclose(app)) == {
+        "permission_gated_reads_disclose"
+    }
+
+    # And the Annotated spelling, which is the idiom FastAPI itself now recommends. It
+    # reaches the same requirement by a different node in the tree -- the annotation
+    # rather than the default -- so a walk that checked only one of the two would exempt
+    # whichever half the codebase happens to prefer.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        '@router.get("/{profile_id}", response_model=ProfileRead)\n'
+        "def read_profile(\n"
+        "    profile_id: uuid.UUID,\n"
+        "    session: SessionDep,\n"
+        "    _granted: Annotated[None, Depends(require_permission(PROFILES_READ))] = None,\n"
+        ") -> ProfileRead:\n"
+        "    return ProfileRead.model_validate(_service.get(session, profile_id))\n",
+    )
+    assert _rule_names(check_permission_gated_reads_disclose(app)) == {
+        "permission_gated_reads_disclose"
+    }
+
+    # A WRITE behind the same grant is not this rule's business: every write already
+    # emits through the BaseService chokepoint, which is what made the trail
+    # mutation-only in the first place.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        "@router.post(\n"
+        '    "/", response_model=ProfileRead, status_code=201,\n'
+        "    dependencies=[Depends(require_permission(PROFILES_WRITE))],\n"
+        ")\n"
+        "def create_profile(payload: ProfileCreate, session: SessionDep) -> ProfileRead:\n"
+        "    return ProfileRead.model_validate(_service.create(session, payload))\n",
+    )
+    assert check_permission_gated_reads_disclose(app) == []
+
+    # A read gated by the module's role tier alone is not sensitive by this rule's
+    # measure, and must not be: a record per read of everything buries the one entry
+    # somebody will eventually need.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        '@router.get("/", response_model=list[ProfileRead])\n'
+        "def list_profiles(session: SessionDep) -> list[ProfileRead]:\n"
+        "    return [ProfileRead.model_validate(row) for row in _service.list(session)]\n",
+    )
+    assert check_permission_gated_reads_disclose(app) == []
 
 
 def test_no_raw_file_references(tmp_path: pathlib.Path) -> None:

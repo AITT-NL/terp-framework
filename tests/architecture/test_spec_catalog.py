@@ -100,10 +100,12 @@ def _pinned_spec_version() -> str | None:
 #: left open. During certification the assertion below is trivially satisfied,
 #: because the catalog under test already contains the rule.
 #:
-#: Open: nothing. The last window — ``not_null_columns_are_backfilled`` — was shut by
-#: terp-spec 0.35.0, which the pin above names; the one before it,
-#: ``references_declare_delete_behaviour`` (ADR 0133), by terp-spec 0.34.0.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
+#: Open: ``permission_gated_reads_disclose`` (ADR 0149), whose catalog entry is in the
+#: terp-spec change that follows this one. The window before it —
+#: ``not_null_columns_are_backfilled`` — was shut by terp-spec 0.35.0, which the pin
+#: above names; the one before that, ``references_declare_delete_behaviour``
+#: (ADR 0133), by terp-spec 0.34.0.
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset({"permission_gated_reads_disclose"})
 
 #: The same window, one level down: runtime enforcement refs whose SPELLING this
 #: repository has changed and the published catalog has not caught up with yet.

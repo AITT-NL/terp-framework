@@ -14,6 +14,41 @@ decision, 0001 onwards.
 
 ### Added
 
+- **A read behind a grant records that it happened (ADR 0149).** The audit trail is
+  emitted from the `BaseService` write chokepoint — which is what makes it unbypassable,
+  and also what makes it **mutation-only**. Nothing anywhere recorded a read, so the trail
+  answered *who changed what* and never *who looked*. For much of what applications hold —
+  a connection profile with its host and credential references, a salary, a case file —
+  looking is the entire harm, and a principal who can read those could enumerate them and
+  leave nothing behind.
+
+  ADR 0118 already supplied the seam (`emit_disclosure`, which opens its own session,
+  clears the read-only request flag and emits *before* the data is handed over, so the
+  record is the precondition of the disclosure rather than a report on it). What it did
+  not supply was any reason for a route to call it, and **nothing in the platform did** —
+  a search for callers returns the definition and its tests.
+
+  `permission_gated_reads_disclose` requires a safe-method route gated by a named
+  permission to call it. Not every read: a record per read of everything buries the one
+  entry somebody will eventually need, which is what the `access` guide already says about
+  auto-emitting. The signal is the author's own — a route carrying `require_permission(...)`
+  is one where somebody decided the module's role tier could not express the decision — so
+  the rule needs no new flag on `Permission` or `Policy`. Both spellings of the marker
+  count, including the requirement declared in an endpoint signature, because a rule
+  reading only `dependencies=` would exempt exactly the hand-wired routes.
+
+  Writes are out of scope: they are already audited through the chokepoint. The escape
+  hatch is a budgeted `# arch-allow-permission-gated-reads-disclose: <reason>`, and the
+  genuine case for it is a grant that gates an *action* rather than a disclosure.
+
+  **Build-time only, by recorded decision rather than omission.** A runtime control is
+  constructible — refuse the response when a permission-gated safe method produced no
+  disclosure — but the guard cannot write the record the rule asks for: it knows the
+  principal, the module and the requirement, and not *what was disclosed*. Emitting
+  automatically would satisfy the rule while answering the wrong question. Nothing in this
+  repository has a permission-gated read, so no shipped behaviour changes; the rule is
+  aimed at consumers, which is where the gap was found.
+
 - **Provisioning an account is not admitting it (ADR 0142).**
   `FederatedIdentityService` could say whether it provisions, whose identities qualify,
   and at what rank the account lands — three admission rules evaluated once, producing an
