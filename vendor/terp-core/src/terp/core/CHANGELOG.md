@@ -677,6 +677,25 @@ decision, 0001 onwards.
   gate that misdescribes the system it gates is one a reader stops trusting. The remaining
   asymmetry is named in the docstring as the separate, smaller gap it is.
 
+- **The module-access panel no longer explains itself to the wrong reader.**
+  `ModuleAccessPanel` rendered a heading, a description and an info notice on every user
+  and every group detail screen of an application that declares no assignable module —
+  the default, since a `ModuleSpec` opts in explicitly. The notice reads "no module in
+  this application accepts a role of its own, so there is nothing to set here", which is
+  true, unresolvable by anyone who can see it, and addressed to whoever writes the
+  `ModuleSpec` rather than to the administrator looking at a person.
+
+  It was also the panel's own rule, not applied to itself. Its docstring argues that a
+  module which refuses "is not a gap the panel should explain … offering a control the
+  server would refuse is worse than not offering one", and then it drew a whole section
+  that offered nothing. The panel now renders nothing in that case.
+
+  The condition is deliberately not `assignable.length === 0`. A rung held in a module
+  that stopped accepting one can only ever be cleared here (ADR 0121), so the section
+  stays whenever an orphaned row is present — and whenever either read failed, because a
+  panel that could not read its rows has something to say even when it has nothing to
+  offer.
+
 ### Upgrade notes
 
 - **A realtime channel no longer closes itself on a payload its guard rejects.** If an app

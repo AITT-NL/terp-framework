@@ -155,6 +155,11 @@ function initialDirect(): Map<string, number> {
 }
 
 /** One held row, with the shape the provenance endpoint reports. */
+//: The module `accessModel()` declares as "not assignable, rows still stored" — the shape a
+//: module has after a release stops accepting per-module roles. Named once so the fixture and
+//: the stub that builds an orphan out of it cannot drift apart.
+const LEGACY_MODULE = "legacy";
+
 function heldRow(module: string, rank: number, via: { id: string; kind: string; name: string | null }) {
   const role = RUNG_NAMES[rank] ?? null;
   return {
@@ -237,7 +242,12 @@ function makeReadGate(hold: boolean): ReadGate {
   return gate;
 }
 
-function stubAccessFetch(written: Written[], direct: Map<string, number>, gate: ReadGate) {
+function stubAccessFetch(
+  written: Written[],
+  direct: Map<string, number>,
+  gate: ReadGate,
+  { noAssignable = false, keepOrphan = false } = {},
+) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const request = input as Request;
     const url = new URL(request.url);
@@ -255,7 +265,20 @@ function stubAccessFetch(written: Written[], direct: Map<string, number>, gate: 
       });
     }
     if (path.endsWith("/api/v1/access/model")) {
-      return jsonResponse(accessModel());
+      const model = accessModel();
+      // The shape of an application that never opted in: every module declares the default,
+      // which is what a `ModuleSpec` with no `access=` produces.
+      return jsonResponse(
+        noAssignable
+          ? {
+              ...model,
+              modules: model.modules.map((row) => ({
+                ...row,
+                access: { ...row.access, assignable: false },
+              })),
+            }
+          : model,
+      );
     }
     if (path.includes("/module-roles/")) {
       const module = path.split("/").pop() ?? "";
@@ -286,7 +309,25 @@ function stubAccessFetch(written: Written[], direct: Map<string, number>, gate: 
           500,
         );
       }
-      return jsonResponse(subjectAccess(path.split("/").pop() ?? SUBJECT, direct));
+      const subject = subjectAccess(path.split("/").pop() ?? SUBJECT, direct);
+      // `assignable` is a property of the CURRENT release; a held row is a fact about an
+      // earlier one. So "no module accepts a rung today" and "a rung is still stored" are
+      // not contradictory — they are exactly the state `legacy` in `accessModel()` is
+      // declared to describe, and the only state in which the panel's `orphaned` term does
+      // any work. `keepOrphan` is what lets a test stand in it: without it the stub ruled
+      // the state out by construction and the ADR 0121 exception had no reachable case.
+      if (noAssignable) {
+        const orphan = heldRow(LEGACY_MODULE, direct.get(LEGACY_MODULE) ?? 20, {
+          id: path.split("/").pop() ?? SUBJECT,
+          kind: "self",
+          name: null,
+        });
+        return jsonResponse({
+          ...subject,
+          module_roles: keepOrphan ? [orphan] : [],
+        });
+      }
+      return jsonResponse(subject);
     }
     if (path.endsWith(`/api/v1/users/${SUBJECT}`)) {
       return jsonResponse({
@@ -326,7 +367,10 @@ function LogInOnMount() {
   return null;
 }
 
-function renderAt(initialPath: string, { gateReads = false } = {}) {
+function renderAt(
+  initialPath: string,
+  { gateReads = false, noAssignable = false, keepOrphan = false } = {},
+) {
   const written: Written[] = [];
   const gate = makeReadGate(gateReads);
   const manifests: ModuleManifest[] = [
@@ -342,7 +386,7 @@ function renderAt(initialPath: string, { gateReads = false } = {}) {
     title: "Terp",
     history: createMemoryHistory({ initialEntries: [initialPath] }),
   });
-  stubAccessFetch(written, direct, gate);
+  stubAccessFetch(written, direct, gate, { noAssignable, keepOrphan });
   render(
     <TerpProvider baseUrl="https://api.test">
       <ToastProvider>
@@ -690,5 +734,56 @@ describe("the assignment panel", () => {
     await waitFor(() => expect(written).toHaveLength(1));
     expect(written[0].method).toBe("DELETE");
     expect(written[0].path).toBe(`/api/v1/access/subjects/${SUBJECT}/module-roles/legacy`);
+  });
+
+  it("draws no section at all when the application declares no assignable module", async () => {
+    // The notice this used to render explains a `ModuleSpec` to somebody looking at a person,
+    // and no action available on the screen can ever resolve it — a heading, a description and
+    // a dead end, on every user and every group, forever. It is the panel's own rule applied
+    // to itself: a module that refuses is not listed, so a surface with no modules is not drawn.
+    renderAt(`/admin/users/${SUBJECT}`, { noAssignable: true });
+
+    // Anchored on the page actually arriving, so the absence below is a decision and not a
+    // test that outran the render. By role, not by text: the email is the page's heading
+    // *and* a row in its detail list, so a bare text query matches twice.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "jane.doe@example.com" }),
+      ).toBeInTheDocument(),
+    );
+
+    // The page arriving is not the panel settling, and the difference is a whole round trip:
+    // `UserDetail` renders its heading as soon as `/users/{id}` returns, while the panel hides
+    // itself only once `/access/subjects/{id}` comes back and `settled` leaves its -1. Until
+    // then it is still drawing the section behind a `LoadingState`, so asserting right after
+    // the heading caught the panel mid-read rather than catching it deciding. The anchor above
+    // stays, because on its own this `waitFor` would pass at render zero with nothing on screen
+    // yet -- the absence has to be reached *after* the page is there, not instead of it.
+    await waitFor(() =>
+      expect(screen.queryByText("Access per module")).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/no module in this application accepts a role of its own/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the section when nothing is assignable but a stale rung is still held", async () => {
+    // The exception that stops the rule above from being `assignable.length === 0`: this panel
+    // is the only place an orphaned row can be cleared, so hiding on the count of assignable
+    // modules alone would strand exactly the rows ADR 0121 insists are reported.
+    //
+    // It has to be driven with `noAssignable`, or it asserts nothing. Against the default
+    // fixture three modules ARE assignable, so `nothingToOffer` is already false on the
+    // `assignable.length === 0` term and the `orphaned.length === 0` term this test exists
+    // for never decides anything — drop that term from the condition and the test stays
+    // green. Checked the other way too: with the term removed, this now fails.
+    renderAt(`/admin/users/${SUBJECT}`, { noAssignable: true, keepOrphan: true });
+
+    // Awaited on the ORPHAN, not on the heading: with nothing assignable there is no strip
+    // to wait for, and the heading is drawn by the loading state too — so anchoring on it
+    // would assert against a spinner one round trip before the subject read lands.
+    expect(await screen.findByText(/no longer accepts a role of its own/)).toBeInTheDocument();
+    expect(screen.getByText("Access per module")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(1);
   });
 });
