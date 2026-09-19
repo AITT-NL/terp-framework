@@ -69,10 +69,14 @@ publish that fixture: same behaviour, same skip, now nameable from an app's own 
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
+import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Protocol
 
 import pytest
+from sqlalchemy import event as sa_event
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from terp.core.audit import AuditPolicy, AuditSink
@@ -83,7 +87,11 @@ __all__ = [
     "InstallAudit",
     "InstallEvents",
     "InstallLeases",
+    "QueryLog",
     "TERP_POSTGRES_URL_ENV",
+    "TERP_REQUIRE_POSTGRES_LANE_ENV",
+    "assert_max_queries",
+    "count_queries",
     "terp_audit",
     "terp_db_url",
     "terp_default_runtime",
@@ -98,6 +106,22 @@ __all__ = [
 #: ship to every consumer rather than something they have to opt into per project.
 TERP_POSTGRES_URL_ENV = "TERP_TEST_POSTGRES_URL"
 
+#: Set by a lane that has just started a PostgreSQL server on purpose, to turn this
+#: fixture's skip into a failure.
+#:
+#: A skip is GREEN, and a check that silently does not run is worse than not having one,
+#: because the green implies it ran. Locally the skip is right — a developer with no
+#: PostgreSQL should not be blocked by a PostgreSQL-only lane. In CI, where the workflow
+#: declares the service and installs the client, a skip means one of those steps stopped
+#: working and nothing else would say so: the dialect half of a two-dialect matrix would
+#: quietly stop being tested and every run would stay green.
+TERP_REQUIRE_POSTGRES_LANE_ENV = "TERP_REQUIRE_POSTGRES_LANE"
+
+
+# The query-counting helpers moved to `terp.core._query_count` when this module
+# crossed the 500-line cap; re-exported here because `terp.core.testing` is the
+# import path a test already knows and the split is an internal one.
+from terp.core._query_count import QueryLog, assert_max_queries, count_queries
 
 class InstallLeases(Protocol):
     """What :func:`terp_leases` hands a test: ``configure_leases``' own signature.
@@ -366,18 +390,25 @@ def _postgres_scratch_database() -> Iterator[str]:
     import os
     import uuid
 
-    from sqlalchemy import create_engine
     from sqlalchemy.engine import make_url
-    from sqlalchemy.pool import NullPool
+
+    from terp.core.db import maintenance_engine
 
     admin_url = os.environ.get(TERP_POSTGRES_URL_ENV)
     if not admin_url:
-        pytest.skip(
+        reason = (
             f"set {TERP_POSTGRES_URL_ENV} to run the PostgreSQL lane "
             "(it points at a server this test may create scratch databases on)"
         )
+        if os.environ.get(TERP_REQUIRE_POSTGRES_LANE_ENV):
+            pytest.fail(
+                f"{reason}. {TERP_REQUIRE_POSTGRES_LANE_ENV} is set, so this is a "
+                "failure rather than a skip: the lane declared that it runs these "
+                "tests and cannot"
+            )
+        pytest.skip(reason)
     scratch = f"terp_test_{uuid.uuid4().hex[:12]}"
-    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
+    admin = maintenance_engine(admin_url)
     try:
         with admin.connect() as connection:
             connection.exec_driver_sql(f'CREATE DATABASE "{scratch}"')

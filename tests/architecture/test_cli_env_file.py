@@ -367,7 +367,11 @@ def test_a_multi_line_value_round_trips_instead_of_blocking(
 
     root = _project(
         tmp_path,
-        {"type": "object", "properties": {"PEM_KEY": {"type": "string"}}, "required": []},
+        {
+            "type": "object",
+            "properties": {"PEM_KEY": {"type": "string", "format": "secret"}},
+            "required": [],
+        },
     )
     secret_key = "-----BEGIN\nMIIB-----"
     run_env_command(action="set", root=str(root), names=[f"PEM_KEY={secret_key}"])
@@ -538,7 +542,7 @@ _SCOPED_MANIFEST = {
     "properties": {
         "SHARED_URL": {"type": "string", "default": "http://api:8000"},
         "SYNC_PASSWORD": {"type": "string", "format": "secret", "services": ["worker"]},
-        "BOTH_TOKEN": {"type": "string", "services": ["worker", "beat"]},
+        "BOTH_TOKEN": {"type": "string", "format": "secret", "services": ["worker", "beat"]},
     },
     "required": [],
 }
@@ -781,7 +785,11 @@ def test_a_stray_value_is_reported_when_every_declaration_is_scoped(
         {
             "type": "object",
             "properties": {
-                "SYNC_PASSWORD": {"type": "string", "services": ["worker"]}
+                "SYNC_PASSWORD": {
+                    "type": "string",
+                    "format": "secret",
+                    "services": ["worker"],
+                }
             },
             "required": [],
         },
@@ -820,7 +828,7 @@ def test_a_render_left_behind_by_a_removed_scope_is_still_seen(
         tmp_path,
         {
             "type": "object",
-            "properties": {"SYNC_PASSWORD": {"type": "string"}},
+            "properties": {"SYNC_PASSWORD": {"type": "string", "format": "secret"}},
             "required": [],
         },
     )
@@ -869,7 +877,11 @@ def test_list_shows_a_stray_value_under_the_file_holding_it(
         {
             "type": "object",
             "properties": {
-                "SYNC_PASSWORD": {"type": "string", "services": ["worker"]}
+                "SYNC_PASSWORD": {
+                    "type": "string",
+                    "format": "secret",
+                    "services": ["worker"],
+                }
             },
             "required": [],
         },

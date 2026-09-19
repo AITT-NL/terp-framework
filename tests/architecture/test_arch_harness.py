@@ -1264,6 +1264,67 @@ def test_no_raw_app_routes(tmp_path: pathlib.Path) -> None:
     assert check_no_raw_app_routes(app) == []
 
 
+def test_no_raw_app_routes_names_the_way_to_split_a_long_router(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The rule stays as decided; what was missing is what to do instead.
+
+    `router.include_router(sub)` is refused because a module declares ONE flat router.
+    That decision does not cap how many routes a module may have — routes can be
+    declared on that one router from any number of files — but nothing said so. An
+    author whose router outgrows the 500-line cap reaches for the obvious composition,
+    meets a refusal from a security-adjacent rule, and concludes the only exits are an
+    escape hatch or splitting the module: a Policy, a `requires` edge, a nav group and a
+    migration history, all split, because a file got long.
+
+    So the failure message carries the seam. On this case only — `mount` and the raw
+    route adders have no such alternative and must not imply one.
+    """
+    app = tmp_path / "app"
+
+    _write(app, "modules/notes/router.py", "router.include_router(subrouter)\n")
+    findings = check_no_raw_app_routes(app)
+    assert _rule_names(findings) == {"no_raw_app_routes"}
+    assert "from .router import router" in findings[0].message, findings[0].message
+
+    _write(app, "main.py", "app.mount('/static', files_app)\n")
+    mounted = check_no_raw_app_routes(app)
+    assert _rule_names(mounted) == {"no_raw_app_routes"}
+    assert "from .router import router" not in mounted[0].message, (
+        "a mounted sub-app has no one-router alternative — offering the recipe here "
+        "would read as though the mount could be rewritten that way"
+    )
+
+
+def test_a_module_may_already_split_its_routes_across_files(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The claim the message makes has to be true, or it is worse than no message.
+
+    One router object, declared on from a sibling file, imported by `router.py`. The
+    routes land on the module's declared router, so they are mounted behind the same
+    guard and attributable to the same Policy — the invariant the rule protects is
+    untouched.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from fastapi import APIRouter\n"
+        "router = APIRouter()\n"
+        "from app.modules.notes import routes_reports  # noqa: E402,F401\n",
+    )
+    _write(
+        app,
+        "modules/notes/routes_reports.py",
+        "from app.modules.notes.router import router\n"
+        "@router.get('/reports/', response_model=Page[NoteRead])\n"
+        "def list_reports() -> Page[NoteRead]:\n"
+        "    ...\n",
+    )
+    assert check_no_raw_app_routes(app) == []
+
+
 def test_no_dependency_overrides(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     # Rebinding the principal seam in app code silently disables authentication.
@@ -2957,6 +3018,184 @@ def test_no_hardcoded_credentials(tmp_path: pathlib.Path) -> None:
 
     # tests/ and migrations/ dirs inside a module are committed source: still scanned (G1).
     _write(app, "modules/billing/tests/helper.py", "api_key = 'not-from-config'\n")
+    assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
+
+
+def test_no_hardcoded_credentials_reads_the_value_not_only_the_name(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Three shapes a credential cannot take, however credential-shaped the name is.
+
+    The matcher is a name match with no view of what the string holds, so
+    ``TOKEN_ENV = "SOME_API_TOKEN"`` -- the NAME of a credential -- and
+    ``TOKEN_PATH = "/api/v1/auth/token"`` -- a URL path -- both read as leaks. That is
+    not merely noisy. The escape-hatch budget is this platform's only friction metric
+    and its only ratchet, and once a reviewer learns that a marker for this rule is
+    usually nothing, the one that is something gets the same glance. A fail-closed
+    control has then become decoration, which is the failure this rule exists to
+    prevent, one level up.
+
+    The name list stays broad on purpose -- narrowing it would lose real findings -- so
+    every exemption below says something about the VALUE instead.
+    """
+    app = tmp_path / "app"
+
+    # 1. The module itself uses the literal as an environment key. That is the module
+    #    stating in code that the string NAMES a credential, and it is the strongest
+    #    evidence available without leaving the file.
+    for usage in (
+        "value = os.environ[TOKEN_ENV]",
+        "value = os.getenv(TOKEN_ENV)",
+        "value = os.environ.get(TOKEN_ENV)",
+    ):
+        _write(app, "client.py", f"import os\nTOKEN_ENV = 'SOME_API_TOKEN'\n{usage}\n")
+        assert check_no_hardcoded_credentials(app) == [], usage
+
+    #    The same evidence through the bare name, which `from os import getenv`
+    #    produces. A rule that recognised only the dotted call would refuse the import
+    #    style half of Python is written in, while the module says the identical thing.
+    _write(
+        app,
+        "client.py",
+        "from os import getenv\nTOKEN_ENV = 'SOME_API_TOKEN'\nvalue = getenv(TOKEN_ENV)\n",
+    )
+    assert check_no_hardcoded_credentials(app) == [], "bare getenv"
+
+    # 2. A suffix that says what the value is, WITH the grammar that claim implies.
+    for source in (
+        "TOKEN_ENV = 'SOME_API_TOKEN'",
+        "TOKEN_PATH = '/api/v1/auth/token'",
+        "API_KEY_PATH = './secrets/api.json'",
+        "AUTH_TOKEN_HEADER = 'X-Auth-Token'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+    # 2b. A `_FIELD` / `_REFERENCE` name cannot be judged by grammar -- a field name and
+    #     a password are the same shape -- so the value has to SPELL THE NAME, which is
+    #     the self-naming enum case generalised.
+    for source in (
+        "CLIENT_SECRET_FIELD = 'client_secret'",
+        "API_KEY_COLUMN = 'api_key'",
+        "ACCESS_TOKEN_PARAM = 'access-token'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+    # 3. A literal with a substitution slot is a wire FORMAT: the part that would be
+    #    secret is the part that is not there.
+    for source in (
+        "AUTH_TOKEN_FORMAT = 'Bearer {token}'",
+        "API_KEY_TEMPLATE = 'key=%s'",
+        "PASSWORD_TEMPLATE = 'pw=%(value)s'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+
+def test_a_credential_containing_a_brace_is_not_a_wire_format(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The worst bug this rule has had, pinned so it cannot come back.
+
+    The wire-format exemption was first written to consult the VALUE alone -- any
+    literal with a brace pair or a %-slot was a format. Consulted for every
+    credential-shaped name, that exempts the secrets that happen to contain one, and
+    generated passwords and pasted service-account JSON routinely do. Five shapes that
+    the rule caught before the exemption existed went silently clean, and the
+    literal-format scan does not cover them either: it only knows AKIA, ghp_,
+    github_pat_ and PEM headers.
+
+    A format now has to SAY it is one, which costs nothing: the name is what the author
+    controls, and every real instance of this shape is already called `*_FORMAT` or
+    `*_TEMPLATE`.
+    """
+    app = tmp_path / "app"
+    for source in (
+        'DB_PASSWORD = "aB3{xY9}qZ"',
+        'SERVICE_TOKEN = "tok{}en"',
+        'CLIENT_SECRET = "s3cr3t%s"',
+        'ADMIN_PASSWORD = "50%d0llars"',
+        'API_SECRET = \'{"type": "service_account", "private_key_id": "abc"}\'',
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert _rule_names(check_no_hardcoded_credentials(app)) == {
+            "no_hardcoded_credentials"
+        }, source
+
+    # ...while a name that declares itself a format keeps the exemption.
+    for source in (
+        'AUTH_TOKEN_FORMAT = "Bearer {token}"',
+        'API_KEY_TEMPLATE = "key=%s"',
+        'SECRET_PATTERN = "pw=%(value)s"',
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+
+def test_the_header_exemption_covers_the_header_apps_actually_name(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A hyphen-only grammar refused `Authorization`, which is the header an app wiring
+    a client names -- so most of the markers this exemption exists to retire could not
+    be retired, which is the cost the whole change is about. A registered header name is
+    not a password shape: a password does not happen to equal one."""
+    app = tmp_path / "app"
+    for value in ("Authorization", "Authentication", "Cookie", "X-Auth-Token"):
+        _write(app, "client.py", f'AUTH_TOKEN_HEADER = "{value}"\n')
+        assert check_no_hardcoded_credentials(app) == [], value
+
+    # An unregistered single word is still a password shape.
+    for value in ("hunter2", "Bearer abc def"):
+        _write(app, "client.py", f'AUTH_TOKEN_HEADER = "{value}"\n')
+        assert _rule_names(check_no_hardcoded_credentials(app)) == {
+            "no_hardcoded_credentials"
+        }, value
+
+
+def test_no_hardcoded_credentials_exemptions_need_the_value_to_earn_them(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The half that matters: a suffix is not a password. Each case below wears one of
+    the exempt shapes and holds a credential anyway."""
+    app = tmp_path / "app"
+
+    for source in (
+        # The suffix claims an environment variable's name; the value is a token.
+        "TOKEN_ENV = 'sk-live-abc123'",
+        # ...a path; still a token.
+        "TOKEN_PATH = 'sk-live-abc123'",
+        # ...a header name; a value with spaces is not one.
+        "AUTH_TOKEN_HEADER = 'Bearer abc def'",
+        # A suffix that is not in the list at all, and must not become one: `_KEY`
+        # IS the credential word.
+        "API_KEY = 'sk-live-abc123'",
+        # An env-var name must be multi-word, or the exemption swallows a password
+        # that merely happens to be upper-case.
+        "TOKEN_ENV = 'HUNTER2'",
+        # A self-naming suffix whose value does NOT spell the name is a password in
+        # a field name's clothing -- the exact case this repository's suite caught.
+        "SECRET_REFERENCE = 'hunter2'",
+        "CLIENT_SECRET_FIELD = 'hunter2'",
+        # A bearer literal has no substitution slot, so it is not a format.
+        "auth_token = 'Bearer abc.def.ghi'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert _rule_names(check_no_hardcoded_credentials(app)) == {
+            "no_hardcoded_credentials"
+        }, source
+
+    # An env-key name is exempt only in the module that actually uses it as one.
+    _write(app, "client.py", "TOKEN_ENV = 'sk-live-abc123'\n")
+    assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
+
+    # And no exemption reaches the literal-format scan, which reads every string in the
+    # tree whatever name it is bound to: a real key pasted into a "format" still fires.
+    _write(
+        app,
+        "client.py",
+        "HEADER_FORMAT = 'Bearer " + "ghp_" + "A" * 36 + " {rest}'\n",
+    )
     assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
 
 

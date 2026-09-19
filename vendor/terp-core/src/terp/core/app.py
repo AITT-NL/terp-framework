@@ -434,7 +434,7 @@ def _refuse_middleware_registration(name: str) -> Callable[..., None]:
     return refused
 
 
-def _freeze_app_middleware_registration(app: FastAPI) -> None:
+def freeze_app_middleware_registration(app: FastAPI) -> None:
     """Runtime half of ``no_adhoc_middleware``: no post-composition middleware.
 
     Cross-cutting HTTP security is declared once (``SecurityConfig`` + the
@@ -476,12 +476,12 @@ class _FrozenDependencyOverrides(dict):
     update = _refused
 
 
-def _freeze_dependency_overrides(app: FastAPI) -> None:
+def freeze_dependency_overrides(app: FastAPI) -> None:
     """Swap the composed app's override map for the refusing, read-only mapping."""
     app.dependency_overrides = _FrozenDependencyOverrides(app.dependency_overrides)
 
 
-def _freeze_app_route_registration(app: FastAPI) -> None:
+def freeze_app_route_registration(app: FastAPI) -> None:
     """The composition freeze: no post-composition registration surface, fail closed.
 
     Runtime half of ``no_raw_app_routes`` (and, through the two extensions below, of
@@ -499,12 +499,32 @@ def _freeze_app_route_registration(app: FastAPI) -> None:
         for method in _APP_ROUTE_MUTATORS:
             if hasattr(target, method):
                 setattr(target, method, _refuse_route_mutation(f"{target_name}.{method}"))
-    _freeze_app_middleware_registration(app)
+    freeze_app_middleware_registration(app)
     if get_settings().ENVIRONMENT != "local":
-        _freeze_dependency_overrides(app)
+        freeze_dependency_overrides(app)
 
 
-def _validate_requires(specs: Sequence[ModuleSpec]) -> None:
+# ---------------------------------------------------------------------------
+# The boot-time controls the Terp Standard names
+#
+# These thirteen are the fail-closed runtime half of two-layer rules, and the
+# Standard's catalog cites each one BY NAME as the `runtime` enforcement ref of
+# the rule it enforces (terp-spec, ADRs 0080/0081). That is why they carry no
+# leading underscore: a released artifact in another repository pins these
+# spellings, so renaming one is a breaking change to the Standard, not a local
+# refactor -- and, in the other direction, a private name is unusable by any
+# second implementation, which is the property stack-neutrality promises.
+#
+# They are NOT application API and are deliberately absent from
+# `terp.core.__all__`: an app author never calls one. `create_app` does, once,
+# at composition. Public here means "stable enough to be cited", not "for you".
+#
+# terp-spec's own suite refuses a runtime ref that names a private symbol, so
+# the class of drift this comment describes cannot come back silently.
+# ---------------------------------------------------------------------------
+
+
+def validate_requires(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed if any spec's declared ``requires`` are absent or cyclic.
 
     ``requires`` carries two meanings (ADR 0087): the thing you depend on must be
@@ -788,7 +808,7 @@ def _router_has_mutating_route(router: APIRouter) -> bool:
     return False
 
 
-def _validate_policy_write_tiers(specs: Sequence[ModuleSpec]) -> None:
+def validate_policy_write_tiers(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed when a write surface's Policy gates writes below its read tier.
 
     The universal runtime half of ``mutations_require_write_role`` (ADR 0006): the
@@ -864,7 +884,7 @@ def _route_label(spec: ModuleSpec, route: object) -> str:
     return f"{spec.name}:{verb} {getattr(route, 'path', '?')}"
 
 
-def _validate_declared_operations(
+def validate_declared_operations(
     specs: Sequence[ModuleSpec], catalog: OperationCatalog
 ) -> None:
     """Fail closed on an operation that is not the catalog's, or a route missing one.
@@ -1041,7 +1061,7 @@ def _apply_declared_operations(specs: Sequence[ModuleSpec]) -> None:
     """Populate a declaring route's OpenAPI ``summary`` / ``operation_id`` (ADR 0102 §4),
     and refuse a hand-written ``summary=`` beside a declared operation.
 
-    Must run after :func:`_validate_declared_operations`, so every operation reaching
+    Must run after :func:`validate_declared_operations`, so every operation reaching
     here is already confirmed to be the catalog's own entry -- this function only
     applies it, it does not re-check membership. Only ``APIRoute`` carries
     ``summary`` / ``operation_id`` in OpenAPI; a declared operation on a WebSocket
@@ -1129,7 +1149,7 @@ def _validate_public_routes_are_declared(specs: Sequence[ModuleSpec]) -> None:
             )
 
 
-def _validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
+def validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed when a public router exposes writes without the stronger opt-out."""
     for spec in specs:
         policy = spec.policy
@@ -1155,7 +1175,7 @@ def _validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
             )
 
 
-def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) -> None:
+def validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) -> None:
     """Refuse a module job that can mutate an unowned CRUD model.
 
     Background work can run without an originating user and then uses the control-plane
@@ -1655,7 +1675,7 @@ def _endpoint_returns_raw_response(endpoint: Callable[..., object]) -> bool:
     return isinstance(annotation, type) and issubclass(annotation, Response)
 
 
-def _validate_routes_declare_response_model(route: APIRoute) -> None:
+def validate_routes_declare_response_model(route: APIRoute) -> None:
     """Boot half of ``backend/routes_declare_response_model`` (Terp Standard).
 
     A content route with no declared ``response_model`` can serialize a bare ORM/data
@@ -1679,7 +1699,7 @@ def _validate_routes_declare_response_model(route: APIRoute) -> None:
     )
 
 
-def _validate_schemas_exclude_sensitive_fields(route: APIRoute) -> None:
+def validate_schemas_exclude_sensitive_fields(route: APIRoute) -> None:
     """Boot half of ``backend/schemas_exclude_sensitive_fields`` (Terp Standard).
 
     Every pydantic model referenced by the route's ``response_model`` (the DTO itself,
@@ -1705,7 +1725,7 @@ def _validate_schemas_exclude_sensitive_fields(route: APIRoute) -> None:
                 )
 
 
-def _validate_list_routes_paginate(route: APIRoute) -> None:
+def validate_list_routes_paginate(route: APIRoute) -> None:
     """Boot half of ``backend/list_routes_paginate`` (Terp Standard).
 
     A ``response_model`` that is a bare collection (``list`` / ``list[...]`` /
@@ -1725,7 +1745,7 @@ def _validate_list_routes_paginate(route: APIRoute) -> None:
         )
 
 
-def _validate_router_response_models(router: APIRouter) -> None:
+def validate_router_response_models(router: APIRouter) -> None:
     """Fail closed if a route on *router* violates a response-boundary rule.
 
     The boot-time route scan over the **composed** route table -- covering routes
@@ -1747,11 +1767,11 @@ def _validate_router_response_models(router: APIRouter) -> None:
     ``terp.arch`` rule (the two-layer story, ADR 0084). The positional-tuple rule
     (``schemas_avoid_positional_tuples``) is *not* a per-route check: it validates
     the generated OpenAPI document after the whole app is composed
-    (:func:`_reject_positional_tuple_schemas`), because the wire shape is the
+    (:func:`reject_positional_tuple_schemas`), because the wire shape is the
     offence and the document is where the wire shape lives.
     """
     for route in _iter_api_routes(router.routes):
-        _validate_routes_declare_response_model(route)
+        validate_routes_declare_response_model(route)
         if route.response_model is None:
             continue
         for tp in _referenced_response_types(route.response_model):
@@ -1761,8 +1781,8 @@ def _validate_router_response_models(router: APIRouter) -> None:
                     "response_model; a persisted model serializes every column (e.g. a "
                     "password hash) -- return a *Read DTO (terp.core.BaseSchema) instead"
                 )
-        _validate_schemas_exclude_sensitive_fields(route)
-        _validate_list_routes_paginate(route)
+        validate_schemas_exclude_sensitive_fields(route)
+        validate_list_routes_paginate(route)
 
 
 #: Keys whose contents are data values, not schema — a payload in ``examples``
@@ -1850,7 +1870,7 @@ def _mount_root_signpost(app: FastAPI, *, title: str, docs: bool) -> None:
         )
 
 
-def _reject_positional_tuple_schemas(app: FastAPI) -> None:
+def reject_positional_tuple_schemas(app: FastAPI) -> None:
     """Boot half of ``backend/schemas_avoid_positional_tuples`` (Terp Standard).
 
     A fixed-length tuple annotation serialises into the OpenAPI document as a
@@ -2076,7 +2096,7 @@ def create_app(
             raise BootError(f"capability discovery failed: {exc}") from exc
 
     _validate_unique_spec_names(collected)
-    _validate_requires(collected)
+    validate_requires(collected)
     resolved_plane = _with_settings_job_actor(control_plane or ControlPlane.default())
     plane_errors = resolved_plane.validation_errors(collected)
     if plane_errors:
@@ -2085,15 +2105,18 @@ def create_app(
     _validate_subscriptions_have_handlers(collected)
     _validate_no_inert_declarations(collected)
     _validate_token_revocation(principal_provider, require_token_revocation)
-    _validate_policy_write_tiers(collected)
+    validate_policy_write_tiers(collected)
+    # Private, unlike its neighbours: ADR 0148's control is not cited by the Terp
+    # Standard's catalog as a runtime enforcement ref, so it carries no promise of a
+    # stable spelling and takes the underscore the others had to give up.
     _validate_public_routes_are_declared(collected)
-    _validate_public_modules_read_only(collected)
-    _validate_declared_operations(collected, resolved_plane.operations)
+    validate_public_modules_read_only(collected)
+    validate_declared_operations(collected, resolved_plane.operations)
     _apply_declared_operations(collected)
     _validate_route_permissions_are_declared(collected, resolved_plane)
     _validate_module_rank_resolution(collected, module_rank_resolver)
     _validate_permission_labels(resolved_plane)
-    _validate_background_jobs_preserve_ownership(collected)
+    validate_background_jobs_preserve_ownership(collected)
     _validate_shared_throttle_store(throttle_store, require_shared_throttle_store)
     _validate_durable_jobs(job_queue, require_durable_jobs)
     _validate_shared_cache_store(cache_store, require_shared_cache_store)
@@ -2184,7 +2207,7 @@ def create_app(
         if spec.policy is None:
             raise BootError(f"module {spec.name!r} declares no Policy (deny-by-default)")
         if spec.router is not None:
-            _validate_router_response_models(spec.router)
+            validate_router_response_models(spec.router)
             app.include_router(
                 spec.router,
                 prefix=f"/api/v1/{spec.name}",
@@ -2222,14 +2245,14 @@ def create_app(
     # The contract-shape gate runs against the finished document — after every
     # module router, capability router, and the health router are mounted — so
     # nothing that serialises into the contract can arrive after it looked.
-    _reject_positional_tuple_schemas(app)
+    reject_positional_tuple_schemas(app)
     # Introspection seam (a view, never a control — ADR 0011): record the specs this
     # app actually mounted (client modules AND every discovered capability router) and
     # its resolved control plane, so ``terp inspect access --app`` can project the WHOLE
     # guarded surface instead of a hand-passed module list — no mounted route can hide.
     app.state.terp_module_specs = tuple(collected)
     app.state.terp_control_plane = resolved_plane
-    _freeze_app_route_registration(app)
+    freeze_app_route_registration(app)
     return app
 
 

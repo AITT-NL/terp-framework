@@ -2,7 +2,7 @@
 declared once coverage requires one (ADR 0102, terp-spec 0.29.1).
 
 Two rules, sharing one runtime enforcement seam
-(``terp.core.app._validate_declared_operations``) exactly the way the event bus's
+(``terp.core.app.validate_declared_operations``) exactly the way the event bus's
 no-drift rule and this pair are modelled on it:
 
 * ``operations_reference_catalog`` -- the no-drift half, unconditional: an
@@ -127,7 +127,7 @@ def _coverage_is_strict(app_root: pathlib.Path) -> bool:
     value assigned to an intermediate variable, and it does not check that the
     matched ``OperationCatalog(...)`` is the one actually mounted on a
     ``ControlPlane`` -- so it is a best-effort static signal, paired with (never
-    a substitute for) the runtime ``_validate_declared_operations`` boot check,
+    a substitute for) the runtime ``validate_declared_operations`` boot check,
     which resolves the real, mounted catalog and enforces coverage unconditionally.
     """
     control_plane = app_root.parent / "control_plane"
@@ -187,7 +187,7 @@ def check_routes_declare_operation(
     """Every route declares the operation it performs, once coverage is strict.
 
     The app's own choice, exactly as the runtime half (``create_app`` ->
-    ``_validate_declared_operations``) treats it: an app whose operations catalog
+    ``validate_declared_operations``) treats it: an app whose operations catalog
     has not opted into ``OperationCoverage.STRICT`` is unaffected, so this rule
     silently returns no violations rather than requiring every route to be
     annotated the moment the helper exists. Both the decorator / imperative

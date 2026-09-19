@@ -10,3 +10,19 @@ a8e0ec894cace738e4f08ba8e7b3c79af1decea7:tests/architecture/test_cli_env_seams.p
 c7138152e6deb603b779ad98a843dd8d0980d349:.github/workflows/prod-smoke.yml:generic-api-key:29
 c7138152e6deb603b779ad98a843dd8d0980d349:tests/architecture/test_oidc.py:generic-api-key:50
 c7138152e6deb603b779ad98a843dd8d0980d349:tests/architecture/test_webhooks.py:generic-api-key:91
+
+# Five more from the `no_hardcoded_credentials` narrowing, and they are the rule's
+# own material: four fixtures that must wear a credential-shaped NAME to prove the
+# narrowed rule still fires (or deliberately does not), and one line of the rule's
+# docstring quoting the same shape. Every value is invented and neutral —
+# `SOME_API_TOKEN`, `/api/v1/auth/token`, `./secrets/api.json`.
+#
+# A rule about credential-shaped names cannot be tested without writing some, so
+# this class recurs whenever a fixture is added. If the list outgrows being read,
+# the answer is a path-scoped config, not a longer baseline — a baseline nobody
+# reads is a leak detector that has become a formality.
+05879f3052cbf38099c3e60c68e4c25d6fcd68d9:packages/backend/arch/src/terp/arch/rules/secrets.py:generic-api-key:237
+05879f3052cbf38099c3e60c68e4c25d6fcd68d9:tests/architecture/test_arch_harness.py:generic-api-key:3034
+05879f3052cbf38099c3e60c68e4c25d6fcd68d9:tests/architecture/test_arch_harness.py:generic-api-key:3036
+05879f3052cbf38099c3e60c68e4c25d6fcd68d9:tests/architecture/test_arch_harness.py:generic-api-key:3041
+05879f3052cbf38099c3e60c68e4c25d6fcd68d9:tests/architecture/test_arch_harness.py:generic-api-key:3058

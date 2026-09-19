@@ -557,6 +557,24 @@ decision, 0001 onwards.
   silent about what it repealed. The tests added here assert the promise directly, so the
   next re-keying fails instead of quietly ending it.
 
+- **The gate parses each file once per run instead of once per rule.** `check_app` ran
+  every rule over the same tree and each rule walked and parsed it independently: on a
+  32-file tree that was 2,354 `ast.parse` calls, because the redundancy factor is the
+  rule count — 79 today, and only ever up. Cost was linear in two things that both only
+  grow, and the consumer who feels it is the one with the biggest app.
+
+  A memo scoped to one scan makes it 43 parses and roughly halves the wall clock (713 ms
+  → 340 ms on the example app). The findings are identical, which is asserted against a
+  deliberately dirty tree rather than a clean one — an empty list equalling an empty list
+  proves nothing.
+
+  Scoped to a run rather than cached on the module, and that is the whole design: a
+  process-global cache would answer from a stale tree the moment anything rewrote a file
+  between scans, which is what an editor, a workbench and this repository's own rule
+  tests all do continuously. Keying on `st_mtime_ns` would paper over most of that and
+  still lose to two writes inside one timestamp tick. Outside a run, `parse` and
+  `iter_python_files` behave exactly as they always did.
+
 ### Fixed
 
 - **The secret scan reported other branches' commits on your pull request.** `gitleaks
@@ -754,6 +772,327 @@ decision, 0001 onwards.
 
   This went unnoticed because this repository's own example app ships one auth spec: too
   small a suite to trip its own limit, where a real application's is not.
+
+- **Frontend manifests re-declared backend permissions as unchecked string literals.**
+  A client gates a route, a nav entry and a control on the same names the backend
+  declares, spelled as bare strings. A renamed or re-floored permission then failed in
+  one of two silent directions — over-gating, where a screen 403s for someone who may
+  use it, or under-gating, where a link renders and every request behind it fails — and
+  only a hand-written end-to-end test caught either. The platform had already solved this
+  class twice, both times by putting the vocabulary in the contract the client is
+  generated from: OpenAPI → `schema.d.ts` for data, manifests → `routes.gen.d.ts` for
+  paths.
+
+  `terp openapi` now emits `TerpPermission` and `TerpRole` as enums, so
+  `openapi-typescript` turns them into string-literal unions, and
+  `@terpjs/contract` exposes `TerpAccessVocabulary` for an app to hand those unions to.
+  Six lines in the app narrow `ModuleRoute.permission`, `NavItem.permission`,
+  `AuthorizedProps.permission` and `useHasPermission` — and they name *types*, not
+  values, so unlike the strings they replace they cannot themselves drift. A misspelled
+  permission then fails `npm run typecheck` at every site that used it.
+
+  It degrades rather than imposes: an app that declares no vocabulary keeps plain
+  `string`, which every app has today, so adopting is opt-in and skipping costs nothing.
+  The scaffold deliberately does *not* ship the file — a freshly generated app declares
+  no permissions, no `TerpPermission` schema is emitted (an empty enum would generate
+  `never` and break every client that touched the type), and the recipe belongs at the
+  moment the first permission exists. `terp guide permissions` carries it.
+
+  The exported type is `TerpPermissionName`, `Terp`-first on purpose: `lib.dom.d.ts`
+  declares a **global** `PermissionName` (the browser's `"geolocation" |
+  "notifications" | …`), so a file using the short name and forgetting the import does
+  not fail — it silently type-checks against the browser's vocabulary and then reports a
+  union nobody in the app recognises. Writing this hit exactly that.
+
+- **Backup and restore amounted to one sentence, on a stack whose recovery path runs
+  through itself.** `docs/DEPLOYMENT.md` named the volume the state lives in, and that was
+  the whole of it. Backup is the one operational control with no partial credit, and it is
+  the last thing anyone writes.
+
+  What makes it sharper here than in most stacks is the per-package layout. A Terp app's
+  schema is not one history: every table-owning package keeps its own behind its own
+  `alembic_version_<label>` table, and the boot guard refuses to start when any package's
+  schema is behind. So a restore that loses one of those bookkeeping tables does not fail
+  at restore time — every real table and every row arrives, and nothing complains. It
+  fails at the next boot, with a message about pending migrations, which reads as a deploy
+  problem rather than as a bad backup. ADR 0090 records that as a docstring aside; it is
+  now three tests in the PostgreSQL conformance lane.
+
+  A fully migrated database is dumped, restored into a *clean* second database — restoring
+  over the source would prove nothing — and then booted: the same `assert_migrations_current`
+  a deploy runs. Each of the thirteen histories must arrive with its revision intact. And
+  the drill proves it is measuring something: a dump that omits one bookkeeping table
+  restores without error and is then refused at boot, which is the failure mode in full.
+
+  The lane installs a PostgreSQL client matching the pinned server, because `pg_dump`
+  refuses a server newer than itself and the runner image's client trails it — without
+  that the drill would *skip*, which is the worst available outcome for a backup check.
+
+- **Nothing measured what a query costs, so an N+1 was found by a customer rather than by
+  a test.** The gate makes a strong claim about what a Terp app cannot get structurally
+  wrong and no claim at all about what it costs to run — and the absences reinforce each
+  other: nothing on the server reports latency, so nothing in the suite asserts a bound.
+
+  `terp.core.testing` now ships `count_queries(session)` and
+  `assert_max_queries(session, limit, only=...)`. The failure shape they catch is dull
+  and specific: an endpoint loads N rows and touches a relationship per row, so the count
+  is 1 + N, the response is fine on the twelve rows the fixture creates, nothing in the
+  code looks wrong, every test passes — until the table has real data in it.
+
+  Statements, not seconds. The count is deterministic and small where a wall clock is
+  neither, so the assertion survives a slow runner, a cold cache and a shared machine and
+  still fails the moment a loop starts talking to the database. A failure prints every
+  statement that ran, because "expected at most 2, got 14" without the fourteen is a
+  puzzle — and the fourteen are almost always one SELECT with a different id, which is
+  the whole diagnosis.
+
+  `terp guide testing` carries the recipe, including the part that decides whether the
+  test is worth anything: pick the limit from what the endpoint *should* do, not from
+  what it currently does. A bound recorded from present behaviour passes forever and
+  asserts nothing.
+
+- **Capability discoverability was package-granular, so a shipped seam stayed invisible
+  for thirteen releases.** `terp inspect capabilities` answered "do I have this
+  capability", and at that granularity an installed-and-mounted capability looks
+  finished. A seam the package grows *after* an app adopts it is then invisible from
+  inside the project, permanently: `build_holder_router` — how a holder outside the
+  process keeps a lease alive — shipped in 0.11.0, and an app on 0.24.0 still stated in
+  four places that no such endpoint existed. At a release every day or two and a
+  6,842-line changelog, no consumer reads the delta, and the one tool built to answer
+  "what does the platform already offer" was answering a package-shaped question.
+
+  For each installed capability the listing now prints `not used here`: the wiring points
+  the package exports and this app's source never mentions. The JSON manifest carries
+  both `seams` and `unwired_seams`, so a driving tool can tell "no seams" from "all seams
+  wired".
+
+  The seam list is **computed from each package's own `__all__`**, not curated. A
+  hand-written list is a second place to forget, and forgetting is the entire failure
+  here — so a capability that grows a seam gets it listed on the next run with no edit
+  anywhere. The vocabulary is the platform's own (`build_*`, `register_*`, and the
+  `*Store` / `*Queue` / `*Scheduler` / `*Middleware` / `*Resolver` suffixes), which keeps
+  the report to wiring points rather than to all 391 exported names — most of which are
+  operation ids, error types and status literals, and a report of 391 things is a report
+  of nothing.
+
+  It fails nothing. Most of what it lists are alternatives an app correctly did not take.
+
+- **The framework exempted its own packages from the harness it ships.** The 500-line cap
+  applies to every file of every consuming app; `core`, `arch`, `cli` and `migrations`
+  were not self-scanned at all — roughly 38,000 lines outside the gate this repository
+  sells, thirty of them in files over the cap.
+
+  Two costs, and the second is the expensive one. A consumer who hits the cap and looks
+  at the framework finds a 3,818-line file, so the rule reads as arbitrary rather than
+  principled, and the first thing they ask for is an exemption. And the unscanned lines
+  are where a real regression would live — `capabilities` were exactly this until they
+  were scanned, and scanning them found two service bypasses.
+
+  `migrations` now passes the whole harness outright, with no opt-outs. `arch` passes
+  with a checked-in budget: six oversized rule modules and one build-time CLI diagnostic,
+  each carrying a justified, greppable, shrink-only marker in place of a silent
+  exemption.
+
+  `core` (72 findings) and `cli` (124, of which 98 are `no_print` — a CLI prints) are not
+  scanned yet, and `packages/backend/UNSCANNED.json` records exactly what each one finds
+  so the debt is counted rather than invisible. That is deliberate: many of those
+  findings are inherent to being the kernel — `no_app_instantiation` fires on
+  `create_app`, whose whole job is to instantiate the app — and each needs a per-finding
+  judgement, with some of them likely to be real bugs rather than exemptions. Stamping
+  196 markers to turn the suite green is the budget-as-decoration failure the ratchet
+  exists to prevent.
+
+  The record is held like every other ratchet here: a count may fall and never rise, a
+  new rule appearing fails, lowering a count without lowering the record fails, and a
+  package that empties leaves the file and joins the scanned list.
+
+- **Thirteen boot-time controls were named privately while a released standard cited them
+  by name.** The Terp Standard's catalog names each fail-closed runtime control as the
+  `runtime` enforcement ref of the rule it enforces, and sixteen of forty of those refs
+  carried a leading underscore. Two incompatible positions, both paid for here: renaming
+  a private validator inside `create_app` — a refactor the design explicitly permits —
+  would have broken a catalog in a separate released repository, and a private name is
+  unusable by any second implementation, which is the property stack-neutrality promises.
+
+  `validate_declared_operations`, `freeze_app_route_registration`,
+  `validate_policy_write_tiers` and ten more now carry their public spelling. They are
+  **not** application API and are deliberately absent from `terp.core.__all__` — an app
+  author never calls one; `create_app` does, once, at composition. Public here means
+  "stable enough to be cited", not "for you", and the comment above them says so.
+
+  The remaining two refs are methods on `BaseService`, where renaming would change what a
+  subclass may call. The standard cites the class instead, which is both stable and
+  accurate: the control is the audited write chokepoint that class owns.
+
+  The cross-repository window this opens is self-closing. `_AWAITING_SPEC_REF_RENAME`
+  lets this repository carry the new names while the published catalog still has the old
+  ones — resolving the *public* symbol, so it permits a stale name and never a missing
+  control — and `test_release_versions` refuses to cut a release while it is non-empty. A
+  rot guard refuses an entry whose public counterpart does not exist, whose private name
+  is still defined (the rename never happened), or that the published catalog no longer
+  cites.
+
+- **The gate had no way to say what it deliberately does not check, so every absence read
+  as an oversight.** `terp verify --list` and the JSON manifest listed what runs and had
+  no slot for what does not — and a decision already taken, recorded in an ADR nobody
+  runs, was indistinguishable from a gap. The platform's whole proposition is that
+  insecurity requires an explicit, greppable opt-out; the same standard now applies to the
+  gate's own boundary.
+
+  `VerifyNonGoal` is `VerifyCheck`'s sibling, rendered under "not checked here
+  (deliberately)" in the listing and `not_checked_here` in the manifest. Every entry must
+  end somewhere an author can go — what covers it, or what to run instead — so an omission
+  with neither is refused by the suite rather than shipped as a shrug with a schema. A
+  second check refuses a profile that both runs and disclaims the same id.
+
+  Seeded with three. **Formatting** is stated as deliberately ungated, with `terp fmt` as
+  the command: it already shipped, `--changed` by default and with `--check` written, and
+  was reachable only from `--help`. `ruff format .` is the right formatter with the wrong
+  blast radius — it rewrites files the current change never touched, and the diff reaching
+  review is then part change and part churn, which for a platform whose consumers are
+  largely agent-built is a review-integrity problem rather than a cosmetic one. (Measured
+  while writing this: 279 of 604 files in this repository would be rewritten, and no
+  single line-length reduces it, because different files were written at different widths.
+  Gating the whole tree is a deliberate one-time convergence, not a wiring change — which
+  is exactly why the decision belongs in the listing rather than in silence.) **The
+  generic AppSec classes** — command injection, path traversal, unsafe deserialization,
+  weak randomness, secrets-in-logs — name their delegation to ruff-bandit (ADR 0085).
+  **Test efficacy** states plainly that `no_empty_tests` checks tests exist, and nothing
+  here checks a test would fail if the code were wrong.
+
+  `terp guide module` gains the formatting note, next to the commands an author already
+  runs.
+
+- **`no_raw_app_routes` refused the only composition an author reaches for, and named no
+  alternative.** A module declares one flat router, which is a deliberate decision and a
+  good one: the module's surface is one mounted, one-Policy thing. It is *not* a limit on
+  how many routes a module may have — routes can be declared on that one router from any
+  number of files — but nothing said so.
+
+  So an author whose `router.py` outgrew the 500-line cap reached for
+  `router.include_router(sub)`, met a refusal from a security-adjacent rule, and was left
+  with two apparent exits: an escape-hatch marker, or splitting the module. Splitting a
+  module splits a `Policy`, a `requires` edge, a nav group and a migration history —
+  a large price for a file that got long.
+
+  The rule is unchanged. The failure message now carries the seam (`from .router import
+  router` in a sibling file, imported from `router.py`), and `terp guide module` gains a
+  "when router.py gets long" section showing it. The recipe is appended to the
+  `include_router` case only: a mounted sub-app has no such alternative, and offering it
+  there would read as though the mount could be rewritten that way.
+
+  The canonical five files are a required set, not a maximum — which the gate already
+  allowed and nobody had written down.
+
+- **`no_hardcoded_credentials` matched identifier names with no view of the value.**
+  `TOKEN_ENV = "SOME_API_TOKEN"` is the *name* of a credential; `TOKEN_PATH =
+  "/api/v1/auth/token"` is a URL path; `AUTH_TOKEN_FORMAT = "Bearer {token}"` is a wire
+  format whose secret part is precisely the part that is not there. All three read as
+  leaks, and the only exit was an escape-hatch marker on a security rule.
+
+  The cost is not noise. The escape-hatch budget is the platform's only friction metric
+  and its only ratchet, and a rule whose markers are usually nothing teaches a reviewer
+  to give the one that is something the same glance. That is how a fail-closed control
+  becomes decoration — the failure this rule exists to prevent, one level up.
+
+  Five shapes are now exempt, each a statement about the **value**; the name list is
+  untouched, because narrowing it would lose real findings. The enum-vocabulary case
+  (unchanged); a name the module itself uses as an environment key
+  (`os.environ[TOKEN_ENV]`), which is the module saying in code what the string is; a
+  `_ENV` / `_PATH` / `_HEADER` name whose value matches the grammar that suffix implies;
+  a `_FIELD` / `_COLUMN` / `_PARAM` / `_REFERENCE` name whose value spells the name
+  itself; and a `_FORMAT` / `_TEMPLATE` / `_PATTERN` name whose value carries a
+  substitution slot.
+
+  That last one is stated by name for a reason. Deciding it on the value alone — any
+  literal with a brace pair or a %-slot is a format — exempts the secrets that happen to
+  contain one, and generated passwords and pasted service-account JSON do:
+  `DB_PASSWORD = "aB3{xY9}qZ"` goes silently clean, and the literal-format scan does not
+  cover it, because that only knows AKIA, ghp_, github_pat_ and PEM headers. The suffix
+  costs nothing, because the name is what the author controls.
+
+  Each grammar has to **refuse a password** to qualify, which is a sharper bar than
+  "looks plausible": `hunter2` is a valid identifier, a valid header name and a valid
+  environment variable name once upper-cased. So the conventions discriminate — an
+  environment variable's name is multi-word, a path starts at a root, and a header's
+  name is hyphenated *or* one of the registered single words (`Authorization`,
+  `Authentication`, `Cookie`) — hyphen-only refused the header an app wiring a client
+  actually names. `TOKEN_ENV = "HUNTER2"` is still a finding. Nothing here weakens the
+  literal-format scan, which reads every string in the tree whatever name it is bound to,
+  so a real key pasted into any of these shapes is still caught.
+
+  Apps carrying `arch-allow-no-hardcoded-credentials` markers for these shapes can drop
+  them and shrink their budget.
+
+- **Every generated app shipped unpinned GitHub Actions and an unverified `gitleaks`
+  binary.** This repository's own CI pins each action by digest and verifies the gitleaks
+  download against a pinned SHA256 before running it. The workflow the template renders —
+  the one artifact that reaches every client — did neither: seven actions by movable tag,
+  and a `curl … | tar | sudo install` with nothing checking what arrived.
+
+  That is the headline mandate inverted in the place it travels furthest. The unsafe path
+  was the default, it was not greppable, it carried no budget entry, and it scales in the
+  wrong direction: the more apps, the more copies, each already checked in and rarely
+  re-read.
+
+  The rendered workflow now pins every action by digest, verifies the gitleaks download,
+  declares `permissions: contents: read` rather than inheriting whatever the client's
+  repository defaults to, and checks out with `persist-credentials: false` so no token is
+  left readable in `.git/config` by later steps. A generated app also ships
+  `.github/dependabot.yml` covering actions, pip, npm (both manifests that pin
+  `@terpjs/*`) and docker — pinning without an updater only trades a live supply-chain
+  risk for a stale one, and a generated app is long-lived by definition.
+
+  Two checks keep it true rather than true-once. `template-acceptance` now runs `zizmor`
+  over the *rendered* workflow, so the artifact a client receives meets the bar this
+  repository runs on itself — checking the `.jinja` source cannot see what copier produces
+  from it. And a parity test refuses the two gitleaks pins drifting apart, because the
+  failure mode is not that the template's digest is wrong, it is that it is silently a
+  year old while this repository's moved on.
+
+  `copier update` carries all of it. Both new files are template-owned, so an app that has
+  edited neither takes them cleanly.
+
+- **A mis-keyed secret in `environment.schema.json` was silently plaintext, and the gate
+  stayed green (`terp verify --only env-seams`).** An app marks a declared variable
+  write-only with `"format": "secret"`; that is what routes its value through sealed
+  custody instead of storing it in plain records. The plausible mistake is
+  `"secret": true` — the deploy side's own interface calls the concept "secret" and its
+  authoring API takes `secret=True` — and the deploy side keeps its own field list and
+  **drops** what it does not recognise rather than refusing it. So the key left nothing
+  behind to disagree with: the variable was stored as an ordinary shared value, the
+  manifest read as deliberate, and every check passed.
+
+  That is the platform's central claim inverted. "Insecurity needs an explicit,
+  greppable, budgeted opt-out" became "insecurity is a typo, and it is invisible" — in
+  the one file that is the seam to the pipeline holding real credentials, written once
+  per app and rarely re-read.
+
+  Three checks close it, all in the app's own gate, where the edit happens:
+
+  - **A property field outside the dialect is refused**, `"secret"` by name and with its
+    exact fix. `$`-prefixed keys stay legal: they are JSON Schema's own annotation
+    convention and the shipped manifests use `$comment` for exactly that.
+  - **`format` has a closed vocabulary** — `secret`, `port`, `hostname`, `plain` — for
+    the reason `resolvedBy` already has one. A near miss like `"secrt"` is not a weaker
+    seal, it is no seal, and an open vocabulary cannot say so.
+  - **A credential-shaped name must say which it is.** A variable whose last word is
+    `SECRET`, `TOKEN`, `PASSWORD`, `PASSPHRASE`, `KEY` or `CREDENTIAL` — singular or
+    plural — and declares no `format` is refused: silence there is indistinguishable
+    from a decision.
+    `"format": "secret"` seals it; `"format": "plain"` records that this one holds no
+    credential — a public key, a sort key. One word, in the file and in the diff, which
+    is the standard the platform applies to every other insecurity.
+
+
+  **Upgrade note.** The dialect is closed, not merely spell-checked: the manifest is
+  *authored* as JSON Schema, so an existing app that wrote a standard keyword on a
+  declaration — `pattern`, `minLength`, `minimum`, `const`, `examples`, `deprecated` —
+  now fails the gate. That is deliberate and is the same finding as `secret`: the deploy
+  side has always dropped those fields, so a `"pattern"` on a declaration validates
+  nothing and never did. Delete them. `$`-prefixed keys (`$comment`) stay legal.
+  Adopting this will find things, and finding them is the point. `terp guide environment`
+  carries the recipe.
 
 ### Upgrade notes
 

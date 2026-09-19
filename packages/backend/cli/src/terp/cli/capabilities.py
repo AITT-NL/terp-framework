@@ -16,7 +16,11 @@ the package declares a ``terp.capabilities`` router entry point.
 
 from __future__ import annotations
 
+import importlib
+import inspect
 import json
+import pathlib
+import re
 from dataclasses import dataclass
 from importlib import metadata
 
@@ -205,7 +209,123 @@ def _installed_version(capability: Capability) -> str | None:
         return None
 
 
-def render_capabilities(*, fmt: str = "text") -> str:
+#: Names that are a WIRING POINT rather than a value: something a composition root
+#: calls or constructs and hands to ``create_app``. The vocabulary is the platform's
+#: own -- ``build_*`` makes a router or a module, ``register_*`` adds to a registry, and
+#: the ``*Store`` / ``*Queue`` / ``*Scheduler`` / ``*Middleware`` / ``*Resolver`` suffixes
+#: name the implementations a seam takes.
+#:
+#: Deliberately not "everything the package exports": that is 391 names across twenty
+#: capabilities, most of them operation ids, error types and status literals, and a
+#: report of 391 things is a report of nothing.
+_WIRING_SEAM = re.compile(
+    r"^(?:build_|register_|make_)"
+    r"|(?:Store|Queue|Scheduler|Middleware|Resolver|Reaper|Sink)$"
+)
+
+
+def wiring_seams(capability: Capability) -> tuple[str, ...]:
+    """Every wiring point an INSTALLED capability exports, from its own ``__all__``.
+
+    Computed rather than curated, and that is the point: a hand-written seam list is a
+    second place to forget, and forgetting is the whole failure here. A capability that
+    grows a seam after an app adopted it gets it listed on the next run, with no edit
+    anywhere.
+
+    Empty for a capability that is not installed -- reading its surface needs the import.
+    """
+    try:
+        module = importlib.import_module(capability.module)
+    except Exception:  # noqa: BLE001 - a broken optional import is "no seams to report"
+        return ()
+    found = []
+    for name in getattr(module, "__all__", ()):
+        if not _WIRING_SEAM.search(name):
+            continue
+        member = getattr(module, name, None)
+        if inspect.isfunction(member) or inspect.isclass(member):
+            found.append(name)
+    return tuple(sorted(found))
+
+
+#: Directories whose contents are not this app's source. Deliberately the harness's own
+#: list rather than a shorter one written here: an app whose virtualenv is called `venv`
+#: instead of `.venv` would otherwise have all of site-packages read into the blob, where
+#: every seam name appears and the report goes silently empty.
+_SKIP_DIRS = frozenset(
+    {
+        "__pycache__",
+        ".venv",
+        "venv",
+        "env",
+        ".tox",
+        "site-packages",
+        "node_modules",
+        "build",
+        "dist",
+        ".git",
+    }
+)
+
+
+def app_sources(root: pathlib.Path | str) -> str:
+    """Every Python source under *root*, concatenated once.
+
+    Built once per run and passed down rather than rebuilt per capability. The per-
+    capability version walked the tree and re-read every file for each of ~19 installed
+    capabilities -- 2.75s and 505 files read nineteen times on this repository -- for a
+    blob that cannot change between them.
+
+    `rglob` yields directories and dangling symlinks that match the glob too, so the
+    `is_file()` guard is not defensive noise: a directory named `generated.py/` would
+    otherwise take the whole command down with `IsADirectoryError`, and this command is
+    explicitly information rather than a finding.
+    """
+    parts = []
+    for path in sorted(pathlib.Path(root).rglob("*.py")):
+        if any(part in _SKIP_DIRS for part in path.parts) or not path.is_file():
+            continue
+        try:
+            parts.append(path.read_text(encoding="utf-8", errors="ignore"))
+        except OSError:
+            continue
+    return "\n".join(parts)
+
+
+def unwired_seams(
+    capability: Capability,
+    root: pathlib.Path | str,
+    *,
+    seams: tuple[str, ...] | None = None,
+    sources: str | None = None,
+) -> tuple[str, ...]:
+    """The installed capability's wiring points this app's source never mentions.
+
+    The question a consumer cannot currently ask. The registry answers "do I have this
+    capability", and an installed-and-mounted capability looks finished at that
+    granularity -- so a seam the package grows later is invisible from inside the
+    project forever. `POST /custody/{kind}/{key}/heartbeat` shipped in 0.11.0 and an app
+    on 0.24.0 still stated in four places that it did not exist. Thirteen releases, a
+    6,842-line changelog, and no consumer reads the delta.
+
+    A name match over the app's own sources, deliberately: it is cheap, it has no false
+    negatives that matter (referencing a seam without writing its name is not a thing),
+    and a false positive costs a reader one glance. Reporting nothing is the failure
+    mode worth avoiding here, not reporting one thing twice.
+
+    *seams* and *sources* let a caller reporting on many capabilities compute each once;
+    both default to doing it here, so a single call still works on its own.
+    """
+    seams = wiring_seams(capability) if seams is None else seams
+    if not seams:
+        return ()
+    blob = app_sources(root) if sources is None else sources
+    return tuple(
+        seam for seam in seams if not re.search(rf"\b{re.escape(seam)}\b", blob)
+    )
+
+
+def render_capabilities(*, fmt: str = "text", root: str | pathlib.Path = ".") -> str:
     """Render every adoptable capability, marking the ones this app already has.
 
     Answers the question the gate never could: *what else is on the shelf?* Installed
@@ -222,6 +342,22 @@ def render_capabilities(*, fmt: str = "text") -> str:
 
     rows = [(cap, _installed_version(cap)) for cap in CAPABILITIES]
     pin = platform_version()
+    # Only for what is installed: an unadopted capability's unused seams are the whole
+    # package, which is what the "available to adopt" section already says.
+    #
+    # The source blob and each capability's seam tuple are computed ONCE and shared: the
+    # text cannot change between capabilities, and both halves of the JSON manifest below
+    # are then the same traversal rather than two that could drift.
+    installed_names = [cap.name for cap, version in rows if version is not None]
+    sources = app_sources(root) if installed_names else ""
+    seams = {
+        cap.name: wiring_seams(cap) for cap, version in rows if version is not None
+    }
+    unwired = {
+        cap.name: unwired_seams(cap, root, seams=seams[cap.name], sources=sources)
+        for cap, version in rows
+        if version is not None
+    }
     if fmt == "json":
         return json.dumps(
             {
@@ -237,6 +373,8 @@ def render_capabilities(*, fmt: str = "text") -> str:
                         "guide": cap.guide,
                         "installed": version is not None,
                         "version": version,
+                        "seams": list(seams.get(cap.name, ())),
+                        "unwired_seams": list(unwired.get(cap.name, ())),
                     }
                     for cap, version in rows
                 ],
@@ -261,10 +399,20 @@ def render_capabilities(*, fmt: str = "text") -> str:
         "",
         f"Installed in this app ({len(installed)})",
         "",
+        "  `not used here` names wiring points the package exports and this app's",
+        "  source never mentions. It is information, not a finding: most of them are",
+        "  alternatives you correctly did not take. It exists because an installed",
+        "  capability looks finished, so a seam it grows afterwards is invisible from",
+        "  inside the project -- which is how a liveness endpoint shipped, and an app",
+        "  went on stating in its own source that there was none.",
+        "",
     ]
     for cap, version in installed:
         lines.append(f"  {cap.distribution:<32} {version:<10} {cap.kind}")
         lines.append(f"      {cap.summary}")
+        missing = unwired.get(cap.name, ())
+        if missing:
+            lines.append(f"      not used here: {', '.join(missing)}")
     if not installed:
         lines.append("  (none)")
     lines += ["", f"Available to adopt ({len(available)})", ""]

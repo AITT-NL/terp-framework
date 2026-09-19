@@ -1948,6 +1948,24 @@
         "title": "TaskUpdate",
         "type": "object"
       },
+      "TerpPermission": {
+        "description": "Every permission name this app declares. Gate a client control on one of these rather than on a string literal, so a rename stops type-checking instead of silently over- or under-gating.",
+        "enum": [
+          "notes.delete"
+        ],
+        "title": "TerpPermission",
+        "type": "string"
+      },
+      "TerpRole": {
+        "description": "Every role name this app's modules declare, for the same reason.",
+        "enum": [
+          "admin",
+          "editor",
+          "viewer"
+        ],
+        "title": "TerpRole",
+        "type": "string"
+      },
       "TicketRequest": {
         "properties": {
           "channel": {

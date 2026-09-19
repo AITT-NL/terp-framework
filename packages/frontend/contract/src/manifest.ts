@@ -12,7 +12,68 @@
 /** A role name as understood by the app's backend (e.g. "viewer" | "editor" | "admin"). */
 import type { IconName } from "./icons";
 
-export type RoleName = string;
+/**
+ * The app's own access vocabulary, supplied by declaration merging.
+ *
+ * Empty here on purpose. `@terpjs/contract` is stack- and app-agnostic, so it cannot
+ * know what an app's roles and permissions are called — but the app does, because
+ * `terp openapi` emits both as enums and the generated `schema.d.ts` turns them into
+ * string-literal unions. Six lines in the app hand those unions to this interface:
+ *
+ * ```ts
+ * // frontend/src/access.d.ts
+ * import type { components } from "./api/schema";
+ * declare module "@terpjs/contract" {
+ *   interface TerpAccessVocabulary {
+ *     permission: components["schemas"]["TerpPermission"];
+ *     role: components["schemas"]["TerpRole"];
+ *   }
+ * }
+ * ```
+ *
+ * They name TYPES rather than values, so unlike the permission literals they replace
+ * they cannot drift: regenerate the client and a renamed permission stops
+ * type-checking at every manifest and every `useHasPermission` call that used it.
+ *
+ * An app that declares neither key keeps `string`, which is what every app had before
+ * this existed — so adopting it is opt-in and skipping it costs nothing.
+ */
+export interface TerpAccessVocabulary {}
+
+/**
+ * The app's spelling of one access vocabulary, or `string` when it has not declared one.
+ *
+ * The `extends string` guard matters: an augmentation that supplies something other
+ * than a string union (a mistake, or a half-finished generated file) degrades to
+ * `string` rather than making every manifest in the app stop compiling for a reason
+ * that points at the wrong file.
+ */
+export type AccessName<Key extends "permission" | "role"> =
+  Key extends keyof TerpAccessVocabulary
+    ? TerpAccessVocabulary[Key] extends string
+      ? TerpAccessVocabulary[Key]
+      : string
+    : string;
+
+/** Minimum role required, narrowed to the app's own roles when it declares them. */
+export type RoleName = AccessName<"role">;
+
+/**
+ * A declared permission name, narrowed to the app's own when it declares them.
+ *
+ * A client gates a route, a nav entry or a control on a permission whose single source
+ * is the backend's declaration. Spelled as a bare string it fails in one of two silent
+ * directions when the backend renames or re-floors it: it over-gates, and a screen
+ * 403s for someone who may use it, or it under-gates, and a link renders while every
+ * request behind it fails. Only a hand-written end-to-end test catches either.
+ *
+ * NAMED `Terp`-first on purpose. `lib.dom.d.ts` declares a GLOBAL `PermissionName`
+ * (the browser's `"geolocation" | "notifications" | "push" | …`), so a file that uses
+ * the short name and forgets to import it does not fail — it silently type-checks
+ * against the browser's vocabulary instead, and the error it eventually produces names
+ * a union nobody in the app recognises. Writing this one found exactly that.
+ */
+export type TerpPermissionName = AccessName<"permission">;
 
 /**
  * Stable user-interface copy: the source message plus the catalog id every target locale
@@ -52,7 +113,7 @@ export interface ModuleRoute {
    * unknown or misspelled names are simply absent from the grant list, and an app that mounts
    * no grant capability has an empty list, which correctly hides everything that names one.
    */
-  permission?: string;
+  permission?: TerpPermissionName;
   /**
    * Query-string keys this route reads, e.g. `["status", "page"]`.
    *
@@ -104,7 +165,7 @@ export interface NavItem {
    * unknown or misspelled names are simply absent from the grant list, and an app that mounts
    * no grant capability has an empty list, which correctly hides everything that names one.
    */
-  permission?: string;
+  permission?: TerpPermissionName;
   /**
    * Match the URL exactly rather than as a segment-aligned prefix.
    *

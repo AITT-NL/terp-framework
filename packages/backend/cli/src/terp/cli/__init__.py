@@ -16,6 +16,7 @@ from terp.core import ControlPlane, CorsPolicy, ModuleSpec
 if TYPE_CHECKING:  # terp-arch stays off the common `terp guide` / `terp inspect` path
     from terp.arch import ScanRoot
 
+from terp.cli._output import emit
 from terp.cli.access import (
     build_access_graph_for_app,
     render_access,
@@ -128,6 +129,42 @@ Then the codegen chain, in this order — each step reads what the one before it
 `terp verify` runs the drift halves of that chain and names the command to re-run when
 something is stale, so it is the one to reach for if you are unsure what is out of date.
 Policy.default() = authenticated; read VIEWER, write EDITOR.
+
+FORMATTING: `terp fmt`, NOT `ruff format .`
+
+Formatting is deliberately ungated -- `terp verify --list` says so under "not checked
+here", with the reason. The whole-tree formatter is the right tool with the wrong blast
+radius: it rewrites files your change never touched, and the diff reaching review is
+then part change and part churn, which is a review-integrity problem rather than a
+cosmetic one. `terp fmt` defaults to `--changed` (what git reports as modified, staged
+or untracked -- the set you are responsible for); `--check` reports without rewriting,
+and `--all` is the deliberate whole-tree pass when you actually mean it.
+
+WHEN router.py GETS LONG
+
+A module declares ONE router. That is about the module's surface being one mounted,
+one-Policy thing -- it is NOT a limit on how many routes the module may have, and the
+file cap is not one either. More files, same router:
+
+    # app/modules/notes/routes_reports.py
+    from app.modules.notes.router import router
+
+    @router.get("/reports/", response_model=Page[ReportRead])
+    def list_reports() -> Page[ReportRead]: ...
+
+    # app/modules/notes/router.py -- import it so the decorators run
+    from fastapi import APIRouter
+    router = APIRouter(tags=["notes"])
+    from app.modules.notes import routes_reports  # noqa: E402,F401
+
+Those routes are on the module's declared router, so they mount behind the same guard
+and answer to the same Policy. The canonical five files are a REQUIRED set, not a
+maximum, so the extra file is fine where it is.
+
+What is refused is composing a SECOND router into the first
+(`router.include_router(sub)`, `no_raw_app_routes`). Splitting the module instead is
+the expensive mistake this section exists to prevent: that splits a Policy, a
+`requires` edge, a nav group and a migration history, because a file got long.
 """,
     "dependencies": """\
 One module needs another (declared edges)
@@ -488,6 +525,38 @@ THE FAILURE MODE THIS EXISTS TO PREVENT
   makes it an admin "for now". Least privilege loses to a ten-second workaround. If
   you catch yourself widening a role to unblock one call, that call wants a
   permission - and the grant is one command (ADR 0089).
+
+LET THE FRONTEND'S COPIES STOP TYPE-CHECKING WHEN YOU RENAME ONE
+
+  A client gates a route, a nav entry and a control on the same names you declared
+  here. Spelled as bare strings they fail in one of two SILENT directions when you
+  rename or re-floor a permission: over-gating, where a screen 403s for someone who
+  may use it, or under-gating, where a link renders and every request behind it
+  fails. Only a hand-written end-to-end test catches either.
+
+  `terp openapi` emits your permission and role names into the contract as enums, so
+  `npm run generate` turns them into string-literal unions. Six lines hand them to
+  the manifest types:
+
+      // frontend/src/access.d.ts
+      import type { components } from "./api/schema";
+
+      declare module "@terpjs/contract" {
+        interface TerpAccessVocabulary {
+          permission: components["schemas"]["TerpPermission"];
+          role: components["schemas"]["TerpRole"];
+        }
+      }
+
+  After that a misspelled or removed permission fails at `npm run typecheck`, at
+  every manifest and every `useHasPermission` call that used it. The file names TYPES
+  rather than values, so unlike the strings it replaces it cannot itself drift.
+
+  ADOPT IT ONCE YOU HAVE A PERMISSION, not before. An app that declares none emits no
+  `TerpPermission` schema -- an empty enum would generate `never` and break every
+  client that touched the type -- so the scaffold does not ship this file. Without it
+  both props stay plain `string`, exactly as before, which is why adopting is opt-in
+  and skipping costs nothing.
 """,
     "access": """\
 The access model (three layers) — profiles + the access graph
@@ -1091,6 +1160,31 @@ app had to cut. WHERE they go:
   The rule asks only that the tests EXIST and are attributable. Whether they are any
   good is `no_empty_tests` (a body that cannot fail is not a test) and your coverage gate.
 
+COUNT THE QUERIES A LIST ROUTE RUNS. The gate says a great deal about what your code
+cannot get structurally wrong and nothing about what it costs to run, and the shape that
+bites is dull: an endpoint loads N rows and touches a relationship per row, so the count
+is 1 + N. The response is fine on the twelve rows your fixture creates, nothing in the
+code looks wrong, every test passes -- until the table has real data in it.
+
+      from terp.core.testing import assert_max_queries
+
+      def test_listing_invoices_does_not_scale_with_rows(client, session):
+          with assert_max_queries(session, 2, only="FROM invoice"):
+              client.get("/api/v1/invoices/")
+
+  Statements, not seconds: the count is deterministic and small where a wall clock is
+  neither, so this survives a slow runner and still fails the moment a loop starts
+  talking to the database. `count_queries(session)` is the same thing without the
+  assertion, for when you want to look. A failure prints every statement that ran,
+  because "expected at most 2, got 14" without the fourteen is a puzzle -- and the
+  fourteen are almost always one SELECT with a different id, which is the diagnosis.
+
+  PICK THE LIMIT FROM WHAT THE ENDPOINT SHOULD DO, not from what it currently does. A
+  bound recorded from present behaviour passes forever and asserts nothing. The number
+  is a claim about the SHAPE of the query, and the claim is that adding a row to the
+  fixture must not change it -- so write the test with several rows in the fixture, or
+  it cannot tell the two apart.
+
 WHAT YOU MUST STILL DO YOURSELF. The platform UNDOES a runtime; it never INSTALLS the
 one your test needs. That distinction is the whole of testing on Terp:
       * whole runtime -> compose the app in a fixture (see apps/example/tests/conftest.py,
@@ -1419,7 +1513,13 @@ Using capabilities
 - SEE WHAT EXISTS BEFORE YOU BUILD IT:
       terp inspect capabilities
   lists every maintained capability, whether this app already has it, the exact
-  `uv add` line and the composition-root wiring it expects. Durable delivery, realtime
+  `uv add` line and the composition-root wiring it expects. For a capability you
+  ALREADY have it also prints `not used here`: wiring points the package exports and
+  your source never mentions. That line exists because an installed capability looks
+  finished -- so a seam it grows in a later release is invisible from inside the
+  project, and at a release every day or two nobody reads the changelog delta. Most
+  of what it lists are alternatives you correctly did not take; it is information,
+  not a finding. Durable delivery, realtime
   push, tenancy, files, webhooks, scheduling and shared multi-replica state are all
   already solved — hand-rolling one of them is a defect, not a shortcut.
 - A routed capability self-registers: create_app(specs, discover_capabilities=True)
@@ -1921,10 +2021,32 @@ configuration, so `env-seams` checks the shape first and reports every defect at
     variable well is easily longer than that. Write the long version in AGENTS.md or the
     code, and keep the manifest's to a sentence or two.
   - resolvedBy is one of host | container | browser.
+  - format is one of secret | port | hostname | plain.
   - enum is a list of at most 50 strings of at most 200 characters each.
 
-Unknown fields are dropped rather than refused, so anything outside that set is not
-carried to Studio -- do not encode meaning in one.
+A FIELD OUTSIDE THAT SET IS REFUSED HERE, because the deploy side DROPS what it does not
+recognise rather than refusing it -- so a misspelled field silently does nothing, and the
+manifest still reads as deliberate. One spelling makes that a security defect rather than
+a puzzle:
+
+    "MY_API_TOKEN": { "type": "string", "secret": true }     # WRONG -- refused
+    "MY_API_TOKEN": { "type": "string", "format": "secret" } # what seals the value
+
+`"secret": true` is the plausible mistake, not an exotic one: the deploy side's own UI
+calls the concept "secret" and its authoring API takes secret=True. Written that way the
+key is dropped, the value is stored as an ordinary shared value in plain records rather
+than through sealed custody, and nothing anywhere disagrees. A near miss in `format`
+itself (`"secrt"`) does the same, which is why that vocabulary is closed too.
+
+A CREDENTIAL-SHAPED NAME MUST SAY WHICH IT IS. A variable whose last word is SECRET,
+TOKEN, PASSWORD, PASSPHRASE, KEY, CREDENTIAL or CREDENTIALS and declares no `format` is
+refused: silence there is indistinguishable from a decision. Declare `"format": "secret"`
+to seal it, or `"format": "plain"` to record that this one holds no credential -- a
+public key, a sort key. The opt-out is one word, in the file and in the diff, which is
+the standard the platform applies to every other insecurity.
+
+$-prefixed keys ($comment and friends) are JSON Schema's own annotation convention and
+are not misspellings -- the shipped manifests use $comment for exactly that.
 
 `terp env` IS THE COMMAND FOR THE MACHINE YOU ARE ON. A deploy tool renders and
 seals .app.env per environment; for the working copy the only seam used to be a
@@ -2864,7 +2986,7 @@ class _VersionAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):  # type: ignore[no-untyped-def]
         from terp.cli.version import render_version
 
-        print(render_version())
+        emit(render_version())
         parser.exit()
 
 
@@ -2962,6 +3084,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default="text",
         help="Output format: text (human) or json (structured, for any tool or agent "
         "reading this; default: text)",
+    )
+    capabilities_parser.add_argument(
+        "--app-root",
+        default=".",
+        help="Project root whose sources are read to see which wiring points an "
+        "installed capability offers that this app does not use (default: .)",
     )
     schema_parser = inspect_subcommands.add_parser(
         "schema",
@@ -3728,13 +3856,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command == "inspect" and args.inspect_command == "control-plane":
-        print(inspect_control_plane(args.object, modules=args.module, fmt=args.format))
+        emit(inspect_control_plane(args.object, modules=args.module, fmt=args.format))
         return
     if args.command == "inspect" and args.inspect_command == "jobs":
-        print(render_jobs(args.object))
+        emit(render_jobs(args.object))
         return
     if args.command == "inspect" and args.inspect_command == "access":
-        print(
+        emit(
             inspect_access(
                 args.object,
                 modules=args.module,
@@ -3745,10 +3873,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "inspect" and args.inspect_command == "schema":
-        print(inspect_schema(app_root=args.app_root, package=args.package, fmt=args.format))
+        emit(inspect_schema(app_root=args.app_root, package=args.package, fmt=args.format))
         return
     if args.command == "inspect" and args.inspect_command == "capabilities":
-        print(render_capabilities(fmt=args.format))
+        emit(render_capabilities(fmt=args.format, root=args.app_root))
         return
     if args.command == "guide":
         if args.list:
@@ -3758,7 +3886,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             # offering "what can I read about?" wants the topics; a consumer resolving a
             # violation already has the rule name and wants only to know it is answerable.
             if args.format == "json":
-                print(
+                emit(
                     json.dumps(
                         {"topics": list(guide_topics()), "rules": sorted(set(guide_choices()) - set(guide_topics()))},
                         indent=2,
@@ -3766,7 +3894,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
             else:
                 for topic in guide_topics():
-                    print(topic)
+                    emit(topic)
             return
         if args.topic is not None and args.topic not in guide_choices():
             raise SystemExit(
@@ -3779,7 +3907,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "(`terp guide changelog --since <version>`); every other topic is the "
                 "current recipe, which has no history to slice"
             )
-        print(guide(args.topic, since=args.since))
+        emit(guide(args.topic, since=args.since))
         return
     if args.command == "upgrade":
         from terp.cli.version import render_upgrade_check
@@ -3791,7 +3919,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "a lockstep bump spans pyproject.toml and frontend/package.json and "
                 "must be reviewed as one change."
             )
-        print(render_upgrade_check(fmt=args.format))
+        emit(render_upgrade_check(fmt=args.format))
         return
     if args.command == "migrate":
         from terp.migrations import migrate_main
@@ -3799,17 +3927,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         migrate_main(args.migrate_args)
         return
     if args.command == "jobs" and args.jobs_command == "run":
-        print(
+        emit(
             run_job_command(
                 args.name, payload=args.payload, app_ref=args.app, app_root=args.app_root
             )
         )
         return
     if args.command == "jobs" and args.jobs_command == "list":
-        print(render_jobs(args.object))
+        emit(render_jobs(args.object))
         return
     if args.command == "jobs" and args.jobs_command == "worker":
-        print(
+        emit(
             run_worker_command(
                 app_ref=args.app,
                 app_root=args.app_root,
@@ -3820,7 +3948,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "jobs" and args.jobs_command == "scheduler":
-        print(run_scheduler_command(app_ref=args.app, app_root=args.app_root))
+        emit(run_scheduler_command(app_ref=args.app, app_root=args.app_root))
         return
     if args.command == "env":
         raise SystemExit(
@@ -3840,14 +3968,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
     if args.command == "outbox" and args.outbox_command == "backlog":
-        print(
+        emit(
             render_backlog(
                 app_ref=args.app, app_root=args.app_root, fmt=args.format
             )
         )
         return
     if args.command == "outbox" and args.outbox_command == "dead-letters":
-        print(
+        emit(
             render_dead_letters(
                 app_ref=args.app,
                 app_root=args.app_root,
@@ -3859,7 +3987,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "leases" and args.leases_command == "list":
-        print(
+        emit(
             render_leases(
                 app_ref=args.app,
                 app_root=args.app_root,
@@ -3870,7 +3998,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "leases" and args.leases_command == "reap":
-        print(
+        emit(
             reap_leases_command(
                 app_ref=args.app,
                 app_root=args.app_root,
@@ -3888,24 +4016,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             frontend=not args.no_frontend,
             profile=args.profile,
         )
-        print(new_module_message(args.name, paths, profile=args.profile))
+        emit(new_module_message(args.name, paths, profile=args.profile))
         return
     if args.command == "api-docs":
         for path in api_docs(args.out):
-            print(f"wrote {path}")
+            emit(f"wrote {path}")
         return
     if args.command == "openapi":
-        print(f"wrote {export_openapi(args.app, out=args.out, app_root=args.app_root)}")
+        emit(f"wrote {export_openapi(args.app, out=args.out, app_root=args.app_root)}")
         return
     if args.command == "routes":
-        print(
+        emit(
             run_routes_command(
                 root=args.root, frontend_dir=args.frontend_dir, check=args.check
             )
         )
         return
     if args.command == "dev":
-        print(
+        emit(
             run_dev_command(
                 app_ref=args.app,
                 root=args.app_root,
@@ -3931,7 +4059,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 budget_path=args.budget,
                 companions=args.companion,
             )
-            print(json.dumps(payload, indent=2))
+            emit(json.dumps(payload, indent=2))
             if not payload["ok"]:
                 raise SystemExit(1)
             return
@@ -3942,7 +4070,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 budget_path=args.budget,
                 companions=args.companion,
             )
-            print(json.dumps(payload, indent=2))
+            emit(json.dumps(payload, indent=2))
             if not payload["ok"]:
                 raise SystemExit(1)
             return
@@ -3959,7 +4087,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         # more than the app says what more, because a verdict that does not name its
         # scope is the thing this whole seam exists to stop.
         scanned = ", ".join(["app", *(root.package for root in extra)])
-        print(f"terp.arch: {scanned} are clean" if extra else "terp.arch: app is clean")
+        emit(f"terp.arch: {scanned} are clean" if extra else "terp.arch: app is clean")
         return
     if args.command == "verify":
         raise SystemExit(
@@ -3972,7 +4100,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
     if args.command == "user" and args.user_command == "create":
-        print(
+        emit(
             create_user_command(
                 args.email,
                 role=args.role,
@@ -3983,7 +4111,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "service-account" and args.service_account_command == "create":
-        print(
+        emit(
             create_service_account_command(
                 args.name,
                 role=args.role,
@@ -3995,7 +4123,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "service-account" and args.service_account_command == "list":
-        print(
+        emit(
             render_service_accounts(
                 app_ref=args.app,
                 app_root=args.app_root,
@@ -4006,7 +4134,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "service-account" and args.service_account_command == "revoke":
-        print(
+        emit(
             revoke_service_account_command(
                 args.subject, app_ref=args.app, app_root=args.app_root
             )
@@ -4018,13 +4146,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             "revoke": grant_revoke_command,
         }
         if args.grant_command == "list":
-            print(
+            emit(
                 grant_list_command(
                     args.subject, app_ref=args.app, app_root=args.app_root
                 )
             )
             return
-        print(
+        emit(
             _commands[args.grant_command](
                 args.subject,
                 args.permission,
@@ -4035,14 +4163,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "module-role":
         if args.module_role_command == "list":
-            print(
+            emit(
                 module_role_list_command(
                     args.subject, app_ref=args.app, app_root=args.app_root
                 )
             )
             return
         if args.module_role_command == "revoke":
-            print(
+            emit(
                 module_role_revoke_command(
                     args.subject,
                     args.module,
@@ -4051,7 +4179,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
             )
             return
-        print(
+        emit(
             module_role_add_command(
                 args.subject,
                 args.module,
@@ -4062,10 +4190,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "seed":
-        print(run_seed_command(app_ref=args.app, app_root=args.app_root, seed_ref=args.seed))
+        emit(run_seed_command(app_ref=args.app, app_root=args.app_root, seed_ref=args.seed))
         return
     if args.command == "docker" and args.docker_command == "dev":
-        print(
+        emit(
             run_docker_dev_command(
                 compose_file=args.compose_file, root=args.root, project_name=args.project_name
             )
@@ -4075,7 +4203,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         from terp.cli.smoke import render_smoke_plan, run_smoke_command
 
         if args.plan:
-            print(render_smoke_plan(root=args.root, compose_file=args.compose_file))
+            emit(render_smoke_plan(root=args.root, compose_file=args.compose_file))
             return
         raise SystemExit(run_smoke_command(root=args.root, compose_file=args.compose_file))
     parser.error("unknown command")  # pragma: no cover - argparse guards this

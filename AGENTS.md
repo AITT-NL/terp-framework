@@ -222,8 +222,22 @@ the build if the framework re-couples to `spec/` or `studio/` by path.
 ## Run the gate
 
 ```bash
-uv run pytest          # preferred (syncs the workspace)
+uv run coverage run -m pytest   # the gate: the suite ...
+uv run coverage report          # ... and the 100% bar it is held to
+```
+
+Both commands, not the first alone. The suite passing and the gate passing are two
+different claims: `fail_under = 100` lives in `[tool.coverage.report]`, so a branch
+with no test reaching it leaves the suite green and fails CI. Use `coverage run -m
+pytest`, never `pytest --cov` — coverage has to start before pytest loads its
+entry-point plugins, or what terp-core's own plugin imports runs untraced and reads
+as missed. `pyproject.toml` carries the full reasoning.
+
+Plain `uv run pytest` stays right for a fast subset while working; it just is not
+the gate.
+
+```bash
 # without uv (use .venv/Scripts/python on Windows):
-python -m venv .venv && .venv/bin/python -m pip install pytest httpx -e packages/backend/core
-.venv/bin/python -m pytest
+python -m venv .venv && .venv/bin/python -m pip install pytest httpx coverage -e packages/backend/core
+.venv/bin/python -m coverage run -m pytest && .venv/bin/python -m coverage report
 ```

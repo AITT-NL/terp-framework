@@ -190,5 +190,22 @@
         "app/**"
       ]
     }
+  ],
+  "not_checked_here": [
+    {
+      "id": "formatting",
+      "reason": "Formatting is deliberately ungated. `ruff format .` is the right formatter with the wrong blast radius: it rewrites files the current change never touched, so the diff reaching review is part change and part churn, and the author's only recourse is to check out the unrelated files one by one",
+      "instead": "terp fmt  (defaults to --changed: the files git reports as modified, staged or untracked -- the set you are responsible for; `terp fmt --check` reports without rewriting, and `--all` is the deliberate whole-tree pass)"
+    },
+    {
+      "id": "generic-appsec-classes",
+      "reason": "Command injection, path traversal, unsafe deserialization, weak randomness and secrets-in-logs are NOT terp-arch rules. They are delegated, not duplicated (ADR 0085) -- a second implementation of a solved analysis is a second thing to keep correct",
+      "delegated_to": "ruff (bandit `S` rules), run by the appsec-baseline check"
+    },
+    {
+      "id": "test-efficacy",
+      "reason": "`no_empty_tests` and `modules_ship_tests` check that tests EXIST and are not empty. Nothing here checks that a test would fail if the code were wrong, so a suite can be green, fully populated, pass every gate, and still not discriminate -- list filters and boundary conditions are the usual blind spot",
+      "instead": "no tooling ships for this yet; assert the exclusion case by hand"
+    }
   ]
 }

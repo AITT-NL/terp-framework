@@ -2673,3 +2673,79 @@ def test_the_dependency_hygiene_runner_is_reached_through_the_dispatch(
     assert excinfo.value.code == 0
     (result,) = json.loads(capsys.readouterr().out)["checks"]
     assert result["id"] == "dependency-hygiene" and result["ok"] is True
+
+
+# --------------------------------------------------------------------------- #
+# What the gate deliberately does not check                                     #
+# --------------------------------------------------------------------------- #
+def test_the_manifest_states_what_is_not_checked_here() -> None:
+    """A consumer reasons from what the gate checks to what the gate COVERS.
+
+    The manifest had a slot for what runs and no slot for what deliberately does not,
+    so an absence read as either "handled elsewhere" or "an oversight" with nothing to
+    say which — and a decision already taken, recorded in an ADR nobody runs, was
+    indistinguishable from a gap. The platform's own proposition is that insecurity
+    needs an explicit, greppable opt-out; the same standard applied to the gate's own
+    boundary is this list.
+    """
+    manifest = verify_manifest("full")
+    stated = {entry["id"]: entry for entry in manifest["not_checked_here"]}
+    assert {"formatting", "generic-appsec-classes", "test-efficacy"} <= set(stated)
+    for entry in stated.values():
+        assert entry["reason"].strip(), entry
+        # Every entry has to end somewhere an author can go: what covers it, or what
+        # to run instead. An omission with neither is a shrug with a schema.
+        assert entry.get("delegated_to") or entry.get("instead"), entry
+
+
+def test_a_non_goal_is_never_also_a_check() -> None:
+    """The two halves must not contradict each other: a profile that quietly grew a
+    formatting check while the manifest still says formatting is ungated is worse than
+    either state alone."""
+    for profile in PROFILES:
+        manifest = verify_manifest(profile)
+        checked = {check["id"] for check in manifest["checks"]}
+        stated = {entry["id"] for entry in manifest["not_checked_here"]}
+        assert not (checked & stated), (
+            f"profile {profile!r} both runs and disclaims: {sorted(checked & stated)}"
+        )
+
+
+def test_the_formatting_entry_names_the_command_that_solves_it() -> None:
+    """`terp fmt` already shipped, `--changed` by default, with `--check` written and
+    documented — and was reachable only from `--help`. The measured cost of not knowing
+    it: an agent runs the whole-tree formatter, and the diff reaching review is part
+    change and part churn."""
+    (entry,) = [
+        item
+        for item in verify_manifest("full")["not_checked_here"]
+        if item["id"] == "formatting"
+    ]
+    assert "terp fmt" in entry["instead"]
+    assert "--changed" in entry["instead"]
+
+
+def test_the_appsec_delegation_names_where_it_went() -> None:
+    """ADR 0085 delegates the generic security classes rather than duplicating them.
+    That is a decision, and a decision a consumer can only find by reading a decision
+    record is indistinguishable from an oversight when they run the tool."""
+    (entry,) = [
+        item
+        for item in verify_manifest("full")["not_checked_here"]
+        if item["id"] == "generic-appsec-classes"
+    ]
+    assert "ruff" in entry["delegated_to"]
+    assert "appsec-baseline" in entry["delegated_to"]
+
+
+def test_the_human_listing_prints_the_non_goals_too(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    """The JSON manifest serves a driving tool; a person runs `--list`. Stating it in
+    only one of them leaves the other reading the check list as the coverage list."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "full", "--list", "--root", str(tmp_path)])
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "not checked here (deliberately)" in out
+    assert "terp fmt" in out

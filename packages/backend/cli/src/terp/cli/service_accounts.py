@@ -134,11 +134,11 @@ def render_service_accounts(
     push_app_root(app_root)
     load_app(app_ref)
 
-    from sqlmodel import Session, select
+    from sqlmodel import select
 
     from terp.capabilities.identity.models import ServiceAccount
     from terp.capabilities.identity.schemas import ServiceAccountRead
-    from terp.core._internal.engine import get_engine
+    from terp.cli._engine import cli_session
 
     now = datetime.datetime.now(datetime.UTC)
     cutoff = (
@@ -146,7 +146,7 @@ def render_service_accounts(
         if expiring_within_days is None
         else now + datetime.timedelta(days=expiring_within_days)
     )
-    with Session(get_engine()) as session:
+    with cli_session() as session:
         rows = list(session.exec(select(ServiceAccount).order_by(ServiceAccount.name)))
 
     accounts = [ServiceAccountRead.model_validate(row, from_attributes=True) for row in rows]

@@ -1,3 +1,4 @@
+# arch-allow-no-oversized-python-files: one themed rule module; splitting the trait rules from each other separates checks that share their whole matching vocabulary
 """Model-trait rules: scope + provenance are applied centrally, never by hand.
 
 Soft-delete / tenant scoping (``base_query``) and actor-stamping (``_save``) are

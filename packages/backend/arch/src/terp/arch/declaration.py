@@ -77,6 +77,10 @@ def declared_roots(project_root: str | pathlib.Path = ".") -> tuple[ScanRoot, ..
     try:
         declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
+        # There is no client here to leak an internal path to: this is a build-time
+        # CLI error shown in the developer's own terminal. The parser's text is the
+        # useful half of it -- it names the line of THEIR pyproject.toml that broke.
+        # arch-allow-no-exception-text-in-responses: build-time CLI diagnostic shown in the author's own terminal, never an HTTP envelope
         raise ArchDeclarationError(
             f"pyproject.toml is unreadable ({exc}), so whether this project declares "
             f"roots beyond the app package cannot be established; fix it or remove "

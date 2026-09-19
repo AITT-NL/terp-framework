@@ -8,6 +8,9 @@ refactored freely. Public code reaches the database only through
 from __future__ import annotations
 
 from sqlalchemy import Engine
+from typing import Any
+
+from sqlalchemy.pool import NullPool
 from sqlmodel import create_engine
 
 from terp.core.config import settings
@@ -54,12 +57,38 @@ def _engine_options(database_url: str) -> dict[str, object]:
     return options
 
 
+def _build(url: str, **options: Any) -> Engine:
+    """The one call to ``create_engine`` in the platform.
+
+    Both engine shapes below go through it. Two call sites would be two places to change
+    when an option has to hold for every engine the platform opens, and two findings for
+    the rule that says engine construction belongs in exactly one module.
+    """
+    return create_engine(url, **options)
+
+
 def get_engine() -> Engine:
     """Return the process-wide engine, creating it on first use."""
     global _engine
     if _engine is None:
-        _engine = create_engine(settings.DATABASE_URL, **_engine_options(settings.DATABASE_URL))
+        _engine = _build(settings.DATABASE_URL, **_engine_options(settings.DATABASE_URL))
     return _engine
+
+
+def maintenance_engine(url: str) -> Engine:
+    """An autocommit engine for a server-level statement, pooling nothing.
+
+    ``CREATE DATABASE`` and ``DROP DATABASE`` cannot run inside a transaction, and they
+    are addressed at the server rather than at the application's database -- so neither
+    the process-wide engine nor a session can carry them. This is the only other shape
+    of engine the platform builds, and it is built here for the same reason the cached
+    one is: engine construction is this module's job, so the scan finds one place that
+    does it rather than one per caller.
+
+    ``NullPool`` because the caller's next act is usually to drop the very database a
+    pooled connection would still be holding open.
+    """
+    return _build(url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
 
 
 def reset_engine() -> None:
@@ -70,4 +99,4 @@ def reset_engine() -> None:
         _engine = None
 
 
-__all__ = ["get_engine", "reset_engine"]
+__all__ = ["get_engine", "maintenance_engine", "reset_engine"]

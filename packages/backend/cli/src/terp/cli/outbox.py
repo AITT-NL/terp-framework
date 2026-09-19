@@ -64,11 +64,9 @@ def render_backlog(
             "report on (`terp guide outbox`)"
         ) from exc
 
-    from sqlmodel import Session
+    from terp.cli._engine import cli_session
 
-    from terp.core._internal.engine import get_engine
-
-    with Session(get_engine()) as session:
+    with cli_session() as session:
         waiting = backlog(session)
 
     if fmt == "json":
@@ -125,16 +123,14 @@ def render_dead_letters(
             "report on (`terp guide outbox`)"
         ) from exc
 
-    from sqlmodel import Session
-
-    from terp.core._internal.engine import get_engine
+    from terp.cli._engine import cli_session
 
     since = (
         None
         if since_days is None
         else datetime.now(UTC) - timedelta(days=since_days)
     )
-    with Session(get_engine()) as session:
+    with cli_session() as session:
         rows = dead_letters(session, name=name, since=since, limit=limit)
 
     if fmt == "json":

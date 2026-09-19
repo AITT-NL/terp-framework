@@ -20,9 +20,15 @@ import pathlib
 from typing import Any
 
 import pytest
-import sqlalchemy
+from _pytest.outcomes import Failed, Skipped
 
-from terp.core.testing import TERP_POSTGRES_URL_ENV, _postgres_scratch_database
+import terp.core.db
+
+from terp.core.testing import (
+    TERP_POSTGRES_URL_ENV,
+    TERP_REQUIRE_POSTGRES_LANE_ENV,
+    _postgres_scratch_database,
+)
 
 
 class _RecordingConnection:
@@ -62,12 +68,65 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         engines.append(engine)
         return engine
 
-    monkeypatch.setattr(sqlalchemy, "create_engine", _fake_create_engine)
+    # Stubbed at `terp.core.db.maintenance_engine`, which is the seam the helper now
+    # imports — not at `sqlalchemy.create_engine`. Engine construction moved behind the
+    # one `_build` call in `terp.core._internal.engine`, so patching the library function
+    # stopped intercepting anything and these tests reached for a real server instead.
+    monkeypatch.setattr(terp.core.db, "maintenance_engine", _fake_create_engine)
     monkeypatch.setenv(
         TERP_POSTGRES_URL_ENV, "postgresql+psycopg://user:pw@localhost:5432/postgres"
     )
     statements.append  # keep the reference legible
     return statements
+
+
+def test_a_maintenance_engine_autocommits_and_pools_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The two properties a server-level statement needs.
+
+    ``CREATE DATABASE`` and ``DROP DATABASE`` cannot run inside a transaction, so the
+    engine has to be in AUTOCOMMIT -- the process-wide one is not, which is why this
+    second shape exists at all. And it pools nothing, because the caller's next act is
+    routinely to drop the very database a pooled connection would still be holding
+    open: with a pool, the DROP loses that race and leaves a scratch database behind on
+    a server the suite shares with itself.
+
+    Asserted at the construction seam rather than off the built engine, because only one
+    of the two is legible afterwards. ``NullPool`` is public on the engine and checked
+    that way below; the isolation level is not -- SQLAlchemy keeps it on a private
+    dialect attribute and SQLite's connection reports its own emulated level instead, so
+    reading it back would either couple this test to a private name or assert the wrong
+    thing.
+    """
+    from sqlalchemy.pool import NullPool
+
+    import terp.core._internal.engine as engine_module
+
+    seen: dict[str, Any] = {}
+
+    def _spy(url: str, **options: Any) -> object:
+        seen["url"] = url
+        seen.update(options)
+        return object()
+
+    monkeypatch.setattr(engine_module, "_build", _spy)
+    engine_module.maintenance_engine("postgresql+psycopg://user:pw@example.test/postgres")
+
+    assert seen["isolation_level"] == "AUTOCOMMIT", (
+        "CREATE DATABASE cannot run inside a transaction"
+    )
+    assert seen["poolclass"] is NullPool, (
+        "a pooled connection outlives the statement and loses the race with DROP"
+    )
+
+    # And the option is one a real engine honours, not just one that is passed along.
+    monkeypatch.undo()
+    engine = engine_module.maintenance_engine("sqlite://")
+    try:
+        assert isinstance(engine.pool, NullPool)
+    finally:
+        engine.dispose()
 
 
 def test_a_missing_server_skips_rather_than_fails(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,6 +139,36 @@ def test_a_missing_server_skips_rather_than_fails(monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv(TERP_POSTGRES_URL_ENV, raising=False)
     with pytest.raises(pytest.skip.Exception, match=TERP_POSTGRES_URL_ENV):
         next(_postgres_scratch_database())
+
+
+def test_a_lane_that_declared_it_runs_this_fails_instead_of_skipping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half: a skip is green, and a green skip is how a lane stops running.
+
+    The workflow starts a PostgreSQL service and installs a client on purpose, so in
+    that context a missing server is not "no database here" — it is one of those steps
+    having broken. Left as a skip it is indistinguishable from a pass, and the dialect
+    half of a two-dialect matrix quietly stops being tested while every run stays green.
+
+    So the lane says so once, in its own environment, and the fixture believes it. The
+    default is unchanged: nothing outside a lane sets this, and the skip above still
+    holds for every offline checkout.
+    """
+    monkeypatch.delenv(TERP_POSTGRES_URL_ENV, raising=False)
+    monkeypatch.setenv(TERP_REQUIRE_POSTGRES_LANE_ENV, "1")
+    # Catching `Skipped` too, deliberately. A bare `pytest.raises(Failed)` would let a
+    # regression here raise `Skipped` straight through the test, and pytest reports that
+    # as a SKIP — green, and indistinguishable from a pass. The assertion below is what
+    # makes this test fail when the fixture stops honouring the flag, rather than
+    # quietly joining the class of silent non-runs it exists to prevent.
+    with pytest.raises((Failed, Skipped)) as caught:
+        next(_postgres_scratch_database())
+    assert isinstance(caught.value, Failed), (
+        "with the lane flag set, a missing server must FAIL; a skip is green and says "
+        f"nothing, which is the whole reason {TERP_REQUIRE_POSTGRES_LANE_ENV} exists"
+    )
+    assert TERP_REQUIRE_POSTGRES_LANE_ENV in str(caught.value)
 
 
 def test_the_scratch_database_is_created_yielded_and_force_dropped(

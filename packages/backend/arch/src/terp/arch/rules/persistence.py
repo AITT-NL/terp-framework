@@ -1,3 +1,4 @@
+# arch-allow-no-oversized-python-files: one themed rule module, and the largest. Due a split by sub-theme (columns / queries / sessions); tracked here rather than by being invisible
 """Persistence rules: writes go through the audited chokepoint, models use BaseTable.
 
 No raw session/engine construction (``SessionDep`` is the only handle), no direct

@@ -110,9 +110,50 @@ jobs:
       - name: Set up Python
         run: uv python install 3.14
 
+      # The restore drill shells out to pg_dump/pg_restore, and pg_dump refuses a
+      # server newer than itself. The runner image's client trails the pinned
+      # `postgres:17` service above, so without this the drill SKIPS -- which is the
+      # worst outcome available: a backup check that silently does not run. Installed
+      # from PGDG and pinned to the same major as the service, so the two move together.
+      - name: Install the matching PostgreSQL client (for the restore drill)
+        run: |
+          set -euxo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -sSfL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          # Installing the package is not enough, and this is the trap the assertion
+          # below caught: `/usr/bin/pg_dump` is postgresql-common's `pg_wrapper`, which
+          # dispatches to the DEFAULT cluster version rather than the newest installed.
+          # The runner image already ships client 16, so `pg_dump --version` still says
+          # 16 after `postgresql-client-17` installs cleanly. Put the versioned bin
+          # directory first, so the client that runs is the one this step installed:
+          # `$GITHUB_PATH` for the pytest step below, `export` for the check right here,
+          # which the former does not affect.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          # Assert the major, rather than printing it. `pg_wrapper` can keep selecting
+          # the runner image's older client, and the failure mode of that is a SKIPPED
+          # drill -- which is green. Bumping the service image without bumping this
+          # package fails here, where the cause is obvious, instead of there.
+          installed="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"
+          [ "$installed" = "17" ] || {
+            echo "pg_dump is $installed; the service above is postgres:17 — the restore" \
+                 "drill would skip. Bump postgresql-client-* and the service together."
+            exit 1
+          }
+
       - name: Run the migrations conformance suite against PostgreSQL
         env:
           TERP_TEST_POSTGRES_URL: postgresql+psycopg://postgres:terp@localhost:5432/postgres
+          # A skipped backup check is green, which is the worst outcome available: the
+          # green implies the drill ran. This lane installs a matching client on
+          # purpose, so here a skip is a failure.
+          TERP_REQUIRE_POSTGRES_LANE: "1"
         run: uv run pytest tests/architecture/test_migrations_conformance.py -q
 
   # Generic, tool-independent backstops layered ON TOP of the gate — they never
@@ -269,6 +310,17 @@ jobs:
           # the in-project ratchet guards post-scaffold drift, this proves the
           # template as shipped passes its own baseline.
           uv run ruff check .
+
+      # The workflow a client actually runs is held to the bar this repository
+      # holds itself to. It is the one artifact that reaches every consumer, so a
+      # weakness here scales in the wrong direction: the more apps, the more
+      # copies, each one already checked in and rarely re-read. Online mode adds
+      # the audits that need the API, which is where a known-vulnerable action is
+      # reported.
+      - name: zizmor — the workflow every generated app inherits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --group lint zizmor /tmp/acceptance-app/.github/workflows
 
       - name: Grow the app the real way — terp new module + gate (hub variant)
         if: matrix.variant == 'hub-all-capabilities'

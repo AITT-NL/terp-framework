@@ -432,7 +432,8 @@ onderhoudt er meerdere.
 ### De gate draaien
 
 ```bash
-uv run pytest        # synct de workspace en draait de volledige gate
+uv run coverage run -m pytest   # synct de workspace en draait de suite
+uv run coverage report          # plus de 100%-grens die de gate ook afdwingt
 ```
 
 ---

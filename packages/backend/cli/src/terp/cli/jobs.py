@@ -177,11 +177,11 @@ def run_worker_command(
             "durable OutboxJobQueue already requires it) or install `terp-cli[worker]` "
             "(or `terp-cli[jobs]` for worker + scheduler support)."
         ) from exc
-    from terp.core._internal.engine import get_engine
+    from terp.cli._engine import cli_engine, cli_session_factory
 
-    engine = get_engine()
+    engine = cli_engine()
     worker = OutboxWorker(
-        lambda: Session(engine),
+        cli_session_factory(engine),
         batch_size=batch_size,
         lease_seconds=lease_seconds,
         skip_locked=engine.dialect.name == "postgresql",
@@ -213,10 +213,12 @@ def _default_scheduler() -> object:
             "to the app's dependencies, install `terp-cli[scheduler]` (or the combined "
             "`terp-cli[jobs]` extra), or run schedules with Celery beat."
         ) from exc
-    from terp.core._internal.engine import get_engine
+    from terp.cli._engine import cli_engine, cli_session_factory
 
-    engine = get_engine()
-    return ApschedulerScheduler(lambda: Session(engine), scheduler=BlockingScheduler())
+    engine = cli_engine()
+    return ApschedulerScheduler(
+        cli_session_factory(engine), scheduler=BlockingScheduler()
+    )
 
 
 def run_scheduler_command(
