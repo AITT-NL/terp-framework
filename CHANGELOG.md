@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.25.0 — unreleased
+## 0.25.0 — 2026-09-19
 
 ### Added
 
@@ -1130,6 +1130,23 @@ decision, 0001 onwards.
   carries the recipe.
 
 ### Upgrade notes
+
+- **`too_many_attempts` replaces `account_locked` on the wire (ADR 0147).** The
+  exception keeps its old name as an alias so an existing `except AccountLockedError`
+  still compiles, but the error `code` a client receives changes. That is deliberate
+  rather than incidental: a client that says *your account is locked, contact support*
+  when the user needs to wait four seconds is showing them a different product than the
+  one running. The remaining wait goes to `log_context` and not to the client — telling
+  a caller exactly how slowed they are is telling a guesser, who is the only audience
+  that can act on it. An application that renders the `code` should map the new one.
+
+- **`OIDCClient` takes the egress seams, not an `http_factory` (ADR 0144/0145).**
+  `OIDCClient`, `build_oidc_router` and `build_oidc_module` no longer accept
+  `http_factory`; provider calls leave through the egress capability, so a test that
+  injected an `httpx.Client` over a mock transport now injects the `sender` (and, where
+  a name has to resolve, `resolve`). An app that never passed `http_factory` is
+  unaffected, and gains the SSRF denylist, address pinning and bounded reads on the
+  provider legs for the first time.
 
 - **A realtime channel no longer closes itself on a payload its guard rejects.** If an app
   relied on `status === "error"` to notice a malformed or drifted payload, that signal now
