@@ -100,12 +100,11 @@ def _pinned_spec_version() -> str | None:
 #: left open. During certification the assertion below is trivially satisfied,
 #: because the catalog under test already contains the rule.
 #:
-#: Open: ``permission_gated_reads_disclose`` (ADR 0149), whose catalog entry is in the
-#: terp-spec change that follows this one. The window before it —
-#: ``not_null_columns_are_backfilled`` — was shut by terp-spec 0.35.0, which the pin
-#: above names; the one before that, ``references_declare_delete_behaviour``
-#: (ADR 0133), by terp-spec 0.34.0.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset({"permission_gated_reads_disclose"})
+#: Open: nothing. The last window — ``permission_gated_reads_disclose`` (ADR 0149) —
+#: was shut by terp-spec 0.36.0, which the pin above names; the one before it,
+#: ``not_null_columns_are_backfilled``, by terp-spec 0.35.0, and the one before that,
+#: ``references_declare_delete_behaviour`` (ADR 0133), by terp-spec 0.34.0.
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
 
 #: The same window, one level down: runtime enforcement refs whose SPELLING this
 #: repository has changed and the published catalog has not caught up with yet.
@@ -122,23 +121,7 @@ _AWAITING_SPEC_RELEASE: frozenset[str] = frozenset({"permission_gated_reads_disc
 #: name, so the allowance still proves the control exists rather than waving it through,
 #: and ``test_release_versions`` requires the set to be empty to cut a release — the same
 #: shape, and the same closing moment, as the rule allowance above.
-_AWAITING_SPEC_REF_RENAME: frozenset[str] = frozenset(
-    {
-        "_freeze_app_middleware_registration",
-        "_freeze_app_route_registration",
-        "_freeze_dependency_overrides",
-        "_reject_positional_tuple_schemas",
-        "_validate_background_jobs_preserve_ownership",
-        "_validate_declared_operations",
-        "_validate_list_routes_paginate",
-        "_validate_policy_write_tiers",
-        "_validate_public_modules_read_only",
-        "_validate_requires",
-        "_validate_router_response_models",
-        "_validate_routes_declare_response_model",
-        "_validate_schemas_exclude_sensitive_fields",
-    }
-)
+_AWAITING_SPEC_REF_RENAME: frozenset[str] = frozenset()
 
 
 # --------------------------------------------------------------------------- #
