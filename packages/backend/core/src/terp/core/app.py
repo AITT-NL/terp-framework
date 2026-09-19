@@ -671,11 +671,26 @@ def _rate_limit_override_map(
     credential check and is called on every page load. ``"/"`` denotes the mount
     itself and contributes the bare ``/api/v1/<name>``.
 
-    ``SecurityConfig.rate_limit_overrides`` still wins on a shared prefix. The
-    precedence is the same one every other composition seam uses — the root overrides
-    the package — and it matters more here than elsewhere: a deployment that has
-    measured its own login traffic must be able to say so, and a capability's default
-    is a floor it may move rather than a decision taken away from it.
+    ``SecurityConfig.rate_limit_overrides`` wins over a capability's declaration for
+    every path it covers — not only on an identical key. The precedence is the same one
+    every other composition seam uses — the root overrides the package — and it matters
+    more here than elsewhere: a deployment that has measured its own login traffic must
+    be able to say so, and a capability's default is a floor it may move rather than a
+    decision taken away from it.
+
+    **Covering means covering, at any depth**, and that is the half this got wrong. The
+    limiter resolves by LONGEST matching prefix, so while the auth capability keyed its
+    declaration on the mount, an application override on ``/api/v1/auth`` was the same
+    dict key and replaced it. ADR 0140 re-keyed the capability by route — ``/login`` and
+    ``/token`` capped, ``/refresh`` not — and from that moment the capability's key was
+    the *longer* one, so the application's override stopped applying and did so
+    silently: declared, counted by nobody, no warning, no failing test. The promise in
+    the paragraph above had simply stopped being true for the one case it names. So a
+    root override now also DROPS the capability-declared keys beneath it, which is what
+    "the root overrides the package" has to mean when the package can key deeper than
+    the root does. An application that wants the capability's finer split back can
+    re-declare the routes it cares about; that is a decision it makes, rather than one
+    made for it by a sort order.
     """
     overrides: dict[str, tuple[int, int]] = {}
     for spec in specs:
@@ -687,6 +702,22 @@ def _rate_limit_override_map(
                 limit.requests,
                 limit.window_seconds,
             )
+    # Drop the CAPABILITY-declared keys an application override covers, and only those.
+    # Deleting out of `overrides` while layering the application's own entries into it
+    # would let a later, broader application override delete an earlier, narrower one:
+    # `(("/api/v1/auth/login", tight), ("/api/v1/auth", loose))` would silently lose the
+    # `/login` cap while the reverse order kept it. That is the same order-dependent
+    # silent loss this function exists to remove, landing on the very recovery path the
+    # ADR prescribes -- re-declaring the routes you care about -- so the two passes are
+    # kept apart: covered capability keys go first, then every application override is
+    # layered on, and longest-prefix resolution settles application against application.
+    app_prefixes = [prefix for prefix, _ in config.rate_limit_overrides]
+    for covered in [
+        key
+        for key in overrides
+        if any(key == prefix or key.startswith(prefix + "/") for prefix in app_prefixes)
+    ]:
+        del overrides[covered]
     for prefix, limit in config.rate_limit_overrides:
         overrides[prefix] = (limit.requests, limit.window_seconds)
     return overrides
@@ -1314,6 +1345,67 @@ def _warn_unshared_idempotency_in_production(
         "create_app(require_shared_idempotency_store=True) to make that a boot-time "
         "guarantee instead of a warning."
     )
+
+
+def _warn_loosened_capability_limit_in_production(
+    specs: Sequence[ModuleSpec], config: SecurityConfig
+) -> None:
+    """Say out loud, once, which capability rate limits this deployment has raised.
+
+    A capability declares its own limit when it knows something about its traffic the
+    application cannot — a credential route runs a memory-hard hash on the miss path,
+    which makes it the cheapest place on the surface to spend the server's CPU. An
+    application may still move that number: it is a floor, not a decision taken away
+    from it, and a deployment that has measured its own login traffic must be able to
+    say so.
+
+    But the move is now EFFECTIVE where it previously was not. While the auth capability
+    keyed its declaration on the mount, an application override on the same prefix
+    replaced it; once the capability keyed by route (ADR 0140) the longest-prefix
+    resolution made the capability's key win, so an override on the mount silently did
+    nothing. Restoring the documented precedence restores a real lever — and a real
+    lever pointed at a credential limit is worth one line in the log rather than none.
+
+    Not a refusal: raising the number is legitimate and `production_problems` already
+    refuses the one move that is not (disabling it). This states the property the
+    deployment is actually running with, which is the same bargain
+    :func:`_warn_unshared_idempotency_in_production` strikes.
+    """
+    declared: dict[str, RateLimit] = {}
+    for spec in specs:
+        if spec.router is None:
+            continue
+        for route, limit in spec.rate_limit:
+            suffix = "" if route == "/" else route
+            declared[f"/api/v1/{spec.name}{suffix}"] = limit
+    # Keyed on the prefix alone: `RateLimit` is a frozen dataclass without `order=True`,
+    # so two entries sharing a prefix would fall through to comparing `RateLimit`s and
+    # raise `TypeError` at production boot instead of anything a reader can act on.
+    for prefix, limit in sorted(config.rate_limit_overrides, key=lambda item: item[0]):
+        loosened = sorted(
+            key
+            for key, capped in declared.items()
+            # Compare RATES, not counts. Both sides carry their own window and the two
+            # need not match, so `requests > requests` reads 30/1s as no change against a
+            # capability's 30/60s -- a sixtyfold loosening of a credential route, silent
+            # in the one place the notice exists to speak. Integer cross-multiplication,
+            # so no float rounding decides whether a security notice fires.
+            if (key == prefix or key.startswith(prefix + "/"))
+            and limit.requests * capped.window_seconds
+            > capped.requests * limit.window_seconds
+        )
+        if loosened:
+            _logger.warning(
+                "rate limit for %s is raised to %d/%ds by this application, above the "
+                "limit the capability declared for %s. That is a supported move — the "
+                "capability's number is a floor — but on a credential route it is also "
+                "the cheapest place on the surface to spend CPU, so it is stated here "
+                "rather than left to be discovered.",
+                prefix,
+                limit.requests,
+                limit.window_seconds,
+                ", ".join(loosened),
+            )
 
 
 def _warn_unshared_throttle_in_production(
@@ -2014,6 +2106,7 @@ def create_app(
             idempotency_store, require_shared_idempotency_store
         )
         _warn_unshared_throttle_in_production(throttle_store, require_shared_throttle_store)
+        _warn_loosened_capability_limit_in_production(collected, resolved_plane.security)
         security_problems = resolved_plane.security.production_problems()
         if security_problems:
             raise BootError(
