@@ -497,8 +497,23 @@ def test_the_ref_rename_allowance_is_real_and_still_waiting() -> None:
     An entry whose public counterpart does not exist would permit a ref that names
     nothing — the exact hole the resolver test is for. An entry whose PRIVATE name is
     still defined here means the rename never happened, so the allowance is covering a
-    change nobody made. And an entry the published catalog no longer cites is dead
+    change nobody made. And an entry the catalog cites under NEITHER spelling is dead
     weight in a list whose whole value is that it empties.
+
+    That last one is deliberately about either spelling, because `cited` is read from
+    whichever catalog is installed and there are two. The framework's own gate resolves
+    the PINNED PUBLISHED release, which still cites the private names — that is the
+    state this window exists to bridge. terp-spec's `certify-against-reference`
+    substitutes the CANDIDATE release, which cites the public ones, and under it
+    "no longer cited" does not mean the window is shut; it means the window is doing its
+    job. Requiring the private spelling there deadlocked the release: spec CI could not
+    go green until the framework emptied this list, the framework could not empty it
+    until the candidate was published, and it could not be published while spec CI was
+    red.
+
+    Emptying the list is not this test's job and never was — `test_release_versions`
+    refuses to cut a tag while it holds anything, which is the control that makes the
+    window close.
     """
     source = "\n".join(
         path.read_text(encoding="utf-8")
@@ -522,7 +537,7 @@ def test_the_ref_rename_allowance_is_real_and_still_waiting() -> None:
             f"{private!r} is still defined here, so the rename it allows for never "
             "happened — drop the entry rather than carrying an allowance for nothing"
         )
-        assert private in cited, (
-            f"the published catalog no longer cites {private!r} — the window is shut, "
-            "so remove it from _AWAITING_SPEC_REF_RENAME"
+        assert private in cited or public in cited, (
+            f"the catalog cites neither {private!r} nor {public!r}, so this allowance "
+            "covers nothing — remove it from _AWAITING_SPEC_REF_RENAME"
         )
