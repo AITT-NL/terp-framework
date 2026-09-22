@@ -87,6 +87,18 @@ x-backend: &backend
     - files-data:/app/var/files
 {%- endif %}
 
+# Every service logs through this. Docker's default driver on a Synology NAS
+# is `db`: one SQLite database per container, with no size cap anywhere in the
+# default configuration. Appending a log line to a database that has grown to
+# tens of megabytes scatters small synchronous writes across the whole file,
+# which is enough to saturate a spindle on its own. A flat file that rotates
+# by size costs a fraction of that, and holds the same logs.
+x-logging: &container-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: postgres:17-alpine
@@ -104,9 +116,11 @@ services:
       - db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d app"]
-      interval: 5s
+      interval: 30s
       timeout: 5s
-      retries: 10
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
 
   # One-shot: bring every package's schema up to head before the API serves.
   migrate:
@@ -115,6 +129,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    logging: *container-logging
 
   # One-shot: seed a usable admin (admin@example.test) + demo content. Idempotent, dev-only.
   seed:
@@ -123,6 +138,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    logging: *container-logging
 
   api:
     <<: *backend
@@ -165,14 +181,15 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 3
+      start_period: 30s
     develop:
       watch:
         - action: rebuild
           path: pyproject.toml
+    logging: *container-logging
 
   web:
     build:
@@ -208,10 +225,10 @@ services:
       # neither. Using the runtime that is guaranteed present is the same
       # reasoning that has the `api` healthcheck reach for `python`.
       test: ["CMD", "node", "-e", "fetch('http://localhost:5173/').then(() => process.exit(0), () => process.exit(1))"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
-      retries: 5
-      start_period: 15s
+      retries: 3
+      start_period: 30s
     volumes:
       # The WHOLE frontend, not just src/. `main.tsx` imports `../layout-contract.json`
       # and `../i18n.json`, which sit one level ABOVE src/ -- so with only src/ mounted
@@ -236,6 +253,7 @@ services:
       watch:
         - action: rebuild
           path: frontend/package.json
+    logging: *container-logging
 
 volumes:
   db-data:

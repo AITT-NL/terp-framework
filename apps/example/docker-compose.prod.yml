@@ -39,6 +39,18 @@ x-backend: &backend
     ENVIRONMENT: production
     BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-[]}'
 
+# Every service logs through this. Docker's default driver on a Synology NAS
+# is `db`: one SQLite database per container, with no size cap anywhere in the
+# default configuration. Appending a log line to a database that has grown to
+# tens of megabytes scatters small synchronous writes across the whole file,
+# which is enough to saturate a spindle on its own. A flat file that rotates
+# by size costs a fraction of that, and holds the same logs.
+x-logging: &container-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: postgres:17-alpine
@@ -51,9 +63,11 @@ services:
       - db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U terp -d terp"]
-      interval: 5s
+      interval: 30s
       timeout: 5s
-      retries: 10
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
 
   # One-shot: bring every package's schema up to head before the API serves. The API's
   # own fail-closed boot guard (PendingMigrationsError) backs this up at runtime.
@@ -64,6 +78,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    logging: *container-logging
 
   api:
     <<: *backend
@@ -80,10 +95,11 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
 
   web:
     build:
@@ -99,10 +115,11 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
-      retries: 5
-      start_period: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
 
 volumes:
   db-data:
