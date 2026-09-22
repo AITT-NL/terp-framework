@@ -10,6 +10,37 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.26.0 — 2026-09-22
+
+### Fixed
+
+- **Container logs no longer grow without a bound, and the database is no longer polled
+  every five seconds.** Docker's default logging driver is not the same everywhere, and
+  where it is `db` — one SQLite database per container — nothing in the default
+  configuration caps it. Appending a line to a database that has grown to tens of
+  megabytes scatters small synchronous writes across the whole file, which is enough to
+  saturate a spindle on its own. The symptom is a host that gets slower the longer it has
+  been up, with no single service to blame.
+
+  Every service in the shipped compose files now logs through one anchor: `json-file`,
+  10 MB per file, three files. One anchor rather than a block per service, because the
+  failure being fixed is the *absence* of a cap, and a per-service copy is a place for
+  the next service to forget one.
+
+  The database healthcheck was the second half of the same problem. `pg_isready` opened a
+  connection every five seconds for the life of the stack, each attempt writing its own
+  log lines, to answer a question that stops changing within the first minute. It moves to
+  `interval: 30s` with `start_period: 30s`, so the fast feedback lands where it is
+  actually wanted — the stack coming up — instead of running at that rate forever.
+
+### Upgrade notes
+
+- The fix is in the template, so a newly generated project has it. An existing project
+  keeps the compose files it was generated with: copy the `x-logging` anchor and the
+  `logging: *container-logging` line on each service into `docker-compose.yml` and
+  `docker-compose.prod.yml`, and widen the `db` healthcheck the same way. Nothing breaks
+  if you leave it — the caps are the point, not a compatibility change.
+
 ## 0.25.0 — 2026-09-19
 
 ### Added

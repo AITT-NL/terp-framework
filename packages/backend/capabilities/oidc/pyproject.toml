@@ -4,18 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-oidc"
-version = "0.25.0"
+version = "0.26.0"
 description = "Terp OIDC capability — pluggable SSO via the OpenID Connect code flow with PKCE."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.25.0",
-    "terp-cap-auth==0.25.0",
+    "terp-core==0.26.0",
+    "terp-cap-auth==0.26.0",
     # Discovery, JWKS and the token-endpoint exchange all leave through the egress
     # capability, so the SSRF denylist, the address pinning, the bounded read and the
     # refusal to follow a redirect are one shared implementation. This distribution
     # deliberately declares no HTTP client of its own.
-    "terp-cap-egress==0.25.0",
+    "terp-cap-egress==0.26.0",
     # ID-token signature validation against the provider JWKS (asymmetric algorithms
     # need the crypto extra).
     "pyjwt[crypto]>=2.8",
