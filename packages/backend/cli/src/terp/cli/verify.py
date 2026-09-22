@@ -38,6 +38,7 @@ required lanes.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import pathlib
@@ -46,11 +47,13 @@ import shlex
 import shutil
 import subprocess
 import sys
+import textwrap
 import tomllib
 from dataclasses import dataclass
 
 #: How much of a failing check's combined output the envelope keeps (fail-closed
 #: on unbounded output; enough to show the actual errors).
+_DEFAULT_APP_REF = "app.main:build"
 _OUTPUT_TAIL_CHARS = 20_000
 
 #: Marks output a check wants read even though it PASSED — an adoption hint, a skip
@@ -68,6 +71,10 @@ CHECK_CATEGORIES: frozenset[str] = frozenset(
     {
         "architecture",
         "backend-tests",
+        # Its own category rather than "build": a driving tool files a failing unit test
+        # with the other test results, not with a compile error, and the two ask very
+        # different things of whoever reads them.
+        "frontend-tests",
         "frontend-boundaries",
         "build",
         "conformance",
@@ -183,7 +190,81 @@ class VerifyCheck:
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
     # | "dependency-hygiene" | "workbench" | "deploy-safety"
+    # | "production-readiness"
     runner: str = "subprocess"
+
+
+@dataclass(frozen=True)
+class VerifyNonGoal:
+    """One thing this gate deliberately does NOT check, and why.
+
+    A consumer reasons from what the gate checks to what the gate COVERS. Every
+    omission then reads as either "already handled elsewhere" or "an oversight", and
+    nothing in the tool distinguishes the two. The manifest had a slot for what runs
+    and no slot for what deliberately does not, so a decision already taken --
+    recorded in an ADR nobody runs -- was indistinguishable from a gap.
+
+    That inference has a measured cost. An agent that reaches for the obvious
+    whole-tree formatter rewrites files the current change never touched, and the diff
+    reaching review is part change and part churn. For a platform whose consumers are
+    largely agent-built, an unreviewable diff is a review-integrity problem rather than
+    a cosmetic one.
+
+    So this is the same standard the platform sells, applied to the gate's own
+    boundary: insecurity -- or here, an absence -- requires an explicit, greppable
+    statement rather than silence. *delegated_to* names what does cover it when
+    something does; *instead* names the command to reach for when nothing does.
+    """
+
+    id: str
+    reason: str
+    delegated_to: str = ""
+    instead: str = ""
+
+
+#: What `terp verify` does not answer for, stated rather than left to be inferred.
+#:
+#: Seeded from ADR 0085's delegation (the generic security classes go to ruff-bandit,
+#: "delegated, not duplicated") and from the formatting decision below, which this list
+#: is what forced: writing the entry is what turned "nobody wired the formatter" into a
+#: position someone can disagree with.
+NON_GOALS: tuple[VerifyNonGoal, ...] = (
+    VerifyNonGoal(
+        id="formatting",
+        reason=(
+            "Formatting is deliberately ungated. `ruff format .` is the right formatter "
+            "with the wrong blast radius: it rewrites files the current change never "
+            "touched, so the diff reaching review is part change and part churn, and "
+            "the author's only recourse is to check out the unrelated files one by one"
+        ),
+        instead=(
+            "terp fmt  (defaults to --changed: the files git reports as modified, "
+            "staged or untracked -- the set you are responsible for; `terp fmt --check` "
+            "reports without rewriting, and `--all` is the deliberate whole-tree pass)"
+        ),
+    ),
+    VerifyNonGoal(
+        id="generic-appsec-classes",
+        reason=(
+            "Command injection, path traversal, unsafe deserialization, weak randomness "
+            "and secrets-in-logs are NOT terp-arch rules. They are delegated, not "
+            "duplicated (ADR 0085) -- a second implementation of a solved analysis is a "
+            "second thing to keep correct"
+        ),
+        delegated_to="ruff (bandit `S` rules), run by the appsec-baseline check",
+    ),
+    VerifyNonGoal(
+        id="test-efficacy",
+        reason=(
+            "`no_empty_tests` and `modules_ship_tests` check that tests EXIST and are "
+            "not empty. Nothing here checks that a test would fail if the code were "
+            "wrong, so a suite can be green, fully populated, pass every gate, and "
+            "still not discriminate -- list filters and boundary conditions are the "
+            "usual blind spot"
+        ),
+        instead="no tooling ships for this yet; assert the exclusion case by hand",
+    ),
+)
 
 
 # Runs first in every profile, because it decides whether the rest of the run
@@ -257,6 +338,20 @@ _DEPLOY_SAFETY = VerifyCheck(
     command="terp verify --only deploy-safety",
     scope=("docker-compose.prod.yml",),
     runner="deploy-safety",
+)
+
+# Runs beside deploy-safety and for the same reason, one layer in. That check reads
+# the deployment artifact for properties a declaration cannot excuse; this one reads
+# the declaration itself for the states the platform's own boot refuses. Both answer
+# "would this actually come up where it matters", which is the question a green gate
+# is otherwise silent about — and both cost a file read or an import, so they can run
+# in every profile including the cheapest.
+_PRODUCTION_READINESS = VerifyCheck(
+    id="production-readiness",
+    category="architecture",
+    command="terp verify --only production-readiness",
+    scope=("control_plane/**/*.py",),
+    runner="production-readiness",
 )
 
 _ARCHITECTURE = VerifyCheck(
@@ -360,6 +455,26 @@ _APPSEC_BASELINE = VerifyCheck(
     scope=("app/**", "control_plane/**", "tests/**"),
 )
 
+# The frontend's unit-test seam, and the counterpart to `backend-tests`. Until it existed
+# the only frontend test layer was the Playwright suite in `conformance/`, which needs a
+# running stack and answers "does the app work"; nothing ran the layer between a type check
+# and a browser. So presentation logic with branches -- an empty state, a formatter, a
+# plural rule, a column definition -- had nowhere to be tested that CI executes, and the
+# `test-adequacy` assurance lane composed nothing for the frontend because nothing existed
+# to compose.
+#
+# Conditional on the app declaring a `test` script, so an app rendered before the seam is
+# unaffected rather than newly red -- and, following `dependency-hygiene`, a declared but
+# unrunnable script is a RED rather than a skip. An app that says it has tests and cannot
+# run them is the case this is here to catch.
+_FRONTEND_TESTS = VerifyCheck(
+    id="frontend-tests",
+    category="frontend-tests",
+    command="npm --prefix frontend test",
+    scope=("frontend/**", "app/**"),
+    runner="frontend-tests",
+)
+
 _FRONTEND_BUILD = VerifyCheck(
     id="frontend-build",
     category="build",
@@ -379,9 +494,16 @@ _API_DOCS_DRIFT = VerifyCheck(
 )
 
 # The dependency-audit assurance lane (the spec's required generic evidence):
-# both dependency trees against known-vulnerability databases. Release-profile
-# checks (not the merge bar): advisory databases move independently of the
-# code, so a red here means "do not ship", not "this change broke something".
+# both dependency trees against known-vulnerability databases.
+#
+# In `full` as well as `release`, and that is a correction rather than a widening.
+# They used to be release-only on the argument that advisory databases move
+# independently of the code, so a red here means "do not ship" rather than "this
+# change broke something". That argument is right about the merge *bar* and was
+# wrong about the *profile*: a consumer's CI runs `full`, so a known-vulnerable
+# dependency was reported only by a release someone remembered to run, which for a
+# project that has not cut one yet is never. `full` already carries the whole
+# backend suite; these two are a few seconds beside it.
 _DEPENDENCY_AUDIT_PYTHON = VerifyCheck(
     id="dependency-audit-python",
     category="architecture",
@@ -396,6 +518,36 @@ _DEPENDENCY_AUDIT_NPM = VerifyCheck(
     command="npm --prefix frontend audit --audit-level=high",
     scope=("frontend/package.json", "frontend/package-lock.json"),
     requires="network access to the advisory databases",
+)
+
+# The secret-scanning assurance lane. The framework has run this over its own
+# repository for some time; what it never did was make it available to the apps it
+# generates, which is the gap this closes.
+#
+# It is a lane rather than a rule, and the distinction is the whole point. The catalog's
+# `no_hardcoded_credentials` reads the source, so it answers for the working tree and
+# only the working tree. A credential that was committed and then removed is gone from
+# the tree and still in the history — still fetched by every clone, still valid until
+# somebody rotates it — and that is the common shape of the incident. Only a tool that
+# reads the object graph can see it, which is not something a catalog `enforcement`
+# entry can describe.
+#
+# `--no-banner` because a verification envelope is parsed; `--redact` because a scanner
+# that prints what it found has published it a second time, into the CI log.
+_SECRET_SCAN = VerifyCheck(
+    id="secret-scanning",
+    category="architecture",
+    command="gitleaks detect --no-banner --redact",
+    scope=("**",),
+    requires="gitleaks on PATH, and a full-depth checkout (history is the point)",
+)
+
+_AUTHZ_SURFACE = VerifyCheck(
+    id="authz-surface",
+    category="architecture",
+    command="terp verify --only authz-surface",
+    scope=("app/**", "control_plane/**", "authz-surface.json"),
+    runner="authz-surface",
 )
 
 _CONFORMANCE = VerifyCheck(
@@ -416,6 +568,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ENV_SEAMS,
         _WORKBENCH,
         _DEPLOY_SAFETY,
+        _PRODUCTION_READINESS,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _FRONTEND_BOUNDARIES,
@@ -428,15 +581,20 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ENV_SEAMS,
         _WORKBENCH,
         _DEPLOY_SAFETY,
+        _PRODUCTION_READINESS,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _DEPENDENCY_HYGIENE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
+        _AUTHZ_SURFACE,
+        _DEPENDENCY_AUDIT_PYTHON,
+        _DEPENDENCY_AUDIT_NPM,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
         _API_CLIENT,
         _FRONTEND_TYPECHECK,
+        _FRONTEND_TESTS,
         _FRONTEND_BUILD,
     ),
     "release": (
@@ -444,17 +602,21 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _ENV_SEAMS,
         _WORKBENCH,
         _DEPLOY_SAFETY,
+        _PRODUCTION_READINESS,
         _ARCHITECTURE,
         _PACKAGE_BOUNDARIES,
         _DEPENDENCY_HYGIENE,
         _BACKEND_TESTS,
         _APPSEC_BASELINE,
+        _AUTHZ_SURFACE,
         _DEPENDENCY_AUDIT_PYTHON,
         _DEPENDENCY_AUDIT_NPM,
+        _SECRET_SCAN,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
         _API_CLIENT,
         _FRONTEND_TYPECHECK,
+        _FRONTEND_TESTS,
         _FRONTEND_BUILD,
         _API_DOCS_DRIFT,
         _CONFORMANCE,
@@ -465,9 +627,36 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
 #: release-profile check ids). The vocabulary and each lane's requirement
 #: level are NORMATIVE in the spec (assurance-profile.schema.json + the
 #: README's "Assurance profile" table) — these constants mirror them, held to
-#: the pinned spec's schema by the framework gate. ``a11y`` is declared but
-#: not realised by this toolchain yet: it is emitted ``not-run`` (a lane is
-#: never dropped and never counted as passed without evidence).
+#: the pinned spec's schema by the framework gate. ``a11y`` and
+#: ``test-adequacy`` are declared but not realised by this toolchain yet: they
+#: are emitted ``not-run`` (a lane is never dropped and never counted as passed
+#: without evidence).
+#:
+#: Each composes nothing for a stated reason, and both reasons are the same
+#: shape — nothing in the release profile bears on the question the lane asks,
+#: so composing it from what is there would be borrowing evidence rather than
+#: having it.
+#:
+#: ``test-adequacy`` asks whether the suite could have failed. Coverage reports
+#: which lines ran, not whether anything would notice them changing, so it
+#: cannot answer that; what would is a mutation run, which is minutes of CPU
+#: per change rather than seconds and is a decision about the merge bar rather
+#: than a missing wire.
+#:
+#: ``a11y`` asks whether the rendered UI is usable by someone who is not using a
+#: mouse and a pair of eyes. That is a question about pixels and a live
+#: accessibility tree, and every check in the release profile reads source or
+#: builds artifacts: ``frontend-boundaries`` holds the component surface, which
+#: constrains what is composed and says nothing about what a screen reader
+#: receives, and ``frontend-build`` proves the bundle compiles. The evidence
+#: the lane would need is an axe (or equivalent) pass over a running app, so
+#: the natural home is the ``conformance`` check — the one place a browser is
+#: already driving the built frontend — and wiring it is a product decision
+#: with a real question underneath it: WHOSE screens are the subject. The
+#: framework renders none of its own; a generated app's are the app's, and a
+#: lane that failed the platform's release over an app's markup would be
+#: measuring the wrong thing. Until that is answered, ``not-run`` is the honest
+#: verdict, and it is not the same as forgotten.
 ASSURANCE_LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("terp-standard", "required", ("architecture", "frontend-boundaries")),
     ("appsec-baseline", "required", ("appsec-baseline",)),
@@ -476,8 +665,10 @@ ASSURANCE_LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "required",
         ("dependency-audit-python", "dependency-audit-npm"),
     ),
+    ("secret-scanning", "required", ("secret-scanning",)),
     ("a11y", "recommended", ()),
     ("blackbox-conformance", "recommended", ("conformance",)),
+    ("test-adequacy", "recommended", ()),
 )
 
 
@@ -675,11 +866,18 @@ def verify_manifest(
     *root* includes the app's own ``[[tool.terp.verify.checks]]``, so a driving
     tool reading the manifest sees the whole gate rather than the platform half
     of it. Omitting it yields the platform floor.
+
+    ``categories`` publishes the vocabulary this document was written with, so a
+    consumer can tell a category it has not seen before from a corrupt document.
+    Without it the two are indistinguishable, and the safe-looking reading — "I do
+    not know this word, so I do not trust this document" — throws the whole gate
+    away over one added word. ADR 0106 §5 states what a consumer owes in return.
     """
     checks = profile_checks(profile, root)
     return {
         "terp_verify_manifest": 1,
         "profile": profile,
+        "categories": sorted(CHECK_CATEGORIES),
         "checks": [
             {
                 "id": check.id,
@@ -689,6 +887,22 @@ def verify_manifest(
                 **({"requires": check.requires} if check.requires else {}),
             }
             for check in checks
+        ],
+        # The other half of the same claim. Without it a driving tool reads the check
+        # list as the coverage list, and every absence reads as an oversight or as
+        # "handled elsewhere" with nothing to say which.
+        "not_checked_here": [
+            {
+                "id": non_goal.id,
+                "reason": non_goal.reason,
+                **(
+                    {"delegated_to": non_goal.delegated_to}
+                    if non_goal.delegated_to
+                    else {}
+                ),
+                **({"instead": non_goal.instead} if non_goal.instead else {}),
+            }
+            for non_goal in NON_GOALS
         ],
     }
 
@@ -755,8 +969,36 @@ def _node_libc(system: str) -> str | None:
     return "musl" if any(pathlib.Path("/lib").glob("ld-musl-*.so.1")) else "glibc"
 
 
-def _node_modules_problem(root: pathlib.Path) -> str | None:
-    """Explain an unusable ``frontend/node_modules``, or None if it looks fine.
+def _npm_workspace(argv: list[str]) -> str:
+    """Which directory an ``npm`` argv installs into and reads, relative to the root.
+
+    ``npm --prefix conformance test`` resolves against ``conformance/node_modules``;
+    the same command without a prefix uses the directory npm runs in, which for a
+    manifest command is the project root. Read out of the argv rather than assumed,
+    because an app on Terp has more than one npm tree: the template ships
+    ``frontend/`` *and* ``conformance/`` (``_terp_frontend_manifests`` already
+    discovers both rather than naming one), and the profile is open at the app end
+    (ADR 0106) so a third is the app's business.
+
+    A precondition read against the wrong tree is worse than none. It refuses a
+    check whose own tree is installed and healthy — naming a fix that has nothing
+    to do with the failure — while passing the tree that is actually missing,
+    straight into the raw Node stack the precondition exists to replace.
+    """
+    for index, token in enumerate(argv):
+        if token == "--prefix":
+            following = argv[index + 1 : index + 2]
+            # A dangling `--prefix` is npm's own argv to complain about, not a
+            # precondition failure: fall back to the root so the guard stays quiet
+            # and the command reports its own usage error.
+            return following[0] if following else "."
+        if token.startswith("--prefix="):
+            return token.removeprefix("--prefix=") or "."
+    return "."
+
+
+def _node_modules_problem(root: pathlib.Path, workspace: str) -> str | None:
+    """Explain an unusable ``<workspace>/node_modules``, or None if it looks fine.
 
     An npm install is platform-specific: the native binaries a bundler needs are
     optional dependencies gated on ``os``/``cpu``, so a tree installed on the
@@ -767,18 +1009,25 @@ def _node_modules_problem(root: pathlib.Path) -> str | None:
 
     The lockfile already records which optional packages belong on which platform,
     so the check is exact and needs no list of native package names to maintain.
-    """
-    frontend = root / "frontend"
-    if not (frontend / "package.json").is_file():
-        return None
-    modules = frontend / "node_modules"
-    if not modules.is_dir():
-        return (
-            "frontend/node_modules is missing — the frontend checks cannot run.\n"
-            "  Fix: npm --prefix frontend ci"
-        )
 
-    lockfile = frontend / "package-lock.json"
+    *workspace* is required rather than defaulted to ``frontend``: an implicit
+    default is what let every npm check be judged by the frontend tree, and a
+    caller that has to name its tree cannot inherit the wrong one silently.
+    """
+    directory = root / workspace
+    if not (directory / "package.json").is_file():
+        return None
+    # `npm ci` with no prefix is the shape a root-level manifest command has, and
+    # `./node_modules`, `npm --prefix . ci` and "the . checks" would all read as a typo.
+    root_level = workspace == "."
+    label = "node_modules" if root_level else f"{workspace}/node_modules"
+    fix = "npm ci" if root_level else f"npm --prefix {workspace} ci"
+    subject = "the root npm checks" if root_level else f"the {workspace} checks"
+    modules = directory / "node_modules"
+    if not modules.is_dir():
+        return f"{label} is missing — {subject} cannot run.\n  Fix: {fix}"
+
+    lockfile = directory / "package-lock.json"
     if not lockfile.is_file():
         return None
     try:
@@ -800,18 +1049,18 @@ def _node_modules_problem(root: pathlib.Path) -> str | None:
         and arch in (entry.get("cpu") or [arch])
         and (libc is None or libc in (entry.get("libc") or [libc]))
         and (entry.get("os") or entry.get("cpu") or entry.get("libc"))
-        and not (frontend / name).exists()
+        and not (directory / name).exists()
     ]
     if not missing:
         return None
     return (
-        f"frontend/node_modules was installed for a different platform: "
+        f"{label} was installed for a different platform: "
         f"{len(missing)} package(s) this machine ({system}/{arch}) needs are absent, "
         f"e.g. {missing[0].removeprefix('node_modules/')}.\n"
         "  This happens when the tree is installed on the host and the gate runs in "
         "a container (or vice versa); native binaries are per-platform optional "
         "dependencies and do not travel.\n"
-        "  Fix: npm --prefix frontend ci   (run it where the gate runs)"
+        f"  Fix: {fix}   (run it where the gate runs)"
     )
 
 
@@ -826,7 +1075,7 @@ def _run_subprocess(check: VerifyCheck, root: pathlib.Path) -> tuple[int, str]:
     """
     argv = shlex.split(check.command)
     if argv and argv[0] == "npm":
-        problem = _node_modules_problem(root)
+        problem = _node_modules_problem(root, _npm_workspace(argv))
         if problem is not None:
             return 1, problem
     executable = shutil.which(argv[0]) or argv[0]
@@ -966,6 +1215,92 @@ def _frontend_lockstep_problems(project_root: pathlib.Path, platform: str) -> li
     return problems
 
 
+#: A ``terp-*`` requirement string, split into the distribution and its version
+#: specifier. Extras and environment markers are tolerated because the template
+#: writes both (``terp-core[secrets]==0.20.0``, a marker on a dev-group entry), and a
+#: parser that choked on them would silently read such a line as "no Terp dependency
+#: declared here" — a green over exactly the pin this check exists to police.
+_PY_REQUIREMENT = re.compile(
+    r"^(?P<name>[A-Za-z0-9._-]+)\s*(?:\[[^\]]*\])?\s*(?P<spec>[^;]*)"
+)
+#: The one accepted specifier shape: an exact pin. Terp moves in lockstep, so a range
+#: is a resolver invitation rather than a pin.
+_EXACT_PIN = re.compile(r"^==\s*(?P<version>[A-Za-z0-9._+!-]+)$")
+
+
+def _declared_python_requirements(project_root: pathlib.Path) -> list[tuple[str, str]]:
+    """``(where, requirement)`` for every dependency this app's manifest declares.
+
+    Both halves of the manifest, because a forgotten pin in the dev group is the same
+    mixed install as one in the runtime dependencies — ``terp-arch`` lives there, and
+    it is the gate itself.
+    """
+    manifest = project_root / "pyproject.toml"
+    try:
+        data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        # Unreadable or absent: `_run_dependency_hygiene` and the package-graph check
+        # already report a manifest nobody can parse, and a second voice saying it
+        # would bury the one that explains it.
+        return []
+    found: list[tuple[str, str]] = []
+    for requirement in data.get("project", {}).get("dependencies", []) or []:
+        if isinstance(requirement, str):
+            found.append(("dependencies", requirement))
+    for group, requirements in (data.get("dependency-groups", {}) or {}).items():
+        for requirement in requirements or []:
+            if isinstance(requirement, str):
+                found.append((f"dependency-groups.{group}", requirement))
+    return found
+
+
+def _backend_pin_problems(project_root: pathlib.Path, platform: str) -> list[str]:
+    """Every ``terp-*`` pin in ``pyproject.toml`` that disagrees with what is installed.
+
+    The half of the lockstep that was missing, and it was the more consequential half.
+    This check read the *environment* for backend packages and compared it only against
+    itself, while reading *declarations* for the frontend and comparing them against the
+    platform. So a tree whose manifest said ``terp-core==0.20.0`` over an environment
+    installed at 0.13.0 was internally consistent, passed here, and passed the whole
+    profile — a verdict about code that is not the code that will run.
+
+    Two ways an app arrives there, and neither is exotic. Someone repins and has not run
+    ``uv sync`` yet, which is the ordinary middle of an upgrade. Or a container bakes the
+    packages into its image and bind-mounts the source over them, so a rebuilt checkout
+    reloads new code against old libraries and dies on an import nowhere near the cause.
+
+    Silent on a requirement carrying **no** specifier: that is a workspace member or an
+    editable install (the platform's own tree declares all twenty-odd of its packages
+    that way), where the manifest is not where the version lives. A declared specifier,
+    however, is a claim about a version, and this holds it to the installed one.
+    """
+    from terp.cli.version import _INDEPENDENTLY_VERSIONED, _PREFIX
+
+    problems: list[str] = []
+    for where, requirement in _declared_python_requirements(project_root):
+        match = _PY_REQUIREMENT.match(requirement.strip())
+        if match is None:
+            continue
+        name = match.group("name").lower().replace("_", "-")
+        if not name.startswith(_PREFIX) or name in _INDEPENDENTLY_VERSIONED:
+            continue
+        spec = match.group("spec").strip()
+        if not spec:
+            continue  # a workspace source or an editable install; see the docstring
+        pinned = _EXACT_PIN.match(spec)
+        if pinned is None:
+            problems.append(
+                f"{where}: {name} is declared {spec!r} — Terp moves in lockstep, so "
+                f"pin =={platform}"
+            )
+        elif pinned.group("version") != platform:
+            problems.append(
+                f"{where}: {name} is pinned =={pinned.group('version')} but "
+                f"{platform} is installed"
+            )
+    return problems
+
+
 def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
     """Fail when the installed platform disagrees with itself — either half.
 
@@ -976,7 +1311,10 @@ def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
     either direction, so this refuses rather than reports.
 
     The backend half reads the live environment (never a declared list), so a
-    capability adopted after this was written is policed too. The frontend half
+    capability adopted after this was written is policed too, and then holds that
+    environment against the pins ``pyproject.toml`` declares — a manifest and an
+    install that disagree is the same mixed platform arriving by a third route, and
+    the one that used to pass here green. The frontend half
     reads every app manifest that declares a ``@terpjs/*`` package, plus the
     installed copy under its ``node_modules`` when present — because a frontend
     package left behind is the same mixed install by another route, and a check
@@ -1017,6 +1355,20 @@ def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
             f"  Fix: rename each to its @terpjs/* spelling pinned at ^{platform}, "
             "then reinstall the node_modules of that manifest."
         )
+    backend_problems = _backend_pin_problems(project_root, platform)
+    if backend_problems:
+        return 1, (
+            f"the environment is consistent at terp {platform}, but this app's "
+            "pyproject.toml declares something else:\n"
+            + "".join(f"  {problem}\n" for problem in backend_problems)
+            + "A gate run against packages the manifest does not ask for proves "
+            "nothing about the code that will ship: the tree reloads new source "
+            "against old libraries and fails on an import nowhere near its cause.\n"
+            f"  Fix: uv sync --refresh (or repin to =={platform} if the manifest is "
+            "the half that is wrong).\n"
+            "If this is a container, its image bakes the packages in — rebuild it "
+            "rather than reloading into it (`terp docker dev` does)."
+        )
     frontend_problems = _frontend_lockstep_problems(project_root, platform)
     if frontend_problems:
         return 1, (
@@ -1030,11 +1382,206 @@ def _run_platform_install(project_root: pathlib.Path) -> tuple[int, str]:
             "that declares one, then reinstall that manifest's node_modules."
         )
     manifest_count = len(_terp_frontend_manifests(project_root))
+    pin_count = sum(
+        1
+        for _, requirement in _declared_python_requirements(project_root)
+        if requirement.lower().replace("_", "-").startswith("terp-")
+    )
     return (
         0,
-        f"terp {platform} ({len(versions)} distributions and "
-        f"{manifest_count} frontend manifest(s), consistent)",
+        f"terp {platform} ({len(versions)} distributions, {pin_count} declared "
+        f"pin(s) and {manifest_count} frontend manifest(s), consistent)",
     )
+
+
+#: The reference every other Terp surface already uses for the authority aggregate:
+#: `terp jobs list`, `terp inspect control-plane` and the template's own composition
+#: root all resolve `control_plane:control_plane`. Named here rather than made an
+#: option, because a check that has to be told where to look is a check an app can
+#: leave unaimed.
+_CONTROL_PLANE_REF = "control_plane:control_plane"
+
+
+#: The conventional address a job's system principal arrives at (ADR 0129). An app
+#: that declares this variable has said the value will be supplied, which is the
+#: evidence this check can actually have: the id belongs to a service principal in a
+#: particular database, so the gate's own environment is the last place it would be.
+_JOB_ACTOR_VARIABLE = "JOB_SYSTEM_ACTOR_ID"
+
+
+def _job_actor_arrives_from_the_environment(project_root: pathlib.Path) -> bool:
+    """Whether the app *declares* the job actor as a runtime variable.
+
+    The declaration is the proof, never the value. `create_app` fills an unset
+    `job_system_actor_id` from `JOB_SYSTEM_ACTOR_ID`, so an app whose principal is a
+    deployment fact leaves the field empty on purpose — and reddening it here would
+    punish exactly the delivery mechanism ADR 0129 added. What the app must not be
+    able to do is stay silent: `environment.schema.json` is where a runtime variable
+    is declared, `env-seams` already refuses a declaration the deployment does not
+    deliver, and `terp env file` renders it. So a declared variable is a promise with
+    a gate behind it, which an undeclared one is not.
+    """
+    from terp.cli.envschema import declared_variables
+
+    return _JOB_ACTOR_VARIABLE in declared_variables(project_root)
+
+
+def _run_authz_surface(project_root: pathlib.Path) -> tuple[int, str]:
+    """Refuse a change to who can reach what that no committed baseline accepted.
+
+    The access graph already replays enforcement — every allowance in it is `decide`'s
+    own answer, from the function the kernel guard runs — so the platform could always
+    *say* who may reach what. What nothing did was notice when the answer changed.
+    Widening a module policy from a named permission to a role tier, dropping a
+    `require_permission`, adding an endpoint under a public mount: each is a one-line
+    edit that changes the authorization surface and left every gate green.
+
+    Adoption is opt-in and half-adoption impossible, the shape `api-docs-drift` settled
+    on: with no committed baseline this skips with a note naming the command that writes
+    one, because upgrading the framework must not turn an app's gate red for a feature
+    it never wired.
+
+    A widening is never *fixed* by regenerating. The baseline is a review artifact, and
+    the diff belongs in a pull request where somebody says yes — which is why the writer
+    is a separate, explicit command and never a `--fix` on this.
+    """
+    from terp.cli._appref import load_app, push_app_root
+    from terp.cli.access import build_access_graph_for_app
+    from terp.cli.authz_surface import (
+        ADOPT_HINT,
+        SURFACE_ARTIFACT,
+        authz_surface,
+        diff_authz_surface,
+        read_baseline,
+    )
+
+    baseline = read_baseline(project_root)
+    if baseline is None:
+        return (
+            0,
+            f"{NOTE_PREFIX}no {SURFACE_ARTIFACT} - the authorization surface is not "
+            f"pinned, drift check skipped (adopt with: {ADOPT_HINT})",
+        )
+    push_app_root(project_root)
+    try:
+        app = load_app(_DEFAULT_APP_REF)
+    except (SystemExit, ImportError) as exc:
+        # A tree with no importable app (the platform's own checkout) rather than a
+        # broken one: named, not silently passed, so the difference stays visible.
+        return 0, f"{NOTE_PREFIX}no importable {_DEFAULT_APP_REF} ({exc}); skipped"
+    differences = diff_authz_surface(baseline, authz_surface(build_access_graph_for_app(app)))
+    if not differences:
+        return 0, f"{SURFACE_ARTIFACT} matches the composed authorization surface"
+    listing = "\n".join(f"  - {difference}" for difference in differences)
+    return 1, (
+        f"the authorization surface changed in {len(differences)} way(s) that "
+        f"{SURFACE_ARTIFACT} does not record:\n{listing}\n\n"
+        "If every line above is intended, re-generate the baseline IN THE SAME CHANGE "
+        f"so a reviewer sees the diff:\n  {ADOPT_HINT}"
+    )
+
+
+def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
+    """Refuse a tree whose declared control plane cannot boot in production.
+
+    Three of the platform's boot refusals are decided entirely by what the control
+    plane declares — no environment, no database, no request. `create_app` raises
+    `BootError` on each of them under `ENVIRONMENT == "production"`: an unsafe
+    security config, a password policy with no strength floor, and background work
+    that names no actor to stamp its writes with (ADR 0125). Outside production all
+    three keep booting, on purpose, because a developer who has not wired a system
+    principal yet should not be blocked by one — though only the background-writes
+    one currently says so out loud (`_warn_unstamped_background_writes`); the other
+    two are evaluated nowhere but inside the production branch, which is a separate
+    and smaller gap than the one this lane closes.
+
+    Nothing gated the gap between those two behaviours. An app could declare a job,
+    never set `job_system_actor_id`, and take a green `--profile full` all the way to
+    a deployment that refuses to start — the gate, the machine envelope and CI all
+    agreeing, because none of them asked. This asks, and it is the same argument
+    `platform-install` already makes about mixed installs: a warning inside a command
+    nobody runs before shipping is not a control, so the verdict belongs where it can
+    fail.
+
+    Reads the *declared* plane and never builds the app, so it costs one module import
+    and can sit in every profile. The audit refusal is deliberately not among the
+    three: it turns on `create_app(audit_sink=...)`, a runtime argument this check
+    cannot see, and a check that pretended to cover it would be worse than the gap.
+
+    That carve-out is no longer the only one, and the set is no longer folklore. Two
+    capability constructors hold production-only refusals of the same class — the
+    federated-identity allowlist and an OIDC provider's plaintext URLs — and the app
+    builds those objects itself, so no `ControlPlane` field reaches them and this lane
+    cannot ask. `tests/architecture/test_production_refusals.py` is the record: every
+    `settings.is_production`-conditional raise under `packages/backend/` is either
+    reached from here or listed with the reason it is not, so the next one written
+    outside this lane cannot join the class silently.
+
+    Skips with a note for a tree with no importable control plane — the platform's own
+    checkout, and an app whose authority surface predates the module. A plane that
+    imports and yields no `ControlPlane`, however, is a red: every other Terp command
+    reads the same reference, so the app has adopted the pattern and the file the
+    tooling depends on has stopped answering.
+
+    The job-actor half is satisfied by a *declaration* as well as by a value, because
+    ADR 0129 made `JOB_SYSTEM_ACTOR_ID` the conventional way the principal arrives and
+    the gate's own environment is the last place a production principal's id would be.
+    See `_job_actor_arrives_from_the_environment`.
+    """
+    from terp.core import ControlPlane
+
+    if not (project_root / "control_plane").is_dir():
+        return (
+            0,
+            f"{NOTE_PREFIX}no control_plane/ package - production readiness not "
+            "applicable (the authority surface every other terp command reads)",
+        )
+    root = str(project_root.resolve())
+    restore = root not in sys.path
+    if restore:
+        sys.path.insert(0, root)
+    module_name, _, attr = _CONTROL_PLANE_REF.partition(":")
+    try:
+        importlib.invalidate_caches()
+        module = importlib.import_module(module_name)
+        plane = getattr(module, attr, None)
+    except Exception as exc:  # noqa: BLE001 - any import failure is the app's answer
+        return 1, (
+            f"{_CONTROL_PLANE_REF} could not be imported, so what this app declares "
+            f"cannot be established: {type(exc).__name__}: {exc}"
+        )
+    finally:
+        if restore and root in sys.path:
+            sys.path.remove(root)
+    if not isinstance(plane, ControlPlane):
+        return 1, (
+            f"{_CONTROL_PLANE_REF} did not resolve to a terp.core.ControlPlane "
+            f"(found {type(plane).__name__}). Every terp command reads that reference "
+            "- `terp jobs list`, `terp inspect control-plane` and the app's own "
+            "composition root - so this is not a layout choice, it is a surface that "
+            "has stopped answering."
+        )
+    problems = [
+        *(f"security: {problem}" for problem in plane.security.production_problems()),
+        *(f"passwords: {problem}" for problem in plane.passwords.production_problems()),
+        *(
+            f"jobs: {problem}"
+            for problem in plane.production_problems()
+            if not _job_actor_arrives_from_the_environment(project_root)
+        ),
+    ]
+    if problems:
+        return 1, (
+            "this app's control plane refuses a production boot:\n"
+            + "".join(f"  {problem}\n" for problem in problems)
+            + "Each of these raises BootError under ENVIRONMENT=production and keeps "
+            "booting outside it, so a green gate over this state is a gate that "
+            "agrees with a deployment that will not start.\n"
+            "  A job actor that is a deployment fact rather than a source constant is "
+            "declared, not hard-coded: put JOB_SYSTEM_ACTOR_ID in "
+            "environment.schema.json and create_app will resolve it (ADR 0129)."
+        )
+    return 0, "the declared control plane boots in production (security, passwords, jobs)"
 
 
 def _run_routes_drift(root: pathlib.Path) -> tuple[int, str]:
@@ -1058,7 +1605,7 @@ def _run_routes_drift(root: pathlib.Path) -> tuple[int, str]:
             0,
             f"{NOTE_PREFIX}route types not adopted - drift check skipped ({ADOPT_HINT})",
         )
-    problem = _node_modules_problem(root)
+    problem = _node_modules_problem(root, "frontend")
     if problem is not None:
         return 1, problem
     argv = routes_argv(check=True)
@@ -1259,6 +1806,48 @@ def _run_dependency_hygiene(root: pathlib.Path) -> tuple[int, str]:
     return exit_code, output
 
 
+def _run_frontend_tests(root: pathlib.Path) -> tuple[int, str]:
+    """Run the frontend unit suite, if the app declares one.
+
+    Reads the `test` script out of `frontend/package.json` rather than testing for the
+    presence of test FILES: an app can have a suite it cannot run, and that is precisely
+    the state worth a red. The declaration is the app saying the seam is wired; whether
+    it then runs is the check.
+
+    Skips with a note for an app with no frontend or no `test` script -- upgrading the
+    framework must not fail a gate for a seam the app never adopted -- and `npm test`'s
+    own "no test files found" is left to speak for itself, because an app that declares
+    the script and has written nothing yet is mid-adoption, not broken.
+    """
+    manifest = root / "frontend" / "package.json"
+    if not manifest.is_file():
+        return 0, "no frontend/package.json - frontend tests not applicable"
+    try:
+        declared = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return 1, (
+            f"frontend/package.json is unreadable ({exc}), so whether this app declares "
+            "a frontend test suite cannot be established"
+        )
+    scripts = declared.get("scripts")
+    if not isinstance(scripts, dict) or not scripts.get("test"):
+        return (
+            0,
+            f"{NOTE_PREFIX}no `test` script in frontend/package.json - frontend unit "
+            "tests skipped (declare one to enable: it is the only layer that runs "
+            "presentation logic without a live stack; see `terp guide frontend`)",
+        )
+    exit_code, output = _run_subprocess(_FRONTEND_TESTS, root)
+    if exit_code != 0 and "vitest" in output and "not found" in output.lower():
+        output += (
+            "\n  This app declares a frontend `test` script but its runner is not "
+            "installed, so the suite it declared is run by nothing.\n"
+            '  Fix: add "vitest" to frontend/package.json devDependencies and '
+            "`npm --prefix frontend install`."
+        )
+    return exit_code, output
+
+
 def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     """Generate the typed API client from the live backend contract.
 
@@ -1289,7 +1878,7 @@ def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
             "codegen skipped (add one running openapi-typescript over ../openapi.json "
             "into ./src/api/schema.d.ts to enable)",
         )
-    problem = _node_modules_problem(root)
+    problem = _node_modules_problem(root, "frontend")
     if problem is not None:
         return 1, problem
     previous = pathlib.Path.cwd()
@@ -1419,6 +2008,22 @@ def run_verify_command(
             for check in resolved:
                 requires = f"  [requires {check.requires}]" if check.requires else ""
                 print(f"  {check.id:<20} {check.command}{requires}")
+            print()
+            print("not checked here (deliberately):")
+            for non_goal in NON_GOALS:
+                print(f"  {non_goal.id}")
+                for line in textwrap.wrap(f"{non_goal.reason}.", width=76):
+                    print(f"    {line}")
+                for label, value in (
+                    ("covered by", non_goal.delegated_to),
+                    ("instead", non_goal.instead),
+                ):
+                    if not value:
+                        continue
+                    wrapped = textwrap.wrap(value, width=76 - 12)
+                    print(f"    {label + ':':<12}{wrapped[0]}")
+                    for line in wrapped[1:]:
+                        print(f"    {'':<12}{line}")
         return 0
 
     results: list[dict[str, object]] = []
@@ -1438,6 +2043,8 @@ def run_verify_command(
             exit_code, output = _run_package_boundaries(project_root)
         elif check.runner == "dependency-hygiene":
             exit_code, output = _run_dependency_hygiene(project_root)
+        elif check.runner == "frontend-tests":
+            exit_code, output = _run_frontend_tests(project_root)
         elif check.runner == "routes-drift":
             exit_code, output = _run_routes_drift(project_root)
         elif check.runner == "env-seams":
@@ -1452,6 +2059,10 @@ def run_verify_command(
             from terp.cli.deploy_safety import run_deploy_safety_check
 
             exit_code, output = run_deploy_safety_check(project_root)
+        elif check.runner == "production-readiness":
+            exit_code, output = _run_production_readiness(project_root)
+        elif check.runner == "authz-surface":
+            exit_code, output = _run_authz_surface(project_root)
         else:
             exit_code, output = _run_subprocess(check, project_root)
             reports = _reports_in(output)

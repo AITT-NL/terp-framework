@@ -10,7 +10,2340 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.19.0 — 2026-09-06
+## 0.25.0 — 2026-09-19
+
+### Added
+
+- **A read behind a grant records that it happened (ADR 0149).** The audit trail is
+  emitted from the `BaseService` write chokepoint — which is what makes it unbypassable,
+  and also what makes it **mutation-only**. Nothing anywhere recorded a read, so the trail
+  answered *who changed what* and never *who looked*. For much of what applications hold —
+  a connection profile with its host and credential references, a salary, a case file —
+  looking is the entire harm, and a principal who can read those could enumerate them and
+  leave nothing behind.
+
+  ADR 0118 already supplied the seam (`emit_disclosure`, which opens its own session,
+  clears the read-only request flag and emits *before* the data is handed over, so the
+  record is the precondition of the disclosure rather than a report on it). What it did
+  not supply was any reason for a route to call it, and **nothing in the platform did** —
+  a search for callers returns the definition and its tests.
+
+  `permission_gated_reads_disclose` requires a safe-method route gated by a named
+  permission to call it. Not every read: a record per read of everything buries the one
+  entry somebody will eventually need, which is what the `access` guide already says about
+  auto-emitting. The signal is the author's own — a route carrying `require_permission(...)`
+  is one where somebody decided the module's role tier could not express the decision — so
+  the rule needs no new flag on `Permission` or `Policy`. Both spellings of the marker
+  count, including the requirement declared in an endpoint signature, because a rule
+  reading only `dependencies=` would exempt exactly the hand-wired routes.
+
+  Writes are out of scope: they are already audited through the chokepoint. The escape
+  hatch is a budgeted `# arch-allow-permission-gated-reads-disclose: <reason>`, and the
+  genuine case for it is a grant that gates an *action* rather than a disclosure.
+
+  **Build-time only, by recorded decision rather than omission.** A runtime control is
+  constructible — refuse the response when a permission-gated safe method produced no
+  disclosure — but the guard cannot write the record the rule asks for: it knows the
+  principal, the module and the requirement, and not *what was disclosed*. Emitting
+  automatically would satisfy the rule while answering the wrong question. Nothing in this
+  repository has a permission-gated read, so no shipped behaviour changes; the rule is
+  aimed at consumers, which is where the gap was found.
+
+- **Provisioning an account is not admitting it (ADR 0142).**
+  `FederatedIdentityService` could say whether it provisions, whose identities qualify,
+  and at what rank the account lands — three admission rules evaluated once, producing an
+  account that is live the instant it exists. There was no fourth answer: "let them ask,
+  but not in yet." That is the ordinary shape for an internal tool, where anyone the
+  directory vouches for may request an account and a human decides whether it opens.
+
+  `provisioned_rank` looks like the escape and is not, because **the lowest rank is not
+  "no access"**. A rung is a floor that modules read, so the bottom of the ladder is
+  already whatever an application's `role:viewer` routes chose to expose — in a
+  data-heavy application, routinely the whole read surface. Passing a raw integer below
+  the lowest named rung leaves a principal with a rank no access model declares, no
+  screen that explains the state, and a person looking at an application that silently
+  does nothing.
+
+  So the admission rule carried weight it was not shaped for. A domain allowlist is a
+  statement about a *directory*, not about a person, and "everyone in these domains may
+  read everything at the viewer floor" became a deployment's access policy by
+  composition rather than by choice — on the day SSO was switched on, which is the day
+  nobody is looking for it.
+
+  ```python
+  FederatedIdentityService(
+      allow_provisioning=True,
+      allowed_email_domains=("example.test",),
+      provisioned_active=False,      # lands pending an administrator
+  )
+  ```
+
+  A first login now writes the user row and its federated link and still returns
+  `None`. The rows record that someone asked; they do not grant entry. Returning the
+  user would have undone it — the `is_active` check guards the *linked* path, which a
+  first login never reaches, so handing the row back would mint a session for an account
+  that is inactive in the database, the one state a caller cannot notice because it
+  receives a principal like any other.
+
+  Every later attempt then takes the linked path and is refused by the same `is_active`
+  check that holds a deactivated account, so activation is the single act that admits
+  them: no second state, no `pending` column, and the administrator's existing control.
+  The default stays `True` and a test pins it, because a flipped default is a silent
+  lockout of every deployment that never asked for this.
+
+  This does **not** watch the directory. An account admitted once stays admitted until
+  someone deactivates it; membership that changes at the source is not noticed here.
+
+- **`terp guide security` — the declaration `create_app` refuses a production boot over.**
+  `SecurityConfig` is the one control-plane declaration with four production refusals
+  behind it, and it had no recipe: 32 guide topics and none of them named the class, the
+  per-prefix rate-limit map, or the docs opt-in. The refusal arrived at the deploy and the
+  answer lived in a docstring. The new topic is in the same register as `passwords` — the
+  wiring, each of the four refusals beside the declaration that answers it, and the two
+  fields nothing refuses over and which therefore no gate can teach you about:
+  `trusted_proxy_hops` ("name the proxy you actually run behind, or every caller collapses
+  onto its address and your per-caller limits stop being per-caller"), and
+  `expose_api_docs` as a deliberate choice to publish rather than a way to get the file.
+
+  Paired with a coverage guard, because the point is that the *next* field cannot land
+  unexplained: every public declaration owning a `production_problems()` must have every
+  one of its fields named in an authored guide topic. Deliberately scoped to the authored
+  topic bodies and not the whole guide surface — `changelog` is a generated topic whose
+  body is the entire release notes, which name every one of these classes, so a guard over
+  the full text would have passed with no topic written at all.
+
+  And the refusal now routes to its own recipe: the `BootError` ends with
+  `— see: terp guide security` (and `terp guide passwords`), the move a rule violation
+  already makes when it prints the topic that fixes it.
+
+- **`terp service-account list` and `terp service-account revoke` — a machine credential
+  can now be administered, not only issued.** `ServiceAccountService.revoke()` and the
+  `ServiceAccountRead` DTO both shipped in 0.5.0 and neither had a caller outside the
+  framework's own tests. So a credential could be issued and never turned off: a leaked or
+  stale secret had no supported revocation path, and "is this integration still running?"
+  — the question `last_used_at` is written to answer, in a column the module docstring
+  justifies by that question — had no surface anywhere that could ask it.
+
+  `list` renders the DTO (so `hashed_secret` is structurally absent, not merely omitted)
+  with rank, client id, expiry and last use, and takes `--expiring-within-days` for the
+  question a renewal is actually planned from: the default expiry is a year, so the
+  interval between "nobody is thinking about this" and "it is already broken" is the whole
+  reason to ask early. Revoked accounts are hidden unless asked for — the row stays for the
+  audit trail, and a list of every credential ever issued buries the live ones.
+
+  `revoke` calls the service's own `revoke`, which bumps the token epoch and writes through
+  the audited chokepoint, so outstanding access tokens stop working immediately rather than
+  at their own convenience. It takes the name an operator actually has, the way `terp grant`
+  already does.
+
+  There is deliberately **no `rotate`**. The secret is write-once by decision (ADR 0088:
+  "a lost secret is re-provisioned, not recovered"), and `ServiceAccountUpdate` says the
+  same from the other side. Renewal is `create` then `revoke`, in that order — which is
+  also the only order that does not interrupt the integration. Its absence is pinned by a
+  test rather than left to memory.
+
+  `ServiceAccountRead` is now exported from `terp.capabilities.identity`, so an app that
+  does want its own admin page reuses the DTO instead of assembling a second answer to the
+  same question.
+
+- **`terp outbox dead-letters` — the outbox can now name what gave up, not just count it.**
+  `last_error` is written by the worker inside `_finalize_failure`, beside
+  `status = dead_lettered`, and a repository-wide search found no reader: no schema, no
+  router, no CLI, no health field, no frontend. The platform recorded the cause of every
+  dead letter and could not be asked for it — which costs exactly the moment it is most
+  expensive, an incident where the operator can see that deliveries died and not why. Both
+  sibling capabilities that own a retrying table already expose their per-row failure reason
+  (webhooks' delivery log, sync's per-record log); the outbox was the one that did not.
+
+  Newest first and bounded, with `--name` for the one integration an incident is usually
+  about and `--since-days` for "is this still happening" after a fix goes out. The reader
+  (`terp.capabilities.outbox.dead_letters`) returns a frozen `OutboxDeadLetter` rather than
+  the ORM row, and the payload is deliberately not on it: the serialized envelope of the
+  business write can carry anything at all, including something nobody meant to print at
+  3am in a shared terminal.
+
+  There is deliberately **no redrive**. ADR 0045 §1 and the model's own docstring fix the
+  lifecycle as one-way — a row is inserted `pending` and only ever moves to `dispatched` or
+  `dead_lettered` — so putting a dead letter back changes a recorded invariant rather than
+  completing a capability, and it has real questions to answer first (what happens to
+  `attempts` and `dead_lettered_at`, and whether the evidence of the first failure survives
+  the retry). That belongs in an ADR with its own columns. The command says so where an
+  operator will read it, and `terp guide outbox` says why.
+
+- **`terp upgrade --check --format json` — the upgrade answer as data.** It was the one
+  reporting command in the CLI with no machine-readable mode: `inspect control-plane`,
+  `inspect access`, `inspect capabilities`, `inspect schema`, `guide --list`, `check` and
+  `verify` all have one. Every field was already computed and then spent on prose, so any
+  tool asking "is this app on a current platform?" had to answer it by reimplementing the
+  question rather than by asking. The document is
+  `{installed, current, target, covers_whole_set, stragglers, rerender_blocker, scaffold_ref, error}`.
+
+  `covers_whole_set` is the field that matters and the one a version number cannot carry:
+  "internally consistent at X" and "X, and the release does not cover every package" are
+  different answers, and only the second is a reason to wait. `error` is separate from
+  `target: null` for the same reason — "up to date" and "could not find out" must not be
+  the same reading.
+
+- **`terp guide changelog --since <version>`.** The notes are thousands of lines across
+  dozens of releases and the topic returned all of them, with no version argument at all.
+  The tool whose job is "read this before you upgrade" handed back a document nobody
+  reads, which makes it a channel that carries nothing. `--since` renders only the
+  releases after the reader's own version, and leads each one with its `### Security` and
+  `### Upgrade notes` subsections — ordering, not filtering, so everything the release said
+  is still there.
+
+  `terp upgrade --check` now prints step 1 with the flag already filled in: it holds both
+  the current and the target version and was printing a command that made the reader
+  supply one.
+
+- **`assert_migrations_reverse_cleanly` — the rollback plan is now rehearsed, not read.**
+  Every Terp app's rollback plan is `terp migrate downgrade`, and the catalogued
+  `alembic_downgrades_not_empty` rule proves only that each `downgrade()` body is not a
+  lone `pass`. That is a source-level check. It cannot see a downgrade that dies on its
+  first statement — easy to write, because batch mode re-applies the naming convention and
+  a hand-written constraint name is often wrong — and it cannot see one that runs green
+  and leaves a table behind for the next deploy to collide with. The forward direction has
+  had an executed check since `assert_migrations_match_models` shipped; the reverse
+  direction had reading.
+
+  The helper upgrades to head, snapshots, downgrades to base, checks every package's
+  `alembic_version_<label>` emptied **and that nothing was left behind**, upgrades again
+  and compares. Both middle checks are deliberately in the middle: the second upgrade
+  re-stamps every version table and rebuilds every dropped object, so afterwards a history
+  that never went down is indistinguishable from one that went down and came back — and a
+  down-and-up cycle usually converges to the same schema even when the downgrade forgot
+  something, so comparing the two ends finds that either.
+
+  The snapshot is read from the database's **own catalogue**, never through the SQLAlchemy
+  inspector: `sqlite_master.sql` on SQLite, `pg_get_indexdef` / `pg_get_constraintdef` on
+  PostgreSQL. Reflection is exactly the layer that drops a partial index's `WHERE`
+  predicate and a CHECK's text, so a check built on it would be blind to the class of
+  difference it exists to see, and green. Verified against a real PostgreSQL: the
+  predicate and the CHECK both survive into the snapshot. The one normalisation is the
+  emission order of a `CREATE TABLE`'s trailing `CONSTRAINT` run, which is not stable
+  across two upgrades in one process and carries no meaning; column order is left as
+  found.
+
+  Its limit is stated in the docstring rather than left to be discovered: a defect both
+  walks share is invisible to it — in particular a *forward* batch rebuild dropping a
+  partial index's predicate, since the rebuild happens identically on the way back. That
+  class is `assert_migrations_match_models`' job, which is why the two belong in the same
+  suite rather than one standing in for the other.
+
+- **`terp_db_url` and `terp_pg_url` — the two-dialect matrix is now a fixture a consumer
+  can name.** ADR 0069 makes SQLite and PostgreSQL normative and the platform refuses an
+  unverified dialect at runtime, so an app owner is told the matrix is real. The executed
+  proof of it was a parametrized fixture in the framework's own private test tree, in no
+  shipped distribution — so the platform's migrations were held to both dialects while a
+  consumer's, which carry the business schema, could only ever be held to SQLite. Every
+  hand-reasoned portability decision (a partial index's predicate, a CHECK's spelling, a
+  conditional aggregate, how a UUID compares) sat in that gap.
+
+  Both fixtures ship on terp-core's pytest plugin, so they need no `conftest.py` line.
+  Behaviour is unchanged from the private copy: a test taking `terp_db_url` runs twice,
+  and the PostgreSQL run skips unless `TERP_TEST_POSTGRES_URL` names a server — so an
+  offline checkout is exactly as it was. The framework's own conformance suite now
+  consumes the published fixture rather than a copy, which is what keeps the two from
+  drifting.
+
+- **A file carries what a scanner decided about it, and the deployment brings the scanner
+  (ADR 0146).** The files capability already refused a media type outside the deployment's
+  allowlist (ADR 0068) and bytes whose signature contradicted their declared type
+  (ADR 0076). Neither is malware detection, and together they read like coverage: a
+  signature check proves a PDF is shaped like a PDF, which is exactly what a malicious PDF
+  also is.
+
+  A platform cannot ship a scanner — which engine a deployment runs, whether it has a
+  licence for one, and what it costs per upload are all deployment questions, and a
+  capability that answered them would be forked by the first consumer that needed a
+  different answer. What it can own is the **state**: `File.scan_state`,
+  `register_file_scanner()` as the one composition-root line, and a gate that refuses to
+  hand out bytes a scanner rejected. The scanner runs inside `FileService.store` and is
+  handed the **stored** bytes — what a download would actually return — through an opener
+  rather than a `bytes`, so a scanner needing only a header can stop early on a path that
+  has taken care never to hold an upload whole.
+
+  **Nothing changes for a deployment that wires no scanner.** There is no safe default
+  available: a file cannot be `clean` without something having looked at it, so gating
+  downloads on a verdict nothing will ever produce would make every already-stored file
+  unreachable at upgrade. Such a deployment stores `not_scanned`, which is also what the
+  migration backfills onto existing rows — not `clean`, the one value that would make the
+  new column lie, in the direction that lets bytes out.
+
+  **A rejected upload is quarantined rather than discarded**: the row is created and the
+  blob stays, flagged and unservable. An operator needs to know what arrived and from
+  whom, and the uploader is told by `scan_state` on the response. It also keeps the gate
+  honest — a state nothing can reach is a comment, not a control. The gate sits in the
+  service's read chokepoint rather than on the download route, so the serve-through
+  delegation read (`load_for`) and any programmatic `load` are covered by the same
+  decision; on the route, `load_for` would have gone on serving exactly the rejected bytes
+  through another module's already-authorized row.
+
+  `FileRead` gains `scan_state` (a caller refused a download is owed the reason);
+  `FileUpdate` does not (a verdict a client could patch is not a verdict). One additive,
+  backfilled, indexed column — the index because the question it answers is a listing one:
+  *which stored files were never scanned*, asked on the day a scanner is finally wired.
+
+  **Asynchronous scanning is deliberately not included, and the blocker is not local.**
+  Recording a verdict after the row exists is a cross-owner maintenance write, and the
+  platform has no supported route for one (`terp guide ownership`: *"Genuine cross-owner
+  maintenance — NO SUPPORTED ROUTE TODAY"*). Shipping it anyway would have meant either
+  writing outside the audited chokepoint or recording the file's owner as the author of a
+  verdict they did not produce, and a security-relevant state change is the last place to
+  do either. It stays a visible platform gap with a second concrete caller.
+
+- **A route declares its own security posture, not its neighbours' (ADR 0148).**
+  `create_app` mounts one `build_guard(spec.policy)` per module, so a `Policy` was a
+  property of a whole router. `Policy.public_write` therefore made **every** route in its
+  module unauthenticated — the ones that must be, and any route added beside them
+  afterwards, silently. The only way to tighten one route inside a public module was to
+  hang `require_permission` on it, which worked by a side effect explained in a comment
+  rather than by anything in the policy API.
+
+  **The platform was already paying for this.** The realtime capability is
+  `Policy.public_write`, because an `EventSource` or `WebSocket` constructor cannot
+  attach a bearer and the handshake redeems a one-use ticket instead. Under that policy
+  sat `POST /tickets` — the endpoint that *mints* those tickets — carrying the comment
+  *"the module guard already rejects this endpoint"*. It did not. The guard admitted
+  everyone, and a hand-rolled `principal is None` check was the only thing in front of
+  ticket minting; deleting it on the strength of that comment would have published the
+  endpoint.
+
+  `route_policy(policy)` is applied below the route decorator, beside `@operation`, and
+  **replaces** the module's policy for that route — so a public module can carry a
+  protected route and a protected module a public one. The guard and the access
+  projection resolve it through **one** function (`effective_policy`), because a
+  projection that kept describing the module while the gate enforced the route would show
+  an administrator a matrix the system disagrees with.
+
+  **Boot now refuses an undeclared route in a public module**, WebSockets included — a
+  socket has no method after the upgrade and is treated as a write, so it is the route
+  that least deserves to be public by inheritance. Every route in a public module ends up
+  marked, which reads as ceremony until the next route arrives: that one fails at boot
+  instead of being quietly published. A protected module needs no ritual; a route that
+  declares nothing still resolves to its module's policy, so nothing changes for a module
+  that was already correct.
+
+  **`POST /api/v1/realtime/tickets` is no longer public**, and the committed
+  authorization baseline records the narrowing in one line (`public` → `role:viewer`).
+  VIEWER rather than the EDITOR a bare `Policy.default()` would impose: minting a ticket
+  is a POST that subscribes, not one that changes anything, and the channel's own check
+  is the authority that decides. Defaulting would have refused every VIEWER a realtime
+  channel.
+
+### Changed
+
+- **The `a11y` assurance lane now says why it composes nothing.** It was
+  `("a11y", "recommended", ())` — an empty composing tuple with no stated reason, sitting
+  next to `test-adequacy`, which has one, while three neighbours shipped `required` with
+  real checks in the same wave. The lane is honest (it emits `not-run`, never a false
+  pass), so nothing was wrong; what was missing was the sentence that separates a
+  deliberate gap from an oversight.
+
+  Written now, in the register `test-adequacy` set: a11y asks whether the rendered UI is
+  usable by someone not using a mouse and a pair of eyes, which is a question about pixels
+  and a live accessibility tree. Every check in the release profile reads source or builds
+  artifacts — `frontend-boundaries` constrains what is composed and says nothing about
+  what a screen reader receives; `frontend-build` proves the bundle compiles. The evidence
+  the lane needs is an axe pass over a running app, so its natural home is the
+  `conformance` check, and wiring it has a real question underneath: **whose** screens are
+  the subject. The framework renders none of its own, and a lane that failed the
+  platform's release over an app's markup would be measuring the wrong thing. Until that
+  is answered, `not-run` is the honest verdict — and it is not the same as forgotten.
+
+- **`no_dynamic_sql` states what it sees.** The rule fires on one construct: a call whose
+  callee name is `text`. That is SQLAlchemy's, and it is the shape a Terp app uses — but a
+  package that does not model the schema it talks to, which is the usual reason a companion
+  root exists, drives a DB-API cursor instead, and `cursor.execute(f"...")` is invisible to
+  it however the statement was built. The title ("raw SQL text in app code must be a static
+  literal") and `terp guide package-boundaries` ("not `no_dynamic_sql` — those now reach the
+  second package") both read as blanket coverage.
+
+  That shape is governed, just not by this rule: ADR 0085 §2 delegates it to ruff's bandit
+  set, where `S608` is "SQL string construction", blocking in this repository and in every
+  generated project, with an architecture test parsing the stanza so it cannot be quietly
+  weakened. The rule is deliberately **not** widened to cover it — §1 says the catalog never
+  grows an entry whose only content is what a stock analyzer already detects well. Both the
+  docstring and the guide now say so, because the two lanes together are the coverage and
+  either one read alone overstates.
+
+- **`bespoke` stops reading like a layout contract.** `LAYOUT_CONTRACTS` has one key,
+  `standard`, and its own description ended "a bespoke screen composes the plain `Page`" —
+  the violation message said the same, and `contract: "bespoke"` is pinned by a test to
+  throw. At speed both read as naming a second contract.
+
+  Decided and recorded in ADR 0079 rather than left for the next reader: `bespoke` is not
+  and should not become a declarable contract. A contract is declared once for the whole
+  app and its content is per-archetype slot specs; an unconstrained entry would be a second
+  spelling of declaring none, which the platform refuses elsewhere for the same reason. The
+  word was doing adjective duty — a *bespoke screen* is one composing the plain `Page`,
+  which the contract leaves alone by design — so both prose sites now say "a screen that
+  needs no contract". The throw already named the known contracts; the test now asserts
+  that half of the message too, so an author who reads `bespoke` as a value is told what
+  the values are rather than only that this is not one.
+
+- **The verify manifest publishes the vocabulary it was written with.** `--list --format
+  json` emitted each check's `category` and stamped `terp_verify_manifest: 1`, and nothing
+  told a consumer what the vocabulary was. "A category I have not seen" and "a document I
+  should not trust" were therefore the same observation, and the safe-looking reading of
+  the second is to fall back to a hardcoded list — which silently replaces the project's
+  real gate with the tool's memory of an older one. `frontend-tests`, added in 0.23.0, is
+  the worked example: a driving tool holding a five-category list has met one new word and
+  can no longer file two checks it should be running.
+
+  The manifest now carries a top-level `categories` array, and
+  `tests/fixtures/verify-manifest.full.json` is checked in and held to the live manifest by
+  the suite, so a consuming repository can assert its parser against the real shape. The
+  category vocabulary was already pinned twice — the runtime constant and the suite's
+  independent statement of it — and both copies sat on the same side of the boundary the
+  seam was written for; this extends the pinning across it.
+
+  ADR 0106 gains §5, stating what a consumer owes in return: degrade **per entry**, never
+  wholesale; an unfamiliar category is filed under a documented fallback bucket and the
+  check **still runs**; discard an entry only when it has no `id` or no `command`; never
+  answer from a hardcoded copy. This extends §3 rather than reversing it — a refusal at
+  the app-declaration boundary is loud and fixable by the author who wrote the line; a
+  refusal at parse time in a consumer silently discards a gate definition the project did
+  own.
+
+- **The release-note subsection vocabulary is closed, and two of its names are
+  load-bearing.** `### Security` marks a defect in the platform that a deployment may be
+  carrying today; `### Upgrade notes` marks a change that refuses a posture an existing app
+  may already hold. Those are the two kinds of release where the cost of not reading the
+  notes is unbounded, and they were the two the channel could not mark — the census over
+  the whole history was 32 Added, 26 Fixed, 21 Changed, 1 Removed, and exactly one each of
+  Security and Upgrade notes, with no requirement on any of it.
+
+  Both names are now read by name in two places (the `--since` renderer and the published
+  release body), so the set is closed and checked: a release that says "Security fixes" or
+  "Breaking changes" is a release whose most important half silently stops being findable.
+  One pre-existing heading is recorded in a shrink-only allowlist rather than grandfathered
+  in silently.
+
+- **The published GitHub release body is the tag's own CHANGELOG section, not generated
+  commit subjects.** `--generate-notes` publishes a different document from the one this
+  repository writes, and the difference is the entire classification: the `### Security`
+  narrative that explains a defect a deployment may be carrying reached nobody watching
+  releases, while the commit titles did. The workflow now slices `## <version>` out of
+  `CHANGELOG.md` and passes `--notes-file`, and refuses to publish a release whose notes
+  nobody wrote.
+
+- **A generated app is born with both migration directions covered, on both dialects.**
+  `tests/test_architecture.py` gains `test_migrations_reverse_cleanly`, and the existing
+  drift test moves from a hardcoded SQLite path onto `terp_db_url` — which matters most
+  there, because SQLite does not report a foreign key's referential options, so against it
+  Alembic compares constraints without them and an `ON DELETE` clause that changed is
+  invisible.
+
+  The generated CI workflow gains a `postgres:17-alpine` service and the env line that
+  points the fixture at it, **on by default**. A commented-out service is an opt-in nobody
+  is told about, and the point of shipping the fixture is that two-dialect testing stops
+  being something each project has to think of; the block carries the reason and says what
+  to delete to turn it off. `psycopg[binary]` joins the generated dev group for the same
+  reason — without the driver the PostgreSQL half could only ever skip.
+
+- **One outbound transport, and webhook delivery takes it instead of keeping its own
+  (ADR 0144).**
+  `no_raw_outbound_http` sends an author to the egress capability, and the argument it
+  makes is arithmetic: the four things that must be right about an outbound request — no
+  redirect followed, a bounded read, a pinned address, TLS verified against the *name*
+  rather than the address it was pinned to — are right in as many places as there are
+  clients. The capability shipped that as `EgressClient`, which owns a **policy**: an
+  allowlist, a timeout, a response cap, the SSRF denylist. Webhook delivery could not
+  take it, and not by oversight — its target is a URL a subscriber chose, so there is no
+  allowlist to write. What it needed was the transport underneath the policy, and that
+  was private. So it kept its own: build a request from the original URL, repoint the
+  socket at the validated IP, refuse redirects — beside a near-identical copy inside the
+  egress client, which is exactly the duplication the rule exists to argue against.
+
+  `terp.capabilities.egress.send_pinned` is that transport, now public. `EgressClient`
+  calls it, webhook delivery calls it, and the `terp-cap-webhooks` distribution no longer
+  depends on an HTTP client at all — its `arch-allow-no-raw-outbound-http` budget entry
+  is **removed rather than renewed**, which is the outcome a dated opt-out is supposed to
+  reach. The OIDC capability's client is the other half of this, immediately below.
+
+- **SSO provider calls leave through the egress capability, and the address rule is whose
+  host it is (ADR 0145).** The OIDC capability held the platform's last two raw
+  outbound-HTTP opt-outs. Routing it was not a substitution: `EgressClient` is a policy
+  whose centre is an exact-hostname allowlist, and an IdP's endpoints are not properties
+  of its issuer — they are fields in a discovery document fetched *from* it, and a
+  provider in wide use answers discovery on one hostname, serves its token endpoint on a
+  second and its JWKS on a third. An allowlist of the issuer host refuses two of the
+  three calls a login makes, and the symptom is SSO failing at the first attempt after an
+  upgrade. An allowlist the operator fills in by hand fails the same way with a worse
+  shape: correct for whoever tried it, wrong for the next provider.
+
+  So for this caller **the allowlist cannot be a constraint** — the hosts are not knowable
+  until the document naming them has been read. It is kept as a *record* of who a provider
+  talks to, which is what the egress observer and any egress audit see, and the constraint
+  is the half of the policy that needs no advance knowledge: **the issuer's own host may
+  resolve into a private range, and a host the discovery document introduced may not.**
+  The operator named the issuer, so an IdP on the internal network is a deployment shape
+  they chose and on-premises SSO keeps working unchanged; every other host arrives from
+  the far end, and a party that can edit its own discovery document does not thereby get
+  to choose which network this server reaches into. The scheme allowance follows the same
+  principle: an `https` issuer admits only `https` endpoints, so a document cannot
+  downgrade the leg that carries the client secret, while a plain-`http` issuer — already
+  permitted outside production — admits both, so local development works.
+
+  **Provider calls are SSRF-checked and address-pinned for the first time.** Nothing
+  checked them before: a discovery document naming a loopback, RFC-1918 or cloud-metadata
+  address was simply fetched, and at the token endpoint that meant posting the **client
+  secret** to it.
+
+  **Breaking:** `http_factory` is gone from `OIDCClient`, `build_oidc_router` and
+  `build_oidc_module`, replaced by the egress `sender` / `resolve` / `observer` seams.
+  There was no non-breaking version — the old parameter's type *is* an HTTP client, which
+  is what the markers existed for. Code that injected a factory passes `sender=` instead;
+  anything using a hostname it does not own should pass `resolve=` too, or the name goes
+  to real DNS and a test can pass for the wrong reason.
+
+  `terp-cap-oidc` drops `httpx`, declares `terp-cap-egress`, and now carries **no
+  escape-hatch budget at all** — both markers removed rather than re-justified — so the
+  capability rejoins the set that passes the whole harness outright. With webhook
+  delivery's client gone in the same release, ADR 0117's recorded consequence
+  (“`httpx` becomes a dependency of exactly one distribution”) is true for the first time
+  since it was written. An SSO login is also now visible to the egress observer, where
+  metering and egress auditing attach.
+
+  **A webhook's reply is now bounded, at 1 MiB** — a real behaviour change, and the
+  reason this duplication was worth removing rather than tolerating. The local transport
+  read the subscriber's response **whole, with no bound at all**, while the egress one
+  has capped its reads since it existed; two copies drift, and it is always the copy
+  nobody is looking at that drifts. Nothing reads that body — a delivery is judged by its
+  status code alone — so the cap is not a protocol limit but a bound on how much one
+  endpoint can make a worker allocate. A receiver that answers a delivery with more than
+  a megabyte now records a failed attempt and retries where it previously recorded a
+  delivery.
+
+- **The login lockout is gone; failed credentials now back the caller off (ADR 0147).**
+  The throttle counted failures per account and, at five within fifteen minutes, locked
+  the account for fifteen — refusing a **correct** password for the whole window, which
+  its docstring described as a feature and a test asserted by name. That is the property
+  that makes a lockout attackable rather than defensive: anyone who knew an email address
+  could take its owner offline on demand, indefinitely, by failing five logins every
+  quarter of an hour. One piece of state, shared between attacker and user, spendable by
+  either.
+
+  What replaces it delays the **attempt** and never marks anything unusable. A caller
+  that keeps failing waits longer and longer; the moment a wait elapses the next attempt
+  is judged on its merits. Someone who mistypes twice notices nothing and on the third
+  notices two seconds, while a guesser doubles its wait every time.
+
+  **The key is `(identifier, caller address)`**, which is what disarms the weapon: an
+  attacker hammering an address from their own network slows themselves, and the
+  account's real owner, arriving from somewhere else, has a counter of zero. An
+  identifier-wide backstop remains for the distributed case, deliberately tuned to be a
+  poor lever — **fifty** failures to engage, **five minutes** of effect, against the old
+  five for fifteen.
+
+  **`POST /auth/token` is throttled for the first time.** It shipped with nothing, on an
+  argument that was right about lockouts and wrong about throttling. What that left
+  behind was worse than the brute-force question: every attempt ran a memory-hard KDF —
+  the real verification on a wrong secret, a dummy one on an unknown client id so the
+  miss path costs the same and cannot be used as an oracle — so an unauthenticated
+  caller could spend the server's CPU and memory with no valid credential at all. The
+  backoff is checked **before** verification, so a refused attempt never reaches the KDF.
+
+  **Breaking, on the wire and in the constructor.** The error code moves from
+  `account_locked` to `too_many_attempts` (`AccountLockedError` survives as an alias of
+  `TooManyAttemptsError`, so an existing `except` keeps compiling). A client showing
+  *your account is locked, contact support* when the user needs to wait four seconds is
+  describing a product that no longer exists, so the code had to move with the
+  behaviour. `max_attempts` / `lockout` give way to `free_attempts` / `base_delay` /
+  `max_delay` / `identifier_attempts`, and `check` / `record_failure` / `record_success`
+  take an optional `source=`. Omitting it collapses to identifier-only backoff, which is
+  correct for a caller whose identifier already carries the address — the OIDC callback
+  key does, and needed no change.
+
+  One trade is explicit rather than hidden: against a **single** source this is far
+  stronger than the lockout, and against fifty sources it is weaker. That is the price of
+  an account nobody can disable, and the backstop is what bounds it.
+
+- **An application's rate-limit override outranks a capability's, at any depth (ADR 0143).**
+  `_rate_limit_override_map` has always promised that `SecurityConfig.rate_limit_overrides`
+  wins — "the root overrides the package … a capability's default is a floor it may move
+  rather than a decision taken away from it". That was true while a capability keyed its
+  declaration on its **mount**: the application's entry was the same dict key and replaced
+  it. 0.23.0 re-keyed the auth capability by **route** (ADR 0140, so `/refresh` would stop
+  being rationed at the rate chosen to make password guessing expensive), and because the
+  limiter resolves by **longest matching prefix**, the capability's key became the longer
+  one. From that release an application override on `/api/v1/auth` silently stopped
+  applying: declared in source, visible in review, counted by nobody, with no warning, no
+  error and no failing test.
+
+  A root override now removes the capability-declared keys at or beneath its prefix before
+  inserting itself, which is what "the root overrides the package" has to mean once the
+  package can key deeper than the root does. The separator is part of the prefix, so
+  `/api/v1/authority` is not beneath `/api/v1/auth` — without that an override silently
+  uncaps an unrelated capability, the same defect one level along.
+
+  **This is a behavioural change, not only a fix.** An application that already declares an
+  override on a mount prefix has been running with an inert declaration; after this release
+  it takes effect. If that number is loose and the deployment has been unknowingly protected
+  by the bug, the protection goes. Production therefore states once, at boot, which
+  capability limit the application is running above — naming the prefix, the new number and
+  the routes it displaced — in the shape `_warn_unshared_idempotency_in_production`
+  established. It is not a refusal: raising the number is a supported move, and
+  `production_problems` already refuses the one move that never is (disabling a limit).
+
+  The real defect was the missing test rather than the missing line: the displaced promise
+  lived in a docstring, so ADR 0140's own suite was thorough about what it changed and
+  silent about what it repealed. The tests added here assert the promise directly, so the
+  next re-keying fails instead of quietly ending it.
+
+- **The gate parses each file once per run instead of once per rule.** `check_app` ran
+  every rule over the same tree and each rule walked and parsed it independently: on a
+  32-file tree that was 2,354 `ast.parse` calls, because the redundancy factor is the
+  rule count — 79 today, and only ever up. Cost was linear in two things that both only
+  grow, and the consumer who feels it is the one with the biggest app.
+
+  A memo scoped to one scan makes it 43 parses and roughly halves the wall clock (713 ms
+  → 340 ms on the example app). The findings are identical, which is asserted against a
+  deliberately dirty tree rather than a clean one — an empty list equalling an empty list
+  proves nothing.
+
+  Scoped to a run rather than cached on the module, and that is the whole design: a
+  process-global cache would answer from a stale tree the moment anything rewrote a file
+  between scans, which is what an editor, a workbench and this repository's own rule
+  tests all do continuously. Keying on `st_mtime_ns` would paper over most of that and
+  still lose to two writes inside one timestamp tick. Outside a run, `parse` and
+  `iter_python_files` behave exactly as they always did.
+
+### Fixed
+
+- **The secret scan reported other branches' commits on your pull request.** `gitleaks
+  detect` walks every ref in the clone unless told otherwise, and the checkout above it
+  uses `fetch-depth: 0`, which fetches every remote branch. So one unmerged branch
+  anywhere in the repository turned `generic-checks` red on every **other** open pull
+  request, naming files and commits their authors had never touched — and nothing about
+  the failure said where it came from, because the step reports a count and not the
+  findings.
+
+  That is a false positive with the worst possible shape for a security control: it
+  arrives on somebody else's change, it cannot be fixed there, and the only way to make it
+  go away is to stop reading the check. A control people learn to scroll past has already
+  failed, whatever it would catch.
+
+  The scan is now scoped with `--log-opts HEAD`. This narrows nothing that matters: every
+  branch's own history is still scanned in full — main's on every push, a pull request's
+  on its own run, and the merge ref carries the base — so a secret still cannot reach the
+  default branch unscanned. Mutation-checked both ways: with the scope, a secret committed
+  on the branch is still found; without it, five findings from an unrelated branch come
+  back. A guard in `test_appsec_baseline.py` holds the scope, because the failure it
+  prevents is invisible until somebody else pushes.
+- **A control disabled on an ambient load, clicked by a test that waited on the page.**
+  Four of react-core's own admin tests clicked the create form's submit button after
+  awaiting nothing but the page heading. `UserCreate` gates that button on
+  `creating || ladderLoading || role === ""`, and `role` is still `""` in the commit where
+  `ladderLoading` first clears — the effect that picks the declared ladder's lowest rung
+  runs after it — so the button is disabled for one commit longer than the access-model
+  fetch takes, while the heading renders before either. jsdom raises no submit event at all
+  for a click on a disabled control, so the click was **lost, not late**, and the failure
+  surfaced several lines later on whatever was waiting for the POST's result, as "unable to
+  find element" naming the wrong element.
+
+  This is the flake two previous rounds of work diagnosed as machine contention. The async
+  budget was widened twice (1s to 3s to 4s) and the suite was made serial; neither could
+  close it, because no budget can wait for an event that was never raised. Contention is
+  real and is a different thing — it widens the window such a race needs, and a serial run
+  measurably helped — but a test waiting on the wrong thing fails on an idle machine too,
+  just more rarely.
+
+  The four tests now wait on the submit control being enabled, which is the condition that
+  actually gates the click, and a new test holds the window open and pins it: heading up,
+  control disabled, then enabled once the ladder lands. A fifth test of the same class (a
+  menu item whose label comes from that same fetch, reached for synchronously) was found
+  while measuring and is fixed with it. The recorded diagnoses in `vitest.setup.ts` and
+  `vite.config.ts` now name the race as the cause and contention as the trigger, so nobody
+  reaches for the tolerance levers a third time, and the general form is written into the
+  generated app's test seam (`template/project/frontend/vitest.setup.ts`): a control
+  disabled on an ambient async load must give a test something deterministic to wait on.
+
+  With the cause removed, `fileParallelism: false` was re-measured on a four-vCPU machine —
+  the class of runner it was added for — and the suite ran green nine times out of nine in
+  parallel, in ~33s against ~80s serial. So the flag comes out of react-core and the wall
+  clock is given back. It stays in the generated app's `vitest.config.ts`, whose argument is
+  about jsdom weight in an app's own suite rather than about this race, now with the caveat
+  that it is not a fix for a test that waits on the wrong thing.
+
+- **A rejected realtime payload no longer kills the channel it arrived on.**
+  `useRealtimeChannel` requires the app to hand-write a `validate` type guard for a payload
+  whose authoritative shape the server already holds as the channel's `outbound_model` — and
+  validates every publish against. Nothing checks the two against each other, so the
+  realistic cause of a guard miss is not a hostile payload (the only author is the same
+  deployment's own backend, behind a one-use ticket) but drift: a field added or an enum
+  member widened on the server while the guard still describes the old shape.
+
+  The hook answered that with a transport teardown. One rejected message set `stopped`,
+  cancelled the retry timer and released the transport; the effect's deps never change on a
+  bad message and the returned state exposes no reopen, so the channel was dead for the life
+  of the mount. A message-level failure was being handled with a connection-level remedy,
+  which discarded every later message too — including the ones the guard still accepted.
+
+  The policy is now split. A payload the guard rejects is a **message** failure: it is
+  dropped, reported once per connection on `error` with the channel named, and the transport
+  stays open and keeps delivering. `status` moves to `"error"` only when the connection
+  itself fails, where the bounded-backoff remint already handles it. `RealtimeChannelOptions.validate`
+  — the one place an author reads before writing a guard — now states that it is the drift
+  boundary and what happens when it falls behind, and the capability README and
+  `terp guide realtime` say the same.
+
+- **A code-split screen was torn down by the guard meant to protect it.** `buildAppRouter`
+  refuses a routed view that renders no page archetype, and gave it a grace window first so a
+  frame arriving a moment late was not mistaken for one that never arrives. That window was one
+  macrotask — and one macrotask cannot hold the case the guard's own comment named. A lazily
+  loaded inner component resolves over a *chunk fetch*, so its frame was unreachable inside the
+  window by construction: every code-split view was refused, deterministically, and the slower
+  the connection the more certain the refusal — on exactly the devices code splitting exists to
+  serve. A view framing one ordinary `useEffect` later was a coin toss instead, because that
+  commit goes through React's scheduler while the deadline is a timer, so a loaded machine could
+  let the timer win. What the user saw in both cases was a correct screen replaced by an error.
+
+  The window is now a named budget generous enough for a chunk over a slow link, and the
+  reasoning sits on the constant rather than in a commit message: refusing early destroys a
+  working screen in front of a user, refusing late only delays a message a developer reads, and
+  between those two mistakes there is no contest. It is still a deadline — a chunk slower than
+  the budget is still refused — and the constant says so instead of implying otherwise, which
+  matters more here than it would elsewhere: unlike the layout contract, this control has no
+  build-time half, so the budget is the whole of the judgement.
+
+  Two regression tests pin the shapes that were failing: a frame arriving a timer later, and a
+  frame arriving with a `lazy()` chunk. Both fail against the old window, which is also why the
+  suite's most intermittent failure was intermittent — the existing test framed on the very next
+  commit, so it passed on an idle machine and failed on whichever file CI happened to be busy
+  with.
+
+- **A test gate that dropped a release nobody had arrived for.** The access panel's suite holds
+  the provenance read behind a gate so each step of the settling state machine is a decision the
+  test takes rather than a race. `release()` resumed whatever was parked *at that instant* — and
+  the tests reach it after waiting on a heading the panel renders before that read has left for
+  the gate. When it had not, the release resumed nothing and the read arriving a moment later
+  parked on a gate nobody would open again. The panel then held its pre-read state until the
+  matcher gave up, and the report named an element that never appeared rather than the deadlock
+  underneath it.
+
+  Nothing in the test decided which of the two landed first, so it held on an idle machine and
+  lost on a loaded one — which is how a latent deadlock gets filed as "CI being flaky". The gate
+  now waits for a read to be parked before resuming it, and a regression test forces the losing
+  order instead of hoping to catch it: it fails against the old gate at exactly the matcher
+  budget, every time.
+
+- **A capability's production refusal is no longer silent outside production, and the set
+  of refusals the gate cannot see is no longer folklore.** Two capability constructors
+  refuse a production boot — `FederatedIdentityService(allow_provisioning=True)` with no
+  identity allowlist, and an OIDC provider with a plaintext issuer or redirect URI — and
+  both said nothing at all outside production. An app in that state ran a green
+  `terp verify --profile full` and found out at the deploy, which is the exact failure
+  ADR 0128 was written to end, recurring one layer out from the control-plane declarations
+  that lane reads.
+
+  Both now decide by an environment-independent `production_problems()`, the same shape
+  `ControlPlane` already exposes, so "would this configuration boot in production" is
+  answerable off the production host instead of existing only inside a branch that runs
+  there. The constructors still raise in production; outside it they warn, naming the
+  state and what production does with it — permissive in the inner loop, never quiet.
+
+  The part that keeps this from recurring is a record rather than a mechanism:
+  `tests/architecture/test_production_refusals.py` asserts that every
+  `settings.is_production`-conditional `raise` under `packages/backend/` is either reached
+  by the production-readiness lane or listed with the reason it cannot be, one entry per
+  raise. The count is part of the contract, because the carve-out that most needed
+  recording — the durable audit sink, decided by a runtime argument the lane cannot see —
+  lives inside `create_app`, which the lane otherwise models completely. The list starts
+  with that already-documented carve-out, so it begins honest rather than as a blanket
+  exemption.
+
+- **The production-readiness lane no longer overstates what happens outside production.**
+  Its failure text said all three control-plane refusals "only log a warning outside it".
+  Only the background-writes one does; the security and password refusals are evaluated
+  nowhere but inside the production branch. The argument the lane rests on is untouched —
+  a green gate over this state still agrees with a deployment that will not start — but a
+  gate that misdescribes the system it gates is one a reader stops trusting. The remaining
+  asymmetry is named in the docstring as the separate, smaller gap it is.
+
+- **The module-access panel no longer explains itself to the wrong reader.**
+  `ModuleAccessPanel` rendered a heading, a description and an info notice on every user
+  and every group detail screen of an application that declares no assignable module —
+  the default, since a `ModuleSpec` opts in explicitly. The notice reads "no module in
+  this application accepts a role of its own, so there is nothing to set here", which is
+  true, unresolvable by anyone who can see it, and addressed to whoever writes the
+  `ModuleSpec` rather than to the administrator looking at a person.
+
+  It was also the panel's own rule, not applied to itself. Its docstring argues that a
+  module which refuses "is not a gap the panel should explain … offering a control the
+  server would refuse is worse than not offering one", and then it drew a whole section
+  that offered nothing. The panel now renders nothing in that case.
+
+  The condition is deliberately not `assignable.length === 0`. A rung held in a module
+  that stopped accepting one can only ever be cleared here (ADR 0121), so the section
+  stays whenever an orphaned row is present — and whenever either read failed, because a
+  panel that could not read its rows has something to say even when it has nothing to
+  offer.
+
+- **The template trusted a proxy hop on a directly published API.**
+  `template/project/control_plane/__init__.py` declared a flat `trusted_proxy_hops=1`, with
+  a comment reasoning entirely about `docker-compose.prod.yml` — where only `web` publishes
+  a port, so nginx really is the only way in — and offering "set it to 0 if you remove `web`
+  and expose the API directly" as the escape. That condition does not describe the dev
+  stack the same template ships, where `web` is present **and** `api` publishes
+  `${API_PORT}:8000`. A request can therefore arrive there having passed no proxy at all,
+  and a trusted hop lets that caller write their own `X-Forwarded-For` — not merely stepping
+  out of their own rate-limit bucket but attributing their requests to somebody else's
+  address, which poisons the login lockout and the OIDC callback throttle with it. Zero is
+  the platform default precisely because an undeclared forwarding header is
+  attacker-supplied. The template now declares `1 if get_settings().is_production else 0`,
+  and a test pins both halves against the compose files they each describe.
+
+- **The template shipped a conformance harness its own credential limit refuses.**
+  `@terpjs/conformance`'s `login()` drives the real login screen, so a suite grows one real
+  `POST /auth/login` per spec — against `RateLimit.credentials()`, thirty a minute, in its
+  own bucket. The application's general `rate_limit` cannot absorb that, and by design: an
+  override-matched path is counted in that override's own bucket (ADR 0115), so exhausting
+  one family cannot 429 another. The failure does not read as a rate limit either — whichever
+  spec crosses the line fails on a missing element, in a module with nothing to do with
+  authentication, and a different one each run. The template now declares a non-production
+  credential limit, keyed **per route** so `/refresh` keeps the exemption ADR 0140 gave it.
+
+  This went unnoticed because this repository's own example app ships one auth spec: too
+  small a suite to trip its own limit, where a real application's is not.
+
+- **Frontend manifests re-declared backend permissions as unchecked string literals.**
+  A client gates a route, a nav entry and a control on the same names the backend
+  declares, spelled as bare strings. A renamed or re-floored permission then failed in
+  one of two silent directions — over-gating, where a screen 403s for someone who may
+  use it, or under-gating, where a link renders and every request behind it fails — and
+  only a hand-written end-to-end test caught either. The platform had already solved this
+  class twice, both times by putting the vocabulary in the contract the client is
+  generated from: OpenAPI → `schema.d.ts` for data, manifests → `routes.gen.d.ts` for
+  paths.
+
+  `terp openapi` now emits `TerpPermission` and `TerpRole` as enums, so
+  `openapi-typescript` turns them into string-literal unions, and
+  `@terpjs/contract` exposes `TerpAccessVocabulary` for an app to hand those unions to.
+  Six lines in the app narrow `ModuleRoute.permission`, `NavItem.permission`,
+  `AuthorizedProps.permission` and `useHasPermission` — and they name *types*, not
+  values, so unlike the strings they replace they cannot themselves drift. A misspelled
+  permission then fails `npm run typecheck` at every site that used it.
+
+  It degrades rather than imposes: an app that declares no vocabulary keeps plain
+  `string`, which every app has today, so adopting is opt-in and skipping costs nothing.
+  The scaffold deliberately does *not* ship the file — a freshly generated app declares
+  no permissions, no `TerpPermission` schema is emitted (an empty enum would generate
+  `never` and break every client that touched the type), and the recipe belongs at the
+  moment the first permission exists. `terp guide permissions` carries it.
+
+  The exported type is `TerpPermissionName`, `Terp`-first on purpose: `lib.dom.d.ts`
+  declares a **global** `PermissionName` (the browser's `"geolocation" |
+  "notifications" | …`), so a file using the short name and forgetting the import does
+  not fail — it silently type-checks against the browser's vocabulary and then reports a
+  union nobody in the app recognises. Writing this hit exactly that.
+
+- **Backup and restore amounted to one sentence, on a stack whose recovery path runs
+  through itself.** `docs/DEPLOYMENT.md` named the volume the state lives in, and that was
+  the whole of it. Backup is the one operational control with no partial credit, and it is
+  the last thing anyone writes.
+
+  What makes it sharper here than in most stacks is the per-package layout. A Terp app's
+  schema is not one history: every table-owning package keeps its own behind its own
+  `alembic_version_<label>` table, and the boot guard refuses to start when any package's
+  schema is behind. So a restore that loses one of those bookkeeping tables does not fail
+  at restore time — every real table and every row arrives, and nothing complains. It
+  fails at the next boot, with a message about pending migrations, which reads as a deploy
+  problem rather than as a bad backup. ADR 0090 records that as a docstring aside; it is
+  now three tests in the PostgreSQL conformance lane.
+
+  A fully migrated database is dumped, restored into a *clean* second database — restoring
+  over the source would prove nothing — and then booted: the same `assert_migrations_current`
+  a deploy runs. Each of the thirteen histories must arrive with its revision intact. And
+  the drill proves it is measuring something: a dump that omits one bookkeeping table
+  restores without error and is then refused at boot, which is the failure mode in full.
+
+  The lane installs a PostgreSQL client matching the pinned server, because `pg_dump`
+  refuses a server newer than itself and the runner image's client trails it — without
+  that the drill would *skip*, which is the worst available outcome for a backup check.
+
+- **Nothing measured what a query costs, so an N+1 was found by a customer rather than by
+  a test.** The gate makes a strong claim about what a Terp app cannot get structurally
+  wrong and no claim at all about what it costs to run — and the absences reinforce each
+  other: nothing on the server reports latency, so nothing in the suite asserts a bound.
+
+  `terp.core.testing` now ships `count_queries(session)` and
+  `assert_max_queries(session, limit, only=...)`. The failure shape they catch is dull
+  and specific: an endpoint loads N rows and touches a relationship per row, so the count
+  is 1 + N, the response is fine on the twelve rows the fixture creates, nothing in the
+  code looks wrong, every test passes — until the table has real data in it.
+
+  Statements, not seconds. The count is deterministic and small where a wall clock is
+  neither, so the assertion survives a slow runner, a cold cache and a shared machine and
+  still fails the moment a loop starts talking to the database. A failure prints every
+  statement that ran, because "expected at most 2, got 14" without the fourteen is a
+  puzzle — and the fourteen are almost always one SELECT with a different id, which is
+  the whole diagnosis.
+
+  `terp guide testing` carries the recipe, including the part that decides whether the
+  test is worth anything: pick the limit from what the endpoint *should* do, not from
+  what it currently does. A bound recorded from present behaviour passes forever and
+  asserts nothing.
+
+- **Capability discoverability was package-granular, so a shipped seam stayed invisible
+  for thirteen releases.** `terp inspect capabilities` answered "do I have this
+  capability", and at that granularity an installed-and-mounted capability looks
+  finished. A seam the package grows *after* an app adopts it is then invisible from
+  inside the project, permanently: `build_holder_router` — how a holder outside the
+  process keeps a lease alive — shipped in 0.11.0, and an app on 0.24.0 still stated in
+  four places that no such endpoint existed. At a release every day or two and a
+  6,842-line changelog, no consumer reads the delta, and the one tool built to answer
+  "what does the platform already offer" was answering a package-shaped question.
+
+  For each installed capability the listing now prints `not used here`: the wiring points
+  the package exports and this app's source never mentions. The JSON manifest carries
+  both `seams` and `unwired_seams`, so a driving tool can tell "no seams" from "all seams
+  wired".
+
+  The seam list is **computed from each package's own `__all__`**, not curated. A
+  hand-written list is a second place to forget, and forgetting is the entire failure
+  here — so a capability that grows a seam gets it listed on the next run with no edit
+  anywhere. The vocabulary is the platform's own (`build_*`, `register_*`, and the
+  `*Store` / `*Queue` / `*Scheduler` / `*Middleware` / `*Resolver` suffixes), which keeps
+  the report to wiring points rather than to all 391 exported names — most of which are
+  operation ids, error types and status literals, and a report of 391 things is a report
+  of nothing.
+
+  It fails nothing. Most of what it lists are alternatives an app correctly did not take.
+
+- **The framework exempted its own packages from the harness it ships.** The 500-line cap
+  applies to every file of every consuming app; `core`, `arch`, `cli` and `migrations`
+  were not self-scanned at all — roughly 38,000 lines outside the gate this repository
+  sells, thirty of them in files over the cap.
+
+  Two costs, and the second is the expensive one. A consumer who hits the cap and looks
+  at the framework finds a 3,818-line file, so the rule reads as arbitrary rather than
+  principled, and the first thing they ask for is an exemption. And the unscanned lines
+  are where a real regression would live — `capabilities` were exactly this until they
+  were scanned, and scanning them found two service bypasses.
+
+  `migrations` now passes the whole harness outright, with no opt-outs. `arch` passes
+  with a checked-in budget: six oversized rule modules and one build-time CLI diagnostic,
+  each carrying a justified, greppable, shrink-only marker in place of a silent
+  exemption.
+
+  `core` (72 findings) and `cli` (124, of which 98 are `no_print` — a CLI prints) are not
+  scanned yet, and `packages/backend/UNSCANNED.json` records exactly what each one finds
+  so the debt is counted rather than invisible. That is deliberate: many of those
+  findings are inherent to being the kernel — `no_app_instantiation` fires on
+  `create_app`, whose whole job is to instantiate the app — and each needs a per-finding
+  judgement, with some of them likely to be real bugs rather than exemptions. Stamping
+  196 markers to turn the suite green is the budget-as-decoration failure the ratchet
+  exists to prevent.
+
+  The record is held like every other ratchet here: a count may fall and never rise, a
+  new rule appearing fails, lowering a count without lowering the record fails, and a
+  package that empties leaves the file and joins the scanned list.
+
+- **Thirteen boot-time controls were named privately while a released standard cited them
+  by name.** The Terp Standard's catalog names each fail-closed runtime control as the
+  `runtime` enforcement ref of the rule it enforces, and sixteen of forty of those refs
+  carried a leading underscore. Two incompatible positions, both paid for here: renaming
+  a private validator inside `create_app` — a refactor the design explicitly permits —
+  would have broken a catalog in a separate released repository, and a private name is
+  unusable by any second implementation, which is the property stack-neutrality promises.
+
+  `validate_declared_operations`, `freeze_app_route_registration`,
+  `validate_policy_write_tiers` and ten more now carry their public spelling. They are
+  **not** application API and are deliberately absent from `terp.core.__all__` — an app
+  author never calls one; `create_app` does, once, at composition. Public here means
+  "stable enough to be cited", not "for you", and the comment above them says so.
+
+  The remaining two refs are methods on `BaseService`, where renaming would change what a
+  subclass may call. The standard cites the class instead, which is both stable and
+  accurate: the control is the audited write chokepoint that class owns.
+
+  The cross-repository window this opens is self-closing. `_AWAITING_SPEC_REF_RENAME`
+  lets this repository carry the new names while the published catalog still has the old
+  ones — resolving the *public* symbol, so it permits a stale name and never a missing
+  control — and `test_release_versions` refuses to cut a release while it is non-empty. A
+  rot guard refuses an entry whose public counterpart does not exist, whose private name
+  is still defined (the rename never happened), or that the published catalog no longer
+  cites.
+
+- **The gate had no way to say what it deliberately does not check, so every absence read
+  as an oversight.** `terp verify --list` and the JSON manifest listed what runs and had
+  no slot for what does not — and a decision already taken, recorded in an ADR nobody
+  runs, was indistinguishable from a gap. The platform's whole proposition is that
+  insecurity requires an explicit, greppable opt-out; the same standard now applies to the
+  gate's own boundary.
+
+  `VerifyNonGoal` is `VerifyCheck`'s sibling, rendered under "not checked here
+  (deliberately)" in the listing and `not_checked_here` in the manifest. Every entry must
+  end somewhere an author can go — what covers it, or what to run instead — so an omission
+  with neither is refused by the suite rather than shipped as a shrug with a schema. A
+  second check refuses a profile that both runs and disclaims the same id.
+
+  Seeded with three. **Formatting** is stated as deliberately ungated, with `terp fmt` as
+  the command: it already shipped, `--changed` by default and with `--check` written, and
+  was reachable only from `--help`. `ruff format .` is the right formatter with the wrong
+  blast radius — it rewrites files the current change never touched, and the diff reaching
+  review is then part change and part churn, which for a platform whose consumers are
+  largely agent-built is a review-integrity problem rather than a cosmetic one. (Measured
+  while writing this: 279 of 604 files in this repository would be rewritten, and no
+  single line-length reduces it, because different files were written at different widths.
+  Gating the whole tree is a deliberate one-time convergence, not a wiring change — which
+  is exactly why the decision belongs in the listing rather than in silence.) **The
+  generic AppSec classes** — command injection, path traversal, unsafe deserialization,
+  weak randomness, secrets-in-logs — name their delegation to ruff-bandit (ADR 0085).
+  **Test efficacy** states plainly that `no_empty_tests` checks tests exist, and nothing
+  here checks a test would fail if the code were wrong.
+
+  `terp guide module` gains the formatting note, next to the commands an author already
+  runs.
+
+- **`no_raw_app_routes` refused the only composition an author reaches for, and named no
+  alternative.** A module declares one flat router, which is a deliberate decision and a
+  good one: the module's surface is one mounted, one-Policy thing. It is *not* a limit on
+  how many routes a module may have — routes can be declared on that one router from any
+  number of files — but nothing said so.
+
+  So an author whose `router.py` outgrew the 500-line cap reached for
+  `router.include_router(sub)`, met a refusal from a security-adjacent rule, and was left
+  with two apparent exits: an escape-hatch marker, or splitting the module. Splitting a
+  module splits a `Policy`, a `requires` edge, a nav group and a migration history —
+  a large price for a file that got long.
+
+  The rule is unchanged. The failure message now carries the seam (`from .router import
+  router` in a sibling file, imported from `router.py`), and `terp guide module` gains a
+  "when router.py gets long" section showing it. The recipe is appended to the
+  `include_router` case only: a mounted sub-app has no such alternative, and offering it
+  there would read as though the mount could be rewritten that way.
+
+  The canonical five files are a required set, not a maximum — which the gate already
+  allowed and nobody had written down.
+
+- **`no_hardcoded_credentials` matched identifier names with no view of the value.**
+  `TOKEN_ENV = "SOME_API_TOKEN"` is the *name* of a credential; `TOKEN_PATH =
+  "/api/v1/auth/token"` is a URL path; `AUTH_TOKEN_FORMAT = "Bearer {token}"` is a wire
+  format whose secret part is precisely the part that is not there. All three read as
+  leaks, and the only exit was an escape-hatch marker on a security rule.
+
+  The cost is not noise. The escape-hatch budget is the platform's only friction metric
+  and its only ratchet, and a rule whose markers are usually nothing teaches a reviewer
+  to give the one that is something the same glance. That is how a fail-closed control
+  becomes decoration — the failure this rule exists to prevent, one level up.
+
+  Five shapes are now exempt, each a statement about the **value**; the name list is
+  untouched, because narrowing it would lose real findings. The enum-vocabulary case
+  (unchanged); a name the module itself uses as an environment key
+  (`os.environ[TOKEN_ENV]`), which is the module saying in code what the string is; a
+  `_ENV` / `_PATH` / `_HEADER` name whose value matches the grammar that suffix implies;
+  a `_FIELD` / `_COLUMN` / `_PARAM` / `_REFERENCE` name whose value spells the name
+  itself; and a `_FORMAT` / `_TEMPLATE` / `_PATTERN` name whose value carries a
+  substitution slot.
+
+  That last one is stated by name for a reason. Deciding it on the value alone — any
+  literal with a brace pair or a %-slot is a format — exempts the secrets that happen to
+  contain one, and generated passwords and pasted service-account JSON do:
+  `DB_PASSWORD = "aB3{xY9}qZ"` goes silently clean, and the literal-format scan does not
+  cover it, because that only knows AKIA, ghp_, github_pat_ and PEM headers. The suffix
+  costs nothing, because the name is what the author controls.
+
+  Each grammar has to **refuse a password** to qualify, which is a sharper bar than
+  "looks plausible": `hunter2` is a valid identifier, a valid header name and a valid
+  environment variable name once upper-cased. So the conventions discriminate — an
+  environment variable's name is multi-word, a path starts at a root, and a header's
+  name is hyphenated *or* one of the registered single words (`Authorization`,
+  `Authentication`, `Cookie`) — hyphen-only refused the header an app wiring a client
+  actually names. `TOKEN_ENV = "HUNTER2"` is still a finding. Nothing here weakens the
+  literal-format scan, which reads every string in the tree whatever name it is bound to,
+  so a real key pasted into any of these shapes is still caught.
+
+  Apps carrying `arch-allow-no-hardcoded-credentials` markers for these shapes can drop
+  them and shrink their budget.
+
+- **Every generated app shipped unpinned GitHub Actions and an unverified `gitleaks`
+  binary.** This repository's own CI pins each action by digest and verifies the gitleaks
+  download against a pinned SHA256 before running it. The workflow the template renders —
+  the one artifact that reaches every client — did neither: seven actions by movable tag,
+  and a `curl … | tar | sudo install` with nothing checking what arrived.
+
+  That is the headline mandate inverted in the place it travels furthest. The unsafe path
+  was the default, it was not greppable, it carried no budget entry, and it scales in the
+  wrong direction: the more apps, the more copies, each already checked in and rarely
+  re-read.
+
+  The rendered workflow now pins every action by digest, verifies the gitleaks download,
+  declares `permissions: contents: read` rather than inheriting whatever the client's
+  repository defaults to, and checks out with `persist-credentials: false` so no token is
+  left readable in `.git/config` by later steps. A generated app also ships
+  `.github/dependabot.yml` covering actions, pip, npm (both manifests that pin
+  `@terpjs/*`) and docker — pinning without an updater only trades a live supply-chain
+  risk for a stale one, and a generated app is long-lived by definition.
+
+  Two checks keep it true rather than true-once. `template-acceptance` now runs `zizmor`
+  over the *rendered* workflow, so the artifact a client receives meets the bar this
+  repository runs on itself — checking the `.jinja` source cannot see what copier produces
+  from it. And a parity test refuses the two gitleaks pins drifting apart, because the
+  failure mode is not that the template's digest is wrong, it is that it is silently a
+  year old while this repository's moved on.
+
+  `copier update` carries all of it. Both new files are template-owned, so an app that has
+  edited neither takes them cleanly.
+
+- **A mis-keyed secret in `environment.schema.json` was silently plaintext, and the gate
+  stayed green (`terp verify --only env-seams`).** An app marks a declared variable
+  write-only with `"format": "secret"`; that is what routes its value through sealed
+  custody instead of storing it in plain records. The plausible mistake is
+  `"secret": true` — the deploy side's own interface calls the concept "secret" and its
+  authoring API takes `secret=True` — and the deploy side keeps its own field list and
+  **drops** what it does not recognise rather than refusing it. So the key left nothing
+  behind to disagree with: the variable was stored as an ordinary shared value, the
+  manifest read as deliberate, and every check passed.
+
+  That is the platform's central claim inverted. "Insecurity needs an explicit,
+  greppable, budgeted opt-out" became "insecurity is a typo, and it is invisible" — in
+  the one file that is the seam to the pipeline holding real credentials, written once
+  per app and rarely re-read.
+
+  Three checks close it, all in the app's own gate, where the edit happens:
+
+  - **A property field outside the dialect is refused**, `"secret"` by name and with its
+    exact fix. `$`-prefixed keys stay legal: they are JSON Schema's own annotation
+    convention and the shipped manifests use `$comment` for exactly that.
+  - **`format` has a closed vocabulary** — `secret`, `port`, `hostname`, `plain` — for
+    the reason `resolvedBy` already has one. A near miss like `"secrt"` is not a weaker
+    seal, it is no seal, and an open vocabulary cannot say so.
+  - **A credential-shaped name must say which it is.** A variable whose last word is
+    `SECRET`, `TOKEN`, `PASSWORD`, `PASSPHRASE`, `KEY` or `CREDENTIAL` — singular or
+    plural — and declares no `format` is refused: silence there is indistinguishable
+    from a decision.
+    `"format": "secret"` seals it; `"format": "plain"` records that this one holds no
+    credential — a public key, a sort key. One word, in the file and in the diff, which
+    is the standard the platform applies to every other insecurity.
+
+
+  **Upgrade note.** The dialect is closed, not merely spell-checked: the manifest is
+  *authored* as JSON Schema, so an existing app that wrote a standard keyword on a
+  declaration — `pattern`, `minLength`, `minimum`, `const`, `examples`, `deprecated` —
+  now fails the gate. That is deliberate and is the same finding as `secret`: the deploy
+  side has always dropped those fields, so a `"pattern"` on a declaration validates
+  nothing and never did. Delete them. `$`-prefixed keys (`$comment`) stay legal.
+  Adopting this will find things, and finding them is the point. `terp guide environment`
+  carries the recipe.
+
+### Upgrade notes
+
+- **`too_many_attempts` replaces `account_locked` on the wire (ADR 0147).** The
+  exception keeps its old name as an alias so an existing `except AccountLockedError`
+  still compiles, but the error `code` a client receives changes. That is deliberate
+  rather than incidental: a client that says *your account is locked, contact support*
+  when the user needs to wait four seconds is showing them a different product than the
+  one running. The remaining wait goes to `log_context` and not to the client — telling
+  a caller exactly how slowed they are is telling a guesser, who is the only audience
+  that can act on it. An application that renders the `code` should map the new one.
+
+- **`OIDCClient` takes the egress seams, not an `http_factory` (ADR 0144/0145).**
+  `OIDCClient`, `build_oidc_router` and `build_oidc_module` no longer accept
+  `http_factory`; provider calls leave through the egress capability, so a test that
+  injected an `httpx.Client` over a mock transport now injects the `sender` (and, where
+  a name has to resolve, `resolve`). An app that never passed `http_factory` is
+  unaffected, and gains the SSRF denylist, address pinning and bounded reads on the
+  provider legs for the first time.
+
+- **A realtime channel no longer closes itself on a payload its guard rejects.** If an app
+  relied on `status === "error"` to notice a malformed or drifted payload, that signal now
+  stays `"open"` and the reason appears on `error` instead: read the pair, not either half.
+  `status` is the connection's verdict; `error` is the last reason of any kind. Nothing needs
+  changing for an app that renders `error` when it is set.
+
+## 0.24.0 — 2026-09-17
+
+### Added
+
+- **The gate scans every deployable, not only the mounted one (ADR 0141).**
+  `assert_app_clean` took one root, so the code an application could hold to the eighty
+  rules was exactly the package `create_app` mounts. Everything else in the repository
+  was outside the gate by construction rather than by decision — and the thing that is
+  outside is rarely a random remainder. A worker, a publisher, a CLI, a sidecar is
+  disproportionately where a credential for a foreign system lives, where a connection is
+  opened to a database nobody on the team administers, where a statement is assembled as
+  text because the other schema is not modelled, and where the network is reached
+  directly because no capability sits between the code and the wire. Those are the exact
+  subjects of `no_hardcoded_credentials`, `no_dynamic_sql` and `no_raw_outbound_http`,
+  which 0.22.0 had just widened past `app/modules/` on the argument that a security rule
+  does not stop at a directory (ADR 0136). It still stopped at a root.
+
+  `check_app` and `assert_app_clean` now take any number of roots. A bare path is still
+  an app root on the call's `package`, so every existing call site means exactly what it
+  meant. A second deployable is a `ScanRoot(path, package=..., kind=RootKind.COMPANION)`,
+  and a project declares its own once:
+
+  ```toml
+  [tool.terp.arch]
+  app_packages = ["control_plane"]   # more of the app; held to every rule
+  companions = ["engine"]            # ships beside it, unmounted
+  ```
+
+  **`control_plane` is the case that reaches every app.** The scaffolded shape has had
+  two Python packages since it existed, and `assert_app_clean("app", ...)` scanned one of
+  them — so an app's permission, operation, event and job declarations have been outside
+  the gate in every Terp application ever generated. The template now declares it, and
+  the example app is scanned that way in this repository's own gate.
+
+  `terp check` reads that with no flag — which is what lets `terp verify`, whose
+  architecture command an app cannot add flags to, pick it up — and the test gate spreads
+  the same declaration with `assert_app_clean("app", *declared_roots(), budget_path=...)`.
+  One declaration rather than two is not tidiness: the escape-hatch budget is **shared**
+  across the scanned roots, so a run that missed a declared root would count its markers
+  as absent, read that as a win to lock in, and fail the ratchet.
+
+  Which rules a root is held to is recorded per rule in `RULE_ROOT_KINDS`, in the same
+  key space as `GUIDE_TOPIC_BY_RULE` and locked by the same kind of completeness
+  meta-test. The line is not "security rules travel and the rest do not": **a rule
+  applies to every root when its invariant holds for any Python that ships, and to app
+  roots only when its invariant is a property of being a mounted Terp application** — of
+  a module, a route, a response, a table, a migration, an event, a job, or the guarded
+  session. Sixteen travel. A worker has no route whose response model could be wrong; it
+  very much has a hardcoded credential, an f-string `text(...)`, a raw client, a naive
+  `datetime` and a frozen dataclass holding a list.
+
+  Two details that are decisions rather than mechanics. A rule the classification has
+  never heard of runs **everywhere** — a rule firing where it does not belong leaves a
+  file, a line and a fix, while a rule that quietly stops running leaves a green gate
+  that proves nothing, and the second failure is the one that needed a security review to
+  find. And a marker naming a rule its root never evaluates is now refused on its own
+  line: an opt-out that opts out of nothing still reads like a governed exception in the
+  budget, which is the same false assurance a scoped-out rule produces.
+
+  `terp check --format json` grows a `roots` array — package, kind, and that root's own
+  evaluated-rule inventory — so a green over a companion names the rules it is green
+  about. `terp guide package-boundaries` loses the caveat it used to carry about not
+  publishing such a run as a Terp Standard claim, because the report no longer overstates
+  what it checked. The Terp Standard envelope (`--format check-report`) is unchanged:
+  `app-check-report.schema.json` is the standard's shape and grows a field through the
+  standard, not through a renderer.
+
+  **Adopting this will fail a repository's gate the first time it declares a companion,
+  and that is the point.** Sixteen rules arriving at once over a package nothing has ever
+  scanned will find things that were violations the whole time. The fix is the usual one:
+  move the code behind the seam, or justify the exception with a marker and budget it.
+  No rule was added, so no catalog entry, no spec release and no pin bump: this is eighty
+  existing rules reaching code they already applied to in principle, with the scope
+  written down instead of assumed (ADR 0122).
+
+## 0.23.0 — 2026-09-16
+
+### Changed
+
+- **A mount is not a cost class, so a rate-limit declaration is keyed by route (ADR 0140).**
+  ADR 0138 let a module declare its own cap and keyed that declaration to the module's
+  mount, copying how `max_request_bytes` scopes a body allowance. The auth mount is where
+  the copy stops holding, and it is the mount the rule was written for.
+  `RateLimit.credentials()` is thirty a minute and its justification is entirely about
+  cost — a memory-hard hash on the miss paths too, which makes the route the cheapest
+  place on the surface to spend the server's CPU. That is true of `/login` and `/token`.
+  It is not true of `/refresh`, which reads a high-entropy cookie and rotates it for the
+  price of a query, and which `TerpProvider` posts to on EVERY mount to restore a
+  session — so its volume tracks page loads, not login attempts.
+
+  Capping all four together rationed ordinary navigation at the rate chosen to make
+  password guessing expensive. The end-to-end suite surfaced the mild version, its
+  requests all coming from one runner address and its symptoms all looking like missing
+  elements on pages that had merely been refused. The serious version is a shared egress
+  address, where an office or a VPN exit is one caller and the application stops working
+  after thirty page loads between them — the outcome `RateLimit.credentials()` itself
+  names as the reason a per-address lockout cannot exist.
+
+  `ModuleSpec.rate_limit` now takes a mapping of mount-relative path prefix to
+  `RateLimit`, `"/"` being the mount itself; longest prefix wins, which is the resolution
+  the limiter already performed, so this contributes finer prefixes rather than adding a
+  second mechanism. Auth declares `/login` and `/token`; `/refresh` and `/logout` fall
+  through to the application's general limit, which is still a cap. The SSO mount keeps
+  `"/"`, because both of its routes are steps of one interactive sign-in and it really is
+  one cost class. A key that is not a path prefix is refused at construction, since
+  `"login"` would compose to `/api/v1/authlogin` and protect nothing while reading as
+  declared.
+
+- **The generated app's AppSec baseline turns pyflakes back on.** `[tool.ruff.lint]
+  select = ["S"]` REPLACES ruff's default set rather than extending it, so naming the
+  bandit rules silently switched off the `E4`/`E7`/`E9`/`F` group ruff runs when nothing
+  is selected. `F` going quiet took F821 (undefined name) with it, which is a correctness
+  rule rather than a tidiness one, along with F401 unused-import and F841 unused-variable.
+  The result was a merge bar under which a file could carry a dead import, a dead local,
+  or a genuinely misspelled name and pass everything: `terp.arch` answers architecture
+  questions and the `S` rules answer security ones, and neither was ever going to look.
+  The baseline is now `select = ["S", "F"]`, and both guards that pin it were updated to
+  match: the generated app's own architecture test, and the platform's
+  `tests/guardrails/test_appsec_baseline.py`, which holds the template to an EXACT
+  select list rather than a superset. Dropping either half stays a visible, reviewed
+  decision rather than a one-word edit. The excusals are unchanged -- no `F` code is ignored anywhere, and the
+  test still refuses any ignore outside the three sanctioned `S` heuristics.
+
+  It costs a fresh app nothing: the example app, which is the closest thing in this
+  repository to a generated one, reports zero `F` findings. The platform's own packages
+  are a separate matter -- they carry 21, several in CODEOWNERS-protected core -- and
+  keep the narrower baseline until those are cleared on their own branch.
+
+- **A published host port is assigned, not guessed (ADR 0134).** The template's dev stack gave
+  its published ports in-range defaults, so two checkouts on one machine raced for the same
+  number and the second to start lost — to a Compose error that named the port and neither the
+  owner nor the remedy. Those ports are now required rather than defaulted: an unassigned
+  checkout is refused with `required variable WEB_PORT is missing a value` and the command that
+  settles it. `terp docker dev` assigns on demand, so the requirement stays invisible to anyone
+  who never learns the command exists — shipping the refusal without that would have made the
+  standalone path harder in the act of protecting it. `apps/example` keeps its in-range
+  defaults, because the conformance workflow runs that dev stack with no `.env`: one checkout
+  on an ephemeral runner, where the collision cannot occur. An in-range default stays legal for
+  any app; what is no longer legal is a published port that answers neither question — a bare
+  `${VAR}`, which Compose resolves to empty and then reports as a malformed port, naming
+  neither the variable nor the fix.
+
+- **The page band is a grid, and spends a second row only when one is earned (ADR 0135).** It
+  was a wrapping flex row whose measured promise was that it matched the app header above it,
+  and that promise held only while nothing in it was long. A deep trail widened the band until
+  it wrapped — no crumb carried `min-width: 0` or an ellipsis, and flex collects items into
+  lines using their *hypothetical* sizes, so the wrap always beat the truncation. Once there
+  was a second line, `justify-content: space-between` had free space to distribute on it: a
+  page that passed a fragment of buttons got them scattered across the full width, and a page
+  that passed one cluster got it left-aligned on the row whose only job was to right-align it.
+  That second failure was invisible for as long as the band stayed one row, because the left
+  group absorbed every free pixel and left `space-between` nothing to do.
+
+  The band now places by area. A page with badges or a lead line already spends a row on them,
+  so the action cluster joining them there costs no height — and it buys the trail the whole
+  first row, which is what stops a deep trail truncating at all. A page with neither keeps the
+  single row and the measurement. Two lines are the same height (`grid-auto-rows: 1fr` resolves
+  both to the taller one in a box whose height nobody declared), which costs 81px against the
+  token's 48 where content-sized rows would have cost 64 — the price of the second row being a
+  line rather than an afterthought. Crumbs may now be cut but never orphaned: both the list and
+  its items are `nowrap`, the crumb text ellipsises, and a chevron can no longer be pushed onto
+  the next line to point at nothing. The lead line is written as a correction rather than a
+  rule — hidden at every width, shown again above the second cutover.
+
+- **A second viewport cutover, and still no third media query.** `--breakpoint-lg` was
+  published and never used. The band wants three regions, and the obvious spelling of a middle
+  one is an `and` of a min and a max — which reintroduces the epsilon the first cutover
+  refuses and needs a negation nested inside an `and` that Media Queries 3 cannot express. So
+  the regions are two cutovers applied in cascade order: the narrow case is written
+  unconditionally and each cutover corrects it upward. The middle region is what the first
+  correction leaves standing when the second does not apply — never named, never queried, and
+  so never able to disagree with its neighbours about who owns 768px or 1024px. Both literals
+  stay gated against the tokens they mirror.
+
+### Added
+
+- **A `NOT NULL` column added to an existing table must back-fill the rows it meets
+  (`not_null_columns_are_backfilled`).** Autogenerate writes
+  `add_column(sa.Column('rank', sa.Integer(), nullable=False))` for a new non-nullable
+  field, and that is the one line of a generated revision whose correctness the
+  generator cannot judge: the statement succeeds against an empty database and fails
+  against one that holds rows, because every row already there needs a value the
+  statement never supplies. What made it worth a rule rather than a paragraph is where
+  the failure lands. Every migration test upgrades a *fresh* scratch database — the
+  reversibility test inserts nothing, the drift check inserts nothing — so the revision
+  passes the suite, passes review, and then fails on the first environment with data,
+  which is production, months after the commit that wrote it. The generated header says
+  "please adjust!", and that is the single instruction in the file no gate could read.
+
+  The check reads `upgrade()` only, and only `add_column`: `create_table` meets no
+  rows, and neither does a column added to a table the same `upgrade()` creates, so
+  both stay clean without a marker. Every spelling of the statement is covered — the
+  direct call, a `batch_alter_table` block, and the keyword forms (`column=`,
+  `table_name=`), because a safety net a keyword can switch off is not one — and a
+  table name that is not a literal is read as one that may hold rows, since the
+  populated table is the case the rule exists for. A
+  `server_default` settles it; where no literal default is right, expand/contract
+  across two releases does. `terp guide migrations` now carries the recipe, and
+  `terp guide not_null_columns_are_backfilled` carries the decision path.
+
+- **`Text` gains an emphasis step, which `tone` never had.** Every tone is a move *away*
+  from the reader — `muted` and `subtle` recede, and the third option is not receding —
+  so secondary copy was covered and the opposite case had nothing. That case is just as
+  common: the number a stat card is about, the value in a definition row, the one word
+  in a sentence carrying it. With no step for it the reach is for `size`, which says
+  "this is bigger" when the thing meant is "this matters", and under the layout contract
+  a screen cannot fall back on rendering a heading of its own either.
+
+  `weight` takes `"normal" | "medium" | "semibold"` and reads the `--font-weight-*`
+  tokens the sheet already publishes, so this exposes an axis the design system had
+  rather than inventing one. It stays separate from `tone` because they are different
+  things and they compose: a `medium` `muted` label above a `semibold` value is an
+  ordinary pairing. `bold` is deliberately absent — body copy that needs 700 is a
+  heading wearing a disguise.
+
+  The base rule still states no `font-weight`, so a `Text` that asks for nothing keeps
+  inheriting exactly what it inherited before the axis existed and no existing screen
+  re-renders. (`tone`'s own doc comment called itself "ink weight", which was confusing
+  before there was a weight and wrong once there is; it now says ink tone.)
+
+- **A frontend unit-test seam, and a `frontend-tests` check that runs it.** A generated
+  app had two frontend layers and no third: the type checker, and the Playwright suite in
+  `conformance/`, which needs a running stack and answers "does the app work". Nothing
+  ran the layer between them. So presentation logic — an empty state, an error branch, a
+  formatter, a plural rule, a column definition — had nowhere to be tested that CI
+  executes, and the choice was Playwright-against-a-live-backend or nothing. The
+  `test-adequacy` assurance lane composed nothing for the frontend for the same reason:
+  there was nothing to compose.
+
+  The template now ships `vitest.config.ts` (jsdom, because in an app most of what is
+  worth unit-testing renders), a setup file that registers the jest-dom matchers and
+  cleans up between tests, a `test` script, and the four devDependencies behind them —
+  the same versions this repository's own frontend packages use. `terp verify` runs it in
+  `full` and `release`, conditional on the app declaring the script: an app rendered
+  before the seam existed skips with a note rather than turning red on upgrade, while an
+  app that declares a suite it cannot run is a failure, because that is the state worth
+  catching. The check files under its own `frontend-tests` category rather than `build`,
+  so a driving tool groups a failing test with test results instead of with compile
+  errors.
+
+  `terp new module` writes the view's first test beside the view, for the reason the
+  backend test package is already written in the same breath (ADR 0119): a module whose
+  default shape has no test owes a debt nobody mentioned. It asserts both sides of the
+  empty state — the marker present and no rows — so wiring a real endpoint makes it fail
+  honestly rather than keep passing against a list that never filled.
+
+- **`terp ports` — one machine-scoped ledger for host ports (ADR 0134).** `assign`, `show`,
+  `list` and `release` over a per-machine record, with assignment and publication as a single
+  call: the pair is written beside the compose file that reads it, and `workbench.json` decides
+  the names. A checkout that already publishes an answer is *adopted* rather than rewritten —
+  the pair is recorded so no other checkout is handed it, and the file is left alone. That
+  predicate is explicit because the first cut did the opposite: it wrote its own managed block
+  into the same `.env` a workbench writes, and Compose takes the last definition of a name, so
+  the two agreed only until either changed its mind and then the reader watched one port while
+  the stack published the other. One definition, owned by whoever wrote it. `unmanaged` is left
+  alone, `list` names a claim whose checkout is gone, and no `.env` ever carries a second
+  definition of a name this command owns.
+
+  A workbench still keeps its own assignment, so two authorities over one resource remain —
+  what is now guaranteed is that they cannot diverge silently. The ledger only knows a checkout
+  `terp` has been run in.
+
+- **`PageActions` takes `secondaryActions`, and the cluster follows the viewport.** Supporting
+  actions drop to icons alone in the middle region and fold into the overflow menu below the
+  first cutover, above the page's own rare and destructive items. The primary action keeps its
+  label at every width: it is the one thing the page is for, and a glyph or a menu line makes
+  the main act of the screen a guess or a second tap. Folding an action into a menu needs it to
+  be a description rather than an element — by the time a caller hands over a `<Button>` the
+  label is inside someone else's tree and can only be shown or hidden — so the new prop takes
+  the same tuple shape `overflow` already does. The existing `secondary` node is unchanged, and
+  is now documented as the form that cannot follow the viewport.
+
+### Security
+
+Findings from a security review of the platform, each the same shape: a control that
+reads as complete and stops one layer short of the case that matters.
+
+- **Four security rules scanned nothing outside `modules/` (ADR 0136).**
+  `no_hardcoded_credentials`, `no_dynamic_sql`, `no_raw_outbound_http` and
+  `no_manual_table_schema` all opened by skipping every file no `modules/` path segment
+  covered. The line reads like a package filter — it even takes `package` — but the
+  helper behind it ignores that argument, so in an application the composition root, any
+  shared helper, and any sibling deployable (a worker, a publisher, a CLI) were exempt.
+  Those are the places a raw HTTP client is actually reached for, a bootstrap credential
+  is actually written, and SQL is actually assembled by hand.
+
+  Inside this repository it was worse: the suite that runs the consumer harness over
+  every shipped capability asserts `check_app(cap_root) == []`, and no capability path
+  contains `modules/` — so for these four rules the assertion passed over an empty file
+  set. The harness had gone further than silence; three of its own tests asserted the gap
+  as intended behaviour ("The rule follows app-module scope, not arbitrary helper
+  files"). Those now assert the opposite, and each widened rule pins a violation placed
+  outside `modules/`.
+
+  **Adopting this release will fail some gates, and that is the point.** Everything it
+  newly reports was always a violation of a rule the app declared it was holding itself
+  to. Widening found four real cases here immediately, each escaped by proof rather than
+  by narrowing the rule: the egress client is the seam the rule names, its `ssrf.py`
+  resolves names in order to *check* them, the OIDC client speaks a protocol to an
+  operator-configured endpoint, and the example dev seed password is meant to be
+  published. Expect the name-shaped rule to produce false positives at the new reach —
+  `token_type = "bearer"` is an OAuth 2.0 response field, not a secret — and answer them
+  with a justified marker under the budget, which is what the governed opt-out is for.
+
+- **The idempotency key scoped on `Authorization` alone.** Correct only while every
+  authenticated route is bearer-authenticated. A route that authenticates by **cookie**
+  sends no such header, so two callers hashed to one store key — and on a route with no
+  body and no query, which is exactly the shape of a refresh endpoint, the request
+  fingerprint matched too. The second caller to present a given `Idempotency-Key` was
+  then served the first caller's stored response, which on that route is an access
+  token. The key now folds in the `Cookie` header as well.
+
+- **Two registry resets that disable a control were public API (ADR 0137).**
+  `reset_scope_predicates` and `reset_object_authz_predicates` clear, in one call, the
+  row-visibility predicates (the tenant filter) and every registered per-row write
+  policy. No exception, nothing in the log: reads start returning rows they used to hide
+  and refused writes start succeeding, with every architecture rule still passing. Both
+  now live behind `terp.core._internal`, where `no_internal_imports` refuses a module
+  import — the protection `allow_session_writes` has always had for the write chokepoint.
+  The secrets call-site reset stays public: it is a registered per-app runtime seam, and
+  resetting it makes decryption fail closed rather than open.
+
+- **Nothing said the throttle store was per-worker.** The idempotency store has had a
+  production warning for exactly this, on the argument that a promise quietly becomes
+  false on the second replica. The throttle store carries two promises of that shape —
+  the request rate limit and the per-account failed-login lockout — and had no such line,
+  so N workers silently enforce N times the allowance. A five-attempt lockout becoming
+  5 x N is the control least able to afford a silent multiplier.
+
+- **`trusted_proxy_hops=0` behind a real proxy is a silent outage.** Zero is the only
+  safe default, since an undeclared `X-Forwarded-For` is attacker-supplied. But left
+  there behind a front proxy, every caller resolves to the proxy's own address, so the
+  rate limit and every per-caller control become one bucket for the whole deployment that
+  a single visitor can exhaust for everybody. The symptom is intermittent 429s under
+  ordinary load, which reads as a limit set too low — raising it removes the symptom and
+  keeps the bug. `ClientIpMiddleware` now says so once per process, and only when a
+  request actually arrives carrying the header while no hops are declared, so a directly
+  exposed app never sees it. The project template, which ships the proxy, declares
+  `trusted_proxy_hops=1`.
+
+- **JIT provisioning had no statement of whose identities it accepts.**
+  `allow_provisioning=True` gated on a *verified* email, which checks the claim rather
+  than who may hold one: point an app at a multi-tenant IdP — an app registration left
+  open to any directory — and every gate still passes for an account nobody in the
+  deployment has heard of. `FederatedIdentityService` now takes `allowed_email_domains`
+  or a `provision_allowed` callback; both apply when both are given, matching is exact
+  rather than by suffix, and production refuses `allow_provisioning=True` without one at
+  construction rather than at the first stranger's login.
+
+- **A mount that verifies credentials declares its own rate limit (ADR 0138).** Every
+  route ran under the general limit, whose 240/minute default was sized for traffic where
+  a request costs a query. A credential endpoint costs an Argon2 verification,
+  memory-hard on purpose — and on the miss paths too, because an unknown subject must
+  cost the same as a wrong secret or the timing enumerates accounts.
+  `ModuleSpec.rate_limit` is the rate twin of `max_request_bytes`: auth and SSO declare
+  `RateLimit.credentials()` (thirty a minute per caller), so installing the capability is
+  the whole wiring. A module may tighten its mount and never exempt it.
+
+- **OIDC provider reads were unbounded.** Discovery, JWKS and the token exchange were
+  read with no size cap, so a hostile or merely misconfigured issuer could answer a login
+  with a body as large as it liked and take the worker's memory with it — the timeout
+  does not help, because the connection is never idle. All three are now streamed against
+  `MAX_RESPONSE_BYTES` and refuse redirects explicitly.
+
+- **`OwnedMixin` gates writes; nothing shipped the matching read filter.** The trait's
+  own docstring has always said so — a post-load boolean cannot paginate a list, so
+  visibility needs a row-scope predicate keyed on `owner_id` — and left writing that
+  predicate to the app. An exercise left undone reads exactly like a control that is
+  present, which is how the files capability came to describe itself as an "owner-scoped
+  admin router" while `GET /`, `GET /{id}` and the download stream returned any file to
+  any caller who cleared `ADMIN`. `register_owner_read_scope()` is now that predicate,
+  one composition-root line, and the files docstring says plainly which half it has.
+
+  Opt-in rather than the default, because it narrows what an already-authorized caller
+  can see: a deployment whose administrators are meant to see each other's rows would
+  find its screens quietly emptied by an automatic version. Unowned rows (written by a
+  job, a migration, a seed) stay visible to everyone, matching the write gate, which does
+  not restrict a row with no owner to protect; an actor-less read is not narrowed either,
+  since there is no self to scope to and narrowing to nothing would make background work
+  read an empty database rather than fail.
+
+- **`SecurityHeaders` declares `Cache-Control: no-store`.** An API that mints bearer
+  tokens was saying nothing about caching, leaving it to every intermediary's heuristics.
+  Applied with `setdefault` like the rest, so a route that has already answered the
+  question keeps its answer.
+
+- **Who can reach what is pinned now, not merely reportable (ADR 0139).** The access
+  graph has replayed enforcement since ADR 0121 — every allowance in it is `decide`'s own
+  answer, from the function the kernel guard runs — so the platform could always *say* who
+  may reach what. What nothing did was notice when the answer changed, and a widening is a
+  one-line edit: a `Policy` moving from a named permission to a role tier, a
+  `require_permission` dropped off a route, an endpoint added under a public mount, a
+  role's rank changed. Each leaves every other gate green.
+
+  `terp inspect access --format surface` renders the authority claim — the ladder, each
+  permission's floor, and per module its policy plus each endpoint's requirement, grants
+  and per-rung outcome — and the new `authz-surface` check diffs it against a committed
+  `authz-surface.json`, reporting each difference as the change a reviewer has to approve
+  ("requirement 'role:admin' -> 'viewer'", "now reachable by ['viewer']", "NEW endpoint —
+  nothing has reviewed what it requires"). In `full` as well as `release`, because a
+  widening is a merge-bar question.
+
+  Adoption is one command and one commit; an app with no baseline is skipped with a note
+  naming it, the shape `api-docs-drift` settled on, so upgrading never turns a gate red
+  for a feature nobody wired. **Regenerating is not a fix** — the writer is a separate,
+  explicit command and never a `--fix`, because the baseline is a review artifact and the
+  diff belongs in a pull request where somebody says yes. `apps/example` adopts it, so the
+  artifact is exercised by the suite rather than described by it.
+
+- **The dependency audits moved into the `full` profile**, and **`secret-scanning` joined
+  the release profile** as this toolchain's realisation of the standard's new required
+  lane. The audits were release-only on the argument that advisory databases move
+  independently of the code — right about the merge bar, wrong about the profile, because
+  a consumer's CI runs `full`, so a known-vulnerable dependency reached nobody until a
+  release someone remembered to cut. Secret scanning reads the object graph rather than
+  the working tree, which is the half `no_hardcoded_credentials` cannot be: a credential
+  committed and later removed is gone from the tree and still in the history. The
+  generated CI gains a full-depth checkout and a `gitleaks` step.
+
+### Fixed
+
+- **The oversized-file seam proposal could name a cut that does not hold.** The message's
+  value is that it hands the author the group to extract rather than a number, and its
+  promise was that moving the named group leaves no dangling name behind. That promise was
+  computed from a graph of top-level definitions alone, which is blind to three things:
+  a name bound by tuple unpacking (`MIN_LEN, MAX_LEN = 1, 200`), a name bound inside a
+  top-level `try` or `if TYPE_CHECKING` block, and a reference made from a module-level
+  statement such as a registration call. A group reading one of those looks perfectly
+  isolated in the graph while being pinned to the file in fact, and the author who follows
+  the suggestion lands two modules importing each other -- the exact outcome the rule's own
+  docstring says is worse than the bare cap.
+
+  A candidate now survives a second reading of the whole file before it is proposed: the
+  names the module binds anywhere (blocks and unpacking included) and the definitions named
+  by module-level statements both disqualify it. The next independent group is named
+  instead, and where none is, the message carries the cap alone -- which was already the
+  documented behaviour for a file with no seam, now applied to the case where the seam is
+  only apparent.
+
+- **A shared `UiText` constant had no JSX-body spelling, and the refusal did not say so.**
+  `<Trans {...DESCRIPTOR} />` is rejected by `locale-catalogs-complete`, correctly: the
+  catalog is inventoried statically and a spread carries no attributes to read. But one
+  descriptor used by two screens is an ordinary thing to want, and the message said only
+  that static `id` and `message` attributes are required -- which reads as "do not share
+  the constant" rather than "share it through the resolver". The sanctioned form was
+  already exported and already used by this package's own components; it was simply named
+  nowhere, in no message and no doc. The refusal for a spread now names it: `useUiText()`
+  in the component, then the resolved constant where the copy goes. Every other
+  non-static shape keeps the original wording, which is accurate for it.
+
+- **`terp upgrade --check` recommended a re-render it never checked was runnable.** The
+  provenance test behind that recommendation was a line scan for a `_commit:` key in the
+  copier answers file. That is the first of the three things `copier update` needs, and it
+  was the only one anything asked about: nothing checked that the recorded ref still
+  resolves in the template the app was rendered from, or that the destination is a git
+  checkout at all. Tags do get pruned, and an app unpacked from an archive carries the
+  answers file without the history — so a confident seven-step recipe could die at its own
+  step 3.
+
+  The second-order effect is worse than the bad suggestion, and it is what makes this worth
+  a check rather than a caveat. The two recipes are deliberately mutually exclusive, so a
+  false positive does not merely print one unrunnable step: it **withholds the hand-pin
+  recipe**, including the step that says to pin `@terpjs/*` in *every* manifest that
+  declares one rather than only `frontend/package.json`. A stale `conformance/package.json`
+  is precisely what that step exists to prevent — so the command anticipated the failure in
+  a parenthetical and then withheld the line that prevents it. 0.21.0 set out to make this
+  command followable in order; this was the hole left in that fix.
+
+  Both new checks are local, and both rule a re-render out only on certain evidence —
+  because reading "could not check" as "missing" would trade the old false positive for a
+  false negative and send working apps to hand-pinning instead. So an app below its
+  repository root is still a checkout (it has no `.git` of its own and updates fine), a
+  template directory that is no repository is not a pruned tag (git declines that question
+  rather than answering it), a remote `_src_path` is left alone because the answer needs the
+  network, and a git that will not run settles nothing. When a re-render genuinely is ruled
+  out, the scaffolding report stops offering `copier update` as well, and says which of the
+  three obstacles it hit.
+
+- **`NO_ACTION` was documented in a way that invited the opposite of what it does.** `terp
+  guide references` described the five actions with `NO_ACTION` as "the database takes none;
+  something above it owns this lifecycle", and then listed two consequences worth knowing —
+  both of them about migrations and schema drift. Neither is the runtime one. A foreign key
+  with no referential action is still enforced: `NO ACTION` and `RESTRICT` differ in
+  deferrability, never in whether the parent delete is refused. Read literally, the old
+  wording invited a reader to choose `NO_ACTION` for a service-owned lifecycle and expect a
+  hard delete of the parent to succeed, and it will not.
+
+  The guide, `AGENTS.md` and ADR 0133 §3 now say that `NO_ACTION` means the database takes no
+  *corrective* action rather than that it stands aside, and they name the runtime consequence
+  instead of leaving it to be discovered: `BaseService` turns the refusal into the uniform
+  409 `ConflictError`, the same envelope as any other integrity conflict, and the service
+  cascade the same guide recommends runs in `_after_write` — before the parent row is
+  deleted, which is exactly what makes that ordering work. No behaviour changed. The
+  soft-delete half of the guide was already precise about this; it was the hard-deletable
+  parent the wording misled on.
+
+## 0.22.0 — 2026-09-10
+
+### Added
+
+- **A stored reference now declares what a delete of its target does, and the platform
+  does not pick for you.** Terp already answered two of the three things that can happen
+  to a row somebody points at: concurrent change is covered by the mandatory OCC
+  `version`, and key change cannot happen at all, because `BaseTable` mandates a UUID
+  surrogate primary key. Deletion of the target was not covered, and the gap had a
+  particular shape: every foreign key has a referential action whether or not anyone
+  chose one, so a bare
+  `invoice_id: uuid.UUID = Field(foreign_key="invoice.id")` is indistinguishable from a
+  considered decision that the database should do nothing. The platform's own single
+  foreign key was the clearest example — undeclared, with nothing recording whether that
+  was deliberate.
+
+  The sharper finding is that the gate already shipped could not see this either. The
+  generated template's migration-drift test runs against SQLite, and Alembic
+  compares foreign keys by a signature including their referential options **only** when
+  the backend reflects those options. SQLite reports none, so it silently falls back to
+  the option-less signature: every generated app has been running a green drift check
+  that proves nothing about referential behaviour. That is fixed below, and it is the
+  reason this rule exists rather than a tidier catalog.
+
+  What the rule does **not** do is pick an action, and that is deliberate. Across a large
+  application on the same stack — SQLModel over SQLAlchemy and Alembic, not a Terp app —
+  the three actions appear in comparable volume: roughly 40% `CASCADE`, 30% `RESTRICT`,
+  28% `SET NULL` over some four hundred declarations. No default would have been right,
+  which is why what ships enforces the decision and never the choice.
+
+  `terp.core` now ships `Ref` and `OnDelete`. `on_delete` is a **required keyword**, so
+  a reference with no decision is a `TypeError` where the model is defined rather than a
+  review finding somebody has to notice:
+
+      class InvoiceLine(BaseTable, table=True):
+          invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)
+
+  All five SQL actions are accepted and the rule enforces only that one was *named* —
+  `CASCADE` for a part of its parent, `RESTRICT` for something the parent must not
+  vanish underneath, `SET NULL` for a pointer allowed to go slack. `OnDelete.NO_ACTION`
+  is a full answer ("the database takes none; something above it owns this lifecycle")
+  and deliberately emits **no** `ON DELETE` clause, for two reasons: a database reports
+  its default action as absent rather than as those words, so emitting the literal would
+  make every model-versus-database comparison report drift on that constraint forever;
+  and adopting the declaration therefore costs **no migration**. The DDL is unchanged;
+  what changes is that the source says the silence was chosen.
+
+  The rule also refuses an action that **cannot fire**. `SoftDeleteMixin` makes a delete
+  a stamp — `deleted_at` is set and the row stays — so no `DELETE` ever reaches a
+  constraint pointing at it. `CASCADE`, `SET NULL` and `SET DEFAULT` against such a
+  target are therefore all dead code, `SET NULL` most painfully: it does not fire, so the
+  children keep a live, non-null pointer to a row the read scope now hides from every
+  query, and the reference reads as broken rather than absent. `RESTRICT` and `NO_ACTION`
+  stay available, and the reason is not that they are passive — it is that they only ever
+  described the hard-delete path no request can reach, so they promise nothing that fails
+  to happen. Declare one of those as the backstop and cascade the stamp from the owning
+  service, which is the only layer that can see it.
+
+  Two halves, as usual, and they see different things: the `terp.arch`
+  `references_declare_delete_behaviour` rule reads the source, so it is the only one
+  that can tell a chosen `NO ACTION` from an unchosen one, while
+  `terp.core.assert_references_declare_delete_behaviour` audits live `MetaData`, so it
+  sees foreign keys in spellings no source scan reaches. The audit is a function you
+  call where the model set is known, deliberately not an unconditional `create_app`
+  check: `SQLModel.metadata` is process-global and accumulates every table any test ever
+  declares, so one ad-hoc test model with a bare foreign key would fail an unrelated
+  later test. Recipes: `terp guide references`. See ADR 0133.
+
+- **`terp guide append-only`**, for the immutability guarantees that already shipped and
+  were not written down anywhere an author would find them. `BaseService.append_only`
+  refuses every post-insert write at the audited chokepoint; the topic states what it
+  covers, what it does not (it is a property of the service, not a database grant, and
+  it is all-or-nothing per table — "editable until posted" is still your own code), and
+  sets it beside its neighbours so the choice is legible before someone hand-rolls the
+  wrong one: `@read_only` for a route, `SoftDeleteMixin` for a row that survives its own
+  delete, `OnDelete.RESTRICT` for a row that blocks another's, `BaseUpdateSchema` for
+  the concurrent writer.
+
+- **`routeFieldErrors` is public**, and `terp guide forms` now says where a field-level
+  error comes from. The loop had been closed since 0.21.0 and was invisible from the one
+  place an author looks: `ApiError.fields` carries the envelope's per-field reasons keyed
+  by dotted path, ready for `Field`'s `error` prop, and the forms recipe described the
+  failure as `ApiError ({code, status, requestId})` — omitting the field that does the
+  work. Its own example used an `errors.number` it never explained. A reader following
+  that recipe concludes the seam does not exist and falls back to a generic toast for every
+  rejected field, which is exactly what was reported.
+
+  The recipe now names `fields`, shows the mapping end to end, and hands over the helper
+  the packaged admin forms already used. `routeFieldErrors(error, rendered)` splits a
+  failure into what this form can show and whether anything was `leftover` — and that
+  second half is why it is worth shipping rather than describing. The naive version, "if
+  `fields` is non-empty, set them and return", has a hole that stays invisible until it
+  happens: a reason naming a field the form does not render sets state nobody reads *and*
+  suppresses the toast on the way out, so the user presses Save and nothing appears at
+  all. It was private pending a consumer outside `admin/`; an app wiring `fields` into its
+  own forms is that consumer.
+- **A UUID seam, because the browser's own is secure-context-only.** `crypto.randomUUID`
+  is the clipboard trap again, one API over: `lib.dom` declares it unconditionally on
+  `Crypto`, it exists only in a secure context, so on a plain-http origin the call is a
+  **synchronous** `TypeError`. TypeScript reports nothing, and neither does CI — localhost
+  *is* a secure context, so the entire class is invisible to the type checker, to review
+  and to the test suite at once, and surfaces only in a deployment.
+
+  What makes it a seam rather than a lesson is that the platform routes apps into it. The
+  idempotency capability's contract is a **client-generated** `Idempotency-Key`, so an app
+  adding retry-safety reaches for exactly this method — and the topology it breaks in is
+  the one Terp ships: the compose files publish plain http, so any deployment reached by
+  hostname is an insecure context. The recipe asked for a key and never said how to make
+  one; it does now.
+
+  `randomUuid()` from `@terpjs/react-core` uses the native generator where it exists and
+  assembles the same v4 from `crypto.getRandomValues` — which is *not* secure-context-gated
+  — where it does not, so the entropy is identical and only the assembly moves. There is
+  deliberately no `Math.random` path: a UUID standing in for an idempotency key is a value
+  a collision corrupts, and quietly degrading it to keep a call site quiet is the "it
+  worked" the clipboard seam exists to refuse. With no `crypto` at all it throws
+  `RandomUuidUnavailableError` rather than inventing one.
+
+  Paired with `frontend/no-raw-random-uuid`, which refuses any access to
+  `crypto.randomUUID` in app code — the member expression rather than only the call, since
+  `const gen = crypto.randomUUID` is the same broken binding a line earlier, and the
+  `window.`/`globalThis.`/`self.` prefixed, computed and destructured spellings with it.
+  `crypto.getRandomValues` is untouched: it is not gated, it is not this defect, and the
+  seam is built on it.
+
+### Fixed
+
+- **`assert_migrations_match_models` now documents the one thing it cannot see.**
+  Autogenerate compares foreign keys by a signature that includes their referential
+  options only when the backend reflects those options. PostgreSQL does; SQLite does not
+  report them at all, so against a SQLite scratch database Alembic falls back to the
+  option-less signature and an `ON DELETE` clause that changed — or was never chosen —
+  is invisible. The generated app template runs that check against SQLite, so its drift
+  test was silently not covering referential behaviour. The docstring says so now, and
+  the template gained `test_references_declare_delete_behaviour` beside it, which reads
+  the declaration on the models and needs no database at all.
+
+- **The page band was three rows whenever a page had a description.** `Page` promises
+  "badges and description sit after the title and actions at the right edge, all on that
+  one line", and the sheet shipped the opposite. Measured in Chromium at 1024px, with a
+  description too long for the space left beside the trail: a **76px** band instead of the
+  header's 48, the `h1` pushed to the very top of it, the description **the full width of
+  the band** on a line of its own, and the action cluster on a third.
+
+  The description already declared `min-width: 0`, `overflow: hidden` and
+  `text-overflow: ellipsis`, so the truncation looked wired — and none of it could ever
+  run. Flex collects items into lines using their **hypothetical** main sizes and only
+  then shrinks what is already on a line, so an `auto` basis wrapped the box before any of
+  those three declarations got a chance; having reached a line of its own, it then had room
+  and never ellipsised. `Card` hit exactly this and fixed it in 0.19.0 (`card-heading` is
+  `flex: 1 1 0`); the page band kept the broken shape one component over. Both the heading
+  and the lead line now declare a zero basis, which puts all three on one 48px row with the
+  description ellipsised, and `styles.test.ts` records the measurement on both sides.
+
+- **`DataView` asserted a result count while it was still loading.** The footer computed
+  its range from a `totalCount` that started at `0`, so a fresh view read "0–0 of 0
+  results" directly underneath its own five-row loading skeleton: a count stated with
+  authority, beside a placeholder admitting there is no data yet, and wrong as often as
+  not. A failed query showed the same thing, having been told nothing at all.
+
+  `useDataViewQuery` now reports `totalCount` as `number | undefined` — unknown before the
+  first answer, and unknown again after a failure, rather than a number carried over from
+  a previous success. The footer renders no range and no pager while it is unknown, and
+  keeps its box, so nothing moves when the count lands. This is the distinction
+  `Resource.total` drew in 0.17.0 ("unknown is a real answer and must not render as zero"),
+  one component over.
+
+## 0.21.0 — 2026-09-10
+
+### Added
+
+- **The gate asks whether the app it just passed would boot in production.** Friction
+  reported from a full upgrade of an app with background work: `terp verify --profile
+  full` printed `profile full is green` on a tree whose production boot was already
+  refused, and the only reason anyone noticed was that they had read the release notes
+  and then run `terp jobs list` on a hunch.
+
+  Three of the platform's boot refusals are decided entirely by what the control plane
+  declares — an unsafe security config, a password policy with no strength floor, and
+  background work naming no actor to stamp its writes with. Outside production each of
+  them logs a warning and keeps booting, deliberately. Nothing sat between the two
+  behaviours, so an app could carry an unqualified green through review and into a
+  deployment that refuses to start, with every surface agreeing because none of them had
+  a question about it.
+
+  `production-readiness` now runs in all three profiles, beside `deploy-safety` and for
+  the same reason one layer in. It reads the declared plane without building the app —
+  one module import, no database — and reports all three refusals prefixed by which half
+  declared them. The audit refusal is excluded on purpose: it turns on
+  `create_app(audit_sink=...)`, a runtime argument the check cannot see, and a check that
+  pretended to cover it would be worse than the honest gap. A tree with no
+  `control_plane/` package skips with a note. See ADR 0128.
+
+- **The job actor has a conventional address, so declaring background work no longer
+  means hand-rolling its delivery.** ADR 0125 established that a declared job names the
+  actor its writes are stamped with, and refused a platform-wide sentinel — rightly,
+  because an FK-less constant resolves to no principal anywhere. But a decision about the
+  default left the delivery to every app, and the delivery is not a free choice: the id
+  belongs to a service principal in a particular database and one image runs against
+  several, so it cannot be a source constant. Every app that declared a job wrote the
+  same block — read a variable, parse a UUID, raise something useful when it is absent,
+  thread it into the control plane.
+
+  `Settings.JOB_SYSTEM_ACTOR_ID` is now a typed `uuid.UUID | None`, and `create_app`
+  fills an unset `ControlPlane.job_system_actor_id` from it before the production refusal
+  is read. An explicit field still wins. Unset in both places is unchanged: production
+  refuses, development warns. This is an address, not an exemption — a variable nobody
+  set supplies nothing. Declare it in `environment.schema.json` and
+  `production-readiness` accepts the declaration, because a production principal's id is
+  the last thing a gate's environment would hold. See ADR 0129.
+
+- **The generated `AGENTS.md` teaches the rules that refuse a boot, and is gated against
+  them.** The template's rulebook went seven releases without a word about the operations
+  catalog or the job actor — the two things that would break an upgraded app's boot. It
+  was not stale relative to the template; it was byte-identical to the template's own
+  copy for that whole span, which is why nothing caught it. The only staleness anything
+  checked was an app's copy against the template's.
+
+  It now carries the operations catalog and its two halves, the job actor and where it
+  comes from, that a module owes tests, the four production refusals a control plane can
+  carry, the clipboard seam, the outbound-HTTP capability and `emit_disclosure` — and the
+  `terp dev` line stops teaching 8000 and 5173, three releases after those ports moved
+  into the range Terp owns. Two tests hold it there, both derived rather than hand-kept:
+  one calls the platform's declaration-decided refusals and requires every identifier and
+  sanctioned constructor they name to appear in the rulebook, and one compares the
+  rulebook's guide-topic index against the CLI's registry. See ADR 0131.
+
+- **An app's own operations live in a file no upgrade rewrites.** ADR 0126 set out to
+  make the operation catalog need no edit on an upgrade, and the mechanism delivering
+  that handed out a merge conflict in the very file the promise was about:
+  `control_plane/operations.py` is template-owned, and the template's own docstring told
+  authors to declare their operations there. One file, two halves, opposite ownership —
+  so every `copier update` conflicted in it for any app with routes of its own.
+
+  The app's half is now `control_plane/app_operations.py`, seeded once and never
+  rewritten, exporting a typed `APP_OPERATIONS` the catalog splats beside the capability
+  sets. Existing apps adopt it by moving their `OperationDefinition` constants across;
+  nothing breaks until they do. See ADR 0130.
+
+### Fixed
+
+- **`terp upgrade --check` printed a recipe that could not be followed in the order it
+  was printed.** Steps 2 to 4 edited the pins and ran both installers, which dirties the
+  tree, and the re-render below them refuses a dirty tree — so the recipe's own earlier
+  steps made its last step impossible, and following it meant stashing halfway through.
+  The pin edits were also work the re-render does: the template owns `pyproject.toml` and
+  both npm manifests, so a re-render writes every one of those pins itself.
+
+  There is now one ordered sequence instead of a recipe plus a postscript, and which one
+  you get depends on whether copier can run at all. An app with a recorded answers file
+  is told to read the notes, clean the tree, re-render, resolve, sync **once**, confirm
+  and verify; an app without one gets the hand-pin recipe, and only it does. The recipe
+  names the two conflicts that arrive on every re-render and says which side wins, and it
+  says what a containerised dev stack needs — a rebuild, not a reload.
+
+  The scaffolding-drift report also stops asserting what it never checked. It said a
+  release's fix to any template-owned file "is still waiting here" and named `AGENTS.md`
+  as the example, which was a false alarm on an app whose `AGENTS.md` was byte-identical
+  to the template's. Rendering and diffing is not available to that command — the
+  template does not ship inside the CLI wheel — so the fix is the claim rather than the
+  mechanism.
+
+- **The lockstep gate reads the app's declared pins, not only its environment.**
+  `platform-install` asked two different questions: for the frontend it held every
+  manifest's declarations against the platform version, and for the backend it compared
+  the installed distributions only against each other. So a tree whose `pyproject.toml`
+  asked for one release over an environment installed at another was internally
+  consistent and passed — a verdict about packages that are not the packages that will
+  run, which is exactly what the check claims to refuse.
+
+  Two ordinary routes there: someone repins and has not synced yet, which is the middle
+  of every upgrade; or a container bakes the packages into its image and bind-mounts the
+  source over them, so new code reloads against old libraries and dies on an import
+  nowhere near its cause. The backend half now also reads `pyproject.toml` — both
+  `[project]` dependencies and every dependency group, because `terp-arch` lives in the
+  dev group and it is the gate itself. A requirement with no specifier is left alone:
+  that is a workspace member or an editable install, where the manifest is not where the
+  version lives.
+
+- **A boot session check that gets no answer says so, instead of rendering nothing.** The
+  bootstrap issues `POST /api/v1/auth/refresh` before anything renders, and a fetch to a
+  dead proxy target does not fail — it hangs. So the promise never settled, `loading`
+  stayed true for the lifetime of the page, and `RequireAuth` rendered its `pending`
+  slot, which defaults to nothing: a blank page, an empty `#root`, three console
+  messages, zero errors and zero warnings.
+
+  The boot requests now carry `AbortSignal.timeout(BOOT_REQUEST_TIMEOUT_MS)` — boot only,
+  because a file upload legitimately runs longer than any timeout that would help here.
+  And there are three states where there were two: `AuthSession.unreachable()` is true
+  when the check got no answer at all, a resolved response including a 401 is an answer,
+  and `RequireAuth`'s new `unreachable` slot does *not* default to nothing. A login form
+  that cannot possibly succeed is the wrong answer to a stopped backend. See ADR 0132.
+
+  `AuthSession` gains a required `unreachable()`, so an app that hand-rolls its own
+  implementation of that interface — a test double, most likely — adds one method
+  returning `false`. Nothing that goes through `TerpProvider` is affected.
+
+- **A readiness probe against the dev server stops answering for a dead API.** Vite
+  serves `index.html` for any path it does not proxy, and serves it with a 200. Only
+  `/api` was proxied, so `GET /health/ready` on the web origin — the address in the
+  developer's browser, and the first thing anyone reaches for when a page comes up
+  blank — answered success with a page body while the backend was down. `/health` joins
+  `/api` in the proxy table of both the template's dev server and the reference app's.
+
+## 0.20.0 — 2026-09-08
+
+### Added
+
+- **A capability publishes the operation set its routes declare, so a release that adds
+  a route no longer refuses a mounted app's boot.** Friction reported from upgrading an
+  app onto 0.19.0. A capability declares its operations inside its own package and the
+  app folds them into the one `OperationCatalog` its control plane owns — but it did
+  that by naming each operation, which makes the app's control plane an inventory of
+  somebody else's router: a list of facts the app neither owns nor can see change. When
+  ADR 0121 added four routes to `access`, every app that had named the previous three
+  was refused at boot on upgrade, and the repair was to read the capability's source,
+  find the four new constants and copy their names across.
+
+  The failure does not read the way it behaves, which is worth being precise about: it
+  is **not** the strict-coverage check. `create_app` refuses any route declaring an
+  operation the catalog does not carry, and that check sits *above* the coverage dial
+  because the no-drift half of ADR 0102 was never meant to be tunable. An app on
+  `coverage=OFF` was refused exactly as an app on `STRICT` was, so turning coverage down
+  never avoided it.
+
+  Every capability that declares operations now exports `<CAP>_OPERATIONS` — a tuple in
+  the order the capability declares them — and an app folds it in by splatting:
+
+  ```python
+  operations=(*AUTH_OPERATIONS, *ACCESS_OPERATIONS, NOTES_LIST, ...)
+  ```
+
+  The tuple grows with the capability's router, so the app's catalog grows with it and
+  the upgrade needs no edit at all. `tests/architecture/test_capability_operations.py`
+  holds every aggregate exhaustive against its own module, in both directions and
+  parametrized off the source tree — so a capability that starts declaring operations is
+  covered without an edit there — because an aggregate that can silently miss an entry
+  is the same maintenance burden it removes, one indirection further away. The
+  template's catalog drops from 35 named constants to 8 splats, the example app's from
+  45 to 9, and both now read as "these capabilities, plus this app's own modules". ADR
+  0126.
+
+- **`OperationCatalog.entry_for`, and a boot refusal that names the repair that
+  applies.** One message covered two opposite mistakes — an id the catalog never
+  registered, and an id it registered with different wording — and then gave the advice
+  for the second: "reference the catalog constant rather than constructing an
+  OperationDefinition at the route". That is the right instruction for a same-id shadow
+  and useless for the first case, where the route is fine and the app's catalog is
+  simply missing an entry from a capability it mounts; a reader hitting the common
+  failure was sent to inspect the rarer one. The two are now separate. A missing entry
+  names the set to splat (derived from the operation id's own prefix) and states that
+  the refusal is coverage-independent; a shadow quotes both wordings, the route's and
+  the catalog's. `entry_for` is the lookup they branch on — the first of the helpers ADR
+  0102 removed as readerless to come back with a consumer that needs it.
+
+- **A boundary rule for `navigator.clipboard`, three releases after the seam that fixes
+  it.** `copyText` / `useCopyToClipboard` shipped in 0.17.0 with the footgun written out
+  in full: the API is typed as always present, is absent outside a secure context, and a
+  direct call on a plain-http origin is a property access on `undefined` that throws
+  **synchronously** — before any promise exists, so a `.catch` on the call never runs and
+  neither does a `try` around an `await` that was never reached. TypeScript sees nothing
+  wrong, and neither does a test on localhost.
+
+  The seam existed, was documented, and was hand-rolled anyway — which is the finding
+  worth keeping. Nothing said so at the point of writing: `fetch` has a rule,
+  `XMLHttpRequest` has a rule, `sendBeacon` has a rule, and the one browser API here whose
+  failure is *invisible* to the type checker had none. It has one now
+  (`frontend/no-raw-clipboard`), and it refuses any **access** rather than only a call,
+  since `const c = navigator.clipboard` is the same throw one line earlier — plus the
+  `window.`/`globalThis.` prefixed, computed (`navigator["clipboard"]`) and destructuring
+  (`const { clipboard } = navigator`) spellings, each of which binds the same `undefined`
+  under a new name. The message names both seams rather than saying "don't", because a
+  rule whose only compliant program is one that copies nothing would be obeyed by dropping
+  the feature. The Standard's catalog entry and corpus land in its next release; until
+  then the adapter's rule inventory is a superset of the pinned catalog, which is the
+  staging window `findings.test.js` already allows.
+
+- **A declared variable may name the services that see it — and the field is refused
+  until the deploy side can render it.** One rendered `.app.env`, forwarded to every
+  backend service through a shared anchor, meant a variable existed for whichever
+  service needed it and every other service got it anyway. An app whose worker holds
+  the credentials for a foreign system — an ERP, a payment provider, a customer's SQL
+  Server — also handed them to its `api`, `migrate` and `seed` containers, which have
+  no use for them and a much larger attack surface.
+
+  What apps did about it is the evidence that mattered: they stopped using the seam. A
+  second, hand-made env file, forwarded to the one service that needed it, governed by
+  no manifest, rendered by no tool, visible to no check and unmanageable from Studio —
+  routed around precisely for the values where it matters most.
+
+  `{"services": ["worker"]}` on a declaration renders it into `.app.worker.env`, which
+  only the services forwarding that file ever see. Two new offences, because they have
+  different fixes: `unforwarded` (a defined service does not forward the file the value
+  is rendered into, so the value exists and arrives nowhere) and `unknown-service` (the
+  scope names a service no profile defines). `unforwarded` is easy to reach by accident
+  and now says so — **YAML merge does not concatenate sequences**, so a service writing
+  its own `env_file:` *replaces* the shared anchor's list instead of adding to it, and
+  the template's anchor records that trap where an app will meet it. `unknown-service`
+  is judged across the union of the profiles on purpose: a service that exists only in
+  the workbench profile and deliberately not in production is correct, and flagging it
+  would push the app back to the hand-made file.
+
+  **The field is refused today, by name and with the fix.** This repository is only the
+  *reader* of a manifest; Studio renders one, and Studio pins this framework by git ref
+  rather than the other way round — so the dialect can grow a field here a release
+  before Studio can honour it, and Studio *drops* a field it does not know rather than
+  refusing it. An app that scoped a variable in that window would get a value that
+  arrives in the workbench and silently never arrives in a managed environment: local
+  green, production empty, nothing anywhere saying why. That is this seam's worst
+  failure, reached through the field added to prevent a lesser one. So the dialect,
+  both checks and the whole renderer ship and are exercised, `STUDIO_RENDERS_SCOPED_FILES`
+  holds the window shut, and lifting it is one flag in the change that also moves Studio.
+  ADR 0124 records the contract and names what has to move on that side.
+
+  Two details worth knowing before you reach for it. The committed
+  `.app.env.example` stays **one** file carrying every declared name — it is a template
+  a human maintains, while the split is a rendering concern — so a scoped app uses
+  `terp env init` rather than `cp .app.env.example .app.env`, which produces only the
+  shared file. And `.gitignore` gains `.app.*.env` in both this repo and the template,
+  because `.app.env` is an exact name and not a glob: without that line the one file
+  that exists to hold a single worker's credentials would have been the one file in
+  this seam that gets committed.
+
+  An app that ignores the field pays nothing: no new file, no new output, and a
+  byte-identical green check, pinned by a test rather than promised here.
+
+### Changed
+
+- **The gate is certified against Standard 0.33.0.** All four declarations ADR 0082 asks
+  for move together — the `terp-spec==` pin, `terp.arch.SPEC_VERSION`, the
+  `@terpjs/spec` dependency and the ESLint adapter's own `SPEC_VERSION` — with both
+  lockfiles re-resolved, because `test_spec_lockfiles_resolved_the_pinned_release` reads
+  each of them and refuses a skew against the pin.
+
+  0.33.0 is the release that carries this repository's own two additions: the
+  `frontend/no-raw-clipboard` entry for the rule shipped here ahead of its catalog, and
+  the two entries that state a scope rather than change one — the actor stamp's fourth
+  shape, and that `no-untranslated-ui` does not reach a comparison operand. Adopting it
+  **closes the staging window**: the adapter's rule inventory was a superset of the pinned
+  catalog while the entry was unpublished, and the corpus harness now runs 237 cases
+  against 237 rather than tolerating 15 against 14.
+
+- **A declared job or schedule names the actor its writes are stamped with, and
+  production refuses to boot without one.** The platform said in **four** places that a
+  user-less job runs as a system actor *so that its writes are never silently unstamped* —
+  in `create_app`'s reference documentation, in `terp.core.scheduling` for a schedule, in
+  `terp guide jobs`, and — found by grepping for the promise rather than by remembering
+  where it was made — in the APScheduler capability's own module docstring, which is the
+  page an author reads while wiring the thing that fires the schedule. `ControlPlane.job_system_actor_id` is what makes those sentences
+  true and it defaulted to `None`: the only member of that aggregate without a
+  `default_factory` producing a working value, while the eight beside it all build one.
+  Nothing validated it, so a `ScheduleCatalog` full of entries with no system actor booted
+  clean and then wrote rows whose `created_by_id` answered **nobody**.
+
+  Found by running a schedule rather than by testing one, and that is the whole argument for
+  a boot check: a unit test asserts the row exists, and an unattributed row exists. The
+  failure is invisible to the suite and only becomes visible to whoever needs the trail,
+  which is precisely when it can no longer be reconstructed. Two surfaces already reported
+  the state and neither acted on it — `terp inspect` emits `"job_system_actor": <bool>`, and
+  `terp jobs` printed the actor only when one *was* set, so the one human surface that
+  reports this said nothing in exactly the state that now refuses a boot. **`terp jobs`
+  now names it**, wrapped for a terminal, and reuses
+  `ControlPlane.production_problems()` rather than paraphrasing it so an operator
+  comparing this output against a boot refusal reads one sentence and not two. It stays
+  silent when nothing is declared, because then there is nothing to refuse.
+
+  `ControlPlane.production_problems()` now joins the security and password checks on the
+  production boot path: at least one job or schedule declared and no actor is a `BootError`.
+  Outside production the boot warns instead, names the field, and states what production
+  does with the same state — and goes quiet when an actor is set, because a warning that
+  cannot go quiet is noise. **An existing production app that declares background work and
+  never set the field will refuse to boot after this upgrade;** that is the intent, and the
+  fix is one field. A reserved sentinel actor was the other candidate and was rejected on
+  the detail that first looked like an argument for it: the stamp columns are FK-less by
+  design, so a constant would store fine and resolve to no principal anywhere, turning "no
+  actor" into "an actor that cannot be looked up" — the same defect, harder to see. ADR
+  0125.
+
+  The first app it refused was this repository's own example, in `prod-smoke` rather
+  than in review: it declares one job and had set no actor, so the reference
+  implementation was shipping the defect it demonstrates. It now declares one. The
+  template is unaffected, since a generated project declares no jobs, so an app that
+  never enqueues anything sees no change in any environment.
+
+- **Playwright 1.63, its screenshot container, and the five baselines the new chromium
+  moved.** The last of the six majors held out of 0.19.0's frontend bump, and the one
+  that could never have ridden along with the others: `@playwright/test` is not only a
+  dependency here, it is half of a pair. The specimens are compared inside
+  `mcr.microsoft.com/playwright:v<version>-noble` against baselines recorded in that
+  image at `maxDiffPixels: 0`, and `specimens.spec.ts` reads the lockfile and the
+  workflow and refuses a mismatch — so the package, the container tag and the committed
+  PNGs move together or not at all.
+
+  Chromium moved **five of 264 specimens**, on both platforms identically, and every one
+  is a native form control the browser paints itself: the textarea's resize grip in the
+  four `text-inputs` specimens, and a checkbox in the dataview column panel. 20 to 123
+  pixels, ratio 0.01. The diff images are what settle it — the changed pixels sit on the
+  grip and the checkbox, not on glyph edges, and nothing in the shells, tables, cards or
+  type moved. That is a browser repainting its own widgets, not a layout regression, and
+  it is the distinction a zero-tolerance baseline cannot make on its own.
+
+  Two specimens that failed the first pass were 5s `toHaveScreenshot` timeouts rather
+  than diffs and pass when run serially, so their baselines are untouched: a flaky
+  re-record is how a real regression gets committed as the new truth.
+
+- **A baseline mismatch keeps its renders.** It is the one failure in the frontend
+  workflow whose evidence is an image, and the run discarded it: the log named the
+  specimen and the pixel count, and the actual render lived and died inside the
+  container. Recording new baselines then meant reproducing that container locally,
+  which the workflow's own comment explains is not casually available — so the cost of
+  a chromium bump was paid in exactly the place with the least to work with.
+  `frontend.yml` now uploads `apps/workbench/test-results/` on failure. The linux
+  baselines in this release were recorded through it.
+
+- **Four of the frontend test stack's majors adopted: vitest 5, jsdom 30,
+  @testing-library/jest-dom 7 and @types/node 26.** Held out of the grouped bump that
+  became 0.19.0's frontend update, each on the grounds that a major needs its own
+  evidence. This is that evidence, and it found one real incompatibility and one thing
+  worth knowing about the tooling.
+
+  Vitest 5's jsdom environment installs a `Request` **subclass** whose constructor
+  pre-processes `init.body` for jsdom's Blob internals — it reads `_buffer`. The
+  react-core setup deliberately replaces jsdom's `File` / `Blob` / `FormData` with
+  Node's, because jsdom's do not survive Node's fetch, so that body is a Node `FormData`
+  holding a Node `File` and the shim throws on it. Handed a jsdom `FormData` instead the
+  shim does not recognise it as form data at all and serialises the body as a string, so
+  the request leaves as `text/plain` — the multipart upload test fails either way, for
+  two different reasons. The setup now unwraps that shim to the class it extends,
+  restoring Node's own constructor, which serialises a Node `FormData` as multipart with
+  a boundary. Guarded on the shim being present, so a later Vitest that stops wrapping
+  makes it a no-op.
+
+  The thing worth knowing: **vitest 5 paired with jsdom 29 silently runs a fifth of the
+  suite.** All 65 files carrying `// @vitest-environment jsdom` are dropped, the
+  remaining 16 pass, and the run reports success with exit 0 — no error, no skip count,
+  nothing. `vitest list` still enumerates all 81, so discovery is fine and execution is
+  not. Nothing declares the constraint that would have caught it either: vitest's
+  `peerDependencies` say `jsdom: "*"`. The pair shipped here (5 + 30) runs all 80 files
+  and 761 tests, but the shape of that failure is worth recording — a version mismatch
+  in a test environment that presents as a green build.
+
+### Fixed
+
+- **`terp upgrade --check` states the re-render rule instead of three examples of it.**
+  The scaffolding-drift report named `main.tsx`, `index.html` and `AGENTS.md` as the
+  files a re-render would rewrite, and then said `theme.css`, `house-style.css` and
+  `layout-contract.json` were *not* in that list. Both were illustrative; the shape read
+  as exhaustive. So someone weighing whether a re-render would carry a fix to a file in
+  neither list — `docker-compose.yml`, say, whose dev mounts 0.17.0 widened — could not
+  answer it from the report, and could reasonably conclude the fix was undeliverable and
+  reimplement it inside the app instead. The report now states the rule: a re-render
+  rewrites **every** file the template owns, and names the seven that are seeded once
+  because they carry the app's own content. Those seven are copier's `_skip_if_exists`,
+  restated in the CLI because the template does not ship inside the wheel and the report
+  has to answer offline — and held against `template/copier.yml` by a parity test, since
+  a duplicate that can drift is worse than no list: it would say a file is yours in the
+  same breath as a re-render overwriting it.
+
+- **The component tests stop contending for the machine, which is what they were actually
+  losing.** 0.20.0 raised Testing Library's budget from the 1000ms default to 3s on the
+  evidence of five flakes in a day. Three seconds was not enough either, and neither was
+  four: **four different fetch-bound assertions failed across four CI runs** — one on
+  `main`, whose commit was a Python-only change — always "unable to find element", always
+  one file of eighty-one, each passing on its own.
+
+  Raising the budget was the wrong lever and its own comment had said so: *"enough on an
+  idle machine and not on a loaded one"*. A jsdom + React + fetch file is heavy, a small
+  runner has four vCPUs, and eighty-one of them at once starve each other's timers. So
+  `fileParallelism: false` removes the cause rather than widening the tolerance, and it is
+  cheap: the whole suite runs **81 files / 762 tests green in 134s**, measured, against a
+  parallel run that failed one file in three.
+
+  The budget stays at 4s, which is honest rather than load-bearing — it gives a legitimately
+  slow chain room without approaching the ceiling. That ceiling is real: a toast
+  auto-dismisses at 5s and several admin tests assert one synchronously after a wait, so
+  `test_frontend_async_budget.py` holds `1000 < asyncUtilTimeout < DEFAULT_DURATION_MS <
+  testTimeout` across the three files that declare them.
+
+  `vite.config.ts` also described the budget as "the 5s `asyncUtilTimeout`" while the setup
+  file configured 3s. It now names no number and points at the test that holds the ordering,
+  because a comment that misstates the code it explains is worse than none.
+
+- **`no-untranslated-ui` read a comparison operand as authored copy.** The walker took
+  both sides of every `BinaryExpression` and `LogicalExpression`, so the literal in
+  `status === "paused"` was reported as untranslated user-facing text and the ordinary React
+  guard `{status === "paused" && <Trans …/>}` could not be written without hoisting the
+  comparison into a variable above the JSX. In one feature slice that hoist was done
+  **eighteen** times, which is the cost worth stating: the remedy is mechanical, repeats
+  once per guard, and teaches an author that the gate's refusals are not to be read
+  literally.
+
+  A comparison renders neither operand — the expression evaluates to a boolean — and the
+  walker already drew exactly this distinction three lines above, where the
+  `ConditionalExpression` branch walks `consequent` and `alternate` and **not** `test`. So a
+  ternary's condition was already exempt while the identical literal in an `&&` guard was
+  not, which makes this a slip rather than a position. The boundary is now one operator
+  table: a relational or equality operator renders nothing; `&&` renders its right operand
+  and tests its left; `||`, `??` and `+` can render either side and keep the broad reading.
+
+  No specification change: the catalog entry's intent is "static user-facing text", and a
+  state token being compared is neither. `BinaryExpression` and `LogicalExpression`
+  appeared **zero** times in this rule's tests, so nothing contracted either direction —
+  eleven cases now do, in both, and four mutants of the operator table are killed by them
+  (comparisons treated as copy again, `&&` walking both sides, `&&` walking the test
+  instead of what renders, and `||` narrowed to one side).
+
+- **The component tests' async budget outlived the machine they run on, and the fix has a
+  ceiling nobody had written down.** Testing Library's `findBy*` and `waitFor` default to
+  1000ms, and in these tests that second is not spent rendering: it covers a mocked fetch
+  resolving, the state it sets, and the re-render that finally puts the text on screen.
+  Enough on an idle machine, not enough on a loaded one — five failures across one day,
+  four different tests, each passing alone and on a re-run, and one of them red in CI on a
+  branch whose own change was fine. That is a day spent reading a diff that was never the
+  cause.
+
+  Raised rather than retried: a retry hides a genuinely intermittent product bug, whereas
+  these assertions are not flaky in what they claim — the text does appear, and a matcher
+  that waits longer asserts the same thing.
+
+  The ceiling is the part worth recording, because the first attempt walked into it. A
+  toast auto-dismisses after 5s, and several admin tests wait for a field error and then
+  assert the toast **synchronously**. Setting the budget to 5s means a wait that resolves
+  late enough leaves nothing for the next line to find — one flake traded for a worse one,
+  since it reads as a product bug. So the budget sits between the two bounds at 3s, with
+  `testTimeout` above both so a real failure is reported by the matcher, naming the element
+  it could not find, rather than as an unhelpful "test timed out".
+
+  All three bounds are asserted, and split by what each side can actually see.
+  `async-budget.test.ts` runs inside the suite and holds that the `configure` call **took
+  effect** — reading the number back out of the setup file would pass with the call deleted
+  and the constant left behind. The ordering spans three files, so
+  `test_frontend_async_budget.py` holds that from the Python side, the way this repository
+  already holds its cross-file config invariants, and reads the toast duration out of
+  `toast.tsx` rather than copying it: shortening it there fails the guard instead of
+  quietly starting to dismiss toasts mid-test. react-core compiles with `types: []`, so
+  reading files from the suite itself would need node types the package deliberately
+  does not have.
+
+- **A release can no longer discover mid-upload that one of its distributions has no
+  PyPI project.** Trusted publishing can add a version to a project and cannot create
+  one — PyPI answers a create attempt from an OIDC identity with `400 Non-user
+  identities cannot create new projects` — and the upload is a single invocation over
+  every distribution. So a new distribution does not fail the release cleanly: it fails
+  it *part-way*, with the earlier siblings already published, and the lockstep `==`
+  pins make that version uninstallable until the remainder goes up.
+
+  0.19.0 released exactly that way. `terp-cap-egress` was new in it, five distributions
+  were live before PyPI refused the sixth, and the release needed a hand-registered
+  pending publisher, a per-package dispatch and a re-run to complete. Every leg is
+  idempotent so the state was recoverable, but recovery is not the same as never
+  entering it, and nothing said so first.
+
+  `verify` now asks the index before anything is uploaded
+  (`tools/check_pypi_projects.py`): a distribution with no project refuses the tag in
+  seconds and prints the procedure — register the pending publisher, create the project
+  through the manual per-package dispatch, re-run. It reports **every** missing
+  distribution rather than the first, because one pending-publisher slot exists at a
+  time and learning about the next one only after a re-run is the same loop again.
+  It fails closed: an index that cannot answer refuses the release rather than assuming
+  the projects are there.
+
+  The check is push-only, which is the design and not an omission — the manual dispatch
+  is *how* a project gets created, so guarding that path would wall off the escape hatch
+  the refusal recommends.
+
+- **An npm check's precondition reads the workspace that check actually uses.** Every
+  manifest command whose argv starts with `npm` was judged by `frontend/node_modules`,
+  whatever tree it operated in. An app has more than one: the template ships
+  `frontend/` *and* `conformance/`, and the profile is open at the app end (ADR 0106),
+  so a third is the app's business. The precondition was therefore wrong in both
+  directions for the one shipped check that does not use the frontend.
+
+  Refusing the wrong thing came first. `--only conformance` (`npm --prefix conformance
+  test`) would not run until `frontend/` was installed, and named `npm --prefix
+  frontend ci` as the fix — a tree the Playwright specs never touch, in a job with no
+  other use for it. The template's own conformance job installs the conformance tree
+  and only that, so as shipped it could not run the check it exists to run.
+
+  Passing the wrong thing was worse. A *missing* `conformance/node_modules` cleared the
+  guard untouched, because a project whose `frontend/package.json` it cannot find is one
+  this function returns `None` for — so the check went straight into the raw `Cannot
+  find module` trace that names neither cause nor fix. That is the exact failure the
+  precondition was written for, reaching Node through the tree it never looked at.
+
+  The workspace now comes from the argv's own `--prefix` (either spelling; no prefix
+  means the project root, where `npm ci` is the fix and `npm --prefix . ci` would read
+  as a typo), and the two frontend-only runners name their tree explicitly.
+  `_node_modules_problem` takes it as a required argument rather than defaulting to
+  `frontend`: the implicit default is what let every npm check silently inherit one
+  tree's verdict. Each message now names the tree it read and the install command for
+  that tree. `_terp_frontend_manifests` had already learned to discover both manifests
+  instead of naming one; this is the same lesson, one function over.
+
+## 0.19.0 — 2026-09-08
 
 ### Added
 
@@ -175,6 +2508,51 @@ decision, 0001 onwards.
   on day one, and it dissolves rather than being paid. The frontend half is deferred with its
   trigger stated in the ADR: its fifteen rules are ESLint rules, and ESLint cannot assert that
   a file is absent.
+
+### Changed
+
+- **terp-spec 0.32.0 adopted, which closes the window four rules were waiting in.**
+  `modules_ship_tests` (ADR 0119) and the three module-role rules (ADR 0121) were
+  implemented here before the standard could describe them — the order ADR 0116
+  requires, because terp-spec cannot certify a catalog entry against a reference that
+  does not yet carry the rule. They sat in `_AWAITING_SPEC_RELEASE` for exactly that
+  window. 0.32.0 publishes all four catalog entries, so the four declarations move to
+  it — the two pins and the two `SPEC_VERSION` constants — and the list is empty
+  again. It has to be: `test_no_rule_awaits_a_spec_release` refuses a tagged release
+  while anything is listed, and the staleness half refuses a name whose entry has
+  since been published, so neither half of the window can be left open.
+
+  0.32.0 also adds `test-adequacy` to the assurance-lane vocabulary, and a lane the
+  standard declares is a lane this toolchain must report. Nothing in the release
+  profile answers it — it asks whether the suite could have *failed*, and coverage
+  reports which lines ran, not whether anything would notice them changing — so it
+  composes no checks and is emitted `not-run`, the same shape `a11y` already has. A
+  lane is never dropped and never counted as passed without evidence, so omitting it
+  would have hidden it rather than reported it honestly.
+
+- **The workbench images build on Python 3.14, and the supported range is a set of two
+  rather than one literal.** Three of CI's four lanes already ran the suite on 3.14 while
+  every image still built on 3.13 — the interpreter the framework tested and the one it
+  shipped had quietly diverged. The parity test that should have caught that was the reason
+  it could not be fixed: it asserted the exact string `FROM python:3.13-slim`, so any bump
+  turned it red no matter how correct, and Dependabot's two halves of the bump sat open
+  against it.
+
+  The images now build on `python:3.14-slim` — all six declarations, dev and prod, example
+  and template — and the invariant names the supported set instead of a version, holding
+  what it actually cares about: every backend image agrees on one member of the set. That
+  reaches two failures the single-line check could not see. A bump can land half-applied,
+  the dev image on a version the prod image is not, and each file still reads fine on its
+  own. And a stage can drift inside one file, `Dockerfile.prod` building wheels on one
+  interpreter and running them on another, which is an ABI mismatch that surfaces when the
+  image runs rather than when it is built.
+
+  `requires-python` is unchanged at `>=3.13`, and that floor is now proved rather than
+  declared: the new `lower-bound-interpreter` lane runs the whole suite on 3.13, so a
+  3.14-only construct cannot reach PyPI under a declaration that still admits 3.13 — a
+  break an installer would otherwise find first. The template-acceptance lane stays on 3.13
+  for the same reason: it builds a generated project the way a user's machine would, and
+  the floor is what a fresh `terp new` may assume.
 
 ## 0.18.0 — 2026-09-05
 
@@ -925,7 +3303,6 @@ decision, 0001 onwards.
   measured at. And this is why `DetailList` reflows itself while `Grid` deliberately refuses to
   for a fixed `columns` count — `Grid` publishes `columns="auto"` as its responsive answer, and
   a closed one-or-two has no such escape.
-
 
 - **One subscribed tab held every shutdown open forever.** A realtime channel's stream is a
   task with no end condition of its own — it closes when the client goes away, and staying

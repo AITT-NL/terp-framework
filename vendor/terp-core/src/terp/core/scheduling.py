@@ -16,7 +16,10 @@ scheduled job works today with zero scheduler infra. A schedule fires by *enqueu
 through the typed :func:`~terp.core.enqueue` chokepoint (:func:`trigger_schedule`), so it
 flows through the active :class:`~terp.core.JobQueue` (in-process / outbox / broker) and the
 context-binding runner: a scheduled job has no originating user, so it runs as the configured
-**system actor** and its writes stay audited + stamped, with no special-casing.
+**system actor** and its writes stay audited + stamped, with no special-casing. That
+actor is ``ControlPlane.job_system_actor_id``, and it is not optional in production:
+declaring a schedule without one refuses the boot, because a nightly tick whose rows name
+no actor is the one answer a provenance column must not give.
 
 Two-layer enforcement (ADR 0006), mirroring the jobs catalog: ``create_app`` boot-validates
 every :class:`ScheduleDefinition` in the control plane's :class:`ScheduleCatalog` against the

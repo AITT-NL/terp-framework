@@ -420,7 +420,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 
 ## Open work — queued, in order
 
-Two threads are in flight. Detail lives in the linked plan and ADRs; this is the
+Three threads are in flight. Detail lives in the linked plan and ADRs; this is the
 index, so nothing is tracked only in a commit message.
 
 All six phases are implemented; phase 6's terp-spec dependency pin bump awaits an
@@ -591,6 +591,212 @@ implemented only in the backend is half-built".
   the Studio does not yet read this file — its viewer renders the English label
   regardless of locale, and ADR 0102's amendment now says so plainly instead of
   implying otherwise.
+
+**Per-module access** — decided in
+[ADR 0121](../decisions/0121-a-module-role-is-an-assignment-not-a-policy.md), sequenced in
+[per-module-access-design-and-plan.md](drafts/per-module-access-design-and-plan.md). The goal is the per-module permission
+editor *and* viewer in the packaged `terp-admin` area: these are the roles, and this is
+what each role gets in this module. The one capability gap it rests on is that Terp
+cannot currently express "editor in one module, viewer everywhere else" — a user carries
+one global rank and a group carries none.
+
+- [x] Phase 1 cleanups, less the frontend ladder: one permission-name shape (the colon
+      form the access docstrings taught is rejected by `Permission`'s own validator), the
+      example app's first declared named permission (`notes.delete`, gating note deletion
+      on top of the write tier), and catalog validation on `POST /api/v1/access/grants`
+      with the catalog returned in the error `details`.
+- [x] Phase 1 remainder: `react-core`'s `roles.ts` reads the app's declared ladder instead
+      of the `10 / 20 / 30` literals. Landed in phase 3, which supplied the source.
+      `UserCreate`'s `useState("10")` was the second half of the same defect.
+- [~] Phase 2 the declarations. Done: `Permission.label` plus a `LabelCoverage`
+      (`OFF`/`WARN`/`STRICT`) boot gate staged exactly like `OperationCoverage`, with the label
+      carried into the access graph and the example app running `STRICT` — the plan had called for
+      a *required* label and §4.1 now records why staged coverage is the right shape.
+      `ModuleSpec(permissions=…)` claiming a module's permissions, cross-checked by value, emitted
+      on the module row of the access graph. And the §2.8 boot check: a route may not enforce a
+      permission the control plane does not declare, which caught the example app's own
+      `gated_app` fixture first. `ModuleAccess` on `ModuleSpec` — absent by default, so a module
+      takes no part until it says so; `assignable` requires a label as a constructor invariant
+      rather than a coverage knob; `platform_only(reason=…)` is the refusal, and `users`,
+      `groups`, `access` and `audit` all carry it, because per-module `admin` in `access` would
+      hand out every other authority. The access graph reports the module edge and the access
+      declaration, so the pane's data model is complete for the permission axis.
+- [~] Phase 3. Done: `decide()` extracted, so `build_guard` and the access-graph projection
+      share one decision instead of each testing the method against `MUTATING_METHODS` — the
+      guard's existing tests passed unchanged, which is what a refactor with no behaviour change
+      looks like. The projection now carries `by_role` per endpoint, folding in a route-level
+      `require_permission` that the module `Policy` does not carry (found by reading the output:
+      it had reported an editor as allowed on a route an editor without the grant gets a 403
+      from). And the shared projection moved into the kernel as
+      `terp.core.authz.build_access_model`, because a capability cannot import `terp.cli` —
+      the CLI now composes it with the parts only an audit wants (model traits, predicates,
+      kernel routes, the `app.openapi()` reconciliation). And `GET /api/v1/access/model`,
+      admin-only, typed end to end — the DTOs are the pane's types because the frontend
+      contract is generated from OpenAPI, so `@terpjs/contract` now carries the shape.
+      And `roles.ts` reads the ladder from it: the packaged admin screens now offer the
+      rungs the *app* declares, label a rung the framework has no translation for under the
+      name its author gave it, and start a new account on the lowest declared rank rather
+      than a hardcoded 10. Phase 3 complete, and with it the last phase-1 item.
+- [~] Phase 4. Done: `ModuleRole` (subject, module, rank) with its migration, a
+      `ModuleRoleService` whose `highest_rank` is one aggregate over the *expanded* subject set
+      so a rung assigned to a group reaches its members, the `module_rank_resolver` seam on
+      `create_app`, `decide` consulting it lazily and only when the global rank falls short,
+      and a boot refusal for an assignable module with no resolver installed. **The capability
+      gap in §2.1 is closed**: a viewer assigned editor in one module writes there and still
+      nowhere else. And `terp module-role add/list/revoke`, the first writer — an operator
+      seam before a UI (ADR 0089), refusing through the capability's own `validate_assignment`
+      so an HTTP surface added later cannot disagree with it. `terp guide permissions` teaches
+      the distinction between a permission and a module role. **Phase 4 complete.**
+- [~] Phase 5. Done (5a, the data the pane needs): `SubjectExpander` may return an attributed
+      `SubjectRef` — additively, so an existing bare-UUID expander keeps working and the
+      decision path is untouched — and the groups expander now names the group it found.
+      `GET /api/v1/access/subjects/{id}` answers "why can this person do that?": every right
+      tagged with the subject it came from, a stale grant or module role reported rather than
+      filtered, and only the highest of several rungs in one module marked `effective`. The
+      subject's global rank is deliberately absent, because it lives in a table this
+      capability cannot import and a pane already has it.
+      Then the pane itself. `/admin/access` answers the question the whole design is for —
+      these are the roles, and this is what each one may do in this module — with every
+      allowance shown being the kernel guard's own answer, so the screen cannot disagree with
+      the gate. It is section-gated in `AdminAreaSections` beside users, groups and audit,
+      for a reason rather than for symmetry: the screen reads `GET /api/v1/access/model`, so
+      an app without the access capability would otherwise ship a nav entry leading to a 404.
+      And the writer: `PUT` / `DELETE /api/v1/access/subjects/{subject_id}/module-roles/{module}`
+      plus an assignment panel on a person's and a group's detail screen — the only places the
+      choice has a subject (ADR 0121). Three things the plan had not settled were decided here.
+      The route is addressed by `(subject_id, module)` rather than a row id, because that pair
+      *is* the fact's identity and the provenance endpoint reports held rungs without one, so a
+      delete-by-id writer could not be driven from what the reader returns. `TileGroup` gained a
+      `readOnly` mode with no radio semantics at all, because a disabled radiogroup announces a
+      set of radio buttons with none of them checked — which tells a screen-reader user they
+      failed to choose something on a screen where there is nothing to choose. And
+      `Tile.disabled` was removed: nothing consumed it, and a rung below the subject's global
+      role is *marked as a floor* rather than disabled, since it stays assignable and becomes
+      meaningful the moment the global role drops. **Left: 5c**, a second assignable module in
+      the example app whose rungs genuinely diverge from `notes` — today only `notes` opts in,
+      so the feature's own screenshot is one strip.
+      A review at the phase boundary found three things in the panel as first committed, all
+      fixed. A rung whose rank the app no longer declares was collapsed into the `no access`
+      tile, which both misreported what was held *and* made that row the one row the panel
+      could not clear, since committing `no access` then looked like committing what was
+      already selected — the strip now has three states and one shared reader for "what is
+      held here directly", because the two call sites had each derived it and each got it wrong
+      the same way. The writer set the rows itself rather than going through the guarded effect,
+      so a response could land after the screen was gone or after a newer read; it now bumps a
+      version counter, the idiom the group screen already uses. And nothing observed that a
+      write re-read at all — the fixture answered the same rows forever, so an optimistic panel
+      was indistinguishable from a correct one. The stub is stateful now and a test watches the
+      strip follow the server.
+      **5c closed, and with it phase 5**: `projects` opts in beside `notes`. The pair diverges
+      for a reason measured off `GET /model` rather than assumed — `notes` gates its delete
+      behind a named permission no rung confers, so the delete is refused at every rung there
+      and `admin` adds nothing (the pane's `addsNothing` line, firing in the real app); a plain
+      CRUD resource has no such gate, so its `editor` rung really does hand over the delete and
+      its delta carries the destructive kind. An app with one assignable module could not show
+      what the pane is for.
+- [x] Phase 6 the terp-spec rules and the violation-corpus fixtures. Three rules, six corpus
+      cases, and the catalog entries in terp-spec: `grantable_modules_are_named` (an assignable
+      module says what to call it — required, since `ModuleAccess` enforces the pairing at
+      construction and the build-time half adds a file and a line before the app is imported),
+      `platform_modules_refuse_module_roles` (a module holding `AccessService` or
+      `ModuleRoleService` never opts in — the escalation guard, build-time only because nothing
+      at runtime can know that a module administers authority), and
+      `module_role_writes_go_through_the_capability` (the table is reached through its service,
+      reads included, on `no_manual_ownership_checks`' footing). The plan had the first one down
+      as coverage-gated; it is not, and why is recorded there.
+      **Closed: terp-spec 0.32.0 is published and adopted here.** ADR 0116's
+      `_AWAITING_SPEC_RELEASE` listed all three beside `modules_ship_tests`, which was already
+      waiting on the same then-unreleased terp-spec 0.32.0, and
+      `test_no_rule_awaits_a_spec_release` refuses to cut a release while that list is non-empty.
+      0.32.0 published, the four declarations moved to it, and the list is empty — so the release
+      is no longer blocked. That sequence was only green because the pre-push review found the
+      step it was missing — the catalog names `terp.capabilities.access` as a runtime tool and
+      `_RUNTIME_TOOL_SOURCES` had no entry for it, so certification would have refused the
+      release before the pin could ever be bumped. Adoption carried one thing the plan did not
+      anticipate: 0.32.0 also adds `test-adequacy` to the assurance-lane vocabulary, and a
+      declared lane must be reported, so `ASSURANCE_LANES` gained it as a `not-run` lane
+      composing no checks — `a11y`'s shape, for the same reason.
+
+**A second adversarial review was run before pushing** — seven dimensions, two diverse-lens
+refuters per finding, defaulting to refuted — and it found things the first pass could not,
+because it ran against the merged range rather than the branch. Ten defects fixed, four of them
+blocking:
+
+1. **The 100% coverage gate was red, and had been since before this thread.** CI runs
+   `coverage run -m pytest` with `fail-under=100`; nineteen statements were uncovered, twelve of
+   them merged at 0.18.0. Every one is now covered or restructured away, and the tests that close
+   them are mutation-checked. Two of the nineteen turned out to be unreachable branches rather
+   than untested ones — a second guard in `_module_root` and a `continue` in `_states_a_reason` —
+   and those were removed rather than given contrived tests.
+2. **Two decision records held 0121 again.** The renumber commit added the uniqueness gate, and a
+   commit fifty-nine minutes later on the same local `main` claimed 0121 for the
+   marketing-websites record. The gate caught it exactly as intended; that record is now 0123,
+   chosen over renumbering this one because it has no inbound citations while ADR 0121 is cited
+   from 37 files including two generated `openapi.json` descriptions.
+3. **The `## 0.31.0` heading was deleted from terp-spec's changelog.** The three-rule entry was
+   appended by replacing that heading instead of inserting above it, so everything 0.31.0
+   published was silently attributed to unreleased 0.32.0. Restored and checked by diffing the
+   heading set against the pre-change file: 32 before, 32 after, nothing else lost.
+4. **terp-spec 0.32.0 could not have been certified.** The new catalog entry names
+   `terp.capabilities.access` as a runtime tool, and `_RUNTIME_TOOL_SOURCES` in
+   `test_spec_catalog.py` had no entry for it — so the certification job that must pass *before*
+   the release would have failed on a name it could not resolve. Added, and every runtime `ref`
+   in the unreleased catalog now resolves.
+
+The six others: the assignment panel accepted a second choice in the window between a write
+settling and its re-read landing, comparing it against the pre-write rows and dropping it as
+"already selected" (`busy` cleared a round trip too early); a rung held in a module that stopped
+accepting them was filtered out of the only screen that could clear it; the escalation rule
+globbed beside the triggering file rather than at the module root, so a service kept in
+`modules/<name>/services/` escaped it entirely; a non-literal `label=` was reported as "declares
+no label="; `tileValues` had no consumer outside its own test; and four prose claims were untrue
+— a cited ADR section that does not exist, this record's own stale status line, and two docstrings
+justifying the `0` rank sentinel as "below every declarable rung" when nothing stops an app
+declaring a rung at rank 0.
+
+**An adversarial review has been run over the branch** — five lenses, three refuters per finding,
+defaulting to refuted — and six defects it found are fixed. The one that matters: the
+`ModuleAccess` declaration was enforced only at the writer, so a stored row naming a
+`platform_only` module elevated the caller anyway, reachable with no out-of-band write by
+dropping `assignable` from a module in a later release. The guard now reads the declaration. Also
+fixed: an undeclared rank cleared any floor; the undeclared-permission boot check was evadable by
+moving the dependency into the endpoint signature; a public policy short-circuited the
+route-permission fold; a `-1` sentinel in three max-accumulators crashed the provenance endpoint;
+and the control was half-built, so `/me` now carries `module_ranks` and the frontend gate takes
+the higher of the two. One finding was right about a symptom and wrong about the fix — see §4.9.
+
+The branch has been merged up to `main` at 0.18.0 (42 commits, 252 files) with no conflicts;
+the full suite, both frontend suites and the OpenAPI contract are green on the merge.
+
+A three-design panel was run against the plan; §9 there records the four mechanisms adopted from
+it, the one genuine alternative to the new table and why it is still not preferred, and the fact
+that its adversarial judges never ran — so the fork has not been independently scored.
+
+**Due at release, not now** — a second entry: `GET /api/v1/access/model` and the two module-role
+routes are new public surface, and the two new operations (`access.assign_module_role`,
+`access.revoke_module_role`) are additions to the catalog every app folds into its own
+`OperationCatalog`. An app that composes the access capability and pins its catalog by hand will
+refuse to boot until it adds them, which is the declared-operations gate working as intended and
+still a line the release notes owe.
+
+**Due at release, not now** (the changelog carries no Unreleased section): the authority-shadow
+boot check is a **breaking change** for any app that constructs a `Role` or `Permission` at a
+policy call site instead of referencing the declared object. Such an app boots today, enforces the
+floor it wrote and displays the declared one; after this it refuses to boot with a message naming
+both floors. That needs a changelog entry and a line in the release notes.
+
+**A flake seen once, not chased**: `admin.test.tsx > "shows the field it can and still toasts the
+reason it cannot, when a 422 names both"` failed once at 1107 ms while other suites were running
+concurrently, and passed on two immediate re-runs and in isolation. It waits on a `findByText`
+after a submit, so it is timing-sensitive under load rather than wrong. Pre-existing, not touched
+by the per-module access work, and written down here because a flake nobody records is a flake
+somebody rediscovers.
+
+**Findings recorded, not fixed** (both in the plan, §2.7 and §2.8): a route can enforce a
+permission the control plane never declared, which makes ADR 0089's "can only ever offer
+permissions this app really enforces" stronger than the code guarantees; and nothing in
+the repository declared a named `Permission` at all before this thread, so the
+fine-grained half of the authorization model had no consumer.
 
 ## Active execution track
 
@@ -846,7 +1052,7 @@ generic by construction.
 | 3 | Ship `terp-arch`; delegate layering to a tool | ✅ | Harness shipped (full rule set + `requires` boot check + governed escape-hatch budget ratchet + docs-parity test, ADR 0030; universal rule set completed by ADR 0037). Generic CI backstops now layer on top (ADR 0033): ruff bandit `S`, an import-linter `terp.core` layer-0 contract mirroring `test_core_boundary`, plus advisory pip-audit + deptry — CI-only, never replacing `terp-arch`. |
 | 4 | Frontend contract + Stack A (React) + conformance | ✅ | `@terpjs/contract` (base-profile OpenAPI → typed client + design tokens + stack-agnostic manifest/auth types), `@terpjs/react-core` (Stack A: `TerpProvider` + auth session, app shell + TanStack router adapter + token-styled primitives + capability gates + `useResource` data hooks), `@terpjs/eslint-boundaries` (fail-closed module-boundary lint), and `@terpjs/conformance` (Playwright e2e over the Docker workbench). The example app dogfoods all four (notes/tasks/projects/journals modules); the copier template ships them. |
 | 5 | Scaffolding: copier template + `terp` CLI | ✅ | `terp new module` (canonical five slots), the copier `template/` (runnable app + base profile), `terp api-docs` (generated `.pyi` + reference), and `terp check` (ADR 0039). |
-| 6 | Agent-visibility layer (§10) | ✅ | `vendor/terp-core/` read-only mirror + `test_vendored_core_unmodified` drift gate (ADR 0034). CODEOWNERS deferred; the publish pipeline shipped (lockstep versions + release.yml + template acceptance, ADR 0063). |
+| 6 | Agent-visibility layer (§10) | ✅ | `vendor/terp-core/` read-only mirror + `test_vendored_core_unmodified` drift gate (ADR 0034). CODEOWNERS shipped (`.github/CODEOWNERS` + `test_codeowners`, which holds the five protected surfaces); the publish pipeline shipped (lockstep versions + release.yml + template acceptance, ADR 0063). |
 | 7 | Packaged migrations (§4.6) | ✅ | Independent per-package Alembic histories + `terp migrate` (incl. stamp/heads/merge, cross-package FK autogenerate, model-drift check) + boot guard (ADR 0027), plus the `tables_have_migrations` arch rule (ADR 0028). The conformance suite now also runs against real PostgreSQL in CI, and production boot refuses an unverified dialect without an explicit acknowledgement (ADR 0069). Deployments can opt into the per-module schema layout (`DB_SCHEMA_LAYOUT=per-module` + `terp migrate adopt-schemas`, `no_manual_table_schema` rule; ADR 0070) and split privileges with a least-privilege runtime role (`terp migrate grant-runtime`; ADR 0071). Offline `--sql` deferred. |
 | 8 | Dogfood: example app + 2nd divergent tenancy strategy | ✅ | Visibility-based read scope on `journals` (ADR 0061): a consumer-registered ADR 0017 predicate (`shared` / owner-only `private`) composing beside the tenant partition (`projects`) — two divergent strategies on one kernel seam validate core's tenancy-agnosticism. |
 | 9 | Stack B (Svelte) + release v0.1 | ⬜ | Conformance-driven; needs only the contract. |

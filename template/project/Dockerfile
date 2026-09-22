@@ -1,6 +1,6 @@
 # Backend image for the Terp app (dev workbench). The same image backs the one-shot
 # migrate + seed services and the api server (see docker-compose.yml).
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 # uv: fast workspace-aware installs for the generated app image.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv

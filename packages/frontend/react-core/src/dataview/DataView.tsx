@@ -208,7 +208,12 @@ function DataViewInner<T>(props: DataViewProps<T>) {
   // last valid page, so the emitted query and the footer never disagree.
   const setPagination = state.setPagination;
   useEffect(() => {
-    if (isLoading || isFetching || (error !== null && error !== undefined)) {
+    if (
+      isLoading ||
+      isFetching ||
+      (error !== null && error !== undefined) ||
+      totalCount === undefined
+    ) {
       return;
     }
     const { pageIndex, pageSize } = query.pagination;
@@ -425,10 +430,10 @@ function DataViewInner<T>(props: DataViewProps<T>) {
             hasActiveFilters={hasActiveFilters}
             layout={layout}
             selectedCount={selectedIds.size}
-            totalCount={totalCount}
+            totalCount={totalCount ?? 0}
             selectAllAcrossPages={selectAllAcrossPages}
             onSelectAllAcrossPages={
-              allPageSelected && totalCount > selectedIds.size
+              allPageSelected && (totalCount ?? 0) > selectedIds.size
                 ? () => setSelectAllAcrossPages(true)
                 : undefined
             }
@@ -471,10 +476,10 @@ function DataViewInner<T>(props: DataViewProps<T>) {
           state.setPagination({ pageIndex: 0, pageSize })
         }
         selectedCount={selectedIds.size}
-        totalCount={totalCount}
+        totalCount={totalCount ?? 0}
         selectAllAcrossPages={selectAllAcrossPages}
         onSelectAllAcrossPages={
-          allPageSelected && totalCount > selectedIds.size
+          allPageSelected && (totalCount ?? 0) > selectedIds.size
             ? () => setSelectAllAcrossPages(true)
             : undefined
         }

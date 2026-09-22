@@ -15,6 +15,7 @@ import io
 import json
 import logging
 import sys
+from collections.abc import Mapping
 
 import pytest
 from fastapi import APIRouter, FastAPI
@@ -34,6 +35,7 @@ from terp.core import (
     ModuleSpec,
     NotFoundError,
     Policy,
+    route_policy,
     RateLimit,
     SecurityConfig,
     SecurityHeaders,
@@ -42,7 +44,11 @@ from terp.core import (
     request_id_ctx,
     settings,
 )
-from terp.core.app import register_error_handlers
+from terp.core.app import (
+    _rate_limit_override_map,
+    _warn_loosened_capability_limit_in_production,
+    register_error_handlers,
+)
 from terp.core.logging import (
     RedactingFilter,
     RequestContextFilter,
@@ -78,6 +84,7 @@ def _probe_app(security: SecurityConfig) -> FastAPI:
     router = APIRouter()
 
     @router.get("/ping")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def ping() -> dict:
         return {"ok": True}
 
@@ -100,6 +107,45 @@ def test_security_headers_render_with_and_without_hsts() -> None:
     assert "Strict-Transport-Security" not in SecurityHeaders(hsts=None).as_headers(
         include_hsts=True
     )
+
+
+def test_security_headers_declare_a_cache_directive() -> None:
+    """An API that mints bearer tokens must not leave caching to a heuristic.
+
+    Saying nothing lets every intermediary decide: a shared proxy, a CDN, or the
+    browser's own back-forward cache may retain a login response — a body whose whole
+    content is a credential. ``no-store`` rather than ``no-cache``, because the latter
+    permits a cache to *hold* the response and merely revalidate it, which is the part
+    that matters here.
+    """
+    headers = SecurityHeaders().as_headers(include_hsts=False)
+    assert headers["Cache-Control"] == "no-store"
+    # An app that genuinely serves a cacheable public surface can turn it off, the same
+    # way HSTS can be — the control is a default, not a fixture.
+    assert "Cache-Control" not in SecurityHeaders(cache_control=None).as_headers(
+        include_hsts=False
+    )
+
+
+def test_a_handler_that_already_answered_the_cache_question_keeps_its_answer() -> None:
+    """The stack applies headers with ``setdefault``, so a route can still opt out.
+
+    Asserted rather than assumed: a security default that overwrote a deliberate
+    per-route ``Cache-Control`` would make an ordinary cacheable endpoint unserveable
+    and leave the author no way to say so.
+    """
+
+    async def cacheable(_request: Request) -> PlainTextResponse:
+        return PlainTextResponse("ok", headers={"Cache-Control": "public, max-age=60"})
+
+    app = Starlette(routes=[Route("/", cacheable, methods=["GET"])])
+    app.add_middleware(
+        SecurityHeadersMiddleware, headers=SecurityHeaders(), include_hsts=False
+    )
+    response = TestClient(app).get("/")
+    assert response.headers["Cache-Control"] == "public, max-age=60"
+    # The rest of the set still lands — the route answered one question, not all of them.
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
 
 
 def test_cors_deny_all_is_unconfigured_and_closed() -> None:
@@ -498,6 +544,55 @@ def test_client_ip_middleware_resolves_through_declared_proxy_hops() -> None:
     client.get("/", headers={"X-Forwarded-For": "spoofed-junk"})  # unresolvable → peer
     client.get("/")  # no header → peer
     assert seen == ["203.0.113.7", "testclient", "testclient"]
+
+
+def test_an_undeclared_proxy_is_named_once_when_a_forwarded_header_arrives(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Zero hops is the safe default; behind a real proxy it is a silent outage.
+
+    Every caller then resolves to the proxy's own address, so the rate limit — and
+    every other per-caller control — is one bucket for the whole deployment, which one
+    visitor can exhaust for everybody. The symptom is intermittent 429s under ordinary
+    load, which reads as a limit set too low rather than as a trust declaration that
+    was never made.
+
+    Evidence-based rather than advisory: it fires only when a request actually carried
+    the header while no hops were declared, so a directly-exposed app never sees it.
+    """
+    app = Starlette(routes=[Route("/", _ok)])
+    app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=0)
+    client = TestClient(app)
+    with caplog.at_level("WARNING", logger="terp.core"):
+        client.get("/", headers={"X-Forwarded-For": "203.0.113.7"})
+        client.get("/", headers={"X-Forwarded-For": "203.0.113.8"})
+    warnings = [r for r in caplog.records if "trusted_proxy_hops=0" in r.getMessage()]
+    # Once per process: the header is one anyone may send, so repeating would hand a
+    # caller a log-flooding primitive.
+    assert len(warnings) == 1
+    assert "SecurityConfig(trusted_proxy_hops=1)" in warnings[0].getMessage()
+
+
+def test_no_proxy_warning_without_a_forwarded_header(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A directly-exposed app is correctly configured and must not be nagged."""
+    app = Starlette(routes=[Route("/", _ok)])
+    app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=0)
+    with caplog.at_level("WARNING", logger="terp.core"):
+        TestClient(app).get("/")
+    assert not [r for r in caplog.records if "trusted_proxy_hops=0" in r.getMessage()]
+
+
+def test_no_proxy_warning_once_the_hops_are_declared(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A declared deployment has answered the question; the line has nothing to add."""
+    app = Starlette(routes=[Route("/", _ok)])
+    app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=1)
+    with caplog.at_level("WARNING", logger="terp.core"):
+        TestClient(app).get("/", headers={"X-Forwarded-For": "203.0.113.7"})
+    assert not [r for r in caplog.records if "trusted_proxy_hops=0" in r.getMessage()]
 
 
 def test_client_ip_helper_falls_back_without_the_middleware() -> None:
@@ -924,6 +1019,7 @@ def test_unexpected_exception_renders_a_500_envelope() -> None:
     router = APIRouter()
 
     @router.get("/kaboom")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def kaboom() -> dict:
         raise RuntimeError("secret-internal-detail")
 
@@ -939,3 +1035,382 @@ def test_unexpected_exception_renders_a_500_envelope() -> None:
     assert body["request_id"]
     # The raw exception detail must never leak to the client.
     assert "secret-internal-detail" not in response.text
+
+
+# --------------------------------------------------------------------------- #
+# a mount declares its own rate limit (ADR 0138)
+# --------------------------------------------------------------------------- #
+def _rate_limited_spec(
+    name: str, rate_limit: Mapping[str, RateLimit] | tuple[()] = ()
+) -> ModuleSpec:
+    """A two-route mount: ``/ping`` and ``/cheap``, so a route-scoped cap is visible.
+
+    One route is not enough to observe scoping — a mount-wide cap and a cap on the only
+    route it serves produce identical headers, and a test that cannot tell them apart
+    would keep passing if the scoping were dropped.
+    """
+    router = APIRouter()
+
+    @router.get("/ping")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
+    def ping() -> dict:
+        return {"ok": True}
+
+    @router.get("/cheap")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
+    def cheap() -> dict:
+        return {"ok": True}
+
+    return ModuleSpec(
+        name=name,
+        router=router,
+        policy=Policy.public(reason="probe route"),
+        rate_limit=rate_limit,
+    )
+
+
+def test_a_mounted_spec_declares_the_limit_for_its_own_prefix() -> None:
+    """Installing the capability is the whole wiring — there is no root line to forget.
+
+    The mount that verifies credentials is the one that knows its attempts are
+    memory-hard; the application's general limit was sized against ordinary traffic and
+    cannot know that. So the declaration travels with the module, exactly as a file
+    capability's upload allowance does.
+    """
+    app = create_app(
+        [
+            _rate_limited_spec("creds", {"/ping": RateLimit.credentials()}),
+            _rate_limited_spec("open"),
+        ],
+        control_plane=ControlPlane(
+            security=SecurityConfig(cors=CorsPolicy.disabled(reason="probe"))
+        ),
+    )
+    client = TestClient(app)
+    assert client.get("/api/v1/creds/ping").headers["X-RateLimit-Limit"] == "30"
+    # The sibling route on the SAME mount keeps the general allowance: the declaration
+    # is keyed by route, not by mount (ADR 0140). This is the assertion that fails if
+    # the cap is ever widened back to the whole prefix.
+    assert client.get("/api/v1/creds/cheap").headers["X-RateLimit-Limit"] == "240"
+    # An undeclared mount keeps the global allowance — the scoped cap is a bucket of
+    # its own, not a second ceiling on everyone.
+    assert client.get("/api/v1/open/ping").headers["X-RateLimit-Limit"] == "240"
+
+
+def test_a_mount_may_still_cap_itself_whole() -> None:
+    """``"/"`` is the mount, for a module that really is one cost class (the SSO mount).
+
+    Route keying must not cost a module the mount-wide declaration; it only stops the
+    mount being the *only* thing a module can say.
+    """
+    app = create_app(
+        [_rate_limited_spec("sso", {"/": RateLimit.credentials()})],
+        control_plane=ControlPlane(
+            security=SecurityConfig(cors=CorsPolicy.disabled(reason="probe"))
+        ),
+    )
+    client = TestClient(app)
+    assert client.get("/api/v1/sso/ping").headers["X-RateLimit-Limit"] == "30"
+    assert client.get("/api/v1/sso/cheap").headers["X-RateLimit-Limit"] == "30"
+
+
+def test_an_explicit_override_beats_a_spec_declaration() -> None:
+    """Root overrides package, as at every other composition seam.
+
+    It matters more here than elsewhere: a deployment that has measured its own login
+    traffic must be able to say so, and a capability's default is a floor it may move
+    rather than a decision taken away from it.
+    """
+    app = create_app(
+        [_rate_limited_spec("creds", {"/ping": RateLimit.credentials()})],
+        control_plane=ControlPlane(
+            security=SecurityConfig(
+                cors=CorsPolicy.disabled(reason="probe"),
+                rate_limit_overrides={
+                    "/api/v1/creds/ping": RateLimit(requests=7, window_seconds=60)
+                },
+            )
+        ),
+    )
+    assert TestClient(app).get("/api/v1/creds/ping").headers["X-RateLimit-Limit"] == "7"
+
+
+def test_an_unrouted_spec_contributes_no_prefix() -> None:
+    """A prefix nothing serves must not acquire an allowance — it has nothing to limit."""
+    overrides = _rate_limit_override_map(
+        [ModuleSpec(name="library", rate_limit={"/": RateLimit.credentials()})],
+        SecurityConfig(cors=CorsPolicy.disabled(reason="probe")),
+    )
+    assert overrides == {}
+
+
+def test_a_module_may_tighten_its_mount_but_never_exempt_it() -> None:
+    """An unlimited declaration would be a hole one prefix wide.
+
+    And a quieter one than a disabled global limit, because the global limit still
+    reads as enabled — which is exactly why production already refuses the same shape
+    in ``SecurityConfig.rate_limit_overrides``. Refused here at construction instead,
+    since a module's declaration is compiled into the package rather than configured
+    per deployment.
+    """
+    with pytest.raises(ValueError, match="not remove it"):
+        ModuleSpec(name="creds", rate_limit={"/login": RateLimit.disabled()})
+    # Raising the allowance is a legitimate declaration; only removal is refused.
+    assert ModuleSpec(name="creds", rate_limit={"/login": RateLimit(requests=1000)}).rate_limit
+
+
+def test_a_route_key_must_be_a_path_prefix() -> None:
+    """A key that is not a path silently never matches, so it is refused at construction.
+
+    ``"login"`` composes to ``/api/v1/authlogin``, a prefix no request can have: the cap
+    would read as declared and protect nothing.
+    """
+    with pytest.raises(ValueError, match="must start with '/'"):
+        ModuleSpec(name="creds", rate_limit={"login": RateLimit.credentials()})
+
+
+def test_the_credential_limit_is_tighter_than_the_general_one() -> None:
+    """The point of the named constructor, asserted rather than left to the reader."""
+    credentials = RateLimit.credentials()
+    assert credentials.enabled
+    assert credentials.requests < RateLimit().requests
+    assert credentials.window_seconds == RateLimit().window_seconds
+
+
+# --------------------------------------------------------------------------- #
+# an application's rate-limit override outranks a capability's, at any depth
+# (ADR 0143 — the guarantee ADR 0140 broke without either ADR noticing)
+# --------------------------------------------------------------------------- #
+def _spec_declaring(name: str, routes: dict[str, RateLimit]) -> ModuleSpec:
+    """A mounted spec that declares *routes*, for the override-precedence tests."""
+    return ModuleSpec(
+        name=name,
+        router=APIRouter(),
+        policy=Policy.default(),
+        rate_limit=routes,
+    )
+
+
+def test_an_application_override_outranks_a_capability_route_declaration() -> None:
+    """The documented precedence, pinned against the resolution that actually runs.
+
+    `_rate_limit_override_map` has always promised that
+    `SecurityConfig.rate_limit_overrides` wins — "the root overrides the package … a
+    capability's default is a floor it may move rather than a decision taken away from
+    it". That held only while a capability keyed its declaration on the MOUNT, because
+    then the application's entry was the same dict key and replaced it.
+
+    ADR 0140 re-keyed the auth capability by route (`/login` and `/token` capped,
+    `/refresh` not). The limiter resolves by LONGEST matching prefix, so from that
+    moment the capability's key was the longer one and an application override on the
+    mount stopped applying — silently: declared, inert, nothing logged, nothing red. The
+    promise in the docstring had become false for exactly the case it names, and no test
+    noticed because no test asserted the promise. This is that test.
+    """
+    spec = _spec_declaring(
+        "auth",
+        {"/login": RateLimit.credentials(), "/token": RateLimit.credentials()},
+    )
+    loose = RateLimit(requests=1_000, window_seconds=60)
+    resolved = _rate_limit_override_map(
+        [spec], SecurityConfig(rate_limit_overrides=(("/api/v1/auth", loose),))
+    )
+
+    # Resolved the way the middleware resolves it: longest matching prefix wins.
+    def effective(path: str) -> tuple[int, int] | None:
+        matches = [p for p in resolved if path == p or path.startswith(p + "/")]
+        return resolved[max(matches, key=len)] if matches else None
+
+    assert effective("/api/v1/auth/login") == (1_000, 60), (
+        "the application declared a limit covering /login and must get it; a capability "
+        "key beneath the override may not outrank it"
+    )
+    assert effective("/api/v1/auth/token") == (1_000, 60)
+
+
+def test_a_capability_route_declaration_stands_when_the_app_says_nothing() -> None:
+    """The other half: absent an override, the capability's own split is untouched.
+
+    The fix above removes capability keys *beneath an override*. With no override there
+    is nothing to remove, and `/refresh` must still fall through to the general limit —
+    which is the whole point of ADR 0140 and the thing a careless fix would undo.
+    """
+    spec = _spec_declaring(
+        "auth",
+        {"/login": RateLimit.credentials(), "/token": RateLimit.credentials()},
+    )
+    resolved = _rate_limit_override_map([spec], SecurityConfig())
+    assert resolved == {
+        "/api/v1/auth/login": (RateLimit.credentials().requests, 60),
+        "/api/v1/auth/token": (RateLimit.credentials().requests, 60),
+    }
+    assert "/api/v1/auth" not in resolved, (
+        "the mount itself is not capped, so /refresh keeps the application's general "
+        "limit (ADR 0140)"
+    )
+
+
+def test_an_override_only_displaces_the_keys_it_actually_covers() -> None:
+    """Dropping is scoped to the prefix, not to the capability or to a shared stem.
+
+    Two traps a looser implementation falls into: removing every key the capability
+    declared rather than only the covered ones, and treating a string prefix as covering
+    a sibling whose name merely starts with the same characters (`/api/v1/authority`
+    is not under `/api/v1/auth`).
+    """
+    auth = _spec_declaring(
+        "auth", {"/login": RateLimit.credentials(), "/token": RateLimit.credentials()}
+    )
+    other = _spec_declaring("authority", {"/": RateLimit(requests=7, window_seconds=60)})
+    loose = RateLimit(requests=1_000, window_seconds=60)
+
+    # (a) A route-level override displaces that route and no other.
+    per_route = _rate_limit_override_map(
+        [auth, other],
+        SecurityConfig(rate_limit_overrides=(("/api/v1/auth/login", loose),)),
+    )
+    assert per_route["/api/v1/auth/login"] == (1_000, 60)
+    assert per_route["/api/v1/auth/token"] == (RateLimit.credentials().requests, 60), (
+        "only the covered key is displaced; dropping everything the capability declared "
+        "would take /token's cap away as a side effect"
+    )
+
+    # (b) A MOUNT-level override displaces the routes beneath it -- and must not touch a
+    # sibling mount whose name merely starts with the same characters. `/api/v1/authority`
+    # is not under `/api/v1/auth`, and the difference is the separator: a `startswith`
+    # without it silently uncaps an unrelated capability. This case needs the mount-level
+    # prefix to exist at all; asserted with `/api/v1/auth/login` as the override it proves
+    # nothing, because no sibling starts with that.
+    per_mount = _rate_limit_override_map(
+        [auth, other],
+        SecurityConfig(rate_limit_overrides=(("/api/v1/auth", loose),)),
+    )
+    assert per_mount["/api/v1/auth"] == (1_000, 60)
+    assert "/api/v1/auth/login" not in per_mount and "/api/v1/auth/token" not in per_mount
+    assert per_mount["/api/v1/authority"] == (7, 60), (
+        "a sibling mount sharing a name stem is not covered by the override; the "
+        "separator is what distinguishes /api/v1/auth/... from /api/v1/authority"
+    )
+
+
+def test_an_application_override_never_displaces_another_one() -> None:
+    """Dropping covers the CAPABILITY's keys, and must not reach the app's own.
+
+    The fix removes keys an override covers, and the obvious way to write it -- delete
+    out of the map while layering the application's entries into that same map -- makes
+    a later, broader override delete an earlier, narrower one. Declaring
+    `(("/api/v1/auth/login", tight), ("/api/v1/auth", loose))` then loses the `/login`
+    cap entirely, while writing the same two lines in the other order keeps it.
+
+    That is the exact defect this whole change exists to remove -- a declared limit that
+    silently does nothing -- reappearing on the recovery path ADR 0143 prescribes, which
+    is to re-declare the routes you care about. And it fails in the dangerous direction:
+    the route that quietly loosens is the credential route.
+    """
+    spec = _spec_declaring(
+        "auth",
+        {"/login": RateLimit.credentials(), "/token": RateLimit.credentials()},
+    )
+    tight = RateLimit(requests=3, window_seconds=60)
+    loose = RateLimit(requests=1_000, window_seconds=60)
+
+    for order in (
+        (("/api/v1/auth/login", tight), ("/api/v1/auth", loose)),
+        (("/api/v1/auth", loose), ("/api/v1/auth/login", tight)),
+    ):
+        resolved = _rate_limit_override_map(
+            [spec], SecurityConfig(rate_limit_overrides=order)
+        )
+        assert resolved["/api/v1/auth/login"] == (3, 60), (
+            "both of the application's own declarations survive, whichever order they "
+            f"are written in; lost /login with {order}"
+        )
+        assert resolved["/api/v1/auth"] == (1_000, 60)
+        assert "/api/v1/auth/token" not in resolved, (
+            "the capability key beneath the mount override is still displaced"
+        )
+
+
+def test_a_shorter_window_is_a_loosening_even_at_the_same_count(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A rate is a count OVER a window, and the notice has to compare the pair.
+
+    Both sides carry their own `window_seconds` and the two need not match, so comparing
+    counts alone reads 30-per-second as no change against a capability's 30-per-minute --
+    a sixtyfold loosening of a credential route, silent in the one place that exists to
+    speak about it. It is wrong in the other direction too: 100-per-hour is a twelfth of
+    30-per-minute and would be announced as a raise, which is the false alarm that
+    teaches a reader to stop reading the line.
+    """
+    spec = _spec_declaring("auth", {"/login": RateLimit(requests=30, window_seconds=60)})
+
+    with caplog.at_level(logging.WARNING):
+        _warn_loosened_capability_limit_in_production(
+            [spec],
+            SecurityConfig(
+                rate_limit_overrides=(
+                    ("/api/v1/auth", RateLimit(requests=30, window_seconds=1)),
+                )
+            ),
+        )
+    assert any("is raised to 30/1s" in record.getMessage() for record in caplog.records), (
+        "same count, one sixtieth of the window: a raise the count comparison cannot see"
+    )
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        _warn_loosened_capability_limit_in_production(
+            [spec],
+            SecurityConfig(
+                rate_limit_overrides=(
+                    ("/api/v1/auth", RateLimit(requests=100, window_seconds=3600)),
+                )
+            ),
+        )
+    assert caplog.records == [], (
+        "100/3600s is tighter per second than 30/60s; announcing it as a raise is the "
+        "false alarm that makes the real one unreadable"
+    )
+
+
+def test_production_states_a_capability_limit_this_app_has_raised(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Raising a capability's credential limit is legal, and is said out loud.
+
+    Restoring the precedence turns a dead lever into a live one, and the lever points at
+    the routes that run a memory-hard hash on the miss path. `production_problems`
+    already refuses the one move that is never right (disabling a limit); this is the
+    move that is sometimes right, so it is stated rather than refused — the same bargain
+    `_warn_unshared_idempotency_in_production` strikes.
+    """
+    spec = _spec_declaring("auth", {"/login": RateLimit.credentials()})
+    config = SecurityConfig(
+        rate_limit_overrides=(("/api/v1/auth", RateLimit(requests=1_000, window_seconds=60)),)
+    )
+    with caplog.at_level(logging.WARNING):
+        _warn_loosened_capability_limit_in_production([spec], config)
+    assert "/api/v1/auth/login" in caplog.text
+    assert "1000" in caplog.text
+
+    # A sibling mount sharing a name stem is not covered, so it is not reported. Same
+    # separator bug as the map itself, and a false report here teaches the reader to
+    # stop reading the line.
+    caplog.clear()
+    sibling = _spec_declaring("authority", {"/": RateLimit(requests=5, window_seconds=60)})
+    with caplog.at_level(logging.WARNING):
+        _warn_loosened_capability_limit_in_production([sibling], config)
+    assert caplog.text == "", (
+        "/api/v1/authority is not under the /api/v1/auth override; reporting it would be "
+        "a false alarm about a capability nobody touched"
+    )
+
+    # Tightening is not loosening, and says nothing.
+    caplog.clear()
+    tighter = SecurityConfig(
+        rate_limit_overrides=(("/api/v1/auth", RateLimit(requests=5, window_seconds=60)),)
+    )
+    with caplog.at_level(logging.WARNING):
+        _warn_loosened_capability_limit_in_production([spec], tighter)
+    assert caplog.text == ""

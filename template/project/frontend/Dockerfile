@@ -1,6 +1,6 @@
 # Frontend image (Vite dev server) for the workbench. Built from the repo root
 # (docker-compose.yml sets `context: .`) so the whole frontend/ tree is available.
-FROM node:24-slim
+FROM node:26-slim
 
 WORKDIR /app
 

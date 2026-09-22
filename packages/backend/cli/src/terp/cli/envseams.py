@@ -5,6 +5,13 @@ exactly those declarations into a per-environment ``.app.env``, and the compose 
 forward that file. That is the seam the generated AGENTS.md tells apps never to edit by
 hand, because Studio owns environment-specific values.
 
+A declaration may narrow the seam with ``"services"``, and then it is rendered into
+``.app.<service>.env`` instead — so a worker's credentials for a foreign system stop
+shipping to the api, migrate and seed containers as well. That makes the seam a pair of
+questions rather than one: not only "does something outrank the file", but "does the
+service this variable is scoped to actually forward the file it is rendered into". Both
+answers are a read of the same two checked-in facts.
+
 Compose resolves a service's ``environment:`` mapping **over** its ``env_file:`` list. So
 the moment a declared name also appears under ``environment:``, the rendered ``.app.env``
 stops reaching the container — silently, with no warning from compose and nothing in the
@@ -56,18 +63,24 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from terp.cli.envschema import (
+    APP_ENV_FILE,
     APP_ENV_SCHEMA_FILE,
+    STUDIO_RENDERS_SCOPED_FILES,
+    app_env_file_name,
+    declared_services,
     declared_variables,
     manifest_findings,
+    rendered_files,
 )
 
-#: The file Studio renders the declared values into; the compose profiles forward it.
-APP_ENV_FILE = ".app.env"
-
-#: The committed, hand-maintained template for it. `cp .app.env.example .app.env` is the
+#: The committed, hand-maintained template for the rendered files. `terp env init` is the
 #: documented way to run the workbench on the deployed seam, so this file is the app's
 #: statement of which variables the inner loop needs -- and the only file in the seam
-#: with a human rather than a renderer behind it.
+#: with a human rather than a renderer behind it. It stays ONE file even when a
+#: declaration is scoped: the per-service split is a *rendering* concern, and a committed
+#: template per service would multiply the files a human maintains for no added statement.
+#: (``APP_ENV_FILE`` itself now lives in ``envschema`` beside ``app_env_file_name``, so
+#: both halves of the seam derive every file name from one place.)
 APP_ENV_EXAMPLE_FILE = ".app.env.example"
 
 #: Hosts that mean "this machine" — inside a container, that is the container. A list of
@@ -100,12 +113,16 @@ class EnvSeamFinding:
 
     variable: str
     source: str
-    #: Compose services carrying the override; empty for a non-compose source.
+    #: Compose services the offence concerns; empty when no service carries it.
     services: tuple[str, ...]
     detail: str
-    #: ``shadowed`` (a compose block outranks .app.env), ``loopback`` (the value names
-    #: this container) or ``example`` (.app.env.example disagrees with the manifest).
-    #: They have different fixes, so the report must not offer one of them for another.
+    #: ``shadowed`` (a compose block outranks the rendered file), ``unforwarded`` (a
+    #: service the variable is scoped to does not forward the file it is rendered into),
+    #: ``unknown-service`` (it is scoped to a service no profile defines), ``loopback``
+    #: (the value names this container), ``example`` (.app.env.example disagrees with the
+    #: manifest) or ``unsupported`` (the app scopes a variable, and the deploy side cannot
+    #: render the file that scope implies yet). Each has a different fix, so the report
+    #: must never offer one of them for another.
     kind: str = "shadowed"
 
 
@@ -146,17 +163,51 @@ def _service_environment(service: object) -> dict[str, str]:
     return {}
 
 
-def _forwards_app_env(service: object) -> bool:
-    """Whether the service forwards ``.app.env`` (short or long ``env_file`` form)."""
+def _forwarded_env_files(service: object) -> frozenset[str]:
+    """The env-file names a service forwards (short or long ``env_file`` form).
+
+    The *resolved* list, which is why the compose files are read as data with PyYAML: a
+    service that declares its own ``env_file:`` replaces the anchored one rather than
+    adding to it, and that replacement is the trap this check reports. Names only -- a
+    profile may reach the file by a relative path, and the question is which file, not
+    from where.
+    """
     if not isinstance(service, dict):
-        return False
+        return frozenset()
     declared = service.get("env_file")
     entries = declared if isinstance(declared, list) else [declared]
+    names = set()
     for entry in entries:
         path = entry.get("path") if isinstance(entry, dict) else entry
-        if isinstance(path, str) and pathlib.PurePosixPath(path).name == APP_ENV_FILE:
-            return True
-    return False
+        if isinstance(path, str):
+            names.add(pathlib.PurePosixPath(path).name)
+    return frozenset(names)
+
+
+def _compose_profiles(project_root: pathlib.Path) -> list[tuple[str, dict]]:
+    """Every readable compose profile as ``(path relative to the root, services)``.
+
+    A profile this check cannot parse -- or one whose ``services`` is not a mapping -- is
+    skipped, not fatal: which seam supplies a value is not a verdict to give about YAML
+    it cannot read, and failing the gate there would make an unrelated syntax error look
+    like a seam defect.
+    """
+    profiles: list[tuple[str, dict]] = []
+    for compose_path in compose_files(project_root):
+        try:
+            compose = _load_compose(compose_path)
+        except Exception:  # noqa: BLE001, S112 - unreadable YAML is not this check's verdict
+            continue
+        services = compose.get("services")
+        if not isinstance(services, dict):
+            continue
+        profiles.append((compose_path.relative_to(project_root).as_posix(), services))
+    return profiles
+
+
+def _quoted(names: tuple[str, ...] | list[str]) -> str:
+    """Service names as the report says them, so one name and three read alike."""
+    return ", ".join(f"`{name}`" for name in names)
 
 
 def parse_dotenv(text: str) -> tuple[dict[str, str], list[tuple[int, str]]]:
@@ -280,24 +331,22 @@ def _shadowing_findings(
 ) -> list[EnvSeamFinding]:
     """Declared variables a compose ``environment:`` block overrides."""
     findings: list[EnvSeamFinding] = []
-    for compose_path in compose_files(project_root):
-        rel = compose_path.relative_to(project_root).as_posix()
-        try:
-            compose = _load_compose(compose_path)
-        except Exception:  # noqa: BLE001, S112 - unreadable YAML is not this check's verdict
-            continue
-        services = compose.get("services")
-        if not isinstance(services, dict):
-            continue
+    for rel, services in _compose_profiles(project_root):
         # (variable, how) -> the services carrying it. A shared backend anchor puts the
         # same override on every service that merges it: one offence, not six.
         overrides: dict[tuple[str, str], list[str]] = {}
         for service_name, service in sorted(services.items()):
-            if not _forwards_app_env(service):
-                # Without the .app.env seam there is nothing for this to shadow.
-                continue
+            forwarded = _forwarded_env_files(service)
             environment = _service_environment(service)
             for variable in sorted(set(environment) & set(declared)):
+                if not forwarded & rendered_files(declared[variable]):
+                    # This service is not on the receiving end of the file the value is
+                    # rendered into, so there is nothing here for it to shadow. Judged
+                    # per variable rather than per service, because a scoped variable
+                    # arrives through a file only its own services forward -- an
+                    # `environment:` block on such a worker is a real override even
+                    # though the service never touches the shared .app.env.
+                    continue
                 value = environment[variable]
                 how = (
                     f"forwarded from the host environment as `{value}`"
@@ -314,6 +363,88 @@ def _shadowing_findings(
                     detail=how,
                 )
             )
+    return findings
+
+
+def _scope_findings(
+    project_root: pathlib.Path, declared: dict[str, dict]
+) -> list[EnvSeamFinding]:
+    """Scoped variables that cannot reach a service they name.
+
+    Two offences, with different fixes: a service that is defined but does not forward
+    the file the value is rendered into (the value exists and arrives nowhere), and a
+    service name no compose profile defines at all (there is nothing to arrive at).
+
+    The second is judged across the UNION of the profiles on purpose. A service that
+    exists only in the workbench profile and deliberately not in production is correct,
+    not a defect: the engine of such an app runs where the foreign system lives, not
+    beside the control plane, and flagging that would push the app back to the hand-made
+    env file this field exists to replace.
+    """
+    profiles = _compose_profiles(project_root)
+    scoped = {
+        variable: scope
+        for variable, prop in sorted(declared.items())
+        if (scope := declared_services(prop))
+    }
+    if not scoped or not profiles:
+        # With no readable profile there is no service list to judge a name against, and
+        # answering anyway would report every scoped variable as unknown on the strength
+        # of a YAML error somewhere else.
+        return []
+
+    findings: list[EnvSeamFinding] = []
+    for rel, services in profiles:
+        for variable, scope in scoped.items():
+            missing = [
+                name
+                for name in scope
+                if name in services
+                and app_env_file_name(name) not in _forwarded_env_files(services[name])
+            ]
+            if not missing:
+                continue
+            files = ", ".join(app_env_file_name(name) for name in missing)
+            subject = "that file" if len(missing) == 1 else "each of those files"
+            findings.append(
+                EnvSeamFinding(
+                    variable=variable,
+                    source=rel,
+                    services=tuple(missing),
+                    detail=(
+                        f"is scoped to {_quoted(missing)}, so its value arrives only "
+                        f"through {files} -- add {subject} to the service's `env_file:` "
+                        "list. Careful: a service that declares its own `env_file:` "
+                        "REPLACES the anchored list (a YAML merge key replaces a "
+                        f"sequence, it does not append), so restate {APP_ENV_FILE} there "
+                        "as well or the service silently loses every shared variable"
+                    ),
+                    kind="unforwarded",
+                )
+            )
+
+    defined = {name for _, services in profiles for name in services}
+    for variable, scope in scoped.items():
+        unknown = [name for name in scope if name not in defined]
+        if not unknown:
+            continue
+        findings.append(
+            EnvSeamFinding(
+                variable=variable,
+                # The manifest is where the name is written, and where it is corrected;
+                # no single profile is at fault for a service none of them defines.
+                source=APP_ENV_SCHEMA_FILE,
+                services=(),
+                detail=(
+                    f"is scoped to {_quoted(unknown)}, which no compose profile at the "
+                    "project root defines -- so the value is rendered into a file "
+                    "nothing forwards and reaches no container. Fix the name here, or "
+                    "add the service to a profile. A service only the workbench profile "
+                    "defines is fine: every profile counts"
+                ),
+                kind="unknown-service",
+            )
+        )
     return findings
 
 
@@ -468,13 +599,61 @@ def _example_findings(
     return findings
 
 
+def _unsupported_findings(declared: dict[str, dict]) -> list[EnvSeamFinding]:
+    """Scoped declarations the deploy side cannot render yet.
+
+    The window :data:`STUDIO_RENDERS_SCOPED_FILES` describes, held shut from this side
+    because this is the side that can see it. Studio drops a manifest field it does not
+    know rather than refusing it, so without this an app that scopes a variable is green
+    here, green in the workbench, and quietly missing the value in every Studio-managed
+    environment -- the failure mode this module exists to make impossible, reached through
+    the very field added to prevent a *different* one.
+
+    Refused per variable rather than once per file: the fix is to unscope the specific
+    declarations, and a reader who has to work out *which* ones from a count is being
+    handed the diff to do by hand.
+
+    This is deliberately NOT in :func:`manifest_findings`. That function mirrors Studio's
+    own reader case by case and documents itself as "every reason Studio's fail-closed
+    reader would refuse this manifest" -- and Studio does not refuse ``services``, it
+    drops it. A refusal there would make the mirror lie about the half it mirrors. This is
+    the framework's own gate having an opinion Studio does not have, which is what a gate
+    is for.
+    """
+    if STUDIO_RENDERS_SCOPED_FILES:
+        return []
+    findings: list[EnvSeamFinding] = []
+    for variable, prop in sorted(declared.items()):
+        scope = declared_services(prop)
+        if not scope:
+            continue
+        findings.append(
+            EnvSeamFinding(
+                variable=variable,
+                source=APP_ENV_SCHEMA_FILE,
+                services=scope,
+                detail=(
+                    f'is scoped to {_quoted(scope)} with "services", which the deploy '
+                    f"side cannot render yet: it writes every declaration into "
+                    f"{APP_ENV_FILE} and drops a manifest field it does not know, so "
+                    f"this value would arrive in the workbench and never in a "
+                    f"Studio-managed environment"
+                ),
+                kind="unsupported",
+            )
+        )
+    return findings
+
+
 def env_seam_findings(project_root: pathlib.Path) -> list[EnvSeamFinding]:
     """Every declared variable whose value cannot arrive through the seam it was promised."""
     declared = declared_variables(project_root)
     if not declared:
         return []
     return [
+        *_unsupported_findings(declared),
         *_shadowing_findings(project_root, declared),
+        *_scope_findings(project_root, declared),
         *_loopback_findings(project_root, declared),
         *_example_findings(project_root, declared),
     ]
@@ -511,10 +690,18 @@ def run_env_seams_check(project_root: pathlib.Path) -> tuple[int, str]:
         return 0, f"{APP_ENV_SCHEMA_FILE} declares no variables - nothing to shadow"
     findings = env_seam_findings(project_root)
     if not findings:
-        return 0, (
-            f"{len(declared)} declared variable(s) reach the app through {APP_ENV_FILE}, "
-            f"and {APP_ENV_EXAMPLE_FILE} carries one entry for each"
+        # An app that scopes nothing must read exactly what it read before the field
+        # existed; the scope count is only mentioned when there is something to count.
+        # The example clause stays unconditional because that file is ONE file however
+        # the declarations are scoped, so it always carries one entry for each.
+        scoped = sum(1 for prop in declared.values() if declared_services(prop))
+        summary = (
+            f"{len(declared)} declared variable(s) reach the app through "
+            f"{APP_ENV_FILE}, and {APP_ENV_EXAMPLE_FILE} carries one entry for each"
         )
+        if scoped:
+            summary += f" ({scoped} of them scoped to named services)"
+        return 0, summary
     lines = [
         f"{len(findings)} app-declared variable(s) cannot arrive through the seam "
         f"{APP_ENV_SCHEMA_FILE} promises.",
@@ -529,8 +716,11 @@ def run_env_seams_check(project_root: pathlib.Path) -> tuple[int, str]:
             lines.append(f"    {subject}{finding.detail}")
             if finding.services:
                 lines.append(f"      in: {', '.join(finding.services)}")
-    # The two kinds have different fixes; offering the precedence recipe for a loopback
-    # value would be a confident answer to a question nobody asked.
+    # The kinds have different fixes; offering the precedence recipe for a loopback value
+    # -- or for a service that simply does not forward its file -- would be a confident
+    # answer to a question nobody asked. The two scope kinds name a per-service file, so
+    # their fix rides in the finding itself, where it can say which file; only the
+    # precedence rule is general enough to state once for the whole report.
     if any(finding.kind == "shadowed" for finding in findings):
         lines += [
             "",
@@ -550,6 +740,21 @@ def run_env_seams_check(project_root: pathlib.Path) -> tuple[int, str]:
             f"the manifest is its allow-list: one entry per declared name, no others, and",
             'an empty value for anything declared "format": "secret" -- this file is',
             "committed.",
+        ]
+    if any(finding.kind == "unsupported" for finding in findings):
+        # The one recipe worth stating once for the whole report: the fix is the same for
+        # every scoped declaration, and it is not a fix to the app's own wiring.
+        lines += [
+            "",
+            'The "services" field is read and checked here a release before the deploy',
+            "side can render what it implies, and the deploy side DROPS a field it does",
+            "not know rather than refusing it. So a scoped variable is not half-supported",
+            "-- it is supported locally and absent in production, with nothing to say so.",
+            "",
+            'Fix: remove "services" from those declarations. The value then rides the',
+            f"shared {APP_ENV_FILE} as it did before, which every backend service",
+            "forwards. Re-scope them once a Terp Studio release renders the per-service",
+            "files (ADR 0124 names what has to move on that side).",
         ]
     lines.append("See: terp guide environment")
     return 1, "\n".join(lines)

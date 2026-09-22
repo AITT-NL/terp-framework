@@ -54,14 +54,29 @@ decision. Compose the app in a fixture (the pattern ``apps/example/tests/conftes
 uses) when a test needs the whole runtime, or use :func:`terp_events` /
 :func:`terp_audit` when a service-level test needs only the event bus or only the
 durable audit sink. See ``terp guide testing``.
+
+**The database fixtures are here for a different reason.** ADR 0069 makes two dialects
+normative — SQLite for development and test, PostgreSQL for production — and the
+platform enforces that at runtime, so an app owner is told the matrix is real. The
+executed proof of it, though, was the framework's own parametrized ``db_url`` fixture,
+which lived in a private test tree and was in no shipped distribution. So the platform's
+migrations were proven on both dialects while a consumer's own — the ones carrying the
+business schema — were proven on SQLite alone, and every hand-reasoned portability
+decision (a partial index's predicate, a CHECK's spelling, a conditional aggregate, how
+a UUID compares) sat in the untested gap. :func:`terp_db_url` and :func:`terp_pg_url`
+publish that fixture: same behaviour, same skip, now nameable from an app's own suite.
 """
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
+import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Protocol
 
 import pytest
+from sqlalchemy import event as sa_event
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from terp.core.audit import AuditPolicy, AuditSink
@@ -72,13 +87,41 @@ __all__ = [
     "InstallAudit",
     "InstallEvents",
     "InstallLeases",
+    "QueryLog",
+    "TERP_POSTGRES_URL_ENV",
+    "TERP_REQUIRE_POSTGRES_LANE_ENV",
+    "assert_max_queries",
+    "count_queries",
     "terp_audit",
+    "terp_db_url",
     "terp_default_runtime",
     "terp_events",
     "terp_leases",
+    "terp_pg_url",
     "terp_runtime_isolation",
 ]
 
+#: Where the PostgreSQL lane finds its server. Unset, the lane skips — an offline run
+#: and a run with no database are unchanged, which is what makes the fixture safe to
+#: ship to every consumer rather than something they have to opt into per project.
+TERP_POSTGRES_URL_ENV = "TERP_TEST_POSTGRES_URL"
+
+#: Set by a lane that has just started a PostgreSQL server on purpose, to turn this
+#: fixture's skip into a failure.
+#:
+#: A skip is GREEN, and a check that silently does not run is worse than not having one,
+#: because the green implies it ran. Locally the skip is right — a developer with no
+#: PostgreSQL should not be blocked by a PostgreSQL-only lane. In CI, where the workflow
+#: declares the service and installs the client, a skip means one of those steps stopped
+#: working and nothing else would say so: the dialect half of a two-dialect matrix would
+#: quietly stop being tested and every run would stay green.
+TERP_REQUIRE_POSTGRES_LANE_ENV = "TERP_REQUIRE_POSTGRES_LANE"
+
+
+# The query-counting helpers moved to `terp.core._query_count` when this module
+# crossed the 500-line cap; re-exported here because `terp.core.testing` is the
+# import path a test already knows and the split is an internal one.
+from terp.core._query_count import QueryLog, assert_max_queries, count_queries
 
 class InstallLeases(Protocol):
     """What :func:`terp_leases` hands a test: ``configure_leases``' own signature.
@@ -333,3 +376,85 @@ def terp_audit() -> InstallAudit:
     from terp.core.audit import configure_audit
 
     return configure_audit
+
+
+def _postgres_scratch_database() -> Iterator[str]:
+    """A scratch PostgreSQL database for one test; skips when no server is configured.
+
+    Created and force-dropped per test rather than shared, because a migration test's
+    whole subject is what the schema looks like — a leftover table from the previous
+    test is not a fixture detail, it is the answer. ``WITH (FORCE)`` because a
+    connection this test has already disposed can still be closing on the server side,
+    and a ``DROP DATABASE`` that loses that race leaves scratch databases behind.
+    """
+    import os
+    import uuid
+
+    from sqlalchemy.engine import make_url
+
+    from terp.core.db import maintenance_engine
+
+    admin_url = os.environ.get(TERP_POSTGRES_URL_ENV)
+    if not admin_url:
+        reason = (
+            f"set {TERP_POSTGRES_URL_ENV} to run the PostgreSQL lane "
+            "(it points at a server this test may create scratch databases on)"
+        )
+        if os.environ.get(TERP_REQUIRE_POSTGRES_LANE_ENV):
+            pytest.fail(
+                f"{reason}. {TERP_REQUIRE_POSTGRES_LANE_ENV} is set, so this is a "
+                "failure rather than a skip: the lane declared that it runs these "
+                "tests and cannot"
+            )
+        pytest.skip(reason)
+    scratch = f"terp_test_{uuid.uuid4().hex[:12]}"
+    admin = maintenance_engine(admin_url)
+    try:
+        with admin.connect() as connection:
+            connection.exec_driver_sql(f'CREATE DATABASE "{scratch}"')
+        yield make_url(admin_url).set(database=scratch).render_as_string(
+            hide_password=False
+        )
+    finally:
+        with admin.connect() as connection:
+            connection.exec_driver_sql(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
+        admin.dispose()
+
+
+@pytest.fixture(params=["sqlite", "postgresql"])
+def terp_db_url(request: pytest.FixtureRequest, tmp_path: Any) -> Iterator[str]:
+    """A scratch database URL, once per verified dialect (ADR 0069).
+
+    A test that takes this runs **twice**: on SQLite, and on PostgreSQL when
+    ``TERP_TEST_POSTGRES_URL`` points at a server. Without a server the second run
+    skips, so an offline checkout is unchanged and CI gets the lane by declaring a
+    service — which is the shape that makes two-dialect testing something a project
+    turns on rather than something it builds.
+
+    Use it for anything whose answer can differ between the two: a migration's forward
+    and reverse direction, a schema-drift check, a partial index's predicate, a CHECK's
+    spelling, a conditional aggregate, how a UUID compares. Terp enforces the two-dialect
+    matrix at runtime, and this is what lets an app's own suite hold it::
+
+        def test_the_schema_matches_the_models(terp_db_url: str) -> None:
+            upgrade(terp_db_url, APP_ROOT, package="app")
+            assert_migrations_match_models(terp_db_url, APP_ROOT, package="app")
+
+    Each run gets its own database, so the tests are order-independent and repeatable.
+    """
+    if request.param == "sqlite":
+        yield f"sqlite:///{tmp_path / 'terp-test.db'}"
+        return
+    yield from _postgres_scratch_database()
+
+
+@pytest.fixture
+def terp_pg_url() -> Iterator[str]:
+    """A scratch PostgreSQL URL, for a test that only makes sense on the server.
+
+    The PostgreSQL-only half of :func:`terp_db_url`, for behaviour SQLite has no
+    equivalent of at all — a schema-per-module layout, a native ``ALTER`` path, a
+    server-side constraint name. Skips with the same message when no server is
+    configured, so it is never the reason a local run fails.
+    """
+    yield from _postgres_scratch_database()

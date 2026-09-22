@@ -15,7 +15,7 @@ import pathlib
 import re
 
 from terp.arch._ast import _SECURITY_SKIP_DIRS, base_name, iter_python_files, parse
-from terp.arch.rules._support import ArchViolation, _module_under, _rel
+from terp.arch.rules._support import ArchViolation, _rel
 
 _CREDENTIAL_NAME_PARTS = (
     "password",
@@ -83,6 +83,113 @@ def _literal_string(node: ast.expr) -> str | None:
     return None
 
 
+#: Name endings that say the value NAMES something rather than holds it, each paired
+#: with the grammar that claim implies. A suffix alone is never enough -- ``TOKEN_ENV =
+#: "sk-live-abc123"`` is still a credential -- so the value has to look like the thing
+#: the suffix says it is. ``_KEY`` is deliberately absent: that IS the credential word.
+#:
+#: Each pattern earns its place by REFUSING a password, which is a sharper bar than
+#: "looks plausible". A plain identifier pattern does not clear it: ``hunter2`` is a
+#: valid identifier, a valid header name and a valid env-var name once upper-cased, so
+#: an identifier-shaped exemption exempts exactly the passwords people actually write.
+#: This repository's own suite caught that on the first attempt at this rule. So the
+#: conventions do the discriminating instead -- an environment variable's name is
+#: multi-word, an HTTP header's name is hyphenated, a path starts at a root -- and each
+#: pattern requires the separator that convention implies.
+_STRUCTURAL_SUFFIXES = {
+    # An environment variable's name: UPPER_SNAKE, and more than one word.
+    "env": re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$"),
+    # A URL or filesystem path, which starts at a root or at the current directory.
+    "path": re.compile(r"^[./][^\s]*$"),
+    # An HTTP header's name: hyphenated, or one of the registered single words.
+    #
+    # The hyphen rule alone refused `AUTH_TOKEN_HEADER = "Authorization"` -- the header
+    # an app wiring a client actually names, and therefore most of the markers this
+    # exemption exists to retire. A registered header name is not a password shape:
+    # a password does not happen to equal one.
+    "header": re.compile(
+        r"^(?:[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+"
+        r"|Authorization|Authentication|Cookie|Origin|Referer)$"
+    ),
+}
+
+#: Suffixes whose value is only exempt when it SPELLS THE NAME ITSELF -- the same
+#: reasoning as the self-naming enum member, generalised. ``CLIENT_SECRET_FIELD =
+#: "client_secret"`` carries no secret material: the literal is the identifier's own
+#: wire spelling. No grammar could stand in for this, because a field name and a
+#: password are the same shape; only the equality is evidence.
+_SELF_NAMING_SUFFIXES = frozenset({"field", "column", "param", "reference"})
+
+#: A literal with a substitution slot is a wire FORMAT, not a credential: the part that
+#: would be secret is the part that is not there.
+#:
+#: Gated on the NAME as well, and the first version was not -- which made it by far the
+#: worst thing in this file. Consulted for every credential-shaped name, it exempts any
+#: secret that happens to contain a brace pair or a %-slot, and generated passwords and
+#: pasted service-account JSON routinely do: `DB_PASSWORD = "aB3{xY9}qZ"` and
+#: `API_SECRET = '{"type": "service_account", ...}'` both went silently clean. The
+#: literal-format scan does not cover them either, because it only knows AKIA / ghp_ /
+#: github_pat_ / PEM headers.
+#:
+#: So a format has to SAY it is one. That is no loss: a name is what the author controls,
+#: and every real case of this shape is already called `*_FORMAT` or `*_TEMPLATE`.
+_TEMPLATE_RE = re.compile(r"\{[^{}]*\}|%\([A-Za-z_][A-Za-z0-9_]*\)[sdr]|%[sdr](?![A-Za-z])")
+
+#: Name endings that declare a value to be a wire format rather than a value.
+_FORMAT_SUFFIXES = frozenset({"format", "template", "pattern"})
+
+
+def _environment_key_names(tree: ast.AST) -> set[str]:
+    """Names this module itself uses as an environment-variable key.
+
+    ``TOKEN_ENV = "SOME_API_TOKEN"`` followed by ``os.environ[TOKEN_ENV]`` is the
+    module stating, in code, that the literal is the NAME of a credential rather than
+    one. That is the strongest evidence available without leaving the file, and it is
+    evidence the rule already had in front of it.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        key: ast.expr | None = None
+        if isinstance(node, ast.Subscript) and base_name(node.value) == "environ":
+            key = node.slice
+        elif isinstance(node, ast.Call) and node.args:
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == "getenv":
+                key = node.args[0]
+            elif isinstance(func, ast.Attribute) and (
+                func.attr == "getenv"
+                or (func.attr == "get" and base_name(func.value) == "environ")
+            ):
+                key = node.args[0]
+        if isinstance(key, ast.Name):
+            names.add(key.id)
+    return names
+
+
+def _structurally_not_a_credential(name: str, literal: str, env_keys: set[str]) -> bool:
+    """Three shapes a credential cannot take, however credential-shaped the name is.
+
+    The matcher stays broad on purpose -- narrowing the name list would lose real
+    findings -- so these say what the VALUE is instead. The reason to have them at all
+    is that the escape-hatch budget is this platform's only friction metric and its only
+    ratchet: once a reviewer learns that a marker for this rule is usually nothing, the
+    one that is something gets the same glance, and a fail-closed control has quietly
+    become decoration.
+    """
+    if name in env_keys:
+        return True
+    stem, _, suffix = name.rpartition("_")
+    suffix = suffix.lower()
+    if suffix in _FORMAT_SUFFIXES and _TEMPLATE_RE.search(literal):
+        return True
+    grammar = _STRUCTURAL_SUFFIXES.get(suffix)
+    if grammar is not None:
+        return bool(grammar.fullmatch(literal))
+    if suffix in _SELF_NAMING_SUFFIXES and stem:
+        return literal.lower().replace("-", "_") == stem.lower()
+    return False
+
+
 _ENUM_BASES = frozenset(
     {"Enum", "StrEnum", "IntEnum", "IntFlag", "Flag", "ReprEnum", "TextChoices"}
 )
@@ -123,25 +230,52 @@ def _self_naming_enum_member_lines(tree: ast.AST) -> set[int]:
 def check_no_hardcoded_credentials(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
-    """App modules do not hard-code credentials or recognizable secret tokens.
+    """App code does not hard-code credentials or recognizable secret tokens.
 
     A credential-shaped assignment to a non-empty string literal is almost always a
     secret that should come from sealed config / environment wiring, not source. The
-    rule also rejects common high-confidence secret literal formats anywhere in a
-    module so leaked keys are caught even when assigned to a bland variable name.
-    As a security rule this also scans ``tests/`` and ``migrations/`` dirs inside a
-    module — a real secret is a leak wherever it is committed. One shape is exempt:
-    an enum member whose literal is its own name (``SECRET_REFERENCE =
-    "secret_reference"``) is vocabulary, carrying no secret material.
+    rule also rejects common high-confidence secret literal formats anywhere in the
+    tree so leaked keys are caught even when assigned to a bland variable name.
+
+    Scope is the **whole scanned root**, not ``modules/`` (ADR 0136). A secret is a
+    leak wherever it is committed, and the places it most often lands — a
+    composition root wiring a client, a sibling worker package, a conftest — are
+    exactly the ones outside the module tree. ``tests/`` and ``migrations/`` are
+    scanned for the same reason.
+
+    Four shapes are exempt, and each says something about the VALUE rather than
+    softening the name list -- narrowing the names would lose real findings:
+
+    * an enum member whose literal is its own name (``SECRET_REFERENCE =
+      "secret_reference"``) is vocabulary, carrying no secret material;
+    * a name the module itself uses as an environment key (``TOKEN_ENV =
+      "SOME_API_TOKEN"``, then ``os.environ[TOKEN_ENV]``) is the NAME of a
+      credential, which the module states in code;
+    * a ``_ENV`` / ``_PATH`` / ``_HEADER`` name whose value matches the grammar that
+      suffix implies, where each grammar is chosen to REFUSE a password: an
+      environment variable's name is multi-word, a header's name is hyphenated, a
+      path starts at a root. ``TOKEN_ENV = "sk-live-abc123"`` is still a credential,
+      and so is ``TOKEN_ENV = "HUNTER2"``;
+    * a ``_FIELD`` / ``_COLUMN`` / ``_PARAM`` / ``_REFERENCE`` name whose value spells
+      the name itself (``CLIENT_SECRET_FIELD = "client_secret"``) -- the enum case
+      generalised. No grammar can serve here, because a field name and a password are
+      the same shape; only the equality is evidence;
+    * a ``_FORMAT`` / ``_TEMPLATE`` / ``_PATTERN`` name whose literal carries a
+      substitution slot (``"Bearer {token}"``) is a wire FORMAT: the part that would
+      be secret is the part that is not there. The suffix is required, because a
+      generated password or a pasted service-account JSON contains a brace pair too.
+
+    None of them weakens the literal-format scan, which reads every string in the
+    tree regardless of the name it is bound to -- so a real key pasted into any of
+    these shapes is still caught.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in iter_python_files(root, skip_dirs=_SECURITY_SKIP_DIRS):
-        if _module_under(path, package) is None:
-            continue
         tree = parse(path)
         rel = _rel(path, root)
         vocabulary_lines = _self_naming_enum_member_lines(tree)
+        env_keys = _environment_key_names(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign | ast.AnnAssign):
                 if node.lineno in vocabulary_lines:
@@ -150,7 +284,14 @@ def check_no_hardcoded_credentials(
                 if node.value is not None:
                     for target in targets:
                         for name, paired in _assignment_pairs(target, node.value):
-                            if _literal_string(paired) and _credential_shaped(name):
+                            literal = _literal_string(paired)
+                            if (
+                                literal
+                                and _credential_shaped(name)
+                                and not _structurally_not_a_credential(
+                                    name, literal, env_keys
+                                )
+                            ):
                                 violations.append(
                                     ArchViolation(
                                         "no_hardcoded_credentials",

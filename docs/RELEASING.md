@@ -37,6 +37,14 @@ before the first tag**: the lockstep `==` pins mean a partially published releas
 uninstallable until every sibling is on the index (`skip-existing: true` makes a
 re-run complete the remainder).
 
+`verify` now asks the index that question before anything is uploaded
+(`tools/check_pypi_projects.py`, push-only), so a distribution with no project
+refuses the release in seconds and names the procedure below. It is a preflight, not
+a fix: creating the project is still the manual sequence, and the check is deliberately
+absent from the dispatch path because that path is how a project gets created. Before
+it existed the answer arrived mid-upload — 0.19.0 published five distributions, then
+stopped on `terp-cap-egress`, which was new.
+
 #### Bootstrapping brand-new projects (per-package publish)
 
 PyPI's *pending* publisher is keyed by `(owner, repository, workflow, environment)` and
@@ -95,14 +103,25 @@ carries the rule.
    `_AWAITING_SPEC_RELEASE` (`tests/architecture/test_spec_catalog.py`, ADR 0116). That
    list is what lets `main` carry a rule whose catalog entry is not in the *installed*
    release yet, so this merge is green instead of knowingly red.
+
+   **An assurance *lane* moves the same way, through its own list.** The spec's lane
+   vocabulary is normative and pinned in two places — the schema's enum and
+   `ASSURANCE_LANES` here — and `test_assurance_lanes_mirror_the_pinned_spec_vocabulary`
+   holds them equal against the installed release. A lane this toolchain realises ahead
+   of the release that declares it goes in `_AWAITING_SPEC_RELEASE` in
+   `tests/architecture/test_cli_verify.py`, which is a separate list from the rule one
+   and empties at the same step 4. `test_no_lane_awaits_a_spec_release_it_already_had`
+   fails on a name left behind, so the allowance cannot rot into an exemption from the
+   one assertion that holds the two vocabularies together.
 2. **terp-spec second.** Its certification now runs against a `main` that implements the
    rule, so it passes and the catalog merges normally — no override on a protected branch.
 3. **Release terp-spec.** The tag's verify job certifies against the same `main` and
    publishes.
 4. **Come back here and close the window.** Move the four declarations above to the new spec
-   version, re-lock, and **empty `_AWAITING_SPEC_RELEASE`** — a framework release cannot be
-   cut while it is non-empty, and a listed rule whose entry has since been published fails
-   the staleness check, so neither half can be forgotten.
+   version, re-lock, and **empty both `_AWAITING_SPEC_RELEASE` lists** (the rule one in
+   `test_spec_catalog.py`, the lane one in `test_cli_verify.py`) — a framework release
+   cannot be cut while either is non-empty, and a listed name whose entry has since been
+   published fails the staleness check, so no half can be forgotten.
 
 A release that only *records* behaviour this repository already ships — a residual promoted
 to required, say — collapses to step 2 alone, and that is the case most likely to be
@@ -156,6 +175,9 @@ create packages.
 
 1. Confirm every manifest carries the release version and `CHANGELOG.md` records it —
    `uv run pytest tests/architecture/test_release_versions.py` proves the lockstep.
+   If the release adds a distribution, bootstrap its PyPI project first (above);
+   `uv run python tools/check_pypi_projects.py` answers that locally, and `verify`
+   refuses the tag if you skip it.
 2. Confirm CI is green on `main` at the release commit — and if you check locally first,
    run the command the workflow runs, not an approximation of it:
 

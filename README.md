@@ -51,7 +51,8 @@ vendor/terp-core                byte-for-byte mirror of packages/backend/core
 ## Quickstart
 
 ```bash
-uv run pytest                      # syncs the workspace and runs the full gate
+uv run coverage run -m pytest      # syncs the workspace and runs the suite
+uv run coverage report             # the 100% coverage bar the gate also enforces
 ```
 
 Without `uv`, use a venv with the kernel installed editable:

@@ -21,6 +21,7 @@ import json
 import pathlib
 import re
 import subprocess
+from dataclasses import dataclass
 from importlib import metadata
 
 #: Distribution-name prefix every platform package shares (``terp-core``,
@@ -189,13 +190,14 @@ def _version_key(version: str) -> tuple[int, ...]:
 _ANSWERS_FILES = (".copier-answers.yml", ".copier-answers.yaml")
 
 
-def scaffold_ref(root: pathlib.Path) -> str | None:
-    """The template ref this app's scaffolding was rendered from, if it records one.
+def _answers_scalar(root: pathlib.Path, key: str) -> str | None:
+    """One top-level scalar from the copier answers file, or ``None``.
 
     Read with a line scan rather than a YAML parser to keep this module dependency-free
-    (the file is generated, and ``_commit`` is a plain scalar). ``None`` for an app that
-    was never scaffolded from the template.
+    (the file is generated, and the keys read through here are plain scalars). The split
+    takes the FIRST colon, so a Windows ``_src_path`` keeps its drive letter.
     """
+    prefix = f"{key}:"
     for name in _ANSWERS_FILES:
         answers = root / name
         try:
@@ -203,12 +205,52 @@ def scaffold_ref(root: pathlib.Path) -> str | None:
         except OSError:
             continue
         for line in text.splitlines():
-            if line.startswith("_commit:"):
+            if line.startswith(prefix):
                 return line.split(":", 1)[1].strip().strip("'\"") or None
     return None
 
 
-def _scaffold_lines(root: pathlib.Path, platform: str) -> list[str]:
+def scaffold_ref(root: pathlib.Path) -> str | None:
+    """The template ref this app's scaffolding was rendered from, if it records one.
+
+    ``None`` for an app that was never scaffolded from the template.
+    """
+    return _answers_scalar(root, "_commit")
+
+
+#: The scaffolding files copier seeds once and never overwrites — ``_skip_if_exists`` in
+#: ``template/copier.yml``. Everything else the template owns *is* rewritten by a
+#: re-render, and that is the half a reader actually needs: the report used to name three
+#: template-owned files as though they were the list, so someone weighing whether a
+#: re-render would deliver a fix to, say, the Compose file had no way to tell from it.
+#:
+#: Some are authored (``theme.css``) and some are app-generated (``routes.gen.d.ts``), so
+#: what the report can honestly say about the set is not that it carries hand-written
+#: content but that copier seeds it once and it is the app's afterwards.
+#:
+#: Duplicated here because the template does not ship inside this wheel, so the CLI cannot
+#: read ``copier.yml`` at runtime. Held against it by
+#: ``test_the_app_owned_scaffold_list_matches_copier`` — the same treatment the theme
+#: bootstrap's three duplicated facts get, so this list cannot rot into a wrong answer.
+_APP_OWNED_SCAFFOLD_FILES = (
+    "control_plane/app_operations.py",
+    "environment.schema.json",
+    "escape-hatch-budget.json",
+    "frontend/layout-contract.json",
+    "frontend/src/house-style.css",
+    "frontend/src/routes.gen.d.ts",
+    "frontend/src/theme.css",
+    "workbench.json",
+)
+
+
+def _scaffold_lines(
+    root: pathlib.Path,
+    platform: str,
+    *,
+    include_command: bool = True,
+    blocked_because: str | None = None,
+) -> list[str]:
     """Report how far the app's *scaffolding* is behind its *packages*.
 
     The two move independently and only one of them is gated. Package drift already fails
@@ -241,43 +283,319 @@ def _scaffold_lines(root: pathlib.Path, platform: str) -> list[str]:
         "",
         f"Scaffolding: rendered from template {ref}, while the packages are on "
         f"{platform}.",
-        "Files the template owns — main.tsx, index.html, AGENTS.md — are still the",
-        "older release's. Nothing gates this, so it stays green; a stale AGENTS.md in",
-        "particular briefs every agent from the wrong rulebook. theme.css,",
-        "house-style.css and layout-contract.json are NOT in that list: they carry the",
-        "app's own content, so a re-render leaves them alone (copier _skip_if_exists).",
+        "A re-render rewrites EVERY file the template owns — main.tsx, index.html,",
+        "AGENTS.md, the Dockerfiles, docker-compose.yml, the CI workflows — so any fix a",
+        "release made to one of them may still be waiting here. WHICH of them actually",
+        "differ is not something this can say: it compares two version numbers, and a",
+        "file no release has touched since is already current. Nothing gates any of it,",
+        "so it stays green either way — and the two that cost the most when they are",
+        "behind are AGENTS.md, which briefs every agent working here, and",
+        "docker-compose.yml, which can serve a dev stack that disagrees with the",
+        "checkout the boundary lint reads.",
+        "These are seeded once and then the app's, so a re-render leaves them alone:",
+        *(f"  {name}" for name in _APP_OWNED_SCAFFOLD_FILES),
+        *_rerender_offer(include_command=include_command, blocked_because=blocked_because),
+    ]
+
+
+def _rerender_offer(*, include_command: bool, blocked_because: str | None) -> list[str]:
+    """How the scaffolding report closes: the command, why it is unavailable, or nothing.
+
+    Suppressed when a recipe above already numbered the re-render as a step — the same
+    command printed twice in one report reads as two different things to do, and the
+    recipe's copy is the one with the tree-cleaning step before it.
+
+    Replaced outright when something local already rules the re-render out. Offering a
+    command that cannot run is worse than offering none, because a reader takes it for
+    the way forward and finds out three steps in.
+    """
+    if blocked_because is not None:
+        return ["", f"  A re-render is unavailable here: this app {blocked_because}."]
+    if not include_command:
+        return []
+    return [
+        "",
         "  Re-render:  copier update  (or the Studio's upgrade flow, which records the",
         "              answers file it needs).",
     ]
 
 
-def render_upgrade_check(root: pathlib.Path | None = None) -> str:
-    """Report whether the whole lockstep set can move, and to what."""
+#: Reading one ref out of a checkout already on disk, so this guards against a
+#: pathological repository rather than budgeting for a network round trip the way
+#: ``_UV_TIMEOUT_SECONDS`` does.
+_GIT_TIMEOUT_SECONDS = 10
+
+
+def _git_rc(cwd: pathlib.Path, *args: str) -> int | None:
+    """Exit code of a local ``git`` call, or ``None`` when git itself could not run.
+
+    ``None`` means "no answer", never "no". Both callers below are only allowed to rule a
+    re-render out on certain evidence, so a git that is missing, refused or slow has to
+    leave the recommendation exactly as it found it.
+    """
+    # The answers-file values ride as argv elements and never as a command line, so a
+    # hostile _src_path or ref is an argument git rejects rather than anything it runs.
+    argv = ["git", "-C", str(cwd), *args]
+    try:
+        completed = subprocess.run(  # noqa: S603 — fixed argv, no shell
+            argv,
+            capture_output=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return completed.returncode
+
+
+def _is_git_checkout(root: pathlib.Path) -> bool:
+    """Whether *root* sits inside a git work tree, which ``copier update`` needs.
+
+    A ``.git`` entry is proof on its own and costs nothing to look for — it covers the
+    ordinary app, which lives at its repository root. Its ABSENCE proves nothing, so that
+    case is put to git instead: an app vendored into a subdirectory of a larger repository
+    has no ``.git`` of its own and updates perfectly well. Answering from the presence
+    check alone would reproduce this command's own bug one level down — a confident wrong
+    answer that withholds the recipe the reader needs.
+    """
+    if (root / ".git").exists():
+        return True
+    # 128 is git refusing outright: not inside a work tree. Anything else — including no
+    # answer at all — leaves the re-render on the table.
+    return _git_rc(root, "rev-parse", "--is-inside-work-tree") != 128
+
+
+def _ref_resolves(source: str, ref: str) -> bool:
+    """Whether *ref* is still present in a template checkout at *source*.
+
+    Only ever used to RULE OUT a re-render, so everything it cannot check locally answers
+    ``True``: a URL ``_src_path``, a directory that is not there, a git that fails for any
+    reason. Reading "could not check" as "missing" would route every network-hosted
+    template — the common case, and the one that works — to hand-pinning on no evidence.
+    """
+    path = pathlib.Path(source)
+    if not path.is_dir():
+        return True
+    # Only a clean "no such ref" (1) proves absence. 128 is git declining the question
+    # because `source` is not a repository at all, and a question nobody answered must not
+    # be reported as a pruned tag — that would name the wrong obstacle with full
+    # confidence, which is the failure this whole check exists to stop making.
+    return _git_rc(path, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}") != 1
+
+
+def _copier_update_blocker(root: pathlib.Path) -> str | None:
+    """Why ``copier update`` cannot run here, phrased for the report — or ``None``.
+
+    A recorded ``_commit`` used to be the whole test, and it is only the first of three
+    things copier needs. It also needs a git checkout to apply the update to, and a ref
+    that still resolves in the template it was rendered from — tags do get pruned, and a
+    template pinned to a local path can simply not carry the one recorded here. Both of
+    those fail at the recipe's own third step, after it has been followed that far.
+
+    The cost of getting this wrong is asymmetric, which is what makes it worth more than
+    a line scan. The two recipes are deliberately mutually exclusive, so a false positive
+    does not merely print an unrunnable step: it WITHHOLDS the hand-pin recipe, whose
+    step 3 is the one that says to pin every npm manifest rather than only the frontend's.
+    A stale ``conformance/package.json`` is precisely what that step exists to prevent.
+
+    Local, certain checks only, and every uncertain answer leaves the re-render on the
+    table: a remote ``_src_path`` needs the network, a template directory that is no
+    repository cannot be asked, an app below its repository root has no ``.git`` of its
+    own, and a git that will not run answers nothing at all. Each of those keeps the
+    re-render recipe. Trading this command's false positive for a false negative would
+    only move the damage to the other set of apps.
+    """
+    ref = scaffold_ref(root)
+    if ref is None:
+        return (
+            "records no template answers file, so `copier update` has nothing to "
+            "re-render from"
+        )
+    if not _is_git_checkout(root):
+        return "is not a git checkout, which `copier update` needs to apply an update"
+    source = _answers_scalar(root, "_src_path")
+    if source is not None and not _ref_resolves(source, ref):
+        return f"records template ref {ref}, which {source} no longer carries"
+    return None
+
+
+def _rerender_recipe(target: str, current: str, count: int) -> list[str]:
+    """The upgrade for an app the template rendered: re-render first, sync once.
+
+    The order used to be the other way round and could not be followed as printed.
+    Steps 2 to 4 were "edit the pins, uv sync, npm install", and the re-render came
+    after them — but ``copier update`` refuses a dirty tree, so the recipe's own
+    earlier steps made its last step impossible, and whoever followed it had to stash
+    halfway through.
+
+    Worse, those pin edits were work the re-render does. The template owns
+    ``pyproject.toml``, ``frontend/package.json`` and ``conformance/package.json``, so
+    a re-render writes every one of those pins itself. The old recipe even warned that
+    "a recipe that names only one is how the other goes stale" — which is an admission
+    that the hand-pinning step was a footgun, for a job already done one step later.
+
+    So: read, clean the tree, re-render, resolve, sync once, confirm, verify.
+    """
+    return [
+        "",
+        f"All {count} terp-* distributions can move to {target} together, and the",
+        "@terpjs/* packages move with them. Re-render FIRST — the template owns",
+        "pyproject.toml and both npm manifests, so the re-render writes every pin",
+        "itself, and it refuses to run on a tree with uncommitted changes:",
+        "",
+        "  1. Read what changed — only what you have not seen, Security first:",
+        f"       uvx --from terp-cli=={target} terp guide changelog --since {current}",
+        f"     (the {target} notes; the copy installed here ends at {current}).",
+        "  2. Commit or discard what you have. A re-render on a dirty tree is refused,",
+        "     and its own diff is much easier to review on its own.",
+        "  3. copier update          (or the Studio's upgrade flow, which records the",
+        "     answers file it needs). This rewrites EVERY file the template owns and",
+        "     writes the terp-* and @terpjs/* pins for you.",
+        "  4. Resolve what it reports. Two conflicts are structural rather than bad luck,",
+        "     because the template owns the file and your app also writes to it:",
+        "       pyproject.toml            keep your dependencies, take the terp-* pins.",
+        "       control_plane/operations.py  the capability folding is the template's;",
+        "                                 your own operations belong in",
+        "                                 control_plane/app_operations.py, which no",
+        "                                 re-render touches (ADR 0130).",
+        "  5. uv sync --refresh && npm --prefix frontend install",
+        "     (once, now that the manifests are final — not before the re-render.)",
+        "  6. uv run terp --version          (confirm the set agrees)",
+        "  7. uv run terp verify --profile full",
+        "",
+        "  Running the dev stack in containers?",
+        "  Rebuild it rather than reloading into it: the images bake the terp packages",
+        "  in while the source is bind-mounted, so correct new code reloads against old",
+        "  libraries and dies on an import nowhere near its cause. `terp docker dev`",
+        "  rebuilds on a pyproject.toml change; a plain `docker compose up` does not,",
+        "  and `terp verify` now refuses the skew either way.",
+        "",
+        "A green gate proves the upgrade did not break this app. It cannot prove the",
+        "release did not change something this app should adopt — step 1 is the only",
+        "thing that answers that.",
+    ]
+
+
+def _hand_pin_recipe(target: str, current: str, count: int, reason: str) -> list[str]:
+    """The upgrade for an app that cannot re-render: every pin by hand.
+
+    The pins the template would have written have to be written here instead. Kept in
+    full for exactly that case and printed nowhere else — an app the template can update
+    is told to re-render, because doing both is what produced two needless installs.
+
+    *reason* says which way the re-render is unavailable, because "no answers file" is
+    only one of them and a recipe that names the wrong obstacle sends a reader to fix
+    something that is not broken.
+    """
+    return [
+        "",
+        f"All {count} terp-* distributions can move to {target} together, and the",
+        "@terpjs/* packages with them.",
+        f"This app {reason};",
+        "the pins have to be written by hand:",
+        "",
+        "  1. Read what changed — only what you have not seen, Security first:",
+        f"       uvx --from terp-cli=={target} terp guide changelog --since {current}",
+        f"     (the {target} notes; the copy installed here ends at {current}).",
+        f"  2. Pin every terp-* dependency to =={target} in pyproject.toml",
+        "     (including the dev group — a forgotten pin is a mixed install).",
+        f"  3. Pin every @terpjs/* package to ^{target} in EVERY manifest that",
+        "     declares one — frontend/package.json AND conformance/package.json",
+        "     (a recipe that names only one is how the other goes stale).",
+        "  4. uv sync --refresh && npm --prefix frontend install",
+        "  5. uv run terp --version          (confirm the set agrees)",
+        "  6. uv run terp verify --profile full",
+        "",
+        "A green gate proves the upgrade did not break this app. It cannot prove the",
+        "release did not change something this app should adopt — step 1 is the only",
+        "thing that answers that.",
+    ]
+
+
+@dataclass(frozen=True)
+class UpgradeStatus:
+    """The upgrade question as data, before anybody renders a sentence about it.
+
+    Every field here was already computed by ``render_upgrade_check`` and then spent on
+    prose. That made ``terp upgrade --check`` the one reporting command in the CLI with
+    no machine-readable mode, against ``inspect``, ``guide --list``, ``check`` and
+    ``verify``, which all have one — so any tool asking "is this app on a current
+    platform?" had to answer it by reimplementing the question rather than by asking.
+
+    ``covers_whole_set`` is the distinction a version number cannot carry on its own:
+    "internally consistent at X" and "X, and the release does not cover every package"
+    are different answers, and only the second is a reason to wait.
+    """
+
+    installed: dict[str, str]
+    current: str | None
+    target: str | None
+    covers_whole_set: bool
+    stragglers: dict[str, str]
+    rerender_blocker: str | None
+    scaffold_ref: str | None
+    error: str | None
+
+    def as_dict(self) -> dict[str, object]:
+        """A JSON-safe rendering (``terp upgrade --check --format json``)."""
+        return {
+            "installed": dict(sorted(self.installed.items())),
+            "current": self.current,
+            "target": self.target,
+            "covers_whole_set": self.covers_whole_set,
+            "stragglers": dict(sorted(self.stragglers.items())),
+            "rerender_blocker": self.rerender_blocker,
+            "scaffold_ref": self.scaffold_ref,
+            "error": self.error,
+        }
+
+
+def upgrade_status(root: pathlib.Path | None = None) -> UpgradeStatus:
+    """Answer the upgrade question for *root* without rendering anything.
+
+    Reads uv rather than the package index directly: Terp deliberately ships no HTTP
+    client for this, so the answer resolves against exactly the index the app's own
+    install uses.
+    """
     project_root = pathlib.Path(".") if root is None else root
     installed = installed_terp_versions()
     current = platform_version(installed)
     if not installed or current is None:
-        return (
-            "No terp-* distribution is installed in this environment, so there is "
-            "nothing to upgrade.\nRun this from the app's environment "
-            "(`uv run terp upgrade --check`)."
+        return UpgradeStatus(
+            installed=installed,
+            current=None,
+            target=None,
+            covers_whole_set=False,
+            stragglers={},
+            rerender_blocker=None,
+            scaffold_ref=scaffold_ref(project_root),
+            error="no terp-* distribution is installed in this environment",
         )
 
     packages, error = _uv_outdated()
     if error is not None:
-        return (
-            f"Could not check for a newer Terp: {error}\n\n"
-            f"This app is on {current}. Terp does not reach the package index itself "
-            "— it reads uv,\nwhich resolves against the same index your install uses."
+        return UpgradeStatus(
+            installed=installed,
+            current=current,
+            target=None,
+            covers_whole_set=False,
+            stragglers={},
+            rerender_blocker=None,
+            scaffold_ref=scaffold_ref(project_root),
+            error=error,
         )
 
     upgrades = _terp_upgrades(packages or [])
     if not upgrades:
-        # The most valuable place to say this: packages current, so nothing else in the
-        # toolchain will mention the scaffolding again.
-        return "\n".join(
-            [f"Up to date: all {len(installed)} terp-* packages are on {current}."]
-            + _scaffold_lines(project_root, current)
+        return UpgradeStatus(
+            installed=installed,
+            current=current,
+            target=None,
+            covers_whole_set=True,
+            stragglers={},
+            rerender_blocker=_copier_update_blocker(project_root),
+            scaffold_ref=scaffold_ref(project_root),
+            error=None,
         )
 
     # The lockstep question: after this upgrade, does every package land on the
@@ -286,6 +604,55 @@ def render_upgrade_check(root: pathlib.Path | None = None) -> str:
     landing = {name: upgrades.get(name, found) for name, found in installed.items()}
     target = max(landing.values(), key=_version_key)
     stragglers = {name: at for name, at in landing.items() if at != target}
+    return UpgradeStatus(
+        installed=installed,
+        current=current,
+        target=target,
+        covers_whole_set=not stragglers,
+        stragglers=stragglers,
+        rerender_blocker=_copier_update_blocker(project_root),
+        scaffold_ref=scaffold_ref(project_root),
+        error=None,
+    )
+
+
+def render_upgrade_check(root: pathlib.Path | None = None, *, fmt: str = "text") -> str:
+    """Report whether the whole lockstep set can move, and to what."""
+    project_root = pathlib.Path(".") if root is None else root
+    status = upgrade_status(project_root)
+    if fmt == "json":
+        return json.dumps(status.as_dict(), indent=2)
+
+    installed, current = status.installed, status.current
+    if status.error is not None and current is None:
+        return (
+            "No terp-* distribution is installed in this environment, so there is "
+            "nothing to upgrade.\nRun this from the app's environment "
+            "(`uv run terp upgrade --check`)."
+        )
+
+    if status.error is not None:
+        return (
+            f"Could not check for a newer Terp: {status.error}\n\n"
+            f"This app is on {current}. Terp does not reach the package index itself "
+            "— it reads uv,\nwhich resolves against the same index your install uses."
+        )
+
+    if status.target is None:
+        # The most valuable place to say this: packages current, so nothing else in the
+        # toolchain will mention the scaffolding again.
+        return "\n".join(
+            [f"Up to date: all {len(installed)} terp-* distributions are on {current}."]
+            + _scaffold_lines(
+                project_root,
+                current,
+                blocked_because=status.rerender_blocker,
+            )
+        )
+
+    target = status.target
+    landing = {**installed, **status.stragglers}
+    stragglers = status.stragglers
 
     lines = [f"Terp {target} is available (this app is on {current})."]
     if stragglers:
@@ -308,24 +675,18 @@ def render_upgrade_check(root: pathlib.Path | None = None) -> str:
     # to help judge. `uvx --from terp-cli==target` resolves an ephemeral CLI from
     # the same index (terp-cli pins terp-core exactly, so the right CHANGELOG
     # comes with it) without touching this app's environment or its pins.
-    lines += [
-        "",
-        f"All {len(landing)} packages can move to {target} together:",
-        "",
-        f"  1. Read what changed:  uvx --from terp-cli=={target} terp guide changelog",
-        f"     (the {target} notes; the copy installed here ends at {current}).",
-        f"  2. Pin every terp-* dependency to =={target} in pyproject.toml",
-        "     (including the dev group — a forgotten pin is a mixed install).",
-        f"  3. Pin every @terpjs/* package to ^{target} in EVERY manifest that",
-        "     declares one — frontend/package.json AND conformance/package.json",
-        "     (a recipe that names only one is how the other goes stale).",
-        "  4. uv sync --refresh && npm --prefix frontend install",
-        "  5. uv run terp --version          (confirm the set agrees)",
-        "  6. uv run terp verify --profile full",
-        "",
-        "A green gate proves the upgrade did not break this app. It cannot prove the",
-        "release did not change something this app should adopt — step 1 is the only",
-        "thing that answers that.",
-    ]
-    lines += _scaffold_lines(project_root, target)
+    # Which recipe depends on whether copier can run here at all: an app the
+    # template rendered re-renders and gets its pins written for it, and an app with
+    # no answers file writes them by hand. Printing both, or the hand-pin one to an
+    # app that could re-render, is what produced two needless installs and a stash
+    # halfway through.
+    blocker = status.rerender_blocker
+    if blocker is None:
+        lines += _rerender_recipe(target, current, len(landing))
+    else:
+        lines += _hand_pin_recipe(target, current, len(landing), blocker)
+    # Suppressed on both paths: the re-render recipe numbers the command as a step, and
+    # the hand-pin recipe has just said why it is unavailable. Either way, printing it
+    # again below reads as a second, different thing to do.
+    lines += _scaffold_lines(project_root, target, include_command=False)
     return "\n".join(lines)

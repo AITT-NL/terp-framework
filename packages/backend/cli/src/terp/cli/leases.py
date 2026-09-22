@@ -65,10 +65,10 @@ def render_leases(
     from sqlmodel import Session
 
     from terp.capabilities.leases import list_leases
+    from terp.cli._engine import cli_session
     from terp.core import PaginationParams
-    from terp.core._internal.engine import get_engine
 
-    with Session(get_engine()) as session:
+    with cli_session() as session:
         rows, total, now = list_leases(
             session,
             pagination=PaginationParams(skip=0, limit=limit),
@@ -142,11 +142,9 @@ def reap_leases_command(
             "installed. Add terp-cap-leases to the app's dependencies (wiring a "
             "DatabaseLeaseStore already requires it)."
         ) from exc
-    from sqlmodel import Session
+    from terp.cli._engine import cli_session
 
-    from terp.core._internal.engine import get_engine
-
-    with Session(get_engine()) as session:
+    with cli_session() as session:
         result = reap_expired_leases(
             session,
             store,

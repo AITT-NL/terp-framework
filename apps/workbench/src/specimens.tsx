@@ -2506,13 +2506,62 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               { label: "Master data", to: "/records/master" },
             ]}
             badges={<Badge tone="warning">Review</Badge>}
-            description="A lead line long enough that it has to be cut off rather than allowed to wrap onto a second line and set the band's height."
+            description="A lead line long enough to be cut off, sharing the band's second row with the badge rather than wrapping onto a third."
             actions={
               <PageActions
                 primary={<Button variant="primary">Publish</Button>}
                 secondary={<Button>Discard</Button>}
                 overflow={[{ label: "Delete", variant: "destructive", onSelect: () => {} }]}
               />
+            }
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // The case the band's redesign was for, and the one its pictures were missing: a trail
+        // deep enough to have needed the whole row, meta to earn the second one, and a cluster
+        // wide enough that a wrapping band used to scatter it. ADR 0135.
+        id: "page-header-deep-trail",
+        title: "Page — a deep trail, meta, and a cluster that used to scatter",
+        node: (
+          <Page
+            title="Consolidated customer master data for the northern operating company"
+            breadcrumbs={[
+              { label: "Records", to: "/records" },
+              { label: "Master data", to: "/records/master" },
+              { label: "Customers", to: "/records/master/customers" },
+              { label: "Operating companies", to: "/records/master/customers/companies" },
+            ]}
+            badges={<Badge tone="warning">Review</Badge>}
+            description="A lead line that shares the second row with the badges, and gives way entirely below the second cutover."
+            actions={
+              <PageActions
+                primary={<Button variant="primary">Publish</Button>}
+                secondaryActions={[
+                  { label: "Discard", onSelect: () => {} },
+                  { label: "Duplicate", onSelect: () => {} },
+                ]}
+                overflow={[{ label: "Delete", variant: "destructive", onSelect: () => {} }]}
+              />
+            }
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // A band with nothing to put on a second row keeps the single one, and with it the
+        // measurement the chrome is held to. The pair with the specimen above IS the decision.
+        id: "page-header-one-row",
+        title: "Page — no meta, so no second row",
+        node: (
+          <Page
+            title="Customers"
+            breadcrumbs={[{ label: "Records", to: "/records" }]}
+            actions={
+              <PageActions primary={<Button variant="primary">New customer</Button>} />
             }
           >
             <p style={{ margin: 0 }}>Body content below the header.</p>
@@ -3457,8 +3506,12 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
     //
     // The three specimens below are deliberately not the same KIND of specimen, and the
     // difference is the honest part rather than an inconsistency. `admin-user-create` mounts
-    // the real packaged screen, because that screen fetches nothing on mount. The other two
-    // owners — `GroupDetail` and `AuditLogAdmin` — build an HTTP repository and load on mount.
+    // the real packaged screen; it does fetch on mount now — the app's declared role ladder,
+    // since ADR 0022 makes the role model the application's — and `vite.config.ts` answers
+    // that one request with a fixed three-rung ladder, on the same determinism grounds as the
+    // fixed user. Without the answer the form pictured an empty role picker and a disabled
+    // submit, which gated nothing about the width cap this specimen exists for. The other two
+    // owners — `GroupDetail` and `AuditLogAdmin` — build an HTTP repository and load a list.
     //
     // Mounting them is possible, and an earlier version of this note gave a bad reason for
     // not doing it — that a mock server would break the registry's no-live-data rule. This app

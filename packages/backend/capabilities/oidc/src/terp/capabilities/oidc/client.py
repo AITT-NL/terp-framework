@@ -10,22 +10,36 @@ document's ``issuer`` must equal the configured issuer (IdP mix-up defense). Eve
 validation failure is the uniform 401; an unreachable provider is a distinct 502 so
 operators can tell an outage from an attack.
 
-The outbound HTTP client lives only inside this capability (like the webhooks delivery
-client); tests inject an ``http_factory`` returning an ``httpx.Client`` over a mock
-transport.
+Every provider request leaves through the egress capability, so the SSRF denylist, the
+address pinning, the bounded read, the refusal to follow a redirect and the egress
+observer are one shared implementation rather than this module's own copy. What is
+specific to OIDC is *which* address policy covers which host, and it is one sentence:
+the issuer's own host may resolve into a private range — an operator who configures an
+internal IdP has said so — and a host the discovery document introduced may not,
+because the far end does not get to choose which network this server reaches into.
+Tests inject the egress ``sender`` and ``resolve`` seams.
 """
 
 from __future__ import annotations
 
+import json
 from threading import Lock
-from collections.abc import Callable
-from typing import Any
+from typing import Any, Final
+from urllib.parse import urlencode, urlsplit
 
-import httpx
 import jwt
 
 from terp.core import AppError, AuthenticationError
 
+from terp.capabilities.egress import (
+    EgressClient,
+    EgressFailedError,
+    EgressPolicy,
+    EgressRefusedError,
+    Observer,
+    Resolver,
+    Sender,
+)
 from terp.capabilities.oidc.config import OIDCClaims, OIDCProviderConfig
 
 #: Asymmetric signature algorithms accepted on an ID token. ``alg=none`` and the
@@ -35,6 +49,16 @@ ALLOWED_ALGORITHMS: tuple[str, ...] = ("RS256", "RS384", "RS512", "PS256", "ES25
 
 #: Bounded clock skew for ``exp`` / ``iat`` validation, in seconds.
 CLOCK_SKEW_LEEWAY_SECONDS = 60
+
+#: The ceiling on a single provider response body, carried on this capability's
+#: :class:`~terp.capabilities.egress.EgressPolicy` and enforced by the egress transport,
+#: which reads in flight and never buffers whole past it. A discovery document is a couple
+#: of kilobytes and a JWKS a few more, so this is generous by three orders of magnitude —
+#: the point is that a bound *exists*. Without one, every provider read was as large as the
+#: far end chose to make it: a hostile, compromised, or merely misconfigured issuer
+#: answering a JWKS fetch with an endless body takes the worker's memory with it, and the
+#: timeout does not help because the connection is never idle.
+MAX_RESPONSE_BYTES: Final[int] = 1024 * 1024
 
 _DISCOVERY_PATH = "/.well-known/openid-configuration"
 _HTTP_TIMEOUT_SECONDS = 10.0
@@ -48,8 +72,19 @@ class ProviderUnavailableError(AppError):
     default_message = "The identity provider is unavailable; please try again."
 
 
-def _default_http_factory() -> httpx.Client:
-    return httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS)
+def _hostname(url: str) -> str | None:
+    """The host of *url*, or ``None`` when there is not one this can hold to a policy.
+
+    ``urlsplit`` does not merely fail to find a host on a malformed URL — it raises
+    (``Invalid IPv6 URL``), and every URL read here past the issuer's own came out of a
+    document the provider wrote rather than out of an operator's configuration. A parse
+    failure is the same answer as a missing host: there is nothing to hold to an address
+    policy, so it is refused rather than attempted.
+    """
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        return None
 
 
 class OIDCClient:
@@ -59,29 +94,103 @@ class OIDCClient:
         self,
         config: OIDCProviderConfig,
         *,
-        http_factory: Callable[[], httpx.Client] | None = None,
+        sender: Sender | None = None,
+        resolve: Resolver | None = None,
+        observer: Observer | None = None,
     ) -> None:
         self._config = config
-        self._http_factory = http_factory or _default_http_factory
+        self._sender = sender
+        self._resolve = resolve
+        self._observer = observer
         self._lock = Lock()
         self._discovery: dict[str, Any] | None = None
         self._jwks: jwt.PyJWKSet | None = None
+        issuer = urlsplit(config.issuer)
+        self._issuer_host = issuer.hostname or ""
+        # A dev issuer may be plain http — the config only requires https in production —
+        # and a policy that refused it would make the capability unusable in the setup
+        # people actually develop against. The allowance follows the issuer's own scheme
+        # rather than being a separate switch, so an https issuer can never have its
+        # endpoints downgraded to http by whatever the discovery document says.
+        self._schemes = ("https",) if issuer.scheme == "https" else ("https", "http")
+        self._egress: dict[str, EgressClient] = {}
 
     @property
     def config(self) -> OIDCProviderConfig:
         return self._config
 
+    def _egress_for(self, host: str) -> EgressClient:
+        """The declared outbound client for one provider *host*, built once and cached.
+
+        One client per host rather than one per provider, because the two differ in the
+        only way that matters here: **the issuer's own host may resolve into a private
+        range and no other host may.** The operator named the issuer, so an IdP on the
+        internal network is a deployment shape rather than an anomaly — it is how
+        on-premises SSO looks. Every other host reaching this function was named by the
+        *discovery document*, i.e. by the far end, and a party that can edit its own
+        discovery document must not thereby be able to aim this server at a metadata
+        endpoint or an internal service.
+
+        The allowlist is one host by construction, so it is a record of who this
+        provider talks to rather than a constraint that refuses anything — the constraint
+        is the address rule above. Saying so is better than implying an allowlist is
+        doing work it cannot do: the endpoint hosts are not knowable before the document
+        that names them has been read.
+        """
+        client = self._egress.get(host)
+        if client is None:
+            try:
+                policy = EgressPolicy(
+                    allowed_hosts=(host,),
+                    timeout_seconds=_HTTP_TIMEOUT_SECONDS,
+                    max_response_bytes=MAX_RESPONSE_BYTES,
+                    allow_private_addresses=host == self._issuer_host,
+                    allowed_schemes=self._schemes,
+                )
+            except ValueError as exc:
+                # `EgressPolicy` refuses a hostname it cannot hold EXACTLY — one carrying
+                # a `*`, or surrounding whitespace. `urlsplit` will hand one over, because
+                # this host came out of the provider's discovery document and not out of
+                # configuration. Without this the refusal left as a bare 500 while the
+                # docstrings above promised the uniform 502, which is the one thing a
+                # typed-envelope platform must not do on a reachable path.
+                raise ProviderUnavailableError() from exc
+            client = EgressClient(
+                policy,
+                sender=self._sender,
+                resolve=self._resolve,
+                observer=self._observer,
+            )
+            self._egress[host] = client
+        return client
+
     # ------------------------------------------------------------------ #
     # discovery + JWKS
     # ------------------------------------------------------------------ #
     def _get_json(self, url: str) -> dict[str, Any]:
-        """GET *url* and parse JSON; any transport / status / parse failure is a 502."""
+        """GET *url* through egress and parse JSON; every failure is the uniform 502.
+
+        A refusal and a failure collapse into one outcome on purpose. They differ in who
+        is at fault — a refusal is this application's own address policy saying no to a
+        host the provider named, a failure is the far end — and neither is something the
+        person logging in can act on, so the distinction belongs in the log (where the
+        egress errors carry it) and not in the response. The two documents this fetches,
+        discovery and the JWKS, are read on a path a caller reaches by starting a login.
+        """
+        host = _hostname(url)
+        if not host:
+            # The provider named an endpoint that is not a URL. Refused rather than
+            # attempted: there is no host to hold to an address policy.
+            raise ProviderUnavailableError()
         try:
-            with self._http_factory() as client:
-                response = client.get(url)
-                response.raise_for_status()
-                payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+            response = self._egress_for(host).get(url)
+        except (EgressRefusedError, EgressFailedError) as exc:
+            raise ProviderUnavailableError() from exc
+        if response.status_code >= 400:
+            raise ProviderUnavailableError()
+        try:
+            payload = json.loads(response.content)
+        except ValueError as exc:
             raise ProviderUnavailableError() from exc
         if not isinstance(payload, dict):
             raise ProviderUnavailableError()
@@ -136,15 +245,17 @@ class OIDCClient:
     # ------------------------------------------------------------------ #
     def authorization_url(self, *, state: str, nonce: str, code_challenge: str) -> str:
         """The IdP authorize URL for one flow — code + PKCE (S256) parameters only."""
-        params = httpx.QueryParams(
-            response_type="code",
-            client_id=self._config.client_id,
-            redirect_uri=self._config.redirect_uri,
-            scope=" ".join(self._config.scopes),
-            state=state,
-            nonce=nonce,
-            code_challenge=code_challenge,
-            code_challenge_method="S256",
+        params = urlencode(
+            {
+                "response_type": "code",
+                "client_id": self._config.client_id,
+                "redirect_uri": self._config.redirect_uri,
+                "scope": " ".join(self._config.scopes),
+                "state": state,
+                "nonce": nonce,
+                "code_challenge": code_challenge,
+                "code_challenge_method": "S256",
+            }
         )
         endpoint = str(self.discovery()["authorization_endpoint"])
         separator = "&" if "?" in endpoint else "?"
@@ -158,27 +269,37 @@ class OIDCClient:
         stored or returned.
         """
         endpoint = str(self.discovery()["token_endpoint"])
+        host = _hostname(endpoint)
+        if not host:
+            raise ProviderUnavailableError()
+        # Form-encoded by hand because the egress client takes bytes: it carries no
+        # opinion about how a body was serialised, which is the right amount of opinion
+        # for a transport to have. The content type has to be declared for the same
+        # reason — nothing infers it from the argument any more.
+        body = urlencode(
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": self._config.redirect_uri,
+                "client_id": self._config.client_id,
+                "client_secret": client_secret,
+                "code_verifier": code_verifier,
+            }
+        ).encode("utf-8")
         try:
-            with self._http_factory() as client:
-                response = client.post(
-                    endpoint,
-                    data={
-                        "grant_type": "authorization_code",
-                        "code": code,
-                        "redirect_uri": self._config.redirect_uri,
-                        "client_id": self._config.client_id,
-                        "client_secret": client_secret,
-                        "code_verifier": code_verifier,
-                    },
-                )
-        except httpx.HTTPError as exc:
+            response = self._egress_for(host).post(
+                endpoint,
+                body=body,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        except (EgressRefusedError, EgressFailedError) as exc:
             raise ProviderUnavailableError() from exc
         if response.status_code != 200:
-            # A refused exchange (bad / replayed / expired code) is an auth failure,
-            # not an outage — the uniform 401.
+            # A refused exchange (bad / replayed / expired code) is an auth failure, not
+            # an outage — the uniform 401.
             raise AuthenticationError()
         try:
-            payload = response.json()
+            payload = json.loads(response.content)
         except ValueError as exc:
             raise ProviderUnavailableError() from exc
         id_token = payload.get("id_token") if isinstance(payload, dict) else None
@@ -222,6 +343,7 @@ class OIDCClient:
 __all__ = [
     "ALLOWED_ALGORITHMS",
     "CLOCK_SKEW_LEEWAY_SECONDS",
+    "MAX_RESPONSE_BYTES",
     "OIDCClient",
     "ProviderUnavailableError",
 ]

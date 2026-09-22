@@ -14,6 +14,7 @@ import pathlib
 import pytest
 
 from terp.arch import (
+    ScanRoot,
     assert_app_clean,
     check_app,
     check_base_query_not_overridden,
@@ -29,7 +30,10 @@ from terp.arch import (
     check_operations_reference_catalog,
     check_routes_declare_operation,
     check_list_routes_paginate,
+    check_grantable_modules_are_named,
+    check_module_role_writes_go_through_the_capability,
     check_modules_declare_policy,
+    check_platform_modules_refuse_module_roles,
     check_mutations_emit_audit,
     check_mutations_require_write_role,
     check_no_adhoc_background_runtime,
@@ -42,6 +46,7 @@ from terp.arch import (
     check_migration_history_is_intact,
     check_table_ownership_is_not_split,
     check_no_destructive_migrations,
+    check_not_null_columns_are_backfilled,
     check_no_dynamic_sql,
     check_no_cross_module_imports,
     check_cross_module_imports_use_public_surface,
@@ -67,6 +72,7 @@ from terp.arch import (
     check_no_dependency_overrides,
     check_no_raw_app_routes,
     check_no_raw_file_references,
+    check_permission_gated_reads_disclose,
     check_no_manual_scope_filtering,
     check_no_raw_connection_access,
     check_no_raw_outbound_http,
@@ -82,6 +88,7 @@ from terp.arch import (
     check_response_model_not_table_model,
     check_routes_declare_response_model,
     check_declared_read_only_routes_do_not_write,
+    check_references_declare_delete_behaviour,
     check_safe_methods_are_read_only,
     check_schemas_exclude_sensitive_fields,
     check_session_imported_from_sqlmodel,
@@ -96,6 +103,15 @@ from terp.arch import (
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _EXAMPLE_APP = _REPO_ROOT / "apps" / "example" / "app"
 _EXAMPLE_BUDGET = _REPO_ROOT / "apps" / "example" / "escape-hatch-budget.json"
+# The example app is two Python packages, which is the scaffolded shape rather than a
+# quirk of this one: `control_plane/` holds the permission, operation, event and job
+# declarations, and until the gate took several roots (ADR 0141) it was scanned by
+# nothing. Passed as a root here rather than read from `[tool.terp.arch]` because this
+# app has no pyproject.toml of its own -- it lives inside the framework workspace. The
+# declaration path a real app uses is covered in test_scan_roots.py.
+_EXAMPLE_CONTROL_PLANE = ScanRoot(
+    _REPO_ROOT / "apps" / "example" / "control_plane", package="control_plane"
+)
 
 # A single guaranteed violation we can suppress: a module importing terp.core._internal.
 _INTERNAL_IMPORT = "from terp.core._internal.engine import get_engine"
@@ -297,8 +313,7 @@ def test_no_raw_outbound_http(tmp_path: pathlib.Path) -> None:
         _write(app, "modules/notes/service.py", f"{stmt}\n")
         assert _rule_names(check_no_raw_outbound_http(app)) == {"no_raw_outbound_http"}, stmt
 
-    # The scan is scoped to app modules, and benign urllib helpers are not HTTP clients.
-    _write(app, "shared/http.py", "import httpx\n")
+    # Benign urllib helpers are not HTTP clients.
     _write(app, "modules/notes/service.py", "from urllib import parse\nfrom terp.core import BaseService\n")
     assert check_no_raw_outbound_http(app) == []
 
@@ -317,6 +332,15 @@ def test_no_raw_outbound_http(tmp_path: pathlib.Path) -> None:
     _write(app, "modules/notes/migrations/versions/0001_x.py", "import requests\n")
     assert _rule_names(check_no_raw_outbound_http(app)) == {"no_raw_outbound_http"}
 
+    # A raw client OUTSIDE modules/ is the same egress and is flagged (ADR 0136). This
+    # assertion used to read the other way — a shared helper importing httpx was
+    # asserted CLEAN — which is how the rule came to be believed enforced while the
+    # place an app actually reaches for a client (a worker, a publisher script, the
+    # composition root) was never scanned at all. Last, because the file has to stay
+    # on disk to be seen and every assertion above wants a clean tree.
+    _write(app, "modules/notes/migrations/versions/0001_x.py", "from terp.core import BaseService\n")
+    _write(app, "shared/http.py", "import httpx\n")
+    assert _rule_names(check_no_raw_outbound_http(app)) == {"no_raw_outbound_http"}
 
 
 def test_modules_declare_policy(tmp_path: pathlib.Path) -> None:
@@ -333,6 +357,367 @@ def test_modules_declare_policy(tmp_path: pathlib.Path) -> None:
         "module = ModuleSpec(name='billing', router=router, policy=Policy.default())\n",
     )
     assert check_modules_declare_policy(app) == []
+
+
+def test_grantable_modules_are_named(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(\n"
+        "    name='billing',\n"
+        "    router=router,\n"
+        "    access=ModuleAccess(assignable=True),\n"
+        "    policy=Policy.default(),\n"
+        ")\n",
+    )
+    violations = check_grantable_modules_are_named(app)
+    assert _rule_names(violations) == {"grantable_modules_are_named"}
+    # The message has to say what the label is *for*, because the fix is a sentence someone
+    # has to write rather than a keyword they can copy.
+    assert "heads this module's strip" in violations[0].message
+
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(\n"
+        "    name='billing',\n"
+        "    router=router,\n"
+        "    access=ModuleAccess(label='Billing', assignable=True),\n"
+        "    policy=Policy.default(),\n"
+        ")\n",
+    )
+    assert check_grantable_modules_are_named(app) == []
+
+    # A blank label is the same defect wearing a keyword: the strip is still headed by
+    # nothing. Only a non-empty string counts.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label='   ', assignable=True))\n",
+    )
+    assert _rule_names(check_grantable_modules_are_named(app)) == {
+        "grantable_modules_are_named"
+    }
+
+    # A module that does not opt in owes nothing, whether it declares no access at all or
+    # declares the refusal — the label is only meaningful for a strip that gets rendered.
+    _write(app, "modules/billing/module.py", "module = ModuleSpec(policy=Policy.default())\n")
+    assert check_grantable_modules_are_named(app) == []
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only(reason='hands out authority'))\n",
+    )
+    assert check_grantable_modules_are_named(app) == []
+
+    # A label the rule cannot read is still a label. Only a literal counted before, so
+    # `label=MODULE_TITLE` was reported as "declares no label=" on a line that plainly
+    # declares one — a message asking for a fix that had already been made. The rule refuses
+    # to guess at a value it cannot see, the same answer it gives a computed `assignable=`.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label=MODULE_TITLE, assignable=True))\n",
+    )
+    assert check_grantable_modules_are_named(app) == []
+
+    # `assignable=False` is not an opt-in either, and neither is a computed value: the rule
+    # refuses to guess in both directions, leaving a non-literal to the constructor invariant
+    # and the boot check, which see the value the app really passes.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(assignable=False))\n",
+    )
+    assert check_grantable_modules_are_named(app) == []
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(assignable=FLAG))\n",
+    )
+    assert check_grantable_modules_are_named(app) == []
+
+
+def test_platform_modules_refuse_module_roles(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # The trigger and the declaration are in different files of the same module, which is the
+    # shape a real one has: the service holds the authority, the manifest declares the access.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import AccessService\n\n\n"
+        "class BillingService:\n"
+        "    access = AccessService()\n",
+    )
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label='Billing', assignable=True))\n",
+    )
+    violations = check_platform_modules_refuse_module_roles(app)
+    assert _rule_names(violations) == {"platform_modules_refuse_module_roles"}
+    # Reported at the declaration, not at the service: that is the line to change.
+    assert violations[0].path.endswith("module.py")
+    assert "way around the role ladder" in violations[0].message
+
+    # The refusal is the fix, and it is a declaration rather than a deletion — an absent
+    # `access=` would also pass, but says nothing to a reader of the access surface.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(\n"
+        "    access=ModuleAccess.platform_only(reason='it can grant every other authority')\n"
+        ")\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # `ModuleRoleService` is the other half of the same authority: assigning a rung is as
+    # much a way to confer authority as granting a permission is.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import ModuleRoleService\n\n\n"
+        "class BillingService:\n"
+        "    rungs = ModuleRoleService()\n",
+    )
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label='Billing', assignable=True))\n",
+    )
+    assert _rule_names(check_platform_modules_refuse_module_roles(app)) == {
+        "platform_modules_refuse_module_roles"
+    }
+
+    # One declaration, one violation, even when two files of the module name the service.
+    _write(
+        app,
+        "modules/billing/router.py",
+        "from terp.capabilities.access import ModuleRoleService\n\nrungs = ModuleRoleService()\n",
+    )
+    assert len(check_platform_modules_refuse_module_roles(app)) == 1
+
+    # A module that opts in and holds no such service is exactly the ordinary case, and the
+    # whole point of the rule is that it stays silent there.
+    _write(app, "modules/billing/service.py", "from terp.core import BaseService\n")
+    _write(app, "modules/billing/router.py", "from terp.core import SessionDep\n")
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # Gating a route on a permission is not the same as being able to grant one: a module
+    # that only *checks* authority is the common shape, and flagging it would make the rule
+    # unusable in any app that uses named permissions at all.
+    _write(
+        app,
+        "modules/billing/router.py",
+        "from terp.capabilities.access import require_permission\n\n"
+        "route = require_permission('billing.export')\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # The authority is only a problem where it meets the opt-in: a module holding the
+    # service and declaring nothing is a different rule's business.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import AccessService\n\naccess = AccessService()\n",
+    )
+    _write(app, "modules/billing/module.py", "module = ModuleSpec(policy=Policy.default())\n")
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+
+def test_platform_modules_refuse_module_roles_looks_at_the_whole_module(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The unit is the module directory, not the triggering file's own.
+
+    A service kept a level down — ``modules/billing/services/grants.py`` — is an ordinary
+    layout, and it used to escape this rule entirely: its own parent directory holds no
+    manifest, so a check that globbed beside the file found no declaration and moved on. The
+    module opted into per-module roles while holding the authority that hands out every other
+    one, and the gate said nothing.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/billing/services/grants.py",
+        "from terp.capabilities.access import AccessService\n\naccess = AccessService()\n",
+    )
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label='Billing', assignable=True))\n",
+    )
+    violations = check_platform_modules_refuse_module_roles(app)
+    assert _rule_names(violations) == {"platform_modules_refuse_module_roles"}
+    # Still reported at the manifest, which is the line that has to change.
+    assert violations[0].path.endswith("module.py")
+
+    # And the refusal fixes it from down there just as it does from beside the manifest.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(\n"
+        "    access=ModuleAccess.platform_only(reason='it hands out every other authority')\n"
+        ")\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+
+def test_platform_modules_refuse_module_roles_wants_the_reason_too(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The refusal has to say why, and the constructor cannot be the one to insist.
+
+    ``platform_only(*, reason: str)`` makes the reason *present* — omitting it is an
+    import-time ``TypeError``, which needs no rule. It does not make the reason
+    *meaningful*: ``reason=""`` constructs happily and produces a module the access screen
+    lists as never assignable with nothing beside it, leaving the reader the exact question
+    the reason answers.
+
+    This is also the test that observes the classmethod form being matched at all.
+    ``base_name`` yields an attribute's last segment, so the helper's original
+    ``base_name(node.func) == "ModuleAccess"`` was ``"platform_only"`` for this form and
+    every refusal in the codebase was invisible to both rules.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import AccessService\n\naccess = AccessService()\n",
+    )
+
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only(reason=''))\n",
+    )
+    violations = check_platform_modules_refuse_module_roles(app)
+    assert _rule_names(violations) == {"platform_modules_refuse_module_roles"}
+    assert "says nothing about why" in violations[0].message
+
+    # No `reason=` at all is caught here too. Such a call would not survive import — the
+    # keyword is required — but a rule that parses rather than imports is the thing that gets
+    # to say so with a file and a line, and the refusal is the same one either way.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only())\n",
+    )
+    assert _rule_names(check_platform_modules_refuse_module_roles(app)) == {
+        "platform_modules_refuse_module_roles"
+    }
+
+    # Whitespace is not a reason either — it renders as the same blank space.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only(reason='  '))\n",
+    )
+    assert _rule_names(check_platform_modules_refuse_module_roles(app)) == {
+        "platform_modules_refuse_module_roles"
+    }
+
+    # A real reason is the fix, and the whole fix.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(\n"
+        "    access=ModuleAccess.platform_only(\n"
+        "        reason='it can grant every other authority'\n"
+        "    )\n"
+        ")\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # A non-literal is accepted, for the reason a non-literal `assignable=` is: the rule
+    # refuses to guess at a value it cannot see, in either direction.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only(reason=WHY))\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # The reason is asked of the *refusal* form only. A declaration that neither opts in nor
+    # refuses — present, unassignable, no platform reason — owes nothing here: there is no
+    # refusal on the access screen for a reader to be left wondering about.
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess(label='Billing'))\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+    # The reason clause is scoped the way the opt-in clause is: this rule speaks only about
+    # modules that can hand authority out. An ordinary module's blank reason is not its
+    # business, and its catalog entry claims no more than that.
+    _write(app, "modules/billing/service.py", "from terp.core import BaseService\n")
+    _write(
+        app,
+        "modules/billing/module.py",
+        "module = ModuleSpec(access=ModuleAccess.platform_only(reason=''))\n",
+    )
+    assert check_platform_modules_refuse_module_roles(app) == []
+
+
+def test_module_role_writes_go_through_the_capability(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from sqlmodel import select\n\n"
+        "from terp.capabilities.access import ModuleRole\n\n\n"
+        "class BillingService:\n"
+        "    def rung(self, session, subject_id):\n"
+        "        return session.exec(select(ModuleRole)).first()\n",
+    )
+    violations = check_module_role_writes_go_through_the_capability(app)
+    assert _rule_names(violations) == {"module_role_writes_go_through_the_capability"}
+    assert "belongs to the access capability" in violations[0].message
+
+    # The service is the whole fix, and it is not a thinner wrapper over the same query: it
+    # emits the audit row and refuses an assignment the declarations cannot support.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import ModuleRoleService\n\n\n"
+        "class BillingService:\n"
+        "    def rung(self, session, subject_id):\n"
+        "        return ModuleRoleService().highest_rank(session, subject_id, 'billing')\n",
+    )
+    assert check_module_role_writes_go_through_the_capability(app) == []
+
+    # A read is refused as well as a write, on the same footing as hand-rolled row
+    # ownership: a read is the first half of a per-module gate written by hand, and nothing
+    # static can tell it from a read that only displays a tier.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import ModuleRole\n\n\n"
+        "def held(session, subject_id):\n"
+        "    return session.get(ModuleRole, subject_id).role_rank\n",
+    )
+    assert _rule_names(check_module_role_writes_go_through_the_capability(app)) == {
+        "module_role_writes_go_through_the_capability"
+    }
+
+    # Constructing the row directly is the write this exists to stop — it stores a rung with
+    # no audit entry and no validation, so it can name a module that could never honour it.
+    _write(
+        app,
+        "modules/billing/service.py",
+        "from terp.capabilities.access import ModuleRole\n\n\n"
+        "def grant(session, subject_id):\n"
+        "    session.add(ModuleRole(subject_id=subject_id, module='access', role_rank=30))\n",
+    )
+    assert _rule_names(check_module_role_writes_go_through_the_capability(app)) == {
+        "module_role_writes_go_through_the_capability"
+    }
+
+    # And the ordinary module, which never mentions the table at all.
+    _write(app, "modules/billing/service.py", "from terp.core import BaseService\n")
+    assert check_module_role_writes_go_through_the_capability(app) == []
 
 
 def test_no_adhoc_permission_literals(tmp_path: pathlib.Path) -> None:
@@ -508,6 +893,18 @@ def test_no_manual_table_schema(tmp_path: pathlib.Path) -> None:
         "    title: str = Field(max_length=20)\n",
     )
     assert check_no_manual_table_schema(app) == []
+
+    # A table declared OUTSIDE modules/ escapes the managed layout just as completely
+    # (ADR 0136), and `table_models_use_base_table` has always scanned there — two rules
+    # over one declaration must agree about where a table model may live.
+    _write(
+        app,
+        "shared/models.py",
+        "class Ledger(BaseTable, table=True):\n"
+        "    __table_args__ = {'schema': 'custom'}\n"
+        "    title: str = Field(max_length=20)\n",
+    )
+    assert _rule_names(check_no_manual_table_schema(app)) == {"no_manual_table_schema"}
 
 
 def test_no_unique_columns_on_soft_delete_models(tmp_path: pathlib.Path) -> None:
@@ -868,6 +1265,67 @@ def test_no_raw_app_routes(tmp_path: pathlib.Path) -> None:
     assert check_no_raw_app_routes(app) == []
 
 
+def test_no_raw_app_routes_names_the_way_to_split_a_long_router(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The rule stays as decided; what was missing is what to do instead.
+
+    `router.include_router(sub)` is refused because a module declares ONE flat router.
+    That decision does not cap how many routes a module may have — routes can be
+    declared on that one router from any number of files — but nothing said so. An
+    author whose router outgrows the 500-line cap reaches for the obvious composition,
+    meets a refusal from a security-adjacent rule, and concludes the only exits are an
+    escape hatch or splitting the module: a Policy, a `requires` edge, a nav group and a
+    migration history, all split, because a file got long.
+
+    So the failure message carries the seam. On this case only — `mount` and the raw
+    route adders have no such alternative and must not imply one.
+    """
+    app = tmp_path / "app"
+
+    _write(app, "modules/notes/router.py", "router.include_router(subrouter)\n")
+    findings = check_no_raw_app_routes(app)
+    assert _rule_names(findings) == {"no_raw_app_routes"}
+    assert "from .router import router" in findings[0].message, findings[0].message
+
+    _write(app, "main.py", "app.mount('/static', files_app)\n")
+    mounted = check_no_raw_app_routes(app)
+    assert _rule_names(mounted) == {"no_raw_app_routes"}
+    assert "from .router import router" not in mounted[0].message, (
+        "a mounted sub-app has no one-router alternative — offering the recipe here "
+        "would read as though the mount could be rewritten that way"
+    )
+
+
+def test_a_module_may_already_split_its_routes_across_files(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The claim the message makes has to be true, or it is worse than no message.
+
+    One router object, declared on from a sibling file, imported by `router.py`. The
+    routes land on the module's declared router, so they are mounted behind the same
+    guard and attributable to the same Policy — the invariant the rule protects is
+    untouched.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/notes/router.py",
+        "from fastapi import APIRouter\n"
+        "router = APIRouter()\n"
+        "from app.modules.notes import routes_reports  # noqa: E402,F401\n",
+    )
+    _write(
+        app,
+        "modules/notes/routes_reports.py",
+        "from app.modules.notes.router import router\n"
+        "@router.get('/reports/', response_model=Page[NoteRead])\n"
+        "def list_reports() -> Page[NoteRead]:\n"
+        "    ...\n",
+    )
+    assert check_no_raw_app_routes(app) == []
+
+
 def test_no_dependency_overrides(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     # Rebinding the principal seam in app code silently disables authentication.
@@ -1174,10 +1632,11 @@ def test_no_dynamic_sql(tmp_path: pathlib.Path) -> None:
     _write(app, "modules/notes/service.py", "stmt = text('SELECT * FROM notes WHERE id=:id')\n")
     assert check_no_dynamic_sql(app) == []
 
-    # The rule follows app-module scope, not arbitrary helper files.
-    _write(app, "helpers/sql.py", "stmt = text(query)\n")
+    # Dynamically built SQL OUTSIDE modules/ is the same injection risk (ADR 0136) —
+    # a helper, a worker, a composition root. This assertion used to read the other way.
     _write(app, "modules/notes/service.py", "stmt = text('SELECT 1')\n")
-    assert check_no_dynamic_sql(app) == []
+    _write(app, "helpers/sql.py", "stmt = text(query)\n")
+    assert _rule_names(check_no_dynamic_sql(app)) == {"no_dynamic_sql"}
 
     # tests/ and migrations/ dirs inside a module are importable code: still scanned (G1).
     _write(app, "modules/notes/tests/helper.py", "stmt = text(query)\n")
@@ -1525,6 +1984,94 @@ def test_oversized_file_message_proposes_a_seam(tmp_path: pathlib.Path) -> None:
     message = violations[0].message
     assert "alpha_one" in message and "alpha_two" in message
     assert "beta_one" not in message  # the smaller group is not the proposal
+
+
+def test_seam_skips_a_group_the_definition_graph_only_looks_independent_in(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The graph is built from definitions, so it cannot see what pins them to the file.
+
+    Three things are invisible to it, and each one makes the proposal's promise false:
+    a name bound by tuple unpacking, a name bound inside a top-level block, and a
+    reference made from a module-level statement. In each case the biggest group looks
+    perfectly isolated in the graph while reading — or being read by — something that
+    cannot move with it. Following that cut lands two modules importing each other.
+    """
+    app = tmp_path / "app"
+    body = "\n".join(f"    x{i} = {i}" for i in range(520))
+    tail = (
+        "def beta_one():\n    return 1\n\n"
+        "def beta_two():\n    return beta_one()\n"
+    )
+
+    # The alpha group is the largest, and reads a constant bound by tuple unpacking:
+    # it owns no span of its own, so no cut can carry it along.
+    unpacked = (
+        "MIN_LEN, MAX_LEN = 1, 200\n\n"
+        "def alpha_one():\n" + body + "\n    return MAX_LEN\n\n"
+        "def alpha_two():\n    return alpha_one()\n\n" + tail
+    )
+    # Same shape, with the shared name bound inside a top-level try block instead.
+    in_a_block = (
+        "try:\n    CODEC = 'fast'\nexcept ImportError:\n    CODEC = 'slow'\n\n"
+        "def alpha_one():\n" + body + "\n    return CODEC\n\n"
+        "def alpha_two():\n    return alpha_one()\n\n" + tail
+    )
+    # Same shape again, with the alpha group named by a module-level statement. It is
+    # the statement that stays behind, so the definition cannot leave without the old
+    # module importing it back.
+    named_by_residue = (
+        "REGISTRY = []\n\n"
+        "def alpha_one():\n" + body + "\n    return 1\n\n"
+        "def alpha_two():\n    return alpha_one()\n\n" + tail + "\n"
+        "REGISTRY.append(alpha_two)\n"
+    )
+    for source in (unpacked, in_a_block, named_by_residue):
+        _write(app, "modules/notes/service.py", source)
+        violations = check_no_oversized_python_files(app)
+        assert _rule_names(violations) == {"no_oversized_python_files"}
+        message = violations[0].message
+        # The bigger group is refused and the genuinely independent one is named instead.
+        assert "alpha_one" not in message and "alpha_two" not in message, source[:60]
+        assert "beta_one" in message and "beta_two" in message, source[:60]
+
+    # Every module-level binding form anchors a name the same way. A top-level
+    # annotated assignment owns a span and stays movable; a name bound by a module-level
+    # for or with does not, so the group that reads one cannot be lifted out.
+    for preamble, shared in (
+        ("for _mode in ('a', 'b'):\n    MODE = _mode\n", "MODE"),
+        ("with open('x') as HANDLE:\n    pass\n", "HANDLE"),
+    ):
+        source = (
+            "LIMIT: int = 200\n\n" + preamble + "\n"
+            "def alpha_one():\n" + body + f"\n    return {shared}\n\n"
+            "def alpha_two():\n    return alpha_one()\n\n" + tail
+        )
+        _write(app, "modules/notes/service.py", source)
+        message = check_no_oversized_python_files(app)[0].message
+        assert "alpha_one" not in message, preamble
+        assert "beta_one" in message, preamble
+
+    # When nothing survives that second reading the cap says nothing about a seam: a
+    # bare number beats a cut that does not hold.
+    nothing_liftable = (
+        "MIN_LEN, MAX_LEN = 1, 200\n\n"
+        "def alpha_one():\n" + body + "\n    return MAX_LEN\n\n"
+        "def beta_one():\n    return MAX_LEN\n"
+    )
+    _write(app, "modules/notes/service.py", nothing_liftable)
+    violations = check_no_oversized_python_files(app)
+    assert _rule_names(violations) == {"no_oversized_python_files"}
+    assert "largest group" not in violations[0].message
+
+    # A file whose every definition is connected still proposes nothing, as before.
+    one_component = (
+        "def alpha_one():\n" + body + "\n    return 1\n\n"
+        "def alpha_two():\n    return alpha_one()\n"
+    )
+    _write(app, "modules/notes/service.py", one_component)
+    violations = check_no_oversized_python_files(app)
+    assert "largest group" not in violations[0].message
 
     # A file whose definitions all reference one another has no honest seam, so the
     # message stays the bare cap rather than inventing a cut that would couple two files.
@@ -2462,13 +3009,194 @@ def test_no_hardcoded_credentials(tmp_path: pathlib.Path) -> None:
     )
     assert check_no_hardcoded_credentials(app) == []
 
-    # The rule follows app-module scope.
-    _write(app, "scripts/bootstrap.py", "password = 'dev-only'\n")
+    # A credential committed OUTSIDE modules/ is the same leak (ADR 0136), and a
+    # bootstrap script is where one most often lands. This assertion used to read the
+    # other way, which left the rule's own docstring ("a real secret is a leak wherever
+    # it is committed") true of nothing but the module tree.
     _write(app, "modules/billing/service.py", "password = ''\n")
-    assert check_no_hardcoded_credentials(app) == []
+    _write(app, "scripts/bootstrap.py", "password = 'dev-only'\n")
+    assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
 
     # tests/ and migrations/ dirs inside a module are committed source: still scanned (G1).
     _write(app, "modules/billing/tests/helper.py", "api_key = 'not-from-config'\n")
+    assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
+
+
+def test_no_hardcoded_credentials_reads_the_value_not_only_the_name(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Three shapes a credential cannot take, however credential-shaped the name is.
+
+    The matcher is a name match with no view of what the string holds, so
+    ``TOKEN_ENV = "SOME_API_TOKEN"`` -- the NAME of a credential -- and
+    ``TOKEN_PATH = "/api/v1/auth/token"`` -- a URL path -- both read as leaks. That is
+    not merely noisy. The escape-hatch budget is this platform's only friction metric
+    and its only ratchet, and once a reviewer learns that a marker for this rule is
+    usually nothing, the one that is something gets the same glance. A fail-closed
+    control has then become decoration, which is the failure this rule exists to
+    prevent, one level up.
+
+    The name list stays broad on purpose -- narrowing it would lose real findings -- so
+    every exemption below says something about the VALUE instead.
+    """
+    app = tmp_path / "app"
+
+    # 1. The module itself uses the literal as an environment key. That is the module
+    #    stating in code that the string NAMES a credential, and it is the strongest
+    #    evidence available without leaving the file.
+    for usage in (
+        "value = os.environ[TOKEN_ENV]",
+        "value = os.getenv(TOKEN_ENV)",
+        "value = os.environ.get(TOKEN_ENV)",
+    ):
+        _write(app, "client.py", f"import os\nTOKEN_ENV = 'SOME_API_TOKEN'\n{usage}\n")
+        assert check_no_hardcoded_credentials(app) == [], usage
+
+    #    The same evidence through the bare name, which `from os import getenv`
+    #    produces. A rule that recognised only the dotted call would refuse the import
+    #    style half of Python is written in, while the module says the identical thing.
+    _write(
+        app,
+        "client.py",
+        "from os import getenv\nTOKEN_ENV = 'SOME_API_TOKEN'\nvalue = getenv(TOKEN_ENV)\n",
+    )
+    assert check_no_hardcoded_credentials(app) == [], "bare getenv"
+
+    # 2. A suffix that says what the value is, WITH the grammar that claim implies.
+    for source in (
+        "TOKEN_ENV = 'SOME_API_TOKEN'",
+        "TOKEN_PATH = '/api/v1/auth/token'",
+        "API_KEY_PATH = './secrets/api.json'",
+        "AUTH_TOKEN_HEADER = 'X-Auth-Token'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+    # 2b. A `_FIELD` / `_REFERENCE` name cannot be judged by grammar -- a field name and
+    #     a password are the same shape -- so the value has to SPELL THE NAME, which is
+    #     the self-naming enum case generalised.
+    for source in (
+        "CLIENT_SECRET_FIELD = 'client_secret'",
+        "API_KEY_COLUMN = 'api_key'",
+        "ACCESS_TOKEN_PARAM = 'access-token'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+    # 3. A literal with a substitution slot is a wire FORMAT: the part that would be
+    #    secret is the part that is not there.
+    for source in (
+        "AUTH_TOKEN_FORMAT = 'Bearer {token}'",
+        "API_KEY_TEMPLATE = 'key=%s'",
+        "PASSWORD_TEMPLATE = 'pw=%(value)s'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+
+def test_a_credential_containing_a_brace_is_not_a_wire_format(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The worst bug this rule has had, pinned so it cannot come back.
+
+    The wire-format exemption was first written to consult the VALUE alone -- any
+    literal with a brace pair or a %-slot was a format. Consulted for every
+    credential-shaped name, that exempts the secrets that happen to contain one, and
+    generated passwords and pasted service-account JSON routinely do. Five shapes that
+    the rule caught before the exemption existed went silently clean, and the
+    literal-format scan does not cover them either: it only knows AKIA, ghp_,
+    github_pat_ and PEM headers.
+
+    A format now has to SAY it is one, which costs nothing: the name is what the author
+    controls, and every real instance of this shape is already called `*_FORMAT` or
+    `*_TEMPLATE`.
+    """
+    app = tmp_path / "app"
+    for source in (
+        'DB_PASSWORD = "aB3{xY9}qZ"',
+        'SERVICE_TOKEN = "tok{}en"',
+        'CLIENT_SECRET = "s3cr3t%s"',
+        'ADMIN_PASSWORD = "50%d0llars"',
+        'API_SECRET = \'{"type": "service_account", "private_key_id": "abc"}\'',
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert _rule_names(check_no_hardcoded_credentials(app)) == {
+            "no_hardcoded_credentials"
+        }, source
+
+    # ...while a name that declares itself a format keeps the exemption.
+    for source in (
+        'AUTH_TOKEN_FORMAT = "Bearer {token}"',
+        'API_KEY_TEMPLATE = "key=%s"',
+        'SECRET_PATTERN = "pw=%(value)s"',
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert check_no_hardcoded_credentials(app) == [], source
+
+
+def test_the_header_exemption_covers_the_header_apps_actually_name(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A hyphen-only grammar refused `Authorization`, which is the header an app wiring
+    a client names -- so most of the markers this exemption exists to retire could not
+    be retired, which is the cost the whole change is about. A registered header name is
+    not a password shape: a password does not happen to equal one."""
+    app = tmp_path / "app"
+    for value in ("Authorization", "Authentication", "Cookie", "X-Auth-Token"):
+        _write(app, "client.py", f'AUTH_TOKEN_HEADER = "{value}"\n')
+        assert check_no_hardcoded_credentials(app) == [], value
+
+    # An unregistered single word is still a password shape.
+    for value in ("hunter2", "Bearer abc def"):
+        _write(app, "client.py", f'AUTH_TOKEN_HEADER = "{value}"\n')
+        assert _rule_names(check_no_hardcoded_credentials(app)) == {
+            "no_hardcoded_credentials"
+        }, value
+
+
+def test_no_hardcoded_credentials_exemptions_need_the_value_to_earn_them(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The half that matters: a suffix is not a password. Each case below wears one of
+    the exempt shapes and holds a credential anyway."""
+    app = tmp_path / "app"
+
+    for source in (
+        # The suffix claims an environment variable's name; the value is a token.
+        "TOKEN_ENV = 'sk-live-abc123'",
+        # ...a path; still a token.
+        "TOKEN_PATH = 'sk-live-abc123'",
+        # ...a header name; a value with spaces is not one.
+        "AUTH_TOKEN_HEADER = 'Bearer abc def'",
+        # A suffix that is not in the list at all, and must not become one: `_KEY`
+        # IS the credential word.
+        "API_KEY = 'sk-live-abc123'",
+        # An env-var name must be multi-word, or the exemption swallows a password
+        # that merely happens to be upper-case.
+        "TOKEN_ENV = 'HUNTER2'",
+        # A self-naming suffix whose value does NOT spell the name is a password in
+        # a field name's clothing -- the exact case this repository's suite caught.
+        "SECRET_REFERENCE = 'hunter2'",
+        "CLIENT_SECRET_FIELD = 'hunter2'",
+        # A bearer literal has no substitution slot, so it is not a format.
+        "auth_token = 'Bearer abc.def.ghi'",
+    ):
+        _write(app, "client.py", f"{source}\n")
+        assert _rule_names(check_no_hardcoded_credentials(app)) == {
+            "no_hardcoded_credentials"
+        }, source
+
+    # An env-key name is exempt only in the module that actually uses it as one.
+    _write(app, "client.py", "TOKEN_ENV = 'sk-live-abc123'\n")
+    assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
+
+    # And no exemption reaches the literal-format scan, which reads every string in the
+    # tree whatever name it is bound to: a real key pasted into a "format" still fires.
+    _write(
+        app,
+        "client.py",
+        "HEADER_FORMAT = 'Bearer " + "ghp_" + "A" * 36 + " {rest}'\n",
+    )
     assert _rule_names(check_no_hardcoded_credentials(app)) == {"no_hardcoded_credentials"}
 
 
@@ -2963,6 +3691,105 @@ def test_ownership_clause_terminates_on_a_malformed_tree(tmp_path: pathlib.Path)
     assert _rule_names(check_no_manual_ownership_checks(app)) == {
         "no_manual_ownership_checks"
     }
+
+
+def test_permission_gated_reads_disclose(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # A read behind a named grant that records nothing. The grant is how this application
+    # said the data is sensitive; the trail then answers who changed it and never who
+    # looked, which for a listing like this is the whole of the harm.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        "@router.get(\n"
+        '    "/", response_model=list[ProfileRead],\n'
+        "    dependencies=[Depends(require_permission(PROFILES_READ))],\n"
+        ")\n"
+        "def list_profiles(session: SessionDep) -> list[ProfileRead]:\n"
+        "    return [ProfileRead.model_validate(row) for row in _service.list(session)]\n",
+    )
+    assert _rule_names(check_permission_gated_reads_disclose(app)) == {
+        "permission_gated_reads_disclose"
+    }
+
+    # The same route, disclosing before it answers.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        "@router.get(\n"
+        '    "/", response_model=list[ProfileRead],\n'
+        "    dependencies=[Depends(require_permission(PROFILES_READ))],\n"
+        ")\n"
+        "def list_profiles(session: SessionDep) -> list[ProfileRead]:\n"
+        "    rows = _service.list(session)\n"
+        '    emit_disclosure(target_type="profile", target_id="*")\n'
+        "    return [ProfileRead.model_validate(row) for row in rows]\n",
+    )
+    assert check_permission_gated_reads_disclose(app) == []
+
+    # The other spelling of the marker: declared in the endpoint signature. A rule that
+    # read only `dependencies=` would be blind to exactly the form the runtime projection
+    # had to be fixed to notice.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        '@router.get("/{profile_id}", response_model=ProfileRead)\n'
+        "def read_profile(\n"
+        "    profile_id: uuid.UUID,\n"
+        "    session: SessionDep,\n"
+        "    _granted: None = Depends(require_permission(PROFILES_READ)),\n"
+        ") -> ProfileRead:\n"
+        "    return ProfileRead.model_validate(_service.get(session, profile_id))\n",
+    )
+    assert _rule_names(check_permission_gated_reads_disclose(app)) == {
+        "permission_gated_reads_disclose"
+    }
+
+    # And the Annotated spelling, which is the idiom FastAPI itself now recommends. It
+    # reaches the same requirement by a different node in the tree -- the annotation
+    # rather than the default -- so a walk that checked only one of the two would exempt
+    # whichever half the codebase happens to prefer.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        '@router.get("/{profile_id}", response_model=ProfileRead)\n'
+        "def read_profile(\n"
+        "    profile_id: uuid.UUID,\n"
+        "    session: SessionDep,\n"
+        "    _granted: Annotated[None, Depends(require_permission(PROFILES_READ))] = None,\n"
+        ") -> ProfileRead:\n"
+        "    return ProfileRead.model_validate(_service.get(session, profile_id))\n",
+    )
+    assert _rule_names(check_permission_gated_reads_disclose(app)) == {
+        "permission_gated_reads_disclose"
+    }
+
+    # A WRITE behind the same grant is not this rule's business: every write already
+    # emits through the BaseService chokepoint, which is what made the trail
+    # mutation-only in the first place.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        "@router.post(\n"
+        '    "/", response_model=ProfileRead, status_code=201,\n'
+        "    dependencies=[Depends(require_permission(PROFILES_WRITE))],\n"
+        ")\n"
+        "def create_profile(payload: ProfileCreate, session: SessionDep) -> ProfileRead:\n"
+        "    return ProfileRead.model_validate(_service.create(session, payload))\n",
+    )
+    assert check_permission_gated_reads_disclose(app) == []
+
+    # A read gated by the module's role tier alone is not sensitive by this rule's
+    # measure, and must not be: a record per read of everything buries the one entry
+    # somebody will eventually need.
+    _write(
+        app,
+        "modules/profiles/router.py",
+        '@router.get("/", response_model=list[ProfileRead])\n'
+        "def list_profiles(session: SessionDep) -> list[ProfileRead]:\n"
+        "    return [ProfileRead.model_validate(row) for row in _service.list(session)]\n",
+    )
+    assert check_permission_gated_reads_disclose(app) == []
 
 
 def test_no_raw_file_references(tmp_path: pathlib.Path) -> None:
@@ -3597,6 +4424,139 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
     assert check_no_destructive_migrations(app) == []
 
 
+def test_not_null_columns_are_backfilled(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    revision = "modules/notes/migrations/versions/0001_change.py"
+
+    # The shape autogenerate emits for a new non-nullable field: it succeeds on an
+    # empty database and fails on the first one holding rows.
+    unbackfilled = (
+        "def upgrade():\n    op.add_column('notes', sa.Column('rank', sa.Integer(), nullable=False))\n",
+        # The batch spelling is the same statement; the receiver does not matter.
+        "def upgrade():\n"
+        "    with op.batch_alter_table('notes') as batch_op:\n"
+        "        batch_op.add_column(sa.Column('rank', sa.Integer(), nullable=False))\n",
+        # A table the revision does not create is read as one that may hold rows, and so
+        # is a table whose name is not a literal at all.
+        "def upgrade():\n    op.add_column(table_name, sa.Column('rank', sa.Integer(), nullable=False))\n",
+        # `column=` and `table_name=` are legal spellings of the same statement. A rule a
+        # keyword could switch off would be a safety net defeated by whitespace.
+        "def upgrade():\n    op.add_column('notes', column=sa.Column('rank', sa.Integer(), nullable=False))\n",
+        "def upgrade():\n"
+        "    op.add_column(table_name='notes', column=sa.Column('rank', sa.Integer(), nullable=False))\n",
+        "def upgrade():\n"
+        "    with op.batch_alter_table(table_name='notes') as batch_op:\n"
+        "        batch_op.add_column(column=sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    for source in unbackfilled:
+        _write(app, revision, source)
+        found = check_not_null_columns_are_backfilled(app)
+        assert _rule_names(found) == {"not_null_columns_are_backfilled"}, source
+        # One operation is one violation: a set of rule names would hide a double report.
+        assert len(found) == 1, source
+
+    # A server_default back-fills the existing rows as the column is added.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.add_column('notes', sa.Column('rank', sa.Integer(), nullable=False, server_default='0'))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+
+    # A nullable column has nothing to back-fill, whether it says so or takes the default.
+    for nullable in ("nullable=True", ""):
+        _write(
+            app,
+            revision,
+            f"def upgrade():\n    op.add_column('notes', sa.Column('rank', sa.Integer(), {nullable}))\n",
+        )
+        assert check_not_null_columns_are_backfilled(app) == [], nullable
+
+    # The keyword spelling stays exempt where the positional one is: a server_default
+    # back-fills, and a table created here holds no rows.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.add_column(table_name='notes', column=sa.Column('rank', sa.Integer(), "
+        "nullable=False, server_default='0'))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.create_table('drafts', sa.Column('id', sa.Integer()))\n"
+        "    op.add_column(table_name='drafts', column=sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+
+    # A table this same upgrade() creates cannot hold a row yet, in either spelling.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.create_table('drafts', sa.Column('id', sa.Integer()))\n"
+        "    op.add_column('drafts', sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.create_table('drafts', sa.Column('id', sa.Integer()))\n"
+        "    with op.batch_alter_table('drafts') as batch_op:\n"
+        "        batch_op.add_column(sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+
+    # create_table is out of scope entirely: its NOT NULL columns meet no rows. So is a
+    # column object built elsewhere, which carries no keywords to read here.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    op.create_table('notes', sa.Column('rank', sa.Integer(), nullable=False))\n"
+        "    op.add_column('notes', column)\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+
+    # Only upgrade() is read; a downgrade re-adding a dropped column is not this risk.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n    pass\n"
+        "def downgrade():\n    op.add_column('notes', sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert check_not_null_columns_are_backfilled(app) == []
+
+    # The standard governed escape hatch covers the reviewed case (an empty table).
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    # arch-allow-not-null-columns-are-backfilled: table is seeded by this release\n"
+        "    op.add_column('notes', sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert check_app(app) == []
+
+    # A marker without a reason is not enough.
+    _write(
+        app,
+        revision,
+        "def upgrade():\n"
+        "    # arch-allow-not-null-columns-are-backfilled:\n"
+        "    op.add_column('notes', sa.Column('rank', sa.Integer(), nullable=False))\n",
+    )
+    assert _rule_names(check_app(app)) == {"ungoverned_escape_hatch"}
+
+    # Non-revision files under migrations/ are not revisions.
+    _write(app, "modules/notes/migrations/env.py", "def upgrade():\n    op.add_column('notes', sa.Column('r', sa.Integer(), nullable=False))\n")
+    _write(app, revision, "def upgrade():\n    pass\n")
+    assert check_not_null_columns_are_backfilled(app) == []
+
+
 def test_alembic_downgrades_not_empty(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     # An empty downgrade() makes a revision irreversible â€” a lone pass, an ellipsis, or
@@ -4129,7 +5089,7 @@ def test_example_app_passes_the_whole_harness() -> None:
     # justified opt-out (the journals read-visibility predicate, ADR 0061) is
     # governed by the checked-in budget.
     assert check_app(_EXAMPLE_APP) == []
-    assert_app_clean(_EXAMPLE_APP, budget_path=_EXAMPLE_BUDGET)
+    assert_app_clean(_EXAMPLE_APP, _EXAMPLE_CONTROL_PLANE, budget_path=_EXAMPLE_BUDGET)
 
 
 # --------------------------------------------------------------------------- #
@@ -4387,7 +5347,7 @@ def test_example_app_escape_hatch_budget_is_clean() -> None:
     # Dogfood: the example app's single opt-out (the journals read-visibility
     # predicate's owner_id comparison, ADR 0061) is governed â€” the budget agrees exactly.
     assert check_escape_hatch_budget(_EXAMPLE_APP, budget_path=_EXAMPLE_BUDGET) == []
-    assert_app_clean(_EXAMPLE_APP, budget_path=_EXAMPLE_BUDGET)
+    assert_app_clean(_EXAMPLE_APP, _EXAMPLE_CONTROL_PLANE, budget_path=_EXAMPLE_BUDGET)
 
 
 def test_table_ownership_is_not_split(tmp_path: pathlib.Path) -> None:
@@ -4617,3 +5577,253 @@ def test_frozen_values_hold_no_mutable_collection_leaves_honest_fields_alone(
         "    columns: ColumnNames\n",
     )
     assert check_frozen_values_hold_no_mutable_collection(app) == []
+
+
+def test_references_declare_delete_behaviour(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+
+    # A foreign key with no delete behaviour, in each of the three spellings a table
+    # model can reach for. All three are the same defect: the action is whatever SQL
+    # defaults to, and nothing in the source says that was a choice.
+    undeclared = (
+        'invoice_id: uuid.UUID = Field(foreign_key="invoice.id")',
+        'invoice_id: uuid.UUID = Field(sa_column=Column(ForeignKey("invoice.id")))',
+        'invoice_id: uuid.UUID = Ref("invoice.id")',
+    )
+    for source in undeclared:
+        _write(
+            app,
+            "modules/billing/models.py",
+            f"class Line(BaseTable, table=True):\n    {source}\n",
+        )
+        found = check_references_declare_delete_behaviour(app)
+        assert _rule_names(found) == {"references_declare_delete_behaviour"}, source
+        # One column, one finding: the spellings must not overlap into a double report,
+        # which a rule-name set would hide.
+        assert len(found) == 1, source
+
+    # Every action is accepted -- the rule enforces that one was named, never which.
+    for action in ("CASCADE", "RESTRICT", "SET_NULL", "SET_DEFAULT", "NO_ACTION"):
+        _write(
+            app,
+            "modules/billing/models.py",
+            "class Line(BaseTable, table=True):\n"
+            f'    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.{action})\n',
+        )
+        assert check_references_declare_delete_behaviour(app) == [], action
+
+    # The decision counts however it is spelled: SQLModel's own shorthand and a
+    # hand-built column both made it without the helper.
+    declared_otherwise = (
+        'invoice_id: uuid.UUID = Field(foreign_key="invoice.id", ondelete="CASCADE")',
+        'invoice_id: uuid.UUID = Field(sa_column=Column(ForeignKey("invoice.id",'
+        ' ondelete="RESTRICT")))',
+    )
+    for source in declared_otherwise:
+        _write(
+            app,
+            "modules/billing/models.py",
+            f"class Line(BaseTable, table=True):\n    {source}\n",
+        )
+        assert check_references_declare_delete_behaviour(app) == [], source
+
+    # A table-level constraint is a reference too, and it is reported once.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    __table_args__ = (ForeignKeyConstraint(["invoice_id"], ["invoice.id"]),)\n'
+        "    invoice_id: uuid.UUID\n",
+    )
+    found = check_references_declare_delete_behaviour(app)
+    assert _rule_names(found) == {"references_declare_delete_behaviour"}
+    assert len(found) == 1
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    __table_args__ = (ForeignKeyConstraint(["invoice_id"], ["invoice.id"],\n'
+        '                                           ondelete="CASCADE"),)\n'
+        "    invoice_id: uuid.UUID\n",
+    )
+    assert check_references_declare_delete_behaviour(app) == []
+
+    # An action that cannot fire: the target's delete is a stamp, so CASCADE never
+    # cascades, SET DEFAULT never defaults, and SET NULL leaves a live pointer to a row
+    # every read now hides. SET_DEFAULT belongs here and not with the accepted pair --
+    # the line is whether the declaration's value depends on the action firing.
+    for action in ("CASCADE", "SET_NULL", "SET_DEFAULT"):
+        _write(
+            app,
+            "modules/billing/models.py",
+            "class Invoice(BaseTable, SoftDeleteMixin, table=True):\n"
+            "    number: str = Field(max_length=50)\n"
+            "\n"
+            "class Line(BaseTable, table=True):\n"
+            f'    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.{action})\n',
+        )
+        found = check_references_declare_delete_behaviour(app)
+        assert _rule_names(found) == {"references_declare_delete_behaviour"}, action
+        assert len(found) == 1, action
+        assert "can never fire" in found[0].message, action
+
+    # ... and the two that stay honest against the same target are accepted.
+    for action in ("RESTRICT", "NO_ACTION"):
+        _write(
+            app,
+            "modules/billing/models.py",
+            "class Invoice(BaseTable, SoftDeleteMixin, table=True):\n"
+            "    number: str = Field(max_length=50)\n"
+            "\n"
+            "class Line(BaseTable, table=True):\n"
+            f'    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.{action})\n',
+        )
+        assert check_references_declare_delete_behaviour(app) == [], action
+
+    # The trait reaches through an app-owned base and through an explicit __tablename__,
+    # because that is how a real app factors it (ADR 0011).
+    _write(
+        app,
+        "modules/billing/base.py",
+        "class AppTable(BaseTable, SoftDeleteMixin):\n    pass\n",
+    )
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Invoice(AppTable, table=True):\n"
+        '    __tablename__ = "billing_invoice"\n'
+        "    number: str = Field(max_length=50)\n"
+        "\n"
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Ref("billing_invoice.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    assert _rule_names(check_references_declare_delete_behaviour(app)) == {
+        "references_declare_delete_behaviour"
+    }
+
+    # A model that declares the trait's column itself behaves identically at the
+    # reference end, so it counts as soft-deletable too.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Invoice(BaseTable, table=True):\n"
+        "    deleted_at: datetime | None = None\n"
+        "\n"
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    assert _rule_names(check_references_declare_delete_behaviour(app)) == {
+        "references_declare_delete_behaviour"
+    }
+
+    # A target that is not soft-deletable takes any action, and an action the rule
+    # cannot resolve statically (a constant, a variable) is still a declaration.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Invoice(BaseTable, table=True):\n"
+        "    number: str = Field(max_length=50)\n"
+        "\n"
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=CONFIGURED_ACTION)\n'
+        '    other_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    assert check_references_declare_delete_behaviour(app) == []
+
+    # One column, one finding -- for the two shapes that would otherwise report it
+    # twice. Neither is caught by a corpus case, which only asserts the rule fired.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Outer(BaseTable, table=True):\n"
+        "    class Inner(BaseTable, table=True):\n"
+        '        invoice_id: uuid.UUID = Field(foreign_key="invoice.id")\n',
+    )
+    found = check_references_declare_delete_behaviour(app)
+    assert _rule_names(found) == {"references_declare_delete_behaviour"}
+    # The nested model is visited by the file pass in its own right, so walking into
+    # it from the enclosing class would report its column once per enclosing class.
+    assert len(found) == 1, found
+
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Field(foreign_key="invoice.id",\n'
+        '                                  sa_column=Column(ForeignKey("invoice.id")))\n',
+    )
+    found = check_references_declare_delete_behaviour(app)
+    assert _rule_names(found) == {"references_declare_delete_behaviour"}
+    # A foreign key nested inside a foreign key is still one column.
+    assert len(found) == 1, found
+
+    # Two real columns still give two findings -- the de-duplication above must not
+    # have collapsed into "one finding per class".
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    a_id: uuid.UUID = Field(foreign_key="a.id")\n'
+        '    b_id: uuid.UUID = Field(foreign_key="b.id")\n',
+    )
+    assert len(check_references_declare_delete_behaviour(app)) == 2
+
+    # The target may be passed as a keyword, and reachability still resolves it.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Invoice(BaseTable, SoftDeleteMixin, table=True):\n"
+        '    number: str = Field(max_length=50)\n'
+        "\n"
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Ref(target="invoice.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    found = check_references_declare_delete_behaviour(app)
+    assert len(found) == 1 and "can never fire" in found[0].message, found
+
+    # A target held in a module-level constant (the shape a tree with one shared user
+    # table reaches for) is a declaration the rule accepts; its table simply cannot be
+    # resolved from source, so the reachability half has nothing to check.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Invoice(BaseTable, SoftDeleteMixin, table=True):\n"
+        "    number: str = Field(max_length=50)\n"
+        "\n"
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Field(foreign_key=INVOICE_FK, ondelete="CASCADE")\n'
+        "    other_id: uuid.UUID = Ref(INVOICE_FK, on_delete=OnDelete.CASCADE)\n",
+    )
+    assert check_references_declare_delete_behaviour(app) == []
+
+    # A reference whose target this tree does not declare cannot be judged for
+    # reachability, and is not guessed at.
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    file_id: uuid.UUID = Ref("elsewhere.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    assert check_references_declare_delete_behaviour(app) == []
+
+    # Scope: a non-table schema is not a persisted reference, and a helper outside an
+    # app module is not app-module code.
+    _write(
+        app,
+        "modules/billing/schemas.py",
+        "class LineRead(BaseSchema):\n"
+        '    invoice_id: uuid.UUID = Field(foreign_key="invoice.id")\n',
+    )
+    _write(
+        app,
+        "helpers/legacy.py",
+        "class Legacy(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Field(foreign_key="invoice.id")\n',
+    )
+    _write(
+        app,
+        "modules/billing/models.py",
+        "class Line(BaseTable, table=True):\n"
+        '    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)\n',
+    )
+    assert check_references_declare_delete_behaviour(app) == []

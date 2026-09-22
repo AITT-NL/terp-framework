@@ -5,7 +5,7 @@ import { ConfirmDialog } from "../ConfirmDialog";
 import { DetailPage } from "../DetailPage";
 import { Field } from "../Field";
 import { Icon } from "../icons";
-import { DetailList } from "../layout";
+import { DetailList, Stack } from "../layout";
 import { PageActions } from "../PageActions";
 import { useDeclaredParam } from "../router";
 import { useTerpClient } from "../TerpProvider";
@@ -18,7 +18,9 @@ import { useStrings } from "../uiText";
 import { unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
-import { adminRoleLabel, adminRoleOptions } from "./roles";
+import { ModuleAccessPanel } from "./ModuleAccessPanel";
+import { adminRoleLabel } from "./roles";
+import { useAccessLadder } from "./useAccessLadder";
 
 type UserRead = components["schemas"]["UserRead"];
 
@@ -38,7 +40,7 @@ export function UserDetail() {
   const [resetOpen, setResetOpen] = useState(false);
   const [resetPassword, setResetPassword] = useState("");
   const [resetting, setResetting] = useState(false);
-  const roles = adminRoleOptions(strings);
+  const { rungs } = useAccessLadder(strings);
 
   useEffect(() => {
     setPendingLifecycle(null);
@@ -114,7 +116,7 @@ export function UserDetail() {
   }
 
   const pendingRole = pendingLifecycle?.kind === "role"
-    ? adminRoleLabel(strings, pendingLifecycle.rank)
+    ? adminRoleLabel(rungs, pendingLifecycle.rank)
     : "";
   const lifecycleDescription = pendingLifecycle?.kind === "role"
     ? strings.changeRoleConfirm.replace("{role}", pendingRole)
@@ -144,7 +146,7 @@ export function UserDetail() {
             </Button>
           }
           overflow={[
-            ...roles
+            ...rungs
               .filter((option) => option.rank !== record.role)
               .map((option) => ({
                 label: strings.makeRole.replace("{role}", option.label.toLowerCase()),
@@ -167,17 +169,22 @@ export function UserDetail() {
       ) : undefined}
     >
       {record !== null && (
-        <DetailList
-          items={[
-            { label: strings.email, value: record.email },
-            { label: strings.role, value: adminRoleLabel(strings, record.role) },
-            {
-              label: strings.statusColumn,
-              value: record.is_active ? strings.statusActive : strings.statusDeactivated,
-            },
-            { label: strings.createdColumn, value: formatDateTime(record.created_at) },
-          ]}
-        />
+        <Stack gap={6}>
+          <DetailList
+            items={[
+              { label: strings.email, value: record.email },
+              { label: strings.role, value: adminRoleLabel(rungs, record.role) },
+              {
+                label: strings.statusColumn,
+                value: record.is_active ? strings.statusActive : strings.statusDeactivated,
+              },
+              { label: strings.createdColumn, value: formatDateTime(record.created_at) },
+            ]}
+          />
+          {/* The rung is chosen where the person is: this is the only screen that has a
+              subject, and the global role above it is the floor every module strip sits on. */}
+          <ModuleAccessPanel subjectId={record.id} globalRank={record.role} />
+        </Stack>
       )}
       <ConfirmDialog
         open={pendingLifecycle !== null}

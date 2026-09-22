@@ -68,6 +68,32 @@ identically by both halves.
   test imports the eslint-boundaries source and asserts the tables and the message
   builder are identical, so the two copies cannot drift.
 
+
+### `bespoke` is a word about a screen, not a value the contract takes (2026-09-18)
+
+`LAYOUT_CONTRACTS` has exactly one key, `standard`, and its own description ends "a
+bespoke screen composes the plain `Page`, which the contract deliberately leaves
+unconstrained" — the violation message says the same. Read at speed, both sound like they
+are naming a second contract id, and `renderTerpApp({ layout: { contract: "bespoke" } })`
+is pinned by a test to throw. Nothing has moved on this since the contract shipped, so the
+ambiguity is recorded and closed here rather than left for the next reader to re-open.
+
+**`bespoke` is not, and should not become, a declarable contract.** A contract is declared
+once for the whole app, not per screen, and its content is per-archetype slot specs that
+the lint half and the runtime check enforce. A `bespoke` entry would have to declare every
+slot unconstrained — which is exactly what declaring no contract already means. It would
+be a second spelling of one thing, and the platform refuses that shape elsewhere for the
+same reason (ADR 0140: "a `RateLimit` and a `{"/": RateLimit}` would be two ways to say
+one thing").
+
+The word is also doing adjective duty. A *bespoke screen* is one that composes the plain
+`Page`, which the contract leaves alone by design — that is a fact about a screen inside a
+contracted app, not a mode the app selects. So the prose stops using it as a noun: the
+contract description and the violation message say "a screen that needs no contract
+composes the plain `Page`" instead. The throw already names the known contracts, so an app
+that does write `contract: "bespoke"` is told what the legal values are rather than only
+that this is not one.
+
 ## Consequences
 
 - A new templated app is consistent by construction: hub → cards, overview → data

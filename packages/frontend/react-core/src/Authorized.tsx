@@ -1,11 +1,18 @@
-import type { Action } from "@terpjs/contract";
+import type { Action, TerpPermissionName } from "@terpjs/contract";
 import type { ReactNode } from "react";
 
 import { useAuth } from "./TerpProvider";
 
-/** Whether the current user may perform `action` (the UI gate; the backend re-checks). */
-export function useCan(action: Action): boolean {
-  return useAuth().can(action);
+/**
+ * Whether the current user may perform `action` (the UI gate; the backend re-checks).
+ *
+ * Pass `module` on a module's own screen: a per-module rung the caller holds there raises the
+ * answer exactly as it does at the guard (ADR 0121). Without it this compares the global rank
+ * only, which is correct for a screen that belongs to no module and wrong for one that does —
+ * it hid a module the caller could reach and rendered none of its controls.
+ */
+export function useCan(action: Action, module?: string): boolean {
+  return useAuth().can(action, module);
 }
 
 /**
@@ -26,12 +33,14 @@ export function usePermissions(): readonly string[] {
 }
 
 /** Whether the current user holds the named permission grant (the UI gate). */
-export function useHasPermission(permission: string): boolean {
+export function useHasPermission(permission: TerpPermissionName): boolean {
   return usePermissions().includes(permission);
 }
 
 export interface AuthorizedProps {
   action: Action;
+  /** The module this action happens in, so a per-module rung can raise the answer. */
+  module?: string;
   children: ReactNode;
   /**
    * Also require this named permission grant.
@@ -40,14 +49,20 @@ export interface AuthorizedProps {
    * `Permission` enforces the permission's role floor **and** the grant, so a UI that
    * checked only one would disagree with the endpoint in one direction or the other.
    */
-  permission?: string;
+  permission?: TerpPermissionName;
   /** Rendered when the user may not perform `action` (default: nothing). */
   fallback?: ReactNode;
 }
 
 /** Render `children` only when the current user may perform `action`, else `fallback`. */
-export function Authorized({ action, permission, children, fallback = null }: AuthorizedProps) {
-  const allowedByRank = useCan(action);
+export function Authorized({
+  action,
+  module,
+  permission,
+  children,
+  fallback = null,
+}: AuthorizedProps) {
+  const allowedByRank = useCan(action, module);
   const permissions = usePermissions();
   const allowed = allowedByRank && (permission === undefined || permissions.includes(permission));
   return <>{allowed ? children : fallback}</>;

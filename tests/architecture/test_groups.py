@@ -25,10 +25,15 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from terp.core import (
+    VIEWER,
     ConflictError,
+    ControlPlane,
     ModuleSpec,
     NotFoundError,
+    Permission,
+    PermissionModel,
     Policy,
+    route_policy,
     Roles,
     create_app,
     get_session,
@@ -172,17 +177,17 @@ def test_deleting_a_group_cascades_members_and_grants(session: Session) -> None:
     group = service.create(session, GroupCreate(name="Finance"))
     member = uuid.uuid4()
     service.add_member(session, group.id, member)
-    access.grant(session, group.id, "reports:export")
-    assert access.has_permission(session, member, "reports:export")
+    access.grant(session, group.id, "reports.export")
+    assert access.has_permission(session, member, "reports.export")
 
     records = _capture_audit()
     service.delete(session, group.id)
 
     with pytest.raises(NotFoundError):
         service.get(session, group.id)
-    assert service.group_ids_for(session, member) == set()
+    assert service.groups_for(session, member) == []
     assert access.permissions_for(session, group.id) == set()
-    assert access.has_permission(session, member, "reports:export") is False
+    assert access.has_permission(session, member, "reports.export") is False
     # One atomic unit: the group's DELETED record, then the cascaded rows'.
     assert [record.target_type for record in records] == [
         "Group",
@@ -199,7 +204,7 @@ def test_a_failing_cascade_rolls_back_the_whole_delete(session: Session) -> None
     group = service.create(session, GroupCreate(name="Finance"))
     member = uuid.uuid4()
     service.add_member(session, group.id, member)
-    access.grant(session, group.id, "reports:export")
+    access.grant(session, group.id, "reports.export")
 
     def _sink(_session: Session, record: AuditRecord, _policy: object) -> None:
         if record.target_type == "Grant":  # the last cascaded write
@@ -212,8 +217,8 @@ def test_a_failing_cascade_rolls_back_the_whole_delete(session: Session) -> None
     set_audit_sink(lambda _session, _record, _policy: None)
     session.rollback()
     assert service.get(session, group.id).id == group.id
-    assert service.group_ids_for(session, member) == {group.id}
-    assert access.has_permission(session, member, "reports:export")
+    assert [g[0] for g in service.groups_for(session, member)] == [group.id]
+    assert access.has_permission(session, member, "reports.export")
 
 
 def test_the_cascade_drains_past_the_batch_size(
@@ -242,7 +247,7 @@ def test_the_cascade_drains_past_the_batch_size(
     with pytest.raises(NotFoundError):
         service.get(session, group.id)
     for member in members:
-        assert service.group_ids_for(session, member) == set()
+        assert service.groups_for(session, member) == []
     assert access.permissions_for(session, group.id) == set()
 
 
@@ -300,22 +305,39 @@ def gated_app() -> Iterator[tuple[FastAPI, Engine]]:
 
     gated = APIRouter(tags=["gated"])
 
+    # Declared and claimed, because a route may not enforce a permission the control plane
+    # does not declare: a permission only a route knows about cannot be granted through
+    # `terp grant` or the access API either, so the route would be closed rather than
+    # fine-grained. The group grant this suite is about still names it by string, which is
+    # the point — a grant row is an open token, the *declaration* is what has to resolve.
+    widgets_write = Permission(
+        "widgets.write", min_role=VIEWER, label="Change a widget"
+    )
+
     @gated.post(
         "/act",
         response_model=str,
-        dependencies=[Depends(require_permission("widgets:write"))],
+        dependencies=[Depends(require_permission(widgets_write))],
     )
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
     async def act() -> str:
         return "ok"
 
     spec = ModuleSpec(
         name="gated",
         router=gated,
+        permissions=(widgets_write,),
         policy=Policy.public_write(
             reason="action is gated by a fine-grained grant, not a role"
         ),
     )
-    application = create_app([spec], principal_provider=auth_get_principal)
+    application = create_app(
+        [spec],
+        principal_provider=auth_get_principal,
+        control_plane=ControlPlane(
+            permissions=PermissionModel(permissions=(widgets_write,))
+        ),
+    )
 
     def _session_override() -> Iterator[Session]:
         with Session(engine) as active:
@@ -346,7 +368,7 @@ def test_a_group_grant_authorizes_members_and_only_members(
         group = service.create(setup, GroupCreate(name="Widget makers"))
         group_id = group.id
         service.add_member(setup, group_id, member)
-        AccessService().grant(setup, group_id, "widgets:write")
+        AccessService().grant(setup, group_id, "widgets.write")
 
     assert _bearer(app, member).post("/api/v1/gated/act").status_code == 200
     assert _bearer(app, outsider).post("/api/v1/gated/act").status_code == 403

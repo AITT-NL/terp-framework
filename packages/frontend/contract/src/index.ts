@@ -7,5 +7,15 @@ export type { components, operations, paths } from "./schema";
 export { defineModuleManifest } from "./manifest";
 export { ICON_NAMES } from "./icons";
 export type { IconName } from "./icons";
-export type { ModuleManifest, ModuleRoute, NavGroup, NavItem, RoleName, UiText } from "./manifest";
+export type {
+  AccessName,
+  ModuleManifest,
+  ModuleRoute,
+  NavGroup,
+  NavItem,
+  TerpPermissionName,
+  RoleName,
+  TerpAccessVocabulary,
+  UiText,
+} from "./manifest";
 export type { AccessToken, Action, AuthSession, Credentials, CurrentUser } from "./auth";

@@ -4,9 +4,14 @@ A Terp module exposes exactly one :class:`ModuleSpec`. This is the entire public
 extension surface: discovery collects every spec and the composition root wires
 routers (behind a policy-derived guard), services, event ``emits`` / ``subscribes``,
 and declared ``jobs`` with no central edits. Cross-cutting references —
-``policy``, the event ``emits`` / ``subscribes``, and ``jobs`` — are typed
-control-plane objects, never bare strings, and the boot validates them against the
-control plane.
+``policy``, the event ``emits`` / ``subscribes``, ``jobs`` and the ``permissions``
+the module claims — are typed control-plane objects, never bare strings, and the
+boot validates every one of them against the control plane, by value.
+
+``access`` is the exception to that pattern, and deliberately: it is the module's
+own answer to whether it takes part in per-module role assignment and what it is
+called (:class:`ModuleAccess`, ADR 0121). There is no registry to validate it
+against, because nothing outside the module owns that answer.
 
 Secure-by-default: a module's security posture is **declared** as a
 :class:`Policy`. The composition root denies any router whose spec declares no
@@ -18,7 +23,7 @@ rule, so an unauthenticated mutation needs a budgeted opt-out (ADR 0040).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -26,6 +31,8 @@ from fastapi import APIRouter
 
 from terp.core.events import EventDefinition
 from terp.core.jobs import JobDefinition
+from terp.core.security import RateLimit
+from terp.core.routing import MUTATING_METHODS
 from terp.core.permissions import (
     AuthorizationRequirement,
     Permission,
@@ -143,6 +150,178 @@ class Policy:
 
 
 @dataclass(frozen=True)
+class AccessDecision:
+    """One authorization outcome, as data rather than as a raised exception.
+
+    ``reason`` is a stable slug, not prose: the guard maps it to an exception and a view
+    maps it to a cell, and neither should be matching on an English sentence.
+    """
+
+    #: Whether the caller may proceed.
+    allowed: bool
+    #: Why, as a slug: ``allowed``, ``allowed_in_module`` (cleared the floor only because of
+    #: a per-module role, which is what an explanation of an effective right needs to say),
+    #: ``public``, ``no_policy``, ``unauthenticated``, ``unregistered_role``, ``rank`` (below
+    #: the floor) or ``grant`` (clears the floor, lacks the named permission).
+    reason: str
+    #: The requirement that applied, or ``None`` where the decision was reached before one
+    #: was selected (no policy, public, unauthenticated, unregistered role).
+    requirement: AuthorizationRequirement | None = None
+
+
+def decide(
+    policy: Policy | None,
+    *,
+    method: str,
+    role: Role | None,
+    role_is_registered: bool = True,
+    holds_permission: Callable[[str], bool] | None = None,
+    module_rank: Callable[[], int] | None = None,
+) -> AccessDecision:
+    """The authorization decision for one policy, method and role — the single copy.
+
+    This existed twice, which is the reason it now exists once. ``build_guard`` chose the
+    read or the write requirement by testing the method against ``MUTATING_METHODS``, and
+    the access-graph projection chose it again, independently, from the same inputs. Two
+    copies of one decision is exactly the shape ADR 0102's own first phase had to repair
+    after the copies "had already drifted into a reachable privilege-tier escape" — and here
+    the consequence would be worse than a wrong label, because the drifting copy is the one
+    a permission editor shows an administrator while the other one is the gate.
+
+    So a view does not describe enforcement any more, it **replays** it: same function, same
+    order, same answer. ``holds_permission=None`` is what a view passes, because it has no
+    subject in hand — the decision then comes back ``reason="grant"``, meaning *this rank
+    clears the floor and would need the named grant*, which is precisely the
+    "…-grant" cell a matrix wants to render. The guard passes a real check.
+
+    ``holds_permission`` is a **callable**, not a bool, and that is not stylistic: the guard
+    has always issued the grant query only when a permission requirement is actually
+    reached, so a role-only route never touches the database. An eagerly-evaluated argument
+    would have moved that query onto every guarded request in the framework.
+
+    Order matters and is the guard's, unchanged: a public policy admits before
+    authentication is considered, an unregistered role is refused before any requirement is
+    selected, and the rank floor is checked before the grant — which is why a grant can
+    never lift a caller over a floor (ADR 0016 §2, ADR 0089 §4).
+
+    ``module_rank`` is the one thing that *can* lift a caller over a floor, and only upward:
+    it is consulted solely when the global rank falls short, because a per-module role adds
+    authority and never removes it (ADR 0121), so a caller who already clears the floor
+    cannot be changed by one. Clearing this way is reported as ``allowed_in_module`` rather
+    than ``allowed``, because "why can this person do that?" has a different answer in the
+    two cases and a viewer has to be able to give it.
+    """
+    if policy is None:
+        return AccessDecision(allowed=False, reason="no_policy")
+    if policy.is_public:
+        return AccessDecision(allowed=True, reason="public")
+    if role is None:
+        return AccessDecision(allowed=False, reason="unauthenticated")
+    if not role_is_registered:
+        return AccessDecision(allowed=False, reason="unregistered_role")
+    required = (
+        policy.write_requirement
+        if method.upper() in MUTATING_METHODS
+        else policy.read_requirement
+    )
+    elevated_by_module = False
+    if role.rank < required.min_rank:
+        # Only now, and only for a caller who does not already clear the floor: a per-module
+        # rank can raise authority and never lower it (ADR 0121), so someone whose global
+        # rank already suffices cannot be changed by one — and a lookup on their behalf would
+        # be a query that could not affect the answer. Lazy for the same reason
+        # ``holds_permission`` is.
+        in_module = None if module_rank is None else module_rank()
+        if in_module is None or in_module < required.min_rank:
+            return AccessDecision(allowed=False, reason="rank", requirement=required)
+        elevated_by_module = True
+    if required.kind == "permission" and (
+        holds_permission is None or not holds_permission(required.name)
+    ):
+        return AccessDecision(allowed=False, reason="grant", requirement=required)
+    return AccessDecision(
+        allowed=True,
+        reason="allowed_in_module" if elevated_by_module else "allowed",
+        requirement=required,
+    )
+
+
+@dataclass(frozen=True)
+class ModuleAccess:
+    """Whether a module takes part in per-module role assignment, and what it is called.
+
+    Secure by default through absence: a ``ModuleSpec`` with no ``access`` declaration does
+    not take part, which is today's behaviour — global rank only (ADR 0121). Opting in is a
+    deliberate, greppable line, and a capability that never considered the question is safe
+    by omission rather than dangerous by omission.
+
+    ``label`` exists because the pane renders it to an administrator who cannot read the
+    source, the same reason ADR 0102 gives every route a sentence. A module that opts in
+    **must** carry one: not a coverage-gated requirement like a permission's label, but a
+    constructor invariant, because the field is new and has no existing call sites to break —
+    a module cannot ask to appear in an editor and decline to say what it is called.
+
+    There is no ``summary``. One was declared, projected into the API and typed into the
+    generated client, and rendered by nobody — a field whose only consumers were its own
+    serialisation. "Name the consumer or drop it" applies to a field the pane *might* want as
+    much as to one nothing could ever want, so it comes back with the screen that shows it.
+
+    ``platform_only`` is the refusal. Per-module ``admin`` in the wrong module is a way
+    around the ladder rather than a use of it: admin in ``users`` provisions users, and
+    admin in ``access`` grants anything to anyone. The four capabilities that administer the
+    platform's own authority declare it, with a reason, in the shape ``Policy.public``
+    already uses for its own justified exception.
+
+    It is enforced at the **decision point**, not only at the writer, and the difference was a
+    real defect for two commits. ``validate_assignment`` refuses to create a row naming a
+    refusing module, and that was briefly the whole enforcement — while the guard read whatever
+    was in the table, so any other write path turned a refused declaration into admin in
+    ``users`` or ``access``. ``create_app`` now hands a module-rank resolver only to a module
+    that declared itself assignable, so a row for any other module is never read at all: the
+    declaration gates rather than advises, and a row every view calls stale genuinely does
+    nothing.
+
+    This docstring said "not yet an enforced gate" while that was true and kept saying it after
+    assignment shipped. Recorded because the rule here is that a false claim in a docstring is a
+    defect in its own right, and this one described the exact gap it was sitting on.
+    """
+
+    label: str = ""
+    assignable: bool = False
+    platform_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.platform_reason is not None:
+            if not self.platform_reason.strip():
+                raise ValueError(
+                    "ModuleAccess.platform_only(reason=...) requires a non-empty "
+                    "justification (fix recipe: terp guide permissions)"
+                )
+            if self.assignable:
+                raise ValueError(
+                    "ModuleAccess cannot be both assignable and platform_only — a module "
+                    "that administers the platform's own authority is never a per-module "
+                    "role (fix recipe: terp guide permissions)"
+                )
+        if self.assignable and not self.label.strip():
+            raise ValueError(
+                "an assignable ModuleAccess requires a label: the permission editor renders "
+                "it to someone who cannot read the source, so a module cannot ask to appear "
+                "there and decline to say what it is called "
+                "(fix recipe: terp guide permissions)"
+            )
+
+    @classmethod
+    def platform_only(cls, *, reason: str) -> ModuleAccess:
+        """Refuse per-module assignment, with a mandatory, greppable justification."""
+        return cls(platform_reason=reason)
+
+    @property
+    def is_platform_only(self) -> bool:
+        return self.platform_reason is not None
+
+
+@dataclass(frozen=True)
 class ModuleSpec:
     """The single manifest a module exposes — the entire public extension API.
 
@@ -156,6 +335,43 @@ class ModuleSpec:
     requests under that prefix — and only there, so a body-carrying surface (a
     file upload) can accept more than the global cap without widening it for
     every other endpoint (ADR 0067). ``None`` (the default) keeps the global cap.
+
+    ``rate_limit`` is the same declaration for request *rate* (ADR 0138), and is
+    the half that was missing. An app's general limit is sized for its ordinary
+    traffic; a route that verifies credentials is not ordinary traffic, because
+    every attempt there runs a memory-hard password hash on the miss path as well
+    as the hit. The module that owns such a surface knows this and nothing else
+    does, so it declares its own cap and every app that installs the capability
+    inherits it with no wiring, exactly as it inherits the files capability's
+    upload allowance.
+
+    It is keyed by **route**, not by mount, because a mount is not a cost class
+    (ADR 0140). The auth mount is the proof: it holds the most expensive route on
+    the surface (``/login``, Argon2 on the miss path too) beside one of the
+    cheapest and most frequently called (``/refresh``, which ``TerpProvider``
+    probes on **every** mount to restore a session). A cap sized for the first
+    throttles ordinary navigation when it is applied to the second, and behind a
+    shared egress address — where a whole office is one caller — it takes that
+    office offline, which is the exact failure ``RateLimit.credentials()`` says a
+    per-address control must never cause.
+
+    Keys are path prefixes **relative to this mount**, so a module never spells
+    its own ``/api/v1/<name>``; ``"/"`` is the mount itself. Longest prefix wins,
+    the same resolution ``max_request_bytes`` already uses, and an unmatched route
+    keeps the app's general limit. An explicit
+    ``SecurityConfig.rate_limit_overrides`` entry for the resulting absolute prefix
+    still wins: a declaration by the module is a floor a deployment may move, not
+    a decision taken away from it. ``()`` (the default) keeps the global limit
+    everywhere on the mount.
+
+    ``permissions`` is the module's claim on the named permissions it owns, and it stands to
+    the control plane's ``PermissionModel`` exactly as ``emits`` stands to the
+    ``EventCatalog``: the module lists typed objects, the app registry declares them, and the
+    boot cross-checks the two **by value**. It is what gives a permission a module — without
+    it the only way to attribute ``notes.delete`` to ``notes`` is to read its dotted prefix,
+    which is a convention no gate enforces and which says nothing at all about a permission
+    two modules share. A permission editor renders one row per module, so the edge has to be
+    declared rather than inferred.
 
     ``requires`` is this module's **declared dependency edges** (ADR 0087). Naming
     a capability says "this must be installed"; naming a sibling module says that
@@ -172,11 +388,19 @@ class ModuleSpec:
     emits: Sequence[EventDefinition] = field(default_factory=tuple)
     subscribes: Sequence[EventDefinition] = field(default_factory=tuple)
     jobs: Sequence[JobDefinition] = field(default_factory=tuple)
+    permissions: Sequence[Permission] = field(default_factory=tuple)
+    access: ModuleAccess | None = None
     policy: Policy | None = None
     tenant_scoped: bool = False
     max_request_bytes: int | None = None
+    #: Declared as a mapping and normalised to a tuple of pairs, for the reason
+    #: ``SecurityConfig.rate_limit_overrides`` is: every other field on this frozen
+    #: dataclass is hashable and a dict field would quietly take that away.
+    rate_limit: tuple[tuple[str, RateLimit], ...] = ()
 
     def __post_init__(self) -> None:
+        if isinstance(self.rate_limit, Mapping):
+            object.__setattr__(self, "rate_limit", tuple(self.rate_limit.items()))
         if not self.name or not self.name.isidentifier():
             raise ValueError(
                 f"ModuleSpec.name must be a valid identifier, got {self.name!r}"
@@ -186,6 +410,29 @@ class ModuleSpec:
                 "ModuleSpec.max_request_bytes must be positive when set, got "
                 f"{self.max_request_bytes!r}"
             )
+        for route, limit in self.rate_limit:
+            if not route.startswith("/"):
+                raise ValueError(
+                    "ModuleSpec.rate_limit keys are mount-relative path prefixes and "
+                    f"must start with '/': {route!r}"
+                )
+            if not limit.enabled:
+                # A module may tighten its own routes, never exempt one: an unlimited
+                # declaration would be a hole one prefix wide that the global limit still
+                # reads as enabled — the same shape production already refuses in
+                # SecurityConfig.rate_limit_overrides, refused here at construction too.
+                raise ValueError(
+                    "ModuleSpec.rate_limit may lower or raise a route's allowance, not "
+                    "remove it; a module cannot declare itself unlimited"
+                )
 
 
-__all__ = ["AuthzRef", "ModuleSpec", "Policy", "Roles"]
+__all__ = [
+    "AccessDecision",
+    "AuthzRef",
+    "ModuleAccess",
+    "ModuleSpec",
+    "Policy",
+    "Roles",
+    "decide",
+]

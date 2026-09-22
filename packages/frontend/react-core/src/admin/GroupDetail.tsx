@@ -21,6 +21,7 @@ import { useFormatDate, useFormatDateTime } from "../format";
 import { useStrings } from "../uiText";
 import { ApiError, unwrap } from "../unwrap";
 
+import { ModuleAccessPanel } from "./ModuleAccessPanel";
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
 
 type GroupRead = components["schemas"]["GroupRead"];
@@ -372,6 +373,12 @@ export function GroupDetail() {
               { label: strings.createdColumn, value: formatDateTime(record.created_at) },
             ]}
           />
+        )}
+        {record !== null && (
+          // No `globalRank`: a group has no role of its own (ADR 0074 gives groups permissions,
+          // not roles), so there is no floor under its strips. A rung assigned here reaches the
+          // members through the same expansion that already carries the group's grants.
+          <ModuleAccessPanel subjectId={record.id} />
         )}
         <Stack gap={3}>
           <h2 data-terp="admin-section-title">

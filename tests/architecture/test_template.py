@@ -9,12 +9,15 @@ exercised by test_cli_scaffold.py against every architecture rule.
 
 from __future__ import annotations
 
+import ast
 import json
 import pathlib
 import re
 
 _TEMPLATE = pathlib.Path(__file__).resolve().parents[2] / "template"
 _PROJECT = _TEMPLATE / "project"
+
+from terp.core import RateLimit
 _CODEGEN = (
     pathlib.Path(__file__).resolve().parents[2]
     / "packages/frontend/contract/src/routes-codegen.js"
@@ -413,6 +416,151 @@ def test_project_ships_a_docker_workbench() -> None:
     assert "process.env.TERP_API_PROXY" in vite_config
     # The README teaches the one-command workbench.
     assert "terp docker dev" in (_PROJECT / "README.md.jinja").read_text()
+
+
+def test_the_app_declares_its_own_operations_outside_the_template_owned_catalog() -> None:
+    """The app's half of the operation catalog is a file the template never rewrites.
+
+    `control_plane/operations.py` is template-owned, which is what lets a release
+    correct the folding rule or add a capability and have it arrive by re-render. While
+    the app's own operations lived in that same file — and the template's docstring
+    told authors to put them there — every `copier update` conflicted in it for any app
+    with routes of its own, which is every app. That is a conflict in the one file
+    ADR 0126 set out to stop making people edit.
+
+    So the app's half is `control_plane/app_operations.py`, seeded once
+    (`_skip_if_exists`) and splatted by the catalog. Measured with copier rather than
+    reasoned about: on a re-render of a rendered app carrying an edit in each half,
+    copier reports `skip` for app_operations.py and `overwrite` for operations.py.
+
+    Asserted structurally here because rendering needs copier and a network. The
+    seeded file must not be a `.jinja`: it carries no substitutions, and a template
+    suffix on it would leave a rendered app importing a name that does not exist.
+    """
+    package = _PROJECT / "control_plane"
+    seeded = package / "app_operations.py"
+    assert seeded.is_file(), (
+        "the template must seed control_plane/app_operations.py — the catalog imports "
+        "APP_OPERATIONS from it, so a rendered app without it does not boot"
+    )
+    assert not (package / "app_operations.py.jinja").exists(), (
+        "app_operations.py carries no substitutions; a .jinja suffix would render it "
+        "to a different name and break the import"
+    )
+    app_half = seeded.read_text(encoding="utf-8")
+    assert "APP_OPERATIONS: tuple[OperationDefinition, ...] = ()" in app_half, (
+        "the seeded tuple is empty and typed: an app adds to it, and the type is what "
+        "makes a wrong entry a type error rather than a boot refusal"
+    )
+
+    catalog = (package / "operations.py.jinja").read_text(encoding="utf-8")
+    assert "from control_plane.app_operations import APP_OPERATIONS" in catalog
+    # The splat, not a mention: naming the import without folding it in would leave
+    # every app-declared operation out of the catalog its routes are checked against,
+    # and a STRICT catalog then refuses the boot of the app's own routes.
+    operations_tuple = catalog.split("operations=(", 1)[1].split(")", 1)[0]
+    assert "*APP_OPERATIONS," in operations_tuple, (
+        "control_plane/operations.py must splat *APP_OPERATIONS into the catalog; "
+        f"the tuple is {operations_tuple!r}"
+    )
+
+    # And copier has to know it is the app's, or the next re-render takes it back.
+    copier_config = (_TEMPLATE / "copier.yml").read_text(encoding="utf-8")
+    skip = copier_config.split("_skip_if_exists:", 1)[1].split("\n\n", 1)[0]
+    assert "control_plane/app_operations.py" in skip, (
+        "app_operations.py must be in copier's _skip_if_exists, or an upgrade "
+        "un-declares every operation the app has"
+    )
+
+
+#: A snake_case identifier — a settings key, a control-plane field.
+_SNAKE_IDENTIFIER = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+){1,}\b")
+#: A sanctioned constructor named in a refusal, e.g. ``CorsPolicy.disabled``.
+_SANCTIONED_CALL = re.compile(r"\b[A-Z][A-Za-z0-9]*\.[a-z][A-Za-z0-9_]*")
+
+
+def _production_refusal_messages() -> list[str]:
+    """Every production boot refusal that is decided by a declaration, as text.
+
+    Called rather than pattern-matched out of the source: the messages are what the
+    platform actually says, and a source scan of the same functions picked up
+    unrelated identifiers from the rest of each module.
+    """
+    from pydantic import BaseModel
+
+    from terp.core import (
+        ControlPlane,
+        JobCatalog,
+        JobDefinition,
+        PasswordPolicy,
+        RateLimit,
+        SecurityConfig,
+    )
+
+    class _Payload(BaseModel):
+        pass
+
+    job = JobDefinition(
+        name="rulebook.tick", payload_schema=_Payload, handler=lambda context, payload: None
+    )
+    return [
+        *ControlPlane(jobs=JobCatalog([job])).production_problems(),
+        *SecurityConfig().production_problems(),
+        *SecurityConfig(rate_limit=RateLimit.disabled()).production_problems(),
+        *PasswordPolicy.relaxed(reason="a fixture").production_problems(),
+        *PasswordPolicy(min_length=4).production_problems(),
+    ]
+
+
+def test_the_template_rulebook_names_every_production_boot_refusal() -> None:
+    """The generated AGENTS.md must teach what refuses a production boot.
+
+    This is the control for a failure that already happened: the template's AGENTS.md
+    went seven releases without a line about the operations catalog or the job actor —
+    the two things that would refuse an upgraded app's boot — and nothing noticed,
+    because it was byte-identical to the template's own copy the whole time. Staleness
+    relative to the template is checked; staleness relative to the platform's rules was
+    not checked by anything.
+
+    Derived from the refusals themselves rather than from a hand-kept list, so a
+    release that adds a production refusal naming a new field fails here until the
+    rulebook says so. What it asks is narrow and deliberately mechanical — that every
+    identifier and sanctioned constructor the platform names in a refusal appears
+    somewhere in the rulebook. It cannot judge whether the surrounding sentence is any
+    good; it can only refuse a rulebook that has never heard of the field.
+    """
+    rulebook = (_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8")
+    named: set[str] = set()
+    for message in _production_refusal_messages():
+        named |= set(_SNAKE_IDENTIFIER.findall(message))
+        named |= set(_SANCTIONED_CALL.findall(message))
+    assert named, "no refusal messages were produced, so this test checked nothing"
+    missing = sorted(token for token in named if token not in rulebook)
+    assert not missing, (
+        f"the generated AGENTS.md never mentions {missing}, and each is named in a "
+        "message the platform prints while refusing a production boot. An agent works "
+        "from that file: a rule it does not carry is a rule the next change will break."
+    )
+
+
+def test_the_template_rulebook_lists_every_guide_topic() -> None:
+    """The topic list in the generated AGENTS.md is the index an agent reads.
+
+    A release that adds a guide topic and leaves this list alone makes the new topic
+    undiscoverable to the one reader the file exists for — which is the same failure as
+    a stale rule, one level less severe. Compared against the CLI's live registry, so
+    the list cannot be stale by more than the commit that changed it.
+    """
+    from terp.cli import guide_topics
+
+    rulebook = (_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8")
+    listed_block = rulebook.split("Topics:", 1)[1].split(".\n", 1)[0]
+    listed = {topic.strip() for topic in re.split(r"[,\s]+", listed_block) if topic.strip()}
+    expected = set(guide_topics())
+    assert listed == expected, (
+        f"the rulebook lists {sorted(listed - expected)} that the CLI does not have, "
+        f"and omits {sorted(expected - listed)} that it does"
+    )
 
 
 def test_project_ships_a_seed() -> None:
@@ -945,3 +1093,308 @@ def test_the_agent_rulebook_sends_edits_to_the_app_s_own_layer() -> None:
     rulebook = (_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8")
     assert "Never edit `frontend/src/house-style.css`" in rulebook
     assert "theme.css" in rulebook
+
+
+# --------------------------------------------------------------------------- #
+# the workspace and the template share one TypeScript
+# --------------------------------------------------------------------------- #
+def _typescript_ranges() -> dict[str, str]:
+    """Every ``typescript`` devDependency range in the repo, by manifest path.
+
+    Reads both spellings: the workspace's plain ``package.json`` files and the
+    template's ``.jinja`` ones. The jinja manifests are ordinary JSON in the places
+    that matter here (the dependency blocks carry no template expressions), so the
+    range is read with the same regex rather than by rendering the template.
+    """
+    root = pathlib.Path(__file__).resolve().parents[2]
+    manifests = [
+        root / "apps" / "example" / "frontend" / "package.json",
+        root / "apps" / "workbench" / "package.json",
+        *sorted((root / "packages" / "frontend").glob("*/package.json")),
+        *sorted((root / "template" / "project").rglob("package.json.jinja")),
+    ]
+    found: dict[str, str] = {}
+    for path in manifests:
+        match = re.search(r'"typescript":\s*"([^"]+)"', path.read_text(encoding="utf-8"))
+        if match:
+            found[str(path.relative_to(root).as_posix())] = match.group(1)
+    return found
+
+
+def test_the_workspace_and_the_template_pin_one_typescript() -> None:
+    """One TypeScript across the workspace and the generated app, or neither is tested.
+
+    ``@terpjs/contract`` ships the ``terp routes`` generator, and that generator reads an
+    app's module manifests through the **TypeScript compiler API** —
+    ``ts.createSourceFile``, ``ts.ScriptTarget``, ``ts.ScriptKind``. A major TypeScript
+    bump is therefore a breaking change to a shipped tool, not a devDependency detail.
+
+    The gap this closes is specific and was not hypothetical. Dependabot groups the
+    frontend dependencies and raises the ranges in every ``package.json`` it can see; it
+    cannot see ``package.json.jinja``, because that is not a manifest. So a major bump
+    moved the whole workspace while the template — the thing a generated app actually
+    installs — stayed behind, and the two disagreed with nothing to say so. The break
+    surfaced as fifteen red tests in a job the Python gate does not run, on ``main``,
+    after the merge.
+
+    Equality across both spellings is the assertion because the template is what a
+    generated app gets: a workspace that has moved ahead of it is testing a toolchain no
+    user has, and a template ahead of the workspace ships an untested one.
+    """
+    ranges = _typescript_ranges()
+    assert len(ranges) >= 6, (
+        f"expected the workspace and template manifests to declare typescript; found "
+        f"{sorted(ranges)} — if a manifest was renamed, this list must follow it"
+    )
+    assert len(set(ranges.values())) == 1, (
+        "the workspace and the generated app must install one TypeScript, because "
+        "`terp routes` is written against the compiler API and a major bump breaks it: "
+        f"{json.dumps(ranges, indent=2, sort_keys=True)}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# a default that is right for production is not automatically right for the dev
+# stack the template also ships (ADR 0143)
+# --------------------------------------------------------------------------- #
+def _control_plane_security_kwarg(name: str) -> ast.expr:
+    """The `SecurityConfig(...)` keyword *name* as declared by the template, as an AST."""
+    import ast as _ast
+
+    source = (_PROJECT / "control_plane" / "__init__.py").read_text(encoding="utf-8")
+    found = [
+        keyword.value
+        for node in _ast.walk(_ast.parse(source))
+        if isinstance(node, _ast.Call)
+        for keyword in node.keywords
+        if keyword.arg == name
+    ]
+    assert len(found) == 1, f"expected one {name} declaration, found {len(found)}"
+    return found[0]
+
+
+def test_template_trusts_a_proxy_hop_only_where_a_proxy_is_the_only_way_in() -> None:
+    """`trusted_proxy_hops` follows the stack, because the two stacks differ.
+
+    Production publishes only `web`; `api` has no port, so nginx is the only way in and
+    one hop must be trusted or every caller collapses onto the proxy's address. The DEV
+    compose publishes `api` directly on `${API_PORT}` *as well as* running `web`, so a
+    request can arrive having passed no proxy at all — and a trusted hop there lets that
+    caller write their own `X-Forwarded-For`. That is not only an escape from their own
+    rate-limit bucket: it attributes their requests to somebody else's address, which
+    poisons the login lockout and the OIDC callback throttle with it.
+
+    This shipped as a flat `trusted_proxy_hops=1` whose comment reasoned only about
+    `docker-compose.prod.yml` and offered "set it to 0 if you remove `web` and expose the
+    API directly" as the escape — a condition that does not describe the dev stack, where
+    `web` is present AND the API is exposed directly. Asserted on the shape rather than by
+    substring: the same conditional spelling appears elsewhere in this file, so a
+    substring assertion here is satisfied by the wrong line (that mistake was made once
+    already, in a consumer, and found by mutating the source and watching the test pass).
+    """
+    import ast as _ast
+
+    hops = _control_plane_security_kwarg("trusted_proxy_hops")
+    assert isinstance(hops, _ast.IfExp), (
+        "trusted_proxy_hops must follow the environment; a flat number trusts a hop in "
+        "the dev stack, which publishes the API directly alongside the proxy"
+    )
+    assert "is_production" in _ast.unparse(hops.test)
+    assert _ast.unparse(hops.body) == "1", "production is behind exactly one proxy"
+    assert _ast.unparse(hops.orelse) == "0", (
+        "everywhere else must take the platform default of 0 — an undeclared forwarding "
+        "header is attacker-supplied"
+    )
+
+    # The premise the production side rests on: `api` really does publish no port there.
+    prod = (_PROJECT / "docker-compose.prod.yml.jinja").read_text(encoding="utf-8")
+    api_block = prod.split("\n  api:", 1)[1].split("\n  web:", 1)[0]
+    assert "ports:" not in api_block, (
+        "docker-compose.prod.yml now publishes the API directly, so nginx is no longer "
+        "the only way in and trusted_proxy_hops=1 is no longer safe there"
+    )
+    # ...and the premise the dev side rests on.
+    dev = (_PROJECT / "docker-compose.yml.jinja").read_text(encoding="utf-8")
+    dev_api = dev.split("\n  api:", 1)[1].split("\n  web:", 1)[0]
+    assert "ports:" in dev_api, (
+        "the dev stack no longer publishes the API directly; if that is deliberate, the "
+        "hop count can be simplified — but check the reasoning above first"
+    )
+
+
+def test_template_gives_the_credential_family_a_bucket_its_own_suite_can_finish_in() -> None:
+    """The shipped conformance helper signs in for real, once per spec.
+
+    `@terpjs/conformance`'s `login()` drives the real login screen, so a growing suite
+    means a growing number of real `POST /auth/login` calls from one CI address — against
+    `RateLimit.credentials()`, thirty a minute, in its own bucket (ADR 0138/0140). Thirty
+    is the right production number and is entirely about cost: both credential routes run
+    a memory-hard Argon2 on the miss path, making them the cheapest place on the surface
+    to spend CPU. It is the wrong number for the suite this template ships the harness for.
+
+    The app's general `rate_limit` cannot absorb it — an override-matched path is counted
+    in that override's own bucket (ADR 0115), which is the whole point of the design. So
+    the credential family needs its own non-production number, and production must declare
+    none so it keeps tracking whatever the platform sets.
+
+    This is the consumer-visible half of audit finding H3, whose recommendation was
+    literally "ship `rate_limit_overrides` defaults for the auth mount — the mechanism
+    exists and nothing currently uses it". It went unnoticed because this repository's own
+    example app ships ONE auth spec: too small a suite to trip its own limit, where a real
+    consumer's is not.
+    """
+    import ast as _ast
+
+    overrides = _control_plane_security_kwarg("rate_limit_overrides")
+    assert isinstance(overrides, _ast.IfExp), (
+        "rate_limit_overrides must be conditional; an unconditional value hands the "
+        "development credential limit to production"
+    )
+    assert "is_production" in _ast.unparse(overrides.test)
+    assert isinstance(overrides.body, _ast.Tuple) and not overrides.body.elts, (
+        "production must declare NO override, so the auth mount keeps the platform's "
+        "RateLimit.credentials() instead of a number pinned in a generated app"
+    )
+    rendered = _ast.unparse(overrides.orelse)
+    for route in ("/api/v1/auth/login", "/api/v1/auth/token"):
+        assert route in rendered, f"the override must name {route} exactly"
+    assert "'/api/v1/auth'" not in rendered and '"/api/v1/auth"' not in rendered, (
+        "keyed per route, not on the mount: a mount key would also cover /refresh, which "
+        "ADR 0140 exempts on purpose — it rotates a cookie for the price of a query and "
+        "TerpProvider posts to it on every mount, so its volume tracks page loads"
+    )
+    assert "NON_PRODUCTION_CREDENTIAL_RATE_LIMIT" in rendered
+
+    source = (_PROJECT / "control_plane" / "__init__.py").read_text(encoding="utf-8")
+    limit = [
+        node
+        for node in _ast.walk(_ast.parse(source))
+        if isinstance(node, _ast.Assign)
+        and any(
+            isinstance(t, _ast.Name) and t.id == "NON_PRODUCTION_CREDENTIAL_RATE_LIMIT"
+            for t in node.targets
+        )
+    ]
+    assert len(limit) == 1
+    requests = [
+        keyword.value
+        for keyword in limit[0].value.keywords  # type: ignore[union-attr]
+        if keyword.arg == "requests"
+    ]
+    assert requests and _ast.literal_eval(requests[0]) > RateLimit.credentials().requests, (
+        "the non-production credential limit must be looser than the platform's, or it "
+        "buys the generated app nothing"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The workflow every generated app inherits                                     #
+# --------------------------------------------------------------------------- #
+#
+# This file is the single artifact that reaches every consumer, so a weakness in it
+# scales in the wrong direction: the more apps, the more copies, each already checked
+# in and rarely re-read again. The framework's own CI verifies its gitleaks download
+# against a pinned SHA256 and SHA-pins every action; the template shipped neither, so
+# the mandate this platform sells was inverted in the one place it travels furthest —
+# the unsafe path was the default, it was not greppable, and it carried no budget entry.
+
+_FRAMEWORK_CI = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
+_TEMPLATE_CI = _PROJECT / ".github/workflows/ci.yml.jinja"
+
+#: `uses: owner/repo@<40 hex>` — a tag is a pointer its owner can move, and moving it
+#: changes what runs inside a client's CI with the client's repository checked out.
+_PINNED_USES = re.compile(r"uses:\s*\S+@[0-9a-f]{40}\b")
+_ANY_USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(\S+)", re.M)
+
+
+def _gitleaks_literals(text: str) -> tuple[str | None, str | None]:
+    version = re.search(r'GITLEAKS_VERSION:\s*"([^"]+)"', text)
+    digest = re.search(r'GITLEAKS_SHA256:\s*"([0-9a-f]{64})"', text)
+    return (version.group(1) if version else None, digest.group(1) if digest else None)
+
+
+def test_the_generated_workflow_pins_every_action_by_digest() -> None:
+    floating = [
+        f"{number}: {match.group(1)}"
+        for number, line in enumerate(_TEMPLATE_CI.read_text(encoding="utf-8").splitlines(), 1)
+        if (match := _ANY_USES.match(line)) and not _PINNED_USES.search(line)
+    ]
+    assert floating == [], (
+        "the workflow every generated app inherits references these actions by a movable "
+        f"tag: {floating} — pin as `owner/repo@<sha> # vX.Y.Z`. This is the one artifact "
+        "that scales with the number of clients, so it gets the posture this repository "
+        "applies to itself, not a weaker one"
+    )
+
+
+def test_the_generated_app_ships_an_updater_for_those_pins() -> None:
+    """Pinning without an updater trades a live supply-chain risk for a stale one, and
+    a generated app is long-lived by definition — nobody hand-bumps a digest they have
+    never looked at."""
+    config = _PROJECT / ".github/dependabot.yml"
+    assert config.is_file(), (
+        "the template pins every action by digest and ships nothing to move those pins "
+        "forward — every generated app would freeze its actions at the day it was rendered"
+    )
+    text = config.read_text(encoding="utf-8")
+    for ecosystem in ("github-actions", "pip", "npm", "docker"):
+        assert f"package-ecosystem: {ecosystem}" in text, (
+            f"a generated app ships a {ecosystem} surface that nothing updates"
+        )
+
+
+def test_the_generated_workflow_verifies_the_binary_it_downloads() -> None:
+    """It fetches a binary over the network and runs it against a full-depth checkout.
+    An unverified fetch is the supply-chain hole the tool it installs exists to find,
+    one layer down."""
+    text = _TEMPLATE_CI.read_text(encoding="utf-8")
+    assert "GITLEAKS_SHA256" in text and "sha256sum -c -" in text, (
+        "the generated workflow downloads gitleaks and runs it without checking what "
+        "arrived — verify it against a pinned SHA256 first, as .github/workflows/ci.yml "
+        "does in this repository"
+    )
+
+
+def test_the_two_gitleaks_pins_never_drift_apart() -> None:
+    """Two copies of a version-plus-digest pair, in two files, bumped by hand. The
+    failure mode is not that the template's is wrong — it is that it is a year old,
+    silently, while this repository's moved on."""
+    framework = _gitleaks_literals(_FRAMEWORK_CI.read_text(encoding="utf-8"))
+    template = _gitleaks_literals(_TEMPLATE_CI.read_text(encoding="utf-8"))
+    assert all(framework), f".github/workflows/ci.yml no longer pins gitleaks: {framework}"
+    assert framework == template, (
+        f"this repository pins gitleaks {framework} and the template ships {template} — "
+        "bump both together, or the workflow every client runs verifies a different "
+        "binary from the one this repository proved"
+    )
+
+
+def test_the_generated_workflow_declares_read_only_permissions() -> None:
+    """Without the block a job inherits the repository default, which on many
+    repositories is write: a compromised dependency in any step could then push."""
+    text = _TEMPLATE_CI.read_text(encoding="utf-8")
+    assert re.search(r"^permissions:\n\s+contents: read", text, re.M), (
+        "the generated workflow inherits whatever the client's repository defaults to — "
+        "declare `permissions: contents: read` at the top; nothing in it writes"
+    )
+
+
+def test_the_generated_workflow_leaves_no_credential_in_the_checkout() -> None:
+    checkouts = _TEMPLATE_CI.read_text(encoding="utf-8").count("uses: actions/checkout@")
+    persisted = _TEMPLATE_CI.read_text(encoding="utf-8").count("persist-credentials: false")
+    assert checkouts and persisted == checkouts, (
+        f"{checkouts} checkout(s) and {persisted} `persist-credentials: false` — a "
+        "persisted token stays readable in .git/config by every later step, including "
+        "anything a dependency brought along, and nothing here pushes"
+    )
+
+
+def test_the_acceptance_lane_audits_the_rendered_workflow() -> None:
+    """The template's own posture is only as good as what actually renders. Checking
+    the .jinja source cannot see what copier produces from it."""
+    text = _FRAMEWORK_CI.read_text(encoding="utf-8")
+    assert "zizmor /tmp/acceptance-app/.github/workflows" in text, (
+        "template-acceptance renders the project and never audits the workflow it "
+        "rendered — add the zizmor step, so the artifact a client receives meets the "
+        "same bar as the one this repository runs"
+    )

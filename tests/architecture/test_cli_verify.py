@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import shlex
 import subprocess
 import sys
+from collections.abc import Iterator
 
 import pytest
 
@@ -29,6 +31,7 @@ from terp.cli.verify import (  # noqa: E402
     _json_documents,
     _run_api_docs_drift,
     _run_platform_install,
+    _run_production_readiness,
     _run_subprocess,
 )
 
@@ -38,6 +41,10 @@ _EXAMPLE_ROOT = _REPO_ROOT / "apps" / "example"
 _KNOWN_CATEGORIES = {
     "architecture",
     "backend-tests",
+    # Its own category rather than "build": a driving tool groups a failing unit test
+    # with the other test results, not with a compile error, and the two failures ask
+    # very different things of whoever reads them.
+    "frontend-tests",
     "frontend-boundaries",
     "build",
     "conformance",
@@ -68,6 +75,35 @@ def test_every_check_is_well_formed() -> None:
     assert "architecture" in seen_ids
 
 
+def test_every_in_process_runner_is_dispatched() -> None:
+    """A check declaring an in-process runner must have a branch that calls it.
+
+    Found by mutation, not by reasoning: removing the dispatch branch for a new check
+    left every test green. `runner` is a plain string, and the dispatch chain ends in
+    an `else` that shells the check's `command` — so an unhandled runner does not
+    raise, it runs `terp verify --only <id>` in a child process, whose code is the
+    same code and also does not handle it. The check recurses until something runs
+    out, and what a reader sees is a gate that hangs rather than one that is wired
+    wrong.
+
+    Reads the dispatch chain from the source because the branches are statements and
+    there is nothing to introspect. The declared side comes from the live PROFILES
+    table, so a runner added to a check is covered here the day it is added.
+    """
+    declared = {
+        check.runner for checks in PROFILES.values() for check in checks
+    } - {"subprocess"}
+    assert declared, "no in-process runners found — this test would check nothing"
+    source = (_CLI_SRC / "terp" / "cli" / "verify.py").read_text(encoding="utf-8")
+    dispatched = set(re.findall(r'check\.runner == "([a-z0-9-]+)"', source))
+    missing = sorted(declared - dispatched)
+    assert not missing, (
+        f"{missing} declare an in-process runner that nothing dispatches. The chain's "
+        "else branch shells the check's own command, so each of these re-invokes "
+        "`terp verify --only <id>` in a child process that does the same thing again."
+    )
+
+
 def test_the_full_profile_is_the_template_ci_surface() -> None:
     # The merge bar: architecture gate, backend tests, the delegated AppSec
     # baseline (ADR 0085), and the frontend chain — the exact blocking checks
@@ -89,6 +125,12 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # comes up perfectly, so this one belongs on the merge bar rather than
         # beside it. It checks safety only, never shape.
         "deploy-safety",
+        # ...and would it come up at all? Three of the platform's boot refusals are
+        # decided by what the control plane declares, and outside production the same
+        # states only log. So an app could declare a job, name no actor for its
+        # writes, and take a green full profile to a deployment that refuses to
+        # start — every surface agreeing, because none of them asked.
+        "production-readiness",
         "architecture",
         "backend-tests",
         "appsec-baseline",
@@ -104,6 +146,19 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # than advisory: the failure is a green gate over an undeclared import on a
         # path no test reaches, which is a control or it is nothing.
         "dependency-hygiene",
+        # Did who-can-reach-what change without a committed baseline accepting it? The
+        # access graph could always answer it; nothing asked. On the merge bar because a
+        # widening is a one-line edit and reviewing it is the whole control.
+        "authz-surface",
+        # Is anything the app depends on known to be vulnerable? Release-only until
+        # the audit that found it noticed what that meant in practice: a consumer's CI
+        # runs THIS profile, so the answer reached nobody until a release someone
+        # remembered to cut. The original argument — advisory databases move
+        # independently of the code, so a red here is "do not ship" rather than "this
+        # change broke something" — is about the merge bar, and it is a reason to read
+        # the result carefully rather than a reason not to produce it.
+        "dependency-audit-python",
+        "dependency-audit-npm",
         "frontend-boundaries",
         "routes-drift",
         # The generated API client is an INPUT to the typecheck below and is
@@ -111,6 +166,11 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # profile, not to whatever steps a scaffolded workflow happens to list.
         "api-client",
         "frontend-typecheck",
+        # The layer between a type check and a browser. Conditional on the app
+        # declaring a `test` script, so an app rendered before the seam existed
+        # skips with a note rather than turning red on upgrade -- but an app that
+        # declares the script and cannot run it is a failure, not a skip.
+        "frontend-tests",
         "frontend-build",
     }
 
@@ -211,10 +271,12 @@ def test_the_template_ci_reaches_every_blocking_check() -> None:
         check.id for check in PROFILES["release"] if f"--only {check.id}" in workflow
     }
     unreached = {check.id for check in PROFILES["release"]} - reached
-    assert unreached == {"dependency-audit-python", "dependency-audit-npm"}, (
-        "the only release checks the generated CI may leave unreached are the "
-        "dependency audits, which move with advisory databases rather than with the "
-        f"change under test — but it also leaves out {sorted(unreached)}"
+    assert unreached == set(), (
+        "every release check must be reached by the generated CI, through the full "
+        "profile or through an explicit --only step. The dependency audits were the "
+        "standing exception, on the argument that advisory databases move with the "
+        "world rather than with the change — which is a reason to read a red one "
+        f"carefully, not to withhold it from CI. It now leaves out {sorted(unreached)}"
     )
 
 
@@ -533,6 +595,409 @@ def test_the_independently_released_spec_mirror_is_not_a_missed_pin(
     assert _run_platform_install(tmp_path)[0] == 0
 
 
+@pytest.fixture
+def fresh_control_plane_import() -> Iterator[None]:
+    """Let each case import its own ``control_plane`` package.
+
+    One process imports a module name once, so without this the second fixture in
+    this file would silently read the first one's declarations — and every case
+    after it would assert against a plane it did not write. A real run has exactly
+    one app, which is why the runner itself does not do this.
+    """
+    for name in [name for name in sys.modules if name.split(".")[0] == "control_plane"]:
+        del sys.modules[name]
+    try:
+        yield
+    finally:
+        for name in [
+            name for name in sys.modules if name.split(".")[0] == "control_plane"
+        ]:
+            del sys.modules[name]
+
+
+def _write_control_plane(root: pathlib.Path, body: str) -> None:
+    """Write ``control_plane/__init__.py`` with *body* declaring ``control_plane``."""
+    package = root / "control_plane"
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "__init__.py").write_text(body, encoding="utf-8")
+
+
+#: A plane that boots in production: CORS declared (disabled WITH a reason is the
+#: explicit form, the shape the template ships), default password policy, and a
+#: declared job whose writes name an actor. Every case below starts from this and
+#: removes exactly one thing, so a passing assertion can only come from the removal.
+_READY_PLANE = '''
+import uuid
+
+from pydantic import BaseModel
+
+from terp.core import (
+    ControlPlane,
+    CorsPolicy,
+    JobCatalog,
+    JobDefinition,
+    SecurityConfig,
+)
+
+
+class Tick(BaseModel):
+    pass
+
+
+WORK = JobDefinition(
+    name="nightly.tick", payload_schema=Tick, handler=lambda context, payload: None
+)
+
+control_plane = ControlPlane(
+    security=SecurityConfig(cors=CorsPolicy.disabled(reason="server-to-server")),
+    jobs=JobCatalog([WORK]),
+    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),
+)
+'''
+
+
+def test_a_production_ready_control_plane_passes(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """The baseline every case below mutates, so a red elsewhere is the mutation."""
+    _write_control_plane(tmp_path, _READY_PLANE)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 0, output
+    assert "boots in production" in output
+
+
+def test_a_declared_job_with_no_actor_fails_the_gate(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """The state that took a green full profile to a deployment that will not start.
+
+    `create_app` raises BootError on it under ENVIRONMENT=production and only logs
+    outside production (ADR 0125), and until now nothing between those two moments
+    asked — not the gate, not the machine-readable envelope.
+    """
+    _write_control_plane(
+        tmp_path, _READY_PLANE.replace('    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),\n', "")
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "jobs: " in output, f"the failure must say which half declared it: {output!r}"
+    assert "job_system_actor_id" in output, "and name the field that fixes it"
+
+
+def test_a_declared_job_actor_variable_satisfies_the_jobs_half(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """A principal that is a deployment fact is declared, not hard-coded.
+
+    `create_app` fills an unset `job_system_actor_id` from `JOB_SYSTEM_ACTOR_ID`
+    (ADR 0129), so an app whose actor lives in a particular database leaves the field
+    empty on purpose — and the gate's own environment is the last place a production
+    principal's id would be. The declaration is the evidence: `env-seams` refuses a
+    declared variable the deployment does not deliver, so this is a promise with a
+    gate behind it. The plane here is the one that fails the case above, unchanged.
+    """
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            '    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),\n',
+            "",
+        ),
+    )
+    (tmp_path / "environment.schema.json").write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {
+                    "JOB_SYSTEM_ACTOR_ID": {
+                        "type": "string",
+                        "title": "The principal background writes are stamped with",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 0, output
+
+
+def test_declaring_some_other_variable_does_not_satisfy_the_jobs_half(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """Only the variable the resolution actually reads counts.
+
+    A manifest with declarations in it must not read as a manifest that declared this
+    one — that would let any app with an environment schema past the check.
+    """
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            '    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),\n',
+            "",
+        ),
+    )
+    (tmp_path / "environment.schema.json").write_text(
+        json.dumps(
+            {"type": "object", "properties": {"SOME_API_BASE_URL": {"type": "string"}}}
+        ),
+        encoding="utf-8",
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "jobs: " in output
+    assert "JOB_SYSTEM_ACTOR_ID" in output, "the failure must name the way out"
+
+
+def test_an_unsafe_security_declaration_fails_the_gate(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """CORS left unset is a production boot refusal too, and it was equally unasked.
+
+    Fixing only the job-actor case would leave the same class of defect in two more
+    places — the trap the platform's own upgrade recipe warns about, one level up.
+    """
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            '    security=SecurityConfig(cors=CorsPolicy.disabled(reason="server-to-server")),\n',
+            "",
+        ),
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "security: " in output and "CORS" in output, output
+
+
+def test_a_relaxed_password_policy_fails_the_gate(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """The third declared refusal: a policy with the strength floor taken out."""
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            "from terp.core import (",
+            "from terp.core import (\n    PasswordPolicy,",
+        ).replace(
+            "    jobs=JobCatalog([WORK]),",
+            '    passwords=PasswordPolicy.relaxed(reason="local fixtures"),\n'
+            "    jobs=JobCatalog([WORK]),",
+        ),
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "passwords: " in output, output
+
+
+def test_a_tree_with_no_control_plane_is_a_note_not_a_red(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """The platform's own checkout, and an app predating the module: nothing to read.
+
+    A note rather than silence, because the reader is the only one who can turn it
+    on — the shape `routes-drift` already uses for an unadopted seam.
+    """
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 0
+    assert output.startswith("note: "), output
+
+
+def test_a_control_plane_that_yields_no_plane_is_a_red(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """Adopted the pattern, then stopped answering — not a layout choice.
+
+    `terp jobs list`, `terp inspect control-plane` and the app's own composition root
+    all read this one reference, so all of them are broken in this state.
+    """
+    _write_control_plane(tmp_path, "control_plane = {'permissions': 'whatever'}\n")
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1
+    assert "did not resolve to a terp.core.ControlPlane" in output
+
+
+def test_an_uninmportable_control_plane_is_a_red(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """A plane that raises on import is an app that cannot boot at all, so the
+    verdict is red and carries the exception — this is a CLI diagnosing a tree, not
+    a response to a client."""
+    _write_control_plane(tmp_path, "raise RuntimeError('the capability is not installed')\n")
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1
+    assert "could not be imported" in output
+    assert "the capability is not installed" in output
+
+
+def _write_pyproject(path: pathlib.Path, body: str) -> None:
+    path.write_text(body, encoding="utf-8")
+
+
+def test_a_manifest_pin_the_environment_does_not_match_fails_the_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The half of the lockstep this check used to skip, and the costlier half.
+
+    The backend verdict read the environment and compared it only against itself, so
+    a manifest asking for one release over an install of another was internally
+    consistent and passed — a green about packages that are not the ones that will
+    run. It is the ordinary middle of an upgrade (repinned, not yet synced), and it
+    is what a container does permanently when it bakes the packages into its image
+    and bind-mounts the source over them.
+    """
+    _backend_consistent_at(monkeypatch, "0.13.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = ["terp-core==0.20.0"]
+''',
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "terp-core is pinned ==0.20.0 but 0.13.0 is installed" in output, (
+        "the failure must name the package, the version the manifest asks for and "
+        f"the version actually installed; got {output!r}"
+    )
+
+
+def test_a_pin_in_a_dependency_group_is_policed_too(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """terp-arch lives in the dev group and it is the gate itself, so a skew there
+    means the rules being enforced are not the release's rules."""
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8.0", "terp-arch==0.17.0"]
+''',
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "dependency-groups.dev: terp-arch is pinned ==0.17.0" in output, (
+        f"the failure must say which half of the manifest carries it; got {output!r}"
+    )
+
+
+def test_extras_and_a_marker_do_not_hide_a_pin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The template writes both spellings, so a parser that choked on either would
+    read the line as "no Terp dependency here" — a green over the very pin at issue."""
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = [
+  "terp-core[secrets]==0.16.0",
+  "terp-cap-files==0.18.0 ; python_version >= '3.13'",
+]
+''',
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    # The exact-pin wording, not merely the name and the version: the range message
+    # carries both of those too, so a looser assertion passes on a parser that read
+    # `[secrets]==0.16.0` as an unrecognised specifier and never saw the pin at all.
+    assert "terp-core is pinned ==0.16.0" in output, f"extras hid the pin: {output!r}"
+    assert "terp-cap-files is pinned ==0.18.0" in output, (
+        f"the marker hid the pin: {output!r}"
+    )
+
+
+def test_a_range_where_a_pin_belongs_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Terp moves in lockstep, so a range is an invitation to the resolver rather
+    than a pin — the same form the frontend half already refuses."""
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = ["terp-core>=0.20.0"]
+''',
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "==0.20.0" in output, "the message states the pin to write"
+
+
+def test_a_requirement_with_no_specifier_is_left_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A workspace member or an editable install keeps its version somewhere other
+    than the manifest — the platform's own tree declares every one of its packages
+    that way. Failing on those would redden the repository that ships the check.
+    """
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = ["terp-core", "terp-cli"]
+''',
+    )
+    assert _run_platform_install(tmp_path)[0] == 0
+
+
+def test_the_independently_released_spec_is_not_a_missed_backend_pin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """terp-spec is released from its own repository on its own cadence (ADR 0082),
+    so its version disagreeing with the platform's is the intended state."""
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = ["terp-spec==0.33.0"]
+''',
+    )
+    assert _run_platform_install(tmp_path)[0] == 0
+
+
+def test_an_entry_that_is_not_a_requirement_does_not_end_the_scan(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A dependency list is hand-edited, so it can carry an entry that is not a
+    requirement at all — an empty string left by a deleted line, a fragment someone
+    half-typed. TOML accepts it, and there is nothing here to police in it.
+
+    What matters is which way the scan fails. Skipping the entry costs nothing;
+    abandoning the list on it would leave every pin *after* the junk unread, and this
+    check's whole verdict is a green over pins nobody looked at. So the junk goes
+    first and a real skew follows it: the assertion is about the skew still being
+    found, not about the junk.
+    """
+    _backend_consistent_at(monkeypatch, "0.20.0")
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        '''
+[project]
+name = "x"
+dependencies = ["", "terp-core==0.13.0"]
+''',
+    )
+    exit_code, output = _run_platform_install(tmp_path)
+    assert exit_code == 1
+    assert "terp-core is pinned ==0.13.0 but 0.20.0 is installed" in output, (
+        "an unparseable entry must be stepped over, not treated as the end of the "
+        f"dependency list; got {output!r}"
+    )
+
+
 def test_the_platform_install_check_runs_in_process(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -562,6 +1027,52 @@ def test_manifest_lists_the_profile_checks() -> None:
         "control_plane/**",
         "escape-hatch-budget.json",
     ]
+
+
+def test_the_manifest_publishes_the_vocabulary_it_was_written_with() -> None:
+    """A consumer must be able to tell a NEW category from a CORRUPT document.
+
+    Without the vocabulary in the document those are the same observation, and the
+    safe-looking reading of "I do not know this word" is to distrust the whole
+    manifest — which means falling back to whatever list the tool shipped with and
+    presenting it as the project's gate. Nothing goes red; the gate just quietly
+    becomes an older one. `frontend-tests` (0.23.0) is the worked example.
+    """
+    from terp.cli.verify import CHECK_CATEGORIES
+
+    manifest = verify_manifest("full")
+    assert manifest["categories"] == sorted(CHECK_CATEGORIES)
+    assert {entry["category"] for entry in manifest["checks"]} <= set(manifest["categories"]), (
+        "every emitted category must be in the published vocabulary, or publishing it "
+        "is worse than useless"
+    )
+
+
+def test_the_checked_in_manifest_fixture_is_the_real_shape() -> None:
+    """`tests/fixtures/verify-manifest.full.json` is a cross-repository pin.
+
+    The category vocabulary was already pinned twice INSIDE this repository — the
+    runtime constant and this file's independent statement of it — and both copies
+    are on the same side of the boundary the seam was written for. A consuming tool
+    parses this document; nothing here proved its parser met the real shape, so a
+    field added or a category introduced reached that parser first at runtime.
+
+    Refresh after an intentional manifest change with::
+
+        python -c "import json,pathlib; from terp.cli.verify import verify_manifest; \
+            pathlib.Path('tests/fixtures/verify-manifest.full.json').write_text( \
+            json.dumps(verify_manifest('full'), indent=2) + chr(10), encoding='utf-8')"
+    """
+    fixture = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "verify-manifest.full.json"
+    assert fixture.is_file(), (
+        "the manifest fixture must exist — it is what a consuming repository asserts "
+        "its parser against"
+    )
+    assert json.loads(fixture.read_text(encoding="utf-8")) == verify_manifest("full"), (
+        "tests/fixtures/verify-manifest.full.json has drifted from the manifest "
+        "verify_manifest('full') emits — refresh it (see this test's docstring), and "
+        "tell the consumers whose parsers read it"
+    )
 
 
 def test_manifest_refuses_an_unknown_profile() -> None:
@@ -923,6 +1434,23 @@ def _assurance_schema() -> dict:
     )
 
 
+#: Lanes this framework realises that the **pinned** spec release does not yet declare.
+#:
+#: The lane analogue of ``_AWAITING_SPEC_RELEASE`` in ``test_spec_catalog.py``, and it
+#: exists for the same ordering (ADR 0116). terp-spec's ``certify-against-reference``
+#: job resolves the standard against this framework's default branch, so the standard
+#: cannot merge a vocabulary entry the reference toolchain does not already realise —
+#: while this test reads the *installed*, pinned spec, which is still the release before
+#: it. One of the two has to move first, and it is this one.
+#:
+#: Emptying this list is a step of adopting the spec release (``docs/RELEASING.md``),
+#: alongside bumping the pin. A name left here after that adoption is caught below.
+#:
+#: Open: nothing. ``secret-scanning`` was awaiting terp-spec 0.35.0, which the pin now
+#: names, so the lane is held to the parity assertion like every other.
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
+
+
 def test_assurance_lanes_mirror_the_pinned_spec_vocabulary() -> None:
     """The lane constants are the spec's normative vocabulary, in order —
     mirrored here (with the requirement mapping from the spec README's
@@ -931,8 +1459,25 @@ def test_assurance_lanes_mirror_the_pinned_spec_vocabulary() -> None:
 
     schema = _assurance_schema()
     enum = schema["properties"]["lanes"]["items"]["properties"]["id"]["enum"]
-    assert [lane_id for lane_id, _requirement, _checks in ASSURANCE_LANES] == list(enum)
+    declared = [lane_id for lane_id, _requirement, _checks in ASSURANCE_LANES]
+    assert [lane for lane in declared if lane not in _AWAITING_SPEC_RELEASE] == list(enum)
     assert {req for _lane, req, _checks in ASSURANCE_LANES} == {"required", "recommended"}
+
+
+def test_no_lane_awaits_a_spec_release_it_already_had() -> None:
+    """The allowance shrinks to nothing; it must not rot into a standing exemption.
+
+    A name left here once the pinned spec declares it would silently exclude that lane
+    from the parity assertion above — which is the one place the two vocabularies are
+    held equal, so the exemption would outlive every reason for it and nothing would
+    say so.
+    """
+    schema = _assurance_schema()
+    enum = set(schema["properties"]["lanes"]["items"]["properties"]["id"]["enum"])
+    assert _AWAITING_SPEC_RELEASE.isdisjoint(enum), (
+        "these lanes are declared by the pinned spec release and no longer await it: "
+        f"{sorted(_AWAITING_SPEC_RELEASE & enum)}"
+    )
 
 
 def test_assurance_lanes_compose_only_release_profile_checks() -> None:
@@ -986,9 +1531,13 @@ def test_assurance_emission_claims_on_required_lanes_only(
     assert document["ok"] is True
     assert document["profile"] == "release"
     lanes = {lane["id"]: lane for lane in document["lanes"]}
-    assert [lane["id"] for lane in document["lanes"]] == list(
-        schema["properties"]["lanes"]["items"]["properties"]["id"]["enum"]
-    )
+    # Every lane the pinned schema declares, in its order — plus any this framework
+    # already realises ahead of the spec release that will declare them (see
+    # ``_AWAITING_SPEC_RELEASE``). The document is emitted from the framework's own
+    # vocabulary, so it leads the schema for exactly one release cycle.
+    assert [
+        lane["id"] for lane in document["lanes"] if lane["id"] not in _AWAITING_SPEC_RELEASE
+    ] == list(schema["properties"]["lanes"]["items"]["properties"]["id"]["enum"])
     assert lanes["terp-standard"]["status"] == "passed"
     assert lanes["dependency-audit"]["status"] == "passed"
     assert lanes["dependency-audit"]["checks"] == [
@@ -1142,6 +1691,41 @@ def test_verify_dispatches_deploy_safety_through_its_own_runner(
     assert envelope["ok"] is True
     # The no-op success shape for an app with no deployment profile.
     assert "nothing to check" in json.dumps(envelope)
+
+
+def test_verify_dispatches_production_readiness_through_its_own_runner(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`production-readiness` is an in-process runner, so it needs its own dispatch.
+
+    The verdict itself is proven above against the function. This proves `terp verify`
+    reaches that function, and the reason it needs proving is the shape of the chain:
+    an unhandled runner falls into the `else`, which shells the check's own command —
+    `terp verify --only production-readiness` — into a child process running the same
+    unhandled code. Nothing raises. `test_every_in_process_runner_is_dispatched` reads
+    the branch out of the source, which is one letter away from a branch that calls
+    the wrong function, so the call is exercised here.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "quick",
+                "--root",
+                str(tmp_path),
+                "--only",
+                "production-readiness",
+                "--format",
+                "json",
+            ]
+        )
+
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is True
+    # The skip note for a tree with no control plane, which is what tmp_path is.
+    assert "no control_plane/ package" in json.dumps(envelope)
 
 
 # --------------------------------------------------------------------------- #
@@ -1755,6 +2339,101 @@ def test_dependency_hygiene_is_conditional_on_the_app_declaring_it(
     assert output.startswith(NOTE_PREFIX) and "deptry" in output
 
 
+def test_frontend_tests_are_conditional_on_the_app_declaring_the_script(
+    tmp_path: pathlib.Path,
+) -> None:
+    """An app rendered before the seam existed skips; one that declared it runs.
+
+    The declaration read is the `test` SCRIPT, not the presence of test files. An app
+    can have a suite it cannot run, and that is the state worth a red -- so presence of
+    the script is what promotes this from skip to verdict.
+    """
+    from terp.cli.verify import NOTE_PREFIX, _run_frontend_tests
+
+    exit_code, output = _run_frontend_tests(tmp_path / "nowhere")
+    assert (exit_code, "not applicable" in output) == (0, True)
+
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text('{"name": "x"}', encoding="utf-8")
+    exit_code, output = _run_frontend_tests(tmp_path)
+    assert exit_code == 0, "an app that never wired a frontend suite must not fail"
+    assert output.startswith(NOTE_PREFIX) and "test` script" in output
+
+    # A `scripts` table without `test`, and an empty `test`, are both "not declared" --
+    # the second because an empty command runs nothing while looking like adoption.
+    for scripts in ('{"scripts": {"build": "vite build"}}', '{"scripts": {"test": ""}}'):
+        (frontend / "package.json").write_text(scripts, encoding="utf-8")
+        exit_code, output = _run_frontend_tests(tmp_path)
+        assert (exit_code, output.startswith(NOTE_PREFIX)) == (0, True), scripts
+
+    # Unreadable is a RED, not a skip: whether the app declared a suite is unknown, and
+    # a skip there would be the fail-open this check exists to prevent.
+    (frontend / "package.json").write_text("{not json", encoding="utf-8")
+    exit_code, output = _run_frontend_tests(tmp_path)
+    assert exit_code == 1 and "unreadable" in output
+
+
+def test_verify_frontend_tests_only_skips_an_app_that_never_wired_a_suite(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End to end through the real dispatch, on a real tree that has not adopted it.
+
+    The example app declares `test:e2e` and no `test`, which is exactly the shape every
+    app rendered before this seam has. Upgrading the framework must leave it green.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--profile",
+                "full",
+                "--root",
+                str(_EXAMPLE_ROOT),
+                "--only",
+                "frontend-tests",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    (check,) = envelope["checks"]
+    assert check["id"] == "frontend-tests" and check["ok"] is True
+
+
+def test_frontend_tests_run_when_declared_and_name_a_missing_runner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    import terp.cli.verify as verify_module
+
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text(
+        '{"scripts": {"test": "vitest run"}}', encoding="utf-8"
+    )
+
+    reached: list[str] = []
+    monkeypatch.setattr(
+        verify_module,
+        "_run_subprocess",
+        lambda check, root: (reached.append(check.id), (0, "clean"))[1],
+    )
+    assert verify_module._run_frontend_tests(tmp_path) == (0, "clean")
+    assert reached == ["frontend-tests"]
+
+    # A declared suite whose runner is not installed is checked by nothing, and the
+    # bare npm error does not say so. The note names the cause and the fix.
+    monkeypatch.setattr(
+        verify_module,
+        "_run_subprocess",
+        lambda check, root: (1, "sh: vitest: command not found"),
+    )
+    exit_code, output = verify_module._run_frontend_tests(tmp_path)
+    assert exit_code == 1
+    assert "run by nothing" in output and "devDependencies" in output
+
+
 def test_dependency_hygiene_reads_the_table_rather_than_matching_text(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
@@ -1994,3 +2673,79 @@ def test_the_dependency_hygiene_runner_is_reached_through_the_dispatch(
     assert excinfo.value.code == 0
     (result,) = json.loads(capsys.readouterr().out)["checks"]
     assert result["id"] == "dependency-hygiene" and result["ok"] is True
+
+
+# --------------------------------------------------------------------------- #
+# What the gate deliberately does not check                                     #
+# --------------------------------------------------------------------------- #
+def test_the_manifest_states_what_is_not_checked_here() -> None:
+    """A consumer reasons from what the gate checks to what the gate COVERS.
+
+    The manifest had a slot for what runs and no slot for what deliberately does not,
+    so an absence read as either "handled elsewhere" or "an oversight" with nothing to
+    say which — and a decision already taken, recorded in an ADR nobody runs, was
+    indistinguishable from a gap. The platform's own proposition is that insecurity
+    needs an explicit, greppable opt-out; the same standard applied to the gate's own
+    boundary is this list.
+    """
+    manifest = verify_manifest("full")
+    stated = {entry["id"]: entry for entry in manifest["not_checked_here"]}
+    assert {"formatting", "generic-appsec-classes", "test-efficacy"} <= set(stated)
+    for entry in stated.values():
+        assert entry["reason"].strip(), entry
+        # Every entry has to end somewhere an author can go: what covers it, or what
+        # to run instead. An omission with neither is a shrug with a schema.
+        assert entry.get("delegated_to") or entry.get("instead"), entry
+
+
+def test_a_non_goal_is_never_also_a_check() -> None:
+    """The two halves must not contradict each other: a profile that quietly grew a
+    formatting check while the manifest still says formatting is ungated is worse than
+    either state alone."""
+    for profile in PROFILES:
+        manifest = verify_manifest(profile)
+        checked = {check["id"] for check in manifest["checks"]}
+        stated = {entry["id"] for entry in manifest["not_checked_here"]}
+        assert not (checked & stated), (
+            f"profile {profile!r} both runs and disclaims: {sorted(checked & stated)}"
+        )
+
+
+def test_the_formatting_entry_names_the_command_that_solves_it() -> None:
+    """`terp fmt` already shipped, `--changed` by default, with `--check` written and
+    documented — and was reachable only from `--help`. The measured cost of not knowing
+    it: an agent runs the whole-tree formatter, and the diff reaching review is part
+    change and part churn."""
+    (entry,) = [
+        item
+        for item in verify_manifest("full")["not_checked_here"]
+        if item["id"] == "formatting"
+    ]
+    assert "terp fmt" in entry["instead"]
+    assert "--changed" in entry["instead"]
+
+
+def test_the_appsec_delegation_names_where_it_went() -> None:
+    """ADR 0085 delegates the generic security classes rather than duplicating them.
+    That is a decision, and a decision a consumer can only find by reading a decision
+    record is indistinguishable from an oversight when they run the tool."""
+    (entry,) = [
+        item
+        for item in verify_manifest("full")["not_checked_here"]
+        if item["id"] == "generic-appsec-classes"
+    ]
+    assert "ruff" in entry["delegated_to"]
+    assert "appsec-baseline" in entry["delegated_to"]
+
+
+def test_the_human_listing_prints_the_non_goals_too(
+    tmp_path: pathlib.Path, capsys
+) -> None:
+    """The JSON manifest serves a driving tool; a person runs `--list`. Stating it in
+    only one of them leaves the other reading the check list as the coverage list."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "full", "--list", "--root", str(tmp_path)])
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "not checked here (deliberately)" in out
+    assert "terp fmt" in out

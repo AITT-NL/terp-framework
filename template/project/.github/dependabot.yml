@@ -1,0 +1,63 @@
+# The other half of the digest pins in workflows/ci.yml.
+#
+# Every `uses:` there names a commit rather than a tag, so a moved tag cannot
+# change what runs inside your CI with your repository checked out. That freezes
+# each pin at whatever was current the day your project was generated, which is
+# only an improvement while something moves it forward — pinning without an
+# updater trades a live supply-chain risk for a stale one. This file is what
+# moves them, as reviewable pull requests you merge like any other change.
+#
+# Grouped weekly on purpose: one pull request per package buries the one that
+# matters, and a security update nobody reads is not an update.
+#
+# Yours to edit. Add an ecosystem when you add a surface (a second frontend, a
+# worker image); widen the schedule if weekly is too much noise for your team.
+# What you should not do is delete it while the pins stay — that combination is
+# strictly worse than never having pinned at all.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Your Python dependencies, including the pinned `terp-*` distributions. Terp
+  # releases in lockstep, so these arrive as one grouped pull request rather than
+  # one per distribution — and they must be adopted together.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python-deps:
+        patterns: ["*"]
+
+  # Both manifests that pin `@terpjs/*`: the app's frontend and the conformance
+  # suite beside it. A bump to one and not the other is a mixed install, which
+  # `terp verify`'s platform-install check refuses.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /conformance
+    schedule:
+      interval: weekly
+    groups:
+      conformance-deps:
+        patterns: ["*"]
+
+  # The images your project ships.
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /frontend
+    schedule:
+      interval: weekly

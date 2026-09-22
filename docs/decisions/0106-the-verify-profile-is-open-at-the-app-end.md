@@ -101,6 +101,41 @@ remove, and it would be worse coming from the seam itself.
 No table, no extra checks, no note. Upgrading the framework must never add a check to a gate nobody
 declared, and must never print advice about a seam on every run of every project.
 
+### 5. A consumer files a category it does not know; it does not discard the check
+
+§3 refuses an unknown `category` at the **app-declaration** boundary, and that refusal is right
+there: it is loud, it names the file to fix, and the person who can fix it wrote the line. This
+clause is the other end of the same seam, where the refusal is neither loud nor fixable — a
+**driving tool parsing the manifest**, whose unknown category came from the platform rather than
+from the project.
+
+The two directions are not symmetric, and treating them as one is how a gate fails green. When the
+platform adds a category — `frontend-tests` in 0.23.0 is the worked example — a consumer holding a
+hardcoded list meets a word it has never seen in a document it did not write and cannot edit. If it
+rejects the document, it falls back to whatever list it shipped with, and the project's real gate is
+silently replaced by the tool's memory of an older one. Nothing is red. The full and release tiers
+quietly run a subset, and the tool reports pass.
+
+So, for any tool that configures itself from this manifest:
+
+* **Degrade per entry, never wholesale.** A check whose category is unfamiliar is filed under a
+  documented fallback bucket and **still runs**. Its findings land somewhere general rather than
+  nowhere; the alternative is not running the check at all, which is strictly worse than filing it
+  imprecisely.
+* **Discard an entry only when it is unusable.** That is an entry with no `id` or no `command` —
+  there is nothing to run and nothing to attribute. Every other missing or unfamiliar field has a
+  defensible default.
+* **Never answer from a hardcoded copy.** If the manifest cannot be obtained at all, say that the
+  gate definition is unavailable; do not silently present a baked-in list as the project's gate.
+
+The platform holds up its half. `verify_manifest()` publishes `categories` — the vocabulary the
+document was written with — so "a category I have not seen" and "a document I should not trust" stop
+being the same observation. And `tests/fixtures/verify-manifest.full.json` is checked in and held to
+the live manifest by the suite, so a consuming repository can assert its parser against the real
+shape rather than against a hand-copied sketch of it. The category vocabulary was already pinned
+twice inside this repository (the runtime constant and the suite's independent statement of it); the
+fixture extends that pinning across the boundary the seam was written for.
+
 ## Consequences
 
 `terp verify` now means what it has always claimed to mean: the whole gate, not the platform's half

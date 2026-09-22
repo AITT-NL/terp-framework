@@ -4,7 +4,16 @@ import type { DataViewQuery, DataViewRepository } from "../types";
 
 export interface UseDataViewQueryResult<T> {
   rows: T[];
-  totalCount: number;
+  /**
+   * How many rows match, or `undefined` while that is genuinely not known yet -- before
+   * the first query answers, and after one fails.
+   *
+   * Not `0`, which is a different answer and a wrong one: a footer reading "0-0 of 0
+   * results" beside a loading skeleton states a fact the app has not been told. This is
+   * the same distinction `Resource.total` draws for `useResource` (0.17.0), one component
+   * over, and for the same reason -- unknown is a real answer and must not render as zero.
+   */
+  totalCount: number | undefined;
   /** True until the first page for this repository has resolved (skeleton state). */
   isLoading: boolean;
   /** True while any query is in flight (subtle refresh indicator; stale data stays). */
@@ -24,7 +33,7 @@ export function useDataViewQuery<T>(
   query: DataViewQuery,
 ): UseDataViewQueryResult<T> {
   const [rows, setRows] = useState<T[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
+  const [totalCount, setTotalCount] = useState<number | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -56,6 +65,10 @@ export function useDataViewQuery<T>(
         if (!active || controller.signal.aborted) {
           return;
         }
+        // The count is not carried over from a previous success: a failed refetch knows
+        // nothing about how many rows match now, and saying the old number would be a
+        // guess presented as a fact.
+        setTotalCount(undefined);
         setError(caught);
         setIsLoading(false);
         setIsFetching(false);

@@ -87,6 +87,7 @@ def test_new_module_emits_frontend_when_app_present(tmp_path: pathlib.Path) -> N
     assert _written(paths, tmp_path) == _SLOTS | _TEST_SLOTS | {
         "frontend/src/modules/invoices/module.tsx",
         "frontend/src/modules/invoices/InvoicesList.tsx",
+        "frontend/src/modules/invoices/InvoicesList.test.tsx",
     }
     frontend = tmp_path / "frontend" / "src" / "modules" / "invoices"
     assert "defineModuleManifest" in (frontend / "module.tsx").read_text()
@@ -101,6 +102,17 @@ def test_new_module_emits_frontend_when_app_present(tmp_path: pathlib.Path) -> N
     assert "OverviewPage" in view
     # ... and documents the typed-client pattern for the app's own endpoints.
     assert "useTerpClient<paths>()" in view
+
+    # The view arrives with its first test, for the same reason the backend module
+    # arrives with a test package (ADR 0119): a module whose default shape has no test
+    # owes a debt nobody mentioned. It asserts both sides of the empty state -- the
+    # marker present AND no rows -- so wiring a real endpoint makes it fail honestly
+    # rather than keep passing against a list that never filled.
+    spec = (frontend / "InvoicesList.test.tsx").read_text()
+    assert "import { InvoicesList } from \"./InvoicesList\";" in spec
+    assert "resource-list-empty" in spec
+    assert "resource-list-items" in spec
+    assert "toBeNull()" in spec
 
 
 def test_new_module_skips_frontend_without_app(tmp_path: pathlib.Path) -> None:

@@ -15,13 +15,16 @@ import type { TerpStrings } from "../uiText";
 import { unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
+import type { AdminRoleOption } from "./roles";
 import { adminRoleLabel } from "./roles";
+import { useAccessLadder } from "./useAccessLadder";
 
 type UserRead = components["schemas"]["UserRead"];
 
 function buildColumns(
   strings: TerpStrings,
   formatDate: (value: string) => string,
+  rungs: readonly AdminRoleOption[],
 ): DataViewColumn<UserRead>[] {
   return [
     { id: "email", header: strings.email, accessor: (u) => u.email, meta: { mobileSlot: "title" } },
@@ -29,7 +32,7 @@ function buildColumns(
       id: "role",
       header: strings.role,
       accessor: (u) => u.role,
-      cell: (u) => adminRoleLabel(strings, u.role),
+      cell: (u) => adminRoleLabel(rungs, u.role),
       meta: { mobileSlot: "subtitle", width: "xs" },
     },
     {
@@ -60,9 +63,12 @@ export function UsersAdmin() {
   const serverQuery = useServerDataView({ initialPageSize: 10 });
 
   const formatDate = useFormatDate();
+  // The ladder the app declares, so a rank renders under the name its author gave it rather
+  // than under whichever of three literals this file used to carry.
+  const { rungs } = useAccessLadder(strings);
   const columns = useMemo(
-    () => buildColumns(strings, formatDate),
-    [strings, formatDate],
+    () => buildColumns(strings, formatDate, rungs),
+    [strings, formatDate, rungs],
   );
   const repository = useMemo(
     () =>

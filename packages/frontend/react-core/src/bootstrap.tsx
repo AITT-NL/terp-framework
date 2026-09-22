@@ -42,6 +42,14 @@ export interface AdminAreaSections {
   groups?: boolean;
   /** The audit-log overview (terp-cap-audit). */
   audit?: boolean;
+  /**
+   * The access screen: which roles exist and what each may do per module (terp-cap-access).
+   *
+   * Gated like the others because it is not decoration — the screen reads
+   * `GET /api/v1/access/model`, which only exists where the access capability is mounted, so an
+   * app without it would ship a nav entry leading to a 404.
+   */
+  access?: boolean;
 }
 
 /** Route-path prefix per admin section, used to filter the packaged manifest. */
@@ -49,6 +57,7 @@ const ADMIN_SECTION_PREFIXES: Record<keyof AdminAreaSections, string> = {
   users: "/admin/users",
   groups: "/admin/groups",
   audit: "/admin/audit",
+  access: "/admin/access",
 };
 
 function resolveAdminSections(
@@ -59,6 +68,7 @@ function resolveAdminSections(
     users: sections.users !== false,
     groups: sections.groups !== false,
     audit: sections.audit !== false,
+    access: sections.access !== false,
   };
 }
 

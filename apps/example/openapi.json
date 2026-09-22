@@ -1,6 +1,324 @@
 {
   "components": {
     "schemas": {
+      "AccessEndpointRead": {
+        "description": "One mounted route and the authority that applies to it.",
+        "properties": {
+          "by_role": {
+            "items": {
+              "$ref": "#/components/schemas/AccessRoleOutcomeRead"
+            },
+            "title": "By Role",
+            "type": "array"
+          },
+          "extra_permissions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extra Permissions",
+            "type": "array"
+          },
+          "methods": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Methods",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessOperationRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "requirement": {
+            "title": "Requirement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "methods",
+          "requirement",
+          "extra_permissions",
+          "name",
+          "operation",
+          "by_role"
+        ],
+        "title": "AccessEndpointRead",
+        "type": "object"
+      },
+      "AccessModelRead": {
+        "description": "The declared authority surface: the ladder, the permissions, and every module.",
+        "properties": {
+          "modules": {
+            "items": {
+              "$ref": "#/components/schemas/AccessModuleRead"
+            },
+            "title": "Modules",
+            "type": "array"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/AccessPermissionRead"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/AccessRoleRead"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "roles",
+          "permissions",
+          "modules"
+        ],
+        "title": "AccessModelRead",
+        "type": "object"
+      },
+      "AccessModuleRead": {
+        "description": "One module's declared authority.",
+        "properties": {
+          "access": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModuleAccessRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endpoints": {
+            "items": {
+              "$ref": "#/components/schemas/AccessEndpointRead"
+            },
+            "title": "Endpoints",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessPolicyRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix"
+          }
+        },
+        "required": [
+          "name",
+          "prefix",
+          "policy",
+          "permissions",
+          "access",
+          "endpoints"
+        ],
+        "title": "AccessModuleRead",
+        "type": "object"
+      },
+      "AccessOperationRead": {
+        "description": "What a route does, in the source language (ADR 0102).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "AccessOperationRead",
+        "type": "object"
+      },
+      "AccessPermissionRead": {
+        "description": "One declared permission: its name, its rank floor, and what holding it buys.",
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "min_role": {
+            "title": "Min Role",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "min_role",
+          "label"
+        ],
+        "title": "AccessPermissionRead",
+        "type": "object"
+      },
+      "AccessPolicyRead": {
+        "description": "A module's declared posture. ``public`` decides which of the other fields apply.",
+        "properties": {
+          "allows_public_writes": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allows Public Writes"
+          },
+          "authenticated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authenticated"
+          },
+          "public": {
+            "title": "Public",
+            "type": "boolean"
+          },
+          "public_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Reason"
+          },
+          "read": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read"
+          },
+          "write": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Write"
+          }
+        },
+        "required": [
+          "public"
+        ],
+        "title": "AccessPolicyRead",
+        "type": "object"
+      },
+      "AccessRoleOutcomeRead": {
+        "description": "What one rung gets on one route, replayed through the kernel guard's own decision.",
+        "properties": {
+          "allowed": {
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "allowed",
+          "reason"
+        ],
+        "title": "AccessRoleOutcomeRead",
+        "type": "object"
+      },
+      "AccessRoleRead": {
+        "description": "One rung of the app's declared ladder.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "rank"
+        ],
+        "title": "AccessRoleRead",
+        "type": "object"
+      },
       "AccessToken": {
         "properties": {
           "access_token": {
@@ -123,6 +441,14 @@
             "title": "Id",
             "type": "string"
           },
+          "module_ranks": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "default": {},
+            "title": "Module Ranks",
+            "type": "object"
+          },
           "permissions": {
             "default": [],
             "items": {
@@ -182,6 +508,10 @@
             ],
             "title": "Owner Id"
           },
+          "scan_state": {
+            "title": "Scan State",
+            "type": "string"
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
@@ -206,6 +536,7 @@
           "content_type",
           "size",
           "sha256",
+          "scan_state",
           "owner_id",
           "version",
           "created_at",
@@ -480,6 +811,89 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HeldModuleRoleRead": {
+        "description": "One per-module rung a subject holds, and why.",
+        "properties": {
+          "effective": {
+            "title": "Effective",
+            "type": "boolean"
+          },
+          "module": {
+            "title": "Module",
+            "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "role_rank": {
+            "title": "Role Rank",
+            "type": "integer"
+          },
+          "stale": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stale",
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/SubjectRefRead"
+          }
+        },
+        "required": [
+          "module",
+          "role_rank",
+          "role",
+          "effective",
+          "stale",
+          "via"
+        ],
+        "title": "HeldModuleRoleRead",
+        "type": "object"
+      },
+      "HeldPermissionRead": {
+        "description": "One permission a subject holds, and why.",
+        "properties": {
+          "declared": {
+            "title": "Declared",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/components/schemas/SubjectRefRead"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "declared",
+          "via"
+        ],
+        "title": "HeldPermissionRead",
+        "type": "object"
+      },
       "JournalCreate": {
         "properties": {
           "entry": {
@@ -634,6 +1048,105 @@
           "password"
         ],
         "title": "LoginRequest",
+        "type": "object"
+      },
+      "ModuleAccessRead": {
+        "description": "Whether a module takes part in per-module role assignment (ADR 0121).",
+        "properties": {
+          "assignable": {
+            "title": "Assignable",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "platform_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Reason"
+          }
+        },
+        "required": [
+          "assignable",
+          "label",
+          "platform_reason"
+        ],
+        "title": "ModuleAccessRead",
+        "type": "object"
+      },
+      "ModuleRoleAssign": {
+        "description": "The body of an assignment whose subject and module are already in the path.\n\nAddressed by ``(subject_id, module)`` rather than by row id, because that pair *is* the\nfact's identity \u2014 the table's unique constraint says so, and\n:meth:`ModuleRoleService.assign` is already idempotent on it. A surrogate id in the URL\nwould make the caller fetch a row before it could change one, and would let two requests\nthat mean the same thing address it differently.",
+        "properties": {
+          "role_rank": {
+            "title": "Role Rank",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "role_rank"
+        ],
+        "title": "ModuleRoleAssign",
+        "type": "object"
+      },
+      "ModuleRoleRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "module": {
+            "title": "Module",
+            "type": "string"
+          },
+          "role_rank": {
+            "title": "Role Rank",
+            "type": "integer"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "subject_id",
+          "module",
+          "role_rank",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ModuleRoleRead",
         "type": "object"
       },
       "NoteCreate": {
@@ -1238,6 +1751,77 @@
         "title": "ProjectUpdate",
         "type": "object"
       },
+      "SubjectAccessRead": {
+        "description": "One subject's effective access, with the provenance of every right.\n\nThe answer to \"why can this person do that?\", which is the only defence an administrator\nhas against an over-broad grant. It reports what is *held*; what that lets someone do on a\ngiven route is the declared model's question (``GET /model``), and a pane joins the two.\n\nIt deliberately does **not** carry the subject's global rank. That lives in the users\ntable, which this capability cannot import \u2014 its whole premise is being a leaf the\nidentity modules depend on rather than the reverse \u2014 and a field nothing here could ever\nfill would be structurally null. A pane already fetches the account to show its detail\nscreen, so it has the rank; adding a seam to duplicate it here would be a second source\nof truth for one integer.",
+        "properties": {
+          "module_roles": {
+            "items": {
+              "$ref": "#/components/schemas/HeldModuleRoleRead"
+            },
+            "title": "Module Roles",
+            "type": "array"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/HeldPermissionRead"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "via": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectRefRead"
+            },
+            "title": "Via",
+            "type": "array"
+          }
+        },
+        "required": [
+          "subject_id",
+          "via",
+          "permissions",
+          "module_roles"
+        ],
+        "title": "SubjectAccessRead",
+        "type": "object"
+      },
+      "SubjectRefRead": {
+        "description": "Where a right came from: the caller themselves, or a group they belong to.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name"
+        ],
+        "title": "SubjectRefRead",
+        "type": "object"
+      },
       "TaskCreate": {
         "properties": {
           "status": {
@@ -1363,6 +1947,24 @@
         ],
         "title": "TaskUpdate",
         "type": "object"
+      },
+      "TerpPermission": {
+        "description": "Every permission name this app declares. Gate a client control on one of these rather than on a string literal, so a rename stops type-checking instead of silently over- or under-gating.",
+        "enum": [
+          "notes.delete"
+        ],
+        "title": "TerpPermission",
+        "type": "string"
+      },
+      "TerpRole": {
+        "description": "Every role name this app's modules declare, for the same reason.",
+        "enum": [
+          "admin",
+          "editor",
+          "viewer"
+        ],
+        "title": "TerpRole",
+        "type": "string"
       },
       "TicketRequest": {
         "properties": {
@@ -1964,6 +2566,177 @@
           }
         },
         "summary": "Remove a granted permission",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/model": {
+      "get": {
+        "description": "The declared authority surface: the ladder, the permissions, and every module.\n\nThe read half of a permission editor, and the reason the projection it is built on moved\ninto the kernel: this capability cannot import ``terp.cli``, where ``terp inspect access``\nlives. One builder, so the pane and the audit view cannot disagree about who may do what.\n\nDerivation over what ``create_app`` recorded on ``app.state`` \u2014 no database read at all,\nwhich is why it says nothing about *who holds* anything. That question needs the grant\nrows and is a different endpoint.\n\nAdmin-only, through this module's own ``Policy``. The permission topology is a map of\nwhere the doors are, so it is not something an under-privileged caller should be able to\nenumerate; a caller asking what *they themselves* may do is answered by ``GET /me``\n(ADR 0096), which needs no privilege because it only ever reports the caller's own.",
+        "operationId": "access.get_model",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessModelRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "See which roles exist and what each one may do",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/subjects/{subject_id}": {
+      "get": {
+        "description": "One subject's effective access, with the provenance of every right.\n\n\"Why can this person do that?\" is the question an administrator has to be able to answer\nbefore any of this is safe, and it is the one a matrix of effective answers cannot answer\non its own. Every row here names the subject it came from \u2014 the person themselves, or a\ngroup they belong to \u2014 because a right whose origin is unknown is a right nobody can\nremove with confidence.\n\nTwo things are reported rather than filtered. A grant naming a permission the app no\nlonger declares comes back with ``declared: false``, and a module role at an undeclared\nrank or in a module that no longer accepts them comes back with its reason in ``stale`` \u2014\non the reasoning ``terp grant list`` gives, that a filtered row is a right nobody can\nexplain. And where several module rows exist for one module, only the highest is marked\n``effective``, which is the thing most often misread: assigning a lower rung alongside a\nhigher one changes nothing at all.",
+        "operationId": "access.get_subject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subject_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Subject Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubjectAccessRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "See what someone can do, and where each right comes from",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/subjects/{subject_id}/module-roles/{module}": {
+      "delete": {
+        "operationId": "access.revoke_module_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subject_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Subject Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "title": "Module",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Take away someone's role inside one module",
+        "tags": [
+          "access"
+        ]
+      },
+      "put": {
+        "operationId": "access.assign_module_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subject_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Subject Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "title": "Module",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleRoleAssign"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleRoleRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Give someone a role inside one module",
         "tags": [
           "access"
         ]

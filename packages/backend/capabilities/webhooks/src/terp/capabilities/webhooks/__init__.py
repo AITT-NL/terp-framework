@@ -15,8 +15,12 @@ no engine and changes no ``terp.core``.
   strict timeout and no redirect following, records a :class:`WebhookDelivery`, and lets a
   failure propagate so the outbox retries with backoff and dead-letters.
 
-It depends only on ``terp-core`` and ``httpx`` — never a sibling capability or a broker
-engine; the app composes the durable ``OutboxJobQueue`` at ``create_app``.
+It depends on ``terp-core`` and on ``terp-cap-egress`` — the platform's one declared way
+out of the process, which owns the denylist, the address pinning, the bounded read and the
+refusal to follow a redirect. There is deliberately no HTTP client in this distribution:
+two copies of the code that opens a connection drift, and the one that drifts is the one
+nobody is looking at. It depends on no broker engine; the app composes the durable
+``OutboxJobQueue`` at ``create_app``.
 """
 
 from __future__ import annotations
@@ -46,6 +50,7 @@ from terp.capabilities.webhooks.operations import (
     WEBHOOKS_GET_SUBSCRIPTION,
     WEBHOOKS_LIST_DELIVERIES,
     WEBHOOKS_LIST_SUBSCRIPTIONS,
+    WEBHOOKS_OPERATIONS,
     WEBHOOKS_UPDATE_SUBSCRIPTION,
 )
 from terp.capabilities.webhooks.router import module, router
@@ -79,14 +84,15 @@ __all__ = [
     "OUTCOME_DELIVERED",
     "OUTCOME_FAILED",
     "OUTCOME_SKIPPED",
+    "PinnedTarget",
     "WEBHOOKS_CREATE_SUBSCRIPTION",
     "WEBHOOKS_DELETE_SUBSCRIPTION",
     "WEBHOOKS_GET_SUBSCRIPTION",
     "WEBHOOKS_LIST_DELIVERIES",
     "WEBHOOKS_LIST_SUBSCRIPTIONS",
+    "WEBHOOKS_OPERATIONS",
     "WEBHOOKS_UPDATE_SUBSCRIPTION",
     "WEBHOOK_DELIVER",
-    "PinnedTarget",
     "WebhookDelivery",
     "WebhookDeliveryError",
     "WebhookDeliveryPayload",

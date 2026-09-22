@@ -5,10 +5,11 @@ Pure-kernel unit checks (no app), complementing the reference-app end-to-end tes
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 import pytest
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.testclient import TestClient
 from starlette.middleware import Middleware
 
@@ -17,10 +18,12 @@ from terp.core import (
     ADMIN,
     AuditPolicy,
     BootError,
+    AuthorizationRequirement,
     ControlPlane,
     CorsPolicy,
     EDITOR,
     InMemoryThrottleStore,
+    LabelCoverage,
     ModuleSpec,
     OperationCatalog,
     OperationCoverage,
@@ -31,7 +34,9 @@ from terp.core import (
     PermissionDeniedError,
     PermissionModel,
     Policy,
+    route_policy,
     Principal,
+    Role,
     SecurityConfig,
     VIEWER,
     create_app,
@@ -244,6 +249,7 @@ def _echo_spec(name: str, **spec_kwargs) -> ModuleSpec:
     router = APIRouter()
 
     @router.post("/")
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
     async def echo(request: Request) -> dict:
         return {"received": len(await request.body())}
 
@@ -423,7 +429,14 @@ def test_create_app_boots_permission_policy_with_enforcer() -> None:
     assert app.title == "Terp app"
 
 
-def _mutating_router():
+def _mutating_router(declared: Policy | None = None):
+    """A one-route mutating router; *declared* is the route's own policy, if any.
+
+    Parameterised because the question these tests ask moved from the module to the
+    route (ADR 0148): whether an unauthenticated write is refused now depends on what
+    the ROUTE declares, so a fixture that hard-coded one answer could only test one of
+    the two outcomes.
+    """
     from fastapi import APIRouter
 
     router = APIRouter()
@@ -431,6 +444,8 @@ def _mutating_router():
     @router.post("/", status_code=204)
     def create() -> None: ...
 
+    if declared is not None:
+        route_policy(declared)(create)
     return router
 
 
@@ -459,6 +474,7 @@ def test_create_app_skips_the_write_tier_check_for_a_read_only_router() -> None:
     router = APIRouter()
 
     @router.get("/", response_model=dict)
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def show() -> dict: ...
 
     # No mutating route, so a low write tier under a high read tier is not a write-surface
@@ -467,21 +483,36 @@ def test_create_app_skips_the_write_tier_check_for_a_read_only_router() -> None:
     assert create_app([spec]).title == "Terp app"
 
 
-def test_create_app_fails_closed_on_public_mutating_router() -> None:
+def test_create_app_fails_closed_on_a_public_mutating_route() -> None:
+    """A route that declares itself public but not public-WRITE may not mutate."""
+    public_read = Policy.public(reason="read-only public docs")
     spec = ModuleSpec(
-        name="widgets",
-        router=_mutating_router(),
-        policy=Policy.public(reason="read-only public docs"),
+        name="widgets", router=_mutating_router(public_read), policy=public_read
     )
     with pytest.raises(BootError, match="Policy.public_write"):
         create_app([spec])
 
 
-def test_create_app_allows_explicit_public_write_opt_out() -> None:
+def test_create_app_fails_closed_on_an_undeclared_route_in_a_public_module() -> None:
+    """Silence is the case this check exists for (ADR 0148).
+
+    A public module used to admit every route under it, so a route added beside the
+    ones that had to be public became public too, with nothing said. The refusal names
+    the route rather than the module, because the module is not what has to change.
+    """
     spec = ModuleSpec(
-        name="login",
-        router=_mutating_router(),
+        name="widgets",
+        router=_mutating_router(),  # declares nothing
         policy=Policy.public_write(reason="login endpoint"),
+    )
+    with pytest.raises(BootError, match="declares no policy of its own"):
+        create_app([spec])
+
+
+def test_create_app_allows_explicit_public_write_opt_out() -> None:
+    public_write = Policy.public_write(reason="login endpoint")
+    spec = ModuleSpec(
+        name="login", router=_mutating_router(public_write), policy=public_write
     )
     assert create_app([spec]).title == "Terp app"
 
@@ -522,12 +553,14 @@ def _declaring_router(definition: OperationDefinition | None):
     if definition is None:
 
         @router.get("/", response_model=str)
+        @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
         def read() -> str:
             return "x"
 
     else:
 
         @router.get("/", response_model=str)
+        @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
         @operation(definition)
         def read() -> str:
             return "x"
@@ -541,8 +574,47 @@ def test_an_operation_absent_from_the_catalog_fails_the_boot() -> None:
     spec = ModuleSpec(
         name="files", router=_declaring_router(_FILES_DELETE), policy=Policy.default()
     )
-    with pytest.raises(BootError, match="not the entry registered"):
+    with pytest.raises(BootError, match="does not carry") as caught:
         create_app([spec], control_plane=ControlPlane())
+
+    # The repair, not just the refusal (ADR 0126). This route's endpoint is defined
+    # here, so it is the app's own — the repair is to add the definition, and the
+    # message must NOT name a capability aggregate, because `*FILES_OPERATIONS` does
+    # not exist for an app's own module and reads as a broken suggestion.
+    message = str(caught.value)
+    assert "Add its OperationDefinition" in message
+    assert "_OPERATIONS" not in message
+    assert "coverage" in message
+
+
+def test_the_missing_operation_repair_is_the_one_that_applies() -> None:
+    """A capability's route and an app's route get opposite advice, chosen not hedged.
+
+    Classified by where the endpoint was defined, which is the only thing that actually
+    distinguishes them: a capability hand-writes its routers, so its endpoints live
+    under ``terp.capabilities.<name>``. The capability case is asserted against a REAL
+    capability endpoint rather than a function with a doctored ``__module__``, so the
+    assumption this rests on is the one being tested.
+    """
+    from terp.capabilities.audit import router as audit_router
+
+    from terp.core.app import _missing_operation_repair
+    from terp.core.routing import iter_declaring_routes
+
+    endpoint = next(iter_declaring_routes(audit_router.routes)).endpoint
+    capability_repair = _missing_operation_repair(endpoint)
+    assert "*AUDIT_OPERATIONS" in capability_repair
+    assert "terp.capabilities.audit" in capability_repair
+
+    def local_endpoint() -> None: ...
+
+    app_repair = _missing_operation_repair(local_endpoint)
+    assert "Add its OperationDefinition" in app_repair
+    assert "_OPERATIONS" not in app_repair
+
+    # A callable with no __module__ at all must not crash the boot check while it is
+    # trying to explain a different failure.
+    assert "Add its OperationDefinition" in _missing_operation_repair(object())
 
 
 def test_a_same_id_operation_with_different_wording_is_refused() -> None:
@@ -556,8 +628,34 @@ def test_a_same_id_operation_with_different_wording_is_refused() -> None:
         name="files", router=_declaring_router(shadow), policy=Policy.default()
     )
     plane = ControlPlane(operations=OperationCatalog(operations=(_FILES_DELETE,)))
-    with pytest.raises(BootError, match="not the entry registered"):
+    with pytest.raises(BootError, match="same-id shadow") as caught:
         create_app([spec], control_plane=plane)
+
+    # A shadow and a missing entry are opposite repairs, so they must not share a
+    # message: this one quotes BOTH wordings, and must never suggest folding in a
+    # capability set, which would not fix a wording conflict.
+    message = str(caught.value)
+    assert "Remove a file for good" in message and _FILES_DELETE.label in message
+    assert "_OPERATIONS" not in message
+
+
+def test_entry_for_separates_an_absent_id_from_a_shadowed_one() -> None:
+    """The lookup the two boot messages branch on, tested directly.
+
+    ``has_operation`` answers one question with two causes behind it. ``entry_for``
+    is what tells them apart: ``None`` for an id the catalog never registered, the
+    registered definition for an id it did — even when the caller offers a different
+    one for that id.
+    """
+    catalog = OperationCatalog(operations=(_FILES_DELETE,))
+    shadow = OperationDefinition(id="files.delete", label="Remove a file for good")
+
+    assert catalog.entry_for("files.delete") is _FILES_DELETE
+    assert catalog.entry_for(shadow.id) is _FILES_DELETE
+    assert catalog.entry_for("files.never_registered") is None
+    # The pair the messages rest on: same answer from has_operation, different cause.
+    assert not catalog.has_operation(shadow)
+    assert catalog.has_operation(_FILES_DELETE)
 
 
 def test_a_declared_operation_in_the_catalog_boots() -> None:
@@ -583,6 +681,201 @@ def test_an_undeclared_route_boots_with_coverage_off_and_is_refused_under_strict
     )
     with pytest.raises(BootError, match="coverage is STRICT"):
         create_app([spec], control_plane=strict)
+
+
+def test_decide_answers_every_branch_the_guard_used_to_answer_inline() -> None:
+    """`decide` is the single copy of the guard's decision (ADR 0121 §4).
+
+    Each reason is a stable slug rather than prose because two consumers dispatch on it: the
+    guard maps it to an exception, and a view maps it to a matrix cell. The order is the
+    guard's, unchanged — public admits before authentication is considered, an unregistered
+    role is refused before a requirement is selected, and the rank floor is checked before
+    the grant, which is what makes a grant unable to lift a caller over a floor
+    (ADR 0016 §2).
+    """
+    from terp.core.module_spec import decide
+
+    publish = Permission("widgets.publish", min_role=EDITOR, label="Publish a widget")
+    policy = Policy(read=VIEWER, write=publish)
+    editor = Role("editor", rank=20)
+    viewer = Role("viewer", rank=10)
+
+    assert decide(None, method="GET", role=editor).reason == "no_policy"
+    assert decide(Policy.public(reason="probe"), method="GET", role=None).allowed is True
+    assert decide(policy, method="GET", role=None).reason == "unauthenticated"
+    assert (
+        decide(policy, method="GET", role=editor, role_is_registered=False).reason
+        == "unregistered_role"
+    )
+    # Below the floor: refused on rank, before the grant is ever consulted.
+    assert decide(policy, method="POST", role=viewer).reason == "rank"
+    # Clears the floor with no check supplied — what a view passes, having no subject.
+    assert decide(policy, method="POST", role=editor).reason == "grant"
+    # Clears the floor and holds it.
+    assert decide(policy, method="POST", role=editor, holds_permission=lambda _n: True).allowed
+    # A role requirement never consults the grant at all.
+    assert decide(policy, method="GET", role=viewer).reason == "allowed"
+
+
+def test_decide_does_not_consult_the_grant_for_a_role_only_requirement() -> None:
+    """The check is a callable so a role-only route still never touches the database.
+
+    The guard has always been careful about this; an eagerly-evaluated argument would have
+    moved the grant query onto every guarded request in the framework. Counted rather than
+    asserted structurally, because a signature says nothing about when it is called.
+    """
+    from terp.core.module_spec import decide
+
+    calls: list[str] = []
+    policy = Policy(read=VIEWER, write=EDITOR)  # roles only, no permission anywhere
+    decide(
+        policy,
+        method="POST",
+        role=Role("admin", rank=30),
+        holds_permission=lambda name: calls.append(name) or True,
+    )
+    assert calls == []
+
+
+def test_a_route_may_not_require_a_permission_the_control_plane_does_not_declare() -> None:
+    """§2.8: `require_permission` took a name, and a name did not have to be declared.
+
+    Two consequences nobody chose. The sanctioned write paths — `terp grant add` and
+    `POST /api/v1/access/grants` — both validate against the declared catalog, so a
+    permission only a route knew about could not be granted through either: the route was
+    permanently closed rather than fine-grained. And every view of the access surface
+    projects the declared catalog, so the requirement was invisible to the viewer that
+    exists to explain it.
+
+    Marked through the kernel's own `mark_required_permission` rather than the access
+    capability's `require_permission`, because the marker is the contract the boot check
+    reads and this keeps a core test core-only.
+    """
+    from terp.core import mark_required_permission
+
+    def holds_it() -> None:  # pragma: no cover - never called; only its marker is read
+        return None
+
+    router = APIRouter()
+
+    @router.post("/act", response_model=str, dependencies=[Depends(mark_required_permission(holds_it, "widgets.write"))])
+    @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
+    def act() -> str:  # pragma: no cover - never called
+        return "ok"
+
+    spec = ModuleSpec(name="gated", router=router, policy=Policy.default())
+
+    with pytest.raises(BootError, match="does not declare"):
+        create_app([spec], control_plane=ControlPlane())
+
+    # Declared: it boots. Without this half the assertion above holds just as well against
+    # a check that refuses every marked route.
+    declared = Permission("widgets.write", min_role=VIEWER, label="Change a widget")
+    plane = ControlPlane(permissions=PermissionModel(permissions=(declared,)))
+    assert create_app([spec], control_plane=plane).title == "Terp app"
+
+
+def test_the_undeclared_permission_gate_sees_a_dependency_in_the_signature_too() -> None:
+    """A gate with a documented evasion is not a gate.
+
+    FastAPI accepts a dependency in two places and enforces both identically: on the route
+    (`dependencies=[Depends(...)]`) and as a parameter default in the endpoint signature. The
+    check read `route.dependencies`, which holds only the first — so moving the dependency into
+    the signature evaded it, and the access projection reported such a route's rungs as plainly
+    `allowed` while an ungranted caller got a 403. Found by review.
+
+    Both forms are asserted here, because fixing one and leaving the other is the shape of the
+    original defect.
+    """
+    from terp.core import mark_required_permission
+
+    def holds_it() -> None:  # pragma: no cover - never called; only its marker is read
+        return None
+
+    marked = mark_required_permission(holds_it, "widgets.write")
+
+    signature_router = APIRouter()
+
+    @signature_router.post("/act", response_model=str)
+    def act(_: None = Depends(marked)) -> str:  # pragma: no cover - never called
+        return "ok"
+
+    declared_router = APIRouter()
+
+    @declared_router.post("/act", response_model=str, dependencies=[Depends(marked)])
+    def act_declared() -> str:  # pragma: no cover - never called
+        return "ok"
+
+    for router in (signature_router, declared_router):
+        spec = ModuleSpec(name="gated", router=router, policy=Policy.default())
+        with pytest.raises(BootError, match="does not declare"):
+            create_app([spec], control_plane=ControlPlane())
+
+        # And declaring it boots, so neither assertion above passes against a check that
+        # refuses every marked route.
+        declared = Permission("widgets.write", min_role=VIEWER, label="Change a widget")
+        plane = ControlPlane(permissions=PermissionModel(permissions=(declared,)))
+        assert create_app([spec], control_plane=plane).title == "Terp app"
+
+
+def test_an_unlabelled_permission_boots_with_coverage_off_and_is_refused_under_strict() -> None:
+    """The permission half of ADR 0102's promise, staged the same way.
+
+    Both halves in one test for the same reason the operation-coverage case gives: each is
+    only meaningful against the other. If OFF refused, adding the field would break every
+    app that already declares a permission; if STRICT accepted, there would be no state in
+    which "every row the permission editor shows is explained" is true.
+    """
+    spec = ModuleSpec(name="notes", policy=Policy.default())
+    unlabelled = Permission("notes.delete", min_role=EDITOR)
+
+    off = ControlPlane(permissions=PermissionModel(permissions=(unlabelled,)))
+    assert create_app([spec], control_plane=off).title == "Terp app"
+
+    strict = ControlPlane(
+        permissions=PermissionModel(
+            permissions=(unlabelled,), label_coverage=LabelCoverage.STRICT
+        )
+    )
+    with pytest.raises(BootError, match="label coverage is STRICT"):
+        create_app([spec], control_plane=strict)
+
+
+def test_a_labelled_permission_satisfies_strict_label_coverage() -> None:
+    # The other side of the gate: STRICT is satisfiable, not merely refusing. Without this,
+    # the test above passes just as well against a validator that refuses STRICT outright.
+    labelled = Permission(
+        "notes.delete", min_role=EDITOR, label="Delete a note someone else wrote"
+    )
+    plane = ControlPlane(
+        permissions=PermissionModel(
+            permissions=(labelled,), label_coverage=LabelCoverage.STRICT
+        )
+    )
+    spec = ModuleSpec(name="notes", policy=Policy.default())
+    assert create_app([spec], control_plane=plane).title == "Terp app"
+
+
+def test_warn_label_coverage_names_what_strict_would_refuse(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """WARN has to say *which* permissions, or it is indistinguishable from OFF.
+
+    The same defect the operation-coverage WARN branch already carries a comment about: a
+    staging setting that documents a behaviour it does not have. Asserting the name appears
+    is what separates "it warned" from "it warned usefully".
+    """
+    plane = ControlPlane(
+        permissions=PermissionModel(
+            permissions=(Permission("notes.delete", min_role=EDITOR),),
+            label_coverage=LabelCoverage.WARN,
+        )
+    )
+    spec = ModuleSpec(name="notes", policy=Policy.default())
+    with caplog.at_level(logging.WARNING, logger="terp.core"):
+        assert create_app([spec], control_plane=plane).title == "Terp app"
+    assert "notes.delete" in caplog.text
+    assert "WARN" in caplog.text
 
 
 def test_strict_coverage_reaches_a_route_on_an_included_sub_router() -> None:
@@ -732,7 +1025,7 @@ def test_a_websocket_route_is_held_to_both_halves_of_the_control() -> None:
     async def drift(websocket: WebSocket) -> None: ...
 
     spec2 = ModuleSpec(name="rt", router=drifting, policy=Policy.default())
-    with pytest.raises(BootError, match="not the entry registered"):
+    with pytest.raises(BootError, match="does not carry"):
         create_app([spec2], control_plane=ControlPlane())
 
 
@@ -812,6 +1105,7 @@ def test_a_hand_written_summary_beside_a_declared_operation_is_refused() -> None
     router = APIRouter()
 
     @router.get("/", response_model=str, summary="Remove the file for good")
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     @operation(_FILES_DELETE)
     def delete() -> str:
         return "x"
@@ -863,3 +1157,41 @@ def test_a_sibilant_noun_pluralises_with_es() -> None:
     assert _plural("batch") == "batches"
     assert _plural("note") == "notes"
     assert _plural("company") == "companies"
+
+
+
+def test_a_permission_label_may_not_be_padded() -> None:
+    """A label is rendered next to a tier name, so leading or trailing space is a defect.
+
+    Refused at construction rather than trimmed, for the reason the dotted-name check is
+    refused rather than normalised: the declaration is the thing a reader greps for, and a
+    constructor that quietly rewrites it makes the source and the catalog disagree about what
+    the app declares. The pane renders the label inside a tile whose own padding is the
+    layout's business.
+    """
+    with pytest.raises(ValueError, match="must not be padded with whitespace"):
+        Permission("notes.delete", min_role=EDITOR, label="  Delete a note  ")
+
+    # The same string without the padding is fine, which is what makes the check about the
+    # padding rather than about the label.
+    assert (
+        Permission("notes.delete", min_role=EDITOR, label="Delete a note").label
+        == "Delete a note"
+    )
+
+
+def test_declared_rank_answers_none_for_a_requirement_it_does_not_recognise() -> None:
+    """An unrecognised requirement kind is unregistered, which is the fail-closed answer.
+
+    ``AuthorizationRequirement.kind`` is a plain ``str``, so a requirement can carry a kind
+    this model has no branch for — a future kind, or a hand-built value. ``None`` means
+    "this model declares no floor for that", which every caller already treats as a refusal;
+    guessing a rank would be the one answer that could authorize something.
+    """
+    model = PermissionModel.default()
+    unknown = AuthorizationRequirement(kind="attribute", name="tenant.owner", min_rank=10)
+
+    assert model.declared_rank(unknown) is None
+    # The recognised kinds still answer, so the assertion above is about the kind and not
+    # about the model being empty.
+    assert model.declared_rank(AuthorizationRequirement.from_role(EDITOR)) == EDITOR.rank

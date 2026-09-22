@@ -98,6 +98,10 @@ export interface TerpStrings {
   moreActions: string;
   /** Default {@link ErrorState} title. */
   errorTitle: string;
+  /** Title shown by `RequireAuth` when the backend did not answer the boot check. */
+  backendUnreachableTitle: string;
+  /** Explanation shown with {@link TerpStrings.backendUnreachableTitle}. */
+  backendUnreachableDescription: string;
   /** Default confirm-button label of {@link ConfirmDialog}. */
   confirm: string;
   /** Default cancel-button label of {@link ConfirmDialog}. */
@@ -160,6 +164,47 @@ export interface TerpStrings {
   adminAudit: string;
   /** Admin hub: audit card description. */
   adminAuditDescription: string;
+  /** Access pane: the sidebar/hub entry and its one-line description. */
+  adminAccess: string;
+  adminAccessDescription: string;
+  /** Access pane: the tile for holding no rung in a module at all. */
+  accessNoRung: string;
+  /** Access pane: heading above what a rung adds over the one below it. */
+  accessAdds: string;
+  /** Access pane: the three kinds a delta is split into. */
+  accessKindRead: string;
+  accessKindWrite: string;
+  accessKindDelete: string;
+  /** Access pane: shown on a rung that grants nothing the rung below did not. */
+  accessAddsNothing: string;
+  /** Access pane: shown on a module that declares it is never per-module assignable. */
+  accessNeverAssignable: string;
+  /** Access pane: shown on a module that has not opted into per-module roles. */
+  accessNotAssignable: string;
+  /** Access pane: warns that some of the module's routes declared no operation. */
+  accessUnexplainedRoutes: string;
+  /** Access pane: the note that this screen shows the declared model, not who holds what. */
+  accessDeclaredOnly: string;
+  /** Assignment panel: the section heading on a person's or group's detail screen. */
+  moduleAccessTitle: string;
+  /** Assignment panel: what a rung here does, and the two things it can never do. */
+  moduleAccessDescription: string;
+  /** Assignment panel: shown when no module has opted into per-module roles at all. */
+  moduleAccessNoneAssignable: string;
+  /** Assignment panel: a rung reaching this subject through a group it belongs to. */
+  moduleAccessVia: string;
+  /** Assignment panel: a held rung the app's declarations no longer support. */
+  moduleAccessStale: string;
+  /** Assignment panel: why a rung at or below the subject's global role changes nothing. */
+  moduleAccessFloor: string;
+  /** Assignment panel: confirmation before handing someone the most privileged rung. */
+  moduleAccessConfirmTitle: string;
+  moduleAccessConfirm: string;
+  /** Assignment panel: confirmation of the rung being taken away again. */
+  moduleAccessRevokeTitle: string;
+  moduleAccessRevoke: string;
+  /** Assignment panel: a rung held in a module that no longer accepts one. */
+  moduleAccessOrphaned: string;
   /** Generic "Status" column header. */
   statusColumn: string;
   /** Generic "Created" column header. */
@@ -292,6 +337,10 @@ export const DEFAULT_STRINGS: TerpStrings = {
   moduleNavigationLabel: "Module navigation",
   moreActions: "More actions",
   errorTitle: "Something went wrong.",
+  backendUnreachableTitle: "The application cannot reach its server.",
+  backendUnreachableDescription:
+    "No answer came back from the API. It may still be starting, or stopped. "
+    + "Reload once it is running.",
   confirm: "Confirm",
   cancel: "Cancel",
   successTitle: "Success",
@@ -323,6 +372,35 @@ export const DEFAULT_STRINGS: TerpStrings = {
   adminGroupsDescription: "Bundle permissions; membership applies them",
   adminAudit: "Audit log",
   adminAuditDescription: "Every change: what, who, when",
+  adminAccess: "Access",
+  adminAccessDescription: "Which roles exist, and what each one may do per module",
+  accessNoRung: "No access",
+  accessAdds: "Adds over the tier below",
+  accessKindRead: "View",
+  accessKindWrite: "Change",
+  accessKindDelete: "Delete",
+  accessAddsNothing: "Nothing beyond the tier below",
+  accessNeverAssignable: "Never assignable per module",
+  accessNotAssignable: "Not assignable per module",
+  accessUnexplainedRoutes: "{count} action(s) in this module have no description yet",
+  accessDeclaredOnly:
+    "This is what the application declares. It does not show who holds which role — open a person to see that.",
+  moduleAccessTitle: "Access per module",
+  moduleAccessDescription:
+    "A role here applies in that one module and raises access, never lowers it. Modules that have not opted in are not listed.",
+  moduleAccessNoneAssignable:
+    "No module in this application accepts a role of its own, so there is nothing to set here.",
+  moduleAccessVia: "Also {role} here, through {name}",
+  moduleAccessStale: "Held, but has no effect: {reason}",
+  moduleAccessFloor: "{role} everywhere already, so anything up to here changes nothing",
+  moduleAccessConfirmTitle: "Give {role} in {module}?",
+  moduleAccessConfirm:
+    "This is the most far-reaching role the module has. Everything the tier below can do, plus what the tile lists.",
+  moduleAccessRevokeTitle: "Take away the role in {module}?",
+  moduleAccessRevoke:
+    "Access in this module falls back to what the person's role gives them everywhere else.",
+  moduleAccessOrphaned:
+    "Still set to {role} in {module}, which no longer accepts a role of its own. It has no effect, and removing it is the only change left to make.",
   statusColumn: "Status",
   createdColumn: "Created",
   statusActive: "Active",

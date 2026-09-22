@@ -59,10 +59,15 @@ by a read-tier caller is a ``GET``, and this decorator is not a way to spell one
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, TypeVar
+from collections.abc import Callable, Iterator, Sequence
+from typing import TYPE_CHECKING, Any, TypeVar
+
+from fastapi.routing import APIRoute, APIWebSocketRoute
 
 from terp.core.operations import OperationDefinition
+
+if TYPE_CHECKING:  # a runtime import would be circular: module_spec imports this file
+    from terp.core.module_spec import Policy
 
 #: The HTTP methods that carry write authority — the one definition of the split.
 #:
@@ -222,16 +227,142 @@ def declared_operation(endpoint: object | None) -> OperationDefinition | None:
     return found if isinstance(found, OperationDefinition) else None
 
 
+#: Where :func:`route_policy` stores one route's own posture.
+ROUTE_POLICY_ATTRIBUTE = "__terp_route_policy__"
+
+
+def route_policy(policy: "Policy") -> Callable[[_Endpoint], _Endpoint]:
+    """Declare **this one route's** security posture, overriding its module's (ADR 0148).
+
+    A ``Policy`` is a property of a ``ModuleSpec``, so until now it was a property of every
+    route in that module at once: one read requirement and one write requirement for the
+    whole surface. ``Policy.public_write`` therefore made *every* route in its module
+    unauthenticated — the ones that had to be, and any route an author added beside them
+    later.
+
+    Apply it **below** the route decorator, next to the handler it describes, exactly as
+    :func:`operation` and :func:`read_only` are applied::
+
+        @router.post("/login", response_model=AccessToken)
+        @route_policy(Policy.public_write(reason="a caller has no token yet"))
+        @operation(AUTH_LOGIN)
+        def login(...): ...
+
+    The guard reads this per request and holds the route to it. Nothing here can *only*
+    widen: the declared policy replaces the module's outright, so a public module can
+    carry a protected route and a protected module a public one, and in both directions
+    the answer is written on the route rather than inferred from its neighbours.
+
+    The projection reads the same override (``terp.core.authz.endpoint_json``), so an
+    access matrix keeps replaying the gate rather than describing the module and hoping.
+    Two copies of one decision is the shape this repository has already had to repair
+    once; a per-route override would have reintroduced it in the worst place.
+    """
+
+    def decorate(endpoint: _Endpoint) -> _Endpoint:
+        setattr(endpoint, ROUTE_POLICY_ATTRIBUTE, policy)
+        return endpoint
+
+    return decorate
+
+
+def declared_route_policy(endpoint: object | None) -> "Policy | None":
+    """The policy *endpoint* declares for itself, or ``None`` if it declares none."""
+    # Imported here rather than at module scope: `module_spec` imports this file, so a
+    # top-level import would be a cycle. The isinstance check is worth the import --
+    # `getattr` on a stray attribute of the same name must not be mistaken for a policy.
+    from terp.core.module_spec import Policy  # noqa: PLC0415
+
+    found = getattr(endpoint, ROUTE_POLICY_ATTRIBUTE, None)
+    return found if isinstance(found, Policy) else None
+
+
+def effective_policy(
+    module_policy: "Policy | None", endpoint: object | None
+) -> "Policy | None":
+    """The policy that actually applies to *endpoint*: its own, else its module's.
+
+    One function, called by the guard and by the access projection, because those two
+    answering the question separately is precisely how a pane comes to show an
+    administrator something the gate does not do.
+    """
+    declared = declared_route_policy(endpoint)
+    return declared if declared is not None else module_policy
+
+
 __all__ = [
     "MUTATING_METHODS",
     "OPERATION_ATTRIBUTE",
     "READ_ONLY_ATTRIBUTE",
     "REQUIRED_PERMISSION_ATTRIBUTE",
+    "ROUTE_POLICY_ATTRIBUTE",
     "declared_operation",
+    "declared_route_policy",
+    "effective_policy",
     "is_read_only",
     "mark_required_permission",
     "operation",
     "read_only",
     "request_method",
     "required_permission",
+    "route_policy",
 ]
+
+
+def iter_declaring_routes(routes: Sequence[object]) -> Iterator[object]:
+    """Every route with an endpoint reachable from *routes*, HTTP or WebSocket.
+
+    Descends into an included sub-router, which is the whole point: a guarantee that stopped
+    at the top level would be one an app sidesteps by nesting a router, and this repository
+    has already fixed that exact bug once for operation coverage.
+
+    It lives here rather than in ``terp.core.app`` because it grew a second consumer. The
+    access projection walked ``router.routes`` itself with an ``isinstance(route, APIRoute)``
+    filter, and so reported a module's top-level routes and silently omitted every nested one
+    — while the guard, mounted on the whole router, protected them all. A permission view that
+    quietly under-reports the guarded surface is the failure the projection exists to prevent.
+
+    Yields ``APIRoute`` and ``APIWebSocketRoute``: a route's authority is not an HTTP concept,
+    and ``@router.websocket(...)`` declares a mounted, callable surface a permission view must
+    explain like any other.
+    """
+    for route in routes:
+        if isinstance(route, APIRoute | APIWebSocketRoute):
+            yield route
+            continue
+        nested = getattr(route, "original_router", None) or route
+        sub = getattr(nested, "routes", None)
+        if sub:
+            yield from iter_declaring_routes(sub)
+
+
+def route_permission_names(route: object) -> list[str]:
+    """Every ``require_permission`` name this route enforces, in declaration order.
+
+    Reads the route's **resolved dependency tree** (``route.dependant``), not its
+    ``dependencies`` list, and that is the whole point. FastAPI accepts a dependency in two
+    places — ``@router.post(..., dependencies=[Depends(require_permission(X))])`` and a
+    parameter default, ``def handler(_: None = Depends(require_permission(X)))`` — and only the
+    first appears in ``route.dependencies``. Both are enforced identically at request time.
+
+    Reading the shorter list meant the signature form was invisible to two controls at once: the
+    boot check that a route may not enforce an undeclared permission was evadable by moving the
+    dependency into the signature, and the access projection reported such a route's rungs as
+    plainly ``allowed`` when an ungranted caller gets a 403. A gate with a documented evasion is
+    not a gate, and a view that disagrees with the guard is the failure the projection exists to
+    prevent.
+
+    Recurses, because a dependency may itself declare dependencies, and a marker two levels down
+    is enforced just as surely as one at the top.
+    """
+    found: list[str] = []
+
+    def walk(dependant: object) -> None:
+        for child in getattr(dependant, "dependencies", ()) or ():
+            name = required_permission(getattr(child, "call", None))
+            if name is not None:
+                found.append(name)
+            walk(child)
+
+    walk(getattr(route, "dependant", None))
+    return found

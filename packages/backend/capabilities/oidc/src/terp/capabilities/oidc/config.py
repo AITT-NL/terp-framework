@@ -14,12 +14,15 @@ never decrypts it — see ``build_oidc_module``'s ``secret_resolver`` seam.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 
 from terp.core import settings
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+
+_logger = logging.getLogger("terp.capabilities.oidc.config")
 
 
 @dataclass(frozen=True)
@@ -49,13 +52,39 @@ class OIDCProviderConfig:
                 raise ValueError(
                     f"OIDC provider {self.name!r} {label} must be an http(s) URL"
                 )
-            if settings.is_production and not url.startswith("https://"):
-                raise ValueError(
-                    f"OIDC provider {self.name!r} {label} must be https in production "
-                    "(a plaintext redirect leaks the authorization code)"
-                )
         if not self.client_id:
             raise ValueError(f"OIDC provider {self.name!r} requires a client_id")
+
+        # Decided by an environment-INDEPENDENT predicate so the answer exists somewhere
+        # a gate can read it, not only inside a branch that runs on the production host.
+        # Outside production the same state is said out loud rather than tolerated in
+        # silence: permissive in the inner loop, never quiet (ADR 0128).
+        problems = self.production_problems()
+        if problems:
+            if settings.is_production:
+                raise ValueError("; ".join(problems))
+            _logger.warning(
+                "OIDC provider %r is configured over PLAINTEXT in this deployment: %s. A "
+                "production boot is REFUSED in this state.",
+                self.name,
+                "; ".join(problems),
+            )
+
+    def production_problems(self) -> list[str]:
+        """What a production boot refuses about this provider, environment-independent.
+
+        The same shape ``ControlPlane`` uses, and for the same reason: "would this
+        configuration boot in production" has to be answerable off the production host,
+        from the declaration alone. A ``__post_init__`` that raises is the enforcement;
+        it is not an answer anything else can ask for, which is how a tree can carry a
+        green pre-ship gate into a deployment that will not start.
+        """
+        return [
+            f"OIDC provider {self.name!r} {label} must be https in production "
+            "(a plaintext redirect leaks the authorization code)"
+            for label, url in (("issuer", self.issuer), ("redirect_uri", self.redirect_uri))
+            if url.startswith("http://")
+        ]
 
 
 @dataclass(frozen=True)

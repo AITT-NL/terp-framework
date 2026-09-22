@@ -32,6 +32,7 @@ from terp.capabilities.groups.operations import (
     GROUPS_GET,
     GROUPS_LIST,
     GROUPS_LIST_MEMBERS,
+    GROUPS_OPERATIONS,
     GROUPS_REMOVE_MEMBER,
     GROUPS_UPDATE,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "GROUPS_GET",
     "GROUPS_LIST",
     "GROUPS_LIST_MEMBERS",
+    "GROUPS_OPERATIONS",
     "GROUPS_REMOVE_MEMBER",
     "GROUPS_UPDATE",
     "Group",

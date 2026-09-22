@@ -1,16 +1,19 @@
-"""End-to-end (ADR 0031): a token dies mid-session, and bad logins lock the account.
+"""End-to-end (ADR 0031): a token dies mid-session, and bad logins back a caller off.
 
 Drives the *shipped* example composition (``main.build()`` wires the revocable
 ``principal_provider`` + ``require_token_revocation=True`` + the login throttle), so it
 proves the whole path over real HTTP: a still-unexpired token stops working the moment
 its user is deactivated, demoted, password-reset, or logged out, and repeated failed
-logins lock the account fail-closed.
+logins slow the caller down without ever disabling the account (ADR 0147).
 """
 
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from app.auth import throttle_store
 
 from terp.capabilities.identity import User
 from terp.capabilities.users import UserAdminUpdate, UsersService
@@ -94,21 +97,47 @@ def test_relogin_after_a_revoking_change_succeeds(app_db: FastAPI, make_user, db
     assert fresh.get("/api/v1/notes/").status_code == 200
 
 
-def test_repeated_bad_logins_lock_the_account(app_db: FastAPI, make_user) -> None:
+def test_repeated_bad_logins_back_the_caller_off_without_disabling_the_account(
+    app_db: FastAPI, make_user, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The half of this that is easy to get wrong is the second half.
+
+    A lockout and a backoff answer identically up to the first 429, which is why the
+    test this replaced could assert a lockout and look correct. What separates them is
+    what happens after: a lockout goes on refusing the **right** password for a fixed
+    window, and a backoff accepts it the moment the wait is over. Only the second is
+    something an attacker cannot aim at somebody else.
+    """
     make_user("target@example.com", "correct horse battery", Roles.EDITOR)
     client = TestClient(app_db)
+    # The clock has to be moved on the STORE, not on the throttle module: this app hands
+    # `create_app` one shared `InMemoryThrottleStore` so the rate limiter and the backoff
+    # agree across workers (ADR 0036), and a store supplied from outside brings its own
+    # clock — the throttle's injectable one is only used for the store it builds itself.
+    elapsed = [0.0]
+    monkeypatch.setattr(throttle_store, "_clock", lambda: elapsed[0])
 
-    for _ in range(5):
+    # Three wrong passwords: evaluated, refused on their merits, no throttling yet.
+    for _ in range(3):
         bad = client.post(
             "/api/v1/auth/login",
             json={"email": "target@example.com", "password": "wrong"},
         )
         assert bad.status_code == 401
 
-    # Now locked: even the correct password is refused (fail-closed) with a typed 429.
-    locked = client.post(
+    # Past the free allowance the caller is asked to wait — and the right password is
+    # refused too, because the backoff is checked before the hash is computed.
+    throttled = client.post(
         "/api/v1/auth/login",
         json={"email": "target@example.com", "password": "correct horse battery"},
     )
-    assert locked.status_code == 429
-    assert locked.json()["code"] == "account_locked"
+    assert throttled.status_code == 429
+    assert throttled.json()["code"] == "too_many_attempts"
+
+    # ...but nothing is disabled. Once the wait elapses the account works normally.
+    elapsed[0] += 30.0
+    recovered = client.post(
+        "/api/v1/auth/login",
+        json={"email": "target@example.com", "password": "correct horse battery"},
+    )
+    assert recovered.status_code == 200

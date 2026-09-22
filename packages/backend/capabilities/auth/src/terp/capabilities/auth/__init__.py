@@ -25,6 +25,7 @@ from terp.capabilities.auth.operations import (
     AUTH_LOGIN,
     AUTH_LOGOUT,
     AUTH_ME,
+    AUTH_OPERATIONS,
     AUTH_REFRESH,
     AUTH_TOKEN,
 )
@@ -57,7 +58,11 @@ from terp.capabilities.auth.schemas import (
     CurrentUser,
     LoginRequest,
 )
-from terp.capabilities.auth.throttle import AccountLockedError, LoginThrottle
+from terp.capabilities.auth.throttle import (
+    AccountLockedError,
+    LoginThrottle,
+    TooManyAttemptsError,
+)
 from terp.capabilities.auth.tokens import (
     TOKEN_AUDIENCE,
     TOKEN_ISSUER,
@@ -71,6 +76,7 @@ __all__ = [
     "AUTH_LOGIN",
     "AUTH_LOGOUT",
     "AUTH_ME",
+    "AUTH_OPERATIONS",
     "AUTH_REFRESH",
     "AUTH_TOKEN",
     "AccessToken",
@@ -90,17 +96,18 @@ __all__ = [
     "RefreshRotator",
     "ServiceTokenVersionResolver",
     "SubjectKind",
+    "TooManyAttemptsError",
     "TOKEN_AUDIENCE",
     "TOKEN_ISSUER",
     "TokenRevoker",
     "TokenValidator",
     "TokenVersionResolver",
     "build_get_principal",
-    "build_realtime_validator",
     "build_login_module",
     "build_login_router",
     "build_me_module",
     "build_me_router",
+    "build_realtime_validator",
     "clear_refresh_cookie",
     "create_access_token",
     "decode_access_token",

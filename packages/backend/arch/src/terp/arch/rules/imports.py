@@ -187,7 +187,7 @@ def _is_background_engine_module(module: str) -> bool:
 def check_no_raw_outbound_http(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
-    """App modules do not import raw HTTP clients; outbound calls use a capability.
+    """App code does not import raw HTTP clients; outbound calls use a capability.
 
     Direct ``httpx`` / ``requests`` / ``urllib.request`` / ``urllib3`` / ``aiohttp``
     imports — and the lower-level ``socket`` / ``http.client`` escape routes to the
@@ -196,15 +196,17 @@ def check_no_raw_outbound_http(
     capability that centralizes those controls, and that capability is
     ``terp.capabilities.egress``: the allowlist, the SSRF denylist, the timeout and the
     egress record are all properties of its :class:`~terp.capabilities.egress.EgressPolicy`,
-    so a call site cannot decide any of them. As a security rule this also scans
-    ``tests/`` and ``migrations/`` dirs inside a module — they are importable
-    Python, so they are application surface too.
+    so a call site cannot decide any of them.
+
+    Scope is the **whole scanned root**, not ``modules/`` (ADR 0136), and that is the
+    change that gave this rule its reach: the raw client an app reaches for lives in a
+    worker, a publisher script or a composition root far more often than in a module's
+    service, and none of those were ever looked at. ``tests/`` and ``migrations/`` are
+    scanned too — they are importable Python, so they are application surface as well.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in iter_python_files(root, skip_dirs=_SECURITY_SKIP_DIRS):
-        if _module_under(path, package) is None:
-            continue
         tree = parse(path)
         rel = _rel(path, root)
         importing_parts = _module_parts(path, root)

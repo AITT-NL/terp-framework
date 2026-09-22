@@ -104,6 +104,24 @@ a guard to make a change pass:
    `create_app(lease_store=DatabaseLeaseStore())`: this seam has **no** in-process
    default on purpose. Detail: `terp guide leases`.
 
+7. **Declare what a delete of a reference's target does** — never a bare
+   `Field(foreign_key=...)`. A foreign key has a referential action whether or not
+   anyone chose one, and the one you get by not choosing (`NO ACTION`) is
+   indistinguishable in the source from the one you chose. Declare it with
+   `Ref("invoice.id", on_delete=OnDelete.CASCADE)`, whose `on_delete` is a required
+   keyword (the `references_declare_delete_behaviour` rule refuses the undeclared
+   form). Terp does **not** prefer an action — `CASCADE` for a part of its parent,
+   `RESTRICT` for something the parent must not vanish underneath, `SET NULL` for a
+   pointer allowed to go slack — only that one is named; `OnDelete.NO_ACTION` is a
+   full answer and emits no clause, so declaring it costs no migration — though it
+   does **not** mean the database stands aside: an option-less foreign key still
+   refuses a delete that would orphan a row, so a hard-deletable parent needs its
+   children cleared first. One trap the rule also refuses: `CASCADE` / `SET NULL`
+   against a `SoftDeleteMixin` target can never fire, because that row is stamped
+   rather than deleted — declare `RESTRICT` or `NO_ACTION` and cascade the stamp
+   from the owning service. Detail:
+   `terp guide references`.
+
 ## Frontend conventions
 
 Frontend UI composes the **`@terpjs/react-core` component surface** — the catalog lives
@@ -204,8 +222,22 @@ the build if the framework re-couples to `spec/` or `studio/` by path.
 ## Run the gate
 
 ```bash
-uv run pytest          # preferred (syncs the workspace)
+uv run coverage run -m pytest   # the gate: the suite ...
+uv run coverage report          # ... and the 100% bar it is held to
+```
+
+Both commands, not the first alone. The suite passing and the gate passing are two
+different claims: `fail_under = 100` lives in `[tool.coverage.report]`, so a branch
+with no test reaching it leaves the suite green and fails CI. Use `coverage run -m
+pytest`, never `pytest --cov` — coverage has to start before pytest loads its
+entry-point plugins, or what terp-core's own plugin imports runs untraced and reads
+as missed. `pyproject.toml` carries the full reasoning.
+
+Plain `uv run pytest` stays right for a fast subset while working; it just is not
+the gate.
+
+```bash
 # without uv (use .venv/Scripts/python on Windows):
-python -m venv .venv && .venv/bin/python -m pip install pytest httpx -e packages/backend/core
-.venv/bin/python -m pytest
+python -m venv .venv && .venv/bin/python -m pip install pytest httpx coverage -e packages/backend/core
+.venv/bin/python -m coverage run -m pytest && .venv/bin/python -m coverage report
 ```

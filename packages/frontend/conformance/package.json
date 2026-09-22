@@ -1,6 +1,6 @@
 {
   "name": "@terpjs/conformance",
-  "version": "0.18.0",
+  "version": "0.25.0",
   "type": "module",
   "description": "Terp conformance \u2014 app-agnostic Playwright end-to-end flows over a running Terp stack (base profile: auth gating + session lifecycle) plus the login/role helpers an app's own e2e suite composes.",
   "main": "./dist/index.js",
@@ -22,8 +22,8 @@
     "report": "playwright show-report"
   },
   "devDependencies": {
-    "@playwright/test": "^1.50.0",
-    "@types/node": "^22.10.0",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.5.1",
     "typescript": "^5.9.3"
   },
   "license": "Apache-2.0",

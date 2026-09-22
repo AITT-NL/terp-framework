@@ -32,7 +32,7 @@ import uuid
 from fastapi import FastAPI
 from sqlmodel import Session
 
-from terp.cli._appref import load_app, push_app_root
+from terp.cli._subjects import load_app_for_cli, resolve_subject
 from terp.core.db import get_session
 
 
@@ -74,41 +74,6 @@ def _resolve_permission(app: FastAPI, permission: str) -> str:
     )
 
 
-def _resolve_subject(session: Session, subject: str) -> tuple[uuid.UUID, str]:
-    """Resolve *subject* — a UUID, a user email, or a service-account name.
-
-    Grants are keyed by a bare subject id with no foreign key (ADR 0013), which is
-    what lets a user, a service account and a group all be granted the same way. The
-    cost is that the id means nothing to a human, so this command accepts what people
-    actually have and does the lookup itself.
-    """
-    with contextlib.suppress(ValueError):
-        return uuid.UUID(subject), f"subject {subject}"
-
-    if "@" in subject:
-        from terp.capabilities.users import UsersService
-
-        user = UsersService().get_by_email(session, subject)
-        if user is None:
-            raise SystemExit(f"no user with email {subject!r}")
-        return user.id, f"user {subject!r}"
-
-    from terp.capabilities.identity import ServiceAccountService
-
-    account = ServiceAccountService().get_by_name(session, subject)
-    if account is None:
-        raise SystemExit(
-            f"no service account named {subject!r} (pass an email for a user, a "
-            "service-account name for a machine, or a subject UUID for anything else)"
-        )
-    return account.id, f"service account {subject!r}"
-
-
-def _load(app_ref: str, app_root: str | pathlib.Path) -> FastAPI:
-    push_app_root(app_root)
-    return load_app(app_ref)
-
-
 def _rank_shortfall(
     app: FastAPI, session: Session, subject: str, permission: str
 ) -> str | None:
@@ -147,7 +112,7 @@ def grant_add_command(
     app_root: str | pathlib.Path = ".",
 ) -> str:
     """Grant *permission* to *subject*, audited and idempotent."""
-    app = _load(app_ref, app_root)
+    app = load_app_for_cli(app_ref, app_root)
     name = _resolve_permission(app, permission)
     min_role = _catalog(app)[name]
 
@@ -156,7 +121,7 @@ def grant_add_command(
 
     with contextlib.closing(get_session()) as gen:
         session = next(gen)
-        subject_id, label = _resolve_subject(session, subject)
+        subject_id, label = resolve_subject(session, subject)
         try:
             AccessService().grant(session, subject_id, name)
         except AppError as exc:
@@ -190,13 +155,13 @@ def grant_revoke_command(
     has since stopped declaring is exactly the stale grant you most want to be able to
     clean up.
     """
-    _load(app_ref, app_root)
+    load_app_for_cli(app_ref, app_root)
 
     from terp.capabilities.access import AccessService
 
     with contextlib.closing(get_session()) as gen:
         session = next(gen)
-        subject_id, label = _resolve_subject(session, subject)
+        subject_id, label = resolve_subject(session, subject)
         removed = AccessService().revoke(session, subject_id, permission)
     if not removed:
         return f"{label} did not hold {permission!r}; nothing to revoke"
@@ -214,14 +179,14 @@ def grant_list_command(
     Grants inherited through group membership are included, because the question being
     asked is what this subject can do, not which rows happen to name it.
     """
-    app = _load(app_ref, app_root)
+    app = load_app_for_cli(app_ref, app_root)
     catalog = _catalog(app)
 
     from terp.capabilities.access import AccessService
 
     with contextlib.closing(get_session()) as gen:
         session = next(gen)
-        subject_id, label = _resolve_subject(session, subject)
+        subject_id, label = resolve_subject(session, subject)
         held = sorted(AccessService().permissions_for(session, subject_id))
     if not held:
         return f"{label} ({subject_id}) holds no permission grants"

@@ -26,6 +26,7 @@ from terp.core import (
     OperationCatalog,
     OperationDefinition,
     Policy,
+    route_policy,
     build_crud_router,
     create_app,
     get_session,
@@ -73,7 +74,7 @@ def client() -> Iterator[TestClient]:
         [
             ModuleSpec(
                 name="widgets",
-                router=router,
+                router=_publish(router),
                 policy=Policy.public_write(reason="factory under test"),
             )
         ]
@@ -88,6 +89,21 @@ def client() -> Iterator[TestClient]:
         yield TestClient(app)
     finally:
         engine.dispose()
+
+
+def _publish(router: APIRouter) -> APIRouter:
+    """Declare every factory-built route public (the fixtures probe them tokenless).
+
+    A generated route has no decorator to carry the declaration, so the marker is
+    applied to the endpoint directly -- `route_policy` is an ordinary function and the
+    decorator form is only sugar. A real public module built from a factory would do the
+    same thing in its composition root.
+    """
+    for route in router.routes:
+        endpoint = getattr(route, "endpoint", None)
+        if endpoint is not None:
+            route_policy(Policy.public_write(reason="factory under test"))(endpoint)
+    return router
 
 
 def test_full_crud_lifecycle(client: TestClient) -> None:
@@ -196,7 +212,9 @@ def test_declares_operations_for_each_of_the_five_routes() -> None:
         delete_operation=ops["delete"],
     )
     spec = ModuleSpec(
-        name="widgets", router=router, policy=Policy.public_write(reason="factory under test")
+        name="widgets",
+        router=_publish(router),
+        policy=Policy.public_write(reason="factory under test"),
     )
     plane = ControlPlane(operations=OperationCatalog(operations=tuple(ops.values())))
     app = create_app([spec], control_plane=plane)

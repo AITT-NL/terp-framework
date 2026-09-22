@@ -31,6 +31,7 @@ from terp.core import (
     OperationCatalog,
     PermissionModel,
     Principal,
+    RateLimit,
     Role,
     create_app,
     get_session,
@@ -165,3 +166,34 @@ def test_refresh_cookie_path_must_match_the_module_mount_prefix() -> None:
             revoke_sessions=lambda session, user_id: None,
             **_full_refresh_seams(),
         )
+
+
+def test_the_credential_cap_lands_on_the_hashing_routes_and_not_on_refresh() -> None:
+    """``/refresh`` must not inherit the cap ``/login`` needs (ADR 0140).
+
+    The cap exists because a credential check is memory-hard on purpose, which makes
+    ``/login`` the cheapest place on the surface to spend the server's CPU. ``/refresh``
+    pays none of that — it reads a high-entropy cookie and rotates it — and it is the
+    route ``TerpProvider`` probes on every mount to restore a session, so its volume
+    tracks page loads. Capping it at the credential rate throttles ordinary navigation,
+    and behind a shared egress address it takes a whole office offline.
+
+    Asserted on the declaration rather than through a booted app because this is what a
+    future change would edit: a mount-wide ``{"/": ...}`` here is the regression, and it
+    is invisible to every test that only drives ``/login``.
+    """
+    module = build_login_module(
+        _authenticate_stub,
+        revoke_sessions=lambda session, user_id: None,
+        authenticate_client=lambda session, client_id, secret: None,
+        service_token_version_resolver=lambda session, client_id: 0,
+        **_full_refresh_seams(),
+    )
+    declared = dict(module.rate_limit)
+    assert set(declared) == {"/login", "/token"}
+    assert all(limit == RateLimit.credentials() for limit in declared.values())
+    # The two that would be swept in by a mount-wide declaration, named so the reason
+    # this test exists survives a reading of it.
+    assert "/" not in declared
+    assert "/refresh" not in declared
+    assert "/logout" not in declared

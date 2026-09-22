@@ -6,7 +6,7 @@
 # which refuses ENVIRONMENT=production). The dev workbench keeps its own Dockerfile.
 
 # --- Stage 1: build the app wheel ----------------------------------------------------
-FROM python:3.13-slim AS wheels
+FROM python:3.14-slim AS wheels
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
@@ -18,7 +18,7 @@ RUN uv build --wheel --out-dir /build/dist . \
     && if [ -d .terp-dist/wheels ]; then cp .terp-dist/wheels/*.whl /build/dist/; fi
 
 # --- Stage 2: minimal runtime --------------------------------------------------------
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 

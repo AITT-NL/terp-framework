@@ -23,12 +23,12 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
@@ -49,10 +49,34 @@ jobs:
       # failing scorecard fails this step, never uploads quietly.
       - name: Emit the terp-arch conformance scorecard
         run: uv run python tools/emit_backend_scorecard.py --out scorecard-terp-arch.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: scorecard-terp-arch
           path: scorecard-terp-arch.json
+
+  # The lower bound of `requires-python = ">=3.13"`, proved instead of claimed. The
+  # gate runs the suite on the newest supported interpreter; this runs the same suite
+  # on the oldest, so a 3.14-only construct cannot reach PyPI under a floor that still
+  # says 3.13 — the kind of break an installer discovers, not a maintainer. Coverage
+  # and the scorecard stay on the gate alone: they measure the suite, not the
+  # interpreter, and the scorecard is one artifact per run by name.
+  lower-bound-interpreter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Run the suite on the oldest supported interpreter
+        run: uv run --python 3.13 pytest
 
   # The PostgreSQL conformance lane (ADR 0069): the migration subsystem must hold on
   # the verified production dialect, not only the SQLite dev/test engine — SQLite
@@ -74,21 +98,62 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
       - name: Set up Python
         run: uv python install 3.14
 
+      # The restore drill shells out to pg_dump/pg_restore, and pg_dump refuses a
+      # server newer than itself. The runner image's client trails the pinned
+      # `postgres:17` service above, so without this the drill SKIPS -- which is the
+      # worst outcome available: a backup check that silently does not run. Installed
+      # from PGDG and pinned to the same major as the service, so the two move together.
+      - name: Install the matching PostgreSQL client (for the restore drill)
+        run: |
+          set -euxo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -sSfL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          # Installing the package is not enough, and this is the trap the assertion
+          # below caught: `/usr/bin/pg_dump` is postgresql-common's `pg_wrapper`, which
+          # dispatches to the DEFAULT cluster version rather than the newest installed.
+          # The runner image already ships client 16, so `pg_dump --version` still says
+          # 16 after `postgresql-client-17` installs cleanly. Put the versioned bin
+          # directory first, so the client that runs is the one this step installed:
+          # `$GITHUB_PATH` for the pytest step below, `export` for the check right here,
+          # which the former does not affect.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          # Assert the major, rather than printing it. `pg_wrapper` can keep selecting
+          # the runner image's older client, and the failure mode of that is a SKIPPED
+          # drill -- which is green. Bumping the service image without bumping this
+          # package fails here, where the cause is obvious, instead of there.
+          installed="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"
+          [ "$installed" = "17" ] || {
+            echo "pg_dump is $installed; the service above is postgres:17 — the restore" \
+                 "drill would skip. Bump postgresql-client-* and the service together."
+            exit 1
+          }
+
       - name: Run the migrations conformance suite against PostgreSQL
         env:
           TERP_TEST_POSTGRES_URL: postgresql+psycopg://postgres:terp@localhost:5432/postgres
+          # A skipped backup check is green, which is the worst outcome available: the
+          # green implies the drill ran. This lane installs a matching client on
+          # purpose, so here a skip is a failure.
+          TERP_REQUIRE_POSTGRES_LANE: "1"
         run: uv run pytest tests/architecture/test_migrations_conformance.py -q
 
   # Generic, tool-independent backstops layered ON TOP of the gate — they never
@@ -98,14 +163,14 @@ jobs:
   generic-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # gitleaks scans every commit, not just the tip.
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
@@ -147,7 +212,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: uv run --group lint zizmor .github/workflows
 
-      - name: gitleaks — secrets anywhere in the git history
+      - name: gitleaks — secrets anywhere in this branch's history
         env:
           GITLEAKS_VERSION: "8.30.1"
           GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
@@ -155,7 +220,21 @@ jobs:
           curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
           tar -xzf gitleaks.tgz gitleaks
-          ./gitleaks detect --source . --redact --no-banner
+          # --log-opts HEAD scopes the walk to the history UNDER TEST. Without it
+          # `gitleaks detect` walks every ref in the clone, and `fetch-depth: 0` above
+          # fetches every remote branch -- so one unmerged branch anywhere in the
+          # repository turns this step red on every OTHER open pull request, naming
+          # commits their authors have never seen. That is a false positive with the
+          # worst possible shape for a security control: it arrives on somebody else's
+          # change, it cannot be fixed there, and the only way to make it go away is to
+          # stop reading the check.
+          #
+          # This is not a narrowing of the control. Every branch's own history is still
+          # scanned in full -- main's on every push, a pull request's on its own run,
+          # and the merge ref carries the base -- so a secret still cannot reach the
+          # default branch unscanned. What stops happening is one branch's fixtures
+          # failing another branch's build.
+          ./gitleaks detect --source . --redact --no-banner --log-opts HEAD
 
       - name: trivy — the Dockerfiles a generated app inherits
         # The template's four images are what every project ships, so a
@@ -193,15 +272,18 @@ jobs:
           - variant: portal
             copier-args: "--data layout=portal"
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
+      # Deliberately the oldest supported interpreter, not the newest: this lane
+      # builds a project the way a user's machine would, and the floor is what a
+      # fresh `terp new` is allowed to assume.
       - name: Set up Python
         run: uv python install 3.13
 
@@ -229,6 +311,17 @@ jobs:
           # template as shipped passes its own baseline.
           uv run ruff check .
 
+      # The workflow a client actually runs is held to the bar this repository
+      # holds itself to. It is the one artifact that reaches every consumer, so a
+      # weakness here scales in the wrong direction: the more apps, the more
+      # copies, each one already checked in and rarely re-read. Online mode adds
+      # the audits that need the API, which is where a known-vulnerable action is
+      # reported.
+      - name: zizmor — the workflow every generated app inherits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --group lint zizmor /tmp/acceptance-app/.github/workflows
+
       - name: Grow the app the real way — terp new module + gate (hub variant)
         if: matrix.variant == 'hub-all-capabilities'
         working-directory: /tmp/acceptance-app
@@ -251,9 +344,16 @@ jobs:
           uv run terp migrate upgrade
           uv run terp migrate make records -m "create records table"
           uv run pytest
-          uv run terp check
+          # With the budget, which is the form the generated app itself uses. The bare
+          # `terp check` fails closed the moment the app holds any `# arch-allow-*`
+          # marker -- and since 0.23.0 widened the security rules past `app/modules/`
+          # (ADR 0136), the scaffolded seed's demo password carries one. So the bare
+          # form was asserting that a generated app has no governed opt-outs, which is
+          # not a property the template has or wants. Naming the budget also makes this
+          # step run the ratchet it was silently skipping.
+          uv run terp check --budget escape-hatch-budget.json
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: npm

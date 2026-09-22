@@ -150,6 +150,15 @@ export default defineConfig({
         target: apiProxyTarget,
         ws: true,
       },
+      // `/health` is proxied for one reason: the obvious liveness probe must not
+      // LIE. Vite answers an unproxied path with `index.html` and a 200, so
+      // `curl localhost:<web>/health/ready` against a dead backend returned a
+      // success carrying the SPA — the one answer that makes a diagnosis worse
+      // than no answer at all. Whoever reaches for a readiness check reaches for
+      // it on the address in their browser, which is this server, not the API's.
+      "/health": {
+        target: apiProxyTarget,
+      },
     },
   },
 });

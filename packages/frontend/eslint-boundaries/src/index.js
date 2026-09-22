@@ -451,6 +451,25 @@ function isStaticDescriptor(node) {
   return staticString(named("id")?.value) !== null && staticString(named("message")?.value) !== null;
 }
 
+/**
+ * Binary operators whose operands are never rendered. The result is a boolean, so an
+ * authored-looking literal on either side is a value being *tested* -- the rule's subject
+ * is "static app-authored UI copy", and a state token compared against is neither authored
+ * copy nor rendered.
+ */
+const NON_RENDERING_COMPARISONS = new Set([
+  "===",
+  "!==",
+  "==",
+  "!=",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "in",
+  "instanceof",
+]);
+
 /** Authored string fragments in expressions that render or feed a known UiText property. */
 function containsStaticAuthoredCopy(node) {
   const value = unwrapExpression(node);
@@ -465,7 +484,21 @@ function containsStaticAuthoredCopy(node) {
   if (value.type === "ConditionalExpression") {
     return containsStaticAuthoredCopy(value.consequent) || containsStaticAuthoredCopy(value.alternate);
   }
-  if (value.type === "LogicalExpression" || value.type === "BinaryExpression") {
+  if (value.type === "BinaryExpression") {
+    // A comparison renders neither operand: the expression evaluates to a boolean, so the
+    // literal in `status === "paused"` is a state token being tested and never reaches a
+    // screen in any locale. Every other binary operator keeps the broad reading -- `+` is
+    // string concatenation and can render either side.
+    if (NON_RENDERING_COMPARISONS.has(value.operator)) return false;
+    return containsStaticAuthoredCopy(value.left) || containsStaticAuthoredCopy(value.right);
+  }
+  if (value.type === "LogicalExpression") {
+    // `&&` is the same story on one side only: the left operand is the test and the right
+    // is what renders, so `{loading && "Loading"}` is copy and `{"Loading" && loading}`
+    // evaluates to `loading` and is not. `||` and `??` can render either side and keep the
+    // broad reading. This is the distinction the ConditionalExpression branch above already
+    // draws by walking `consequent` / `alternate` and not `test`.
+    if (value.operator === "&&") return containsStaticAuthoredCopy(value.right);
     return containsStaticAuthoredCopy(value.left) || containsStaticAuthoredCopy(value.right);
   }
   if (value.type === "ArrayExpression") {
@@ -755,9 +788,23 @@ const localeCatalogsComplete = {
         if (jsxName(node.name) !== "Trans") return;
         const descriptor = transDescriptor(node);
         if (descriptor === null) {
+          // A spread is the one shape with a sanctioned alternative, and the generic
+          // message sent authors looking for a way to make the spread work instead.
+          // One descriptor shared by two screens is ordinary; what cannot be shared is
+          // the JSX-body spelling of it, because the catalog is inventoried statically
+          // and `{...DESCRIPTOR}` carries no attributes to read. The resolver renders
+          // the same copy from the same constant, so name it rather than the refusal.
+          const spread = node.attributes.some(
+            (attribute) => attribute.type === "JSXSpreadAttribute",
+          );
           context.report({
             node,
-            message: "<Trans> requires static non-empty id and message attributes.",
+            message: spread
+              ? "<Trans> reads its id and message as static attributes, so a shared UiText " +
+                "constant cannot be spread into it. Render the same constant through the " +
+                "resolver instead: const text = useUiText() in the component, then " +
+                "{text(DESCRIPTOR)} where the copy goes."
+              : "<Trans> requires static non-empty id and message attributes.",
           });
           return;
         }
@@ -879,6 +926,18 @@ const terpPlugin = {
   },
 };
 
+const clipboardMessage =
+  "navigator.clipboard is absent outside a secure context and lib.dom types it as always " +
+  "present, so on an http origin this is a property access on undefined -- a SYNCHRONOUS " +
+  "TypeError that no .catch and no try around an await ever sees. Use copyText or " +
+  "useCopyToClipboard from @terpjs/react-core, which feature-detect, fall back, and " +
+  "report a refusal instead of failing silently.";
+const randomUuidMessage =
+  "crypto.randomUUID exists only in a secure context and lib.dom declares it "
+  + "unconditionally, so on an http origin this is a call on undefined -- a SYNCHRONOUS "
+  + "TypeError that type-checks cleanly and never fires on localhost, so no test sees it. "
+  + "Use randomUuid from @terpjs/react-core, which falls back to crypto.getRandomValues "
+  + "(not secure-context-gated) for the same entropy.";
 const deepImportMessage =
   "Import from the package root (@terpjs/react-core, @terpjs/contract), not its internals.";
 const styleImportMessage =
@@ -937,10 +996,54 @@ function restrictedSyntaxWithCatalogIds() {
         },
       ]
     : [];
+  const rawClipboard = BOUNDARY_SPEC.restrictRawClipboard
+    ? [
+        {
+          // Any ACCESS, not just a call: `navigator.clipboard.writeText(...)` throws on
+          // the property lookup, so `const c = navigator.clipboard` is the same defect
+          // one line earlier. Matching the member expression covers both, and covers
+          // `readText` and anything else the API grows without naming methods here.
+          catalogId: "frontend/no-raw-clipboard",
+          selector:
+            "MemberExpression[object.name='navigator'][property.name='clipboard'], MemberExpression[object.name='navigator'][computed=true][property.value='clipboard'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis)$/][object.property.name='navigator'][property.name='clipboard'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis)$/][object.computed=true][object.property.value='navigator'][property.name='clipboard']",
+          message: clipboardMessage,
+        },
+        {
+          // The destructuring spelling, which no member-expression selector reaches:
+          // `const { clipboard } = navigator` binds the same undefined under a new name.
+          catalogId: "frontend/no-raw-clipboard",
+          selector:
+            "VariableDeclarator[init.name='navigator'] ObjectPattern > Property[key.name='clipboard'], VariableDeclarator[init.type='MemberExpression'][init.property.name='navigator'] ObjectPattern > Property[key.name='clipboard']",
+          message: clipboardMessage,
+        },
+      ]
+    : [];
+  const rawRandomUuid = BOUNDARY_SPEC.restrictRawRandomUuid
+    ? [
+        {
+          // Any ACCESS, like the clipboard rule beside it and for the same reason:
+          // `const gen = crypto.randomUUID` binds the same undefined one line before the
+          // call that throws on it.
+          catalogId: "frontend/no-raw-random-uuid",
+          selector:
+            "MemberExpression[object.name='crypto'][property.name='randomUUID'], MemberExpression[object.name='crypto'][computed=true][property.value='randomUUID'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis|self)$/][object.property.name='crypto'][property.name='randomUUID'], MemberExpression[object.type='MemberExpression'][object.object.name=/^(window|globalThis|self)$/][object.computed=true][object.property.value='crypto'][property.name='randomUUID']",
+          message: randomUuidMessage,
+        },
+        {
+          // The destructuring spelling, which no member-expression selector reaches.
+          catalogId: "frontend/no-raw-random-uuid",
+          selector:
+            "VariableDeclarator[init.name='crypto'] ObjectPattern > Property[key.name='randomUUID'], VariableDeclarator[init.type='MemberExpression'][init.property.name='crypto'] ObjectPattern > Property[key.name='randomUUID']",
+          message: randomUuidMessage,
+        },
+      ]
+    : [];
   return [
     ...rawElements,
     ...rawAttributes,
     ...inAppAnchors,
+    ...rawClipboard,
+    ...rawRandomUuid,
     {
       catalogId: "frontend/no-dom-html-injection",
       selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",

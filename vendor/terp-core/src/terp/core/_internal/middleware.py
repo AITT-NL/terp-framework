@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
@@ -34,6 +35,8 @@ from terp.core.security import SecurityConfig, SecurityHeaders, client_ip
 from terp.core.throttling import InMemoryThrottleStore, ThrottleStore
 
 _CallNext = Callable[[Request], Awaitable[Response]]
+
+_logger = logging.getLogger("terp.core")
 
 
 def _envelope(code: str, detail: str) -> dict[str, str]:
@@ -175,11 +178,47 @@ class ClientIpMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, *, trusted_proxy_hops: int) -> None:
         super().__init__(app)
         self._trusted_proxy_hops = trusted_proxy_hops
+        self._warned_about_forwarding = False
+
+    def _warn_once_about_an_undeclared_proxy(self) -> None:
+        """Say, once, that a forwarding header arrived where no proxy was declared.
+
+        ``trusted_proxy_hops`` defaults to ``0``, which is the only safe default —
+        absent a trust declaration ``X-Forwarded-For`` is attacker-supplied. But the
+        *consequence* of leaving it at zero behind a real proxy is invisible and
+        severe: every caller resolves to the proxy's own address, so the rate limit
+        and every other per-caller control become one shared bucket for the whole
+        deployment. One visitor can then exhaust the allowance for everybody, and the
+        symptom — intermittent 429s under perfectly ordinary load — does not point
+        anywhere near this setting. A deployment that has met this reads it as a limit
+        set too low and raises the limit, which removes the symptom and keeps the bug.
+
+        The warning is evidence-based rather than advisory, which is what makes it
+        worth having: it fires only when a request actually carried a forwarding
+        header while no hops were declared — the app IS behind something and IS
+        ignoring it — so a directly-exposed app never sees it. Once per process,
+        because a header anyone may send must not become a log-flooding primitive.
+        """
+        if self._warned_about_forwarding:
+            return
+        self._warned_about_forwarding = True
+        _logger.warning(
+            "a request arrived carrying X-Forwarded-For but SecurityConfig declares "
+            "trusted_proxy_hops=0, so the header is ignored and every caller is keyed "
+            "on the direct peer — behind a reverse proxy that is the PROXY's address, "
+            "collapsing the rate limit and every other per-caller control into one "
+            "shared bucket for the whole deployment. Declare the number of proxy hops "
+            "you actually run behind (SecurityConfig(trusted_proxy_hops=1) for a single "
+            "front proxy). If this app is directly exposed, the header was "
+            "client-supplied and ignoring it is correct — this line will not repeat."
+        )
 
     async def dispatch(self, request: Request, call_next: _CallNext) -> Response:
         resolved: str | None = None
         if self._trusted_proxy_hops > 0:
             resolved = _forwarded_client_ip(request, trusted_hops=self._trusted_proxy_hops)
+        elif "X-Forwarded-For" in request.headers:
+            self._warn_once_about_an_undeclared_proxy()
         if resolved is None:
             resolved = request.client.host if request.client is not None else "anonymous"
         request.state.client_ip = resolved
@@ -381,9 +420,11 @@ class IdempotencyMiddleware:
     retry of the same key (marked ``Idempotency-Replayed: true``), so a timed-out
     client can safely retry a POST without double-executing it. Concretely:
 
-    - The store key is scoped to the presented ``Authorization`` credential (hashed,
-      never stored raw), so one caller can never replay — or probe — another caller's
-      responses.
+    - The store key is scoped to **every** credential the request presents — the
+      ``Authorization`` header and the ``Cookie`` header, hashed together and never
+      stored raw — so one caller can never replay, or probe, another caller's
+      responses. Scoping on ``Authorization`` alone left a cookie-authenticated route
+      (a refresh endpoint) sharing one key across callers; see ``_store_key``.
     - The request **fingerprint** (method + path + body digest) rides the entry; a key
       reused for a different request is refused with a typed 422 rather than answering
       with a response to a request that was never made.
@@ -439,11 +480,29 @@ class IdempotencyMiddleware:
         return None
 
     def _store_key(self, scope: Scope, key: str) -> str:
-        """The caller-scoped store key: hash(credential + key), never the raw pieces."""
-        credential = self._header(scope, b"authorization") or b""
+        """The caller-scoped store key: hash(every credential + key), never the raw pieces.
+
+        **Both** credential headers are folded in, and the second one is not decoration.
+        Scoping on ``Authorization`` alone is correct only while every authenticated
+        route is bearer-authenticated; a route that authenticates by **cookie** carries
+        no ``Authorization`` header at all, so two different callers hashed to one key —
+        and for a route with no body and no query (the refresh endpoint this framework
+        ships is exactly that shape) the request fingerprint matched as well. The second
+        caller to present a given ``Idempotency-Key`` was then served the first caller's
+        stored response, which on that route is their access token.
+
+        The whole ``Cookie`` header is used rather than a named session cookie, because
+        this middleware is generic and cannot know which cookie an app authenticates by.
+        The cost is that an unrelated cookie changing between a request and its retry
+        moves the key, so the retry re-executes instead of replaying — the same
+        at-least-once outcome the contract already gives a 5xx, and the safe direction
+        to be wrong in.
+        """
         digest = hashlib.sha256()
         digest.update(b"terp-idempotency-key\n")
-        digest.update(credential)
+        digest.update(self._header(scope, b"authorization") or b"")
+        digest.update(b"\n")
+        digest.update(self._header(scope, b"cookie") or b"")
         digest.update(b"\n")
         digest.update(key.encode("ascii"))
         return digest.hexdigest()
@@ -629,6 +688,7 @@ def install_security_middleware(
     throttle_store: ThrottleStore,
     idempotency_store: IdempotencyStore,
     request_size_overrides: Mapping[str, int] | None = None,
+    rate_limit_overrides: Mapping[str, tuple[int, int]] | None = None,
 ) -> None:
     """Attach the full security stack to *app* from its central ``SecurityConfig``.
 
@@ -667,10 +727,9 @@ def install_security_middleware(
             RateLimitMiddleware,
             limit=config.rate_limit.requests,
             window=config.rate_limit.window_seconds,
-            overrides={
-                prefix: (limit.requests, limit.window_seconds)
-                for prefix, limit in config.rate_limit_overrides
-            },
+            # Already merged by the composition root: each mounted spec's declared
+            # rate_limit, then SecurityConfig.rate_limit_overrides on top (ADR 0138).
+            overrides=dict(rate_limit_overrides or {}),
             store=throttle_store,
         )
     app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=config.trusted_proxy_hops)

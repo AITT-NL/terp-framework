@@ -3,7 +3,7 @@
 # Built from the REPOSITORY ROOT (docker-compose.yml sets `context: ../..`) so the npm
 # workspace installs together: the root package.json + package-lock.json, the shared
 # packages/frontend/* packages, and apps/example/frontend.
-FROM node:24-slim
+FROM node:26-slim
 
 WORKDIR /workspace
 

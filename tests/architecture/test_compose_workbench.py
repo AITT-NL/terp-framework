@@ -23,7 +23,32 @@ _TEMPLATE_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.yml.ji
 _TEMPLATE_PROD_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.prod.yml.jinja"
 _EXAMPLE_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile"
 _TEMPLATE_DOCKERFILE = _REPO_ROOT / "template" / "project" / "Dockerfile"
+_EXAMPLE_PROD_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile.prod"
+_TEMPLATE_PROD_DOCKERFILE = _REPO_ROOT / "template" / "project" / "Dockerfile.prod"
 _WORKBENCH_SERVICES = {"db", "migrate", "seed", "api", "web"}
+
+#: The interpreters the distributions support (`requires-python = ">=3.13"`), and so
+#: the only bases a deployable may pin. Naming a set rather than one literal is what
+#: lets the supported range move without this file being the thing that refuses it;
+#: what the tests below hold is that every image agrees on ONE member of the set.
+_SUPPORTED_PYTHON_BASES = frozenset({"python:3.13-slim", "python:3.14-slim"})
+_BACKEND_DOCKERFILES = (
+    _EXAMPLE_DOCKERFILE,
+    _EXAMPLE_PROD_DOCKERFILE,
+    _TEMPLATE_DOCKERFILE,
+    _TEMPLATE_PROD_DOCKERFILE,
+)
+
+
+def _python_bases(dockerfile: pathlib.Path) -> set[str]:
+    """Every `python:<tag>` this Dockerfile builds a stage on."""
+    return set(
+        re.findall(
+            r"^FROM\s+(python:\S+)",
+            dockerfile.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+    )
 
 
 def _compose() -> dict:
@@ -270,10 +295,27 @@ def test_example_and_template_workbenches_share_a_topology() -> None:
 def test_example_and_template_backend_images_share_the_security_invariants() -> None:
     for dockerfile in (_EXAMPLE_DOCKERFILE, _TEMPLATE_DOCKERFILE):
         text = dockerfile.read_text(encoding="utf-8")
-        assert "FROM python:3.13-slim" in text  # pinned slim base
+        assert _python_bases(dockerfile) <= _SUPPORTED_PYTHON_BASES  # pinned slim base
         assert "\nUSER " in text  # drops root
         assert "psycopg" in text  # the production database driver
         assert '"uvicorn[standard]"' in text and "app.main:app" in text
+
+
+def test_every_backend_image_pins_the_same_supported_interpreter() -> None:
+    # Both workbenches, dev and prod, on ONE interpreter. Two things go wrong without
+    # this. A bump can land half-applied — the dev image on a version the prod image
+    # is not, or the example ahead of the template — and each file on its own still
+    # looks fine. And a stage can drift inside one file: Dockerfile.prod builds wheels
+    # on one base and runs them on another, which is an ABI mismatch that only shows
+    # up when the image runs. Neither is reachable by reading a single FROM line.
+    declared = {dockerfile: _python_bases(dockerfile) for dockerfile in _BACKEND_DOCKERFILES}
+    for dockerfile, bases in declared.items():
+        assert bases, f"{dockerfile} builds on no python base"
+        unsupported = bases - _SUPPORTED_PYTHON_BASES
+        assert not unsupported, f"{dockerfile} pins {sorted(unsupported)}, outside the supported set"
+
+    pinned = set().union(*declared.values())
+    assert len(pinned) == 1, f"backend images disagree on the interpreter: {sorted(pinned)}"
 
 
 def test_local_dev_environments_install_websocket_server_support() -> None:
@@ -294,6 +336,32 @@ def test_example_and_template_dev_proxies_forward_websocket_upgrades() -> None:
     ):
         text = vite_config.read_text(encoding="utf-8")
         assert "ws: true" in text, f"{vite_config} must proxy WebSocket upgrades"
+
+
+def test_example_and_template_dev_proxies_forward_the_health_endpoints() -> None:
+    """A readiness probe against the dev server must reach the API, not the SPA.
+
+    Vite serves ``index.html`` for any path it does not proxy, and serves it with a
+    200. So while ``/api`` was the only proxied prefix, ``GET /health/ready`` on the
+    web origin answered *success* with a page body while the backend was dead — and a
+    liveness probe that reports healthy for a stopped API is worse than none, because
+    it retires the first hypothesis anyone forms. Whoever checks readiness checks it
+    on the address in their browser, which is this server and not the API's.
+
+    Reads the proxy table's keys rather than the file text: an assertion that
+    ``"/health"`` appears somewhere in the config would pass on a comment naming it.
+    """
+    for vite_config in (
+        _REPO_ROOT / "apps" / "example" / "frontend" / "vite.config.ts",
+        _REPO_ROOT / "template" / "project" / "frontend" / "vite.config.ts",
+    ):
+        text = vite_config.read_text(encoding="utf-8")
+        table = text.split("proxy: {", 1)[1]
+        keys = set(re.findall(r'^\s{6}"(/[^"]+)":', table, re.MULTILINE))
+        assert {"/api", "/health"} <= keys, (
+            f"{vite_config} proxies {sorted(keys)}; an unproxied prefix is answered "
+            "with index.html and a 200, so every path the backend owns is listed here"
+        )
 
 
 def test_the_template_declaration_tells_the_truth_about_the_template_compose() -> None:

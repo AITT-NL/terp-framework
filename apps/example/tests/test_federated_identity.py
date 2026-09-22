@@ -8,12 +8,14 @@ resolution rule (never email matching), the SSO-only nullable-password user shap
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 import pytest
 from sqlmodel import Session, select
 
 from terp.core import Roles
+from terp.core.config import settings
 
 from terp.capabilities.identity import (
     FederatedIdentity,
@@ -173,6 +175,82 @@ def test_provisioning_can_target_a_custom_rank(db_session: Session) -> None:
     assert user is not None and user.role == int(Roles.EDITOR)
 
 
+def test_provisioning_lands_active_by_default(db_session: Session) -> None:
+    """The default is unchanged, and pinned: a flipped default is a silent lockout."""
+    service = FederatedIdentityService(allow_provisioning=True)
+    user = service.resolve_or_provision(
+        db_session,
+        issuer=_ISSUER,
+        subject="a-sub",
+        email="a@acme.test",
+        email_verified=True,
+    )
+    assert user is not None and user.is_active is True
+
+
+def test_a_pending_account_is_written_and_the_login_still_refused(
+    db_session: Session,
+) -> None:
+    """``provisioned_active=False``: the rows record the request, entry is not granted."""
+    service = FederatedIdentityService(allow_provisioning=True, provisioned_active=False)
+
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="p-sub",
+            email="pending@acme.test",
+            email_verified=True,
+        )
+        is None
+    )
+
+    stored = db_session.exec(select(User).where(User.email == "pending@acme.test")).first()
+    assert stored is not None and stored.is_active is False
+    assert service.get_link(db_session, _ISSUER, "p-sub") is not None
+
+
+def test_a_pending_account_is_admitted_only_once_activated(db_session: Session) -> None:
+    """Both sides of the guard: refused while inactive, resolved after activation."""
+    service = FederatedIdentityService(allow_provisioning=True, provisioned_active=False)
+    service.resolve_or_provision(
+        db_session,
+        issuer=_ISSUER,
+        subject="p2-sub",
+        email="pending2@acme.test",
+        email_verified=True,
+    )
+
+    # A second attempt takes the *linked* path and is refused there — no duplicate row,
+    # and no admission the first refusal was supposed to withhold.
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="p2-sub",
+            email="pending2@acme.test",
+            email_verified=True,
+        )
+        is None
+    )
+    assert len(db_session.exec(select(User).where(User.email == "pending2@acme.test")).all()) == 1
+
+    stored = db_session.exec(select(User).where(User.email == "pending2@acme.test")).first()
+    assert stored is not None
+    stored.is_active = True
+    db_session.add(stored)
+    db_session.commit()
+
+    admitted = service.resolve_or_provision(
+        db_session,
+        issuer=_ISSUER,
+        subject="p2-sub",
+        email="pending2@acme.test",
+        email_verified=True,
+    )
+    assert admitted is not None and admitted.id == stored.id
+
+
 # --------------------------------------------------------------------------- #
 # identity service — SSO-only users and the federated principal resolver
 # --------------------------------------------------------------------------- #
@@ -228,3 +306,197 @@ def test_example_resolver_provisions_then_resolves(db_session: Session) -> None:
 
     unverified = OIDCClaims(issuer=claims.issuer, subject="other", email="x@acme.test")
     assert _resolve_sso_principal(db_session, unverified) is None
+
+
+# --------------------------------------------------------------------------- #
+# whose identities may be provisioned (the allowlist seam)
+# --------------------------------------------------------------------------- #
+def test_a_domain_allowlist_refuses_a_verified_stranger(db_session: Session) -> None:
+    """Verified-email checks the claim, not who may hold one.
+
+    Against a multi-tenant IdP — an app registration left open to any directory — a
+    perfectly genuine, perfectly verified account from a directory this deployment has
+    never heard of clears every other gate here. That is open registration, and the
+    only thing that closes it is a statement about which identities are accepted.
+    """
+    service = FederatedIdentityService(
+        allow_provisioning=True, allowed_email_domains=("acme.test",)
+    )
+    outsider = service.resolve_or_provision(
+        db_session,
+        issuer=_ISSUER,
+        subject="stranger",
+        email="attacker@evil.test",
+        email_verified=True,
+    )
+    assert outsider is None
+    # And nothing was written on the way to refusing.
+    assert db_session.exec(select(User).where(User.email == "attacker@evil.test")).first() is None
+
+    insider = service.resolve_or_provision(
+        db_session,
+        issuer=_ISSUER,
+        subject="colleague",
+        email="new.person@ACME.test",  # the match is case-insensitive
+        email_verified=True,
+    )
+    assert insider is not None
+
+
+def test_a_subdomain_of_an_allowed_domain_is_not_allowed(db_session: Session) -> None:
+    """Exact match, never a suffix.
+
+    Accepting every subdomain hands provisioning to whoever controls one, and a
+    deployment that genuinely wants ``sub.acme.test`` can say so in one more entry.
+    """
+    service = FederatedIdentityService(
+        allow_provisioning=True, allowed_email_domains=("acme.test",)
+    )
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="sub",
+            email="someone@evil.acme.test",
+            email_verified=True,
+        )
+        is None
+    )
+
+
+def test_a_provision_gate_decides_per_claim(db_session: Session) -> None:
+    """The richer half: a rule that is not a list of domains still gets to be the rule."""
+    invited = {"expected@acme.test"}
+    service = FederatedIdentityService(
+        allow_provisioning=True, provision_allowed=lambda email: email in invited
+    )
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="uninvited",
+            email="walk-in@acme.test",
+            email_verified=True,
+        )
+        is None
+    )
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="invited",
+            email="expected@acme.test",
+            email_verified=True,
+        )
+        is not None
+    )
+
+
+def test_both_gates_apply_and_either_can_refuse(db_session: Session) -> None:
+    """A gate that could widen an allowlist would not be an allowlist.
+
+    Asserted on the combination because that is where the AND could silently become an
+    OR: the callback says yes to an address the domain list refuses.
+    """
+    service = FederatedIdentityService(
+        allow_provisioning=True,
+        allowed_email_domains=("acme.test",),
+        provision_allowed=lambda _email: True,
+    )
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="widened",
+            email="anyone@evil.test",
+            email_verified=True,
+        )
+        is None
+    )
+
+
+def test_an_empty_allowlist_is_refused_at_construction() -> None:
+    """An empty tuple reads as "allow nothing" and behaves as "declined to say"."""
+    with pytest.raises(ValueError, match="at least one non-empty domain"):
+        FederatedIdentityService(allow_provisioning=True, allowed_email_domains=())
+    with pytest.raises(ValueError, match="at least one non-empty domain"):
+        FederatedIdentityService(allow_provisioning=True, allowed_email_domains=("  ",))
+
+
+def test_production_refuses_provisioning_with_no_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail closed at construction, not at the first stranger's login."""
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    with pytest.raises(ValueError, match="requires an identity allowlist in production"):
+        FederatedIdentityService(allow_provisioning=True)
+    # Either gate satisfies it; provisioning-off never needed one.
+    FederatedIdentityService(allow_provisioning=True, allowed_email_domains=("acme.test",))
+    FederatedIdentityService(allow_provisioning=True, provision_allowed=lambda _e: True)
+    FederatedIdentityService()
+
+
+def test_the_allowlist_verdict_is_answerable_without_being_in_production() -> None:
+    """A production refusal that exists only inside a production branch is unaskable.
+
+    The constructor's raise is the enforcement, not the answer: nothing else can ask
+    "would this configuration boot in production" from a dev machine or a CI runner,
+    which is how a tree carries a green pre-ship gate into a deployment that will not
+    start. `production_problems()` is the environment-independent answer, the same shape
+    `ControlPlane` already exposes for the refusals the gate does reach.
+    """
+    assert FederatedIdentityService().production_problems() == []
+    assert (
+        FederatedIdentityService(
+            allow_provisioning=True, allowed_email_domains=("acme.test",)
+        ).production_problems()
+        == []
+    )
+    assert (
+        FederatedIdentityService(
+            allow_provisioning=True, provision_allowed=lambda _e: True
+        ).production_problems()
+        == []
+    )
+    (problem,) = FederatedIdentityService(allow_provisioning=True).production_problems()
+    assert "requires an identity allowlist in production" in problem
+
+
+def test_an_ungated_provisioner_outside_production_is_permitted_but_never_silent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Permissive in the inner loop, never quiet — the asymmetry ADR 0128 names.
+
+    Before this, the state was completely silent outside production: no warning, no
+    verdict, nothing in any dev run or CI log. The first mention of it was the production
+    boot that refused, which is the failure ADR 0128 exists to end, one layer out from
+    the control-plane declarations that lane reads.
+    """
+    with caplog.at_level(
+        logging.WARNING, logger="terp.capabilities.identity.federated"
+    ):
+        FederatedIdentityService(allow_provisioning=True)
+    assert "UNGATED" in caplog.text
+    assert "REFUSED" in caplog.text, "the dev warning must say what production does"
+
+    caplog.clear()
+    with caplog.at_level(
+        logging.WARNING, logger="terp.capabilities.identity.federated"
+    ):
+        FederatedIdentityService(allow_provisioning=True, allowed_email_domains=("acme.test",))
+    assert caplog.text == "", "a gated provisioner has nothing to warn about"
+
+
+def test_development_still_provisions_without_an_allowlist(db_session: Session) -> None:
+    """A local run against a test IdP needs no ceremony — the refusal is production's."""
+    service = FederatedIdentityService(allow_provisioning=True)
+    assert (
+        service.resolve_or_provision(
+            db_session,
+            issuer=_ISSUER,
+            subject="dev-sub",
+            email="dev@anywhere.test",
+            email_verified=True,
+        )
+        is not None
+    )

@@ -14,6 +14,18 @@ so the two agreed only while the workbench was the thing doing the starting —
 and disagreed for every other way to run an app, which is most of them: a shell,
 an editor task, an agent, ``terp dev``.
 
+**A required host port is the stronger answer, and it is recognised here rather
+than judged.** ADR 0134 decision 3 took the template's defaults away entirely:
+``"${WEB_PORT:?...}:5173"`` binds nothing at all until something assigns a pair,
+so the case this module was written to make survivable — a default binding when
+nobody passed anything — cannot arise by omission. There is no number to check,
+which is why the range assertion simply has nothing to say about these entries;
+the invariant is not relaxed, it is satisfied a different way. An in-range default
+remains perfectly legal, because an app may keep one and the template's choice is
+not a rule for every app (ADR 0111: this is the app's own business, not
+conformance). What is *not* legal is answering neither question —
+:func:`test_every_published_host_port_says_what_happens_when_it_is_unset`.
+
 The bound cannot be applied centrally, for the same reason ADR 0108's shutdown
 bound cannot: the host side of a port is written in the app's own compose file,
 its own Vite config, or a CLI default, and none of those routes through
@@ -88,6 +100,21 @@ _SKIP_DIRS = {"node_modules", "dist", ".venv", "__pycache__"}
 #: is what binds when nobody passes anything — which is the case that goes wrong.
 _INTERPOLATED_HOST_PORT = re.compile(r"\$\{(\w+):-(\d+)\}:\d+")
 
+#: The same mapping with the host side *required*: ``"${WEB_PORT:?...}:5173"``.
+#: Stronger than an in-range default rather than an exception to it — there is no
+#: number for this test to judge, because nothing binds at all until somebody
+#: assigns one, so the collision this module exists to prevent cannot happen by
+#: omission (ADR 0134 decision 3). Recognised, never required: an app is free to
+#: keep a default, and the template's choice is not a rule for every app.
+_REQUIRED_HOST_PORT = re.compile(r"\$\{(\w+):\?[^}]*\}:\d+")
+
+#: A host side interpolated with neither a default nor a requirement:
+#: ``"${WEB_PORT}:5173"``. Its own case because it is the one shape that is worse
+#: than both — Compose resolves an unset variable to empty, so the mapping becomes
+#: ``":5173"`` and the failure is a parse error about a malformed port rather than
+#: anything naming the variable.
+_BARE_HOST_PORT = re.compile(r"\$\{(\w+)\}:\d+")
+
 #: A compose port mapping with a bare literal host side: ``"5173:5173"``. Its own
 #: rule, because there is no variable to override it with — two projects cannot
 #: run at once and no workbench can place it.
@@ -128,34 +155,52 @@ def _jinja_free(text: str) -> str:
     return re.sub(r"\{\{.*?\}\}", "x", text)
 
 
-def _published_defaults(path: pathlib.Path) -> list[tuple[str, str, int]]:
-    """``(service, variable, default)`` for every published port in *path*.
+def _published_host_ports(
+    path: pathlib.Path,
+) -> tuple[list[tuple[str, str, int]], list[tuple[str, str]], list[tuple[str, str]]]:
+    """Every published port in *path*, split by the shape of its host side.
+
+    ``(defaulted, required, bare)`` — the first carries a number this module can
+    judge, the second carries none by design, and the third is the defect the two
+    named patterns exist to tell apart from each other.
 
     Parsed from the resolved YAML rather than grepped, so a long-syntax entry
     (``published:``) is seen and a port inside a comment is not.
     """
     document = yaml.safe_load(_jinja_free(path.read_text(encoding="utf-8")))
-    found: list[tuple[str, str, int]] = []
+    defaulted: list[tuple[str, str, int]] = []
+    required: list[tuple[str, str]] = []
+    bare: list[tuple[str, str]] = []
     for name, service in (document.get("services") or {}).items():
         for entry in service.get("ports") or []:
-            text = (
+            text = str(
                 entry
                 if isinstance(entry, str)
                 else f"{entry.get('published', '')}:{entry.get('target', '')}"
             )
-            match = _INTERPOLATED_HOST_PORT.search(str(text))
+            match = _INTERPOLATED_HOST_PORT.search(text)
             if match is not None:
-                found.append((name, match.group(1), int(match.group(2))))
-    return found
+                defaulted.append((name, match.group(1), int(match.group(2))))
+                continue
+            match = _REQUIRED_HOST_PORT.search(text)
+            if match is not None:
+                required.append((name, match.group(1)))
+                continue
+            match = _BARE_HOST_PORT.search(text)
+            if match is not None:
+                bare.append((name, match.group(1)))
+    return defaulted, required, bare
 
 
 @pytest.mark.parametrize("path", _COMPOSE_FILES, ids=lambda p: p.name)
 def test_every_published_compose_port_defaults_into_the_terp_range(
     path: pathlib.Path,
 ) -> None:
-    published = _published_defaults(path)
-    assert published, f"{path} publishes no host port — the parse found nothing"
-    for service, variable, default in published:
+    defaulted, required, _ = _published_host_ports(path)
+    assert defaulted or required, (
+        f"{path} publishes no host port — the parse found nothing"
+    )
+    for service, variable, default in defaulted:
         assert _in_range(default), (
             f"{path.name}: service {service!r} defaults ${{{variable}}} to {default}, "
             f"outside the Terp range {TERP_PORT_FLOOR}-{TERP_PORT_CEILING}. A host "
@@ -168,6 +213,29 @@ def test_every_published_compose_port_defaults_into_the_terp_range(
             "which is the documented default of something a developer probably "
             "already runs."
         )
+
+
+@pytest.mark.parametrize("path", _COMPOSE_FILES, ids=lambda p: p.name)
+def test_every_published_host_port_says_what_happens_when_it_is_unset(
+    path: pathlib.Path,
+) -> None:
+    """A variable with neither a default nor a requirement is the worst of both.
+
+    Compose resolves an unset variable to the empty string, so ``"${WEB_PORT}:5173"``
+    becomes ``":5173"`` and the stack dies on a malformed-port parse error that
+    names neither the variable nor what to do about it. Either answer is fine —
+    a default in range binds something harmless, a requirement refuses and says
+    which command fixes it — and this is the shape that answers nothing.
+    """
+    _, _, bare = _published_host_ports(path)
+    assert not bare, (
+        f"{path.name}: "
+        + ", ".join(f"service {service!r} publishes ${{{var}}}" for service, var in bare)
+        + ". Give it a default in the Terp range (\"${VAR:-21100}:5173\") or make it "
+        'required with a directive message ("${VAR:?run \'terp ports assign\'}:5173"). '
+        "Unset resolves to empty, and the error then names a malformed port rather "
+        "than the variable."
+    )
 
 
 @pytest.mark.parametrize("path", _COMPOSE_FILES, ids=lambda p: p.name)

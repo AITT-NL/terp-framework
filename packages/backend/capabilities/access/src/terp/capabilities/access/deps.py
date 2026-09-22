@@ -6,10 +6,17 @@ of (or instead of) a role. It is the runtime half of access's two-layer control:
 deny-by-default — an unauthenticated caller gets 401, an authenticated caller
 without the grant gets 403::
 
+    from control_plane.permissions import REPORTS_EXPORT
     from terp.capabilities.access import require_permission
 
-    @router.post("/export", dependencies=[Depends(require_permission("reports:export"))])
+    @router.post("/export", dependencies=[Depends(require_permission(REPORTS_EXPORT))])
     def export(...): ...
+
+The reference is a typed :class:`~terp.core.Permission` from the app's control plane,
+not a bare string: the ``no_adhoc_permission_literals`` architecture rule refuses the
+literal, and a declared permission is the only kind ``terp grant`` can offer or a
+``Policy`` can name. Permission names are dotted (``reports.export``); the colon form
+this docstring once showed is rejected by ``Permission``'s own validator.
 
 It reads the caller through the kernel's public ``get_principal`` seam, which
 ``create_app`` points at the configured provider (e.g. the auth capability), so
@@ -43,8 +50,17 @@ _service = AccessService()
 def require_permission(permission: str | Permission) -> Callable[..., None]:
     """Build a dependency requiring *permission* (deny-by-default).
 
-    ``Permission`` is the Phase-A typed path. ``str`` remains for compatibility
-    until the architecture rule can guide modules to the control plane.
+    ``Permission`` is the path an app should take, and the one the guide now teaches: the
+    ``no_adhoc_permission_literals`` rule refuses a bare literal at a ``require_permission``
+    call in app code, so the typed constant from the control plane is the only form that
+    passes the gate.
+
+    ``str`` stays in the signature because two callers legitimately have only a name: the
+    kernel guard's enforcer seam, which is handed the name the ``Policy`` resolved, and an
+    operator revoking a permission the app has since stopped declaring. It is not a second
+    authoring style — the rule already closed that — and this note used to say the rule
+    could not yet guide modules to the control plane, which stopped being true when it
+    started refusing the literal.
     """
 
     permission_name = permission.name if isinstance(permission, Permission) else permission

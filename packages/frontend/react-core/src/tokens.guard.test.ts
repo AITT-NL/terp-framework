@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { NARROW_VIEWPORT, WIDE_VIEWPORT_QUERY } from "./breakpoints";
+import {
+  MEDIUM_VIEWPORT,
+  NARROW_VIEWPORT,
+  ROOMY_VIEWPORT_QUERY,
+  WIDE_VIEWPORT_QUERY,
+} from "./breakpoints";
 import { TERP_STYLES_CSS } from "./styles";
 
 // Vitest stubs .css imports to empty modules, so the sheet is read from disk.
@@ -189,11 +194,21 @@ describe("design tokens", () => {
     expect(WIDE_VIEWPORT_QUERY).toBe(`not all and ${NARROW_VIEWPORT}`);
     expect(sheet).toContain(`@media ${WIDE_VIEWPORT_QUERY}`);
 
+    // The second cutover, held the same way. It buys a third region without a third query
+    // (see breakpoints.ts): the regions are two cutovers in cascade order, so this pair has
+    // to satisfy exactly the invariants the pair above does, and the middle region is
+    // whatever the first correction leaves standing when this one does not apply.
+    const declaredLg = /--breakpoint-lg:\s*([^;]+);/.exec(tokensCss)?.[1]?.trim();
+    expect(declaredLg, "the contract should publish --breakpoint-lg").toBe("1024px");
+    expect(MEDIUM_VIEWPORT).toBe(`(max-width: ${declaredLg})`);
+    expect(ROOMY_VIEWPORT_QUERY).toBe(`not all and ${MEDIUM_VIEWPORT}`);
+    expect(sheet).toContain(`@media ${ROOMY_VIEWPORT_QUERY}`);
+
     // And nobody re-spells it. The two components import the constant now; a third copy is
     // exactly how the first two came to disagree with nothing noticing.
     const offenders = Object.entries(sources)
       .filter(([file]) => !file.includes(".test.") && file !== "./breakpoints.ts")
-      .filter(([, text]) => text.includes("max-width: 768px"))
+      .filter(([, text]) => text.includes("max-width: 768px") || text.includes("max-width: 1024px"))
       .map(([file]) => file);
     expect(offenders, "the breakpoint belongs in ./breakpoints.ts and nowhere else").toEqual([]);
   });

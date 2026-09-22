@@ -16,7 +16,8 @@ the storage backend registered under the file's **storage profile** (ADR 0057):
   has its bytes. The profile is selected per call (``profile=``) or per service (the
   ``storage_profile`` class default — a module binds its own store by subclassing), never by
   a client.
-* :meth:`FileService.open_stream` / :meth:`FileService.load` — the scope-honoring ``get``
+* :meth:`FileService.open_stream` / :meth:`FileService.load` — the quarantine gate and
+  the scope-honoring ``get``
   resolves the metadata (so an invisible row 404s before any storage I/O), then a readable
   stream (``open_stream``, for the streamed download) or the full bytes (``load``, a
   buffered convenience for the serve-through read) are fetched from the backend the **row
@@ -55,6 +56,7 @@ from terp.capabilities.files.references import (
     UndeclaredFileReferenceError,
     is_file_reference,
 )
+from terp.capabilities.files.scanning import ScanSubject, ensure_servable, scan
 from terp.capabilities.files.schemas import FileCreate, FileUpdate
 from terp.capabilities.files.storage import (
     DEFAULT_STORAGE_PROFILE,
@@ -283,6 +285,13 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         committed row always has its bytes; a failed upload leaves nothing behind" true.
         The profile is selected per call (``profile=``) or per service (the
         ``storage_profile`` class default), never by a client.
+
+        The deployment's scanner (``scanning``) then sees the **stored** bytes — what a
+        download would actually hand out — and its verdict is stamped onto the row. A
+        rejected upload still returns a row: the bytes stay in quarantine, flagged and
+        unservable, because an operator needs to know what arrived and the uploader is
+        told by ``scan_state`` on the response. With no scanner registered the verdict
+        is ``not_scanned`` and nothing about this path changes.
         """
         _ensure_content_type_allowed(content_type)
         selected = profile if profile is not None else type(self).storage_profile
@@ -295,6 +304,20 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         reader = _DigestingReader(_PrefixedReader(head, source), max_bytes)
         try:
             backend.put(key, reader)
+            # Scanned from the STORED bytes, not from the request stream: the scanner
+            # must see what a later download would hand out, and the upload stream has
+            # been consumed by the digesting copy above in any case. It is handed an
+            # opener rather than the bytes so a scanner needing only a head can stop
+            # early, on a path that has taken care never to hold an upload whole.
+            verdict = scan(
+                ScanSubject(
+                    filename=filename,
+                    content_type=content_type,
+                    size=reader.size,
+                    sha256=reader.hexdigest(),
+                    open_stream=lambda: backend.open(key),
+                )
+            )
             return self.create(
                 session,
                 FileCreate(
@@ -304,6 +327,7 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
                     sha256=reader.hexdigest(),
                     storage_key=key,
                     storage_profile=selected,
+                    scan_state=verdict,
                 ),
             )
         except Exception:
@@ -316,7 +340,11 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         """The metadata row plus a readable stream of its bytes; a typed 404 if either is gone.
 
         ``get`` honors the framework row scope (soft-delete / registered predicates), so an
-        invisible row 404s before any storage I/O. The stream comes from the backend the
+        invisible row 404s before any storage I/O, and a **quarantined** row is refused
+        immediately after — here rather than on the download route, so the serve-through
+        delegation read and any programmatic ``load`` are covered by the same decision.
+        Rejected bytes are unreachable through every path this capability owns, not only
+        the one with a URL. The stream comes from the backend the
         **row itself** names (``storage_profile``) — never a process-wide current backend, so
         a later re-wiring can never read the wrong store. A row whose blob has vanished from
         its backend maps to the same typed 404 (never a raw backend stack trace). The caller
@@ -324,6 +352,7 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         it; :meth:`load` reads and closes it).
         """
         row = self.get(session, file_id)
+        ensure_servable(row.scan_state)
         try:
             stream = resolve_storage_backend(row.storage_profile).open(row.storage_key)
         except FileNotFoundError as exc:

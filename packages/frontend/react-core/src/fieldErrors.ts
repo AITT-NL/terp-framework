@@ -1,4 +1,4 @@
-import { ApiError } from "../unwrap";
+import { ApiError } from "./unwrap";
 
 /** What a form should do with a failure: what to put on inputs, and whether anything is left over. */
 export interface RoutedFieldErrors {
@@ -24,7 +24,24 @@ export interface RoutedFieldErrors {
  * copy. `GroupDetail` already had it right by naming its one key and falling through to the toast
  * when the server named a different one; this is that discipline, for a form with several.
  *
- * Not exported from the package. It becomes public API when something outside `admin/` needs it.
+ * Public since 0.22.0, on the condition its previous note set: it becomes package surface when
+ * something outside `admin/` needs it, and an app wiring `ApiError.fields` into its own forms is
+ * that. Copying it is what produces the hole above, because the leftover branch is the half a
+ * reader does not know to write.
+ *
+ * @example
+ * ```ts
+ * const RENDERED = ["name", "description"];
+ * try {
+ *   await unwrap(client.POST("/api/v1/groups/", { body }));
+ * } catch (error) {
+ *   const { shown, leftover } = routeFieldErrors(error, RENDERED);
+ *   setFieldErrors(shown);
+ *   if (leftover || Object.keys(shown).length === 0) {
+ *     toast.error(message(error));  // never leave the user with nothing
+ *   }
+ * }
+ * ```
  */
 export function routeFieldErrors(
   error: unknown,

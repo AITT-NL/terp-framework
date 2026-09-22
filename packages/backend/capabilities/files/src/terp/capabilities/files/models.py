@@ -14,6 +14,11 @@ Mutability is decided per field:
 * ``content_type`` / ``size`` / ``sha256`` / ``storage_key`` / ``storage_profile`` —
   **append-only**: set once from the uploaded bytes at create time and never patched
   (``FileUpdate`` carries no field for them; replacing content is a new upload).
+* ``scan_state`` — written **by the platform**, from the deployment's registered
+  scanner at store time (``scanning``), and absent from ``FileUpdate`` for the reason
+  that matters most about it: a verdict a client could patch is not a verdict. It is
+  indexed because the question an operator asks of it is a listing one — *which stored
+  files were never scanned* — not a per-row lookup.
   ``storage_key`` and ``storage_profile`` in particular are server-side-only material
   (the raw storage address and the named backend holding it): both are generated /
   selected by the service, never accepted from a client, and never serialized out of the
@@ -34,6 +39,7 @@ from sqlmodel import Field
 
 from terp.core import BaseTable, OwnedMixin
 
+from terp.capabilities.files.scanning import SCAN_NOT_SCANNED, SCAN_STATE_MAX
 from terp.capabilities.files.storage import STORAGE_PROFILE_MAX
 
 # Hard caps so a hostile / oversized value can never break the INSERT.
@@ -50,7 +56,8 @@ class File(BaseTable, OwnedMixin, table=True):
     ``owner_id`` from ``OwnedMixin`` (stamped from the request actor on create, then enforced
     as the per-row write gate). ``storage_key`` addresses the bytes inside the storage
     backend registered under ``storage_profile`` (ADR 0057); neither is **ever**
-    serialized in a Read DTO.
+    serialized in a Read DTO. ``scan_state`` is, because a client refused a download is
+    owed the reason.
     """
 
     __tablename__ = "file_object"
@@ -61,6 +68,9 @@ class File(BaseTable, OwnedMixin, table=True):
     sha256: str = Field(max_length=_SHA256_MAX)
     storage_key: str = Field(max_length=_STORAGE_KEY_MAX, unique=True)
     storage_profile: str = Field(max_length=STORAGE_PROFILE_MAX)
+    scan_state: str = Field(
+        default=SCAN_NOT_SCANNED, max_length=SCAN_STATE_MAX, index=True
+    )
 
 
 __all__ = ["CONTENT_TYPE_MAX", "FILENAME_MAX", "File"]

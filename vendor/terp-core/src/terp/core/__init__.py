@@ -124,7 +124,15 @@ from terp.core.migrations import (
     resolve_migration_target,
     resolve_migration_trees,
 )
-from terp.core.module_spec import ModuleSpec, Policy, Roles
+from terp.core.authz import build_access_model
+from terp.core.module_spec import (
+    AccessDecision,
+    ModuleAccess,
+    ModuleSpec,
+    Policy,
+    Roles,
+    decide,
+)
 from terp.core.object_authz import (
     ObjectAuthzPredicate,
     register_object_authz_predicate,
@@ -143,12 +151,16 @@ from terp.core.permissions import (
     EDITOR,
     VIEWER,
     AuthorizationRequirement,
+    LabelCoverage,
+    ModuleRankProjector,
     Permission,
     PermissionModel,
     PermissionProjector,
     Role,
     as_role,
+    project_module_ranks,
     project_permissions,
+    register_module_rank_projector,
     register_permission_projector,
 )
 from terp.core.operations import (
@@ -156,8 +168,18 @@ from terp.core.operations import (
     OperationCoverage,
     OperationDefinition,
 )
+from terp.core.references import (
+    OnDelete,
+    Ref,
+    UndeclaredReferenceError,
+    assert_references_declare_delete_behaviour,
+    reference_delete_policy,
+    undeclared_references,
+    unreachable_reference_actions,
+)
 from terp.core.routing import (
     declared_operation,
+    route_policy,
     mark_required_permission,
     operation,
     read_only,
@@ -170,7 +192,11 @@ from terp.core.scheduling import (
     trigger_schedule,
 )
 from terp.core.health import HealthDetail, register_health_detail
-from terp.core.scoping import ScopePredicate, register_scope_predicate
+from terp.core.scoping import (
+    ScopePredicate,
+    register_owner_read_scope,
+    register_scope_predicate,
+)
 from terp.core.secrets import (
     SecretsError,
     decrypt_config,
@@ -195,6 +221,7 @@ from terp.core.throttling import (
 
 __all__ = [
     "ADMIN",
+    "AccessDecision",
     "ActorStampedMixin",
     "AppError",
     "AuditAction",
@@ -243,6 +270,7 @@ __all__ = [
     "LEASE_HOLDER_MAX",
     "LEASE_KEY_MAX",
     "LEASE_KIND_MAX",
+    "LabelCoverage",
     "Lease",
     "LeaseError",
     "LeaseGuard",
@@ -253,9 +281,11 @@ __all__ = [
     "LeaseStore",
     "MigrationDiscoveryError",
     "MigrationTree",
+    "ModuleAccess",
     "ModuleSpec",
     "NotFoundError",
     "ObjectAuthzPredicate",
+    "OnDelete",
     "OperationCatalog",
     "OperationCoverage",
     "OperationDefinition",
@@ -272,6 +302,7 @@ __all__ = [
     "Policy",
     "Principal",
     "RateLimit",
+    "Ref",
     "RetryPolicy",
     "Role",
     "Roles",
@@ -291,13 +322,16 @@ __all__ = [
     "ThrottleStore",
     "TimestampMixin",
     "UUIDPrimaryKeyMixin",
+    "UndeclaredReferenceError",
     "VIEWER",
     "ValidationFailedError",
     "WeakPasswordError",
     "acquire_lease",
     "active_lease_store",
     "as_role",
+    "assert_references_declare_delete_behaviour",
     "bind_audit_actor",
+    "build_access_model",
     "build_crud_router",
     "build_error_envelope",
     "client_ip",
@@ -305,6 +339,7 @@ __all__ = [
     "configure_logging",
     "create_app",
     "current_actor_id",
+    "decide",
     "declared_operation",
     "decrypt_config",
     "emit",
@@ -341,11 +376,13 @@ __all__ = [
     "project_permissions",
     "purge_free_leases",
     "read_only",
+    "reference_delete_policy",
     "register_decrypt_call_site",
     "register_health_detail",
     "register_job_tenant_context",
     "register_lease_reaper",
     "register_object_authz_predicate",
+    "register_owner_read_scope",
     "register_permission_projector",
     "register_scope_predicate",
     "release_lease",
@@ -355,7 +392,10 @@ __all__ = [
     "resolve_all_migration_trees",
     "resolve_migration_target",
     "resolve_migration_trees",
+    "route_policy",
     "settings",
     "trigger_schedule",
+    "undeclared_references",
+    "unreachable_reference_actions",
     "validate_password",
 ]

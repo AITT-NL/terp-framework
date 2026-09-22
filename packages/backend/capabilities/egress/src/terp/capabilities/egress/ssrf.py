@@ -16,7 +16,7 @@ platform is held to the *same* list rather than to a copy of it.
 from __future__ import annotations
 
 import ipaddress
-import socket
+import socket  # arch-allow-no-raw-outbound-http: name resolution is the SSRF CHECK itself (getaddrinfo, so every A/AAAA record can be validated before one is pinned) — this module opens no connection
 from collections.abc import Callable
 from dataclasses import dataclass
 

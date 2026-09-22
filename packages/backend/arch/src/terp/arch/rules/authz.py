@@ -101,98 +101,14 @@ def check_no_adhoc_permission_literals(
     return violations
 
 
-def _methods_kwarg_has_mutation(keywords: list[ast.keyword]) -> bool:
-    """True when a route call's ``methods=[...]`` lists a write verb."""
-    for keyword in keywords:
-        if keyword.arg == "methods" and isinstance(keyword.value, ast.List | ast.Tuple):
-            if any(
-                isinstance(element, ast.Constant)
-                and isinstance(element.value, str)
-                and element.value.lower() in _MUTATING_HTTP_METHODS
-                for element in keyword.value.elts
-            ):
-                return True
-    return False
-
-
-def _has_mutating_route(tree: ast.Module) -> bool:
-    """True when *tree* declares a write route (``post`` / ``put`` / ``patch`` / ``delete``).
-
-    Catches the verb decorators (``@router.post``), a generic ``@router.api_route`` /
-    imperative ``add_api_route`` with ``methods=`` listing a write verb, so a write
-    surface cannot dodge the policy check by its registration spelling.
-
-    Migrated onto ``iter_route_registrations``: the pre-migration walk additionally
-    matched *any* ``Call`` node whose attribute was ``add_api_route`` / ``api_route``,
-    independent of whether it was a decorator or a registration at all. That caught
-    every real registration twice (once as the decorator, once as the same node
-    revisited by the generic walk) and, in principle, a bare non-decorator
-    ``router.api_route(...)`` call applied to nothing — a shape FastAPI's own API
-    does not produce and that no test or corpus case exercises. Dropping it changes
-    no observable behaviour: every registration this rule must see still reaches it
-    through the decorator or the imperative form below.
-    """
-    for route in iter_route_registrations(tree):
-        if route.verb in _MUTATING_HTTP_METHODS:
-            return True
-        if (route.verb == "api_route" or route.imperative) and _methods_kwarg_has_mutation(
-            list(route.keywords)
-        ):
-            return True
-    return False
-
-
-def _module_policy_calls(tree: ast.Module) -> list[ast.Call]:
-    """The ``Policy(...)`` / ``Policy.tiers(...)`` expressions bound to a ``ModuleSpec.policy``.
-
-    Only the policy actually handed to ``ModuleSpec(policy=...)`` is returned, so an
-    unrelated weak ``Policy(...)`` sitting elsewhere in the file is never mistaken for
-    the module's posture.
-    """
-    calls: list[ast.Call] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or base_name(node.func) != "ModuleSpec":
-            continue
-        for keyword in node.keywords:
-            value = keyword.value
-            if keyword.arg == "policy" and isinstance(value, ast.Call):
-                func = value.func
-                rooted_at_policy = (isinstance(func, ast.Name) and func.id == "Policy") or (
-                    isinstance(func, ast.Attribute)
-                    and isinstance(func.value, ast.Name)
-                    and func.value.id == "Policy"
-                )
-                if rooted_at_policy:
-                    calls.append(value)
-    return calls
-
-
-# The default role ladder's ranks, so the build rule can compare a statically
-# resolvable read/write tier (``Roles.VIEWER`` / the ``VIEWER`` constant / ``x.ADMIN``).
-# A *custom* role's rank is not knowable from a source scan, so those are compared by
-# their resolved rank at boot (``create_app`` -> ``_validate_policy_write_tiers``); this
-# rule is the early-warning build-time half.
-_DEFAULT_ROLE_RANKS: dict[str, int] = {"VIEWER": 10, "EDITOR": 20, "ADMIN": 30}
-
-
-def _policy_kwarg(call: ast.Call, *names: str) -> ast.expr | None:
-    """Return the first present keyword value among *names* on *call*, else ``None``."""
-    for keyword in call.keywords:
-        if keyword.arg in names:
-            return keyword.value
-    return None
-
-
-def _static_default_rank(node: ast.expr | None, *, absent: int) -> int | None:
-    """Statically resolve a role reference to its rank.
-
-    ``None`` node -> *absent* (the framework default: read omits to ``VIEWER``, write to
-    ``EDITOR``). A default-ladder reference (``Roles.ADMIN`` / ``ADMIN``) -> its rank. A
-    custom role whose rank a scan cannot know -> ``None`` (the boot check compares it).
-    """
-    if node is None:
-        return absent
-    return _DEFAULT_ROLE_RANKS.get(base_name(node))
+from terp.arch.rules._policy_source import (
+    DEFAULT_ROLE_RANKS,
+    has_mutating_route,
+    methods_kwarg_has_mutation,
+    module_policy_calls,
+    policy_kwarg,
+    static_default_rank,
+)
 
 
 def check_mutations_require_write_role(
@@ -210,7 +126,7 @@ def check_mutations_require_write_role(
     lower ``EDITOR``). ``Policy.default()`` (read=VIEWER, write=EDITOR) is the safe
     default; ``ADMIN`` is fine. A *custom* role ladder's ranks are not knowable from a
     source scan, so those are enforced by the boot-time check
-    (``create_app`` -> ``_validate_policy_write_tiers``) — this rule is the early-warning
+    (``create_app`` -> ``validate_policy_write_tiers``) — this rule is the early-warning
     build-time half. A public module is governed by ``public_modules_are_read_only``
     instead. The check is tied to the policy bound to the module's ``ModuleSpec(policy=…)``.
     """
@@ -222,11 +138,11 @@ def check_mutations_require_write_role(
         if module is None:
             continue
         tree = parse(path)
-        if _has_mutating_route(tree):
+        if has_mutating_route(tree):
             mutating_modules.add(module)
         if path.name == "module.py":
             rel = _rel(path, root)
-            policies.extend((module, rel, call) for call in _module_policy_calls(tree))
+            policies.extend((module, rel, call) for call in module_policy_calls(tree))
 
     violations: list[ArchViolation] = []
     for module, rel, call in policies:
@@ -234,11 +150,11 @@ def check_mutations_require_write_role(
             continue
         if isinstance(call.func, ast.Attribute) and call.func.attr == "public":
             continue  # a public module is governed by public_modules_are_read_only
-        write_node = _policy_kwarg(call, "write", "write_role")
-        read_node = _policy_kwarg(call, "read", "read_role")
+        write_node = policy_kwarg(call, "write", "write_role")
+        read_node = policy_kwarg(call, "read", "read_role")
         at_read_floor = write_node is not None and base_name(write_node) == "VIEWER"
-        write_rank = _static_default_rank(write_node, absent=_DEFAULT_ROLE_RANKS["EDITOR"])
-        read_rank = _static_default_rank(read_node, absent=_DEFAULT_ROLE_RANKS["VIEWER"])
+        write_rank = static_default_rank(write_node, absent=DEFAULT_ROLE_RANKS["EDITOR"])
+        read_rank = static_default_rank(read_node, absent=DEFAULT_ROLE_RANKS["VIEWER"])
         inverted = write_rank is not None and read_rank is not None and write_rank < read_rank
         if at_read_floor or inverted:
             anchor = write_node if write_node is not None else call
@@ -281,13 +197,13 @@ def check_public_modules_are_read_only(
         if module is None:
             continue
         tree = parse(path)
-        if _has_mutating_route(tree):
+        if has_mutating_route(tree):
             mutating_modules.add(module)
         if path.name == "module.py":
             rel = _rel(path, root)
             public_policies.extend(
                 (module, rel, call)
-                for call in _module_policy_calls(tree)
+                for call in module_policy_calls(tree)
                 if isinstance(call.func, ast.Attribute) and call.func.attr == "public"
             )
 
@@ -399,6 +315,126 @@ def _authority_references(tree: ast.Module) -> list[ast.expr]:
             if isinstance(first, ast.Name | ast.Attribute):
                 references.append(first)
     return references
+
+
+#: The safe HTTP verbs. A read is where the audit trail was silent: every write already
+#: emits through the ``BaseService`` chokepoint, which is what makes that record
+#: unbypassable and also what makes it mutation-only.
+_SAFE_HTTP_METHODS = frozenset({"get", "head"})
+
+#: The call that records a disclosure (ADR 0118). Matched on the attribute name so both
+#: ``emit_disclosure(...)`` and ``audit.emit_disclosure(...)`` count.
+_DISCLOSURE_CALL = "emit_disclosure"
+
+
+def _names_a_permission_dependency(keywords: list[ast.keyword]) -> bool:
+    """True when a route registration hangs ``require_permission(...)`` on itself.
+
+    The marker of a read somebody decided a tier could not express: the module Policy
+    already asked "may this person read here?", and the route asks for a named grant on
+    top of it.
+    """
+    for keyword in keywords:
+        if keyword.arg != "dependencies":
+            continue
+        for node in ast.walk(keyword.value):
+            if isinstance(node, ast.Call) and base_name(node.func) == "require_permission":
+                return True
+    return False
+
+
+def _signature_names_a_permission_dependency(
+    handler: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> bool:
+    """The other spelling: the marker declared in the endpoint's own signature.
+
+    ``terp.core.routing.route_permission_names`` walks the resolved dependency tree at
+    runtime for exactly this reason -- reading only ``dependencies=`` missed a parameter
+    annotated with the requirement, and the route's authority was then reported as the
+    tier alone.
+    """
+    for argument in (*handler.args.args, *handler.args.kwonlyargs, *handler.args.posonlyargs):
+        for node in ast.walk(argument.annotation) if argument.annotation else ():
+            if isinstance(node, ast.Call) and base_name(node.func) == "require_permission":
+                return True
+    for default in (*handler.args.defaults, *handler.args.kw_defaults):
+        for node in ast.walk(default) if default is not None else ():
+            if isinstance(node, ast.Call) and base_name(node.func) == "require_permission":
+                return True
+    return False
+
+
+def _calls_emit_disclosure(handler: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for node in ast.walk(handler):
+        if isinstance(node, ast.Call) and base_name(node.func) == _DISCLOSURE_CALL:
+            return True
+    return False
+
+
+def check_permission_gated_reads_disclose(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """A read behind a named grant records that it happened.
+
+    The audit trail is emitted from the ``BaseService`` write chokepoint. That is what
+    makes it unbypassable, and it is also what makes it **mutation-only**: nothing
+    anywhere records a read. The trail answers "who changed what" and never "who looked",
+    and looking is the whole of the harm for a connection profile, a salary, a case file
+    or any other listing an application holds.
+
+    ADR 0118 supplied the seam -- :func:`terp.core.emit_disclosure`, which opens its own
+    session (a read has no unit of work to ride), clears the read-only request flag, and
+    emits *before* the data is handed over so the record is the precondition of the
+    disclosure rather than a report on it. What it did not supply is any reason for a
+    route to call it, and nothing in the platform did.
+
+    **Which reads, then?** Not all of them: a record per read of everything is noise that
+    buries the one entry somebody will eventually need. The signal is already in the
+    source, written by the author: a route that carries ``require_permission(...)`` is one
+    where somebody decided the module's role tier could not express the decision -- "any
+    editor may read here" was not good enough, so this route asks for a named grant. That
+    is the platform's own marker for *sensitive*, and it is the one this rule reads.
+
+    Both spellings of the marker count (``dependencies=[Depends(require_permission(...))]``
+    and the requirement declared in the endpoint signature), because a rule that saw only
+    the first would be blind to exactly the form the runtime projection had to be fixed to
+    notice.
+
+    The escape hatch is a justified ``# arch-allow-permission-gated-reads-disclose:
+    <reason>`` marker, ratcheted by the escape-hatch budget. It is a real exception -- a
+    grant that gates an action rather than a disclosure (a route that *starts* something
+    and returns only an acknowledgement) reads no protected data and has nothing to
+    record.
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        if _module_under(path, package) is None:
+            continue
+        tree = parse(path)
+        rel = _rel(path, root)
+        for registration in iter_route_registrations(tree):
+            handler = registration.handler
+            if handler is None or registration.verb not in _SAFE_HTTP_METHODS:
+                continue
+            gated = _names_a_permission_dependency(
+                list(registration.keywords)
+            ) or _signature_names_a_permission_dependency(handler)
+            if not gated or _calls_emit_disclosure(handler):
+                continue
+            violations.append(
+                ArchViolation(
+                    "permission_gated_reads_disclose",
+                    rel,
+                    registration.lineno,
+                    f"{handler.name!r} is a read gated by a named permission and records "
+                    "nothing when it answers; a grant is how this application says the "
+                    "data is sensitive, and the audit trail then says who changed it and "
+                    "never who read it -- call emit_disclosure(target_type=..., "
+                    "target_id=...) before returning the data",
+                )
+            )
+    return violations
 
 
 def check_policy_refs_resolve(

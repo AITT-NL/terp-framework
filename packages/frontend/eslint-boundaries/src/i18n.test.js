@@ -144,6 +144,18 @@ describe("locale catalog completeness", () => {
     expect(dynamicTrans.find((message) => message.ruleId === "terp/locale-catalogs-complete")?.message)
       .toContain("requires static non-empty id and message");
 
+    // A spread is still refused - the catalog is inventoried statically - but it is the
+    // one shape with a sanctioned alternative, so the refusal names it. Sharing one
+    // descriptor between two screens is ordinary; only its JSX-body spelling is not.
+    const spreadTrans = await lintWithCatalog(
+      { sourceLocale: "en", locales: { en: {}, nl: {} } },
+      'export const W = () => <Trans {...TITLE} />;',
+    );
+    const spreadMessage = spreadTrans
+      .find((message) => message.ruleId === "terp/locale-catalogs-complete")?.message;
+    expect(spreadMessage).toContain("useUiText");
+    expect(spreadMessage).toContain("text(DESCRIPTOR)");
+
     const staleAllowlist = await lintWithCatalog(
       {
         sourceLocale: "en",
@@ -237,6 +249,36 @@ describe("untranslated UI coverage", () => {
     const messages = await lintWithCatalog(
       declaration,
       `export const W = ({ ready }) => ${jsx};`,
+    );
+    expect(messages.map((message) => message.ruleId)).toContain("terp/no-untranslated-ui");
+  });
+
+  it.each([
+    ['<Text>{status === "paused" && <Trans id="w.p" message="Paused" />}</Text>', "==="],
+    ['<Text>{status !== "archived" && <Trans id="w.a" message="Live" />}</Text>', "!=="],
+    ['<Text>{kind == "draft" && <Trans id="w.d" message="Draft" />}</Text>', "=="],
+    ['<Text>{kind != "draft" && <Trans id="w.f" message="Final" />}</Text>', "!="],
+    ['<Text>{stage > "Stage 2" && <Trans id="w.l" message="Late" />}</Text>', ">"],
+    ['<Text>{"paused" === status && <Trans id="w.r" message="Paused" />}</Text>', "reversed"],
+    ['<Page title={"Loading widgets" && loading} />', "&& left operand"],
+  ])("accepts a state token compared in a guard (%s)", async (jsx) => {
+    const messages = await lintWithCatalog(
+      declaration,
+      `export const W = ({ status, kind, stage, loading }) => ${jsx};`,
+    );
+    expect(messages.filter((message) => message.ruleId === "terp/no-untranslated-ui"))
+      .toHaveLength(0);
+  });
+
+  it.each([
+    ['<Page title={loading && "Loading widgets"} />', "&& right operand renders"],
+    ['<Page title={label || "Untitled widget"} />', "|| renders either side"],
+    ['<Page title={label ?? "Untitled widget"} />', "?? renders either side"],
+    ['<Page title={"Page " + index} />', "+ concatenates into copy"],
+  ])("still refuses copy the operator does render (%s)", async (jsx) => {
+    const messages = await lintWithCatalog(
+      declaration,
+      `export const W = ({ loading, label, index }) => ${jsx};`,
     );
     expect(messages.map((message) => message.ruleId)).toContain("terp/no-untranslated-ui");
   });

@@ -138,7 +138,15 @@ me_module = build_me_module(_identity.current_user)
 # the federated store: a validated (issuer, subject) pair resolves to a linked
 # user, and JIT provisioning is enabled so a first SSO login with a verified email
 # creates a viewer-ranked, SSO-only account (no local password).
-_federated = FederatedIdentityService(allow_provisioning=True)
+#
+# The allowlist is what makes provisioning a decision rather than a door: verified-email
+# is a check on the claim, and against a multi-tenant IdP anyone that IdP will
+# authenticate clears it. Production refuses `allow_provisioning=True` without one; the
+# example declares it anyway, because an example that only shows the half that is
+# optional in development teaches the half that is wrong in production.
+_federated = FederatedIdentityService(
+    allow_provisioning=True, allowed_email_domains=("acme.test",)
+)
 
 
 def _resolve_sso_principal(session: Session, claims: OIDCClaims) -> Principal | None:

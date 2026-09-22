@@ -70,6 +70,7 @@ export function AdminHub({ sections }: { sections?: AdminAreaSections } = {}) {
     users: sections?.users !== false,
     groups: sections?.groups !== false,
     audit: sections?.audit !== false,
+    access: sections?.access !== false,
   };
   const stats = useHubStats(selected);
   return (
@@ -100,6 +101,15 @@ export function AdminHub({ sections }: { sections?: AdminAreaSections } = {}) {
           title={strings.adminAudit}
           description={strings.adminAuditDescription}
           icon={<NavIcon name="audit" label={strings.adminAudit} />}
+          renderLink={renderLink}
+        />
+      )}
+      {selected.access && (
+        <HubCard
+          to="/admin/access"
+          title={strings.adminAccess}
+          description={strings.adminAccessDescription}
+          icon={<NavIcon name="shield" label={strings.adminAccess} />}
           renderLink={renderLink}
         />
       )}

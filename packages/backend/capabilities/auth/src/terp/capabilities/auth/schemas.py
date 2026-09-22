@@ -28,7 +28,7 @@ class ClientCredentialsRequest(BaseSchema):
 
 class AccessToken(BaseSchema):
     access_token: str  # arch-allow-schemas-exclude-sensitive-fields: the bearer token the login endpoint exists to mint
-    token_type: str = "bearer"
+    token_type: str = "bearer"  # arch-allow-no-hardcoded-credentials: OAuth 2.0's own response field naming the token's SCHEME, not a secret — the value is the literal the RFC fixes
 
 
 class CurrentUser(BaseSchema):
@@ -58,6 +58,23 @@ class CurrentUser(BaseSchema):
     hold), which is why it defaults rather than being required. It is a *display* input,
     never an authorization decision: the server re-checks every request, and a client that
     trusts this list has moved the gate to the wrong side of the wire.
+    """
+
+    module_ranks: dict[str, int] = {}
+    """The rung the caller holds in each module they hold one in (ADR 0121).
+
+    The frontend half of per-module authority. Rank alone was not enough here either, and in
+    the more dangerous direction: the guard raises a caller's authority inside a module they
+    hold a rung in, so a UI gating on the global rank alone hid a module the caller could
+    actually reach and never rendered the button they were entitled to. A control that exists
+    on one side of the wire only is half-built.
+
+    The effective rank in a module is the higher of ``role_rank`` and the entry here, which is
+    what the guard computes — so a client applying it agrees with the server by construction
+    rather than by coincidence. Absent modules are simply not held.
+
+    Empty for an app that mounts no assignment capability, and a *display* input on exactly
+    the same terms as ``permissions``: the guard re-resolves on every request.
     """
 
 

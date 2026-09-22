@@ -10,7 +10,7 @@
 # The dev workbench keeps its own Dockerfile (editable installs + --reload live sync).
 
 # --- Stage 1: build wheels for all terp distributions -------------------------------
-FROM python:3.13-slim AS wheels
+FROM python:3.14-slim AS wheels
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
@@ -41,7 +41,7 @@ RUN set -eux; \
     ; do uv build --wheel --out-dir /build/dist "$pkg"; done
 
 # --- Stage 2: minimal runtime --------------------------------------------------------
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 

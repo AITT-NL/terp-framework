@@ -14,6 +14,7 @@ with it owning ``Policy`` / ``Roles``.
 from __future__ import annotations
 
 import collections.abc
+import dataclasses
 import logging
 import re
 import uuid
@@ -73,27 +74,37 @@ from terp.core._internal.discovery import iter_capability_specs
 from terp.core._internal.engine import get_engine
 from terp.core._internal.middleware import install_security_middleware
 from terp.core._internal.session_guard import read_only_request
-from terp.core.module_spec import ModuleSpec, Policy
+from terp.core.module_spec import ModuleSpec, Policy, decide
 from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
 from terp.core.routing import (
+    declared_route_policy,
     MUTATING_METHODS,
+    effective_policy,
     declared_operation,
     is_read_only,
+    iter_declaring_routes,
     request_method,
+    route_permission_names,
 )
 from terp.core.throttling import (
     InMemoryThrottleStore,
     ThrottleStore,
     is_shared_throttle_store,
 )
-from terp.core.permissions import PermissionModel, Role, as_role
+from terp.core.permissions import LabelCoverage, PermissionModel, Role, as_role
 
 _logger = logging.getLogger("terp.core")
 
 # The seam the access capability fills so the guard can enforce a permission as a
 # real per-subject grant: (session, subject_id, permission_name) -> holds it?
 PermissionEnforcer = Callable[[Session, uuid.UUID, str], bool]
+
+# The seam the access capability fills so a per-module role can raise a caller's authority
+# inside one module (ADR 0121): (session, subject_id, module_name) -> the highest rank that
+# subject holds in that module, over the expanded subject set, or 0 for none. Shaped like
+# ``PermissionEnforcer`` and wired the same way, so the kernel never imports the capability.
+ModuleRankResolver = Callable[[Session, uuid.UUID, str], int]
 
 
 class BootError(RuntimeError):
@@ -162,11 +173,38 @@ def enforces_token_revocation(provider: Callable[..., Principal | None]) -> bool
     return bool(getattr(provider, _TOKEN_REVOCATION_ATTR, False))
 
 
+def _declared_rank_only(rank: int, model: PermissionModel | None) -> int:
+    """The resolved module rank, or ``0`` when the app's ladder does not declare it.
+
+    Symmetry with the global role, which the guard already refuses when the model does not
+    register it. Without this the two disagreed in the dangerous direction: an unregistered
+    global role was denied outright, while a stored module rank at any integer cleared every
+    floor at or below it — so a row at rank 999 was full authority in that module though no
+    ladder declared such a rung.
+
+    ``validate_assignment`` refuses to *write* an undeclared rank, and that is not enough for
+    the same reason it was not enough for a refusing module: the guard must not trust the
+    table. A rank the app has since stopped declaring lands here too, and ``0`` is the answer
+    for it: the same value an absent assignment produces, so it clears whatever a missing rung
+    clears and nothing more, while the row stays visible to the views that report it stale.
+
+    Not "below every declarable rung" — nothing stops an app declaring one at rank ``0``, since
+    ``Role`` validates a name and not a number. It does not need to be: the floors a rank-``0``
+    rung could clear are the floors an absent one clears too, so collapsing the two changes no
+    decision. It does mean ``0`` carries no distinct authority anywhere in the system.
+    """
+    if model is None:
+        return rank
+    return rank if model.has_rank(rank) else 0
+
+
 def build_guard(
     policy: Policy,
     principal_provider: Callable[..., Principal | None] = get_principal,
     permission_enforcer: PermissionEnforcer | None = None,
     permission_model: PermissionModel | None = None,
+    module_name: str | None = None,
+    module_rank_resolver: ModuleRankResolver | None = None,
 ) -> Callable[..., None]:
     """Build a FastAPI dependency enforcing *policy* (deny-by-default).
 
@@ -188,28 +226,56 @@ def build_guard(
         principal: Principal | None = Depends(principal_provider),
         session: Session = Depends(get_session),
     ) -> None:
-        if policy.is_public:
-            return
-        if principal is None:
-            raise AuthenticationError()
-        if permission_model is not None and not permission_model.has_role(principal.role):
-            raise PermissionDeniedError()
         # ``HTTPConnection`` is the common Starlette base of Request and
         # WebSocket, so the SAME deny-by-default module guard protects both
         # transports. A WebSocket has no HTTP method after upgrade and defaults
         # to the write tier; a capability may apply finer per-message authority.
-        required = (
-            policy.write_requirement
-            if request_method(connection) in MUTATING_METHODS
-            else policy.read_requirement
+        #
+        # The matched route is in the scope before any dependency runs, so this one
+        # dependency can still hold each route to its OWN declared policy (ADR 0148)
+        # where it declares one. Resolved per request rather than per mount, because a
+        # router-level dependency is built once and serves every route under it.
+        # `getattr` rather than `connection.scope`: the guard is also called directly,
+        # with a stand-in connection, by tests that are about the decision and not about
+        # routing. A missing scope simply means no route was matched, which is exactly
+        # the case where the module policy is the only answer available.
+        scope = getattr(connection, "scope", None) or {}
+        applied = effective_policy(policy, getattr(scope.get("route"), "endpoint", None))
+        decision = decide(
+            applied,
+            method=request_method(connection),
+            role=None if principal is None else principal.role,
+            role_is_registered=(
+                permission_model is None
+                or principal is None
+                or permission_model.has_role(principal.role)
+            ),
+            # A callable, so the grant query is issued only if a permission requirement is
+            # actually reached: a role-only route still never touches the database.
+            holds_permission=(
+                None
+                if principal is None or permission_enforcer is None
+                else lambda name: permission_enforcer(session, principal.id, name)
+            ),
+            # Also a callable, and consulted only when the global rank falls short — a
+            # per-module role adds authority and never removes it, so a caller who already
+            # clears the floor cannot be changed by one and is not queried for.
+            module_rank=(
+                None
+                if principal is None
+                or module_rank_resolver is None
+                or module_name is None
+                else lambda: _declared_rank_only(
+                    module_rank_resolver(session, principal.id, module_name),
+                    permission_model,
+                )
+            ),
         )
-        if principal.role.rank < required.min_rank:
-            raise PermissionDeniedError()
-        if required.kind == "permission" and (
-            permission_enforcer is None
-            or not permission_enforcer(session, principal.id, required.name)
-        ):
-            raise PermissionDeniedError()
+        if decision.allowed:
+            return
+        if decision.reason == "unauthenticated":
+            raise AuthenticationError()
+        raise PermissionDeniedError()
 
     return guard
 
@@ -368,7 +434,7 @@ def _refuse_middleware_registration(name: str) -> Callable[..., None]:
     return refused
 
 
-def _freeze_app_middleware_registration(app: FastAPI) -> None:
+def freeze_app_middleware_registration(app: FastAPI) -> None:
     """Runtime half of ``no_adhoc_middleware``: no post-composition middleware.
 
     Cross-cutting HTTP security is declared once (``SecurityConfig`` + the
@@ -410,12 +476,12 @@ class _FrozenDependencyOverrides(dict):
     update = _refused
 
 
-def _freeze_dependency_overrides(app: FastAPI) -> None:
+def freeze_dependency_overrides(app: FastAPI) -> None:
     """Swap the composed app's override map for the refusing, read-only mapping."""
     app.dependency_overrides = _FrozenDependencyOverrides(app.dependency_overrides)
 
 
-def _freeze_app_route_registration(app: FastAPI) -> None:
+def freeze_app_route_registration(app: FastAPI) -> None:
     """The composition freeze: no post-composition registration surface, fail closed.
 
     Runtime half of ``no_raw_app_routes`` (and, through the two extensions below, of
@@ -433,12 +499,32 @@ def _freeze_app_route_registration(app: FastAPI) -> None:
         for method in _APP_ROUTE_MUTATORS:
             if hasattr(target, method):
                 setattr(target, method, _refuse_route_mutation(f"{target_name}.{method}"))
-    _freeze_app_middleware_registration(app)
+    freeze_app_middleware_registration(app)
     if get_settings().ENVIRONMENT != "local":
-        _freeze_dependency_overrides(app)
+        freeze_dependency_overrides(app)
 
 
-def _validate_requires(specs: Sequence[ModuleSpec]) -> None:
+# ---------------------------------------------------------------------------
+# The boot-time controls the Terp Standard names
+#
+# These thirteen are the fail-closed runtime half of two-layer rules, and the
+# Standard's catalog cites each one BY NAME as the `runtime` enforcement ref of
+# the rule it enforces (terp-spec, ADRs 0080/0081). That is why they carry no
+# leading underscore: a released artifact in another repository pins these
+# spellings, so renaming one is a breaking change to the Standard, not a local
+# refactor -- and, in the other direction, a private name is unusable by any
+# second implementation, which is the property stack-neutrality promises.
+#
+# They are NOT application API and are deliberately absent from
+# `terp.core.__all__`: an app author never calls one. `create_app` does, once,
+# at composition. Public here means "stable enough to be cited", not "for you".
+#
+# terp-spec's own suite refuses a runtime ref that names a private symbol, so
+# the class of drift this comment describes cannot come back silently.
+# ---------------------------------------------------------------------------
+
+
+def validate_requires(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed if any spec's declared ``requires`` are absent or cyclic.
 
     ``requires`` carries two meanings (ADR 0087): the thing you depend on must be
@@ -583,6 +669,80 @@ def _request_size_override_map(
     return overrides
 
 
+def _rate_limit_override_map(
+    specs: Sequence[ModuleSpec], config: SecurityConfig
+) -> dict[str, tuple[int, int]]:
+    """The path-prefix→(limit, window) map for the rate limiter (ADR 0138).
+
+    The rate-rate twin of :func:`_request_size_override_map`, and deliberately built
+    the same way: each **mounted** spec's declared ``rate_limit`` contributes prefixes
+    under its own ``/api/v1/<name>``, and a router-less spec is skipped because an
+    unrouted prefix has nothing to limit.
+
+    A module declares this when it knows something about its own traffic that the
+    application's general limit cannot — a credential check is memory-hard on purpose,
+    so such a route is the cheapest place on the surface to spend the server's CPU.
+    Installing the capability is then enough; there is no composition-root line to
+    remember and therefore none to forget.
+
+    The spec keys its declaration by route rather than by mount (ADR 0140), so what
+    lands here is one entry per declared route: the auth mount caps ``/login`` and
+    ``/token`` without capping ``/refresh``, which is a session probe rather than a
+    credential check and is called on every page load. ``"/"`` denotes the mount
+    itself and contributes the bare ``/api/v1/<name>``.
+
+    ``SecurityConfig.rate_limit_overrides`` wins over a capability's declaration for
+    every path it covers — not only on an identical key. The precedence is the same one
+    every other composition seam uses — the root overrides the package — and it matters
+    more here than elsewhere: a deployment that has measured its own login traffic must
+    be able to say so, and a capability's default is a floor it may move rather than a
+    decision taken away from it.
+
+    **Covering means covering, at any depth**, and that is the half this got wrong. The
+    limiter resolves by LONGEST matching prefix, so while the auth capability keyed its
+    declaration on the mount, an application override on ``/api/v1/auth`` was the same
+    dict key and replaced it. ADR 0140 re-keyed the capability by route — ``/login`` and
+    ``/token`` capped, ``/refresh`` not — and from that moment the capability's key was
+    the *longer* one, so the application's override stopped applying and did so
+    silently: declared, counted by nobody, no warning, no failing test. The promise in
+    the paragraph above had simply stopped being true for the one case it names. So a
+    root override now also DROPS the capability-declared keys beneath it, which is what
+    "the root overrides the package" has to mean when the package can key deeper than
+    the root does. An application that wants the capability's finer split back can
+    re-declare the routes it cares about; that is a decision it makes, rather than one
+    made for it by a sort order.
+    """
+    overrides: dict[str, tuple[int, int]] = {}
+    for spec in specs:
+        if spec.router is None:
+            continue
+        for route, limit in spec.rate_limit:
+            suffix = "" if route == "/" else route
+            overrides[f"/api/v1/{spec.name}{suffix}"] = (
+                limit.requests,
+                limit.window_seconds,
+            )
+    # Drop the CAPABILITY-declared keys an application override covers, and only those.
+    # Deleting out of `overrides` while layering the application's own entries into it
+    # would let a later, broader application override delete an earlier, narrower one:
+    # `(("/api/v1/auth/login", tight), ("/api/v1/auth", loose))` would silently lose the
+    # `/login` cap while the reverse order kept it. That is the same order-dependent
+    # silent loss this function exists to remove, landing on the very recovery path the
+    # ADR prescribes -- re-declaring the routes you care about -- so the two passes are
+    # kept apart: covered capability keys go first, then every application override is
+    # layered on, and longest-prefix resolution settles application against application.
+    app_prefixes = [prefix for prefix, _ in config.rate_limit_overrides]
+    for covered in [
+        key
+        for key in overrides
+        if any(key == prefix or key.startswith(prefix + "/") for prefix in app_prefixes)
+    ]:
+        del overrides[covered]
+    for prefix, limit in config.rate_limit_overrides:
+        overrides[prefix] = (limit.requests, limit.window_seconds)
+    return overrides
+
+
 def _validate_permission_enforcement(
     specs: Sequence[ModuleSpec], permission_enforcer: PermissionEnforcer | None
 ) -> None:
@@ -648,7 +808,7 @@ def _router_has_mutating_route(router: APIRouter) -> bool:
     return False
 
 
-def _validate_policy_write_tiers(specs: Sequence[ModuleSpec]) -> None:
+def validate_policy_write_tiers(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed when a write surface's Policy gates writes below its read tier.
 
     The universal runtime half of ``mutations_require_write_role`` (ADR 0006): the
@@ -675,6 +835,43 @@ def _validate_policy_write_tiers(specs: Sequence[ModuleSpec]) -> None:
             )
 
 
+#: Import prefix every shipped capability's routes are defined under. Used only to word
+#: an error message, never to import anything — ``terp.core`` sits below the
+#: capabilities and stays there (the keystone rule).
+_CAPABILITY_PREFIX = "terp.capabilities."
+
+
+def _missing_operation_repair(endpoint: object) -> str:
+    """The one repair that applies, for an operation the catalog does not carry.
+
+    The two cases have opposite fixes and an app hits the second far more often, so a
+    message hedging between them ("if it came from a capability … if it is your own …")
+    made the reader do the classification — and the capability half named a symbol
+    (``*NOTES_OPERATIONS``) that does not exist for an app's own module, which reads as
+    a broken suggestion rather than a conditional one.
+
+    Where the endpoint was *defined* settles it, and it needs no import: a capability
+    hand-writes its routers, so its endpoints live under ``terp.capabilities.<name>``,
+    while an app's own route — including one a CRUD factory generated, whose endpoint
+    lives in ``terp.core`` — does not. The capability name comes from that same module
+    path rather than from the operation id, because the path is what actually names the
+    package the aggregate is exported from.
+    """
+    module = getattr(endpoint, "__module__", "") or ""
+    if not module.startswith(_CAPABILITY_PREFIX):
+        return (
+            "Add its OperationDefinition to the catalog your control plane declares."
+        )
+    capability = module[len(_CAPABILITY_PREFIX) :].split(".", 1)[0]
+    return (
+        f"This is the {capability!r} capability's route, so fold that capability's whole "
+        f"set into the catalog — splat *{capability.upper()}_OPERATIONS from "
+        f"terp.capabilities.{capability} rather than naming its operations one at a "
+        "time, and a release that adds a route there cannot refuse this boot again "
+        "(ADR 0126)."
+    )
+
+
 def _route_label(spec: ModuleSpec, route: object) -> str:
     """Name one route so a reader can find it: module, method(s) and path.
 
@@ -687,32 +884,7 @@ def _route_label(spec: ModuleSpec, route: object) -> str:
     return f"{spec.name}:{verb} {getattr(route, 'path', '?')}"
 
 
-def _iter_declaring_routes(routes: Sequence[object]) -> Iterator[object]:
-    """Every route with an endpoint reachable from *routes*, HTTP or WebSocket.
-
-    Distinct from :func:`_iter_api_routes`, which yields only ``APIRoute`` because its
-    consumers are about response models and HTTP methods. A route's *operation* is not
-    an HTTP concept: ``@router.websocket(...)`` declares a mounted, callable surface
-    that a permission view must explain like any other, and this framework's own
-    realtime capability ships one.
-
-    Yielding only ``APIRoute`` here silently dropped those from both halves of the
-    control — an undeclared WebSocket passed STRICT, and an operation absent from the
-    catalog was accepted on a WebSocket while the identical declaration was refused on
-    a ``GET``. A guarantee described as unconditional cannot be conditional on the
-    route class.
-    """
-    for route in routes:
-        if isinstance(route, APIRoute | APIWebSocketRoute):
-            yield route
-            continue
-        nested = getattr(route, "original_router", None) or route
-        sub = getattr(nested, "routes", None)
-        if sub:
-            yield from _iter_declaring_routes(sub)
-
-
-def _validate_declared_operations(
+def validate_declared_operations(
     specs: Sequence[ModuleSpec], catalog: OperationCatalog
 ) -> None:
     """Fail closed on an operation that is not the catalog's, or a route missing one.
@@ -734,19 +906,29 @@ def _validate_declared_operations(
     for spec in specs:
         if spec.router is None:
             continue
-        for route in _iter_declaring_routes(spec.router.routes):
+        for route in iter_declaring_routes(spec.router.routes):
             declared = declared_operation(route.endpoint)
             if declared is None:
                 undeclared.append(_route_label(spec, route))
                 continue
             if not catalog.has_operation(declared):
+                registered = catalog.entry_for(declared.id)
+                if registered is None:
+                    raise BootError(
+                        f"module {spec.name!r} route {route.path!r} declares operation "
+                        f"{declared.id!r}, which this app's OperationCatalog does not "
+                        "carry. A route may only declare a registered entry, at every "
+                        "coverage level — so this refuses the boot even with coverage "
+                        f"OFF. {_missing_operation_repair(route.endpoint)}"
+                    )
                 raise BootError(
                     f"module {spec.name!r} route {route.path!r} declares operation "
-                    f"{declared.id!r}, which is not the entry registered in the "
-                    "control plane's OperationCatalog (an unknown id, or a same-id "
-                    "definition with different wording — either way the catalog is no "
-                    "longer the one source of truth). Reference the catalog constant "
-                    "rather than constructing an OperationDefinition at the route."
+                    f"{declared.id!r} with wording the catalog does not have — a "
+                    f"same-id shadow ({declared.label!r} at the route, "
+                    f"{registered.label!r} in the catalog), which would let a route "
+                    "present one wording while the catalog documents another. Reference "
+                    "the catalog constant rather than constructing an "
+                    "OperationDefinition at the route."
                 )
     if not undeclared:
         return
@@ -768,11 +950,118 @@ def _validate_declared_operations(
         )
 
 
+def _validate_module_rank_resolution(
+    specs: Sequence[ModuleSpec], resolver: ModuleRankResolver | None
+) -> None:
+    """Fail closed when a module declares itself assignable and nothing can resolve a rank.
+
+    The same shape and the same reasoning as the ``permission_enforcer`` check (ADR 0016 §3):
+    a declaration the runtime cannot act on is worse than no declaration, because the pane
+    would offer an administrator a rung to assign and every assignment would silently do
+    nothing. Caught at composition time rather than discovered when someone wonders why the
+    access they granted had no effect.
+    """
+    if resolver is not None:
+        return
+    assignable = sorted(
+        spec.name
+        for spec in specs
+        if spec.access is not None and spec.access.assignable
+    )
+    if assignable:
+        raise BootError(
+            f"modules {assignable} declare themselves assignable per module, but no "
+            "module_rank_resolver is installed, so a per-module role could be stored and "
+            "would never take effect. Pass module_rank_resolver=... (e.g. "
+            "terp.capabilities.access.resolve_module_rank), or drop the assignable "
+            "declaration from those modules."
+        )
+
+
+def _validate_route_permissions_are_declared(
+    specs: Sequence[ModuleSpec], plane: ControlPlane
+) -> None:
+    """Fail closed on a route requiring a permission the control plane never declared.
+
+    ``require_permission`` accepts a name as well as a typed ``Permission``, and
+    constructing a ``Permission`` does not register it — only membership in
+    ``PermissionModel(permissions=…)`` does. So a route could enforce ``reports.export``
+    while the control plane declared nothing of the sort, and two things followed that
+    nobody chose:
+
+    * ``terp grant add`` and the grants endpoint both validate against the declared
+      catalog, so the permission the route enforces could not be granted through either
+      sanctioned path — the route was permanently closed rather than fine-grained;
+    * every view of the access surface projects the declared catalog, so the requirement
+      was invisible to the permission viewer that exists to explain it.
+
+    ADR 0089 says its command "can only ever offer permissions this app really enforces".
+    That was the intent and the converse of the guarantee: everything offered was declared,
+    while something enforced could be undeclared. This closes it from the other side.
+
+    Unconditional, like the no-drift half of every other catalog: what is tunable elsewhere
+    is *coverage* (whether a declaration may be declined), never whether a declaration that
+    exists has to resolve.
+    """
+    undeclared: list[str] = []
+    for spec in specs:
+        if spec.router is None:
+            continue
+        for route in iter_declaring_routes(spec.router.routes):
+            # The resolved dependency tree, not `route.dependencies`: FastAPI enforces a
+            # `Depends(require_permission(...))` in the endpoint *signature* identically, and
+            # reading the shorter list made this gate evadable by moving the dependency there.
+            for name in route_permission_names(route):
+                if not plane.permissions.declares(name):
+                    undeclared.append(f"{_route_label(spec, route)} requires {name!r}")
+    if undeclared:
+        raise BootError(
+            "these routes require a permission the control plane does not declare: "
+            f"{sorted(undeclared)}. Declare each in the PermissionModel and reference the "
+            "constant at the route; a permission nothing declares cannot be granted through "
+            "terp grant or the access API, so the route is closed rather than fine-grained."
+        )
+
+
+def _validate_permission_labels(plane: ControlPlane) -> None:
+    """Fail closed on a declared permission carrying no label, under STRICT coverage.
+
+    The permission half of the same promise ADR 0102 makes for routes. A permission editor
+    renders one row per declared permission to someone deciding whether to grant it, and
+    ``notes.delete`` is not an explanation of what granting it does — it is an identifier
+    that happens to be readable. ``STRICT`` is the state in which the pane can promise every
+    row is explained.
+
+    Staged exactly like operation coverage, and for the same reason its own docstring gives:
+    ``OFF`` is the default so an app that has declared permissions without labels boots
+    unchanged, and ``WARN`` says what ``STRICT`` would refuse rather than being
+    indistinguishable from ``OFF``.
+    """
+    unlabelled = plane.permissions.unlabelled_permissions()
+    if not unlabelled:
+        return
+    names = sorted(permission.name for permission in unlabelled)
+    if plane.permissions.label_coverage is LabelCoverage.STRICT:
+        raise BootError(
+            "permission label coverage is STRICT but these declared permissions carry no "
+            f"label: {names}. Give each a label saying what holding it buys (e.g. "
+            'Permission("notes.delete", min_role=EDITOR, label="Delete a note someone '
+            'else wrote")), or set label_coverage on the permission model to WARN '
+            "while they are written."
+        )
+    if plane.permissions.label_coverage is LabelCoverage.WARN:
+        _logger.warning(
+            "permission label coverage is WARN: %d declared permission(s) carry no label: %s",
+            len(names),
+            names,
+        )
+
+
 def _apply_declared_operations(specs: Sequence[ModuleSpec]) -> None:
     """Populate a declaring route's OpenAPI ``summary`` / ``operation_id`` (ADR 0102 §4),
     and refuse a hand-written ``summary=`` beside a declared operation.
 
-    Must run after :func:`_validate_declared_operations`, so every operation reaching
+    Must run after :func:`validate_declared_operations`, so every operation reaching
     here is already confirmed to be the catalog's own entry -- this function only
     applies it, it does not re-check membership. Only ``APIRoute`` carries
     ``summary`` / ``operation_id`` in OpenAPI; a declared operation on a WebSocket
@@ -824,21 +1113,69 @@ def _apply_declared_operations(specs: Sequence[ModuleSpec]) -> None:
             route.operation_id = declared.id
 
 
-def _validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
+def _validate_public_routes_are_declared(specs: Sequence[ModuleSpec]) -> None:
+    """Every route in a public module must declare its own policy (ADR 0148).
+
+    A module ``Policy`` covers its whole router, so ``Policy.public`` admitted every route
+    under it — the ones that genuinely must be reachable without a token, and any route
+    added beside them afterwards. Nothing announced the second case: an author adding an
+    endpoint to the auth module got an unauthenticated one and no diagnostic, because
+    public was a property of the neighbourhood rather than of the route.
+
+    So a public module now has to say so once per route. Every one of them ends up marked
+    ``route_policy(Policy.public...)``, which looks like ceremony until the next route
+    arrives: that one fails at boot instead of being quietly published. The check is for
+    the *absence* of a declaration, so it cannot be satisfied by accident, and it is only
+    asked of public modules — a protected module's routes inherit a safe default and need
+    no ritual.
+    """
+    for spec in specs:
+        policy = spec.policy
+        if policy is None or not policy.is_public or spec.router is None:
+            continue
+        # `iter_declaring_routes`, not `_iter_api_routes`: the latter yields HTTP routes
+        # only, and a WebSocket is exactly the route that must not be quietly public --
+        # it has no method after the upgrade, so the guard treats it as a write.
+        for route in iter_declaring_routes(spec.router.routes):
+            if declared_route_policy(getattr(route, "endpoint", None)) is not None:
+                continue
+            raise BootError(
+                f"module {spec.name!r} is public and route "
+                f"{getattr(route, 'path', '?')!r} declares no "
+                "policy of its own; a public module admits nobody by neighbourhood -- "
+                "mark the route route_policy(Policy.public(reason=...)) (or "
+                "Policy.public_write(...)) if it must be reachable without a token, or "
+                "route_policy(Policy.default()) if it must not"
+            )
+
+
+def validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed when a public router exposes writes without the stronger opt-out."""
     for spec in specs:
         policy = spec.policy
         if policy is None or not policy.is_public or spec.router is None:
             continue
-        if _router_has_mutating_route(spec.router) and not policy.allows_public_writes:
+        for route in _iter_api_routes(spec.router.routes):
+            if not MUTATING_METHODS & {m.upper() for m in (route.methods or ())}:
+                continue
+            # The route's own policy where it has one: a route that declared itself
+            # protected inside a public module is not an unauthenticated write, and
+            # measuring it against the module's policy would demand an opt-out for a
+            # door that is shut.
+            applied = effective_policy(policy, route.endpoint)
+            if applied is None or not applied.is_public:
+                continue
+            if applied.allows_public_writes:
+                continue
             raise BootError(
-                f"module {spec.name!r} is public but exposes a mutating route; "
-                "unauthenticated writes require Policy.public_write(reason=...) so the "
-                "runtime opt-out is explicit and greppable"
+                f"module {spec.name!r} exposes the unauthenticated mutating route "
+                f"{route.path!r}; unauthenticated writes require "
+                "Policy.public_write(reason=...) so the runtime opt-out is explicit "
+                "and greppable"
             )
 
 
-def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) -> None:
+def validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) -> None:
     """Refuse a module job that can mutate an unowned CRUD model.
 
     Background work can run without an originating user and then uses the control-plane
@@ -1030,6 +1367,150 @@ def _warn_unshared_idempotency_in_production(
     )
 
 
+def _warn_loosened_capability_limit_in_production(
+    specs: Sequence[ModuleSpec], config: SecurityConfig
+) -> None:
+    """Say out loud, once, which capability rate limits this deployment has raised.
+
+    A capability declares its own limit when it knows something about its traffic the
+    application cannot — a credential route runs a memory-hard hash on the miss path,
+    which makes it the cheapest place on the surface to spend the server's CPU. An
+    application may still move that number: it is a floor, not a decision taken away
+    from it, and a deployment that has measured its own login traffic must be able to
+    say so.
+
+    But the move is now EFFECTIVE where it previously was not. While the auth capability
+    keyed its declaration on the mount, an application override on the same prefix
+    replaced it; once the capability keyed by route (ADR 0140) the longest-prefix
+    resolution made the capability's key win, so an override on the mount silently did
+    nothing. Restoring the documented precedence restores a real lever — and a real
+    lever pointed at a credential limit is worth one line in the log rather than none.
+
+    Not a refusal: raising the number is legitimate and `production_problems` already
+    refuses the one move that is not (disabling it). This states the property the
+    deployment is actually running with, which is the same bargain
+    :func:`_warn_unshared_idempotency_in_production` strikes.
+    """
+    declared: dict[str, RateLimit] = {}
+    for spec in specs:
+        if spec.router is None:
+            continue
+        for route, limit in spec.rate_limit:
+            suffix = "" if route == "/" else route
+            declared[f"/api/v1/{spec.name}{suffix}"] = limit
+    # Keyed on the prefix alone: `RateLimit` is a frozen dataclass without `order=True`,
+    # so two entries sharing a prefix would fall through to comparing `RateLimit`s and
+    # raise `TypeError` at production boot instead of anything a reader can act on.
+    for prefix, limit in sorted(config.rate_limit_overrides, key=lambda item: item[0]):
+        loosened = sorted(
+            key
+            for key, capped in declared.items()
+            # Compare RATES, not counts. Both sides carry their own window and the two
+            # need not match, so `requests > requests` reads 30/1s as no change against a
+            # capability's 30/60s -- a sixtyfold loosening of a credential route, silent
+            # in the one place the notice exists to speak. Integer cross-multiplication,
+            # so no float rounding decides whether a security notice fires.
+            if (key == prefix or key.startswith(prefix + "/"))
+            and limit.requests * capped.window_seconds
+            > capped.requests * limit.window_seconds
+        )
+        if loosened:
+            _logger.warning(
+                "rate limit for %s is raised to %d/%ds by this application, above the "
+                "limit the capability declared for %s. That is a supported move — the "
+                "capability's number is a floor — but on a credential route it is also "
+                "the cheapest place on the surface to spend CPU, so it is stated here "
+                "rather than left to be discovered.",
+                prefix,
+                limit.requests,
+                limit.window_seconds,
+                ", ".join(loosened),
+            )
+
+
+def _warn_unshared_throttle_in_production(
+    throttle_store: ThrottleStore | None, require_shared_throttle_store: bool
+) -> None:
+    """Say out loud, once, that the rate limit and login lockout are per-worker here.
+
+    The sibling of :func:`_warn_unshared_idempotency_in_production`, and it should
+    always have been one. That function exists because a promise ("this mutation runs
+    once") quietly becomes false on the second replica with nothing to announce it. The
+    throttle store carries two promises of exactly that shape and had no such line: the
+    request rate limit, and the per-account failed-login lockout. Both are counters in
+    this store, so N workers enforce N times the configured allowance — a 5-attempt
+    lockout becomes 5 × N attempts against one account, which is the control least able
+    to afford a silent multiplier.
+
+    It is a warning rather than a refusal for the same reason the idempotency one is: a
+    per-instance store is *correct* for a single-instance deployment, and refusing it
+    would break something that is not wrong. What was missing was the sentence that
+    makes the property visible before someone scales, and names the flag that turns it
+    into a boot-time guarantee.
+    """
+    if require_shared_throttle_store or is_shared_throttle_store(throttle_store):
+        return
+    _logger.warning(
+        "the rate limit and the login lockout are counted PER WORKER in this "
+        "deployment: the configured throttle_store is not a shared, multi-instance "
+        "backend. This is correct for a single instance; run more than one and each "
+        "worker enforces its own allowance, so the effective request cap and the "
+        "per-account failed-login threshold are both multiplied by the worker count. "
+        "Wire a shared store marked via terp.core.mark_shared_throttle_store(...) and "
+        "pass create_app(require_shared_throttle_store=True) to make that a boot-time "
+        "guarantee instead of a warning."
+    )
+
+
+def _with_settings_job_actor(plane: ControlPlane) -> ControlPlane:
+    """Fill an unset ``job_system_actor_id`` from ``JOB_SYSTEM_ACTOR_ID`` (ADR 0129).
+
+    ADR 0125 established that a declared job must name the actor its writes are
+    stamped with, and refused a platform-wide sentinel: an FK-less constant would
+    store fine and resolve to no principal anywhere, which is the same defect wearing
+    a value. That reasoning is about the *default*, and it left the *delivery* to every
+    app — so each one that declared a job hand-rolled the same env read, UUID parse and
+    error path for a fact that is not a source constant at all. The id belongs to a
+    service principal in a particular database, and one image runs against several.
+
+    So the settings object carries the conventional address and this is where it lands.
+    An explicit ``ControlPlane(job_system_actor_id=...)`` still wins, because an app
+    that resolves the principal some other way must keep saying so. Unset in both
+    places is unchanged from before: ``production_problems`` reports it and production
+    refuses the boot.
+
+    Runs before that refusal is read, which is the whole point — resolving afterwards
+    would refuse a boot over a value the process already had.
+    """
+    if plane.job_system_actor_id is not None:
+        return plane
+    from_settings = get_settings().JOB_SYSTEM_ACTOR_ID
+    if from_settings is None:
+        return plane
+    return dataclasses.replace(plane, job_system_actor_id=from_settings)
+
+
+def _warn_unstamped_background_writes(plane: ControlPlane) -> None:
+    """Say plainly, outside production, that a declared job writes rows with no actor.
+
+    The development half of the provenance control. Production refuses this state
+    outright (:meth:`~terp.core.ControlPlane.production_problems`); the inner loop keeps
+    booting, because a developer who has not wired a system principal yet should not be
+    blocked by one. But the row their nightly tick just wrote is unattributed either way
+    and nothing else in the system will ever mention it, so the warning names the field
+    and says what production does with the same state — the shape the
+    unshared-idempotency warning already uses for its flag.
+    """
+    problems = plane.production_problems()
+    if not problems:
+        return
+    _logger.warning(
+        "background writes are UNSTAMPED in this deployment: %s. A production boot is "
+        "REFUSED in this state.",
+        "; ".join(problems),
+    )
+
+
 def _validate_durable_jobs(
     job_queue: JobQueue | None, require_durable_jobs: bool
 ) -> None:
@@ -1194,7 +1675,7 @@ def _endpoint_returns_raw_response(endpoint: Callable[..., object]) -> bool:
     return isinstance(annotation, type) and issubclass(annotation, Response)
 
 
-def _validate_routes_declare_response_model(route: APIRoute) -> None:
+def validate_routes_declare_response_model(route: APIRoute) -> None:
     """Boot half of ``backend/routes_declare_response_model`` (Terp Standard).
 
     A content route with no declared ``response_model`` can serialize a bare ORM/data
@@ -1218,7 +1699,7 @@ def _validate_routes_declare_response_model(route: APIRoute) -> None:
     )
 
 
-def _validate_schemas_exclude_sensitive_fields(route: APIRoute) -> None:
+def validate_schemas_exclude_sensitive_fields(route: APIRoute) -> None:
     """Boot half of ``backend/schemas_exclude_sensitive_fields`` (Terp Standard).
 
     Every pydantic model referenced by the route's ``response_model`` (the DTO itself,
@@ -1244,7 +1725,7 @@ def _validate_schemas_exclude_sensitive_fields(route: APIRoute) -> None:
                 )
 
 
-def _validate_list_routes_paginate(route: APIRoute) -> None:
+def validate_list_routes_paginate(route: APIRoute) -> None:
     """Boot half of ``backend/list_routes_paginate`` (Terp Standard).
 
     A ``response_model`` that is a bare collection (``list`` / ``list[...]`` /
@@ -1264,7 +1745,7 @@ def _validate_list_routes_paginate(route: APIRoute) -> None:
         )
 
 
-def _validate_router_response_models(router: APIRouter) -> None:
+def validate_router_response_models(router: APIRouter) -> None:
     """Fail closed if a route on *router* violates a response-boundary rule.
 
     The boot-time route scan over the **composed** route table -- covering routes
@@ -1286,11 +1767,11 @@ def _validate_router_response_models(router: APIRouter) -> None:
     ``terp.arch`` rule (the two-layer story, ADR 0084). The positional-tuple rule
     (``schemas_avoid_positional_tuples``) is *not* a per-route check: it validates
     the generated OpenAPI document after the whole app is composed
-    (:func:`_reject_positional_tuple_schemas`), because the wire shape is the
+    (:func:`reject_positional_tuple_schemas`), because the wire shape is the
     offence and the document is where the wire shape lives.
     """
     for route in _iter_api_routes(router.routes):
-        _validate_routes_declare_response_model(route)
+        validate_routes_declare_response_model(route)
         if route.response_model is None:
             continue
         for tp in _referenced_response_types(route.response_model):
@@ -1300,8 +1781,8 @@ def _validate_router_response_models(router: APIRouter) -> None:
                     "response_model; a persisted model serializes every column (e.g. a "
                     "password hash) -- return a *Read DTO (terp.core.BaseSchema) instead"
                 )
-        _validate_schemas_exclude_sensitive_fields(route)
-        _validate_list_routes_paginate(route)
+        validate_schemas_exclude_sensitive_fields(route)
+        validate_list_routes_paginate(route)
 
 
 #: Keys whose contents are data values, not schema — a payload in ``examples``
@@ -1389,7 +1870,7 @@ def _mount_root_signpost(app: FastAPI, *, title: str, docs: bool) -> None:
         )
 
 
-def _reject_positional_tuple_schemas(app: FastAPI) -> None:
+def reject_positional_tuple_schemas(app: FastAPI) -> None:
     """Boot half of ``backend/schemas_avoid_positional_tuples`` (Terp Standard).
 
     A fixed-length tuple annotation serialises into the OpenAPI document as a
@@ -1437,6 +1918,7 @@ def create_app(
     audit_sink: AuditSink | None = None,
     event_dispatcher: EventDispatcher | None = None,
     permission_enforcer: PermissionEnforcer | None = None,
+    module_rank_resolver: ModuleRankResolver | None = None,
     middleware: Sequence[Middleware] | None = None,
     migration_check: Callable[[Engine], None] | None = None,
     require_token_revocation: bool = False,
@@ -1546,6 +2028,10 @@ def create_app(
     is boot-validated against it (an undeclared job fails the boot, like a policy / event
     reference). The control plane's ``job_system_actor_id`` is the stand-in actor a job
     runs as when no user originated it, so a job's writes are never silently unstamped.
+    That promise holds only while the field is set, so it is enforced rather than
+    assumed: a production boot declaring a job or a schedule without one is **refused**
+    (:meth:`~terp.core.ControlPlane.production_problems`), and outside production the
+    boot warns that the rows are going in unattributed.
 
     *require_durable_jobs* makes durability a boot requirement: when ``True``, boot fails
     closed unless *job_queue* is a backend marked durable via ``mark_durable_job_queue`` —
@@ -1610,8 +2096,8 @@ def create_app(
             raise BootError(f"capability discovery failed: {exc}") from exc
 
     _validate_unique_spec_names(collected)
-    _validate_requires(collected)
-    resolved_plane = control_plane or ControlPlane.default()
+    validate_requires(collected)
+    resolved_plane = _with_settings_job_actor(control_plane or ControlPlane.default())
     plane_errors = resolved_plane.validation_errors(collected)
     if plane_errors:
         raise BootError("; ".join(plane_errors))
@@ -1619,11 +2105,18 @@ def create_app(
     _validate_subscriptions_have_handlers(collected)
     _validate_no_inert_declarations(collected)
     _validate_token_revocation(principal_provider, require_token_revocation)
-    _validate_policy_write_tiers(collected)
-    _validate_public_modules_read_only(collected)
-    _validate_declared_operations(collected, resolved_plane.operations)
+    validate_policy_write_tiers(collected)
+    # Private, unlike its neighbours: ADR 0148's control is not cited by the Terp
+    # Standard's catalog as a runtime enforcement ref, so it carries no promise of a
+    # stable spelling and takes the underscore the others had to give up.
+    _validate_public_routes_are_declared(collected)
+    validate_public_modules_read_only(collected)
+    validate_declared_operations(collected, resolved_plane.operations)
     _apply_declared_operations(collected)
-    _validate_background_jobs_preserve_ownership(collected)
+    _validate_route_permissions_are_declared(collected, resolved_plane)
+    _validate_module_rank_resolution(collected, module_rank_resolver)
+    _validate_permission_labels(resolved_plane)
+    validate_background_jobs_preserve_ownership(collected)
     _validate_shared_throttle_store(throttle_store, require_shared_throttle_store)
     _validate_durable_jobs(job_queue, require_durable_jobs)
     _validate_shared_cache_store(cache_store, require_shared_cache_store)
@@ -1635,15 +2128,21 @@ def create_app(
         _warn_unshared_idempotency_in_production(
             idempotency_store, require_shared_idempotency_store
         )
+        _warn_unshared_throttle_in_production(throttle_store, require_shared_throttle_store)
+        _warn_loosened_capability_limit_in_production(collected, resolved_plane.security)
         security_problems = resolved_plane.security.production_problems()
         if security_problems:
             raise BootError(
-                "insecure production security config: " + "; ".join(security_problems)
+                "insecure production security config: "
+                + "; ".join(security_problems)
+                + " — see: terp guide security"
             )
         password_problems = resolved_plane.passwords.production_problems()
         if password_problems:
             raise BootError(
-                "insecure production password policy: " + "; ".join(password_problems)
+                "insecure production password policy: "
+                + "; ".join(password_problems)
+                + " — see: terp guide passwords"
             )
         if resolved_plane.audit.enabled and not is_durable_audit_sink(audit_sink):
             raise BootError(
@@ -1652,6 +2151,13 @@ def create_app(
                 "the durable audit capability (e.g. terp.capabilities.audit.persist_audit) "
                 "or turn audit off explicitly with AuditPolicy.disabled(reason=...)"
             )
+        plane_problems = resolved_plane.production_problems()
+        if plane_problems:
+            raise BootError(
+                "unattributable background writes: " + "; ".join(plane_problems)
+            )
+    else:
+        _warn_unstamped_background_writes(resolved_plane)
 
     if migration_check is not None:
         migration_check(get_engine())
@@ -1690,6 +2196,7 @@ def create_app(
             idempotency_store if idempotency_store is not None else InMemoryIdempotencyStore()
         ),
         request_size_overrides=_request_size_override_map(collected, request_size_overrides),
+        rate_limit_overrides=_rate_limit_override_map(collected, resolved_plane.security),
     )
     if principal_provider is not get_principal:
         app.dependency_overrides[get_principal] = principal_provider
@@ -1700,7 +2207,7 @@ def create_app(
         if spec.policy is None:
             raise BootError(f"module {spec.name!r} declares no Policy (deny-by-default)")
         if spec.router is not None:
-            _validate_router_response_models(spec.router)
+            validate_router_response_models(spec.router)
             app.include_router(
                 spec.router,
                 prefix=f"/api/v1/{spec.name}",
@@ -1711,6 +2218,20 @@ def create_app(
                             principal_provider,
                             permission_enforcer,
                             resolved_plane.permissions,
+                            spec.name,
+                            # Only a module that DECLARED itself assignable gets a resolver, so
+                            # the declaration is a gate at the decision point rather than a
+                            # convention the writer happens to honour. Without this, a
+                            # `ModuleRole` row naming a `platform_only` module — or one that
+                            # never opted in — elevated the caller anyway: `validate_assignment`
+                            # refuses to create such a row, but the guard read whatever was
+                            # there, so any other write path (a seed, a migration, a future
+                            # endpoint, a bug) turned a refused declaration into admin in
+                            # `users` or `access`. It also makes the stale reporting honest: a
+                            # row every view calls stale now genuinely does nothing.
+                            module_rank_resolver
+                            if spec.access is not None and spec.access.assignable
+                            else None,
                         )
                     ),
                     audit_actor_binder,
@@ -1724,14 +2245,14 @@ def create_app(
     # The contract-shape gate runs against the finished document — after every
     # module router, capability router, and the health router are mounted — so
     # nothing that serialises into the contract can arrive after it looked.
-    _reject_positional_tuple_schemas(app)
+    reject_positional_tuple_schemas(app)
     # Introspection seam (a view, never a control — ADR 0011): record the specs this
     # app actually mounted (client modules AND every discovered capability router) and
     # its resolved control plane, so ``terp inspect access --app`` can project the WHOLE
     # guarded surface instead of a hand-passed module list — no mounted route can hide.
     app.state.terp_module_specs = tuple(collected)
     app.state.terp_control_plane = resolved_plane
-    _freeze_app_route_registration(app)
+    freeze_app_route_registration(app)
     return app
 
 

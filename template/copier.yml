@@ -28,7 +28,15 @@ _templates_suffix: .jinja
 #   layout-contract.json  the app's shell, palette and navigation groups. The template's
 #                         is `{"contract": "standard"}`, so restoring it un-declares all
 #                         of them at once.
+#   control_plane/app_operations.py  what the app's OWN routes do. The template's is an
+#                         empty tuple, so an update would un-declare every operation the
+#                         app has -- and a STRICT catalog then refuses the boot of every
+#                         route that declares one. It exists because the catalog next
+#                         door IS template-owned: while both halves shared that file,
+#                         every re-render conflicted in it for any app with routes of
+#                         its own, which is every app (ADR 0130).
 _skip_if_exists:
+  - control_plane/app_operations.py
   - frontend/src/routes.gen.d.ts
   - environment.schema.json
   - escape-hatch-budget.json

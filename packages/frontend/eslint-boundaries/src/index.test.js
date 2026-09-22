@@ -152,6 +152,122 @@ describe("terpBoundaries", () => {
     );
   });
 
+  it("flags raw navigator.clipboard (the seam feature-detects; the API does not)", async () => {
+    // Every spelling reaches the same undefined on an http origin. The direct call is
+    // the one that gets written; the others are what it becomes when someone "tidies"
+    // it, and a rule that missed them would push the defect around rather than out.
+    expect(await lint('export const c = () => navigator.clipboard.writeText("x");')).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const c = () => navigator.clipboard.readText();")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint('export const c = () => navigator["clipboard"].writeText("x");')).toContain(
+      "no-restricted-syntax",
+    );
+    expect(
+      await lint('export const c = () => window.navigator.clipboard.writeText("x");'),
+    ).toContain("no-restricted-syntax");
+    expect(
+      await lint('export const c = () => globalThis["navigator"].clipboard.writeText("x");'),
+    ).toContain("no-restricted-syntax");
+    // Bound to a name rather than called: the throw already happened on the lookup.
+    expect(await lint("export const c = navigator.clipboard;")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const { clipboard } = navigator;")).toContain(
+      "no-restricted-syntax",
+    );
+  });
+
+  it("accepts the react-core clipboard seam", async () => {
+    // The other half of the rule: it must be satisfiable. A rule whose only compliant
+    // program is one that does not copy anything would be obeyed by dropping the
+    // feature -- so this asserts the sanctioned import is clean, not merely unflagged
+    // by the clipboard selector.
+    expect(
+      await lint(
+        'import { useCopyToClipboard } from "@terpjs/react-core";\n' +
+          "export const useCopy = () => useCopyToClipboard();",
+      ),
+    ).toEqual([]);
+    // A property named `clipboard` on something that is not `navigator` is not this
+    // defect, and flagging it would make the rule a word filter.
+    expect(await lint("export const pick = (o) => o.clipboard;")).toEqual([]);
+  });
+
+  it("refuses crypto.randomUUID in every spelling that binds the same undefined", async () => {
+    // Secure-context-only, declared unconditionally by lib.dom: on an http origin each of
+    // these is a synchronous TypeError that type-checks cleanly and never fires on
+    // localhost, so neither tsc nor CI ever sees it.
+    expect(await lint("export const id = () => crypto.randomUUID();")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint('export const id = () => crypto["randomUUID"]();')).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const id = () => window.crypto.randomUUID();")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const id = () => globalThis.crypto.randomUUID();")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const id = () => self.crypto.randomUUID();")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(
+      await lint('export const id = () => globalThis["crypto"].randomUUID();'),
+    ).toContain("no-restricted-syntax");
+    // Bound rather than called: the reference is already the broken one.
+    expect(await lint("export const gen = crypto.randomUUID;")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await lint("export const { randomUUID } = crypto;")).toContain(
+      "no-restricted-syntax",
+    );
+  });
+
+  it("accepts the react-core uuid seam, and the API that is not gated", async () => {
+    expect(
+      await lint(
+        'import { randomUuid } from "@terpjs/react-core";\nexport const id = () => randomUuid();',
+      ),
+    ).toEqual([]);
+    // getRandomValues is NOT secure-context-gated, so it is not this defect and the seam
+    // itself is built on it. Flagging it would make the rule a word filter on "crypto".
+    expect(
+      await lint("export const bytes = () => crypto.getRandomValues(new Uint8Array(16));"),
+    ).toEqual([]);
+    // And a `randomUUID` on something that is not `crypto` is somebody else's function.
+    expect(await lint("export const id = (lib) => lib.randomUUID();")).toEqual([]);
+  });
+
+  it("honours the uuid rule's declared escape hatch, and only its own name", async () => {
+    const call = "export const id = () => crypto.randomUUID();";
+    expect(
+      await lint(`// terp-allow-no-raw-random-uuid: https-only admin origin\n${call}`),
+    ).toEqual([]);
+    const wrong = await lint(`// terp-allow-no-random-uuid: typo\n${call}`);
+    expect(wrong).toContain("no-restricted-syntax");
+  });
+
+  it("honours the clipboard rule's declared escape hatch, and only its own name", async () => {
+    // The catalog entry declares `// terp-allow-no-raw-clipboard: <reason>`, and a
+    // declared opt-out that does not actually suppress is a false promise in the
+    // Standard. Asserted here rather than trusted: the marker resolves through the
+    // catalog rule name, not the ESLint rule id, and several catalog rules share
+    // `no-restricted-syntax` — so this could have silently waived a sibling or nothing.
+    const call = 'export const c = () => navigator.clipboard.writeText("x");';
+    expect(await lint(`// terp-allow-no-raw-clipboard: legacy embed target\n${call}`)).toEqual(
+      [],
+    );
+    // A near-miss name must not waive it, and is itself reported as an unjustified
+    // marker — otherwise a typo would read as compliance.
+    const wrong = await lint(`// terp-allow-no-clipboard: typo\n${call}`);
+    expect(wrong).toContain("no-restricted-syntax");
+    expect(wrong).toContain("terp/escape-hatch");
+  });
+
   it("flags raw browser streaming/beacon request primitives (generated client only)", async () => {
     expect(await lint('export const open = () => new WebSocket("wss://example.com");')).toContain(
       "no-restricted-globals",

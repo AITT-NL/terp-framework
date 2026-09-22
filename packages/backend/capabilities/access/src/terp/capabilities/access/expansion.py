@@ -25,12 +25,45 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 
 from sqlmodel import Session
 
 # Maps one subject to the additional subject ids whose grants it inherits
 # (e.g. a user -> the ids of the groups the user belongs to).
-SubjectExpander = Callable[[Session, uuid.UUID], Iterable[uuid.UUID]]
+SubjectExpander = Callable[[Session, uuid.UUID], Iterable["uuid.UUID | SubjectRef"]]
+
+
+@dataclass(frozen=True)
+class SubjectRef:
+    """One expanded subject, with *why* it is in the set attached.
+
+    An expander has always known the answer to "why is this subject in play?" and thrown it
+    away on the way out: the groups expander looks up memberships and returns bare ids, so a
+    report explaining an effective right had to re-derive the membership itself, and could
+    only ever name subjects it had already fetched.
+
+    Additive on purpose. An expander may still return plain ``uuid.UUID`` — the groups
+    capability did for its whole life and apps will have their own — and
+    :func:`subject_ids_for` projects ids either way, so nothing on the request path changes.
+    Only a caller that wants the attribution asks for it, through
+    :func:`subject_refs_for`.
+    """
+
+    id: uuid.UUID
+    #: A stable slug for the *sort* of subject: ``group``, ``self``, or whatever an app's own
+    #: expander names. Dispatched on by a view, so never prose.
+    kind: str
+    #: What to call it in an explanation, where the expander knows. ``None`` when it does not,
+    #: which a view renders as the bare id rather than inventing a label.
+    name: str | None = None
+
+
+def _as_ref(value: uuid.UUID | SubjectRef) -> SubjectRef:
+    """Normalise whatever an expander returned into an attributed ref."""
+    if isinstance(value, SubjectRef):
+        return value
+    return SubjectRef(id=value, kind="subject", name=None)
 
 _expanders: list[SubjectExpander] = []
 
@@ -52,16 +85,39 @@ def reset_subject_expanders() -> None:
 
 
 def subject_ids_for(session: Session, subject_id: uuid.UUID) -> set[uuid.UUID]:
-    """The full subject set whose grants *subject_id* holds: itself + every expansion."""
+    """The full subject set whose grants *subject_id* holds: itself + every expansion.
+
+    The decision path. Ids only, and deliberately: an authorization check has no use for a
+    label, and building one would put string work on every guarded request.
+    """
     subjects = {subject_id}
     for expander in _expanders:
-        subjects.update(expander(session, subject_id))
+        subjects.update(_as_ref(value).id for value in expander(session, subject_id))
     return subjects
+
+
+def subject_refs_for(session: Session, subject_id: uuid.UUID) -> tuple[SubjectRef, ...]:
+    """The same set, attributed — the explanation path.
+
+    Starts with the subject itself as ``self``, so a report can say "held directly" in the
+    same vocabulary it says "via the group Engineering". Never called by the guard.
+    """
+    refs = [SubjectRef(id=subject_id, kind="self", name=None)]
+    seen = {subject_id}
+    for expander in _expanders:
+        for value in expander(session, subject_id):
+            ref = _as_ref(value)
+            if ref.id not in seen:
+                seen.add(ref.id)
+                refs.append(ref)
+    return tuple(refs)
 
 
 __all__ = [
     "SubjectExpander",
+    "SubjectRef",
     "register_subject_expander",
     "reset_subject_expanders",
     "subject_ids_for",
+    "subject_refs_for",
 ]

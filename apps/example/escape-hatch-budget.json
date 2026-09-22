@@ -1,3 +1,4 @@
 {
+  "arch-allow-no-hardcoded-credentials": 1,
   "arch-allow-no-manual-ownership-checks": 1
 }

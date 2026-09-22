@@ -3,7 +3,7 @@
 # Built from the REPOSITORY ROOT (docker-compose.yml sets `context: ../..`), because it
 # installs the framework packages from packages/ and runs the app code from apps/example.
 # The same image backs the one-shot `migrate` + `seed` services and the `api` server.
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 # uv: fast, workspace-aware installs for the example app image.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv

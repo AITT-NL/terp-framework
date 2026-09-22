@@ -23,7 +23,7 @@ import uuid
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field
 
-from terp.core import BaseTable
+from terp.core import BaseTable, OnDelete, Ref
 
 
 class Group(BaseTable, table=True):
@@ -39,5 +39,11 @@ class GroupMember(BaseTable, table=True):
         UniqueConstraint("group_id", "user_id", name="uq_user_group_member_group_user"),
     )
 
-    group_id: uuid.UUID = Field(foreign_key="user_group.id", index=True)
+    # The membership's lifecycle is owned by GroupsService, not by the database:
+    # deleting a group drains its memberships through the audited chokepoint first,
+    # inside the same write unit, so every removal is audited. A database CASCADE
+    # would delete the same rows silently and leave the trail with a hole in it, so
+    # the declared action is NO_ACTION -- the database takes none, and the service
+    # says why (ADR 0133).
+    group_id: uuid.UUID = Ref("user_group.id", on_delete=OnDelete.NO_ACTION)
     user_id: uuid.UUID = Field(index=True)

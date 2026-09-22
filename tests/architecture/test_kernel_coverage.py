@@ -197,6 +197,13 @@ def test_role_and_permission_reject_bad_tokens() -> None:
         Permission("bad name", min_role=VIEWER)
     with pytest.raises(ValueError, match="Permission.name"):
         Permission("billing..read", min_role=VIEWER)
+    # The colon form the access capability's docstrings used to teach. It is not a
+    # near-miss: a name this shape can be *granted* (Grant.permission is an open
+    # string, deliberately) but can never be declared, so it could never be named by
+    # a Policy or offered by `terp grant` — two shapes for one vocabulary. Pinned
+    # here so the validator cannot be loosened back into that state quietly.
+    with pytest.raises(ValueError, match="Permission.name"):
+        Permission("reports:export", min_role=VIEWER)
 
 
 def test_role_from_rank_unknown_raises() -> None:

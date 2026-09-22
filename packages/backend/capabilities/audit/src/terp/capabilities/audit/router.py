@@ -11,7 +11,16 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from terp.core import ADMIN, ModuleSpec, Page, PaginationDep, Policy, SessionDep, operation
+from terp.core import (
+    ADMIN,
+    ModuleAccess,
+    ModuleSpec,
+    Page,
+    PaginationDep,
+    Policy,
+    SessionDep,
+    operation,
+)
 
 from terp.capabilities.audit.operations import AUDIT_LIST_EVENTS
 from terp.capabilities.audit.schemas import AuditEventRead
@@ -32,6 +41,9 @@ def list_events(session: SessionDep, pagination: PaginationDep) -> Page[AuditEve
 module = ModuleSpec(
     name="audit",
     router=router,
+    access=ModuleAccess.platform_only(
+        reason="the audit log is the record every other module is answerable to, so it is never one module's to grant",
+    ),
     policy=Policy(read=ADMIN, write=ADMIN),
 )
 

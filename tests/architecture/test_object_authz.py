@@ -42,7 +42,15 @@ from terp.core.object_authz import (
     apply_object_authz,
     register_object_authz_predicate,
     registered_object_authz_predicates,
+)
+from terp.core.scoping import (
+    register_owner_read_scope,
+    register_scope_predicate,
+    registered_scope_predicates,
+)
+from terp.core._internal.registry_resets import (
     reset_object_authz_predicates,
+    reset_scope_predicates,
 )
 
 
@@ -83,9 +91,26 @@ class _OAPlainService(BaseService[_OAPlain, _DocCreate, _DocUpdate]):
 
 @pytest.fixture(autouse=True)
 def _reset_predicates() -> Iterator[None]:
-    """Keep the process-global object-authz registry isolated per test."""
+    """Keep the process-global authz registries isolated per test.
+
+    The scope registry is **restored**, never reset. Clearing it is not isolation: the
+    tenancy capability registers the tenant filter into it at *import*, so a reset in a
+    teardown here removes that registration for every test that runs afterwards in the
+    same process — which shows up as unrelated tenancy tests reading rows they should
+    not, hundreds of files away from the fixture that caused it. (Observed, exactly
+    that way, while this file was being written.) Snapshotting and putting the list
+    back leaves only what this file registered removed.
+
+    The object-authz registry has no import-time registrant — the built-in owner check
+    is inlined in ``apply_object_authz`` rather than registered — so clearing that one
+    is genuinely empty-to-empty.
+    """
+    installed = registered_scope_predicates()
     yield
     reset_object_authz_predicates()
+    reset_scope_predicates()
+    for predicate in installed:
+        register_scope_predicate(predicate)
 
 
 @pytest.fixture
@@ -267,3 +292,96 @@ def test_registered_predicate_gates_writes_through_the_chokepoint(engine: Engine
     with Session(engine) as session, bind_audit_actor(uuid.uuid4()):
         with pytest.raises(PermissionDeniedError):
             service.update(session, plain_id, _DocUpdate(label="y", version=version))
+
+
+# --------------------------------------------------------------------------- #
+# the read half of the trait (opt-in): register_owner_read_scope
+# --------------------------------------------------------------------------- #
+def test_owned_reads_are_unscoped_until_the_seam_is_installed(engine: Engine) -> None:
+    """The gap this closes, asserted first so the opt-in has something to be opposite of.
+
+    ``OwnedMixin`` gates writes and says so; installing the read filter was left to the
+    app, and an exercise left undone reads exactly like a control that is present. A
+    surface described as owner-scoped therefore returned every row to every caller who
+    cleared its role.
+    """
+    mine, theirs = uuid.uuid4(), uuid.uuid4()
+    service = _OADocService()
+    with Session(engine) as session:
+        with bind_audit_actor(theirs):
+            service.create(session, _DocCreate(label="theirs"))
+        with bind_audit_actor(mine):
+            service.create(session, _DocCreate(label="mine"))
+            rows, _total = service.list(session, skip=0, limit=50)
+    assert {row.label for row in rows} == {"mine", "theirs"}
+
+
+def test_the_owner_read_scope_hides_another_actors_rows(engine: Engine) -> None:
+    """Composed with the write gate this is the full property OwnedMixin describes."""
+    register_owner_read_scope()
+    mine, theirs = uuid.uuid4(), uuid.uuid4()
+    service = _OADocService()
+    with Session(engine) as session:
+        with bind_audit_actor(theirs):
+            service.create(session, _DocCreate(label="theirs"))
+        with bind_audit_actor(mine):
+            service.create(session, _DocCreate(label="mine"))
+            rows, _total = service.list(session, skip=0, limit=50)
+            assert {row.label for row in rows} == {"mine"}
+        # And the other actor sees the mirror image, so this is a filter rather than
+        # an ordering accident.
+        with bind_audit_actor(theirs):
+            rows, _total = service.list(session, skip=0, limit=50)
+            assert {row.label for row in rows} == {"theirs"}
+
+
+def test_the_owner_read_scope_leaves_unowned_rows_visible(engine: Engine) -> None:
+    """Matching the write gate, which does not restrict a row with no owner to protect.
+
+    An unowned row is what a job, a migration or a seed writes — there is nobody it
+    could be scoped to, and hiding it would make the rows a system created invisible to
+    every human.
+    """
+    register_owner_read_scope()
+    service = _OADocService()
+    with Session(engine) as session:
+        with bind_audit_actor(None):
+            service.create(session, _DocCreate(label="system"))
+        with bind_audit_actor(uuid.uuid4()):
+            rows, _total = service.list(session, skip=0, limit=50)
+    assert {row.label for row in rows} == {"system"}
+
+
+def test_an_actorless_read_is_not_narrowed_to_nothing(engine: Engine) -> None:
+    """A worker or CLI has no "self" to scope to, so it sees the unscoped set.
+
+    Narrowing to nothing would make background work silently read an empty database —
+    a failure that looks like missing data rather than like a missing actor.
+    """
+    register_owner_read_scope()
+    service = _OADocService()
+    with Session(engine) as session:
+        with bind_audit_actor(uuid.uuid4()):
+            service.create(session, _DocCreate(label="owned"))
+        rows, _total = service.list(session, skip=0, limit=50)
+    assert {row.label for row in rows} == {"owned"}
+
+
+def test_the_owner_read_scope_ignores_a_model_without_the_trait(engine: Engine) -> None:
+    """A predicate must be a no-op for a model it does not govern (the registry contract)."""
+    register_owner_read_scope()
+    service = _OAPlainService()
+    with Session(engine) as session:
+        with bind_audit_actor(uuid.uuid4()):
+            service.create(session, _DocCreate(label="plain"))
+        with bind_audit_actor(uuid.uuid4()):
+            rows, _total = service.list(session, skip=0, limit=50)
+    assert {row.label for row in rows} == {"plain"}
+
+
+def test_installing_the_owner_read_scope_twice_registers_once() -> None:
+    """Idempotent, like every other registration here — a composition root may re-run."""
+    before = len(registered_scope_predicates())
+    register_owner_read_scope()
+    register_owner_read_scope()
+    assert len(registered_scope_predicates()) == before + 1

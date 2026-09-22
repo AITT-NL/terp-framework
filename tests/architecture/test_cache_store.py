@@ -19,6 +19,7 @@ from terp.core import (
     InMemoryCacheStore,
     ModuleSpec,
     Policy,
+    route_policy,
     configure_cache,
     create_app,
     get_cache,
@@ -53,6 +54,7 @@ def _spec() -> ModuleSpec:
     router = APIRouter()
 
     @router.get("/ping", response_model=str)
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def ping() -> str:
         return "pong"
 

@@ -20,6 +20,7 @@ import importlib
 import json
 import pathlib
 import sys
+import textwrap
 
 from fastapi import FastAPI
 
@@ -66,7 +67,8 @@ def render_jobs(dotted: str = "control_plane:control_plane") -> str:
 
     Generated from the live :class:`~terp.core.JobCatalog`, so it always matches what the
     app declares — name, routing queue, retry budget, and visibility — plus the configured
-    system actor a user-less job runs as.
+    system actor a user-less job runs as, or, when jobs are declared and no actor is, the
+    reason a production boot refuses that (ADR 0125).
     """
     plane = _load_control_plane(dotted)
     lines = ["Jobs"]
@@ -80,6 +82,26 @@ def render_jobs(dotted: str = "control_plane:control_plane") -> str:
     if plane.job_system_actor_id is not None:
         lines.append("")
         lines.append(f"System actor: {plane.job_system_actor_id}")
+    else:
+        # This surface used to be silent in exactly the state that now refuses a
+        # production boot (ADR 0125), which made it the last place an operator would
+        # learn about it. The boot check's own sentence is reused rather than
+        # paraphrased, so the two cannot drift -- and it stays quiet when nothing is
+        # declared, because then there is nothing to refuse.
+        for problem in plane.production_problems():
+            lines.append("")
+            lines.append("System actor: NONE")
+            # Wrapped and indented because a BootError is read once, in a log, while
+            # this is read by someone deciding whether to deploy -- a single 300-column
+            # line is the same information nobody finishes reading.
+            lines.extend(
+                textwrap.wrap(
+                    problem[:1].upper() + problem[1:],
+                    width=88,
+                    initial_indent="  ",
+                    subsequent_indent="  ",
+                )
+            )
     return "\n".join(lines)
 
 
@@ -155,11 +177,11 @@ def run_worker_command(
             "durable OutboxJobQueue already requires it) or install `terp-cli[worker]` "
             "(or `terp-cli[jobs]` for worker + scheduler support)."
         ) from exc
-    from terp.core._internal.engine import get_engine
+    from terp.cli._engine import cli_engine, cli_session_factory
 
-    engine = get_engine()
+    engine = cli_engine()
     worker = OutboxWorker(
-        lambda: Session(engine),
+        cli_session_factory(engine),
         batch_size=batch_size,
         lease_seconds=lease_seconds,
         skip_locked=engine.dialect.name == "postgresql",
@@ -191,10 +213,12 @@ def _default_scheduler() -> object:
             "to the app's dependencies, install `terp-cli[scheduler]` (or the combined "
             "`terp-cli[jobs]` extra), or run schedules with Celery beat."
         ) from exc
-    from terp.core._internal.engine import get_engine
+    from terp.cli._engine import cli_engine, cli_session_factory
 
-    engine = get_engine()
-    return ApschedulerScheduler(lambda: Session(engine), scheduler=BlockingScheduler())
+    engine = cli_engine()
+    return ApschedulerScheduler(
+        cli_session_factory(engine), scheduler=BlockingScheduler()
+    )
 
 
 def run_scheduler_command(

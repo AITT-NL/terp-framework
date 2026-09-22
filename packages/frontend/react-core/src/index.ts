@@ -138,6 +138,8 @@ export { Checkbox } from "./ui/Checkbox";
 export type { CheckboxProps } from "./ui/Checkbox";
 export { Radio, RadioGroup } from "./ui/Radio";
 export type { RadioGroupProps, RadioOption, RadioProps } from "./ui/Radio";
+export { TileGroup } from "./ui/TileGroup";
+export type { Tile, TileGroupProps } from "./ui/TileGroup";
 export { Switch } from "./ui/Switch";
 export type { SwitchProps } from "./ui/Switch";
 export { Tabs } from "./ui/Tabs";
@@ -156,6 +158,9 @@ export { Markdown } from "./ui/Markdown";
 export type { MarkdownProps } from "./ui/Markdown";
 export { saveBlob, useEndpointDownload, fetchDownload, downloadUrl } from "./download";
 export { copyText, useCopyToClipboard, COPIED_FEEDBACK_MS } from "./clipboard";
+export { routeFieldErrors } from "./fieldErrors";
+export type { RoutedFieldErrors } from "./fieldErrors";
+export { randomUuid, RandomUuidUnavailableError } from "./randomUuid";
 export type { CopyToClipboard } from "./clipboard";
 export type { DownloadTarget } from "./download";
 export { Heading, Text, Code, Link } from "./typography";
@@ -166,6 +171,7 @@ export type {
   TextProps,
   TextTone,
   TextSize,
+  TextWeight,
   CodeProps,
   LinkProps,
 } from "./typography";

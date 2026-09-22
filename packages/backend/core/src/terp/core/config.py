@@ -12,6 +12,7 @@ lives in the architecture suite.
 
 from __future__ import annotations
 
+import uuid
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -40,6 +41,15 @@ class Settings(BaseSettings):
     # expired. Verification order is SECRET_KEY first, then each fallback in order.
     SECRET_KEY_FALLBACKS: list[str] = []
     DATABASE_URL: str = "sqlite://"
+    # The principal a job's writes are stamped with when no user originated the work
+    # (ADR 0125 requires one; ADR 0129 makes this the way it arrives). A deployment
+    # fact, not a source constant: the same image runs against databases whose service
+    # principals have different ids, so the id cannot live in the code that is built
+    # once. `ControlPlane(job_system_actor_id=...)` still wins where an app resolves it
+    # some other way; this is the conventional address, so that declaring the
+    # requirement does not oblige every app to hand-roll the same env read, UUID parse
+    # and error path. `None` keeps the production refusal exactly as it was.
+    JOB_SYSTEM_ACTOR_ID: uuid.UUID | None = None
     BACKEND_CORS_ORIGINS: list[str] = []
     PAGINATION_DEFAULT_LIMIT: int = 50
     PAGINATION_MAX_LIMIT: int = 200

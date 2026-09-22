@@ -64,10 +64,10 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           # A release restores no cache. ci.yml and frontend.yml run on a
           # pull request and write these same scopes, so a restored cache is an
@@ -91,12 +91,27 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           grep -q "^version = \"$version\"" packages/backend/core/pyproject.toml \
             || { echo "tag $GITHUB_REF_NAME != package version"; exit 1; }
+      - name: Every distribution has a PyPI project
+        # Trusted publishing can add a version to a project and cannot create
+        # one, and the upload is a single invocation over every distribution —
+        # so one new distribution stops the release with its siblings already
+        # published, and the lockstep `==` pins make that version uninstallable
+        # until the remainder goes up. 0.19.0 released exactly that way. Asking
+        # the index before anything is uploaded turns it into a refusal that
+        # costs seconds and names the procedure.
+        #
+        # Tag-only, and that is the point rather than an oversight: the manual
+        # per-package dispatch is *how* a project gets created, so guarding it
+        # would wall off the escape hatch the refusal tells you to use.
+        if: github.event_name == 'push'
+        run: uv run python tools/check_pypi_projects.py
+
       - name: Run the gate
         # See ci.yml: coverage starts before pytest loads its entry-point plugins.
         run: |
           uv run coverage run -m pytest
           uv run coverage report
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         # zizmor: ignore[cache-poisoning] this SHA is v4.4.0, which caches only
         # when a `cache:` input asks for it — removed just above.
         with:
@@ -128,7 +143,7 @@ jobs:
           set -eux
           uv run python tools/emit_backend_scorecard.py --out scorecard-terp-arch.json
           node packages/frontend/eslint-boundaries/src/scorecard.js --out scorecard-eslint-boundaries.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: conformance-scorecards
           path: scorecard-*.json
@@ -140,10 +155,10 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           # Explicit, because the action's own default caches on a hosted
           # runner — and this job builds the distributions that are uploaded to
@@ -179,7 +194,7 @@ jobs:
           test -f "$pkg/pyproject.toml" || { echo "no pyproject.toml at '$pkg'"; exit 1; }
           uv build --out-dir dist "$pkg"
       - name: Upload distributions for the isolated publisher
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pypi-distributions
           path: dist/
@@ -197,7 +212,7 @@ jobs:
       id-token: write # PyPI trusted publishing (OIDC)
     steps:
       - name: Download the verified distribution artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: pypi-distributions
           path: dist/
@@ -235,10 +250,10 @@ jobs:
       contents: read
       id-token: write # npm provenance
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         # zizmor: ignore[cache-poisoning] this SHA is v4.4.0, which caches only
         # when a `cache:` input asks for it — and this step does not.
         with:
@@ -278,14 +293,14 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # provenance: true below emits SLSA build attestations, which require the
       # docker-container buildx driver — the default `docker` driver rejects them
       # ("attestations are not supported by the current builder").
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -296,7 +311,7 @@ jobs:
         id: owner
         run: echo "lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
       - name: Build and push the production backend image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: apps/example/Dockerfile.prod
@@ -306,7 +321,7 @@ jobs:
             ghcr.io/${{ steps.owner.outputs.lc }}/terp-example-backend:${{ github.ref_name }}
             ghcr.io/${{ steps.owner.outputs.lc }}/terp-example-backend:latest
       - name: Build and push the production frontend image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: apps/example/frontend/Dockerfile.prod
@@ -326,10 +341,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: conformance-scorecards
       - name: Create the GitHub Release
@@ -341,7 +356,24 @@ jobs:
             echo "release $GITHUB_REF_NAME already exists — skipping"
             exit 0
           fi
+          # Publish the AUTHORED notes, not generated commit subjects. The two are
+          # different documents, and the difference is the whole classification: the
+          # `### Security` narrative that explains a defect a deployment may be carrying
+          # today reaches nobody watching releases under --generate-notes, while the
+          # commit titles do. This slices the tag's own `## <version>` section out of
+          # CHANGELOG.md. Held by test_the_release_workflow_publishes_the_authored_notes.
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="$version" '
+            $0 == "## " version || index($0, "## " version " ") == 1 { inside = 1; next }
+            inside && /^## [0-9]+\.[0-9]+\.[0-9]+/ { exit }
+            inside { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::CHANGELOG.md has no '## $version' section - refusing to " \
+                 "publish a release whose notes nobody wrote"
+            exit 1
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --title "Terp $GITHUB_REF_NAME" \
-            --generate-notes --verify-tag \
+            --notes-file release-notes.md --verify-tag \
             scorecard-*.json

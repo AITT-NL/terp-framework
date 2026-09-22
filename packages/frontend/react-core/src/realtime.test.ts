@@ -38,6 +38,19 @@ describe("realtime transport contract", () => {
     );
   });
 
+  it("names the channel in a rejection, because the reader is diagnosing drift", () => {
+    // The guard is hand-written against a model the server owns, so the realistic cause of
+    // a rejection is that one of the two moved. An app may hold several channels at once,
+    // and "a payload outside its declared type" with no channel in it does not say which
+    // guard to go and read.
+    expect(() => parseMessage('{"sequence":"one"}', isNotice, "system.notices")).toThrow(
+      /Realtime channel "system\.notices" received a payload outside its declared type/,
+    );
+    expect(() => parseMessage("not json", isNotice, "system.notices")).toThrow(
+      /Realtime channel "system\.notices" received invalid JSON/,
+    );
+  });
+
   it("exports the sanctioned hook", () => {
     expect(typeof useRealtimeChannel).toBe("function");
   });

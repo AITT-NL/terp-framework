@@ -10,15 +10,24 @@ import importlib
 import pathlib
 import tomllib
 
-from terp.arch import assert_app_clean
+from terp.arch import assert_app_clean, declared_roots
 from terp.cli.verify import PROFILES
-from terp.migrations import assert_migrations_match_models, upgrade
+from terp.core import assert_references_declare_delete_behaviour
+from terp.migrations import (
+    assert_migrations_match_models,
+    assert_migrations_reverse_cleanly,
+    upgrade,
+)
 
 _APP_ROOT = pathlib.Path(__file__).resolve().parents[1] / "app"
 
 
 def test_architecture() -> None:
-    assert_app_clean("app", budget_path="escape-hatch-budget.json")
+    # `declared_roots()` reads [tool.terp.arch] in pyproject.toml, so this call and
+    # `terp check` (which reads the same table with no flag) scan the same roots. They
+    # have to: one escape-hatch budget covers all of them, so a run that scanned fewer
+    # would read the missing markers as a win to lock in and fail the ratchet.
+    assert_app_clean("app", *declared_roots(), budget_path="escape-hatch-budget.json")
 
 
 def test_generic_appsec_baseline_is_wired() -> None:
@@ -37,6 +46,14 @@ def test_generic_appsec_baseline_is_wired() -> None:
     assert "S" in lint.get("select", []), (
         "pyproject.toml no longer selects the ruff `S` security baseline -- restore "
         '[tool.ruff.lint] select = ["S"] (see the platform ADR 0085)'
+    )
+    # `select` replaces ruff's default rather than extending it, so dropping `F` here
+    # silently turns off pyflakes -- including F821 (undefined name), which is a
+    # correctness rule no other check in the profile answers.
+    assert "F" in lint.get("select", []), (
+        "pyproject.toml no longer selects the ruff `F` pyflakes rules -- restore "
+        '[tool.ruff.lint] select = ["S", "F"]; without it a dead import, a dead local '
+        "or a typo'd name passes the whole merge bar"
     )
     assert set(lint.get("ignore", [])) <= {"S101", "S105", "S106"}, (
         "the `S` baseline excuses more than the sanctioned name-heuristic rules "
@@ -90,11 +107,46 @@ def test_every_module_is_mounted() -> None:
         )
 
 
-def test_migrations_match_models(tmp_path: pathlib.Path) -> None:
+def test_references_declare_delete_behaviour() -> None:
+    # The runtime half of the reference control (platform ADR 0133): every foreign
+    # key in the app's own models must name what a delete of its target does, and
+    # must not name one that cannot fire (CASCADE / SET NULL against a
+    # soft-deletable target, whose delete is a stamp and never a DELETE).
+    #
+    # This is not covered by the drift check below, and the reason is worth knowing:
+    # that check compares the models against a SQLite database, and SQLite does not
+    # report a foreign key's referential options, so Alembic falls back to comparing
+    # constraints WITHOUT their options. An ON DELETE clause that changed -- or was
+    # never chosen -- is invisible to it. This test reads the declaration instead.
+    for models in sorted((_APP_ROOT / "modules").glob("*/models.py")):
+        importlib.import_module(f"app.modules.{models.parent.name}.models")
+    assert_references_declare_delete_behaviour()
+
+
+def test_migrations_match_models(terp_db_url: str) -> None:
     # The drift half of the migration control: upgrade a scratch database to head, then
     # assert autogenerate finds nothing left over. A model changed without
     # `terp migrate make <module>` fails here, in CI — not in production against a stale
     # schema (the boot guard only catches *pending* revisions, not a missing one).
-    db_url = f"sqlite:///{tmp_path / 'drift-check.db'}"
-    upgrade(db_url, _APP_ROOT, package="app")
-    assert_migrations_match_models(db_url, _APP_ROOT, package="app")
+    #
+    # `terp_db_url` (shipped by terp-core's pytest plugin) runs this on BOTH verified
+    # dialects: SQLite always, and PostgreSQL when TERP_TEST_POSTGRES_URL points at a
+    # server -- which the CI workflow provides and a local run skips. That matters most
+    # here: SQLite does not report a foreign key's referential options, so against it
+    # Alembic compares constraints without them and an ON DELETE clause that changed is
+    # invisible. PostgreSQL does report them.
+    upgrade(terp_db_url, _APP_ROOT, package="app")
+    assert_migrations_match_models(terp_db_url, _APP_ROOT, package="app")
+
+
+def test_migrations_reverse_cleanly(terp_db_url: str) -> None:
+    # The REVERSE half, and the one that had nothing executed behind it. Your rollback
+    # plan is `terp migrate downgrade`; the catalogued rule proves only that each
+    # `downgrade()` body is not a lone `pass`, which cannot see a downgrade that dies on
+    # its first statement (easy to write: batch mode re-applies the naming convention,
+    # so a hand-written constraint name is often wrong) or one that quietly leaves a
+    # table behind for the next deploy to collide with.
+    #
+    # Rehearses the whole thing: upgrade to head, downgrade to base, check every
+    # package's history emptied and nothing was left behind, upgrade again, compare.
+    assert_migrations_reverse_cleanly(terp_db_url, _APP_ROOT, package="app")

@@ -14,6 +14,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 
 from terp.core import (
+    ModuleAccess,
     ModuleSpec,
     Page,
     PaginationDep,
@@ -141,5 +142,8 @@ def reset_user_password(
 module = ModuleSpec(
     name="users",
     router=router,
+    access=ModuleAccess.platform_only(
+        reason="provisioning and deactivating accounts is the platform's own authority, not a role anyone holds in one module",
+    ),
     policy=Policy(read_role=Roles.ADMIN, write_role=Roles.ADMIN),
 )

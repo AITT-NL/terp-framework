@@ -97,6 +97,7 @@ control_plane = ControlPlane(
     job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-0000000000aa"),
 )
 EMPTY = ControlPlane()
+UNSTAMPED = ControlPlane(jobs=JobCatalog([JOB]))
 """
 
 
@@ -216,6 +217,33 @@ def test_render_jobs_reports_an_empty_catalog(tmp_path: pathlib.Path) -> None:
     out = render_jobs(f"{name}:EMPTY")
     assert "<none declared>" in out
     assert "System actor" not in out  # no system actor configured
+
+
+def test_render_jobs_names_the_missing_actor_and_what_it_costs(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Declared work and no actor is the state a production boot refuses.
+
+    So the surface an operator reads before deploying has to say it. Asserted against
+    the boot check's own wording rather than a paraphrase, because the point of reusing
+    ``production_problems`` is that these two cannot drift apart.
+    """
+    name = _write_module(tmp_path, "jobs_plane_unstamped", _PLANE_MODULE)
+    out = render_jobs(f"{name}:UNSTAMPED")
+
+    assert "sync.customers.pull" in out
+    assert "System actor: NONE" in out
+
+    # The message is wrapped for a terminal, so assert against whitespace-normalised
+    # output: a phrase that happens to straddle a line break is still the same
+    # sentence, and a test that broke on re-wrapping would be testing the width.
+    flat = " ".join(out.split())
+    # Phrases that exist only in ControlPlane.production_problems(). A paraphrase in
+    # render_jobs would pass a looser assertion, and that is exactly what must not
+    # happen: an operator comparing this output with a boot refusal sees one sentence.
+    assert "background declaration (jobs and schedules)" in flat
+    assert "job_system_actor_id" in flat
+    assert "stamped with no actor at all" in flat
 
 
 def test_render_jobs_rejects_a_non_control_plane(tmp_path: pathlib.Path) -> None:

@@ -22,9 +22,19 @@ budget so opt-outs stay visible, greppable, and can only shrink.
 
 from __future__ import annotations
 
+from terp.arch.declaration import (
+    ARCH_TABLE,
+    ArchDeclarationError,
+    declared_roots,
+)
 from terp.arch.rules import (
+    APP_ROOT_ONLY,
+    EVERY_ROOT,
     GUIDE_TOPIC_BY_RULE,
+    RULE_ROOT_KINDS,
     ArchViolation,
+    RootKind,
+    ScanRoot,
     assert_app_clean,
     check_app,
     check_base_query_not_overridden,
@@ -43,7 +53,10 @@ from terp.arch.rules import (
     check_operations_reference_catalog,
     check_routes_declare_operation,
     check_list_routes_paginate,
+    check_grantable_modules_are_named,
+    check_module_role_writes_go_through_the_capability,
     check_modules_declare_policy,
+    check_platform_modules_refuse_module_roles,
     check_mutations_emit_audit,
     check_mutations_require_write_role,
     check_no_adhoc_background_runtime,
@@ -55,6 +68,7 @@ from terp.arch.rules import (
     check_no_dynamic_sql,
     check_no_hardcoded_credentials,
     check_no_raw_outbound_http,
+    check_not_null_columns_are_backfilled,
     check_policy_refs_resolve,
     check_no_app_instantiation,
     check_no_cross_module_imports,
@@ -80,6 +94,7 @@ from terp.arch.rules import (
     check_no_dependency_overrides,
     check_no_raw_app_routes,
     check_no_raw_file_references,
+    check_permission_gated_reads_disclose,
     check_no_manual_scope_filtering,
     check_no_raw_connection_access,
     check_no_raw_session_construction,
@@ -99,10 +114,12 @@ from terp.arch.rules import (
     check_session_imported_from_sqlmodel,
     check_table_models_use_base_table,
     check_no_manual_table_schema,
+    check_references_declare_delete_behaviour,
     check_tables_have_migrations,
     check_tenant_scoped_models_use_scoped_service,
     check_update_schemas_inherit_base_update_schema,
     guide_topic_for,
+    root_kinds_for,
     ungoverned_marker_violations,
 )
 
@@ -112,17 +129,25 @@ from terp.arch.rules import (
 #: the platform repo, not of a generated app, and the version is a property of the
 #: toolchain build. Held equal to the pinned ``terp-spec`` release by the framework
 #: gate (``tests/architecture/test_check_json.py``), so it cannot drift silently.
-SPEC_VERSION = "0.31.0"
+SPEC_VERSION = "0.36.0"
 
 __all__ = [
+    "APP_ROOT_ONLY",
+    "ARCH_TABLE",
+    "ArchDeclarationError",
+    "EVERY_ROOT",
     "ArchViolation",
     "GUIDE_TOPIC_BY_RULE",
+    "RULE_ROOT_KINDS",
+    "RootKind",
     "SPEC_VERSION",
+    "ScanRoot",
     "assert_app_clean",
     "check_alembic_downgrades_not_empty",
     "check_migration_history_is_intact",
     "check_table_ownership_is_not_split",
     "check_app",
+    "declared_roots",
     "check_base_query_not_overridden",
     "check_canonical_module_shape",
     "check_modules_ship_tests",
@@ -136,7 +161,10 @@ __all__ = [
     "check_operations_reference_catalog",
     "check_routes_declare_operation",
     "check_list_routes_paginate",
+    "check_grantable_modules_are_named",
+    "check_module_role_writes_go_through_the_capability",
     "check_modules_declare_policy",
+    "check_platform_modules_refuse_module_roles",
     "check_mutations_emit_audit",
     "check_mutations_require_write_role",
     "check_no_adhoc_background_runtime",
@@ -146,6 +174,7 @@ __all__ = [
     "check_no_adhoc_permission_literals",
     "check_no_app_instantiation",
     "check_no_destructive_migrations",
+    "check_not_null_columns_are_backfilled",
     "check_no_dynamic_sql",
     "check_no_hardcoded_credentials",
     "check_no_raw_outbound_http",
@@ -172,6 +201,7 @@ __all__ = [
     "check_no_dependency_overrides",
     "check_no_raw_app_routes",
     "check_no_raw_file_references",
+    "check_permission_gated_reads_disclose",
     "check_no_manual_scope_filtering",
     "check_no_raw_connection_access",
     "check_no_raw_session_construction",
@@ -192,10 +222,12 @@ __all__ = [
     "check_session_imported_from_sqlmodel",
     "check_table_models_use_base_table",
     "check_no_manual_table_schema",
+    "check_references_declare_delete_behaviour",
     "check_tables_have_migrations",
     "check_tenant_scoped_models_use_scoped_service",
     "check_update_schemas_inherit_base_update_schema",
     "guide_topic_for",
+    "root_kinds_for",
     "ungoverned_marker_violations",
 ]
 

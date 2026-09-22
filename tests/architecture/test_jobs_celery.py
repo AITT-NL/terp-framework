@@ -56,8 +56,8 @@ from terp.core.jobs import active_job_queue, configure_jobs, reset_job_tenant_co
 from terp.core.scoping import (
     register_scope_predicate,
     registered_scope_predicates,
-    reset_scope_predicates,
 )
+from terp.core._internal.registry_resets import reset_scope_predicates
 
 from terp.capabilities.jobs_celery import (
     TERP_JOB_TASK,

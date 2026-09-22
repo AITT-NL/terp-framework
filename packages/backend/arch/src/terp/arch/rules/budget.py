@@ -11,6 +11,7 @@ import datetime
 import json
 import pathlib
 import re
+from typing import TYPE_CHECKING
 
 from terp.arch._ast import _SECURITY_SKIP_DIRS, iter_python_files
 from terp.arch.rules._support import (
@@ -21,6 +22,9 @@ from terp.arch.rules._support import (
     _rel,
     _rule_token,
 )
+
+if TYPE_CHECKING:  # circular at runtime: the registry package imports this module
+    from terp.arch.rules import ScanRoot
 
 #: The ``review-by:<YYYY-MM-DD>`` metadata token in a marker's reason (the Terp
 #: Standard's escape-hatch contract): when the exception must be re-justified.
@@ -43,9 +47,22 @@ def _governed_tokens() -> set[str]:
     return {_rule_token(rule) for rule in GUIDE_TOPIC_BY_RULE if rule not in ungoverned}
 
 
+def _rule_for_token(token: str) -> str | None:
+    """The rule name an ``arch-allow-*`` token opts out of, or ``None`` if unknown.
+
+    The inverse of :func:`_rule_token`. ``None`` means the token names nothing in the
+    live registry, which the budget already refuses on its own terms further down —
+    so a caller asking "which rule is this?" gets no answer rather than a guess.
+    """
+    from terp.arch.rules import GUIDE_TOPIC_BY_RULE
+
+    rule = token.removeprefix("arch-allow-").replace("-", "_")
+    return rule if rule in GUIDE_TOPIC_BY_RULE else None
+
+
 def check_escape_hatch_budget(
-    app_root: str | pathlib.Path,
-    *,
+    app_root: str | pathlib.Path | ScanRoot,
+    *more_roots: str | pathlib.Path | ScanRoot,
     budget_path: str | pathlib.Path,
     package: str = "app",
     today: datetime.date | None = None,
@@ -62,6 +79,17 @@ def check_escape_hatch_budget(
     comment tokens only. This keeps every secure-by-default opt-out visible,
     greppable, and governed (design §8).
 
+    Several roots share **one** budget, which is the point of there being one file:
+    a repository argues about one number per exception, and an opt-out cannot be
+    moved from the app into a sibling package to get out from under a count.
+
+    A marker is also refused when the rule it names is not evaluated over the root
+    it sits in — ``# arch-allow-list-routes-paginate`` in a companion package
+    suppresses nothing, because that rule never runs there. It would otherwise sit
+    in the budget looking like a governed exception while doing nothing at all,
+    which is the same false assurance a scoped-out rule produces (ADR 0136) and is
+    worth failing on rather than counting.
+
     A marker reason MAY carry the spec's ``review-by:<YYYY-MM-DD>`` metadata
     token; one whose date has passed is surfaced as a violation on the marker's
     own line (re-justify the exception or remove it — a long-lived opt-out is
@@ -69,7 +97,9 @@ def check_escape_hatch_budget(
     a malformed date is not a well-formed token (the convention is not a gate).
     *today* is injectable for tests; ``None`` means the real current date.
     """
-    root = pathlib.Path(app_root)
+    from terp.arch.rules import _scan_roots, root_kinds_for
+
+    roots = _scan_roots((app_root, *more_roots), package=package)
     budget_file = pathlib.Path(budget_path)
     where = budget_file.name
     try:
@@ -100,31 +130,45 @@ def check_escape_hatch_budget(
         ]
 
     actual: dict[str, int] = {}
-    expired: list[ArchViolation] = []
+    located: list[ArchViolation] = []
     review_deadline = today if today is not None else datetime.date.today()  # noqa: DTZ011 — date-only convention
-    for path in iter_python_files(root, skip_dirs=_SECURITY_SKIP_DIRS):
-        for lineno, comment in _file_comments(path.read_text(encoding="utf-8")):
-            for token in _ALLOW_TOKEN_RE.findall(comment):
-                actual[token] = actual.get(token, 0) + 1
-            marker = _ALLOW_MARKER_RE.search(comment)
-            if marker is None or not marker.group("why"):
-                continue
-            for value in _REVIEW_BY_RE.findall(marker.group("why")):
-                try:
-                    review_by = datetime.date.fromisoformat(value)
-                except ValueError:
-                    continue  # not a well-formed token; the convention is not a gate
-                if review_by < review_deadline:
-                    expired.append(
-                        ArchViolation(
-                            "escape_hatch_budget",
-                            _rel(path, root),
-                            lineno,
-                            f"{marker.group('token')!r} opt-out review date passed "
-                            f"(review-by:{value}); re-justify the exception with a "
-                            "new review-by date or remove the marker",
+    for root in roots:
+        for path in iter_python_files(root.path, skip_dirs=_SECURITY_SKIP_DIRS):
+            for lineno, comment in _file_comments(path.read_text(encoding="utf-8")):
+                for token in _ALLOW_TOKEN_RE.findall(comment):
+                    actual[token] = actual.get(token, 0) + 1
+                    rule = _rule_for_token(token)
+                    if rule is not None and root.kind not in root_kinds_for(rule):
+                        located.append(
+                            ArchViolation(
+                                "escape_hatch_budget",
+                                _rel(path, root.path),
+                                lineno,
+                                f"{token!r} names a rule that is not evaluated over a "
+                                f"{root.kind.value} root, so this marker suppresses "
+                                "nothing; remove it (an opt-out that opts out of "
+                                "nothing still spends a budget line)",
+                            )
                         )
-                    )
+                marker = _ALLOW_MARKER_RE.search(comment)
+                if marker is None or not marker.group("why"):
+                    continue
+                for value in _REVIEW_BY_RE.findall(marker.group("why")):
+                    try:
+                        review_by = datetime.date.fromisoformat(value)
+                    except ValueError:
+                        continue  # not a well-formed token; the convention is not a gate
+                    if review_by < review_deadline:
+                        located.append(
+                            ArchViolation(
+                                "escape_hatch_budget",
+                                _rel(path, root.path),
+                                lineno,
+                                f"{marker.group('token')!r} opt-out review date passed "
+                                f"(review-by:{value}); re-justify the exception with a "
+                                "new review-by date or remove the marker",
+                            )
+                        )
 
     governed = _governed_tokens()
     violations: list[ArchViolation] = []
@@ -182,4 +226,4 @@ def check_escape_hatch_budget(
                     f"{marker!r} {detail[0]} to {found} (budget {expected}); {detail[1]}",
                 )
             )
-    return violations + expired
+    return violations + located

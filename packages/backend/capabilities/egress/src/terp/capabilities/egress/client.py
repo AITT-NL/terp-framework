@@ -59,7 +59,7 @@ Sender = Callable[
 ]
 
 
-def _httpx_sender(
+def send_pinned(
     target: PinnedTarget,
     method: str,
     body: bytes | None,
@@ -67,7 +67,21 @@ def _httpx_sender(
     timeout_seconds: float,
     max_response_bytes: int,
 ) -> EgressResponse:
-    """The default transport: ``httpx``, pinned to the validated address.
+    """The platform's one outbound transport: ``httpx``, pinned to a validated address.
+
+    Public, and not because anything needed a smaller :class:`EgressClient`. A caller
+    that has already done its own policy work still needs a transport, and there is one
+    such caller in the platform: the webhook delivery job, whose target is a
+    subscriber-supplied URL checked against this capability's own denylist and recorded
+    in its own delivery log. Given no public transport, that caller writes this function
+    again — and then the four things that must be right about an outbound request (no
+    redirect followed, a bounded read, a pinned address, TLS verified against the name
+    rather than the address) are right in as many places as there are callers, which is
+    the arithmetic ``no_raw_outbound_http`` exists to stop. One transport is the whole
+    claim: ``httpx.Client`` is constructed here and nowhere else in the platform.
+
+    A caller that does *not* already have a policy wants :class:`EgressClient`, which
+    owns the allowlist, the SSRF check and the pinning, and then calls this.
 
     The request is built from the original URL, so the ``Host`` header and path are
     right and TLS is verified against the hostname through the ``sni_hostname``
@@ -75,7 +89,7 @@ def _httpx_sender(
     followed — a followed redirect is a second, unvalidated target, which would put the
     SSRF check back at the mercy of the far end.
     """
-    import httpx  # noqa: PLC0415 - the one place the platform's HTTP client is imported
+    import httpx  # noqa: PLC0415 - the one place the platform's HTTP client is imported  # arch-allow-no-raw-outbound-http: this IS the sanctioned egress seam the rule points every other package at; it cannot reach the network through itself
 
     with httpx.Client(timeout=timeout_seconds, follow_redirects=False) as client:
         request = client.build_request(
@@ -125,7 +139,7 @@ class EgressClient:
         clock: Callable[[], float] | None = None,
     ) -> None:
         self._policy = policy
-        self._sender = sender if sender is not None else _httpx_sender
+        self._sender = sender if sender is not None else send_pinned
         self._resolve = resolve if resolve is not None else resolve_host
         self._observer = observer
         self._clock = clock if clock is not None else time.monotonic
@@ -290,4 +304,4 @@ class EgressClient:
         return self.request("POST", url, body=body, headers=headers)
 
 
-__all__ = ["EgressClient", "EgressResponse", "Sender"]
+__all__ = ["EgressClient", "EgressResponse", "Sender", "send_pinned"]

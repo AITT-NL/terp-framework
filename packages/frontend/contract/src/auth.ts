@@ -38,6 +38,24 @@ export interface AuthSession {
   currentUser(): CurrentUser | null;
   /** True while the provider is resolving an existing session (e.g. boot refresh). */
   loading(): boolean;
-  /** UI gate: may the current user perform `action`? (Honours the backend roles.) */
-  can(action: Action): boolean;
+  /**
+   * True when the boot session check got no answer at all — the backend did not
+   * respond before the timeout, or the connection failed.
+   *
+   * Distinct from `currentUser() === null`, which is the *answer* "nobody is signed
+   * in". Collapsing the two is what made a dead backend indistinguishable from a
+   * signed-out visitor, and since the fetch to a dead proxy target never settles
+   * rather than failing, the symptom was a permanently blank page with nothing in the
+   * console. `RequireAuth` renders its `unreachable` slot on this.
+   */
+  unreachable(): boolean;
+  /**
+   * UI gate: may the current user perform `action`? (Honours the backend roles.)
+   *
+   * `module` names the module the action happens in. Pass it and a per-module rung the caller
+   * holds there raises the answer, which is what the server's guard does (ADR 0121) — omit it
+   * and the gate is the global rank alone. Omitting it on a module's own screen is the shape
+   * that hid a module the caller could actually reach.
+   */
+  can(action: Action, module?: string): boolean;
 }

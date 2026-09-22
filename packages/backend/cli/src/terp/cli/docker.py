@@ -28,6 +28,8 @@ import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 
+from terp.cli import ports
+
 _DEFAULT_COMPOSE = "docker-compose.yml"
 
 #: Lines of a failed service's log to show. Enough for a traceback and the line above it;
@@ -209,6 +211,24 @@ def run_docker_dev_command(
         raise SystemExit(
             f"compose file not found: {path} (looked under --root {root!r})"
         )
+    # Before the stack, not after it: the compose file requires its host ports to
+    # be assigned, and this is what makes that requirement invisible to somebody
+    # who has never heard of `terp ports`. One command from a checkout to a
+    # running app, which is the promise this command already makes and the
+    # property ADR 0134 decision 1 refuses to spend in order to enforce decision
+    # 3. Never fatal — `ensure_assigned` reports instead of raising, because a
+    # start that dies over a ledger is worse than one that lets compose speak.
+    #
+    # Assigned beside the COMPOSE FILE, not beside --root. Compose's project
+    # directory defaults to the directory of the first `-f`, and that is the only
+    # `.env` it reads — so publishing into --root would write the assignment into
+    # a file this very command then ignores, and the start would fail on a
+    # required variable that had just been "set". The two coincide in the ordinary
+    # case and part company for an absolute or nested --compose-file, which is
+    # exactly where the mistake would have been silent.
+    _, note = ports.ensure_assigned(path.parent)
+    if note:
+        print(note)
     status = (runner or _run)(docker_dev_argv(path, project_name=project_name))
     message = f"docker compose watch exited with status {status}"
     if status == 0:

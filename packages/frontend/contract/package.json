@@ -1,6 +1,6 @@
 {
   "name": "@terpjs/contract",
-  "version": "0.18.0",
+  "version": "0.25.0",
   "type": "module",
   "description": "Terp frontend contract \u2014 the OpenAPI-generated TypeScript client, design tokens, and the stack-agnostic module/route/nav + auth types.",
   "exports": {
@@ -22,8 +22,8 @@
   },
   "devDependencies": {
     "openapi-typescript": "^7.13.0",
-    "style-dictionary": "^5.5.0",
-    "vitest": "^4.1.9"
+    "style-dictionary": "^5.5.2",
+    "vitest": "^5.0.0"
   },
   "dependencies": {
     "openapi-fetch": "^0.17.0",

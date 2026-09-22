@@ -40,12 +40,8 @@ from terp.core import (
     OwnedMixin,
     SoftDeleteMixin,
 )
+from terp.core.authz import build_access_model
 from terp.core.object_authz import registered_object_authz_predicates
-from terp.core.routing import (
-    MUTATING_METHODS,
-    declared_operation,
-    required_permission,
-)
 from terp.core.scoping import registered_scope_predicates
 
 
@@ -58,83 +54,6 @@ _API_PREFIX = "/api/v1/"
 _HTTP_METHODS = frozenset(
     {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 )
-
-
-def _policy_json(spec: ModuleSpec) -> dict[str, object] | None:
-    """The module-access layer: the spec's declared ``Policy`` as plain data."""
-    policy = spec.policy
-    if policy is None:
-        return None
-    if policy.is_public:
-        return {
-            "public": True,
-            "public_reason": policy.public_reason,
-            "allows_public_writes": policy.allows_public_writes,
-        }
-    return {
-        "public": False,
-        "authenticated": policy.authenticated,
-        "read": policy.read_requirement.label,
-        "write": policy.write_requirement.label,
-    }
-
-
-def _route_permissions(route: APIRoute) -> list[str]:
-    """Route-level ``require_permission`` names, where the dependency is marked.
-
-    The marker is stamped by the access capability and named in
-    ``terp.core.routing`` — this reads it through that module's accessor rather
-    than knowing the attribute name, which used to be declared here in the
-    reader rather than beside the writer.
-    """
-    found: list[str] = []
-    for depends in route.dependencies:
-        name = required_permission(getattr(depends, "dependency", None))
-        if name is not None:
-            found.append(name)
-    return found
-
-
-def _endpoint_json(spec: ModuleSpec, route: APIRoute) -> dict[str, object]:
-    """The endpoint-access layer: one mounted route + its effective requirement.
-
-    No read/write field is emitted. One used to be, computed from the HTTP method
-    alone, which meant it restated the ``methods`` beside it and carried no authority
-    of its own — and it invited a false reading, because a module may require the same
-    tier for both (the boot check permits exactly that, and the files capability does
-    it), so "read" never meant "cannot write". ``requirement`` is the honest field:
-    the kernel guard has already chosen the read or write requirement for this
-    method, so it is the authority that actually applies to this one route.
-    """
-    methods = sorted(route.methods or ())
-    is_write = any(method in MUTATING_METHODS for method in methods)
-    policy = spec.policy
-    if policy is None:
-        requirement = "denied (no policy declared)"
-    elif policy.is_public:
-        requirement = "public"
-    else:
-        requirement = (
-            policy.write_requirement.label if is_write else policy.read_requirement.label
-        )
-    declared = declared_operation(route.endpoint)
-    return {
-        "path": f"/api/v1/{spec.name}{route.path}",
-        "methods": methods,
-        "requirement": requirement,
-        "extra_permissions": _route_permissions(route),
-        "name": route.name,
-        # The declared operation (ADR 0102), or null where the route declares none.
-        # A view that renders "what this endpoint does" needs the authored answer when
-        # there is one and must fall back to the route name when there is not, so the
-        # absence is reported as null rather than omitted — a missing key and a
-        # declined declaration would otherwise be indistinguishable.
-        "operation": (
-            None
-            if declared is None
-            else {"id": declared.id, "label": declared.label}
-        ),
-    }
 
 
 def _mro_names(model: type) -> set[str]:
@@ -203,30 +122,6 @@ def _module_warnings(
     return warnings
 
 
-def _module_access_json(spec: ModuleSpec) -> dict[str, object]:
-    endpoints: list[dict[str, object]] = []
-    if spec.router is not None:
-        endpoints = [
-            _endpoint_json(spec, route)
-            for route in spec.router.routes
-            if isinstance(route, APIRoute)
-        ]
-        endpoints.sort(key=lambda item: (item["path"], item["methods"]))
-    models = [
-        entry
-        for entry in (_model_json(service) for service in spec.services)
-        if entry is not None
-    ]
-    return {
-        "name": spec.name,
-        "prefix": f"/api/v1/{spec.name}" if spec.router is not None else None,
-        "policy": _policy_json(spec),
-        "endpoints": endpoints,
-        "models": models,
-        "warnings": _module_warnings(spec, models),
-    }
-
-
 def build_access_graph(
     plane: ControlPlane,
     specs: Sequence[ModuleSpec],
@@ -247,20 +142,22 @@ def build_access_graph(
     are supplied by :func:`build_access_graph_for_app`, which reconciles the graph
     against the composed app; both are empty for a hand-passed module list.
     """
+    model = build_access_model(plane, specs)
+    by_name = {spec.name: spec for spec in specs}
+    for module in model["modules"]:
+        # The two fields only an audit wants, merged onto the shared projection rather than
+        # computed by a second one: a module's declared services and the honest gaps that
+        # follow from them. `build_access_model` deliberately does not know about either.
+        spec = by_name[module["name"]]
+        models = [
+            entry
+            for entry in (_model_json(service) for service in spec.services)
+            if entry is not None
+        ]
+        module["models"] = models
+        module["warnings"] = _module_warnings(spec, models)
     return {
-        "roles": [
-            {"name": role.name, "rank": role.rank}
-            for role in sorted(plane.permissions.roles, key=lambda item: item.rank)
-        ],
-        "permissions": [
-            {"name": permission.name, "min_role": permission.min_role.name}
-            for permission in sorted(
-                plane.permissions.permissions, key=lambda item: item.name
-            )
-        ],
-        "modules": [
-            _module_access_json(spec) for spec in sorted(specs, key=lambda s: s.name)
-        ],
+        **model,
         "scope_predicates": [
             f"{predicate.__module__}.{predicate.__qualname__}"
             for predicate in registered_scope_predicates()
@@ -424,7 +321,8 @@ def _render_access_text(graph: dict[str, object]) -> str:
     if not permissions:
         lines.append("  <none declared>")
     for permission in permissions:  # type: ignore[union-attr]
-        lines.append(f"  {permission['name']}  {permission['min_role']}+")
+        label = f"  {permission['label']}" if permission.get("label") else ""
+        lines.append(f"  {permission['name']}  {permission['min_role']}+{label}")
     for module in graph["modules"]:  # type: ignore[index, union-attr]
         lines.append("")
         prefix = module["prefix"] or "<no router>"
@@ -451,6 +349,15 @@ def _render_access_text(graph: dict[str, object]) -> str:
                 f"  {','.join(endpoint['methods']):8} {endpoint['path']:40} "
                 f"{endpoint['requirement']}{extra}{does}"
             )
+        access = module.get("access")
+        if access is not None:
+            if access["platform_reason"]:
+                lines.append(f"  access platform-only ({access['platform_reason']})")
+            elif access["assignable"]:
+                lines.append(f"  access assignable as {access['label']!r}")
+        claimed = module.get("permissions") or []
+        if claimed:
+            lines.append(f"  permissions {', '.join(claimed)}")
         for model in module["models"]:
             read_scope = ", ".join(model["read_scope"]) or "none"
             write_authority = ", ".join(model["write_authority"]) or "role tier only"
@@ -495,7 +402,16 @@ def _render_access_text(graph: dict[str, object]) -> str:
 
 
 def render_access_graph(graph: dict[str, object], fmt: str = "text") -> str:
-    """Render a prebuilt access *graph* as ``text`` or ``json``."""
+    """Render a prebuilt access *graph* as ``text``, ``json`` or ``surface``.
+
+    ``surface`` is the authority baseline the ``authz-surface`` verify check pins
+    (:mod:`terp.cli.authz_surface`): the same projection reduced to what is an
+    authority claim, sorted at every level so the committed file is diffable.
+    """
+    if fmt == "surface":
+        from terp.cli.authz_surface import render_authz_surface
+
+        return render_authz_surface(graph)
     if fmt == "json":
         return json.dumps(graph, indent=2)
     return _render_access_text(graph)

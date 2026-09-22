@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -23,10 +24,13 @@ from sqlmodel import Session, SQLModel, create_engine
 from starlette.middleware import Middleware
 
 from terp.core import (
+    VIEWER,
     AuthenticationError,
     ControlPlane,
     OperationCatalog,
+    Permission,
     PermissionDeniedError,
+    PermissionModel,
     Roles,
     create_app,
     get_session,
@@ -38,9 +42,13 @@ import terp.capabilities.access.models  # noqa: F401  (register Grant table)
 import terp.capabilities.audit.models  # noqa: F401  (register AuditEvent table)
 import terp.capabilities.identity.models  # noqa: F401  (register User table)
 from terp.capabilities.access import (
+    ACCESS_ASSIGN_MODULE_ROLE,
     ACCESS_CREATE_GRANT,
     ACCESS_DELETE_GRANT,
+    ACCESS_GET_MODEL,
+    ACCESS_GET_SUBJECT,
     ACCESS_LIST_GRANTS,
+    ACCESS_REVOKE_MODULE_ROLE,
     AccessService,
     enforce_permission,
     require_permission,
@@ -89,9 +97,19 @@ _OPERATIONS = OperationCatalog(
         ACCESS_LIST_GRANTS,
         ACCESS_CREATE_GRANT,
         ACCESS_DELETE_GRANT,
+        ACCESS_GET_MODEL,
+        ACCESS_GET_SUBJECT,
+        ACCESS_ASSIGN_MODULE_ROLE,
+        ACCESS_REVOKE_MODULE_ROLE,
         AUDIT_LIST_EVENTS,
     )
 )
+
+# The one permission this suite grants over HTTP. The grants endpoint refuses a
+# permission the app does not declare, so the fixture declares it -- that is the
+# contract rather than a workaround: a grant of a string nothing checks is a silent
+# no-op. The floor is VIEWER, which makes it grant-only (ADR 0016).
+_REPORTS_EXPORT = Permission("reports.export", min_role=VIEWER)
 
 _PASSWORD = "correct horse battery"  # 12+ chars, 2 classes; satisfies the default policy
 settings.SECRET_KEY = "terp-framework-stack-secret-key-0123456789ab"
@@ -131,7 +149,10 @@ def app(engine: Engine) -> Iterator[FastAPI]:
         audit_sink=persist_audit,
         permission_enforcer=enforce_permission,
         middleware=[Middleware(TenantMiddleware, resolve_tenant=tenant_from_bearer)],
-        control_plane=ControlPlane(operations=_OPERATIONS),
+        control_plane=ControlPlane(
+            operations=_OPERATIONS,
+            permissions=PermissionModel(permissions=(_REPORTS_EXPORT,)),
+        ),
     )
 
     def _session() -> Iterator[Session]:
@@ -217,12 +238,48 @@ def test_access_grants_and_audit_log(app: FastAPI, engine: Engine) -> None:
     admin = _provision(engine, "admin@x.test", Roles.ADMIN)
     c = _client(app, admin, Roles.ADMIN)
     subject = uuid.uuid4()
-    created = c.post("/api/v1/access/grants", json={"subject_id": str(subject), "permission": "reports:export"})
+    created = c.post("/api/v1/access/grants", json={"subject_id": str(subject), "permission": "reports.export"})
     assert created.status_code == 201
     grant_id = created.json()["id"]
     assert c.get("/api/v1/access/grants", params={"subject_id": str(subject)}).json()["total"] == 1
+    # A permission this app does not declare is refused, not stored: the endpoint makes
+    # the same check `terp grant add` has made since ADR 0089, and answers with the
+    # catalog so a permission editor can offer the real choices.
+    refused = c.post(
+        "/api/v1/access/grants",
+        json={"subject_id": str(subject), "permission": "reports.exprot"},
+    )
+    assert refused.status_code == 400
+    codes = {detail["code"] for detail in refused.json()["details"]}
+    assert codes == {"undeclared_permission", "declared_permission"}
+    assert any(
+        detail["loc"] == "reports.export" for detail in refused.json()["details"]
+    )
+    assert c.get("/api/v1/access/grants", params={"subject_id": str(subject)}).json()["total"] == 1
     assert c.delete(f"/api/v1/access/grants/{grant_id}").status_code == 204
     assert c.get("/api/v1/audit/").json()["total"] >= 1  # grant + provision were audited
+
+
+def test_refusing_a_grant_fails_closed_when_the_app_exposes_no_control_plane() -> None:
+    """The defensive half of the catalog check, on the ADR 0016 pattern.
+
+    `create_app` always records the control plane on `app.state`, so no composed app can
+    reach this branch — which is exactly why it needs a test rather than a comment. The
+    equivalent guard branch for a missing `permission_enforcer` is tested the same way
+    (`test_permission_write_denied_when_no_enforcer_installed`) and for the same reason:
+    fail-closed code nothing exercises is fail-closed code nobody knows still works.
+
+    Called directly rather than over HTTP because a bare app has no `AppError` handler
+    either — the refusal would surface as a 500 and the test would be asserting the wrong
+    thing.
+    """
+    from terp.core import ValidationFailedError
+    from terp.capabilities.access.router import _refuse_undeclared
+
+    planeless = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    with pytest.raises(ValidationFailedError) as caught:
+        _refuse_undeclared(planeless, "anything.at.all")
+    assert [detail.code for detail in caught.value.details] == ["no_control_plane"]
 
 
 def test_unauthenticated_is_denied(app: FastAPI) -> None:
@@ -237,9 +294,9 @@ def test_access_service_revoke_and_permissions(engine: Engine) -> None:
         service = AccessService()
         subject = uuid.uuid4()
         assert service.revoke(session, subject, "absent") is False  # nothing to remove
-        service.grant(session, subject, "a:b")
-        assert service.permissions_for(session, subject) == {"a:b"}
-        dep = require_permission("a:b")
+        service.grant(session, subject, "a.b")
+        assert service.permissions_for(session, subject) == {"a.b"}
+        dep = require_permission("a.b")
         with pytest.raises(AuthenticationError):
             dep(session=session, principal=None)
         from terp.core import Principal
@@ -247,7 +304,7 @@ def test_access_service_revoke_and_permissions(engine: Engine) -> None:
         with pytest.raises(PermissionDeniedError):
             dep(session=session, principal=Principal(id=uuid.uuid4(), role=Roles.EDITOR))
         dep(session=session, principal=Principal(id=subject, role=Roles.EDITOR))  # holds it -> no raise
-        assert enforce_permission(session, subject, "a:b") is True
+        assert enforce_permission(session, subject, "a.b") is True
 
 
 # --------------------------------------------------------------------------- #

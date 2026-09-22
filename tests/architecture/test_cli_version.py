@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
+import subprocess
 import sys
 
 import pytest
@@ -214,7 +216,7 @@ def test_an_up_to_date_app_gets_one_line(monkeypatch: pytest.MonkeyPatch) -> Non
     _fake_versions(monkeypatch, {"terp-core": "0.5.4", "terp-cap-auth": "0.5.4"})
     _uv_says(monkeypatch, [{"name": "httpx", "latest_version": "9.9.9"}])
     assert version_mod.render_upgrade_check() == (
-        "Up to date: all 2 terp-* packages are on 0.5.4."
+        "Up to date: all 2 terp-* distributions are on 0.5.4."
     )
 
 
@@ -256,14 +258,46 @@ def test_the_check_reads_uv_rather_than_reaching_the_index_itself() -> None:
         assert f"import {networking}" not in source
 
 
-def _answers(root: pathlib.Path, commit: str) -> pathlib.Path:
-    """An app root whose copier answers record ``commit`` as the rendered template."""
+def _answers(
+    root: pathlib.Path,
+    commit: str,
+    *,
+    src_path: str = "/opt/terp/template",
+    git: bool = True,
+) -> pathlib.Path:
+    """An app root whose copier answers record ``commit`` as the rendered template.
+
+    A rendered app is a git checkout, and ``copier update`` needs one — modelling it
+    without a ``.git`` made every re-render test run against a tree copier would refuse.
+    ``git=False`` is for the tests that want exactly that gap.
+    """
     root.mkdir(parents=True, exist_ok=True)
+    if git:
+        (root / ".git").mkdir(exist_ok=True)
     (root / ".copier-answers.yml").write_text(
-        f"_commit: {commit}\n_src_path: /opt/terp/template\nproject_name: Demo\n",
+        f"_commit: {commit}\n_src_path: {src_path}\nproject_name: Demo\n",
         encoding="utf-8",
     )
     return root
+
+
+def _template_carrying(root: pathlib.Path, *tags: str) -> pathlib.Path:
+    """A real local template checkout carrying exactly *tags* and nothing else."""
+    template = root / "template"
+    template.mkdir(parents=True)
+
+    def git(*args: str) -> None:
+        subprocess.run(("git", *args), cwd=template, capture_output=True, check=True)
+
+    git("init", "-q")
+    git("config", "user.email", "gate@example.invalid")
+    git("config", "user.name", "gate")
+    (template / "copier.yml").write_text("project_name: Demo\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "seed")
+    for tag in tags:
+        git("tag", tag)
+    return template
 
 
 def test_scaffolding_behind_the_packages_is_reported(tmp_path: pathlib.Path) -> None:
@@ -279,6 +313,170 @@ def test_scaffolding_behind_the_packages_is_reported(tmp_path: pathlib.Path) -> 
     assert "v0.5.7" in report and "0.6.1" in report
     assert "AGENTS.md" in report
     assert "copier update" in report
+
+    # The report must state the RULE, not three examples of it. Naming a few
+    # template-owned files reads as the complete list, and a reader deciding whether a
+    # re-render would carry a fix to a file not among them — docker-compose.yml, say —
+    # concluded it would not. Both halves are asserted because either alone is
+    # compatible with the old, misleading message.
+    assert "EVERY file the template owns" in report
+    assert "docker-compose.yml" in report
+    for name in version_mod._APP_OWNED_SCAFFOLD_FILES:
+        assert name in report, f"the report does not name the app-owned {name}"
+
+
+def _offered(monkeypatch: pytest.MonkeyPatch, root: pathlib.Path) -> str:
+    """The report for an app on 0.5.4 with 0.6.0 available, rooted at *root*."""
+    _fake_versions(monkeypatch, {"terp-core": "0.5.4", "terp-cap-auth": "0.5.4"})
+    _uv_says(
+        monkeypatch,
+        [
+            {"name": "terp-core", "version": "0.5.4", "latest_version": "0.6.0"},
+            {"name": "terp-cap-auth", "version": "0.5.4", "latest_version": "0.6.0"},
+        ],
+    )
+    return version_mod.render_upgrade_check(root)
+
+
+def test_the_recipe_re_renders_before_it_installs_anything(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The printed order used to be impossible to follow.
+
+    Editing the pins and running the two installers dirties the tree, and
+    ``copier update`` refuses a dirty tree — so the recipe's own earlier steps made its
+    last step impossible, and whoever followed it had to stash halfway through. The pin
+    edits were also work the re-render does: the template owns pyproject.toml and both
+    npm manifests, so a re-render writes every one of those pins itself.
+
+    Asserted as an ORDER and not as presence. Both commands appeared in the old recipe
+    too — the defect was which came first, so any assertion that merely finds them both
+    passes on the version this replaced.
+    """
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    rerender = report.index("copier update")
+    sync = report.index("uv sync --refresh")
+    npm = report.index("npm --prefix frontend install")
+    assert rerender < sync, "the re-render has to come before the installs, not after"
+    assert rerender < npm
+    # And the hand-pinning steps are gone rather than merely reordered: they are the
+    # re-render's own output, and doing both is what produced two needless installs.
+    assert "Pin every terp-* dependency" not in report
+    assert "Pin every @terpjs/* package" not in report
+
+
+def test_the_re_render_recipe_says_to_clean_the_tree_first(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The refusal is copier's, so the recipe has to account for it rather than
+    leave the reader to discover it three steps in."""
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    clean = report.index("Commit or discard what you have")
+    assert clean < report.index("copier update")
+    assert "dirty tree is refused" in report
+
+
+def test_the_re_render_recipe_names_the_two_structural_conflicts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Both conflicts are the template owning a file the app also writes to, so they
+    arrive on every re-render rather than occasionally — and naming them is the
+    difference between a step and a surprise. The operations one now has a fix
+    (ADR 0130); pyproject.toml is told which side wins."""
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    assert "keep your dependencies, take the terp-* pins" in report
+    assert "control_plane/app_operations.py" in report
+
+
+def test_the_re_render_recipe_warns_about_a_containerised_dev_stack(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The images bake the terp packages in while the source is bind-mounted, so
+    correct new code reloads against old libraries and dies on an import nowhere near
+    its cause."""
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    assert "Rebuild it rather than reloading into it" in report
+
+
+def test_the_re_render_command_is_printed_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The recipe numbers the re-render as a step, so the scaffolding report below it
+    must not offer the same command again: printed twice in one report it reads as two
+    different things to do, and only the recipe's copy has the tree-cleaning step in
+    front of it."""
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    assert report.count("copier update") == 1, report
+
+
+def test_an_app_with_no_template_answers_is_told_to_pin_by_hand(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Without an answers file ``copier update`` has nothing to re-render from, so the
+    pins the template would have written have to be written here — including the
+    second npm manifest, which a recipe naming only the frontend left stale."""
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    report = _offered(monkeypatch, bare)
+    assert "records no" in report and "template answers file" in report
+    assert "Pin every terp-* dependency to ==0.6.0" in report
+    assert "conformance/package.json" in report
+    # The command is *explained* here — why it is unavailable — and must never appear
+    # as a numbered step: sending an app copier cannot update to run it is how the old
+    # report sent readers to check something by hand.
+    assert "has nothing to re-render from" in report
+    numbered = [
+        line for line in report.splitlines() if re.match(r"\s+\d+\. ", line)
+    ]
+    assert numbered, "the hand-pin recipe must still print numbered steps"
+    assert not [line for line in numbered if "copier" in line], numbered
+
+
+def test_the_drift_report_does_not_claim_which_files_differ(
+    tmp_path: pathlib.Path,
+) -> None:
+    """It compares two version numbers, and that is all it knows.
+
+    The old wording said a release's fix to any template-owned file "is still waiting
+    here" and named AGENTS.md as the example — which was reported as a false alarm on
+    an app whose AGENTS.md was byte-identical to the template's. Reading the template
+    and diffing it is not available: the template does not ship inside the CLI wheel,
+    which is the same constraint that makes _APP_OWNED_SCAFFOLD_FILES a duplicated
+    list. So the honest fix is the claim, not the mechanism.
+    """
+    report = "\n".join(
+        version_mod._scaffold_lines(_answers(tmp_path / "app", "v0.5.7"), "0.6.1")
+    )
+    assert "may still be waiting" in report
+    assert "is still waiting here" not in report, "that states more than it checked"
+    assert "not something this can say" in report
+
+
+def test_the_app_owned_scaffold_list_matches_copier() -> None:
+    """The duplicated fact, held against its source.
+
+    ``_APP_OWNED_SCAFFOLD_FILES`` restates ``_skip_if_exists`` from
+    ``template/copier.yml``, because the template does not ship inside the CLI wheel and
+    the report has to be answerable offline. A duplicate that can drift is worse than no
+    list at all: it would state, with authority, that a file is yours when a re-render is
+    about to overwrite it. Same treatment as the theme bootstrap's three duplicated facts.
+    """
+    import yaml
+
+    repo_root = pathlib.Path(__file__).resolve().parents[2]
+    config = yaml.safe_load(
+        (repo_root / "template" / "copier.yml").read_text(encoding="utf-8")
+    )
+    skipped = config["_skip_if_exists"]
+
+    assert set(skipped) == set(version_mod._APP_OWNED_SCAFFOLD_FILES), (
+        "copier's _skip_if_exists and the CLI's copy of it disagree; a file moved "
+        "between 'yours' and 'the template's' and the upgrade report now lies about it"
+    )
+    # Sorted, so the report reads deterministically and a diff here is a real change.
+    assert list(version_mod._APP_OWNED_SCAFFOLD_FILES) == sorted(
+        version_mod._APP_OWNED_SCAFFOLD_FILES
+    )
 
 
 def test_scaffolding_level_with_the_packages_says_so_and_stops(
@@ -405,3 +603,288 @@ def test_the_cli_prints_the_check(
     _uv_says(monkeypatch, [])
     main(["upgrade", "--check"])
     assert "Up to date" in capsys.readouterr().out
+
+
+def test_a_ref_the_template_no_longer_carries_routes_to_the_hand_pin_recipe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A recorded ``_commit`` was the whole provenance test, and it proves too little.
+
+    It is a line scan for a key. It never asked whether the ref still resolves in the
+    template the app was rendered from — and tags do get pruned, so an app can record
+    ``v0.16.0`` against a template whose tags jump straight from ``v0.15.0`` to
+    ``v0.19.0``. The recipe was then printed in full and died at its own step 3.
+
+    The second-order harm is the reason this is worth a check rather than a caveat. The
+    two recipes are deliberately mutually exclusive, so a false positive does not merely
+    print one unrunnable step — it WITHHOLDS the hand-pin recipe, including the step that
+    says to pin every npm manifest and not only the frontend's. Both halves are asserted:
+    that the withheld step is now printed, and that the unrunnable one is not.
+    """
+    template = _template_carrying(tmp_path, "v0.15.0", "v0.19.0")
+    app = _answers(tmp_path / "app", "v0.16.0", src_path=str(template))
+    report = _offered(monkeypatch, app)
+
+    assert "Pin every @terpjs/* package" in report
+    assert "conformance/package.json" in report, "the withheld step is the whole point"
+    assert "Pin every terp-* dependency" in report
+    numbered = [line for line in report.splitlines() if re.match(r"\s+\d+\. ", line)]
+    assert numbered and not [line for line in numbered if "copier" in line], numbered
+
+    # And it says which obstacle it hit. "records no template answers file" would be a
+    # lie here — the file is there and readable; it is the ref inside it that is gone.
+    assert "v0.16.0" in report and str(template) in report
+    assert "no longer carries" in report
+    assert "records no template answers file" not in report
+
+
+def test_an_app_that_is_not_a_git_checkout_routes_to_the_hand_pin_recipe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The second thing copier needs and the old check never asked about.
+
+    ``copier update`` computes and applies a diff through git, so a tree with no
+    repository cannot take one however good its answers file is. An app can end up here
+    by being unpacked from an archive rather than cloned — the answers file rides along,
+    the history does not.
+    """
+    app = _answers(tmp_path / "app", "v0.5.7", git=False)
+    report = _offered(monkeypatch, app)
+
+    assert "is not a git checkout" in report
+    assert "Pin every terp-* dependency" in report
+    numbered = [line for line in report.splitlines() if re.match(r"\s+\d+\. ", line)]
+    assert not [line for line in numbered if "copier" in line], numbered
+
+
+def test_a_template_that_cannot_be_checked_locally_keeps_the_re_render_recipe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The check is only allowed to RULE OUT a re-render, never to assume one is dead.
+
+    A ``_src_path`` pointing at a remote is the normal case and the one that works, and
+    whether it still carries the ref cannot be answered without the network. Treating
+    "could not check" as "missing" would route every such app to hand-pinning on no
+    evidence — trading the old false positive for a false negative and re-introducing the
+    two needless installs from the other side.
+    """
+    app = _answers(
+        tmp_path / "app", "v0.5.7", src_path="https://github.com/AITT-NL/terp-template.git"
+    )
+    report = _offered(monkeypatch, app)
+
+    assert "copier update" in report
+    assert "Pin every terp-* dependency" not in report
+
+
+def test_a_ref_check_that_cannot_run_is_not_read_as_a_missing_ref(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Same rule, forced through the failure path rather than the un-checkable one.
+
+    git absent from PATH, a permission error, a repository too broken to answer: none of
+    those are evidence that the ref is gone, so none of them may downgrade the recipe.
+    """
+    template = _template_carrying(tmp_path, "v0.5.7")
+    app = _answers(tmp_path / "app", "v0.5.7", src_path=str(template))
+
+    def _explode(*args: object, **kwargs: object) -> None:
+        raise OSError("git is not on PATH")
+
+    monkeypatch.setattr(version_mod.subprocess, "run", _explode)
+    report = _offered(monkeypatch, app)
+
+    assert "copier update" in report
+    assert "Pin every terp-* dependency" not in report
+
+
+def test_the_scaffolding_report_withholds_a_re_render_it_knows_is_blocked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The packages can be current and the scaffolding still behind — and that report
+    offered ``copier update`` on its own, with no recipe above it to qualify it.
+
+    For an app that cannot re-render, that bare offer is the whole bug in miniature: a
+    command that reads as the way forward and is not. It is replaced by the reason rather
+    than merely dropped, because a reader told the scaffolding is stale and given nothing
+    at all will go looking for the command themselves.
+    """
+    template = _template_carrying(tmp_path, "v0.19.0")
+    app = _answers(tmp_path / "app", "v0.16.0", src_path=str(template))
+    _fake_versions(monkeypatch, {"terp-core": "0.22.0"})
+    _uv_says(monkeypatch, [{"name": "terp-core", "version": "0.22.0"}])
+
+    report = version_mod.render_upgrade_check(app)
+
+    assert "Up to date" in report
+    assert "Scaffolding: rendered from template v0.16.0" in report
+    assert "copier update" not in report
+    assert "A re-render is unavailable here" in report
+    assert "no longer carries" in report
+
+
+def test_the_recipes_count_terp_distributions_not_the_whole_lockstep_set(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The count comes from ``installed_terp_versions()`` — Python distributions, and
+    nothing else. Calling that total "packages" over a recipe whose own next steps pin
+    ``@terpjs/*`` in two npm manifests describes a set the number does not cover, and the
+    frontend packages are exactly the ones the hand-pin path has to edit by hand.
+    """
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    assert "All 2 terp-* distributions can move to 0.6.0" in report
+    assert "2 packages can move" not in report
+    assert "@terpjs/* packages move with them" in report
+
+def test_an_app_below_its_repository_root_is_still_a_git_checkout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Looking for a `.git` entry answers the ordinary app and mis-answers this one.
+
+    An app vendored into a subdirectory of a larger repository has no `.git` of its own
+    and `copier update` works there perfectly well. Blocking on the presence check alone
+    would reproduce the very bug this command was fixed for — a confident wrong answer
+    that withholds the recipe the reader actually needs — one level down.
+    """
+    repo = _template_carrying(tmp_path, "v0.5.7")  # any real repository will do
+    app = _answers(
+        repo / "app", "v0.5.7", src_path="https://example.invalid/t.git", git=False
+    )
+    report = _offered(monkeypatch, app)
+
+    assert "is not a git checkout" not in report
+    assert "copier update" in report
+    assert "Pin every terp-* dependency" not in report
+
+
+def test_a_template_directory_that_is_no_repository_is_not_a_pruned_tag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """git answers "no such ref" and "that is not a repository" with different codes, and
+    only the first is evidence.
+
+    Collapsing them reports a local `_src_path` that is simply not a checkout as a ref the
+    template "no longer carries" — naming the wrong obstacle with full confidence, which
+    is precisely the failure mode this check was added to stop making. A question nobody
+    answered leaves the recommendation alone.
+    """
+    plain = tmp_path / "plain-directory"
+    plain.mkdir()
+    app = _answers(tmp_path / "app", "v0.5.7", src_path=str(plain))
+    report = _offered(monkeypatch, app)
+
+    assert "no longer carries" not in report
+    assert "copier update" in report
+    assert "Pin every terp-* dependency" not in report
+
+
+# --- the machine-readable half --------------------------------------------- #
+def test_the_upgrade_answer_is_available_as_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`terp upgrade --check` was the one reporting command with no structured mode.
+
+    Every other one has it — inspect control-plane/access/capabilities/schema,
+    guide --list, check, verify — so any tool asking "is this app on a current platform?"
+    had to answer it by reimplementing the question rather than by asking. The facts were
+    already computed; they were spent on prose.
+    """
+    _fake_versions(monkeypatch, {"terp-core": "0.5.4", "terp-cap-auth": "0.5.4"})
+    _uv_says(
+        monkeypatch,
+        [
+            {"name": "terp-core", "version": "0.5.4", "latest_version": "0.6.0"},
+            {"name": "terp-cap-auth", "version": "0.5.4", "latest_version": "0.6.0"},
+        ],
+    )
+    document = json.loads(version_mod.render_upgrade_check(fmt="json"))
+    assert document["current"] == "0.5.4"
+    assert document["target"] == "0.6.0"
+    assert document["covers_whole_set"] is True
+    assert document["stragglers"] == {}
+    assert document["installed"] == {"terp-cap-auth": "0.5.4", "terp-core": "0.5.4"}
+    assert document["error"] is None
+
+
+def test_being_level_is_distinguishable_from_being_behind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The distinction a version number cannot carry on its own.
+
+    "Internally consistent at X" and "X, and two releases behind" are different answers,
+    and a consumer comparing a pin against its own baked copy can only ever produce the
+    first. `target: null` is the only honest way to say "nothing newer".
+    """
+    _fake_versions(monkeypatch, {"terp-core": "0.6.0"})
+    _uv_says(monkeypatch, [])
+    document = json.loads(version_mod.render_upgrade_check(fmt="json"))
+    assert (document["current"], document["target"]) == ("0.6.0", None)
+    assert document["covers_whole_set"] is True
+
+
+def test_a_release_that_does_not_cover_the_set_says_so_in_the_data_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A straggler is a reason to WAIT, and a tool acting on this has to see it.
+
+    Upgrading into a partial release produces exactly the mixed install
+    `terp --version` warns about, so `covers_whole_set` is the field that decides.
+    """
+    _fake_versions(monkeypatch, {"terp-core": "0.5.4", "terp-cap-auth": "0.5.4"})
+    _uv_says(
+        monkeypatch,
+        [
+            {"name": "terp-core", "version": "0.5.4", "latest_version": "0.6.0"},
+            {"name": "terp-cap-auth", "version": "0.5.4", "latest_version": "0.5.9"},
+        ],
+    )
+    document = json.loads(version_mod.render_upgrade_check(fmt="json"))
+    assert document["target"] == "0.6.0"
+    assert document["covers_whole_set"] is False
+    assert document["stragglers"] == {"terp-cap-auth": "0.5.9"}
+
+
+def test_an_unreachable_index_is_an_error_field_not_a_guess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A consumer must be able to tell "up to date" from "could not find out"."""
+    _fake_versions(monkeypatch, {"terp-core": "0.5.4"})
+    monkeypatch.setattr(version_mod, "_uv_outdated", lambda: (None, "uv is not on PATH."))
+    document = json.loads(version_mod.render_upgrade_check(fmt="json"))
+    assert document["error"] == "uv is not on PATH."
+    assert document["target"] is None
+    assert document["covers_whole_set"] is False, (
+        "an unanswered question must never read as a satisfied one"
+    )
+
+
+def test_an_environment_without_terp_is_data_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_versions(monkeypatch, {})
+    document = json.loads(version_mod.render_upgrade_check(fmt="json"))
+    assert document["current"] is None and document["installed"] == {}
+    assert "no terp-* distribution is installed" in document["error"]
+
+
+def test_the_cli_dispatches_the_structured_mode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_versions(monkeypatch, {"terp-core": "0.6.0"})
+    _uv_says(monkeypatch, [])
+    main(["upgrade", "--check", "--format", "json"])
+    assert json.loads(capsys.readouterr().out)["current"] == "0.6.0"
+
+
+def test_the_recipe_hands_the_reader_a_command_that_is_already_narrowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Step 1 holds both versions, so it should not make the reader supply one.
+
+    Before this it printed a bare `terp guide changelog`, which returns the entire file
+    — thousands of lines across dozens of releases, with no way to slice to the ones this
+    reader has not seen. A document nobody reads is a channel that carries nothing.
+    """
+    _fake_versions(monkeypatch, {"terp-core": "0.5.4"})
+    _uv_says(
+        monkeypatch,
+        [{"name": "terp-core", "version": "0.5.4", "latest_version": "0.6.0"}],
+    )
+    text = version_mod.render_upgrade_check()
+    assert "terp guide changelog --since 0.5.4" in text

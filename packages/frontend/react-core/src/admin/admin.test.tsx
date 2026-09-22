@@ -25,6 +25,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   window.localStorage.clear();
+  heldAccessModel = null;
 });
 
 // --- withAdminArea: the injection rules ------------------------------------- //
@@ -104,7 +105,7 @@ describe("withAdminArea", () => {
     // Omitted flags default to true: an empty object is the full area.
     const full = withAdminArea(appManifests(), appViews(), {});
     const fullAdmin = full.manifests.find((manifest) => manifest.name === "terp-admin");
-    expect(fullAdmin?.routes).toHaveLength(8);
+    expect(fullAdmin?.routes).toHaveLength(9);
     expect(full.views.TerpAdminHub).toBe(withAdminArea(appManifests(), appViews(), true).views.TerpAdminHub);
   });
 
@@ -115,7 +116,19 @@ describe("withAdminArea", () => {
     });
     const admin = manifests.find((manifest) => manifest.name === "terp-admin");
     expect(admin?.nav?.[0]?.label).toBe("Admin");
-    expect(admin?.routes.map((route) => route.path)).toEqual(["/admin", "/admin/audit"]);
+    expect(admin?.routes.map((route) => route.path)).toEqual([
+      "/admin",
+      "/admin/audit",
+      "/admin/access",
+    ]);
+
+    // The access screen is section-gated too, and for a reason rather than for symmetry: it
+    // reads `GET /api/v1/access/model`, which exists only where the access capability is
+    // mounted, so an app without it would otherwise ship a nav entry leading to a 404.
+    const withoutAccess = withAdminArea(appManifests(), appViews(), { access: false });
+    const trimmed = withoutAccess.manifests.find((m) => m.name === "terp-admin");
+    expect(trimmed?.routes.map((route) => route.path)).not.toContain("/admin/access");
+    expect(withoutAccess.views.TerpAdminAccess).toBeUndefined();
   });
 
   it("refuses a view-id collision that claims no path (a silent drop would dead-link the hub)", () => {
@@ -140,6 +153,13 @@ function LogInOnMount() {
 
 const emptyPage = { items: [], total: 0, skip: 0, limit: 1 };
 
+/**
+ * Held open, the access-model response does not land. Set by the one test that needs the
+ * role ladder to still be in flight while it looks at the form, so the window in which the
+ * submit control is disabled is a fact rather than a timing accident. Cleared in `afterEach`.
+ */
+let heldAccessModel: Promise<void> | null = null;
+
 function stubAdminFetch() {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const request = input as Request;
@@ -154,6 +174,39 @@ function stubAdminFetch() {
         email: "admin@example.com",
         role_rank: 30,
         role_name: "admin",
+      });
+    }
+    if (path.endsWith("/api/v1/access/model")) {
+      if (heldAccessModel) await heldAccessModel;
+      // The admin screens read the role ladder from the access model rather than from three
+      // literals in `roles.ts`, so the mock has to answer it. Declaring a fourth rung here is
+      // deliberate: it is what proves the screens render the ladder the *app* declares, which
+      // a viewer/editor/admin fixture could never observe.
+      return jsonResponse({
+        // Deliberately NOT in rank order. The endpoint sorts, and the hook sorts again — so a
+        // pre-sorted fixture cannot observe either, and removing the hook's sort broke no test
+        // at all until this fixture was scrambled. A ladder rendered out of order is a real
+        // defect: the strip's whole legibility comes from authority reading left to right.
+        roles: [
+          { name: "admin", rank: 30 },
+          { name: "viewer", rank: 10 },
+          { name: "approver", rank: 25 },
+          { name: "editor", rank: 20 },
+        ],
+        permissions: [],
+        modules: [],
+      });
+    }
+    if (path.includes("/api/v1/access/subjects/")) {
+      // The assignment panel on every detail screen reads this. Answered with a real, empty
+      // payload rather than left to the page fallback: the panel treats a failed read as
+      // "the rungs are unknown" and refuses to render its strips, which is correct behaviour
+      // and would otherwise turn every detail-screen test into a test of that error path.
+      return jsonResponse({
+        subject_id: path.split("/").pop(),
+        via: [],
+        permissions: [],
+        module_roles: [],
       });
     }
     if (path.endsWith("/api/v1/users/u1")) {
@@ -385,6 +438,28 @@ function renderAdminApp(
   return { fetchMock, router };
 }
 
+/**
+ * The create form's submit control, waited on until it is actually clickable.
+ *
+ * `UserCreate` gates the only control that reaches the POST on
+ * `creating || ladderLoading || role === ""`, and `role` is still `""` in the commit where
+ * `ladderLoading` first clears — the effect that picks the ladder's lowest rung runs after
+ * it. So the button is disabled for one commit longer than the access-model fetch takes,
+ * while the page heading renders before either. Awaiting the heading and then clicking
+ * submits nothing at all: jsdom raises no submit event for a click on a disabled control,
+ * and the test then fails several lines later on whatever was waiting for the POST's
+ * result, as "unable to find element" pointing at the wrong line.
+ *
+ * A control disabled on an ambient async load has to give a test something deterministic
+ * to wait on. This is that thing, and it is the condition that actually gates the click
+ * rather than a proxy for it.
+ */
+async function enabledSubmitControl(): Promise<HTMLElement> {
+  const control = await screen.findByRole("button", { name: "Provision user" });
+  await waitFor(() => expect(control).toBeEnabled());
+  return control;
+}
+
 describe("the packaged admin area", () => {
   it("serves the hub at /admin with cards into users, groups and audit", async () => {
     renderAdminApp("/admin");
@@ -433,6 +508,29 @@ describe("the packaged admin area", () => {
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Users");
   });
 
+  it("keeps the create form's submit control disabled until the declared ladder arrives", async () => {
+    // The pin under `enabledSubmitControl`, and the reason the four submitting tests below
+    // cannot go back to awaiting the heading. With the ladder held in flight, the heading is
+    // up and the only control that reaches the POST is disabled — so a click there raises no
+    // submit event at all in jsdom, and the test would fail much later, on whatever was
+    // waiting for the POST's result and with a message naming that instead. This holds the
+    // window itself: disabled while the ladder is outstanding, enabled once it lands. It
+    // does not hold which of the two gates (`ladderLoading`, `role === ""`) is doing it —
+    // either one alone produces the window, and both have to go for the race to.
+    let releaseLadder: () => void = () => {};
+    heldAccessModel = new Promise<void>((resolve) => {
+      releaseLadder = resolve;
+    });
+    renderAdminApp("/admin/users/new");
+
+    await screen.findByRole("heading", { level: 1, name: "Provision user" });
+    const submit = screen.getByRole("button", { name: "Provision user" });
+    expect(submit).toBeDisabled();
+
+    releaseLadder();
+    await waitFor(() => expect(submit).toBeEnabled());
+  });
+
   it("provisions a user on a dedicated create page and redirects to its detail", async () => {
     const { fetchMock } = renderAdminApp("/admin/users");
     await screen.findByRole("heading", { level: 1, name: "Users" });
@@ -452,13 +550,58 @@ describe("the packaged admin area", () => {
       target: { value: "new.account@example.com" },
     });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "strong-password" } });
-    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+    fireEvent.click(await enabledSubmitControl());
 
     await screen.findByRole("heading", { level: 1, name: "new.account@example.com" });
     expect(fetchMock.mock.calls.some(([input]) => {
       const request = input as Request;
       return request.method === "POST" && request.url.endsWith("/api/v1/users/");
     })).toBe(true);
+  });
+
+  it("offers the ladder the app declares, not the three ranks the framework ships", async () => {
+    // `roles.ts` used to return ranks 10/20/30 as literals, so an app that declared a fourth
+    // rung got a three-rung admin UI while ADR 0022 promised the role model was the app's.
+    // The ladder now comes from `GET /api/v1/access/model`, and the fixture declares
+    // `approver` at 25 precisely so this can observe it: a viewer/editor/admin fixture would
+    // pass against the old literals too.
+    const { fetchMock } = renderAdminApp("/admin/users/new");
+    await screen.findByRole("heading", { level: 1, name: "Provision user" });
+
+    // Waited on the rung itself, not the heading: the heading resolves before the model
+    // fetch settles, and asserting then would have been asserting on an empty ladder.
+    await screen.findByRole("option", { name: "approver" });
+    const select = screen.getByLabelText("Role") as HTMLSelectElement;
+    const offered = [...select.options].map((option) => [option.value, option.textContent]);
+    expect(offered).toEqual([
+      ["10", "Viewer"],
+      ["20", "Editor"],
+      // No framework translation exists for a rung the app invented, so it renders under the
+      // name its author gave it — which beats the `rank 25` the old rank-only fallback showed.
+      ["25", "approver"],
+      ["30", "Administrator"],
+    ]);
+
+    // And the form starts on the least privileged *declared* rung. Asserted through the
+    // request body rather than `select.value`, which cannot observe it: with no option
+    // matching the state, HTML's own selectedness algorithm shows the first one anyway, so a
+    // value assertion passed even against a default of 99. The posted rank is the thing that
+    // decides what the account actually gets.
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "new.account@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "strong-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+    await screen.findByRole("heading", { level: 1, name: "new.account@example.com" });
+
+    const posted = fetchMock.mock.calls.find(([input]) => {
+      const request = input as Request;
+      return request.method === "POST" && request.url.endsWith("/api/v1/users/");
+    });
+    const body = (await (posted![0] as Request).json()) as { role: number };
+    expect(body.role).toBe(10);
   });
 
   it("puts a 422's reason under the field it names instead of floating it in a toast", async () => {
@@ -492,7 +635,7 @@ describe("the packaged admin area", () => {
 
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "taken@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "strong-password" } });
-    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+    fireEvent.click(await enabledSubmitControl());
 
     const shown = await screen.findByText("Email address is already registered");
     expect(shown.getAttribute("data-terp")).toBe("field-error");
@@ -507,7 +650,10 @@ describe("the packaged admin area", () => {
     const { fetchMock } = renderAdminApp("/admin/users/u1");
     await screen.findByRole("heading", { level: 1, name: "jane.doe@example.com" });
     fireEvent.click(screen.getByRole("button", { name: "More actions" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Make viewer" }));
+    // Waited on, not reached for: the rung this item offers comes from the access model, so
+    // the menu opens empty of it until that fetch lands. Same race as `enabledSubmitControl`
+    // guards, one screen over.
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Make viewer" }));
     expect(screen.getByRole("dialog", { name: "Make viewer" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => (input as Request).method === "PATCH")).toBe(false);
 
@@ -609,7 +755,7 @@ describe("the packaged admin area", () => {
       target: { value: "new.account@example.com" },
     });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "strong-password" } });
-    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+    fireEvent.click(await enabledSubmitControl());
 
     expect(
       await screen.findByText("organization_id: Not allowed for this tenant"),
@@ -645,7 +791,7 @@ describe("the packaged admin area", () => {
 
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "taken@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "strong-password" } });
-    fireEvent.click(screen.getByRole("button", { name: "Provision user" }));
+    fireEvent.click(await enabledSubmitControl());
 
     const shown = await screen.findByText("Email address is already registered");
     expect(shown.getAttribute("data-terp")).toBe("field-error");
@@ -705,7 +851,10 @@ describe("the packaged admin area", () => {
     renderAdminApp("/admin/groups/g1");
     const headings = await waitFor(() => {
       const found = document.querySelectorAll('[data-terp="admin-section-title"]');
-      expect(found.length).toBe(2);
+      // Access per module, members, granted permissions. The count is here so the loop below
+      // cannot pass by finding nothing, and naming them is what keeps it from being a magic
+      // number the next section silently invalidates.
+      expect(found.length).toBe(3);
       return found;
     });
     for (const heading of headings) {

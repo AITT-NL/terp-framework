@@ -1,3 +1,4 @@
+# arch-allow-no-oversized-python-files: the shared substrate every rule module imports -- violation type, path helpers, the marker and suppression machinery. Splitting it would put the escape-hatch contract in two places
 """Shared machinery for the ``terp.arch`` rule modules.
 
 The :class:`ArchViolation` value type, the scan constants, the small AST/path
@@ -17,7 +18,7 @@ import tokenize
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from terp.arch._ast import _SECURITY_SKIP_DIRS, base_name, iter_python_files
+from terp.arch._ast import _SECURITY_SKIP_DIRS, base_name, iter_python_files, parse
 
 _HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete"})
 _SESSION_CONSTRUCTORS = frozenset({"Session", "create_engine", "sessionmaker"})
@@ -297,6 +298,37 @@ class ArchViolation:
 # --------------------------------------------------------------------------- #
 # internal helpers
 # --------------------------------------------------------------------------- #
+def _soft_delete_capable_class_names(root: pathlib.Path) -> frozenset[str]:
+    """Class names that compose ``SoftDeleteMixin`` directly or transitively (tree-wide).
+
+    The soft-delete trait is commonly factored into an app-owned base
+    (``class AppTable(BaseTable, SoftDeleteMixin)`` — the pattern ADR 0011
+    recommends), so a table inheriting *that* base is soft-delete too even though
+    ``SoftDeleteMixin`` is absent from its own bases. This walks the whole app
+    tree once, records each class's base names, and computes the taint closure
+    from ``SoftDeleteMixin`` so the guard sees the inherited case as well as the
+    direct one. Name-based, like the sibling rules; a name defined twice merges
+    its bases conservatively (a class is capable if *any* definition composes the
+    trait — fail closed).
+    """
+    bases_of: dict[str, set[str]] = {}
+    for path in iter_python_files(root):
+        for node in ast.walk(parse(path)):
+            if isinstance(node, ast.ClassDef):
+                bases_of.setdefault(node.name, set()).update(
+                    base_name(base) for base in node.bases
+                )
+    tainted: set[str] = {"SoftDeleteMixin"}
+    changed = True
+    while changed:
+        changed = False
+        for name, bases in bases_of.items():
+            if name not in tainted and bases & tainted:
+                tainted.add(name)
+                changed = True
+    return frozenset(tainted)
+
+
 def _rel(path: pathlib.Path, app_root: pathlib.Path) -> str:
     """Path relative to the app package's parent (keeps the ``app/`` prefix)."""
     try:
@@ -306,7 +338,23 @@ def _rel(path: pathlib.Path, app_root: pathlib.Path) -> str:
 
 
 def _module_under(path: pathlib.Path, package: str) -> str | None:
-    """Return the ``modules/<name>`` a file belongs to, or ``None``."""
+    """Return the ``modules/<name>`` a file belongs to, or ``None``.
+
+    Keyed on the ``modules/`` path segment alone: *package* is accepted so every rule
+    shares one call shape, and is deliberately **not** consulted. Two things follow,
+    and both have been misread before (ADR 0136).
+
+    A file outside a ``modules/`` tree returns ``None`` — a composition root, a
+    sibling package, a capability's own source. That is the right answer for a rule
+    about a *module's* shape (one module may not import another; a grantable module
+    must be named) and the wrong one for a rule about the code's *safety*, which does
+    not stop caring at a directory boundary. Four security rules read this as a
+    package filter and so scanned nothing outside the module tree — including, when
+    the capability suite scans a capability root, nothing at all, while still
+    asserting an empty violation list. Rules of the second kind now iterate the whole
+    root and never call this; ``test_arch_harness`` pins each one against a fixture
+    placed outside ``modules/`` so the distinction cannot quietly collapse again.
+    """
     parts = path.parts
     if "modules" in parts:
         index = parts.index("modules")

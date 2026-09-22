@@ -41,6 +41,7 @@ _RUNTIME_TOOL_SOURCES = {
     "terp.core": _REPO_ROOT / "packages" / "backend" / "core" / "src" / "terp" / "core",
     "terp.migrations": _REPO_ROOT / "packages" / "backend" / "migrations" / "src" / "terp" / "migrations",
     "terp.capabilities.files": _REPO_ROOT / "packages" / "backend" / "capabilities" / "files" / "src" / "terp" / "capabilities" / "files",
+    "terp.capabilities.access": _REPO_ROOT / "packages" / "backend" / "capabilities" / "access" / "src" / "terp" / "capabilities" / "access",
     "@terpjs/react-core": _REPO_ROOT / "packages" / "frontend" / "react-core" / "src",
 }
 
@@ -98,14 +99,29 @@ def _pinned_spec_version() -> str | None:
 #: to cut a framework release, so the window closes at the pin bump and cannot be
 #: left open. During certification the assertion below is trivially satisfied,
 #: because the catalog under test already contains the rule.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset(
-    {
-        # ADR 0119. Implemented here first so terp-spec can certify against a main
-        # branch that carries the rule; emptied by the pin bump to the release that
-        # publishes catalog/backend/modules_ship_tests.json.
-        "modules_ship_tests",
-    }
-)
+#:
+#: Open: nothing. The last window — ``permission_gated_reads_disclose`` (ADR 0149) —
+#: was shut by terp-spec 0.36.0, which the pin above names; the one before it,
+#: ``not_null_columns_are_backfilled``, by terp-spec 0.35.0, and the one before that,
+#: ``references_declare_delete_behaviour`` (ADR 0133), by terp-spec 0.34.0.
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
+
+#: The same window, one level down: runtime enforcement refs whose SPELLING this
+#: repository has changed and the published catalog has not caught up with yet.
+#:
+#: Thirteen boot-time controls carried a leading underscore while a released artifact in
+#: another repository cited them by name. Both halves of that were wrong at once. A
+#: private name says "this may be renamed without notice", so a refactor the design
+#: explicitly permits would have broken a published catalog and cost a spec release to
+#: repair — and in the other direction, a private name is unusable by any second
+#: implementation, which is exactly the property stack-neutrality promises.
+#:
+#: Listing a ref here says: renamed to its public spelling in this repository,
+#: not yet renamed in a published catalog. The assertion below then resolves the PUBLIC
+#: name, so the allowance still proves the control exists rather than waving it through,
+#: and ``test_release_versions`` requires the set to be empty to cut a release — the same
+#: shape, and the same closing moment, as the rule allowance above.
+_AWAITING_SPEC_REF_RENAME: frozenset[str] = frozenset()
 
 
 # --------------------------------------------------------------------------- #
@@ -413,6 +429,11 @@ def test_runtime_enforcement_refs_resolve_to_real_symbols() -> None:
                     f"(add it to _RUNTIME_TOOL_SOURCES)"
                 )
                 symbol = enforcement["ref"]
+                if symbol in _AWAITING_SPEC_REF_RENAME:
+                    # The rename window. Resolve the PUBLIC spelling this repository now
+                    # carries, so the allowance still proves the control is there — it
+                    # permits a stale NAME, never a missing control.
+                    symbol = symbol.lstrip("_")
                 pattern = re.compile(
                     rf"\b(?:class|(?:async\s+)?def|function)\s+{re.escape(symbol)}\b"
                 )
@@ -451,3 +472,55 @@ def test_black_box_enforcement_refs_resolve_to_conformance_probes() -> None:
         "a rule classified layer=black-box must name its @terpjs/conformance probe "
         f"(a black-box enforcement entry): {sorted(black_box_layer_rules)}"
     )
+
+
+def test_the_ref_rename_allowance_is_real_and_still_waiting() -> None:
+    """The allowance may not rot, in either direction.
+
+    An entry whose public counterpart does not exist would permit a ref that names
+    nothing — the exact hole the resolver test is for. An entry whose PRIVATE name is
+    still defined here means the rename never happened, so the allowance is covering a
+    change nobody made. And an entry the catalog cites under NEITHER spelling is dead
+    weight in a list whose whole value is that it empties.
+
+    That last one is deliberately about either spelling, because `cited` is read from
+    whichever catalog is installed and there are two. The framework's own gate resolves
+    the PINNED PUBLISHED release, which still cites the private names — that is the
+    state this window exists to bridge. terp-spec's `certify-against-reference`
+    substitutes the CANDIDATE release, which cites the public ones, and under it
+    "no longer cited" does not mean the window is shut; it means the window is doing its
+    job. Requiring the private spelling there deadlocked the release: spec CI could not
+    go green until the framework emptied this list, the framework could not empty it
+    until the candidate was published, and it could not be published while spec CI was
+    red.
+
+    Emptying the list is not this test's job and never was — `test_release_versions`
+    refuses to cut a tag while it holds anything, which is the control that makes the
+    window close.
+    """
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for root in _RUNTIME_TOOL_SOURCES.values()
+        for path in root.rglob("*.py")
+    )
+    cited = {
+        enforcement["ref"]
+        for surface in ("backend", "frontend")
+        for entry in _entries(surface).values()
+        for enforcement in entry["enforcement"]
+        if enforcement["kind"] == "runtime"
+    }
+    for private in sorted(_AWAITING_SPEC_REF_RENAME):
+        public = private.lstrip("_")
+        assert re.search(rf"\bdef {re.escape(public)}\b", source), (
+            f"{private!r} is allowed as a stale spelling of {public!r}, and {public!r} "
+            "is not defined — the allowance would permit a ref naming nothing"
+        )
+        assert not re.search(rf"\bdef {re.escape(private)}\b", source), (
+            f"{private!r} is still defined here, so the rename it allows for never "
+            "happened — drop the entry rather than carrying an allowance for nothing"
+        )
+        assert private in cited or public in cited, (
+            f"the catalog cites neither {private!r} nor {public!r}, so this allowance "
+            "covers nothing — remove it from _AWAITING_SPEC_REF_RENAME"
+        )

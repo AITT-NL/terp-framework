@@ -1,3 +1,4 @@
+# arch-allow-no-oversized-python-files: one themed rule module, and the largest. Due a split by sub-theme (columns / queries / sessions); tracked here rather than by being invisible
 """Persistence rules: writes go through the audited chokepoint, models use BaseTable.
 
 No raw session/engine construction (``SessionDep`` is the only handle), no direct
@@ -28,6 +29,7 @@ from terp.arch.rules._support import (
     _rel,
     _request_body_model_names,
     _response_model_names,
+    _soft_delete_capable_class_names,
     _tuple_annotation_name,
 )
 
@@ -40,20 +42,37 @@ def _is_plain_string_literal(node: ast.expr) -> bool:
 def check_no_dynamic_sql(
     app_root: str | pathlib.Path, *, package: str = "app"
 ) -> list[ArchViolation]:
-    """Raw SQL text in app modules must be a static literal, never dynamically built.
+    """Raw SQL text in app code must be a static literal, never dynamically built.
 
     Dynamic ``text(...)`` / ``sqlalchemy.text(...)`` calls (f-strings, string
     concatenation, ``.format``, ``%`` formatting, or a variable) are not statically
     reviewable and are easy to turn into SQL injection. Keep SQL as a literal and
-    pass data through SQLAlchemy parameters / ORM expressions instead. As a
-    security rule this also scans ``tests/`` and ``migrations/`` dirs inside a
-    module — they are importable Python, so they are application surface too.
+    pass data through SQLAlchemy parameters / ORM expressions instead.
+
+    Scope is the **whole scanned root**, not ``modules/`` (ADR 0136): a security
+    rule that stopped at the module tree read as enforced everywhere while a
+    composition root, a sibling package, or a capability's own source was never
+    looked at. ``tests/`` and ``migrations/`` are scanned too — they are importable
+    Python, so they are application surface as much as a service is.
+
+    **What it sees, said plainly, because the title does not say it.** This rule fires
+    on one construct: a call whose callee name is ``text``. That is SQLAlchemy's, and it
+    is the shape a Terp app uses. A package that does **not** model the schema it talks
+    to — the reason a companion root usually exists — drives a DB-API cursor instead,
+    and ``cursor.execute(f"SELECT ... FROM {table}")`` is invisible here however the
+    statement was built.
+
+    That shape is governed, just not by this rule. ADR 0085 §2 delegates it to ruff's
+    bandit set, where ``S608`` is "SQL string construction", running as a blocking step
+    in this repository and in every generated project, with an architecture test parsing
+    the stanza so it cannot be quietly weakened. The delegation is deliberate: §1 says
+    the catalog never grows an entry whose only content is what a stock analyzer already
+    detects well, which is why this rule is not widened to cover it. The two lanes
+    together are the coverage; either one read alone overstates.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in iter_python_files(root, skip_dirs=_SECURITY_SKIP_DIRS):
-        if _module_under(path, package) is None:
-            continue
         tree = parse(path)
         rel = _rel(path, root)
         for node in ast.walk(tree):
@@ -576,12 +595,15 @@ def check_no_manual_table_schema(
     schema-free. A hand-written ``__table_args__ = {"schema": ...}`` pins one table
     to a fixed schema, silently escaping the managed layout (and breaking SQLite
     dev/test, which parses a schema prefix as an ATTACH database name).
+
+    Scope is the **whole scanned root**, not ``modules/`` (ADR 0136), matching
+    ``table_models_use_base_table`` — the two rules govern the same declarations and
+    disagreeing about where a table model may live is how one of them ends up
+    enforced and the other assumed.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in iter_python_files(root):
-        if _module_under(path, package) is None:
-            continue
         tree = parse(path)
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Assign | ast.AnnAssign)):
@@ -618,37 +640,6 @@ def check_no_manual_table_schema(
 _VERIFIED_DIALECT_WHERE_KEYWORDS: frozenset[str] = frozenset(
     {"postgresql_where", "sqlite_where"}
 )
-
-
-def _soft_delete_capable_class_names(root: pathlib.Path) -> frozenset[str]:
-    """Class names that compose ``SoftDeleteMixin`` directly or transitively (tree-wide).
-
-    The soft-delete trait is commonly factored into an app-owned base
-    (``class AppTable(BaseTable, SoftDeleteMixin)`` — the pattern ADR 0011
-    recommends), so a table inheriting *that* base is soft-delete too even though
-    ``SoftDeleteMixin`` is absent from its own bases. This walks the whole app
-    tree once, records each class's base names, and computes the taint closure
-    from ``SoftDeleteMixin`` so the guard sees the inherited case as well as the
-    direct one. Name-based, like the sibling rules; a name defined twice merges
-    its bases conservatively (a class is capable if *any* definition composes the
-    trait — fail closed).
-    """
-    bases_of: dict[str, set[str]] = {}
-    for path in iter_python_files(root):
-        for node in ast.walk(parse(path)):
-            if isinstance(node, ast.ClassDef):
-                bases_of.setdefault(node.name, set()).update(
-                    base_name(base) for base in node.bases
-                )
-    tainted: set[str] = {"SoftDeleteMixin"}
-    changed = True
-    while changed:
-        changed = False
-        for name, bases in bases_of.items():
-            if name not in tainted and bases & tainted:
-                tainted.add(name)
-                changed = True
-    return frozenset(tainted)
 
 
 def check_no_unique_columns_on_soft_delete_models(

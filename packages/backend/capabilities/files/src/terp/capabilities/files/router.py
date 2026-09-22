@@ -1,11 +1,23 @@
-"""Owner-scoped admin router for files: upload, download, list, rename, delete.
+"""Admin router for files: upload, download, list, rename, delete.
 
 Self-registering (``module``): the kernel's entry-point discovery mounts it at
 ``/api/v1/files`` with no composition-root edit. File storage is a privileged,
 disk/backend-consuming capability, so the policy requires ``ADMIN``; ``File`` also
 composes ``OwnedMixin``, so the **per-row** write gate (an admin may rename / delete only
 their *own* file) is enforced centrally by ``BaseService`` — the routes carry no ownership
-logic. The raw ``storage_key`` never leaves the boundary (``FileRead`` omits it); the
+logic.
+
+**Writes are owner-scoped; reads are not**, and the distinction is worth stating because
+this docstring used to open with "owner-scoped" unqualified and mean only the first half.
+``OwnedMixin`` is a write gate by construction — a post-load boolean cannot paginate a
+list — so ``GET /``, ``GET /{id}`` and the download stream return any file to any caller
+who clears ``ADMIN``. For a deployment where that is wrong, one composition-root line
+(:func:`terp.core.register_owner_read_scope`) installs the matching read filter for every
+``OwnedMixin`` model and the two seams compose into "only the owner sees **or** changes
+the row". It is opt-in rather than the default because it narrows what an
+already-authorized caller can see, which is a decision about a product.
+
+The raw ``storage_key`` never leaves the boundary (``FileRead`` omits it); the
 download route **streams** the bytes back through a ``StreamingResponse`` (read from the
 backend in chunks, so a large file never lands in memory whole) with a sanitized
 ``Content-Disposition`` (RFC 5987 encoding, so a hostile stored filename can never inject

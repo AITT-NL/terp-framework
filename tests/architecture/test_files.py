@@ -27,26 +27,34 @@ from terp.core._internal.session_guard import WriteGuardedSession
 from terp.capabilities.files import (
     DEFAULT_STORAGE_PROFILE,
     MAX_UPLOAD_BYTES,
+    SCAN_CLEAN,
+    SCAN_NOT_SCANNED,
+    SCAN_REJECTED,
     ContentTypeMismatchError,
     File,
+    FileQuarantinedError,
     FileRead,
     FileRef,
     FileService,
     FileStorageError,
+    FileUpdate,
     LocalFilesystemStorage,
     StorageBackend,
     UndeclaredFileReferenceError,
     UnknownStorageProfileError,
     UnsupportedContentTypeError,
     active_allowed_content_types,
+    active_file_scanner,
     active_storage_backend,
     active_upload_limit,
     configure_allowed_content_types,
     configure_upload_limit,
     is_file_reference,
     module,
+    register_file_scanner,
     register_storage_backend,
     reset_allowed_content_types,
+    reset_file_scanner,
     reset_storage_backend,
     reset_upload_limit,
     resolve_storage_backend,
@@ -70,6 +78,19 @@ def storage_root(tmp_path: Path) -> Iterator[Path]:
     set_storage_backend(LocalFilesystemStorage(root))
     yield root
     reset_storage_backend()
+
+
+@pytest.fixture(autouse=True)
+def _no_scanner() -> Iterator[None]:
+    """Every test starts with no scanner wired — the shipped default.
+
+    Autouse because the seam is process-global like the storage one: a test that
+    registers a scanner and does not clear it would silently change the verdict of
+    every upload after it, and the symptom would surface in an unrelated test.
+    """
+    reset_file_scanner()
+    yield
+    reset_file_scanner()
 
 
 @pytest.fixture
@@ -396,6 +417,182 @@ def test_load_for_maps_an_empty_reference_to_a_typed_404(
     record = _RecordWithAttachment(attachment_file_id=None)
     with pytest.raises(NotFoundError):
         FileService().load_for(session, record, "attachment_file_id")
+
+
+
+# --------------------------------------------------------------------------- #
+# The scan seam (ADR 0146): the deployment brings the engine, the capability
+# owns the state and refuses to serve what the engine rejected.
+# --------------------------------------------------------------------------- #
+def test_an_unwired_deployment_stores_not_scanned_and_serves_as_before(
+    session: Session, storage_root: Path
+) -> None:
+    """The shipped default changes nothing, and that is the whole point of it.
+
+    A file cannot be ``clean`` without something having looked at it, so there is no
+    safe default to impose: gating downloads on a verdict nothing will ever produce
+    would make every already-stored file unreachable on upgrade.
+    """
+    service = FileService()
+    row = _store(service, session)
+
+    assert row.scan_state == SCAN_NOT_SCANNED
+    _, data = service.load(session, row.id)
+    assert data == _CONTENT
+
+
+def test_a_clean_verdict_is_stamped_and_the_bytes_still_serve(
+    session: Session, storage_root: Path
+) -> None:
+    register_file_scanner(lambda _subject: SCAN_CLEAN)
+    service = FileService()
+
+    row = _store(service, session)
+
+    assert row.scan_state == SCAN_CLEAN
+    _, data = service.load(session, row.id)
+    assert data == _CONTENT
+
+
+def test_a_rejected_upload_is_quarantined_rather_than_discarded(
+    session: Session, storage_root: Path
+) -> None:
+    """Rejected bytes are kept, flagged, and never served again.
+
+    Keeping them is the decision worth testing: an operator needs to know what arrived,
+    from whom and when, and the uploader learns from ``scan_state`` on the response
+    rather than from a discarded error. The row exists, the blob exists, and every read
+    path refuses.
+    """
+    register_file_scanner(lambda _subject: SCAN_REJECTED)
+    service = FileService()
+
+    row = _store(service, session)
+
+    assert row.scan_state == SCAN_REJECTED
+    assert service.get(session, row.id).id == row.id  # the metadata is still readable
+    with pytest.raises(FileQuarantinedError):
+        service.open_stream(session, row.id)
+    with pytest.raises(FileQuarantinedError):
+        service.load(session, row.id)
+    # The bytes were NOT deleted — quarantine, not disposal.
+    with resolve_storage_backend(row.storage_profile).open(row.storage_key) as stream:
+        assert stream.read() == _CONTENT
+
+
+def test_the_quarantine_gate_also_closes_the_serve_through_read(
+    session: Session, storage_root: Path
+) -> None:
+    """A referenced file is refused too, which is why the gate is not on the route.
+
+    ``load_for`` serves a file through another module's already-authorized row. Had the
+    check been written on the download route, this path would have kept handing out
+    exactly the bytes the scanner rejected, and nothing would have said so.
+    """
+    register_file_scanner(lambda _subject: SCAN_REJECTED)
+    service = FileService()
+    row = _store(service, session)
+    record = _RecordWithAttachment(attachment_file_id=row.id)
+
+    with pytest.raises(FileQuarantinedError):
+        service.load_for(session, record, "attachment_file_id")
+
+
+def test_the_scanner_sees_the_stored_bytes_and_the_metadata(
+    session: Session, storage_root: Path
+) -> None:
+    """It is handed what a download would hand out, not the request stream.
+
+    The upload stream has been consumed by the digesting copy by this point, and the
+    bytes on disk are the ones that matter: a scanner shown anything else is checking a
+    file nobody will ever receive.
+    """
+    seen: dict[str, object] = {}
+
+    def _scanner(subject) -> str:  # type: ignore[no-untyped-def]
+        with subject.open_stream() as stream:
+            seen["bytes"] = stream.read()
+        seen["filename"] = subject.filename
+        seen["content_type"] = subject.content_type
+        seen["size"] = subject.size
+        seen["sha256"] = subject.sha256
+        return SCAN_CLEAN
+
+    register_file_scanner(_scanner)
+    row = _store(FileService(), session)
+
+    assert seen["bytes"] == _CONTENT
+    assert seen["filename"] == "a.txt"
+    assert seen["content_type"] == "text/plain"
+    assert seen["size"] == len(_CONTENT)
+    assert seen["sha256"] == hashlib.sha256(_CONTENT).hexdigest()
+    assert row.sha256 == seen["sha256"]
+
+
+def test_a_scanner_returning_an_unknown_verdict_fails_closed(
+    session: Session, storage_root: Path
+) -> None:
+    """A typo must not become a clean bill of health the gate then trusts forever.
+
+    Coerced to ``clean`` it would be invisible; written to the row verbatim it would sit
+    outside the vocabulary and read as servable. Refusing the upload puts the mis-wiring
+    in front of whoever wired it, and the compensation guard takes the blob with it — so
+    a rejected wiring error leaves nothing behind either.
+    """
+    register_file_scanner(lambda _subject: "ok")
+    service = FileService()
+
+    with pytest.raises(ValueError):
+        _store(service, session)
+
+    assert list(storage_root.rglob("*.*")) == []  # the partial blob was compensated
+
+
+def test_registering_a_scanner_replaces_the_previous_one(
+    session: Session, storage_root: Path
+) -> None:
+    """Two answers to 'is this file safe' is not a question to resolve at the call site."""
+    register_file_scanner(lambda _subject: SCAN_REJECTED)
+    register_file_scanner(lambda _subject: SCAN_CLEAN)
+
+    assert _store(FileService(), session).scan_state == SCAN_CLEAN
+
+    reset_file_scanner()
+    assert _store(FileService(), session).scan_state == SCAN_NOT_SCANNED
+
+
+def test_the_active_scanner_accessor_reflects_the_registry() -> None:
+    """The accessor is public surface, like ``active_storage_backend`` beside it.
+
+    A composition root that wants to assert what it wired needs to be able to read the
+    seam, not only write to it — and so does anything restoring it afterwards.
+    """
+    assert active_file_scanner() is None
+
+    def _scanner(_subject) -> str:  # type: ignore[no-untyped-def]
+        return SCAN_CLEAN
+
+    register_file_scanner(_scanner)
+    assert active_file_scanner() is _scanner
+
+    reset_file_scanner()
+    assert active_file_scanner() is None
+
+
+def test_a_client_can_read_the_scan_state_but_never_patch_it(
+    session: Session, storage_root: Path
+) -> None:
+    """A verdict a client could patch is not a verdict.
+
+    The read half matters too: a caller refused a download is owed the reason, and a UI
+    that cannot see the state can only discover it by attempting the transfer.
+    """
+    assert "scan_state" in FileRead.model_fields
+    assert "scan_state" not in FileUpdate.model_fields
+
+    register_file_scanner(lambda _subject: SCAN_REJECTED)
+    row = _store(FileService(), session)
+    assert FileRead.model_validate(row).scan_state == SCAN_REJECTED
 
 
 # --------------------------------------------------------------------------- #

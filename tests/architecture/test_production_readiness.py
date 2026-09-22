@@ -15,7 +15,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from terp.core import ModuleSpec, Policy, create_app, get_session, settings
+from terp.core import (
+    ModuleSpec,
+    Policy,
+    create_app,
+    get_session,
+    route_policy,
+    settings,
+)
 from terp.core._internal.engine import _engine_options
 
 
@@ -24,6 +31,7 @@ def _app():
     router = APIRouter()
 
     @router.get("/ping", response_model=str)
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
     def ping() -> str:
         return "pong"
 
