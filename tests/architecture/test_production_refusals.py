@@ -71,6 +71,26 @@ _PRODUCTION_REFUSALS: dict[str, tuple[tuple[str, str], ...]] = {
             "and a warning on every non-production boot.",
         ),
     ),
+    "terp/capabilities/mail/delivery.py::configure_mail": (
+        (
+            "mail wired with no relay configured",
+            "decided by the deployment's ENVIRONMENT (MAIL_FROM / SMTP_HOST), read by the "
+            "composition root at import; the lane reads the declared plane and never the "
+            "environment, so it cannot ask. Mitigated earlier than the boot: `terp guide "
+            "mail` has the app declare both as `required` in environment.schema.json, "
+            "which a deployment that honours the manifest refuses before it starts, and "
+            "every non-production boot warns that nothing will be delivered.",
+        ),
+    ),
+    "terp/capabilities/mail/settings.py::MailSettings.__post_init__": (
+        (
+            "unencrypted mail relay",
+            "a CAPABILITY OBJECT the app constructs itself, from the environment; "
+            "ControlPlane has no field that reaches it, so the lane cannot ask. Mitigated "
+            "the same way as the OIDC refusal above: an environment-independent "
+            "`production_problems()` and a warning on every non-production boot.",
+        ),
+    ),
 }
 
 

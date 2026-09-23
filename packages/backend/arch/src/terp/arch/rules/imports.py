@@ -152,15 +152,39 @@ _BACKGROUND_ENGINE_DOTTED = ("azure.servicebus",)
 
 _RAW_OUTBOUND_HTTP_ROOTS = frozenset({"httpx", "requests", "urllib3", "aiohttp", "socket"})
 _RAW_OUTBOUND_HTTP_DOTTED = ("urllib.request", "http.client")
+# The standard library's mail client reaches the network the same way and leaves the same
+# choices at the call site -- whether the session is encrypted, whether the certificate is
+# checked, how long a dead server may hold the caller -- so it is the same egress. It is
+# listed only because a sanctioned path exists for it (terp.capabilities.mail); a protocol
+# client with no capability to send the author to would be a refusal with no way through.
+_RAW_OUTBOUND_MAIL_ROOTS = frozenset({"smtplib"})
 
 
 def _is_raw_outbound_http_module(module: str) -> bool:
-    """True for HTTP client libraries that must live behind an SSRF-safe capability."""
-    if module in _RAW_OUTBOUND_HTTP_ROOTS:
+    """True for network clients that must live behind a declared egress capability."""
+    if module in _RAW_OUTBOUND_HTTP_ROOTS or module in _RAW_OUTBOUND_MAIL_ROOTS:
         return True
     if any(module == dotted or module.startswith(f"{dotted}.") for dotted in _RAW_OUTBOUND_HTTP_DOTTED):
         return True
     return any(module.startswith(f"{root}.") for root in _RAW_OUTBOUND_HTTP_ROOTS)
+
+
+def _raw_outbound_remedy(module: str) -> str:
+    """The capability a refused network import is sent to: mail, or HTTP egress."""
+    if module in _RAW_OUTBOUND_MAIL_ROOTS:
+        return (
+            f"imports {module!r}; outbound mail goes through the mail capability — "
+            "declare the relay once with terp.capabilities.mail.configure_mail(...) and "
+            "send with send_mail(session, MailMessage(...)), which requires an encrypted, "
+            "certificate-verified session and delivers through the jobs seam"
+        )
+    return (
+        f"imports {module!r}; outbound HTTP goes through the egress "
+        "capability — declare an EgressPolicy (allowed hosts, timeout) "
+        "and call it through terp.capabilities.egress.EgressClient, "
+        "which allowlists the host, checks every resolved address "
+        "against the SSRF denylist and pins the connection to it"
+    )
 
 
 # The stdlib concurrency modules are background *execution* when used to spawn a
@@ -198,6 +222,11 @@ def check_no_raw_outbound_http(
     egress record are all properties of its :class:`~terp.capabilities.egress.EgressPolicy`,
     so a call site cannot decide any of them.
 
+    ``smtplib`` is the same egress by a different protocol, and is refused for the same
+    reason: encryption, certificate verification and the timeout become per-call-site
+    choices. Mail goes through ``terp.capabilities.mail``, where the relay is declared
+    once and a feature calls ``send_mail``.
+
     Scope is the **whole scanned root**, not ``modules/`` (ADR 0136), and that is the
     change that gave this rule its reach: the raw client an app reaches for lives in a
     worker, a publisher script or a composition root far more often than in a module's
@@ -219,11 +248,7 @@ def check_no_raw_outbound_http(
                         "no_raw_outbound_http",
                         rel,
                         line,
-                        f"imports {module!r}; outbound HTTP goes through the egress "
-                        "capability — declare an EgressPolicy (allowed hosts, timeout) "
-                        "and call it through terp.capabilities.egress.EgressClient, "
-                        "which allowlists the host, checks every resolved address "
-                        "against the SSRF denylist and pins the connection to it",
+                        _raw_outbound_remedy(module),
                     )
                 )
     return violations

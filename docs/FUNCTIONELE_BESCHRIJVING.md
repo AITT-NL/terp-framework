@@ -264,6 +264,7 @@ router mounten + modellen aan migraties blootstellen zonder edits aan `main.py`.
 | `eventbus` | Getypeerde `EventCatalog` + NO-DRIFT `emit` (ADR 0008) |
 | `outbox` | Transactionele outbox voor betrouwbare event-aflevering |
 | `webhooks` | Uitgaande webhooks |
+| `mail` | E-mail versturen via één vastgelegde mailserver: versleuteld, vaste afzender, afgeleverd via de takenlaag (ADR 0150) |
 | `jobs_celery` | Achtergrondtaken (Celery) |
 | `scheduler_apscheduler` / `scheduler_celery_beat` | Geplande taken |
 | `sync` | Synchronisatie-ondersteuning |

@@ -291,7 +291,12 @@ def test_the_release_notes_travel_inside_the_wheel() -> None:
 def test_outbound_http_rule_guide_is_truthful_and_preserves_the_feature() -> None:
     text = guide("no_raw_outbound_http")
     assert "SSRF protection, allowlists, egress auditing, and timeout" in text
-    assert "no generic outbound-fetch" in text
+    # Each outbound shape is sent to the capability that exists for it, and the one
+    # shape with no compliant path is named as such rather than implied to exist.
+    assert "terp-cap-egress" in text
+    assert "terp-cap-mail" in text
+    assert "never smtplib" in text
+    assert "no sanctioned path to an ARBITRARY host" in text
     assert "returning static/local data" in text
     assert "stop and report the missing capability" in text
     assert "Do not create an app-local helper package" in text

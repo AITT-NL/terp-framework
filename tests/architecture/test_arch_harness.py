@@ -324,6 +324,18 @@ def test_no_raw_outbound_http(tmp_path: pathlib.Path) -> None:
     _write(app, "modules/notes/service.py", "from http import HTTPStatus\n")
     assert check_no_raw_outbound_http(app) == []
 
+    # The standard library's mail client is the same egress by another protocol, and is
+    # sent to the capability that exists for it rather than to the HTTP one.
+    for stmt in ("import smtplib", "from smtplib import SMTP_SSL"):
+        _write(app, "modules/notes/service.py", f"{stmt}\n")
+        (violation,) = check_no_raw_outbound_http(app)
+        assert violation.rule == "no_raw_outbound_http", stmt
+        assert "terp.capabilities.mail" in violation.message, stmt
+        assert "EgressClient" not in violation.message, stmt
+    # ... while the mail *format* library is not a network client at all.
+    _write(app, "modules/notes/service.py", "from email.message import EmailMessage\n")
+    assert check_no_raw_outbound_http(app) == []
+
     # tests/ and migrations/ dirs inside a module are importable code: still scanned (G1).
     _write(app, "modules/notes/service.py", "from terp.core import BaseService\n")
     _write(app, "modules/notes/tests/helper.py", "import httpx\n")

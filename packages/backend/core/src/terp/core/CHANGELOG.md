@@ -10,6 +10,65 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.27.0 — unreleased
+
+### Security
+
+- **`no_raw_outbound_http` refuses `smtplib`.** The rule refused every route to the
+  network an HTTP call takes and let the standard library's mail client through, so the
+  first thing an agent writes when asked to send a mail passed the gate with every
+  decision the rule exists to take away from a call site still at the call site:
+  `smtplib` is unencrypted until `starttls()` is called, its default context verifies
+  neither the certificate nor the name even then, `login()` sends the password in the
+  clear to any server that advertises AUTH, and there is no timeout. The refusal carries
+  its own remedy — the mail capability below — rather than the HTTP one, since
+  `EgressClient` cannot speak SMTP. It was not added before because a refusal with no
+  compliant path is a hole code goes around (ADR 0096); the path exists now (ADR 0150).
+
+### Added
+
+- **Sending e-mail: `terp-cap-mail` (ADR 0150).** A library capability: the application
+  declares one relay in its composition root —
+  `configure_mail(mail_settings_from_environment(os.environ))`, read from the fixed
+  `MAIL_FROM` / `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURITY` / `SMTP_USERNAME` /
+  `SMTP_PASSWORD` — registers `MAIL_SEND` in its job catalog, and a feature calls
+  `send_mail(session, MailMessage(to=[...], subject=..., text=...))`.
+
+  The relay is encrypted by default (STARTTLS, or TLS from the first byte), a relay that
+  does not offer STARTTLS is refused rather than spoken to in the clear, the certificate
+  and the name are always verified, and credentials are refused over an unencrypted
+  connection in every environment. An unencrypted relay — the mail catcher of a
+  development stack — and a production process with no relay at all both refuse a
+  production boot; outside production, no relay means each message is logged (subject and
+  recipient count only) instead of delivered.
+
+  `send_mail` sends nothing itself. It enqueues the job on the caller's session, so called
+  from a service's `_after_write` with the durable outbox wired, the mail commits or rolls
+  back with the write it is about and `terp jobs worker` delivers it, retrying with backoff
+  until it dead-letters. The `Message-ID` is fixed when the send is asked for, so a retry
+  is the same message. Every message is from `MAIL_FROM` (a `Reply-To` is the per-message
+  choice), is plain text, carries one-line headers and at most `MAX_RECIPIENTS`
+  recipients, and says `Auto-Submitted: auto-generated`. `CapturingMailTransport` keeps
+  messages instead of sending them, for an application's own tests. Recipe:
+  `terp guide mail`.
+
+### Fixed
+
+- **`terp guide no_raw_outbound_http` no longer says there is no outbound HTTP
+  capability.** The remedy was written before `terp-cap-egress` existed and kept telling
+  an agent that a live fetch had no sanctioned implementation; it now sends each outbound
+  shape to the capability that exists for it — egress for a host you can name, webhooks
+  for subscriber deliveries, mail for e-mail — and names the one shape that still has no
+  compliant path: a fetch from an arbitrary, user-supplied host.
+
+### Upgrade notes
+
+- **An application that imports `smtplib` fails the gate on this release**, wherever the
+  import lives. Move the send to `terp-cap-mail`: `uv add terp-cap-mail`, then follow
+  `terp guide mail`. A provider reachable only over its HTTP API keeps the same call
+  sites through `configure_mail(settings, transport=...)` with a transport built on
+  `terp.capabilities.egress`.
+
 ## 0.26.0 — 2026-09-22
 
 ### Fixed

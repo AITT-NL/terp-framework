@@ -125,6 +125,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         guide="leases",
     ),
     Capability(
+        name="mail",
+        summary="Send e-mail through one declared relay — encrypted, a fixed sender, delivered by the jobs seam so a send commits with its write.",
+        kind="library",
+        wiring="configure_mail(mail_settings_from_environment(os.environ)) + JobCatalog([MAIL_SEND])",
+        guide="mail",
+    ),
+    Capability(
         name="oidc",
         summary="Single sign-on via the OpenID Connect code flow with PKCE.",
         kind="library",

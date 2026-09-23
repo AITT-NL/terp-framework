@@ -1113,6 +1113,13 @@ removed `projects`: business nouns are client modules, never capabilities).
   `@subscribe` trigger that enqueues atomically with the business write (no
   dual-write) via the new eventbus `current_event_session()` seam. `httpx` is a
   dependency of this cap only — ADR 0051
+- [x] **mail** — `terp-cap-mail` (a library cap): outbound e-mail through one relay
+  declared in the composition root (`configure_mail`, from fixed `MAIL_FROM` / `SMTP_*`
+  variables) — STARTTLS or TLS with the certificate verified, credentials refused over
+  plaintext, a fixed sender, plain-text messages with one-line headers and bounded
+  recipients. `send_mail` enqueues the typed `MAIL_SEND` job on the caller's session, so
+  with the outbox wired the mail commits with its write and the worker delivers it with
+  retries. `no_raw_outbound_http` refuses `smtplib` and names this cap — ADR 0150
 
 ---
 

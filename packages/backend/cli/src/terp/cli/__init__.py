@@ -1554,7 +1554,82 @@ Using capabilities
   api_key, token, ...) to a string literal — or a recognizable secret-token literal
   anywhere — is refused by the no_hardcoded_credentials rule. Wire secrets through
   settings / sealed config (ADR 0055), never source.
-""",    "migrations": """\
+- Sending e-mail is a capability too: `import smtplib` is refused by the same
+  no_raw_outbound_http rule, and terp-cap-mail is where it goes — `terp guide mail`.
+""",
+    "mail": """\
+Sending e-mail (terp-cap-mail)
+
+- Mail is a capability concern, never a module concern: `import smtplib` anywhere in the
+  app is refused by the no_raw_outbound_http rule. Install the capability:
+      uv add terp-cap-mail
+- ONE relay per application, declared ONCE in the composition root (app/main.py) from
+  fixed environment variables:
+      import os
+      from terp.capabilities.mail import configure_mail, mail_settings_from_environment
+      configure_mail(mail_settings_from_environment(os.environ))
+    MAIL_FROM       the sender of EVERY message: "Name <noreply@example.com>" or a bare
+                    address
+    SMTP_HOST       the relay's bare hostname (smtp.example.com)
+    SMTP_PORT       optional: 587 for starttls, 465 for tls
+    SMTP_SECURITY   starttls (the default) | tls | none
+    SMTP_USERNAME / SMTP_PASSWORD   set together, or neither
+  The session is encrypted and the certificate verified; there is no setting that turns
+  verification off. `none` exists for a local mail catcher: a production boot refuses
+  it, and signing in over it is refused everywhere. With neither MAIL_FROM nor SMTP_HOST set,
+  development LOGS each message instead of delivering it and a production boot is
+  REFUSED. Declare the variables in environment.schema.json so a deployment renders them
+  per environment: SMTP_PASSWORD with "format": "secret", SMTP_HOST "format":
+  "hostname", SMTP_PORT "format": "port", and MAIL_FROM + SMTP_HOST in "required" so a
+  deploy without a relay is refused before it boots.
+- Register the job the capability enqueues (control_plane/jobs.py):
+      from terp.capabilities.mail import MAIL_SEND
+      job_catalog = JobCatalog([MAIL_SEND])
+  A job catalog needs ControlPlane(job_system_actor_id=...) in production — `terp guide
+  jobs`.
+- Send from INSIDE the write the mail is about: the service's _after_write hook runs in
+  that write's transaction, so the mail commits - or rolls back - with it. A send_mail
+  after the write has returned is a transaction of its own, and nothing ties the two.
+      from terp.core import AuditAction
+      from terp.capabilities.mail import MailMessage, send_mail
+      class OrderService(BaseService[Order, OrderCreate, OrderUpdate]):
+          def _after_write(self, session, entity, action):
+              if action is AuditAction.UPDATED and entity.status == "shipped":
+                  send_mail(session, MailMessage(
+                      to=[entity.customer_email],    # plain addresses, at most MAX_RECIPIENTS
+                      subject="Your order has shipped",   # one line: a line break is refused
+                      text=f"Order {entity.number} is on its way.",   # plain text
+                      reply_to="sales@example.com",  # optional: where a person's answer goes
+                  ))
+  List the job on the sending module, ModuleSpec(jobs=[MAIL_SEND]), so boot checks that
+  the catalog declares it.
+  There is no per-message sender (every mail is from MAIL_FROM), no HTML body and no
+  attachment. The same notice to many people is one send_mail per person, which also
+  keeps every recipient's address private from the others.
+- send_mail only ENQUEUES the MAIL_SEND job. Wire the durable outbox so the mail commits
+  — or rolls back — with the write, and survives a restart:
+      from terp.capabilities.outbox import OutboxJobQueue
+      create_app(..., job_queue=OutboxJobQueue(),
+                 require_durable_jobs=settings.is_production)
+  and run `terp jobs worker` beside the API. A relay that is down is retried with
+  backoff and ends dead-lettered: `terp outbox backlog` counts it and `terp outbox
+  dead-letters` lists it. With the
+  in-process default queue (no worker) the mail is sent inline, and a failing relay
+  fails the request that asked for it.
+- Test without a relay:
+      from terp.capabilities.mail import (
+          CapturingMailTransport, MailSettings, configure_mail, reset_mail)
+      sent = CapturingMailTransport()
+      configure_mail(MailSettings(sender="App <noreply@example.test>",
+                                  host="smtp.example.test"), transport=sent)
+      ...exercise the feature...
+      assert sent.sent[0]["Subject"] == "Your order has shipped"
+      reset_mail()
+- A provider reachable only over its HTTP API is a different transport, declared in the
+  same place: configure_mail(settings, transport=<a callable built on
+  terp.capabilities.egress>). Call sites stay send_mail either way.
+""",
+    "migrations": """\
 Database migrations (terp migrate)
 
 - Each table-owning package (capability or app module) owns an INDEPENDENT, linear
@@ -2142,11 +2217,15 @@ Compliant decision path for outbound HTTP
 1. Preserve the requested integration and its external contract. Removing the live
     call, returning static/local data, or moving the client import to an unscanned
     helper only to make the gate green is not a compliant fix.
-2. Use a maintained purpose-built capability when its semantics match. For example,
-    terp-cap-webhooks owns signed webhook POST delivery; it is not a generic GET client.
-3. The maintained Terp capability surface currently has no generic outbound-fetch
-    capability for arbitrary HTTP GETs. App modules therefore cannot implement a live
-    news/feed fetch through a sanctioned generic API today.
+2. Use the maintained capability whose semantics match:
+    - an HTTP call to a host you can name: terp-cap-egress (EgressClient, with that
+      exact host on its EgressPolicy allowlist);
+    - signed webhook POST delivery to subscriber URLs: terp-cap-webhooks;
+    - sending e-mail: terp-cap-mail (configure_mail once in the composition root,
+      send_mail per message) - never smtplib. `terp guide mail`.
+3. There is no sanctioned path to an ARBITRARY host: EgressPolicy takes exact hostnames
+    and refuses wildcards, so a feature that must fetch whatever URL a user supplies has
+    no compliant implementation today.
 4. When no matching capability exists, stop and report the missing capability. Leave
     the check red until a human approves an escape hatch or the platform supplies a
     reviewed adapter capability. Do not create an app-local helper package merely to
