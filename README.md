@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/terp-logo-dark.svg" />
+  <img src="docs/assets/terp-logo.svg" alt="Terp Framework" width="264" height="106" />
+</picture>
+
 # Terp — Trusted Enterprise Reinforced Platform
 
 > **Build on high ground.**

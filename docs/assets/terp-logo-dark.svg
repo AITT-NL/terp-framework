@@ -7,7 +7,7 @@
         fill="none" stroke="#4f8ef7" stroke-width="4" stroke-linecap="round"/>
   </g>
   <g font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
-    <text x="82" y="53" fill="#20242b" font-size="48" font-weight="700" letter-spacing="-2.88">terp</text>
-    <text x="83.28" y="74" fill="#168447" font-size="10" font-weight="600" letter-spacing="2.3">FRAMEWORK</text>
+    <text x="82" y="53" fill="#f2f2f3" font-size="48" font-weight="700" letter-spacing="-2.88">terp</text>
+    <text x="83.28" y="74" fill="#35ce7d" font-size="10" font-weight="600" letter-spacing="2.3">FRAMEWORK</text>
   </g>
 </svg>
