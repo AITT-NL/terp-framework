@@ -760,16 +760,21 @@ async function textRows(page: import("@playwright/test").Page, selectors: string
   }, selectors);
 }
 
-test("a band that earns a second row gives both rows the same height", async ({ page }) => {
-  // The other half of the narrowing above, and the claim worth having in its place. A band with
-  // meta is two lines, and two CONTENT-sized lines would be a short trail above a tall control
-  // row -- which reads as two bands stacked rather than one band of two lines. `grid-auto-rows:
-  // 1fr` in a box whose height nobody declared resolves every row to the largest row's content,
-  // so the lines come out equal by construction.
+test("a band that earns a second row keeps the same edge above and below", async ({ page }) => {
+  // What replaced "both lines must be the same height". That claim was `grid-auto-rows: 1fr`,
+  // which resolves every row to the LARGEST row's content in a box whose height nobody
+  // declared -- and equal rows are exactly what put the taller row's item flush against the
+  // band's bottom edge, because the item filled its track exactly while the chrome row spends
+  // no block padding of its own. Measured 9px above the content and 0px below it on every
+  // two-row page, which is how it was reported.
   //
-  // Read off the resolved template rather than measured from the box: the box's height also
-  // carries the gap, the padding and the border, so a total says nothing about whether the two
-  // TRACKS agree. This is the number that does.
+  // Rows are content-sized now, and the reading 1fr was buying -- one band of two lines rather
+  // than two bands stacked -- is bought with padding instead. A band that has already broken
+  // the one-row height can afford it; the one-row band cannot, since it has to match the app
+  // header, and is untouched.
+  //
+  // Measured from the CONTENT rather than read off the resolved template, because where the ink
+  // lands is the thing that was wrong. A track size says nothing about the gap to the border.
   for (const [only, what] of [
     ["page-header", "a band with badges, a lead line and an action"],
     ["page-header-root", "a band with a badge and an action"],
@@ -777,18 +782,32 @@ test("a band that earns a second row gives both rows the same height", async ({ 
   ] as const) {
     await page.goto(`/?theme=light&only=${only}`);
     await page.locator('[data-terp="page-header"]').first().waitFor({ state: "visible" });
-    const rows = await page.evaluate(() => {
-      const element = document.querySelector('[data-terp="page-header"]');
-      return element === null ? null : getComputedStyle(element).gridTemplateRows;
+    const edges = await page.evaluate(() => {
+      const band = document.querySelector('[data-terp="page-header"]');
+      if (band === null) return null;
+      // page-heading generates no box, so its children are the band's own grid items.
+      const items: Element[] = [];
+      for (const child of Array.from(band.children)) {
+        if (getComputedStyle(child).display === "contents") items.push(...Array.from(child.children));
+        else items.push(child);
+      }
+      const box = band.getBoundingClientRect();
+      const style = getComputedStyle(band);
+      const border = Number.parseFloat(style.borderBottomWidth) || 0;
+      const tops = items.map((item) => item.getBoundingClientRect().top);
+      const bottoms = items.map((item) => item.getBoundingClientRect().bottom);
+      return {
+        above: Number((Math.min(...tops) - box.top).toFixed(2)),
+        below: Number((box.bottom - border - Math.max(...bottoms)).toFixed(2)),
+        rows: style.gridTemplateRows.split(" ").filter((size) => size.length > 0).length,
+      };
     });
-    expect(rows, `${what} should render`).not.toBeNull();
-    const tracks = (rows as string).split(" ").filter((size) => size.length > 0);
-    expect(tracks, `${what} should be two rows`).toHaveLength(2);
-    expect(tracks[0], `${what}: both lines must be the same height`).toBe(tracks[1]);
-    // And a row is not a hairline: the equality would hold trivially if both collapsed.
-    expect(Number.parseFloat(tracks[0]!), `${what}: the rows should have real height`).toBeGreaterThan(
-      16,
-    );
+    expect(edges, `${what} should render`).not.toBeNull();
+    expect(edges!.rows, `${what} should be two rows`).toBe(2);
+    expect(edges!.above, `${what}: the edges must match`).toBeCloseTo(edges!.below, 1);
+    // And neither edge is nothing: the equality would hold trivially at zero, which is the
+    // state this test exists to refuse.
+    expect(edges!.above, `${what}: the content must not sit on the border`).toBeGreaterThan(0);
   }
 });
 

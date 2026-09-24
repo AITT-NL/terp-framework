@@ -103,7 +103,7 @@
  * touched.
  */
 
-import { ROOMY_VIEWPORT_QUERY, WIDE_VIEWPORT_QUERY } from "./breakpoints";
+import { NARROW_VIEWPORT, ROOMY_VIEWPORT_QUERY, WIDE_VIEWPORT_QUERY } from "./breakpoints";
 
 /** The `<style>` element id used to detect a prior injection. */
 export const TERP_STYLES_ID = "terp-core-styles";
@@ -569,10 +569,11 @@ textarea[data-terp="input"] {
    two halves of the cutover partition the viewport by construction. Written out here they
    would be two literals that agree until someone edits one.
 
-   There are TWO \${…} in this sheet now, one per cutover — this one and the page band's
-   ROOMY block. Both come from ./breakpoints and neither spells a number, which is the
-   property worth grepping for: a third interpolation is fine if it names a constant from
-   that module, and a literal pixel width in a media query here is not. */
+   There are FOUR \${…} in this sheet now: this one, the page band's ROOMY block, and the
+   two halves of the band's own cutover (its WIDE two-row form and its NARROW single
+   column). Every one of them comes from ./breakpoints and none spells a number, which is
+   the property worth grepping for: a further interpolation is fine if it names a constant
+   from that module, and a literal pixel width in a media query here is not. */
 @media ${WIDE_VIEWPORT_QUERY} {
   [data-terp="stack"][data-direction-wide="column"] { flex-direction: column; }
   [data-terp="stack"][data-direction-wide="row"] { flex-direction: row; }
@@ -2015,12 +2016,22 @@ textarea[data-terp="input"] {
   gap: var(--space-2) var(--space-4);
   min-width: 0;
 }
-/* The two-row band, and it costs nothing to the pages that get it. A page with badges or a
-   lead line ALREADY spends a second row on them; putting the action cluster there too fills
-   space that was empty, and it buys the trail the whole of the first row -- which is what
-   stops a deep trail having to truncate at all. A page with neither keeps the single row,
-   and with it the promise the chrome is measured against: the band matches the app header
-   above it.
+/* The two-row band. It used to move the action cluster onto the meta row at every width, on
+   the reasoning that a page with badges or a lead line ALREADY spends a second row, so the
+   cluster joining them costs no height and buys the trail the whole first row.
+
+   The second half of that was never true, because the rule that gave the trail the first row
+   never matched (see the trail's own rule below). So the cluster was paying the whole price
+   and the trail collected none of it: measured on a 1280px viewport, an ordinary detail page
+   -- two crumbs, one badge, one button -- put the button on line two with 1028px of empty
+   room beside the trail on line one. That is what "the button wraps before the breadcrumb is
+   long" turns out to be, and it is width-independent: the same at 1440.
+
+   So the cluster keeps its place beside the trail and the meta group takes the row below it,
+   which is also what the one-row band does and therefore one rule for where a page's actions
+   live rather than two. Below the first cutover the band becomes a single column instead --
+   there the cluster genuinely cannot share a line with the title, and the row it used to take
+   from the trail was squeezing the h1 to nothing.
 
    A grid rather than the flex-wrap this was: wrap order follows source order, so the meta
    group and the cluster could not share a row while staying two groups, and the moment the
@@ -2029,15 +2040,67 @@ textarea[data-terp="input"] {
    whose whole job was to right-align it. Areas say where things go and no free space is
    distributed anywhere, so neither failure has anywhere to happen. */
 [data-terp="page-header"][data-has-meta] {
-  grid-template-areas:
-    "trail trail"
-    "meta  actions";
-  /* Same-height lines, and 1fr is what spells that in a box whose height nobody declared:
-     with an indefinite container the fr rows resolve to the LARGEST row's content rather
-     than to a share of a height that does not exist, so both rows come out at the taller
-     one. A band of two content-sized rows would otherwise be a short trail line above a
-     tall control line, which reads as two different bands rather than one of two lines. */
-  grid-auto-rows: 1fr;
+  /* auto, not 1fr. Equal-height lines read as one band of two lines, which is why they were
+     here -- but fr rows in an indefinite container resolve to the LARGEST row's content, so
+     the shorter line's item was centred in a track sized by the taller one and the taller
+     line's item filled its track exactly. With no block padding under it (the chrome row
+     spends none, by the invariant below) that put the bottom row flush against the band's
+     border: measured 9px above the content and 0px below it on every two-row page. Rows sized
+     to their content, plus the padding the multi-row band now spends, give 4px and 4px. */
+  grid-auto-rows: auto;
+}
+@media ${WIDE_VIEWPORT_QUERY} {
+  [data-terp="page-header"][data-has-meta] {
+    grid-template-areas:
+      "trail actions"
+      "meta  meta";
+  }
+}
+/* Below the first cutover the band is one column and nothing competes for a line. The trail
+   keeps the leaf and one ancestor: every crumb carries min-width: 0 and an ellipsis while the
+   separators are flex: 0 0 auto, so a trail with no room does not degrade to short labels --
+   it degrades to a row of bare chevrons with the h1 among the casualties. Measured at 360px
+   on a six-crumb page: six labels under 8px, no page title on screen at all, and the cluster
+   overlapping the badges by 24px. Dropping the ancestors takes their separators with them,
+   which is the only degradation here that leaves something readable.
+
+   The actions row is declared only when there IS a cluster -- :has() for the same reason
+   card-header and control-label use it, that the alternative is an attribute the component
+   would have to stamp. A named row with nothing in it is still a row, and with the band's
+   gap under it that is 8px of empty space wedged under the trail on every page that has no
+   actions. */
+@media ${NARROW_VIEWPORT} {
+  [data-terp="page-header"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "trail";
+  }
+  [data-terp="page-header"]:has(> [data-terp="page-actions"]) {
+    grid-template-areas:
+      "trail"
+      "actions";
+  }
+  /* Written AFTER the :has() rule and not before it: the two selectors tie at (0,2,0), so
+     source order is what decides a page that carries meta and no cluster, and it belongs to
+     this one. The combined selector below outranks both at (0,3,0). */
+  [data-terp="page-header"][data-has-meta] {
+    grid-template-areas:
+      "trail"
+      "meta";
+  }
+  [data-terp="page-header"][data-has-meta]:has(> [data-terp="page-actions"]) {
+    grid-template-areas:
+      "trail"
+      "meta"
+      "actions";
+  }
+  [data-terp="breadcrumbs"] li:not(:last-child):not(:nth-last-child(2)) {
+    display: none;
+  }
+  [data-terp="breadcrumbs"] li:nth-last-child(2):not(:first-child)::before {
+    content: "…";
+    margin-inline-end: var(--space-2);
+    color: var(--color-neutral-600);
+  }
 }
 /* The band's left group, and it generates NO box. The trail and the meta group have to be
    grid items of the band itself -- they sit on different rows -- but the marker is published
@@ -2053,8 +2116,16 @@ textarea[data-terp="input"] {
 [data-terp="page-heading"] {
   display: contents;
 }
-/* The trail owns the first row outright once there is a second one to own. */
-[data-terp="page-header"] > [data-terp="breadcrumbs"] {
+/* The trail's placement, and the combinator is the whole of it. This was a CHILD selector,
+   and the trail is not a child of the band: Page renders it inside page-heading, which is
+   display: contents. That removes the BOX and not the node, and selectors match the tree, so
+   the rule matched nothing at all and the trail was auto-placed with its automatic minimum
+   intact. Both halves below were therefore dead from the day the heading group arrived, and
+   the two-row band above was justified by a benefit this rule was supposed to deliver.
+
+   Descendant, not child, and scoped to the band: page-header holds the heading group and the
+   cluster and nothing else, so there is no second trail here to catch by accident. */
+[data-terp="page-header"] [data-terp="breadcrumbs"] {
   grid-area: trail;
   min-width: 0;
 }
@@ -2170,6 +2241,26 @@ textarea[data-terp="input"] {
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   border-block-end: 1px solid var(--color-neutral-200);
+}
+/* The block padding the ONE-ROW band cannot have, spent on the bands that are already more
+   than one row. The rule above stays at var(--space-0) and stays tied to the app header's
+   own padding, because that row is the one making the claim: 48px, the same as the header
+   above it, and the largest control this package ships (2.75rem) has to fit inside it. A band
+   that carries meta has broken that height already and makes no such claim, so it can afford
+   the 4px — and it is the only band where the missing padding was ever visible, since the
+   one-row band centres its single line inside the floor and reads as padded either way.
+   Below the cutover the same is true of a band whose cluster has taken a row of its own.
+
+   The narrow rule weighs (0,3,0) plus :has()'s argument, so (0,4,0) — the same as the meta
+   rule, and they declare the same value, so the tie decides nothing. */
+[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"][data-has-meta] {
+  padding-block: var(--space-1);
+}
+@media ${NARROW_VIEWPORT} {
+  [data-terp="page"]:not([data-measure="narrow"])
+    > [data-terp="page-header"]:has(> [data-terp="page-actions"]) {
+    padding-block: var(--space-1);
+  }
 }
 /* The BLEED, which does need a shell, because the negative-margin idiom is only correct when
    the box being escaped is appshell-main and that box pads by exactly --shell-gutter. ADR
@@ -4080,6 +4171,14 @@ button[data-terp="input"][data-placeholder="true"] {
   z-index: var(--z-index-toast);
   max-width: min(22.5rem, calc(100vw - 2 * var(--space-4)));
 }
+/* The font-family is declared here, and it is not decoration: this package sets the family
+   per ROOT — on appshell and on login-view — and never on body, so a box outside both
+   inherits the UA default and renders the platform's confirmations in a serif. The toast
+   viewport is exactly that box. ToastProvider wraps the router rather than living inside a
+   page, and a context provider emits no DOM, so the viewport is a SIBLING of appshell, not a
+   descendant; position: fixed has nothing to do with it, since inheritance follows the tree
+   and not the box. The portalled popover panel already carries this declaration for the same
+   reason and says so; this is the one surface that escaped the shell without it. */
 [data-terp="toast"] {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -4091,6 +4190,7 @@ button[data-terp="input"][data-placeholder="true"] {
   border-inline-start-width: 3px;
   background: var(--color-neutral-0);
   color: var(--color-neutral-900);
+  font-family: var(--font-family-sans);
   font-size: var(--font-size-sm);
   box-shadow: var(--shadow-md);
 }
