@@ -54,6 +54,37 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **The page band no longer sends a page's actions to a second line while the first one is
+  empty.** A page carrying badges or a lead line moved its action cluster onto the meta row
+  at every width, on the reasoning that the row was already being spent and that the trail
+  would collect the whole first row in exchange. It never collected: the rule handing the
+  trail that row was a child selector against `page-heading`, which is `display: contents`,
+  so it matched nothing and the trail truncated exactly as early as before. Measured on a
+  1280px viewport, an ordinary detail page — two crumbs, one badge, one button — put the
+  button on line two with 1028px of free room beside the trail, and did the same at 1440.
+
+  The cluster now keeps its place beside the trail at every width above the first cutover,
+  with the meta group on the row beneath it, so where a page's actions live no longer
+  depends on whether it happens to carry a badge. Below the cutover the band becomes a
+  single column and the cluster takes a row of its own, because that is the width at which
+  it genuinely cannot share a line with the title.
+
+- **The band no longer sits its content on its own border.** `grid-auto-rows: 1fr` sized
+  both lines to the taller one, so the taller line's item filled its track exactly; with the
+  chrome row spending no block padding — it cannot, and still match the app header's height —
+  the second row landed flush against the band's bottom edge. Measured 9px above the content
+  and 0px below it on every two-row page. Rows are now sized to their content, and the block
+  padding a one-row band cannot afford is spent on the bands that are already more than one
+  row: 4px and 4px. A one-row band is unchanged, to the pixel, including one carrying the
+  largest control this package ships.
+
+- **A deep trail degrades by dropping ancestors, not by dissolving.** Every crumb carries
+  `min-width: 0` and an ellipsis while the separators are `flex: 0 0 auto`, so a trail with
+  no room left kept its chevrons and lost its labels. Measured at 360px on a six-crumb page:
+  six labels under 8px, no page title on screen at all, and the action cluster overlapping
+  the badges by 24px. Below the first cutover the trail now keeps the leaf and one ancestor,
+  marks the elision, and drops the rest — which takes their separators with them.
+
 - **`terp guide no_raw_outbound_http` no longer says there is no outbound HTTP
   capability.** The remedy was written before `terp-cap-egress` existed and kept telling
   an agent that a live fetch had no sanctioned implementation; it now sends each outbound

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ROOMY_VIEWPORT_QUERY } from "./breakpoints";
+import { NARROW_VIEWPORT, ROOMY_VIEWPORT_QUERY, WIDE_VIEWPORT_QUERY } from "./breakpoints";
 import { TERP_STYLES_ID, TERP_STYLES_CSS, injectTerpStyles } from "./styles";
 
 /** The sheet with comments removed — prose must not satisfy a structural assertion. */
@@ -37,6 +37,40 @@ function layerBody(name: string): string {
     }
   }
   throw new Error(`@layer ${name} is not brace-balanced`);
+}
+
+/**
+ * Every `@media <query>` block inside `body`, brace-balanced and joined.
+ *
+ * ALL of them, not the first: a cutover half is declared in more than one place — the stack's
+ * direction props and the page band's two-row form both sit above the same one — and reading
+ * only the first would assert against whichever block happens to be written earlier. Joining
+ * asserts what the sheet declares for that HALF of the cutover, which is the property worth
+ * holding; where a rule physically sits inside the half is not.
+ *
+ * Reaching inside the query at all is the point. A substring search across the flat layer
+ * passes just as happily when a rule has landed in the wrong half, which is the one mistake
+ * this pair of blocks can make.
+ */
+function mediaBodies(body: string, query: string): string {
+  const opener = `@media ${query} {`;
+  const found: string[] = [];
+  for (let at = body.indexOf(opener); at !== -1; at = body.indexOf(opener, at + 1)) {
+    const first = body.indexOf("{", at);
+    let depth = 0;
+    for (let i = first; i < body.length; i += 1) {
+      if (body[i] === "{") depth += 1;
+      else if (body[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          found.push(body.slice(first + 1, i));
+          break;
+        }
+      }
+    }
+  }
+  if (found.length === 0) throw new Error(`the sheet declares no @media ${query} block`);
+  return found.join("\n");
 }
 
 /**
@@ -1033,29 +1067,52 @@ describe("cascade structure", () => {
     expect(header, "with nothing else to show, the band is one row").toContain(
       'grid-template-areas: "trail actions"',
     );
-    // The second row, and the reason it is conditional. A page with badges or a lead line
-    // already spends a row on them, so the cluster joining them costs no height at all -- and
-    // it buys the trail the whole first row, which is what stops a deep trail truncating. A
-    // page with neither keeps the single row, and with it the measurement the chrome is held
-    // to further down this file: the band matches the app header above it.
+    // The second row. It used to carry the cluster as well -- "a page with badges already
+    // spends a row, so the cluster joining them costs no height, and it buys the trail the
+    // whole first row" -- and the second clause was false for as long as it was written. The
+    // rule meant to hand the trail that row is a child selector against a display: contents
+    // wrapper (pinned below), so it never matched; the trail was auto-placed into column one
+    // and truncated exactly as early as before. The cluster paid and the trail never
+    // collected. Measured at 1280px on two crumbs, one badge and one button: the button on
+    // line two with 1028px of free room beside the trail on line one, unchanged at 1440.
+    //
+    // So the cluster stays beside the trail and the meta group takes the row under it, which
+    // is the one-row band's arrangement with a row added rather than a second arrangement.
     const metaAt = base.indexOf('[data-terp="page-header"][data-has-meta] {');
     expect(metaAt, "the two-row band should have a rule of its own").toBeGreaterThan(-1);
     const withMeta = base.slice(metaAt, base.indexOf("}", metaAt));
-    expect(withMeta, "the trail owns the first row outright once there is a second").toContain(
-      '"trail trail"',
+    // auto, not 1fr. Equal-height lines were the point of 1fr, and in an indefinite container
+    // fr rows resolve to the LARGEST row's content -- so the taller line's item filled its
+    // track exactly and, with the chrome row spending no block padding, sat flush on the
+    // band's border. Measured 9px above the content and 0px below it on every two-row page.
+    // Content-sized rows plus the multi-row band's own padding measure 4px and 4px.
+    expect(withMeta, "rows sized to their content, so neither sits on the border").toContain(
+      "grid-auto-rows: auto",
     );
-    expect(withMeta, "meta sits left of the cluster on the second row").toContain(
-      '"meta  actions"',
+    // The areas move per cutover, so they are pinned in their own queries rather than here.
+    const wideMeta = mediaBodies(base, WIDE_VIEWPORT_QUERY);
+    expect(wideMeta, "above the cutover the cluster keeps its place beside the trail").toContain(
+      '"trail actions"',
     );
-    // Same-height lines. 1fr rather than auto, and in a box whose height nobody declared that
-    // is not a share of anything: fr rows in an indefinite container resolve to the LARGEST
-    // row's content, so both lines come out at the taller one. Two content-sized rows would be
-    // a short trail line above a tall control line, which reads as two bands rather than one
-    // of two lines. The computed half is next door in the workbench, which measures the
-    // resolved tracks rather than the box: a total carries the gap and the border too, so only
-    // the tracks can say whether the two lines actually agree.
-    expect(withMeta, "a band of two lines gives them the same height").toContain(
-      "grid-auto-rows: 1fr",
+    expect(wideMeta, "meta takes the row under them, spanning both columns").toContain(
+      '"meta  meta"',
+    );
+    const narrowBand = mediaBodies(base, NARROW_VIEWPORT);
+    expect(narrowBand, "below the cutover the band is a single column").toContain(
+      "grid-template-columns: minmax(0, 1fr)",
+    );
+    // The trail sheds its ancestors rather than its characters. Every crumb carries
+    // min-width: 0 and an ellipsis while the separators are flex: 0 0 auto, so a trail with no
+    // room degrades to bare chevrons -- measured at 360px on six crumbs: six labels under 8px
+    // and no h1 on screen at all. Dropping the ancestors takes their separators with them.
+    expect(narrowBand, "the narrow trail keeps the leaf and one ancestor").toContain(
+      "li:not(:last-child):not(:nth-last-child(2))",
+    );
+    // The actions row is declared only where there is a cluster to put in it: a named row with
+    // nothing in it is still a row, and the band's gap under it is 8px wedged beneath the
+    // trail on every page with no actions.
+    expect(narrowBand, "an actions row with no cluster is 8px of nothing").toContain(
+      '[data-terp="page-header"]:has(> [data-terp="page-actions"])',
     );
     // The left group generates no box, which is what lets its two children be grid items of
     // the BAND and therefore sit on different rows. The marker survives for the scanner.
