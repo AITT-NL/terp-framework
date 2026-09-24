@@ -6,9 +6,13 @@ more than usual for this table: *disabling* a second factor is the single most u
 thing an attacker who has taken an account can do to keep it, and a disable that left no
 record would be invisible.
 
-The verification path is deliberately **not** a service write. Checking a code reads a
-row and — for a recovery code — stamps one, and it happens during a login, before there
-is a session at all.
+Verifying is a **write too**, which reads as a surprise and is not one: a second factor
+that can be used twice is not a second factor, so accepting a code has to record that it
+was accepted. A TOTP code moves the enrolment's high-water mark; a recovery code is
+stamped spent. Both go through the same chokepoint as everything else here — the
+``mutations_emit_audit`` rule requires it, and a factor being exercised is a thing the
+trail should carry. It happens during a login, before there is a session at all, so the
+actor on those records is the login rather than a signed-in person.
 """
 
 from __future__ import annotations
@@ -126,12 +130,18 @@ class MfaService(BaseService[MfaEnrolment, MfaEnrolmentCreate, MfaEnrolmentUpdat
             raise MfaNotEnrolledError()
         if enrolment.confirmed_at is not None:
             raise MfaAlreadyEnrolledError()
-        if not totp.verify(unseal_secret(enrolment.secret), code):
+        step = totp.verify_step(unseal_secret(enrolment.secret), code)
+        if step is None:
             raise MfaCodeInvalidError()
+        # The confirming code is spent by confirming. Recording it here is what stops it
+        # being handed straight back as the first login factor, which is a replay across
+        # two endpoints rather than two calls to one.
         return self.update(
             session,
             enrolment.id,
-            MfaEnrolmentUpdate(confirmed_at=_utc_now(), version=enrolment.version),
+            MfaEnrolmentUpdate(
+                confirmed_at=_utc_now(), last_used_step=step, version=enrolment.version
+            ),
         )
 
     def verify(self, session: Session, user_id: uuid.UUID, code: str) -> bool:
@@ -145,8 +155,9 @@ class MfaService(BaseService[MfaEnrolment, MfaEnrolmentCreate, MfaEnrolmentUpdat
         enrolment = self.enrolment_for(session, user_id)
         if enrolment is None or enrolment.confirmed_at is None:
             return False
-        if totp.verify(unseal_secret(enrolment.secret), code):
-            return True
+        step = totp.verify_step(unseal_secret(enrolment.secret), code)
+        if step is not None:
+            return self._spend_step(session, enrolment, step)
         return self._consume_recovery_code(session, enrolment.id, code)
 
     def disable(self, session: Session, user_id: uuid.UUID) -> None:
@@ -184,6 +195,22 @@ class MfaService(BaseService[MfaEnrolment, MfaEnrolmentCreate, MfaEnrolmentUpdat
             MfaRecoveryCode(enrolment_id=enrolment_id, code_hash=code_hash),
             AuditAction.CREATED,
         )
+
+    def _spend_step(self, session: Session, enrolment: MfaEnrolment, step: int) -> bool:
+        """Accept *step* once, and never again for this enrolment."""
+        from terp.core import AuditAction
+
+        # `<=`, not `==`: the drift window reaches one step BACK, so after a code from the
+        # current step is spent the previous step is still inside the window and its code
+        # would otherwise verify. Refusing everything at or below the high-water mark closes
+        # the window behind the caller rather than just the one code they used.
+        if enrolment.last_used_step is not None and step <= enrolment.last_used_step:
+            return False
+        enrolment.last_used_step = step
+        # Through the chokepoint, like every other mutation here: `mutations_emit_audit`
+        # requires it, and a second factor being exercised is a thing the trail should carry.
+        self._save(session, enrolment, AuditAction.UPDATED)
+        return True
 
     def _consume_recovery_code(
         self, session: Session, enrolment_id: uuid.UUID, code: str

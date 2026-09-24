@@ -41,6 +41,7 @@ class MfaEnrolmentUpdate(BaseUpdateSchema):
     """
 
     confirmed_at: datetime.datetime | None = None
+    last_used_step: int | None = None
 
 
 class MfaEnrolmentRead(BaseSchema):

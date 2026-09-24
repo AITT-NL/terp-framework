@@ -60,6 +60,14 @@ class MfaEnrolment(BaseTable, table=True):
         index=True,
     )
 
+    #: The TOTP step a successful verification last spent. A code is valid for its whole
+    #: window, so without this the same six digits authenticate again for as long as that
+    #: window lasts -- ninety seconds at the default drift -- and anyone who saw them once
+    #: can use them. RFC 6238 section 5.2 puts the duty to refuse the second use on the
+    #: verifier, and this column is the verifier's memory. ``None`` until the first
+    #: successful verification, which is also why it cannot be inferred from ``updated_at``.
+    last_used_step: int | None = Field(default=None, nullable=True)
+
 
 class MfaRecoveryCode(BaseTable, table=True):
     """One single-use recovery code, stored as a digest and stamped when spent."""

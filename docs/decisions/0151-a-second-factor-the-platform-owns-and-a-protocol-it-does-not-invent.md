@@ -100,6 +100,27 @@ to be, because a client that cannot tell a wrong password from a missing code ha
 to prompt for one, and showing the wrong message is how people conclude the feature is
 broken.
 
+## A code is spent once
+
+RFC 6238 section 5.2 puts the duty to refuse a second use of an OTP on the **verifier**,
+and it has to: the arithmetic cannot help. A code is valid for its whole window, so
+"it verified" is true again for the same six digits until the window closes — ninety
+seconds at the drift this capability allows. Anyone who reads a code over a shoulder, out
+of a phished form, or from a log that should not have held it can present it again.
+
+So the enrolment carries a high-water mark: the step a successful verification last
+spent. A code at or below it is refused. **At or below**, not merely equal, because the
+drift window reaches one step backwards — accepting only "not the same step" would leave
+the previous code live, which is the same hole one code narrower.
+
+Confirming an enrolment spends its step too. Otherwise the code that proved the secret
+arrived could be handed straight back as the first login factor, which is the same replay
+across two endpoints instead of twice on one.
+
+The visible cost: somebody who confirms and then signs in within the same thirty seconds
+waits for the next code. That is what every other implementation of this does, and the
+alternative is a second factor that can be used twice.
+
 ## Consequences
 
 **Nothing changes for an application that does not wire the seam.** `second_factor`

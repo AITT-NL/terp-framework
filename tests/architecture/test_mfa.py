@@ -10,6 +10,8 @@ app disagrees with, and the vectors catch exactly that.
 from __future__ import annotations
 
 import base64
+import contextlib
+import time
 import datetime
 import uuid
 from collections.abc import Iterator
@@ -77,6 +79,32 @@ def session() -> Iterator[Session]:
     with WriteGuardedSession(engine) as sess:
         yield sess
     engine.dispose()
+
+
+class _FrozenClock:
+    """A stand-in for the ``time`` module, pinned to one moment."""
+
+    def __init__(self, moment: float) -> None:
+        self._moment = moment
+
+    def time(self) -> float:
+        return self._moment
+
+
+@contextlib.contextmanager
+def freeze_totp_at(moment: float) -> Iterator[None]:
+    """Pin the clock TOTP reads for the duration of the block.
+
+    The service calls into ``totp`` without an ``at``, and that is the point: refusing a
+    spent code is the service's property, not something a caller passes in. Driving the
+    clock from outside is the only way to ask it twice within one window.
+    """
+    original = totp.time
+    totp.time = _FrozenClock(moment)  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        totp.time = original  # type: ignore[assignment]
 
 
 # --------------------------------------------------------------------------- #
@@ -240,6 +268,60 @@ def test_confirming_with_a_wrong_code_leaves_it_unconfirmed(session: Session) ->
     assert service.is_enrolled(session, user) is False
 
 
+def test_a_totp_code_authenticates_once_and_not_twice(session: Session) -> None:
+    """RFC 6238 section 5.2: the verifier must refuse the second use of a code."""
+    service = MfaService()
+    user = uuid.uuid4()
+    issued = service.begin_enrolment(session, user, account="a@x.test", issuer="Acme")
+    with freeze_totp_at(1_000_000):
+        service.confirm_enrolment(session, user, totp.generate(issued.secret, at=1_000_000))
+
+    code = totp.generate(issued.secret, at=1_000_060)
+    with freeze_totp_at(1_000_060):
+        assert service.verify(session, user, code) is True
+        assert service.verify(session, user, code) is False
+
+
+def test_the_code_that_confirmed_an_enrolment_cannot_then_log_in(session: Session) -> None:
+    """Otherwise the replay crosses two endpoints instead of repeating on one."""
+    service = MfaService()
+    user = uuid.uuid4()
+    issued = service.begin_enrolment(session, user, account="a@x.test", issuer="Acme")
+    code = totp.generate(issued.secret, at=1_000_000)
+    with freeze_totp_at(1_000_000):
+        service.confirm_enrolment(session, user, code)
+
+        assert service.verify(session, user, code) is False
+
+
+def test_spending_a_step_closes_the_window_behind_it(session: Session) -> None:
+    """The drift window reaches one step back, so the previous code must die with it."""
+    service = MfaService()
+    user = uuid.uuid4()
+    issued = service.begin_enrolment(session, user, account="a@x.test", issuer="Acme")
+    with freeze_totp_at(1_000_000):
+        service.confirm_enrolment(session, user, totp.generate(issued.secret, at=1_000_000))
+
+    with freeze_totp_at(1_000_060):
+        assert service.verify(session, user, totp.generate(issued.secret, at=1_000_060)) is True
+        # Still inside the window, and still refused.
+        assert service.verify(session, user, totp.generate(issued.secret, at=1_000_030)) is False
+
+
+def test_a_later_code_still_verifies_after_an_earlier_one_was_spent(session: Session) -> None:
+    """The high-water mark must not lock the account out of its own next code."""
+    service = MfaService()
+    user = uuid.uuid4()
+    issued = service.begin_enrolment(session, user, account="a@x.test", issuer="Acme")
+    with freeze_totp_at(1_000_000):
+        service.confirm_enrolment(session, user, totp.generate(issued.secret, at=1_000_000))
+
+    with freeze_totp_at(1_000_060):
+        assert service.verify(session, user, totp.generate(issued.secret, at=1_000_060)) is True
+    with freeze_totp_at(1_000_090):
+        assert service.verify(session, user, totp.generate(issued.secret, at=1_000_090)) is True
+
+
 def test_starting_again_replaces_an_unconfirmed_enrolment(session: Session) -> None:
     """Somebody who closed the tab cannot recover the first secret; let them restart."""
     service = MfaService()
@@ -268,9 +350,18 @@ def test_starting_again_over_a_live_factor_is_refused(session: Session) -> None:
 # Verification
 # --------------------------------------------------------------------------- #
 def _live(session: Session, service: MfaService) -> tuple[uuid.UUID, object]:
+    """An enrolled, confirmed subject whose CURRENT code is still unspent.
+
+    Confirmation consumes the step it was given, so a helper that confirmed with the
+    current code would hand every caller a subject whose next login is refused for up
+    to thirty seconds. It confirms with the previous step instead -- inside the drift
+    window, so it verifies -- which is also what a real enrolment looks like a moment
+    later.
+    """
     user = uuid.uuid4()
     issued = service.begin_enrolment(session, user, account="a@x.test", issuer="Acme")
-    service.confirm_enrolment(session, user, totp.generate(issued.secret))
+    previous = time.time() - totp.TIME_STEP_SECONDS
+    service.confirm_enrolment(session, user, totp.generate(issued.secret, at=previous))
     return user, issued
 
 
@@ -373,7 +464,13 @@ def test_a_password_alone_is_refused_once_a_factor_is_live(session: Session) -> 
     issued = service.begin_enrolment(
         session, _login_app.user, account="a@x.test", issuer="Acme"
     )
-    service.confirm_enrolment(session, _login_app.user, totp.generate(issued.secret))
+    # Confirming spends its step, so confirm with the previous one and leave the code the
+    # login below sends unspent.
+    service.confirm_enrolment(
+        session,
+        _login_app.user,
+        totp.generate(issued.secret, at=time.time() - totp.TIME_STEP_SECONDS),
+    )
     client = _login_app(session, with_factor=True)
 
     response = client.post("/auth/login", json={"email": "a@x.test", "password": "right"})
@@ -388,7 +485,13 @@ def test_the_right_password_and_code_mint_a_token_that_says_so(session: Session)
     issued = service.begin_enrolment(
         session, _login_app.user, account="a@x.test", issuer="Acme"
     )
-    service.confirm_enrolment(session, _login_app.user, totp.generate(issued.secret))
+    # Confirming spends its step, so confirm with the previous one and leave the code the
+    # login below sends unspent.
+    service.confirm_enrolment(
+        session,
+        _login_app.user,
+        totp.generate(issued.secret, at=time.time() - totp.TIME_STEP_SECONDS),
+    )
     client = _login_app(session, with_factor=True)
 
     response = client.post(
@@ -412,7 +515,13 @@ def test_a_wrong_code_is_an_ordinary_authentication_failure(session: Session) ->
     issued = service.begin_enrolment(
         session, _login_app.user, account="a@x.test", issuer="Acme"
     )
-    service.confirm_enrolment(session, _login_app.user, totp.generate(issued.secret))
+    # Confirming spends its step, so confirm with the previous one and leave the code the
+    # login below sends unspent.
+    service.confirm_enrolment(
+        session,
+        _login_app.user,
+        totp.generate(issued.secret, at=time.time() - totp.TIME_STEP_SECONDS),
+    )
     client = _login_app(session, with_factor=True)
 
     response = client.post(
@@ -444,7 +553,13 @@ def test_a_login_route_with_no_seam_wired_never_asks_for_a_factor(session: Sessi
     issued = service.begin_enrolment(
         session, _login_app.user, account="a@x.test", issuer="Acme"
     )
-    service.confirm_enrolment(session, _login_app.user, totp.generate(issued.secret))
+    # Confirming spends its step, so confirm with the previous one and leave the code the
+    # login below sends unspent.
+    service.confirm_enrolment(
+        session,
+        _login_app.user,
+        totp.generate(issued.secret, at=time.time() - totp.TIME_STEP_SECONDS),
+    )
     client = _login_app(session, with_factor=False)
 
     response = client.post("/auth/login", json={"email": "a@x.test", "password": "right"})

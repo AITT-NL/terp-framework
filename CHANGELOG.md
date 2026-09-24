@@ -41,6 +41,14 @@ decision, 0001 onwards.
   silently — and unlike the webhook secret there is no legacy-plaintext tolerance,
   because no row here predates the control.
 
+  **A code is spent once.** RFC 6238 puts that duty on the verifier, and it has to:
+  a code is valid for its whole window, so "it verified" stays true for the same six
+  digits for ninety seconds. The enrolment carries the step a verification last spent
+  and refuses anything at or below it — *at or below*, because the drift window reaches
+  one step back and refusing only the identical step would leave the previous code live.
+  Confirming spends its step too, so the code that proved the secret arrived cannot be
+  handed straight back as the first login factor.
+
   **Enrolment is two steps**: a secret is issued and gates nothing until a code generated
   from it comes back. A mis-scanned QR code treated as live is a lockout at the next
   login, which is the failure that makes an organisation turn the feature off. Recovery

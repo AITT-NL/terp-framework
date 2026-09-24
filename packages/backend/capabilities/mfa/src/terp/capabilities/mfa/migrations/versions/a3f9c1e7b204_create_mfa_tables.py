@@ -31,6 +31,7 @@ def upgrade() -> None:
         sa.Column('user_id', sa.Uuid(), nullable=False),
         sa.Column('secret', sqlmodel.sql.sqltypes.AutoString(length=512), nullable=False),
         sa.Column('confirmed_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('last_used_step', sa.Integer(), nullable=True),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index(op.f('ix_mfa_enrolment_user_id'), 'mfa_enrolment', ['user_id'], unique=True)

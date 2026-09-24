@@ -77,6 +77,39 @@ def generate(secret: str, *, at: float | None = None) -> str:
     return _counter_code(secret, int(moment // TIME_STEP_SECONDS))
 
 
+def verify_step(
+    secret: str,
+    code: str,
+    *,
+    at: float | None = None,
+    drift_steps: int = DEFAULT_DRIFT_STEPS,
+) -> int | None:
+    """Which time step *code* satisfies for *secret*, or ``None`` if none does.
+
+    The step is returned rather than a bare yes, because a caller cannot enforce
+    single use without knowing which code was spent: a code is valid for its whole
+    window, so "it verified" is true again thirty seconds later for the same six
+    digits. RFC 6238 section 5.2 puts the duty on the verifier, and the verifier is the
+    only party holding the state to discharge it.
+
+    Every candidate is compared in constant time **and** every candidate is compared:
+    returning early on the first match would leak, through timing, which step matched,
+    and with it the direction and size of the caller's clock error. The match is
+    recorded and the loop runs to the end.
+    """
+    candidate = code.strip().replace(" ", "")
+    if len(candidate) != DIGITS or not candidate.isdigit():
+        return None
+    moment = time.time() if at is None else at
+    step = int(moment // TIME_STEP_SECONDS)
+    matched: int | None = None
+    for offset in range(-drift_steps, drift_steps + 1):
+        expected = _counter_code(secret, step + offset)
+        hit = hmac.compare_digest(expected, candidate)
+        matched = step + offset if hit else matched
+    return matched
+
+
 def verify(
     secret: str,
     code: str,
@@ -86,20 +119,10 @@ def verify(
 ) -> bool:
     """Whether *code* is valid for *secret* now, within the drift window.
 
-    Every candidate is compared in constant time **and** every candidate is compared:
-    returning early on the first match would leak, through timing, which step matched,
-    and with it the direction and size of the caller's clock error.
+    Answers the question without the step, for callers that hold no state to spend it
+    against. A caller that stores an enrolment wants :func:`verify_step`.
     """
-    candidate = code.strip().replace(" ", "")
-    if len(candidate) != DIGITS or not candidate.isdigit():
-        return False
-    moment = time.time() if at is None else at
-    step = int(moment // TIME_STEP_SECONDS)
-    matched = False
-    for offset in range(-drift_steps, drift_steps + 1):
-        expected = _counter_code(secret, step + offset)
-        matched |= hmac.compare_digest(expected, candidate)
-    return matched
+    return verify_step(secret, code, at=at, drift_steps=drift_steps) is not None
 
 
 def provisioning_uri(secret: str, *, account: str, issuer: str) -> str:
@@ -132,4 +155,5 @@ __all__ = [
     "generate_secret",
     "provisioning_uri",
     "verify",
+    "verify_step",
 ]
