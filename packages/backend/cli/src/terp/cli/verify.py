@@ -1851,10 +1851,18 @@ def _run_frontend_tests(root: pathlib.Path) -> tuple[int, str]:
 def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     """Generate the typed API client from the live backend contract.
 
-    Not a drift check: the client is gitignored, so there is no committed copy to
-    diff against. The verdict is whether it can be produced at all, and the
-    artifact it leaves behind is what ``frontend-typecheck`` downstream of it
-    reads — which is the whole reason it is ordered first. Skips with a note
+    Not a drift check: the generated client is gitignored in the project
+    template, so there is normally no committed copy to diff against. The
+    verdict is whether it can be produced at all, and the artifact it leaves
+    behind is what ``frontend-typecheck`` downstream of it reads — which is the
+    whole reason it is ordered first.
+
+    That "normally" is load-bearing, because this check WRITES into the tree.
+    ``.gitignore`` does not govern a path git already tracks, so a project that
+    committed its generated client once gets it rewritten on every run: a
+    caller that holds gate checks to being read-only (Terp Studio does) then
+    fails every time, and the obvious-looking fix — commit the regenerated
+    file — makes it permanent. The fix is to stop tracking it. Skips with a note
     rather than a red for an app with no frontend or no ``generate`` script:
     upgrading the framework must not fail a gate for a seam the app never wired.
     """
