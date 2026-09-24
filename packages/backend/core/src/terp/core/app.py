@@ -78,7 +78,9 @@ from terp.core.module_spec import ModuleSpec, Policy, decide
 from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
 from terp.core.routing import (
+    declared_route_policy,
     MUTATING_METHODS,
+    effective_policy,
     declared_operation,
     is_read_only,
     iter_declaring_routes,
@@ -228,8 +230,19 @@ def build_guard(
         # WebSocket, so the SAME deny-by-default module guard protects both
         # transports. A WebSocket has no HTTP method after upgrade and defaults
         # to the write tier; a capability may apply finer per-message authority.
+        #
+        # The matched route is in the scope before any dependency runs, so this one
+        # dependency can still hold each route to its OWN declared policy (ADR 0148)
+        # where it declares one. Resolved per request rather than per mount, because a
+        # router-level dependency is built once and serves every route under it.
+        # `getattr` rather than `connection.scope`: the guard is also called directly,
+        # with a stand-in connection, by tests that are about the decision and not about
+        # routing. A missing scope simply means no route was matched, which is exactly
+        # the case where the module policy is the only answer available.
+        scope = getattr(connection, "scope", None) or {}
+        applied = effective_policy(policy, getattr(scope.get("route"), "endpoint", None))
         decision = decide(
-            policy,
+            applied,
             method=request_method(connection),
             role=None if principal is None else principal.role,
             role_is_registered=(
@@ -421,7 +434,7 @@ def _refuse_middleware_registration(name: str) -> Callable[..., None]:
     return refused
 
 
-def _freeze_app_middleware_registration(app: FastAPI) -> None:
+def freeze_app_middleware_registration(app: FastAPI) -> None:
     """Runtime half of ``no_adhoc_middleware``: no post-composition middleware.
 
     Cross-cutting HTTP security is declared once (``SecurityConfig`` + the
@@ -463,12 +476,12 @@ class _FrozenDependencyOverrides(dict):
     update = _refused
 
 
-def _freeze_dependency_overrides(app: FastAPI) -> None:
+def freeze_dependency_overrides(app: FastAPI) -> None:
     """Swap the composed app's override map for the refusing, read-only mapping."""
     app.dependency_overrides = _FrozenDependencyOverrides(app.dependency_overrides)
 
 
-def _freeze_app_route_registration(app: FastAPI) -> None:
+def freeze_app_route_registration(app: FastAPI) -> None:
     """The composition freeze: no post-composition registration surface, fail closed.
 
     Runtime half of ``no_raw_app_routes`` (and, through the two extensions below, of
@@ -486,12 +499,32 @@ def _freeze_app_route_registration(app: FastAPI) -> None:
         for method in _APP_ROUTE_MUTATORS:
             if hasattr(target, method):
                 setattr(target, method, _refuse_route_mutation(f"{target_name}.{method}"))
-    _freeze_app_middleware_registration(app)
+    freeze_app_middleware_registration(app)
     if get_settings().ENVIRONMENT != "local":
-        _freeze_dependency_overrides(app)
+        freeze_dependency_overrides(app)
 
 
-def _validate_requires(specs: Sequence[ModuleSpec]) -> None:
+# ---------------------------------------------------------------------------
+# The boot-time controls the Terp Standard names
+#
+# These thirteen are the fail-closed runtime half of two-layer rules, and the
+# Standard's catalog cites each one BY NAME as the `runtime` enforcement ref of
+# the rule it enforces (terp-spec, ADRs 0080/0081). That is why they carry no
+# leading underscore: a released artifact in another repository pins these
+# spellings, so renaming one is a breaking change to the Standard, not a local
+# refactor -- and, in the other direction, a private name is unusable by any
+# second implementation, which is the property stack-neutrality promises.
+#
+# They are NOT application API and are deliberately absent from
+# `terp.core.__all__`: an app author never calls one. `create_app` does, once,
+# at composition. Public here means "stable enough to be cited", not "for you".
+#
+# terp-spec's own suite refuses a runtime ref that names a private symbol, so
+# the class of drift this comment describes cannot come back silently.
+# ---------------------------------------------------------------------------
+
+
+def validate_requires(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed if any spec's declared ``requires`` are absent or cyclic.
 
     ``requires`` carries two meanings (ADR 0087): the thing you depend on must be
@@ -658,11 +691,26 @@ def _rate_limit_override_map(
     credential check and is called on every page load. ``"/"`` denotes the mount
     itself and contributes the bare ``/api/v1/<name>``.
 
-    ``SecurityConfig.rate_limit_overrides`` still wins on a shared prefix. The
-    precedence is the same one every other composition seam uses — the root overrides
-    the package — and it matters more here than elsewhere: a deployment that has
-    measured its own login traffic must be able to say so, and a capability's default
-    is a floor it may move rather than a decision taken away from it.
+    ``SecurityConfig.rate_limit_overrides`` wins over a capability's declaration for
+    every path it covers — not only on an identical key. The precedence is the same one
+    every other composition seam uses — the root overrides the package — and it matters
+    more here than elsewhere: a deployment that has measured its own login traffic must
+    be able to say so, and a capability's default is a floor it may move rather than a
+    decision taken away from it.
+
+    **Covering means covering, at any depth**, and that is the half this got wrong. The
+    limiter resolves by LONGEST matching prefix, so while the auth capability keyed its
+    declaration on the mount, an application override on ``/api/v1/auth`` was the same
+    dict key and replaced it. ADR 0140 re-keyed the capability by route — ``/login`` and
+    ``/token`` capped, ``/refresh`` not — and from that moment the capability's key was
+    the *longer* one, so the application's override stopped applying and did so
+    silently: declared, counted by nobody, no warning, no failing test. The promise in
+    the paragraph above had simply stopped being true for the one case it names. So a
+    root override now also DROPS the capability-declared keys beneath it, which is what
+    "the root overrides the package" has to mean when the package can key deeper than
+    the root does. An application that wants the capability's finer split back can
+    re-declare the routes it cares about; that is a decision it makes, rather than one
+    made for it by a sort order.
     """
     overrides: dict[str, tuple[int, int]] = {}
     for spec in specs:
@@ -674,6 +722,22 @@ def _rate_limit_override_map(
                 limit.requests,
                 limit.window_seconds,
             )
+    # Drop the CAPABILITY-declared keys an application override covers, and only those.
+    # Deleting out of `overrides` while layering the application's own entries into it
+    # would let a later, broader application override delete an earlier, narrower one:
+    # `(("/api/v1/auth/login", tight), ("/api/v1/auth", loose))` would silently lose the
+    # `/login` cap while the reverse order kept it. That is the same order-dependent
+    # silent loss this function exists to remove, landing on the very recovery path the
+    # ADR prescribes -- re-declaring the routes you care about -- so the two passes are
+    # kept apart: covered capability keys go first, then every application override is
+    # layered on, and longest-prefix resolution settles application against application.
+    app_prefixes = [prefix for prefix, _ in config.rate_limit_overrides]
+    for covered in [
+        key
+        for key in overrides
+        if any(key == prefix or key.startswith(prefix + "/") for prefix in app_prefixes)
+    ]:
+        del overrides[covered]
     for prefix, limit in config.rate_limit_overrides:
         overrides[prefix] = (limit.requests, limit.window_seconds)
     return overrides
@@ -744,7 +808,7 @@ def _router_has_mutating_route(router: APIRouter) -> bool:
     return False
 
 
-def _validate_policy_write_tiers(specs: Sequence[ModuleSpec]) -> None:
+def validate_policy_write_tiers(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed when a write surface's Policy gates writes below its read tier.
 
     The universal runtime half of ``mutations_require_write_role`` (ADR 0006): the
@@ -820,7 +884,7 @@ def _route_label(spec: ModuleSpec, route: object) -> str:
     return f"{spec.name}:{verb} {getattr(route, 'path', '?')}"
 
 
-def _validate_declared_operations(
+def validate_declared_operations(
     specs: Sequence[ModuleSpec], catalog: OperationCatalog
 ) -> None:
     """Fail closed on an operation that is not the catalog's, or a route missing one.
@@ -997,7 +1061,7 @@ def _apply_declared_operations(specs: Sequence[ModuleSpec]) -> None:
     """Populate a declaring route's OpenAPI ``summary`` / ``operation_id`` (ADR 0102 §4),
     and refuse a hand-written ``summary=`` beside a declared operation.
 
-    Must run after :func:`_validate_declared_operations`, so every operation reaching
+    Must run after :func:`validate_declared_operations`, so every operation reaching
     here is already confirmed to be the catalog's own entry -- this function only
     applies it, it does not re-check membership. Only ``APIRoute`` carries
     ``summary`` / ``operation_id`` in OpenAPI; a declared operation on a WebSocket
@@ -1049,21 +1113,69 @@ def _apply_declared_operations(specs: Sequence[ModuleSpec]) -> None:
             route.operation_id = declared.id
 
 
-def _validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
+def _validate_public_routes_are_declared(specs: Sequence[ModuleSpec]) -> None:
+    """Every route in a public module must declare its own policy (ADR 0148).
+
+    A module ``Policy`` covers its whole router, so ``Policy.public`` admitted every route
+    under it — the ones that genuinely must be reachable without a token, and any route
+    added beside them afterwards. Nothing announced the second case: an author adding an
+    endpoint to the auth module got an unauthenticated one and no diagnostic, because
+    public was a property of the neighbourhood rather than of the route.
+
+    So a public module now has to say so once per route. Every one of them ends up marked
+    ``route_policy(Policy.public...)``, which looks like ceremony until the next route
+    arrives: that one fails at boot instead of being quietly published. The check is for
+    the *absence* of a declaration, so it cannot be satisfied by accident, and it is only
+    asked of public modules — a protected module's routes inherit a safe default and need
+    no ritual.
+    """
+    for spec in specs:
+        policy = spec.policy
+        if policy is None or not policy.is_public or spec.router is None:
+            continue
+        # `iter_declaring_routes`, not `_iter_api_routes`: the latter yields HTTP routes
+        # only, and a WebSocket is exactly the route that must not be quietly public --
+        # it has no method after the upgrade, so the guard treats it as a write.
+        for route in iter_declaring_routes(spec.router.routes):
+            if declared_route_policy(getattr(route, "endpoint", None)) is not None:
+                continue
+            raise BootError(
+                f"module {spec.name!r} is public and route "
+                f"{getattr(route, 'path', '?')!r} declares no "
+                "policy of its own; a public module admits nobody by neighbourhood -- "
+                "mark the route route_policy(Policy.public(reason=...)) (or "
+                "Policy.public_write(...)) if it must be reachable without a token, or "
+                "route_policy(Policy.default()) if it must not"
+            )
+
+
+def validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
     """Fail closed when a public router exposes writes without the stronger opt-out."""
     for spec in specs:
         policy = spec.policy
         if policy is None or not policy.is_public or spec.router is None:
             continue
-        if _router_has_mutating_route(spec.router) and not policy.allows_public_writes:
+        for route in _iter_api_routes(spec.router.routes):
+            if not MUTATING_METHODS & {m.upper() for m in (route.methods or ())}:
+                continue
+            # The route's own policy where it has one: a route that declared itself
+            # protected inside a public module is not an unauthenticated write, and
+            # measuring it against the module's policy would demand an opt-out for a
+            # door that is shut.
+            applied = effective_policy(policy, route.endpoint)
+            if applied is None or not applied.is_public:
+                continue
+            if applied.allows_public_writes:
+                continue
             raise BootError(
-                f"module {spec.name!r} is public but exposes a mutating route; "
-                "unauthenticated writes require Policy.public_write(reason=...) so the "
-                "runtime opt-out is explicit and greppable"
+                f"module {spec.name!r} exposes the unauthenticated mutating route "
+                f"{route.path!r}; unauthenticated writes require "
+                "Policy.public_write(reason=...) so the runtime opt-out is explicit "
+                "and greppable"
             )
 
 
-def _validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) -> None:
+def validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) -> None:
     """Refuse a module job that can mutate an unowned CRUD model.
 
     Background work can run without an originating user and then uses the control-plane
@@ -1253,6 +1365,67 @@ def _warn_unshared_idempotency_in_production(
         "create_app(require_shared_idempotency_store=True) to make that a boot-time "
         "guarantee instead of a warning."
     )
+
+
+def _warn_loosened_capability_limit_in_production(
+    specs: Sequence[ModuleSpec], config: SecurityConfig
+) -> None:
+    """Say out loud, once, which capability rate limits this deployment has raised.
+
+    A capability declares its own limit when it knows something about its traffic the
+    application cannot — a credential route runs a memory-hard hash on the miss path,
+    which makes it the cheapest place on the surface to spend the server's CPU. An
+    application may still move that number: it is a floor, not a decision taken away
+    from it, and a deployment that has measured its own login traffic must be able to
+    say so.
+
+    But the move is now EFFECTIVE where it previously was not. While the auth capability
+    keyed its declaration on the mount, an application override on the same prefix
+    replaced it; once the capability keyed by route (ADR 0140) the longest-prefix
+    resolution made the capability's key win, so an override on the mount silently did
+    nothing. Restoring the documented precedence restores a real lever — and a real
+    lever pointed at a credential limit is worth one line in the log rather than none.
+
+    Not a refusal: raising the number is legitimate and `production_problems` already
+    refuses the one move that is not (disabling it). This states the property the
+    deployment is actually running with, which is the same bargain
+    :func:`_warn_unshared_idempotency_in_production` strikes.
+    """
+    declared: dict[str, RateLimit] = {}
+    for spec in specs:
+        if spec.router is None:
+            continue
+        for route, limit in spec.rate_limit:
+            suffix = "" if route == "/" else route
+            declared[f"/api/v1/{spec.name}{suffix}"] = limit
+    # Keyed on the prefix alone: `RateLimit` is a frozen dataclass without `order=True`,
+    # so two entries sharing a prefix would fall through to comparing `RateLimit`s and
+    # raise `TypeError` at production boot instead of anything a reader can act on.
+    for prefix, limit in sorted(config.rate_limit_overrides, key=lambda item: item[0]):
+        loosened = sorted(
+            key
+            for key, capped in declared.items()
+            # Compare RATES, not counts. Both sides carry their own window and the two
+            # need not match, so `requests > requests` reads 30/1s as no change against a
+            # capability's 30/60s -- a sixtyfold loosening of a credential route, silent
+            # in the one place the notice exists to speak. Integer cross-multiplication,
+            # so no float rounding decides whether a security notice fires.
+            if (key == prefix or key.startswith(prefix + "/"))
+            and limit.requests * capped.window_seconds
+            > capped.requests * limit.window_seconds
+        )
+        if loosened:
+            _logger.warning(
+                "rate limit for %s is raised to %d/%ds by this application, above the "
+                "limit the capability declared for %s. That is a supported move — the "
+                "capability's number is a floor — but on a credential route it is also "
+                "the cheapest place on the surface to spend CPU, so it is stated here "
+                "rather than left to be discovered.",
+                prefix,
+                limit.requests,
+                limit.window_seconds,
+                ", ".join(loosened),
+            )
 
 
 def _warn_unshared_throttle_in_production(
@@ -1502,7 +1675,7 @@ def _endpoint_returns_raw_response(endpoint: Callable[..., object]) -> bool:
     return isinstance(annotation, type) and issubclass(annotation, Response)
 
 
-def _validate_routes_declare_response_model(route: APIRoute) -> None:
+def validate_routes_declare_response_model(route: APIRoute) -> None:
     """Boot half of ``backend/routes_declare_response_model`` (Terp Standard).
 
     A content route with no declared ``response_model`` can serialize a bare ORM/data
@@ -1526,7 +1699,7 @@ def _validate_routes_declare_response_model(route: APIRoute) -> None:
     )
 
 
-def _validate_schemas_exclude_sensitive_fields(route: APIRoute) -> None:
+def validate_schemas_exclude_sensitive_fields(route: APIRoute) -> None:
     """Boot half of ``backend/schemas_exclude_sensitive_fields`` (Terp Standard).
 
     Every pydantic model referenced by the route's ``response_model`` (the DTO itself,
@@ -1552,7 +1725,7 @@ def _validate_schemas_exclude_sensitive_fields(route: APIRoute) -> None:
                 )
 
 
-def _validate_list_routes_paginate(route: APIRoute) -> None:
+def validate_list_routes_paginate(route: APIRoute) -> None:
     """Boot half of ``backend/list_routes_paginate`` (Terp Standard).
 
     A ``response_model`` that is a bare collection (``list`` / ``list[...]`` /
@@ -1572,7 +1745,7 @@ def _validate_list_routes_paginate(route: APIRoute) -> None:
         )
 
 
-def _validate_router_response_models(router: APIRouter) -> None:
+def validate_router_response_models(router: APIRouter) -> None:
     """Fail closed if a route on *router* violates a response-boundary rule.
 
     The boot-time route scan over the **composed** route table -- covering routes
@@ -1594,11 +1767,11 @@ def _validate_router_response_models(router: APIRouter) -> None:
     ``terp.arch`` rule (the two-layer story, ADR 0084). The positional-tuple rule
     (``schemas_avoid_positional_tuples``) is *not* a per-route check: it validates
     the generated OpenAPI document after the whole app is composed
-    (:func:`_reject_positional_tuple_schemas`), because the wire shape is the
+    (:func:`reject_positional_tuple_schemas`), because the wire shape is the
     offence and the document is where the wire shape lives.
     """
     for route in _iter_api_routes(router.routes):
-        _validate_routes_declare_response_model(route)
+        validate_routes_declare_response_model(route)
         if route.response_model is None:
             continue
         for tp in _referenced_response_types(route.response_model):
@@ -1608,8 +1781,8 @@ def _validate_router_response_models(router: APIRouter) -> None:
                     "response_model; a persisted model serializes every column (e.g. a "
                     "password hash) -- return a *Read DTO (terp.core.BaseSchema) instead"
                 )
-        _validate_schemas_exclude_sensitive_fields(route)
-        _validate_list_routes_paginate(route)
+        validate_schemas_exclude_sensitive_fields(route)
+        validate_list_routes_paginate(route)
 
 
 #: Keys whose contents are data values, not schema — a payload in ``examples``
@@ -1697,7 +1870,7 @@ def _mount_root_signpost(app: FastAPI, *, title: str, docs: bool) -> None:
         )
 
 
-def _reject_positional_tuple_schemas(app: FastAPI) -> None:
+def reject_positional_tuple_schemas(app: FastAPI) -> None:
     """Boot half of ``backend/schemas_avoid_positional_tuples`` (Terp Standard).
 
     A fixed-length tuple annotation serialises into the OpenAPI document as a
@@ -1923,7 +2096,7 @@ def create_app(
             raise BootError(f"capability discovery failed: {exc}") from exc
 
     _validate_unique_spec_names(collected)
-    _validate_requires(collected)
+    validate_requires(collected)
     resolved_plane = _with_settings_job_actor(control_plane or ControlPlane.default())
     plane_errors = resolved_plane.validation_errors(collected)
     if plane_errors:
@@ -1932,14 +2105,18 @@ def create_app(
     _validate_subscriptions_have_handlers(collected)
     _validate_no_inert_declarations(collected)
     _validate_token_revocation(principal_provider, require_token_revocation)
-    _validate_policy_write_tiers(collected)
-    _validate_public_modules_read_only(collected)
-    _validate_declared_operations(collected, resolved_plane.operations)
+    validate_policy_write_tiers(collected)
+    # Private, unlike its neighbours: ADR 0148's control is not cited by the Terp
+    # Standard's catalog as a runtime enforcement ref, so it carries no promise of a
+    # stable spelling and takes the underscore the others had to give up.
+    _validate_public_routes_are_declared(collected)
+    validate_public_modules_read_only(collected)
+    validate_declared_operations(collected, resolved_plane.operations)
     _apply_declared_operations(collected)
     _validate_route_permissions_are_declared(collected, resolved_plane)
     _validate_module_rank_resolution(collected, module_rank_resolver)
     _validate_permission_labels(resolved_plane)
-    _validate_background_jobs_preserve_ownership(collected)
+    validate_background_jobs_preserve_ownership(collected)
     _validate_shared_throttle_store(throttle_store, require_shared_throttle_store)
     _validate_durable_jobs(job_queue, require_durable_jobs)
     _validate_shared_cache_store(cache_store, require_shared_cache_store)
@@ -1952,15 +2129,20 @@ def create_app(
             idempotency_store, require_shared_idempotency_store
         )
         _warn_unshared_throttle_in_production(throttle_store, require_shared_throttle_store)
+        _warn_loosened_capability_limit_in_production(collected, resolved_plane.security)
         security_problems = resolved_plane.security.production_problems()
         if security_problems:
             raise BootError(
-                "insecure production security config: " + "; ".join(security_problems)
+                "insecure production security config: "
+                + "; ".join(security_problems)
+                + " — see: terp guide security"
             )
         password_problems = resolved_plane.passwords.production_problems()
         if password_problems:
             raise BootError(
-                "insecure production password policy: " + "; ".join(password_problems)
+                "insecure production password policy: "
+                + "; ".join(password_problems)
+                + " — see: terp guide passwords"
             )
         if resolved_plane.audit.enabled and not is_durable_audit_sink(audit_sink):
             raise BootError(
@@ -2025,7 +2207,7 @@ def create_app(
         if spec.policy is None:
             raise BootError(f"module {spec.name!r} declares no Policy (deny-by-default)")
         if spec.router is not None:
-            _validate_router_response_models(spec.router)
+            validate_router_response_models(spec.router)
             app.include_router(
                 spec.router,
                 prefix=f"/api/v1/{spec.name}",
@@ -2063,14 +2245,14 @@ def create_app(
     # The contract-shape gate runs against the finished document — after every
     # module router, capability router, and the health router are mounted — so
     # nothing that serialises into the contract can arrive after it looked.
-    _reject_positional_tuple_schemas(app)
+    reject_positional_tuple_schemas(app)
     # Introspection seam (a view, never a control — ADR 0011): record the specs this
     # app actually mounted (client modules AND every discovered capability router) and
     # its resolved control plane, so ``terp inspect access --app`` can project the WHOLE
     # guarded surface instead of a hand-passed module list — no mounted route can hide.
     app.state.terp_module_specs = tuple(collected)
     app.state.terp_control_plane = resolved_plane
-    _freeze_app_route_registration(app)
+    freeze_app_route_registration(app)
     return app
 
 

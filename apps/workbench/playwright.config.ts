@@ -26,8 +26,12 @@ export default defineConfig({
   // Baselines are split by platform on purpose. Font rasterisation and antialiasing differ
   // between Windows and Linux by far more than any tolerance that would still catch a real
   // change, so one shared set means whichever platform did not record it is permanently red.
-  // Each platform records and compares its own. Both sets are recorded now: win32 from a
-  // developer machine, linux from `mcr.microsoft.com/playwright:v1.62.0-noble`. CI runs the
+  // Each platform records and compares its own: win32 from a developer machine, linux from
+  // `mcr.microsoft.com/playwright:v1.62.0-noble`. Neither set is complete on its own terms --
+  // `visual/PENDING-BASELINES.json` records the specimens one platform has and the other does
+  // not, and `tests/architecture/test_visual_baselines.py` refuses a NEW divergence, because
+  // an unrecorded baseline does not fail on the platform that lacks it, it silently records
+  // itself on first run and is then compared against nothing. CI runs the
   // screenshot lane inside that same image rather than on the bare runner, because a bare
   // runner shares Ubuntu's kernel but not its font packages, and fonts are the whole reason
   // these sets are split. The image tag has to track the version pinned in package-lock.json

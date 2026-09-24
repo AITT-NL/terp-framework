@@ -59,13 +59,16 @@ or `python` will not resolve.
 - **`uv run terp guide`** / **`uv run terp guide <topic>`** — the authoring guide.
   Topics: access, append-only, capability, changelog, dataview, dependencies,
     dependency-hygiene, environment, events, files, forms, frontend, idempotency, jobs,
-    layouts, leases, migrations, module, operations, outbox, ownership,
+    layouts, leases, mail, migrations, module, operations, outbox, ownership,
     package-boundaries, passwords, permissions, policy, realtime, references, rules,
-    secrets, service, soft-delete, tenancy, testing, theming.
+    secrets, security, service, soft-delete, tenancy, testing, theming.
 - **`uv run terp --version`** — which platform this app is on, and a named warning
   when the lockstep pins disagree.
 - **`uv run terp upgrade --check`** — whether a newer release covers the *whole*
-  lockstep set, and the bump recipe. Read `uv run terp guide changelog` first: a
+  lockstep set, and the bump recipe (`--format json` for the same facts as data:
+  `installed`, `current`, `target`, `covers_whole_set`, `stragglers`). Read
+  `uv run terp guide changelog --since <the version you are on>` first — it renders only
+  what you have not seen, leading with `### Security` and `### Upgrade notes`: a
   green gate proves the upgrade did not break the app, not that the release
   changed nothing the app should adopt.
 - **`uv run terp inspect capabilities`** — every maintained `terp-cap-*` package:
@@ -73,7 +76,8 @@ or `python` will not resolve.
   composition-root wiring. **Read this before building infrastructure by hand** —
   durable delivery, realtime push, background jobs, scheduling, file storage,
   multi-tenancy, signed webhooks, outbound HTTP (`terp-cap-egress` — the rule over
-  outbound calls names it, and hand-rolling one gets refused) and shared
+  outbound calls names it, and hand-rolling one gets refused), sending e-mail
+  (`terp-cap-mail` — `smtplib` is refused by the same rule) and shared
   multi-replica state are already solved.
 - **`uv run terp verify`** — the one-command gate: runs the declared verification
   profile (`--profile quick` for per-edit static checks, `--profile full` for the

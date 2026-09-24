@@ -7,31 +7,38 @@ import { configure } from "@testing-library/dom";
 
 // `findBy*` and `waitFor` default to a 1000ms budget, and the component tests spend it on
 // a path that is not a render: a mocked fetch resolving, then the state it sets, then the
-// re-render that finally puts the text on screen. One second is enough on an idle machine
-// and not on a loaded one, so the suite failed intermittently — five times across one day,
-// four different tests, every one passing alone and on a re-run, and one of them red in CI
-// on a branch whose own change was fine.
+// re-render that finally puts the text on screen. One second does not reliably cover that,
+// so the budget is raised. `testTimeout` (vite.config.ts) sits above it, so a matcher that
+// cannot find its element loses first and says which element; equal budgets report an
+// unhelpful "test timed out" instead.
 //
-// The budget is raised rather than the tests retried. A retry would hide a genuinely
-// intermittent product bug, and these assertions are not flaky in what they claim: the
-// text does appear, and a matcher that waits longer asserts exactly the same thing. What
-// it costs is that a test which SHOULD fail now takes longer to say so, which is why
-// `testTimeout` moves too — the matcher must lose before the test does, or the failure
-// arrives as an unhelpful "test timed out" instead of naming the element it could not find.
+// READ THE HISTORY BELOW AS A TOLERANCE, NOT AS A DIAGNOSIS. This lever was raised twice
+// (1s to 3s to 4s) against an intermittent "unable to find element" — five failures across
+// one day, four different fetch-bound tests, always one file of eighty-one, each passing
+// alone and on a re-run. Neither raise stopped it, and the cause is now known and removed:
+// four admin tests held a structural race. They clicked a submit control that `UserCreate`
+// disables until an ambient access-model fetch has landed AND the effect it feeds has run,
+// having waited on nothing but the page heading — which renders before either. jsdom raises
+// no submit event for a click on a disabled control, so the click was LOST, not late, and
+// the failure surfaced several lines later on whatever was waiting for the POST's result.
+// No budget can close that. Those tests now wait on the control being enabled
+// (`enabledSubmitControl`, admin/admin.test.tsx), and the window itself is pinned by a
+// dedicated test there.
 //
-// It has a CEILING, and the first attempt at this walked straight into it. A toast
+// Contention is real and is a different thing: it widens the window such a race needs, and
+// a serial run measurably helped (see vite.config.ts). But a test waiting on the wrong
+// thing fails on an idle machine too, only more rarely. So before this lever is reached for
+// a third time: check what the failing test is waiting on, and whether the thing it clicks
+// can even be clicked yet.
+//
+// The budget has a CEILING, and the first attempt at this walked straight into it. A toast
 // auto-dismisses after `DEFAULT_DURATION_MS` (5s, toast.tsx), and several admin tests wait
 // for a field error and then assert the toast SYNCHRONOUSLY. Set the budget to 5s and a
 // wait that takes long enough outlives the toast the next line is about to look for — one
 // flake traded for another, and a worse one, because it looks like a product bug. So the
 // budget sits between the two: comfortably past a fetch and a re-render, comfortably short
-// of a toast's life. `async-budget.test.ts` holds both ends.
-//
-// Raised from 3s to 4s on 2026-09-08: 3s was still not enough under CI load. Two
-// consecutive runs failed on two different fetch-bound tests, and main failed a third
-// time in the same window -- always "unable to find element", always one file of
-// eighty-one. 4s keeps a full second below the toast, which is the last of the
-// headroom this lever has: the next move is less contention, not a longer wait.
+// of a toast's life. `async-budget.test.ts` holds the lower end, and
+// `test_frontend_async_budget.py` the ordering across all three files.
 configure({ asyncUtilTimeout: 4_000 });
 
 // jsdom's File / Blob / FormData are structurally incompatible with Node's built-in

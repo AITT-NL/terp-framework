@@ -264,6 +264,7 @@ router mounten + modellen aan migraties blootstellen zonder edits aan `main.py`.
 | `eventbus` | Getypeerde `EventCatalog` + NO-DRIFT `emit` (ADR 0008) |
 | `outbox` | Transactionele outbox voor betrouwbare event-aflevering |
 | `webhooks` | Uitgaande webhooks |
+| `mail` | E-mail versturen via één vastgelegde mailserver: versleuteld, vaste afzender, afgeleverd via de takenlaag (ADR 0150) |
 | `jobs_celery` | Achtergrondtaken (Celery) |
 | `scheduler_apscheduler` / `scheduler_celery_beat` | Geplande taken |
 | `sync` | Synchronisatie-ondersteuning |
@@ -432,7 +433,8 @@ onderhoudt er meerdere.
 ### De gate draaien
 
 ```bash
-uv run pytest        # synct de workspace en draait de volledige gate
+uv run coverage run -m pytest   # synct de workspace en draait de suite
+uv run coverage report          # plus de 100%-grens die de gate ook afdwingt
 ```
 
 ---

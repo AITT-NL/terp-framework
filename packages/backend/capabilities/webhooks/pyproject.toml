@@ -4,20 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-webhooks"
-version = "0.24.0"
+version = "0.27.0"
 description = "Terp webhooks capability — reliable, signed, SSRF-guarded outbound webhooks on the jobs/outbox seam."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.24.0",
-    # The SSRF denylist and the pinned-target shape live in the egress
-    # capability, the platform's declared way out of the process. Webhooks is
-    # its first consumer: two copies of a list of forbidden network ranges
-    # drift, and the one that drifts is the one nobody is looking at.
-    "terp-cap-egress==0.24.0",
-    # The outbound HTTP client lives ONLY in this capability (the delivery job handler);
-    # an app module never imports it. Background delivery + retry ride the jobs/outbox seam.
-    "httpx>=0.27",
+    "terp-core==0.27.0",
+    # The SSRF denylist, the pinned-target shape AND the transport all live in
+    # the egress capability, the platform's declared way out of the process.
+    # Webhooks is its first consumer: two copies of a list of forbidden network
+    # ranges drift, and the one that drifts is the one nobody is looking at —
+    # which goes for two copies of the code that opens the connection as well.
+    # There is deliberately no HTTP client in this distribution's dependencies.
+    "terp-cap-egress==0.27.0",
     # Seals the subscription signing secret at rest (ADR 0076) — Fernet keyed from
     # SECRET_KEY with a webhooks-specific HKDF label, mirroring terp.core.secrets.
     "cryptography>=50",

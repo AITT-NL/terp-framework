@@ -31,7 +31,12 @@ metering and egress auditing attach.
 
 from __future__ import annotations
 
-from terp.capabilities.egress.client import EgressClient, EgressResponse, Sender
+from terp.capabilities.egress.client import (
+    EgressClient,
+    EgressResponse,
+    Sender,
+    send_pinned,
+)
 from terp.capabilities.egress.errors import EgressFailedError, EgressRefusedError
 from terp.capabilities.egress.policy import EgressAttempt, EgressPolicy, Observer
 from terp.capabilities.egress.ssrf import (
@@ -58,4 +63,5 @@ __all__ = [
     "as_ip_literal",
     "is_denied_address",
     "resolve_host",
+    "send_pinned",
 ]

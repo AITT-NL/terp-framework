@@ -16,6 +16,7 @@ from terp.core import ControlPlane, CorsPolicy, ModuleSpec
 if TYPE_CHECKING:  # terp-arch stays off the common `terp guide` / `terp inspect` path
     from terp.arch import ScanRoot
 
+from terp.cli._output import emit
 from terp.cli.access import (
     build_access_graph_for_app,
     render_access,
@@ -60,10 +61,14 @@ from terp.cli.grants import (
     grant_list_command,
     grant_revoke_command,
 )
-from terp.cli.service_accounts import create_service_account_command
+from terp.cli.service_accounts import (
+    create_service_account_command,
+    render_service_accounts,
+    revoke_service_account_command,
+)
 from terp.cli.users import create_user_command
 from terp.cli.envfile import run_env_command
-from terp.cli.outbox import render_backlog
+from terp.cli.outbox import render_backlog, render_dead_letters
 from terp.cli.ports import run_ports_command
 from terp.cli.verify import (
     profile_ids,
@@ -124,6 +129,42 @@ Then the codegen chain, in this order — each step reads what the one before it
 `terp verify` runs the drift halves of that chain and names the command to re-run when
 something is stale, so it is the one to reach for if you are unsure what is out of date.
 Policy.default() = authenticated; read VIEWER, write EDITOR.
+
+FORMATTING: `terp fmt`, NOT `ruff format .`
+
+Formatting is deliberately ungated -- `terp verify --list` says so under "not checked
+here", with the reason. The whole-tree formatter is the right tool with the wrong blast
+radius: it rewrites files your change never touched, and the diff reaching review is
+then part change and part churn, which is a review-integrity problem rather than a
+cosmetic one. `terp fmt` defaults to `--changed` (what git reports as modified, staged
+or untracked -- the set you are responsible for); `--check` reports without rewriting,
+and `--all` is the deliberate whole-tree pass when you actually mean it.
+
+WHEN router.py GETS LONG
+
+A module declares ONE router. That is about the module's surface being one mounted,
+one-Policy thing -- it is NOT a limit on how many routes the module may have, and the
+file cap is not one either. More files, same router:
+
+    # app/modules/notes/routes_reports.py
+    from app.modules.notes.router import router
+
+    @router.get("/reports/", response_model=Page[ReportRead])
+    def list_reports() -> Page[ReportRead]: ...
+
+    # app/modules/notes/router.py -- import it so the decorators run
+    from fastapi import APIRouter
+    router = APIRouter(tags=["notes"])
+    from app.modules.notes import routes_reports  # noqa: E402,F401
+
+Those routes are on the module's declared router, so they mount behind the same guard
+and answer to the same Policy. The canonical five files are a REQUIRED set, not a
+maximum, so the extra file is fine where it is.
+
+What is refused is composing a SECOND router into the first
+(`router.include_router(sub)`, `no_raw_app_routes`). Splitting the module instead is
+the expensive mistake this section exists to prevent: that splits a Policy, a
+`requires` edge, a nav group and a migration history, because a file got long.
 """,
     "dependencies": """\
 One module needs another (declared edges)
@@ -484,6 +525,38 @@ THE FAILURE MODE THIS EXISTS TO PREVENT
   makes it an admin "for now". Least privilege loses to a ten-second workaround. If
   you catch yourself widening a role to unblock one call, that call wants a
   permission - and the grant is one command (ADR 0089).
+
+LET THE FRONTEND'S COPIES STOP TYPE-CHECKING WHEN YOU RENAME ONE
+
+  A client gates a route, a nav entry and a control on the same names you declared
+  here. Spelled as bare strings they fail in one of two SILENT directions when you
+  rename or re-floor a permission: over-gating, where a screen 403s for someone who
+  may use it, or under-gating, where a link renders and every request behind it
+  fails. Only a hand-written end-to-end test catches either.
+
+  `terp openapi` emits your permission and role names into the contract as enums, so
+  `npm run generate` turns them into string-literal unions. Six lines hand them to
+  the manifest types:
+
+      // frontend/src/access.d.ts
+      import type { components } from "./api/schema";
+
+      declare module "@terpjs/contract" {
+        interface TerpAccessVocabulary {
+          permission: components["schemas"]["TerpPermission"];
+          role: components["schemas"]["TerpRole"];
+        }
+      }
+
+  After that a misspelled or removed permission fails at `npm run typecheck`, at
+  every manifest and every `useHasPermission` call that used it. The file names TYPES
+  rather than values, so unlike the strings it replaces it cannot itself drift.
+
+  ADOPT IT ONCE YOU HAVE A PERMISSION, not before. An app that declares none emits no
+  `TerpPermission` schema -- an empty enum would generate `never` and break every
+  client that touched the type -- so the scaffold does not ship this file. Without it
+  both props stay plain `string`, exactly as before, which is why adopting is opt-in
+  and skipping costs nothing.
 """,
     "access": """\
 The access model (three layers) — profiles + the access graph
@@ -754,7 +827,13 @@ Boundaries for a second top-level package (an ungated worker)
   nothing has ever scanned will find things; they were violations all along.
 - WHAT A HAND-WRITTEN TEST IS STILL FOR. Not `no_dynamic_sql` or `no_print` — those now
   reach the second package, and a bespoke AST scan beside them is a weaker copy that has
-  to be maintained. What a general tool cannot express is what to keep: an ALLOWLIST of
+  to be maintained. One qualification on the first, because the companion is exactly where
+  it bites: `no_dynamic_sql` fires on SQLAlchemy's `text(...)` construct, and a package
+  that does not model the foreign schema usually drives a raw DB-API cursor instead --
+  `cursor.execute(f"...")` is not that construct and this rule does not see it. String-
+  built SQL handed to a driver is the delegated baseline's `S608` (ADR 0085), which runs
+  blocking on this root too. Both lanes, not one.
+  What a general tool cannot express is what to keep: an ALLOWLIST of
   the third-party distributions the worker may import (a `forbidden` contract is a
   denylist, and nobody can keep a list of every package that must never appear), or a
   containment boundary particular to this worker's layout.
@@ -766,9 +845,18 @@ Boundaries for a second top-level package (an ungated worker)
   declared, so the app half satisfies the input-schema rule) is one declaration and two
   consumers — rather than twin modules pinned against drift by a test.
 - Reaching the app over HTTP is the sanctioned direction: the worker holds a service
-  account credential (`terp service-accounts create`), so its writes pass the same guard,
+  account credential (`terp service-account create`), so its writes pass the same guard,
   the same audit trail and the same actor stamping as anyone's. Give it a lease
   (`terp guide leases`) so a claim it takes and dies on is recoverable.
+- That credential has a lifecycle, and the whole of it is on the same command:
+      terp service-account list                        # rank, expiry, last use
+      terp service-account list --expiring-within-days 30
+      terp service-account revoke <name>               # audited; kills live tokens now
+  The default expiry is a year, so the renewal question has to be asked before the thing
+  stops. `list` answers "is this integration still running?" from `last_used_at`, which
+  is what makes anyone willing to revoke. There is no `rotate`: the secret is write-once
+  (ADR 0088), so renewal is `create` then `revoke` -- in that order, which is also the
+  only order that does not interrupt the integration.
 """,
     "ownership": """\
 Object-level (per-row) authorization (OwnedMixin)
@@ -916,6 +1004,49 @@ Multi-tenant rows (tenancy capability)
   Sign the tenant into the token at login with
   build_login_module(authenticate, tenant_resolver=...).
 """,
+    "security": """\
+The security declaration (SecurityConfig, refused at production boot)
+
+- ONE declaration, wired on the control plane, read by create_app:
+      from terp.core import ControlPlane, CorsPolicy, RateLimit, SecurityConfig
+      control_plane = ControlPlane(security=SecurityConfig(
+          cors=CorsPolicy.allow(["https://app.example.com"]),
+          trusted_proxy_hops=1,
+      ))
+- FOUR of its states refuse a production boot (SecurityConfig.production_problems();
+  create_app raises BootError "insecure production security config"). Each has exactly
+  one declaration that answers it:
+    1. CORS unset            -> CorsPolicy.allow([...]) or CorsPolicy.disabled(reason=...)
+    2. CORS allowing '*'     -> name the origins; a wildcard with credentials is no origin check
+    3. rate_limit disabled   -> RateLimit(requests=..., window_seconds=...)
+    4. an override disabled  -> an override may LOWER or RAISE a limit, never remove it
+  Declining is a full answer and must be said out loud: CorsPolicy.disabled(reason=...)
+  is the same-origin deployment's answer, and the reason is the point of it.
+  `terp verify --only production-readiness` asks these before you ship, so the refusal
+  arrives in the gate rather than at the deploy.
+- rate_limit_overrides is a PER-PREFIX BUCKET, not a shared counter (ADR 0115):
+      SecurityConfig(rate_limit_overrides={"/api/v1/auth": RateLimit.for_credentials()})
+  Longest prefix wins; everything unmatched keeps rate_limit. Separate buckets on
+  purpose - a credential endpoint and an asset read share a process, not a counter, so
+  exhausting one family must not 429 the other. The shape mirrors the per-mount
+  max_request_bytes map: one way to scope a limit to a path, not two.
+- trusted_proxy_hops: NAME THE PROXY YOU ACTUALLY RUN BEHIND. It defaults to 0, meaning
+  the direct TCP peer identifies the caller and X-Forwarded-For is ignored as
+  attacker-supplied. Behind one reverse proxy (the shipped nginx profile) set 1, or every
+  caller collapses onto the proxy's address and your per-caller controls - the rate limit,
+  the OIDC callback throttle - stop being per-caller. The symptom is intermittent 429s
+  that look like a traffic spike. Nothing refuses this at boot, because 0 is correct for a
+  directly-exposed app: it is a deployment fact only you know.
+- expose_api_docs is a deliberate opt-in, OFF in production: /docs, /redoc and
+  /openapi.json are hidden there because a production API's full schema is not public
+  information. Development always serves them, and `terp openapi` exports the document
+  either way - so turning this on is a choice to publish, not a way to get the file.
+- headers ships a safe SecurityHeaders set; max_request_bytes (1 MiB) is the body cap and
+  is per-mount overridable (ADR 0067); request_id_header names the correlation header
+  ("X-Request-ID") echoed on every response.
+- No terp.arch check applies - there is no module code shape to police. Enforcement is
+  the create_app production fail-fast plus the production-readiness verify lane.
+""",
     "passwords": """\
 Password strength (PasswordPolicy, Tier-B)
 
@@ -926,7 +1057,9 @@ Password strength (PasswordPolicy, Tier-B)
   (length over forced complexity, NIST-aligned). Tier-B: override the VALUES, not shape:
       from terp.core import PasswordPolicy, ControlPlane
       control_plane = ControlPlane(passwords=PasswordPolicy(min_length=16, min_character_classes=3))
-- Relaxing strength is an explicit, justified opt-out and is refused at production boot:
+- Relaxing strength is an explicit, justified opt-out and is refused at production boot.
+  The reason is the opt-out: it is stored as `relaxed_reason` and named back to you in the
+  BootError, so "why is this off" always has an answer that travels with the declaration.
       PasswordPolicy.relaxed(reason="legacy bulk import")
 - No terp.arch check applies (no module code shape to police) — enforcement is the
   service chokepoint plus the create_app production fail-fast.
@@ -1026,6 +1159,31 @@ app had to cut. WHERE they go:
   budget -- a shrink-only ratchet, so the debt is counted and cannot grow quietly.
   The rule asks only that the tests EXIST and are attributable. Whether they are any
   good is `no_empty_tests` (a body that cannot fail is not a test) and your coverage gate.
+
+COUNT THE QUERIES A LIST ROUTE RUNS. The gate says a great deal about what your code
+cannot get structurally wrong and nothing about what it costs to run, and the shape that
+bites is dull: an endpoint loads N rows and touches a relationship per row, so the count
+is 1 + N. The response is fine on the twelve rows your fixture creates, nothing in the
+code looks wrong, every test passes -- until the table has real data in it.
+
+      from terp.core.testing import assert_max_queries
+
+      def test_listing_invoices_does_not_scale_with_rows(client, session):
+          with assert_max_queries(session, 2, only="FROM invoice"):
+              client.get("/api/v1/invoices/")
+
+  Statements, not seconds: the count is deterministic and small where a wall clock is
+  neither, so this survives a slow runner and still fails the moment a loop starts
+  talking to the database. `count_queries(session)` is the same thing without the
+  assertion, for when you want to look. A failure prints every statement that ran,
+  because "expected at most 2, got 14" without the fourteen is a puzzle -- and the
+  fourteen are almost always one SELECT with a different id, which is the diagnosis.
+
+  PICK THE LIMIT FROM WHAT THE ENDPOINT SHOULD DO, not from what it currently does. A
+  bound recorded from present behaviour passes forever and asserts nothing. The number
+  is a claim about the SHAPE of the query, and the claim is that adding a row to the
+  fixture must not change it -- so write the test with several rows in the fixture, or
+  it cannot tell the two apart.
 
 WHAT YOU MUST STILL DO YOURSELF. The platform UNDOES a runtime; it never INSTALLS the
 one your test needs. That distinction is the whole of testing on Terp:
@@ -1197,6 +1355,17 @@ Durable post-commit delivery (outbox capability)
   have rows. Note that /health/detail is an OBSERVATION and always answers 200: a
   backlog is a reason to page someone, not a reason to take the instance out of the
   load balancer, which would turn a delivery problem into an outage.
+- WHEN dead_lettered IS NON-ZERO, ASK WHAT DIED. The count is the aggregate; the reason
+  is per row, and the worker already recorded it in `last_error` on the way down:
+      terp outbox dead-letters                       # or --format json
+      terp outbox dead-letters --name invoices.sync --since-days 1
+  Each line names the kind, the job/event name, how many attempts it burned, when it
+  gave up, and the error it gave up on.
+- A DEAD LETTER IS TERMINAL. A row goes pending -> dispatched or pending -> dead_lettered
+  and never back (ADR 0045): there is no redrive, on purpose. The outbox guarantees the
+  delivery of an INTENT recorded with the business write; replaying one after the cause
+  is fixed is a decision about that work, and belongs to whatever produced it -- re-run
+  the job, re-emit the event -- not to a generic reset of the delivery table.
 """,
     "idempotency": """\
 Idempotency (the Idempotency-Key header, terp.core.idempotency)
@@ -1273,6 +1442,14 @@ Realtime push (realtime capability)
 - Frontend: useRealtimeChannel({ channel: "runs.progress", validate }) from
   @terpjs/react-core performs the whole dance. Never hand-roll EventSource or WebSocket -
   the boundary lint refuses both.
+- THAT validate IS THE DRIFT BOUNDARY. outbound_model is authoritative and the server
+  validates every publish against it; the guard is hand-written client code asserting the
+  same shape, and nothing checks the two against each other. So a guard miss almost never
+  means a hostile payload - the only author is your own backend behind a one-use ticket -
+  it means the guard has fallen behind the model. A rejected payload is handled as a
+  MESSAGE failure: dropped, reported once on the hook's error with the channel named, and
+  the transport stays open and keeps delivering. status goes to "error" only when the
+  connection itself fails. Widen the model, widen the guard in the same change.
 - Inbound (websocket) messages are size-capped, validated against inbound_model, gated by
   inbound_requirement, and handled by on_message with a real session - so a client message
   goes through the same audited service path as an HTTP write.
@@ -1336,7 +1513,13 @@ Using capabilities
 - SEE WHAT EXISTS BEFORE YOU BUILD IT:
       terp inspect capabilities
   lists every maintained capability, whether this app already has it, the exact
-  `uv add` line and the composition-root wiring it expects. Durable delivery, realtime
+  `uv add` line and the composition-root wiring it expects. For a capability you
+  ALREADY have it also prints `not used here`: wiring points the package exports and
+  your source never mentions. That line exists because an installed capability looks
+  finished -- so a seam it grows in a later release is invisible from inside the
+  project, and at a release every day or two nobody reads the changelog delta. Most
+  of what it lists are alternatives you correctly did not take; it is information,
+  not a finding. Durable delivery, realtime
   push, tenancy, files, webhooks, scheduling and shared multi-replica state are all
   already solved — hand-rolling one of them is a defect, not a shortcut.
 - A routed capability self-registers: create_app(specs, discover_capabilities=True)
@@ -1371,7 +1554,82 @@ Using capabilities
   api_key, token, ...) to a string literal — or a recognizable secret-token literal
   anywhere — is refused by the no_hardcoded_credentials rule. Wire secrets through
   settings / sealed config (ADR 0055), never source.
-""",    "migrations": """\
+- Sending e-mail is a capability too: `import smtplib` is refused by the same
+  no_raw_outbound_http rule, and terp-cap-mail is where it goes — `terp guide mail`.
+""",
+    "mail": """\
+Sending e-mail (terp-cap-mail)
+
+- Mail is a capability concern, never a module concern: `import smtplib` anywhere in the
+  app is refused by the no_raw_outbound_http rule. Install the capability:
+      uv add terp-cap-mail
+- ONE relay per application, declared ONCE in the composition root (app/main.py) from
+  fixed environment variables:
+      import os
+      from terp.capabilities.mail import configure_mail, mail_settings_from_environment
+      configure_mail(mail_settings_from_environment(os.environ))
+    MAIL_FROM       the sender of EVERY message: "Name <noreply@example.com>" or a bare
+                    address
+    SMTP_HOST       the relay's bare hostname (smtp.example.com)
+    SMTP_PORT       optional: 587 for starttls, 465 for tls
+    SMTP_SECURITY   starttls (the default) | tls | none
+    SMTP_USERNAME / SMTP_PASSWORD   set together, or neither
+  The session is encrypted and the certificate verified; there is no setting that turns
+  verification off. `none` exists for a local mail catcher: a production boot refuses
+  it, and signing in over it is refused everywhere. With neither MAIL_FROM nor SMTP_HOST set,
+  development LOGS each message instead of delivering it and a production boot is
+  REFUSED. Declare the variables in environment.schema.json so a deployment renders them
+  per environment: SMTP_PASSWORD with "format": "secret", SMTP_HOST "format":
+  "hostname", SMTP_PORT "format": "port", and MAIL_FROM + SMTP_HOST in "required" so a
+  deploy without a relay is refused before it boots.
+- Register the job the capability enqueues (control_plane/jobs.py):
+      from terp.capabilities.mail import MAIL_SEND
+      job_catalog = JobCatalog([MAIL_SEND])
+  A job catalog needs ControlPlane(job_system_actor_id=...) in production — `terp guide
+  jobs`.
+- Send from INSIDE the write the mail is about: the service's _after_write hook runs in
+  that write's transaction, so the mail commits - or rolls back - with it. A send_mail
+  after the write has returned is a transaction of its own, and nothing ties the two.
+      from terp.core import AuditAction
+      from terp.capabilities.mail import MailMessage, send_mail
+      class OrderService(BaseService[Order, OrderCreate, OrderUpdate]):
+          def _after_write(self, session, entity, action):
+              if action is AuditAction.UPDATED and entity.status == "shipped":
+                  send_mail(session, MailMessage(
+                      to=[entity.customer_email],    # plain addresses, at most MAX_RECIPIENTS
+                      subject="Your order has shipped",   # one line: a line break is refused
+                      text=f"Order {entity.number} is on its way.",   # plain text
+                      reply_to="sales@example.com",  # optional: where a person's answer goes
+                  ))
+  List the job on the sending module, ModuleSpec(jobs=[MAIL_SEND]), so boot checks that
+  the catalog declares it.
+  There is no per-message sender (every mail is from MAIL_FROM), no HTML body and no
+  attachment. The same notice to many people is one send_mail per person, which also
+  keeps every recipient's address private from the others.
+- send_mail only ENQUEUES the MAIL_SEND job. Wire the durable outbox so the mail commits
+  — or rolls back — with the write, and survives a restart:
+      from terp.capabilities.outbox import OutboxJobQueue
+      create_app(..., job_queue=OutboxJobQueue(),
+                 require_durable_jobs=settings.is_production)
+  and run `terp jobs worker` beside the API. A relay that is down is retried with
+  backoff and ends dead-lettered: `terp outbox backlog` counts it and `terp outbox
+  dead-letters` lists it. With the
+  in-process default queue (no worker) the mail is sent inline, and a failing relay
+  fails the request that asked for it.
+- Test without a relay:
+      from terp.capabilities.mail import (
+          CapturingMailTransport, MailSettings, configure_mail, reset_mail)
+      sent = CapturingMailTransport()
+      configure_mail(MailSettings(sender="App <noreply@example.test>",
+                                  host="smtp.example.test"), transport=sent)
+      ...exercise the feature...
+      assert sent.sent[0]["Subject"] == "Your order has shipped"
+      reset_mail()
+- A provider reachable only over its HTTP API is a different transport, declared in the
+  same place: configure_mail(settings, transport=<a callable built on
+  terp.capabilities.egress>). Call sites stay send_mail either way.
+""",
+    "migrations": """\
 Database migrations (terp migrate)
 
 - Each table-owning package (capability or app module) owns an INDEPENDENT, linear
@@ -1838,10 +2096,32 @@ configuration, so `env-seams` checks the shape first and reports every defect at
     variable well is easily longer than that. Write the long version in AGENTS.md or the
     code, and keep the manifest's to a sentence or two.
   - resolvedBy is one of host | container | browser.
+  - format is one of secret | port | hostname | plain.
   - enum is a list of at most 50 strings of at most 200 characters each.
 
-Unknown fields are dropped rather than refused, so anything outside that set is not
-carried to Studio -- do not encode meaning in one.
+A FIELD OUTSIDE THAT SET IS REFUSED HERE, because the deploy side DROPS what it does not
+recognise rather than refusing it -- so a misspelled field silently does nothing, and the
+manifest still reads as deliberate. One spelling makes that a security defect rather than
+a puzzle:
+
+    "MY_API_TOKEN": { "type": "string", "secret": true }     # WRONG -- refused
+    "MY_API_TOKEN": { "type": "string", "format": "secret" } # what seals the value
+
+`"secret": true` is the plausible mistake, not an exotic one: the deploy side's own UI
+calls the concept "secret" and its authoring API takes secret=True. Written that way the
+key is dropped, the value is stored as an ordinary shared value in plain records rather
+than through sealed custody, and nothing anywhere disagrees. A near miss in `format`
+itself (`"secrt"`) does the same, which is why that vocabulary is closed too.
+
+A CREDENTIAL-SHAPED NAME MUST SAY WHICH IT IS. A variable whose last word is SECRET,
+TOKEN, PASSWORD, PASSPHRASE, KEY, CREDENTIAL or CREDENTIALS and declares no `format` is
+refused: silence there is indistinguishable from a decision. Declare `"format": "secret"`
+to seal it, or `"format": "plain"` to record that this one holds no credential -- a
+public key, a sort key. The opt-out is one word, in the file and in the diff, which is
+the standard the platform applies to every other insecurity.
+
+$-prefixed keys ($comment and friends) are JSON Schema's own annotation convention and
+are not misspellings -- the shipped manifests use $comment for exactly that.
 
 `terp env` IS THE COMMAND FOR THE MACHINE YOU ARE ON. A deploy tool renders and
 seals .app.env per environment; for the working copy the only seam used to be a
@@ -1937,11 +2217,15 @@ Compliant decision path for outbound HTTP
 1. Preserve the requested integration and its external contract. Removing the live
     call, returning static/local data, or moving the client import to an unscanned
     helper only to make the gate green is not a compliant fix.
-2. Use a maintained purpose-built capability when its semantics match. For example,
-    terp-cap-webhooks owns signed webhook POST delivery; it is not a generic GET client.
-3. The maintained Terp capability surface currently has no generic outbound-fetch
-    capability for arbitrary HTTP GETs. App modules therefore cannot implement a live
-    news/feed fetch through a sanctioned generic API today.
+2. Use the maintained capability whose semantics match:
+    - an HTTP call to a host you can name: terp-cap-egress (EgressClient, with that
+      exact host on its EgressPolicy allowlist);
+    - signed webhook POST delivery to subscriber URLs: terp-cap-webhooks;
+    - sending e-mail: terp-cap-mail (configure_mail once in the composition root,
+      send_mail per message) - never smtplib. `terp guide mail`.
+3. There is no sanctioned path to an ARBITRARY host: EgressPolicy takes exact hostnames
+    and refuses wildcards, so a feature that must fetch whatever URL a user supplies has
+    no compliant implementation today.
 4. When no matching capability exists, stop and report the missing capability. Leave
     the check red until a human approves an escape hatch or the platform supplies a
     reviewed adapter capability. Do not create an app-local helper package merely to
@@ -2073,7 +2357,54 @@ def _read_release_notes(
     return None
 
 
-def _render_changelog_topic() -> str:
+#: A ``## <version>`` heading in the release notes.
+_CHANGELOG_VERSION_RE = re.compile(r"^## (\d+\.\d+\.\d+)", re.MULTILINE)
+
+#: The two subsections a reader must not miss, in the order they are read. A release
+#: that closes a hole a deployment may be carrying today, and one that refuses a posture
+#: an existing app may already hold, are the two kinds where the cost of not reading the
+#: notes is unbounded — so ``--since`` leads with them rather than making the reader find
+#: them inside whatever else the release contained.
+_LOAD_BEARING_SUBSECTIONS: tuple[str, ...] = ("Security", "Upgrade notes")
+
+
+def _changelog_sections(text: str) -> list[tuple[str, str]]:
+    """``[(version, body)]`` in document order — newest first, as the file is written."""
+    matches = list(_CHANGELOG_VERSION_RE.finditer(text))
+    return [
+        (
+            match.group(1),
+            text[match.end() : matches[index + 1].start() if index + 1 < len(matches) else len(text)],
+        )
+        for index, match in enumerate(matches)
+    ]
+
+
+def _lead_with_what_cannot_be_missed(body: str) -> str:
+    """Move a section's ``### Security`` / ``### Upgrade notes`` blocks to the front.
+
+    Ordering, not filtering: everything the release said is still here. But a reader
+    running this is deciding whether to upgrade, and the two subsections that answer
+    "am I exposed right now" and "will this refuse the posture I hold" must not be
+    somewhere below a long Added block.
+    """
+    parts = re.split(r"(?m)^(### .+)$", body)
+    if len(parts) == 1:
+        return body
+    preamble, rest = parts[0], parts[1:]
+    blocks = [(rest[index], rest[index + 1]) for index in range(0, len(rest) - 1, 2)]
+    leading = [
+        block
+        for block in blocks
+        if block[0].removeprefix("### ").strip() in _LOAD_BEARING_SUBSECTIONS
+    ]
+    if not leading:
+        return body
+    trailing = [block for block in blocks if block not in leading]
+    return preamble + "".join(heading + rest for heading, rest in leading + trailing)
+
+
+def _render_changelog_topic(since: str | None = None) -> str:
     """The platform's release notes, read from the installed ``terp-core``.
 
     An app cannot judge an upgrade it cannot read about. The notes ship inside
@@ -2082,6 +2413,12 @@ def _render_changelog_topic() -> str:
     index to reach. Until this existed the template's own pyproject pointed at
     "the platform CHANGELOG", a document that shipped nowhere: the one pointer
     the code gave was a dead reference.
+
+    *since* renders only the releases AFTER that version, leading each one with its
+    ``### Security`` and ``### Upgrade notes`` subsections. Without it the whole file
+    comes back — thousands of lines across dozens of releases with no way to slice to
+    the ones the reader has not seen, which is a document nobody reads and therefore a
+    channel that carries nothing.
     """
     from terp.cli.version import platform_version
 
@@ -2108,7 +2445,39 @@ def _render_changelog_topic() -> str:
         if version
         else "Terp release notes\n"
     )
-    return header + "\n" + text
+    if since is None:
+        return header + "\n" + text
+
+    from terp.cli.version import _version_key
+
+    sections = _changelog_sections(text)
+    if not any(release == since for release, _ in sections):
+        known = ", ".join(release for release, _ in sections[:5])
+        raise SystemExit(
+            f"terp guide changelog: no release {since!r} in these notes (newest first: "
+            f"{known}, ...). Pass the version this app is ON — `terp --version` — so "
+            "what comes back is what you have not read."
+        )
+    newer = [
+        (release, body)
+        for release, body in sections
+        if _version_key(release) > _version_key(since)
+    ]
+    if not newer:
+        return (
+            f"{header}\nNothing in these notes is newer than {since}.\n"
+            "The copy that ships with a release ends at that release, so to read a "
+            "version this app does not have yet:\n"
+            "  uvx --from terp-cli==<version> terp guide changelog --since "
+            f"{since}\n"
+        )
+    rendered = "".join(
+        f"## {release}{_lead_with_what_cannot_be_missed(body)}" for release, body in newer
+    )
+    return (
+        f"{header}\n{len(newer)} release(s) after {since}, newest first. "
+        "Security and Upgrade notes lead each one.\n\n" + rendered
+    )
 
 
 def _render_rule_guide(rule_name: str) -> str:
@@ -2141,7 +2510,7 @@ def _render_rule_guide(rule_name: str) -> str:
     )
 
 
-def guide(topic: str | None = None) -> str:
+def guide(topic: str | None = None, *, since: str | None = None) -> str:
     """Return the Terp authoring guide, or a focused recipe for *topic*.
 
     The deterministic, in-terminal instruction surface for agents (and humans): an
@@ -2155,7 +2524,7 @@ def guide(topic: str | None = None) -> str:
     if topic == "rules":
         return _render_rules_topic()
     if topic == "changelog":
-        return _render_changelog_topic()
+        return _render_changelog_topic(since)
     if topic in _GUIDE_TOPICS:
         return _GUIDE_TOPICS[topic]
     return _render_rule_guide(topic)
@@ -2696,7 +3065,7 @@ class _VersionAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):  # type: ignore[no-untyped-def]
         from terp.cli.version import render_version
 
-        print(render_version())
+        emit(render_version())
         parser.exit()
 
 
@@ -2795,6 +3164,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output format: text (human) or json (structured, for any tool or agent "
         "reading this; default: text)",
     )
+    capabilities_parser.add_argument(
+        "--app-root",
+        default=".",
+        help="Project root whose sources are read to see which wiring points an "
+        "installed capability offers that this app does not use (default: .)",
+    )
     schema_parser = inspect_subcommands.add_parser(
         "schema",
         help="The schema graph: every table with ownership, traits, and fail-visible "
@@ -2842,6 +3217,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output format for --list: text (one topic per line) or json "
         "(default: text)",
     )
+    guide_parser.add_argument(
+        "--since",
+        default=None,
+        metavar="VERSION",
+        help="changelog only: render just the releases AFTER this version, each one "
+        "led by its Security and Upgrade notes. Pass the version this app is on",
+    )
 
     upgrade_parser = subcommands.add_parser(
         "upgrade",
@@ -2852,6 +3234,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Report the available release and the bump recipe (the only mode: "
         "Terp reports, it does not edit your manifests)",
+    )
+    upgrade_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (the recipe) or json (the same facts as data — "
+        "installed, current, target, covers_whole_set, stragglers, rerender_blocker)",
     )
 
     migrate_parser = subcommands.add_parser(
@@ -2996,7 +3385,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     outbox_parser = subcommands.add_parser(
         "outbox",
-        help="Report the durable outbox's backlog - whether anything is draining it",
+        help="Report the durable outbox: whether anything is draining it, and what gave up",
     )
     outbox_subcommands = outbox_parser.add_subparsers(dest="outbox_command", required=True)
     outbox_backlog_parser = outbox_subcommands.add_parser(
@@ -3012,6 +3401,45 @@ def _build_parser() -> argparse.ArgumentParser:
         "--app-root", default=".", help="App root placed first on sys.path (default: .)"
     )
     outbox_backlog_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format (default: text)",
+    )
+    # The backlog counts what gave up; this names them and says why. `last_error` was
+    # written by the worker and read by nothing, so the cause of every dead letter was
+    # recorded and unaskable. There is no `redrive` beside it on purpose: a dead letter
+    # is terminal by ADR 0045 §1, and changing that is an ADR, not a subcommand.
+    outbox_dead_letters_parser = outbox_subcommands.add_parser(
+        "dead-letters",
+        help="Name the deliveries that gave up, and the error each one gave up on",
+    )
+    outbox_dead_letters_parser.add_argument(
+        "--name",
+        default=None,
+        help="Only this job or event name (an incident is usually about one integration)",
+    )
+    outbox_dead_letters_parser.add_argument(
+        "--since-days",
+        type=int,
+        default=None,
+        help="Only rows that gave up within this many days (is it still happening?)",
+    )
+    outbox_dead_letters_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Most recent N (default: 50)",
+    )
+    outbox_dead_letters_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app or factory (default: app.main:app)",
+    )
+    outbox_dead_letters_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+    outbox_dead_letters_parser.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -3321,6 +3749,47 @@ def _build_parser() -> argparse.ArgumentParser:
     sa_create_parser.add_argument(
         "--app-root", default=".", help="App root placed first on sys.path (default: .)"
     )
+    # There is deliberately no `rotate`: the secret is write-once (ADR 0088), so renewal
+    # is `create` then `revoke` — which is also the only order that does not interrupt
+    # the integration.
+    sa_list_parser = sa_subcommands.add_parser(
+        "list",
+        help="Show the issued machine credentials: rank, expiry and last use",
+    )
+    sa_list_parser.add_argument(
+        "--expiring-within-days",
+        type=int,
+        default=None,
+        help="Only credentials lapsing within this many days (the renewal question)",
+    )
+    sa_list_parser.add_argument(
+        "--include-revoked",
+        action="store_true",
+        help="Also show deactivated accounts (kept for the audit trail)",
+    )
+    sa_list_parser.add_argument(
+        "--format",
+        dest="fmt",
+        choices=("text", "json"),
+        default="text",
+        help="Output format (default: text)",
+    )
+    sa_revoke_parser = sa_subcommands.add_parser(
+        "revoke",
+        help="Deactivate a credential and kill its outstanding tokens now (audited)",
+    )
+    sa_revoke_parser.add_argument(
+        "subject", help="The service account's name, or its subject UUID"
+    )
+    for _sa_parser in (sa_list_parser, sa_revoke_parser):
+        _sa_parser.add_argument(
+            "--app",
+            default="app.main:app",
+            help="Dotted module:attribute of the FastAPI app (default: app.main:app)",
+        )
+        _sa_parser.add_argument(
+            "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+        )
 
     grant_parser = subcommands.add_parser(
         "grant",
@@ -3466,13 +3935,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command == "inspect" and args.inspect_command == "control-plane":
-        print(inspect_control_plane(args.object, modules=args.module, fmt=args.format))
+        emit(inspect_control_plane(args.object, modules=args.module, fmt=args.format))
         return
     if args.command == "inspect" and args.inspect_command == "jobs":
-        print(render_jobs(args.object))
+        emit(render_jobs(args.object))
         return
     if args.command == "inspect" and args.inspect_command == "access":
-        print(
+        emit(
             inspect_access(
                 args.object,
                 modules=args.module,
@@ -3483,10 +3952,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "inspect" and args.inspect_command == "schema":
-        print(inspect_schema(app_root=args.app_root, package=args.package, fmt=args.format))
+        emit(inspect_schema(app_root=args.app_root, package=args.package, fmt=args.format))
         return
     if args.command == "inspect" and args.inspect_command == "capabilities":
-        print(render_capabilities(fmt=args.format))
+        emit(render_capabilities(fmt=args.format, root=args.app_root))
         return
     if args.command == "guide":
         if args.list:
@@ -3496,7 +3965,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             # offering "what can I read about?" wants the topics; a consumer resolving a
             # violation already has the rule name and wants only to know it is answerable.
             if args.format == "json":
-                print(
+                emit(
                     json.dumps(
                         {"topics": list(guide_topics()), "rules": sorted(set(guide_choices()) - set(guide_topics()))},
                         indent=2,
@@ -3504,14 +3973,20 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
             else:
                 for topic in guide_topics():
-                    print(topic)
+                    emit(topic)
             return
         if args.topic is not None and args.topic not in guide_choices():
             raise SystemExit(
                 f"terp guide: unknown topic or rule {args.topic!r}; run `terp guide` "
                 "for the topic list or `terp guide rules` for every rule name"
             )
-        print(guide(args.topic))
+        if args.since is not None and args.topic != "changelog":
+            raise SystemExit(
+                "terp guide: --since applies to the changelog topic only "
+                "(`terp guide changelog --since <version>`); every other topic is the "
+                "current recipe, which has no history to slice"
+            )
+        emit(guide(args.topic, since=args.since))
         return
     if args.command == "upgrade":
         from terp.cli.version import render_upgrade_check
@@ -3523,7 +3998,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "a lockstep bump spans pyproject.toml and frontend/package.json and "
                 "must be reviewed as one change."
             )
-        print(render_upgrade_check())
+        emit(render_upgrade_check(fmt=args.format))
         return
     if args.command == "migrate":
         from terp.migrations import migrate_main
@@ -3531,17 +4006,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         migrate_main(args.migrate_args)
         return
     if args.command == "jobs" and args.jobs_command == "run":
-        print(
+        emit(
             run_job_command(
                 args.name, payload=args.payload, app_ref=args.app, app_root=args.app_root
             )
         )
         return
     if args.command == "jobs" and args.jobs_command == "list":
-        print(render_jobs(args.object))
+        emit(render_jobs(args.object))
         return
     if args.command == "jobs" and args.jobs_command == "worker":
-        print(
+        emit(
             run_worker_command(
                 app_ref=args.app,
                 app_root=args.app_root,
@@ -3552,7 +4027,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "jobs" and args.jobs_command == "scheduler":
-        print(run_scheduler_command(app_ref=args.app, app_root=args.app_root))
+        emit(run_scheduler_command(app_ref=args.app, app_root=args.app_root))
         return
     if args.command == "env":
         raise SystemExit(
@@ -3572,14 +4047,26 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
     if args.command == "outbox" and args.outbox_command == "backlog":
-        print(
+        emit(
             render_backlog(
                 app_ref=args.app, app_root=args.app_root, fmt=args.format
             )
         )
         return
+    if args.command == "outbox" and args.outbox_command == "dead-letters":
+        emit(
+            render_dead_letters(
+                app_ref=args.app,
+                app_root=args.app_root,
+                name=args.name,
+                since_days=args.since_days,
+                limit=args.limit,
+                fmt=args.format,
+            )
+        )
+        return
     if args.command == "leases" and args.leases_command == "list":
-        print(
+        emit(
             render_leases(
                 app_ref=args.app,
                 app_root=args.app_root,
@@ -3590,7 +4077,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "leases" and args.leases_command == "reap":
-        print(
+        emit(
             reap_leases_command(
                 app_ref=args.app,
                 app_root=args.app_root,
@@ -3608,24 +4095,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             frontend=not args.no_frontend,
             profile=args.profile,
         )
-        print(new_module_message(args.name, paths, profile=args.profile))
+        emit(new_module_message(args.name, paths, profile=args.profile))
         return
     if args.command == "api-docs":
         for path in api_docs(args.out):
-            print(f"wrote {path}")
+            emit(f"wrote {path}")
         return
     if args.command == "openapi":
-        print(f"wrote {export_openapi(args.app, out=args.out, app_root=args.app_root)}")
+        emit(f"wrote {export_openapi(args.app, out=args.out, app_root=args.app_root)}")
         return
     if args.command == "routes":
-        print(
+        emit(
             run_routes_command(
                 root=args.root, frontend_dir=args.frontend_dir, check=args.check
             )
         )
         return
     if args.command == "dev":
-        print(
+        emit(
             run_dev_command(
                 app_ref=args.app,
                 root=args.app_root,
@@ -3651,7 +4138,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 budget_path=args.budget,
                 companions=args.companion,
             )
-            print(json.dumps(payload, indent=2))
+            emit(json.dumps(payload, indent=2))
             if not payload["ok"]:
                 raise SystemExit(1)
             return
@@ -3662,7 +4149,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 budget_path=args.budget,
                 companions=args.companion,
             )
-            print(json.dumps(payload, indent=2))
+            emit(json.dumps(payload, indent=2))
             if not payload["ok"]:
                 raise SystemExit(1)
             return
@@ -3679,7 +4166,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         # more than the app says what more, because a verdict that does not name its
         # scope is the thing this whole seam exists to stop.
         scanned = ", ".join(["app", *(root.package for root in extra)])
-        print(f"terp.arch: {scanned} are clean" if extra else "terp.arch: app is clean")
+        emit(f"terp.arch: {scanned} are clean" if extra else "terp.arch: app is clean")
         return
     if args.command == "verify":
         raise SystemExit(
@@ -3692,7 +4179,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
     if args.command == "user" and args.user_command == "create":
-        print(
+        emit(
             create_user_command(
                 args.email,
                 role=args.role,
@@ -3703,7 +4190,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "service-account" and args.service_account_command == "create":
-        print(
+        emit(
             create_service_account_command(
                 args.name,
                 role=args.role,
@@ -3714,19 +4201,37 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
         return
+    if args.command == "service-account" and args.service_account_command == "list":
+        emit(
+            render_service_accounts(
+                app_ref=args.app,
+                app_root=args.app_root,
+                expiring_within_days=args.expiring_within_days,
+                include_revoked=args.include_revoked,
+                fmt=args.fmt,
+            )
+        )
+        return
+    if args.command == "service-account" and args.service_account_command == "revoke":
+        emit(
+            revoke_service_account_command(
+                args.subject, app_ref=args.app, app_root=args.app_root
+            )
+        )
+        return
     if args.command == "grant":
         _commands = {
             "add": grant_add_command,
             "revoke": grant_revoke_command,
         }
         if args.grant_command == "list":
-            print(
+            emit(
                 grant_list_command(
                     args.subject, app_ref=args.app, app_root=args.app_root
                 )
             )
             return
-        print(
+        emit(
             _commands[args.grant_command](
                 args.subject,
                 args.permission,
@@ -3737,14 +4242,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "module-role":
         if args.module_role_command == "list":
-            print(
+            emit(
                 module_role_list_command(
                     args.subject, app_ref=args.app, app_root=args.app_root
                 )
             )
             return
         if args.module_role_command == "revoke":
-            print(
+            emit(
                 module_role_revoke_command(
                     args.subject,
                     args.module,
@@ -3753,7 +4258,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
             )
             return
-        print(
+        emit(
             module_role_add_command(
                 args.subject,
                 args.module,
@@ -3764,10 +4269,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
     if args.command == "seed":
-        print(run_seed_command(app_ref=args.app, app_root=args.app_root, seed_ref=args.seed))
+        emit(run_seed_command(app_ref=args.app, app_root=args.app_root, seed_ref=args.seed))
         return
     if args.command == "docker" and args.docker_command == "dev":
-        print(
+        emit(
             run_docker_dev_command(
                 compose_file=args.compose_file, root=args.root, project_name=args.project_name
             )
@@ -3777,7 +4282,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         from terp.cli.smoke import render_smoke_plan, run_smoke_command
 
         if args.plan:
-            print(render_smoke_plan(root=args.root, compose_file=args.compose_file))
+            emit(render_smoke_plan(root=args.root, compose_file=args.compose_file))
             return
         raise SystemExit(run_smoke_command(root=args.root, compose_file=args.compose_file))
     parser.error("unknown command")  # pragma: no cover - argparse guards this
@@ -3789,6 +4294,8 @@ __all__ = [
     "check_report_envelope",
     "changed_python_files",
     "create_service_account_command",
+    "render_service_accounts",
+    "revoke_service_account_command",
     "create_user_command",
     "grant_add_command",
     "grant_list_command",

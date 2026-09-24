@@ -1,0 +1,211 @@
+{
+  "terp_verify_manifest": 1,
+  "profile": "full",
+  "categories": [
+    "architecture",
+    "backend-tests",
+    "build",
+    "conformance",
+    "frontend-boundaries",
+    "frontend-tests"
+  ],
+  "checks": [
+    {
+      "id": "platform-install",
+      "category": "architecture",
+      "command": "terp --version",
+      "scope": [
+        "pyproject.toml",
+        "uv.lock",
+        "**/package.json",
+        "**/package-lock.json"
+      ]
+    },
+    {
+      "id": "env-seams",
+      "category": "architecture",
+      "command": "terp verify --only env-seams",
+      "scope": [
+        "environment.schema.json",
+        ".app.env.example",
+        "docker-compose*.yml"
+      ]
+    },
+    {
+      "id": "workbench",
+      "category": "architecture",
+      "command": "terp verify --only workbench",
+      "scope": [
+        "workbench.json",
+        "docker-compose*.yml"
+      ]
+    },
+    {
+      "id": "deploy-safety",
+      "category": "architecture",
+      "command": "terp verify --only deploy-safety",
+      "scope": [
+        "docker-compose.prod.yml"
+      ]
+    },
+    {
+      "id": "production-readiness",
+      "category": "architecture",
+      "command": "terp verify --only production-readiness",
+      "scope": [
+        "control_plane/**/*.py"
+      ]
+    },
+    {
+      "id": "architecture",
+      "category": "architecture",
+      "command": "terp check --format check-report --budget escape-hatch-budget.json",
+      "scope": [
+        "app/**",
+        "control_plane/**",
+        "escape-hatch-budget.json"
+      ]
+    },
+    {
+      "id": "package-boundaries",
+      "category": "architecture",
+      "command": "lint-imports",
+      "scope": [
+        "pyproject.toml",
+        "**/*.py"
+      ]
+    },
+    {
+      "id": "dependency-hygiene",
+      "category": "architecture",
+      "command": "uv run deptry .",
+      "scope": [
+        "pyproject.toml",
+        "uv.lock",
+        "**/*.py"
+      ]
+    },
+    {
+      "id": "backend-tests",
+      "category": "backend-tests",
+      "command": "uv run pytest",
+      "scope": [
+        "app/**",
+        "control_plane/**",
+        "tests/**",
+        "conformance/**"
+      ]
+    },
+    {
+      "id": "appsec-baseline",
+      "category": "architecture",
+      "command": "uv run ruff check .",
+      "scope": [
+        "app/**",
+        "control_plane/**",
+        "tests/**"
+      ]
+    },
+    {
+      "id": "authz-surface",
+      "category": "architecture",
+      "command": "terp verify --only authz-surface",
+      "scope": [
+        "app/**",
+        "control_plane/**",
+        "authz-surface.json"
+      ]
+    },
+    {
+      "id": "dependency-audit-python",
+      "category": "architecture",
+      "command": "uv run --with pip-audit pip-audit --progress-spinner off",
+      "scope": [
+        "pyproject.toml",
+        "uv.lock"
+      ],
+      "requires": "network access to the advisory databases"
+    },
+    {
+      "id": "dependency-audit-npm",
+      "category": "architecture",
+      "command": "npm --prefix frontend audit --audit-level=high",
+      "scope": [
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "requires": "network access to the advisory databases"
+    },
+    {
+      "id": "frontend-boundaries",
+      "category": "frontend-boundaries",
+      "command": "npm --prefix frontend run lint -- --format check-report",
+      "scope": [
+        "frontend/**",
+        "escape-hatch-budget.json"
+      ]
+    },
+    {
+      "id": "routes-drift",
+      "category": "build",
+      "command": "npm --prefix frontend run routes -- --check",
+      "scope": [
+        "frontend/**"
+      ]
+    },
+    {
+      "id": "api-client",
+      "category": "build",
+      "command": "terp verify --only api-client",
+      "scope": [
+        "app/**",
+        "control_plane/**",
+        "frontend/package.json"
+      ]
+    },
+    {
+      "id": "frontend-typecheck",
+      "category": "build",
+      "command": "npm --prefix frontend run typecheck",
+      "scope": [
+        "frontend/**",
+        "app/**"
+      ]
+    },
+    {
+      "id": "frontend-tests",
+      "category": "frontend-tests",
+      "command": "npm --prefix frontend test",
+      "scope": [
+        "frontend/**",
+        "app/**"
+      ]
+    },
+    {
+      "id": "frontend-build",
+      "category": "build",
+      "command": "npm --prefix frontend run build",
+      "scope": [
+        "frontend/**",
+        "app/**"
+      ]
+    }
+  ],
+  "not_checked_here": [
+    {
+      "id": "formatting",
+      "reason": "Formatting is deliberately ungated. `ruff format .` is the right formatter with the wrong blast radius: it rewrites files the current change never touched, so the diff reaching review is part change and part churn, and the author's only recourse is to check out the unrelated files one by one",
+      "instead": "terp fmt  (defaults to --changed: the files git reports as modified, staged or untracked -- the set you are responsible for; `terp fmt --check` reports without rewriting, and `--all` is the deliberate whole-tree pass)"
+    },
+    {
+      "id": "generic-appsec-classes",
+      "reason": "Command injection, path traversal, unsafe deserialization, weak randomness and secrets-in-logs are NOT terp-arch rules. They are delegated, not duplicated (ADR 0085) -- a second implementation of a solved analysis is a second thing to keep correct",
+      "delegated_to": "ruff (bandit `S` rules), run by the appsec-baseline check"
+    },
+    {
+      "id": "test-efficacy",
+      "reason": "`no_empty_tests` and `modules_ship_tests` check that tests EXIST and are not empty. Nothing here checks that a test would fail if the code were wrong, so a suite can be green, fully populated, pass every gate, and still not discriminate -- list filters and boundary conditions are the usual blind spot",
+      "instead": "no tooling ships for this yet; assert the exclusion case by hand"
+    }
+  ]
+}

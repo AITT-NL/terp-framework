@@ -508,6 +508,10 @@
             ],
             "title": "Owner Id"
           },
+          "scan_state": {
+            "title": "Scan State",
+            "type": "string"
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
@@ -532,6 +536,7 @@
           "content_type",
           "size",
           "sha256",
+          "scan_state",
           "owner_id",
           "version",
           "created_at",
@@ -1954,6 +1959,24 @@
         ],
         "title": "TaskUpdate",
         "type": "object"
+      },
+      "TerpPermission": {
+        "description": "Every permission name this app declares. Gate a client control on one of these rather than on a string literal, so a rename stops type-checking instead of silently over- or under-gating.",
+        "enum": [
+          "notes.delete"
+        ],
+        "title": "TerpPermission",
+        "type": "string"
+      },
+      "TerpRole": {
+        "description": "Every role name this app's modules declare, for the same reason.",
+        "enum": [
+          "admin",
+          "editor",
+          "viewer"
+        ],
+        "title": "TerpRole",
+        "type": "string"
       },
       "TicketRequest": {
         "properties": {

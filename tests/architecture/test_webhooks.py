@@ -21,7 +21,6 @@ import uuid
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 
-import httpx
 import pytest
 from sqlalchemy import Engine
 from sqlmodel import Field, Session, SQLModel, create_engine, select
@@ -58,6 +57,7 @@ from terp.capabilities.outbox import (
     OutboxWorker,
 )
 from terp.capabilities.outbox._serde import job_envelope_to_payload
+from terp.capabilities.egress import EgressResponse
 
 from terp.capabilities.webhooks import (
     OUTCOME_BLOCKED,
@@ -155,7 +155,7 @@ def engine(tmp_path: pathlib.Path) -> Iterator[Engine]:
 
 @pytest.fixture(autouse=True)
 def _reset_sender() -> Iterator[None]:
-    """Restore the default httpx sender after each test (the seam is process-global)."""
+    """Restore the default sender after each test (the seam is process-global)."""
     yield
     reset_webhook_sender()
 
@@ -570,46 +570,68 @@ def test_oversized_payload_fails_without_posting(engine: Engine) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# (5b) The default httpx sender + the real DNS resolver paths
+# (5b) The default sender + the real DNS resolver paths
 # --------------------------------------------------------------------------- #
-def test_default_httpx_sender_pins_the_validated_ip(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_default_sender_hands_the_pinned_target_to_the_egress_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The delivery job opens no connection of its own; it hands the target over.
+
+    What is asserted is the handover and the arguments, not the pinning. That the
+    socket goes to the validated address while the Host header and the TLS SNI still
+    name the hostname is the egress capability's contract, tested where it lives —
+    asserting it a second time here would put back into the suite exactly the
+    duplication this change takes out of the source.
+    """
     import terp.capabilities.webhooks.delivery as delivery
 
     captured: dict[str, object] = {}
 
-    class _Resp:
-        status_code = 204
+    def _fake_send_pinned(  # type: ignore[no-untyped-def]
+        target, method, body, headers, timeout_seconds, max_response_bytes
+    ):
+        captured.update(
+            target=target,
+            method=method,
+            body=body,
+            headers=headers,
+            timeout_seconds=timeout_seconds,
+            max_response_bytes=max_response_bytes,
+        )
+        return EgressResponse(status_code=204, headers={}, content=b"")
 
-    class _FakeClient:
-        def __init__(self, **kwargs: object) -> None:
-            captured["client_kwargs"] = kwargs
-
-        def __enter__(self) -> _FakeClient:
-            return self
-
-        def __exit__(self, *_exc: object) -> bool:
-            return False
-
-        def build_request(self, method, url, *, content, headers, extensions):  # type: ignore[no-untyped-def]
-            return httpx.Request(
-                method, url, content=content, headers=headers, extensions=extensions
-            )
-
-        def send(self, request: httpx.Request) -> _Resp:
-            captured["sent_host"] = request.url.host
-            captured["host_header"] = request.headers.get("host")
-            captured["sni"] = request.extensions.get("sni_hostname")
-            return _Resp()
-
-    monkeypatch.setattr(delivery.httpx, "Client", _FakeClient)
+    monkeypatch.setattr(delivery, "send_pinned", _fake_send_pinned)
     target = PinnedTarget(url="https://example.com/hook", host="example.com", ip="93.184.216.34")
-    response = delivery._httpx_sender(target, b"{}", {"X-Terp-Event": "e"})
+
+    response = delivery._egress_sender(target, b"{}", {"X-Terp-Event": "e"})
 
     assert response.status_code == 204
-    assert captured["client_kwargs"]["follow_redirects"] is False
-    assert captured["sent_host"] == "93.184.216.34"  # the socket is pinned to the validated IP
-    assert captured["host_header"] == "example.com"  # Host preserved for virtual-host routing
-    assert captured["sni"] == "example.com"  # TLS verified against the hostname, not the IP
+    assert captured["target"] is target  # the validated address, not the URL re-resolved
+    assert captured["method"] == "POST"
+    assert captured["body"] == b"{}"
+    assert captured["headers"] == {"X-Terp-Event": "e"}
+    assert captured["timeout_seconds"] == delivery._TIMEOUT_SECONDS
+    # The reply is bounded. It was not before: the local transport read it whole, so a
+    # subscriber could answer a delivery with as much as it liked.
+    assert captured["max_response_bytes"] == delivery._MAX_RESPONSE_BYTES
+
+
+def test_the_delivery_module_constructs_no_http_client_of_its_own() -> None:
+    """One transport is a claim about the source, so the source is what is checked.
+
+    The delegation test above cannot see this: a module that delegates *and* keeps an
+    HTTP client of its own around passes every behavioural assertion, and a second
+    client is precisely the regression the change exists to prevent. The escape-hatch
+    budget covers the same ground from the other side — its
+    ``arch-allow-no-raw-outbound-http`` entry is gone, so re-importing a client here
+    fails the ratchet too — but the budget is per-package bookkeeping and this is the
+    statement about this module.
+    """
+    import terp.capabilities.webhooks.delivery as delivery
+
+    source = pathlib.Path(delivery.__file__).read_text(encoding="utf-8")
+    assert "import httpx" not in source
+    assert not hasattr(delivery, "httpx")
 
 
 def test_resolve_pinned_target_pins_a_public_ip_literal() -> None:

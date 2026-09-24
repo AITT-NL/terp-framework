@@ -56,6 +56,32 @@ export const DEFAULT_ROLE_RANKS: Record<string, number> = {
 export const PROFILE_PATH = "/profile";
 
 /**
+ * How long a routed view may go unframed before the page-archetype guard refuses it.
+ *
+ * The window used to be one macrotask, and one macrotask does not mean what the guard said it
+ * meant. The case the grace exists for — an inner component resolving lazily — is a dynamic
+ * `import()`, so the frame lands a *chunk fetch* later and never on the next tick; a view
+ * framing on a plain `useEffect` → `setState` → commit can lose the race too, because that
+ * commit goes through React's scheduler while the deadline is a timer, and on a loaded machine
+ * the timer wins. Both shapes were refused: a correct code-split screen replaced by an error
+ * boundary on exactly the slow devices that can least afford it, and a test suite that failed
+ * on whichever file the CI runner happened to be busy with.
+ *
+ * The asymmetry sets the number. Refusing early destroys a working screen in front of a user;
+ * refusing late only delays a message a developer reads, and delays it by less than the time it
+ * takes to look at what they just broke. So the budget is deliberately generous.
+ *
+ * It is still a deadline, and the honest limit is that a chunk slower than this is refused. The
+ * guard cannot be both fail-closed on an *absent* frame and patient without bound — absence
+ * only becomes a fact once something declares the waiting over. Worth knowing while reading
+ * that trade: unlike the layout contract, which pairs a lint rule with its runtime check, this
+ * control has no build-time half — no lint rule reads the source for it and the Terp Standard
+ * catalogs no entry — so this budget is the whole of the judgement, with no second control
+ * behind it.
+ */
+const ARCHETYPE_GRACE_MS = 2_000;
+
+/**
  * Translate a manifest path into TanStack Router's dialect.
  *
  * `ModuleManifest` is stack-agnostic (the same manifest is meant to drive a SvelteKit
@@ -561,8 +587,9 @@ export function buildAppRouter(
       // The runtime half of the "every routed view is a page archetype" control: Page
       // (composed by OverviewPage / DetailPage / HubPage) marks the render; a routed view
       // that mounted without any archetype in its tree is refused, fail closed. The check
-      // waits one macrotask so a view whose archetype lands on a follow-up commit (e.g. a
-      // lazy inner component resolving) is not refused spuriously.
+      // waits `ARCHETYPE_GRACE_MS` so a view whose archetype lands on a follow-up commit —
+      // a lazy inner component resolving, a frame behind one render of state — is not
+      // refused spuriously; see that constant for why the budget is as generous as it is.
       const marked = useRef(false);
       const [unframed, setUnframed] = useState(false);
       useEffect(() => {
@@ -573,7 +600,7 @@ export function buildAppRouter(
           if (!marked.current) {
             setUnframed(true);
           }
-        }, 0);
+        }, ARCHETYPE_GRACE_MS);
         return () => clearTimeout(timer);
       }, [allowed]);
       if (unframed && !marked.current) {

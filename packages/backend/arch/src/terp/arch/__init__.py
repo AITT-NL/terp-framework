@@ -94,6 +94,7 @@ from terp.arch.rules import (
     check_no_dependency_overrides,
     check_no_raw_app_routes,
     check_no_raw_file_references,
+    check_permission_gated_reads_disclose,
     check_no_manual_scope_filtering,
     check_no_raw_connection_access,
     check_no_raw_session_construction,
@@ -128,7 +129,7 @@ from terp.arch.rules import (
 #: the platform repo, not of a generated app, and the version is a property of the
 #: toolchain build. Held equal to the pinned ``terp-spec`` release by the framework
 #: gate (``tests/architecture/test_check_json.py``), so it cannot drift silently.
-SPEC_VERSION = "0.35.0"
+SPEC_VERSION = "0.36.0"
 
 __all__ = [
     "APP_ROOT_ONLY",
@@ -200,6 +201,7 @@ __all__ = [
     "check_no_dependency_overrides",
     "check_no_raw_app_routes",
     "check_no_raw_file_references",
+    "check_permission_gated_reads_disclose",
     "check_no_manual_scope_filtering",
     "check_no_raw_connection_access",
     "check_no_raw_session_construction",

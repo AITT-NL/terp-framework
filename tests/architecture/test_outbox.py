@@ -681,6 +681,137 @@ def test_the_backlog_distinguishes_an_unclaimed_row_from_a_scheduled_one(
     assert waiting.oldest_due_age_seconds == 4 * 3600
 
 
+# --------------------------------------------------------------------------- #
+# the dead letters — the count already existed, the cause did not
+# --------------------------------------------------------------------------- #
+def _dead_letter_row(
+    engine: object,
+    *,
+    name: str,
+    gave_up_at: datetime,
+    attempts: int = 5,
+    last_error: str | None = "ConnectionError: name or service not known",
+) -> uuid.UUID:
+    """One row already in the terminal state, with the reason the worker recorded."""
+    message = OutboxMessage(
+        kind=KIND_JOB,
+        name=name,
+        payload={},
+        available_at=_T0,
+        attempts=attempts,
+        status=STATUS_DEAD_LETTERED,
+        dead_lettered_at=gave_up_at,
+        last_error=last_error,
+    )
+    with Session(engine) as session:  # type: ignore[arg-type]
+        session.add(message)
+        session.commit()
+        return message.id
+
+
+def test_dead_letters_name_what_gave_up_and_why(engine: object) -> None:
+    """`last_error` was written by the worker and read by nothing.
+
+    No schema, no router, no command, no health field — so the platform recorded the
+    cause of every dead letter and could not be asked for it, which costs exactly the
+    moment it is most expensive. The aggregate answers "did anything die"; this answers
+    "what, and why".
+    """
+    from terp.capabilities.outbox import dead_letters
+
+    _dead_letter_row(engine, name="invoices.sync", gave_up_at=_T0)
+    with Session(engine) as session:  # type: ignore[arg-type]
+        (entry,) = dead_letters(session)
+
+    assert (entry.kind, entry.name, entry.attempts) == (KIND_JOB, "invoices.sync", 5)
+    assert entry.last_error == "ConnectionError: name or service not known"
+    assert entry.as_dict()["last_error"] == entry.last_error
+
+
+def test_a_live_row_is_not_a_dead_letter(engine: object) -> None:
+    """Only the terminal state. A pending row is work, not a failure to report."""
+    from terp.capabilities.outbox import dead_letters
+
+    _insert_row(engine, name="still-going")
+    _dead_letter_row(engine, name="gave-up", gave_up_at=_T0)
+    with Session(engine) as session:  # type: ignore[arg-type]
+        entries = dead_letters(session)
+    assert [entry.name for entry in entries] == ["gave-up"]
+
+
+def test_dead_letters_are_newest_first_and_bounded(engine: object) -> None:
+    """The shape of this failure is a downstream that went away and took a batch with
+    it, so the useful answer is the most recent ones — not every row since the table
+    was created."""
+    from terp.capabilities.outbox import dead_letters
+
+    for index in range(5):
+        _dead_letter_row(
+            engine, name=f"job-{index}", gave_up_at=_T0 + timedelta(minutes=index)
+        )
+    with Session(engine) as session:  # type: ignore[arg-type]
+        entries = dead_letters(session, limit=2)
+    assert [entry.name for entry in entries] == ["job-4", "job-3"]
+
+
+def test_dead_letters_narrow_by_name_and_window(engine: object) -> None:
+    """An incident is usually about one integration, and "is it still happening" after
+    a fix goes out is a question about a window."""
+    from terp.capabilities.outbox import dead_letters
+
+    _dead_letter_row(engine, name="invoices.sync", gave_up_at=_T0)
+    _dead_letter_row(engine, name="invoices.sync", gave_up_at=_T0 + timedelta(days=2))
+    _dead_letter_row(engine, name="other.job", gave_up_at=_T0 + timedelta(days=2))
+
+    with Session(engine) as session:  # type: ignore[arg-type]
+        by_name = dead_letters(session, name="invoices.sync")
+        recent = dead_letters(session, since=_T0 + timedelta(days=1))
+    assert len(by_name) == 2
+    assert {entry.name for entry in recent} == {"invoices.sync", "other.job"}
+    assert len(recent) == 2
+
+
+def test_a_dead_letter_never_carries_the_payload(engine: object) -> None:
+    """Deliberately not the ORM row.
+
+    A dead letter is read by an operator and by whatever they pipe it into, and the
+    payload — the serialized envelope of the business write that produced it — is the
+    one field that can carry anything at all, including something nobody meant to print
+    at 3am in a shared terminal.
+    """
+    from terp.capabilities.outbox import dead_letters
+
+    message = OutboxMessage(
+        kind=KIND_JOB,
+        name="secretive",
+        payload={"kwargs": {"token": "super-secret-value"}},
+        available_at=_T0,
+        status=STATUS_DEAD_LETTERED,
+        dead_lettered_at=_T0,
+        last_error="boom",
+    )
+    with Session(engine) as session:  # type: ignore[arg-type]
+        session.add(message)
+        session.commit()
+    with Session(engine) as session:  # type: ignore[arg-type]
+        (entry,) = dead_letters(session)
+    assert not hasattr(entry, "payload")
+    assert "super-secret-value" not in str(entry.as_dict())
+
+
+def test_a_naive_stamp_is_read_as_utc(engine: object) -> None:
+    """SQLite hands back a naive value for a timezone-aware column and PostgreSQL does
+    not, so a caller comparing or formatting these would otherwise get two different
+    answers from the same code. The column is written in UTC."""
+    from terp.capabilities.outbox import dead_letters
+
+    _dead_letter_row(engine, name="x.y", gave_up_at=_T0)
+    with Session(engine) as session:  # type: ignore[arg-type]
+        (entry,) = dead_letters(session)
+    assert entry.created_at.tzinfo is not None
+    assert entry.dead_lettered_at is not None and entry.dead_lettered_at.tzinfo is not None
+
+
 def test_an_expired_claim_counts_as_due_again(engine: object) -> None:
     """A crashed worker's rows are reclaimable, so they are backlog again — the same
     `locked_until < now` branch claim_due uses. A measure that drifted from what the

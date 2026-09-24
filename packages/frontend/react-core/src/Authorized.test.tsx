@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { TerpPermissionName } from "@terpjs/contract";
 import { render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -119,4 +120,25 @@ describe("Authorized", () => {
     // Empty rather than undefined, so a screen can read it without guarding first.
     await waitFor(() => expect(screen.getByText("n=0 has=false")).toBeInTheDocument());
   });
+});
+
+// The access vocabulary degrades to `string` in a package that declares none.
+//
+// `@terpjs/contract` is app-agnostic, so `TerpAccessVocabulary` is empty here and
+// `TerpPermissionName` must therefore be plain `string` — otherwise every framework
+// package and every app that has not adopted the narrowing would stop compiling to
+// supply a vocabulary it never declared. That is asserted at the TYPE level, because
+// a runtime assertion cannot see it.
+//
+// The naming matters and is not cosmetic. `lib.dom.d.ts` declares a GLOBAL
+// `PermissionName` (the browser's "geolocation" | "notifications" | …), so a file that
+// used the short name and forgot the import would not fail — it would silently check
+// against the browser's vocabulary and report a union nobody in the app recognises.
+// Writing this found exactly that, which is why the exported name is `Terp`-first.
+it("keeps plain strings for an app that declares no vocabulary", () => {
+  const anyName: TerpPermissionName = "whatever.this.app.calls.it";
+  type IsWidenedToString = string extends TerpPermissionName ? true : false;
+  const widened: IsWidenedToString = true;
+  expect(anyName.length).toBeGreaterThan(0);
+  expect(widened).toBe(true);
 });

@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/terp-logo-dark.svg" />
+  <img src="docs/assets/terp-logo.svg" alt="Terp Framework" width="264" height="106" />
+</picture>
+
 # Terp — Trusted Enterprise Reinforced Platform
 
 > **Build on high ground.**
@@ -25,7 +30,7 @@ off the safe path.
 | Layer | What it is |
 |---|---|
 | **Core** (`terp.core`) | The maintained kernel: base classes (`BaseTable`, `BaseSchema`, `BaseService`), the `ModuleSpec` / `Policy` authority seam, the uniform error envelope, pagination, secure config, and the `create_app` composition root. |
-| **Capabilities** (`terp.capabilities.*`) | Opt‑in, self‑registering features: `auth`, `identity`, `users`, `groups`, `access` (RBAC), `tenancy`, `audit`, `eventbus`, `files`, `webhooks`, `oidc`, `outbox`, `sync`, `redis` (shared stores), `jobs_celery`, `scheduler_apscheduler`, `scheduler_celery_beat`. |
+| **Capabilities** (`terp.capabilities.*`) | Opt‑in, self‑registering features: `auth`, `identity`, `users`, `groups`, `access` (RBAC), `tenancy`, `audit`, `eventbus`, `files`, `webhooks`, `mail`, `oidc`, `outbox`, `sync`, `redis` (shared stores), `jobs_celery`, `scheduler_apscheduler`, `scheduler_celery_beat`. |
 | **Modules** | The client's business code — the *only* editable surface. |
 | **Harness** (`terp.arch`) | The build‑time fitness suite, shipped as a dependency so clients run it but cannot weaken it. |
 | **CLI** (`terp`) | `terp inspect` (authority maps) and `terp guide` (in‑repo platform docs). |
@@ -51,7 +56,8 @@ vendor/terp-core                byte-for-byte mirror of packages/backend/core
 ## Quickstart
 
 ```bash
-uv run pytest                      # syncs the workspace and runs the full gate
+uv run coverage run -m pytest      # syncs the workspace and runs the suite
+uv run coverage report             # the 100% coverage bar the gate also enforces
 ```
 
 Without `uv`, use a venv with the kernel installed editable:

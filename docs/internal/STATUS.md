@@ -1052,7 +1052,7 @@ generic by construction.
 | 3 | Ship `terp-arch`; delegate layering to a tool | ✅ | Harness shipped (full rule set + `requires` boot check + governed escape-hatch budget ratchet + docs-parity test, ADR 0030; universal rule set completed by ADR 0037). Generic CI backstops now layer on top (ADR 0033): ruff bandit `S`, an import-linter `terp.core` layer-0 contract mirroring `test_core_boundary`, plus advisory pip-audit + deptry — CI-only, never replacing `terp-arch`. |
 | 4 | Frontend contract + Stack A (React) + conformance | ✅ | `@terpjs/contract` (base-profile OpenAPI → typed client + design tokens + stack-agnostic manifest/auth types), `@terpjs/react-core` (Stack A: `TerpProvider` + auth session, app shell + TanStack router adapter + token-styled primitives + capability gates + `useResource` data hooks), `@terpjs/eslint-boundaries` (fail-closed module-boundary lint), and `@terpjs/conformance` (Playwright e2e over the Docker workbench). The example app dogfoods all four (notes/tasks/projects/journals modules); the copier template ships them. |
 | 5 | Scaffolding: copier template + `terp` CLI | ✅ | `terp new module` (canonical five slots), the copier `template/` (runnable app + base profile), `terp api-docs` (generated `.pyi` + reference), and `terp check` (ADR 0039). |
-| 6 | Agent-visibility layer (§10) | ✅ | `vendor/terp-core/` read-only mirror + `test_vendored_core_unmodified` drift gate (ADR 0034). CODEOWNERS deferred; the publish pipeline shipped (lockstep versions + release.yml + template acceptance, ADR 0063). |
+| 6 | Agent-visibility layer (§10) | ✅ | `vendor/terp-core/` read-only mirror + `test_vendored_core_unmodified` drift gate (ADR 0034). CODEOWNERS shipped (`.github/CODEOWNERS` + `test_codeowners`, which holds the five protected surfaces); the publish pipeline shipped (lockstep versions + release.yml + template acceptance, ADR 0063). |
 | 7 | Packaged migrations (§4.6) | ✅ | Independent per-package Alembic histories + `terp migrate` (incl. stamp/heads/merge, cross-package FK autogenerate, model-drift check) + boot guard (ADR 0027), plus the `tables_have_migrations` arch rule (ADR 0028). The conformance suite now also runs against real PostgreSQL in CI, and production boot refuses an unverified dialect without an explicit acknowledgement (ADR 0069). Deployments can opt into the per-module schema layout (`DB_SCHEMA_LAYOUT=per-module` + `terp migrate adopt-schemas`, `no_manual_table_schema` rule; ADR 0070) and split privileges with a least-privilege runtime role (`terp migrate grant-runtime`; ADR 0071). Offline `--sql` deferred. |
 | 8 | Dogfood: example app + 2nd divergent tenancy strategy | ✅ | Visibility-based read scope on `journals` (ADR 0061): a consumer-registered ADR 0017 predicate (`shared` / owner-only `private`) composing beside the tenant partition (`projects`) — two divergent strategies on one kernel seam validate core's tenancy-agnosticism. |
 | 9 | Stack B (Svelte) + release v0.1 | ⬜ | Conformance-driven; needs only the contract. |
@@ -1113,6 +1113,13 @@ removed `projects`: business nouns are client modules, never capabilities).
   `@subscribe` trigger that enqueues atomically with the business write (no
   dual-write) via the new eventbus `current_event_session()` seam. `httpx` is a
   dependency of this cap only — ADR 0051
+- [x] **mail** — `terp-cap-mail` (a library cap): outbound e-mail through one relay
+  declared in the composition root (`configure_mail`, from fixed `MAIL_FROM` / `SMTP_*`
+  variables) — STARTTLS or TLS with the certificate verified, credentials refused over
+  plaintext, a fixed sender, plain-text messages with one-line headers and bounded
+  recipients. `send_mail` enqueues the typed `MAIL_SEND` job on the caller's session, so
+  with the outbox wired the mail commits with its write and the worker delivers it with
+  retries. `no_raw_outbound_http` refuses `smtplib` and names this cap — ADR 0150
 
 ---
 

@@ -1,3 +1,4 @@
+# arch-allow-no-oversized-python-files: one themed rule module, and the theme is the unit a reader looks for. Due a split by sub-theme (routing / response models / middleware); tracked here rather than by being invisible
 """HTTP / app-composition rules: response models out, no hand-rolled app or middleware.
 
 ``create_app`` owns composition (deny-by-default guards, the error envelope,
@@ -695,6 +696,30 @@ _RAW_APP_SURFACE_ATTRS = frozenset(
     {"mount", "include_router", "add_route", "add_websocket_route"}
 )
 
+# What to do instead, appended to the `include_router` case only.
+#
+# The rule is a deliberate decision -- a module declares ONE flat router -- and the
+# decision was not the problem. The problem was that nothing said how to grow past one
+# FILE of routes, so an author with a router outgrowing the 500-line cap reaches for the
+# obvious composition, meets a refusal from a security-adjacent rule, and concludes the
+# only exits are an escape hatch or splitting the module. Splitting a module means
+# splitting a Policy, a `requires` edge, a nav group and a migration history, which is a
+# large price for a file that got long.
+#
+# The seam already exists and costs nothing: one router object, imported by as many
+# files as the module wants. Routes registered that way are on the module's declared
+# router, so they are mounted behind the same guard and are attributable to the same
+# Policy -- the invariant this rule protects is untouched. It simply was not written
+# down anywhere an author would meet it, which is why it is in the failure message now
+# rather than only in a guide page.
+_SPLIT_RECIPE = (
+    ". To split a long router across files, keep ONE router and declare on it from "
+    "each file (`from .router import router`, then `@router.get(...)`), importing "
+    "those modules from router.py -- a sub-router composed here is what is refused, "
+    "not more files"
+)
+
+
 # Route registrations that are legitimate on a module's APIRouter but never on the
 # composed app object: verb decorators plus the generic/imperative spellings, and
 # the lifecycle hooks (ungated executable registration on the app).
@@ -837,7 +862,8 @@ def check_no_raw_app_routes(
                         node.lineno,
                         f"app code calls .{attr}(...); HTTP surface belongs on a module's "
                         "single flat router, mounted by create_app behind the deny-by-default "
-                        "guard -- surface registered on the app itself is served unguarded",
+                        "guard -- surface registered on the app itself is served unguarded"
+                        + (_SPLIT_RECIPE if attr == "include_router" else ""),
                     )
                 )
             elif (

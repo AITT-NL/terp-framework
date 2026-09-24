@@ -269,6 +269,27 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
     }
   }
 
+  // An application that declares no assignable module has nothing on this surface anyone
+  // can ever act on, and the notice saying so is addressed to whoever writes the
+  // `ModuleSpec` — who is not the person reading a subject's detail screen. It is this
+  // panel's own rule applied to itself: a module that refuses is not listed, and a section
+  // with no modules at all is not drawn either.
+  //
+  // An orphaned rung is the exception that keeps it alive, and the reason this is not
+  // simply `assignable.length === 0`: a row held in a module that stopped accepting one can
+  // only ever be cleared here (ADR 0121), so hiding the section on the count of *assignable*
+  // modules alone would strand exactly the rows that ADR insists are reported rather than
+  // filtered. Both failure legs are excluded too — a panel that could not read its rows has
+  // something to say even when it has nothing to offer.
+  const nothingToOffer =
+    !loading &&
+    error === null &&
+    heldError === null &&
+    settled >= 0 &&
+    assignable.length === 0 &&
+    orphaned.length === 0;
+  if (nothingToOffer) return null;
+
   return (
     <Stack gap={3}>
       <h2 data-terp="admin-section-title">{strings.moduleAccessTitle}</h2>

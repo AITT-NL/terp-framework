@@ -70,3 +70,87 @@ def test_cli_openapi_writes_file(tmp_path: pathlib.Path, capsys: pytest.CaptureF
     main(["openapi", "--app", "app.main:app", "--out", str(out), "--app-root", str(_EXAMPLE)])
     assert "wrote" in capsys.readouterr().out
     assert _read_spec(out)["openapi"].startswith("3.")
+
+
+# --------------------------------------------------------------------------- #
+# The access vocabulary travels in the contract                                 #
+# --------------------------------------------------------------------------- #
+#
+# A client gates a route, a nav entry or a control on a permission name whose single
+# source is the backend's declaration. Spelled as a bare string it fails in one of two
+# silent directions when the backend renames or re-floors it: it over-gates, and a screen
+# 403s for someone who may use it, or it under-gates, and a link renders while every
+# request behind it fails. Only a hand-written end-to-end test catches either.
+#
+# The platform already solved this class twice — OpenAPI to `schema.d.ts` for data,
+# manifests to `routes.gen.d.ts` for paths — and both times by putting the vocabulary in
+# the contract the client is generated from.
+
+
+def _schemas(tmp_path: pathlib.Path) -> dict:
+    out = tmp_path / "openapi.json"
+    export_openapi("app.main:build", out=out, app_root=_EXAMPLE)
+    return json.loads(out.read_text(encoding="utf-8"))["components"]["schemas"]
+
+
+def test_the_document_carries_the_permission_and_role_vocabulary(
+    tmp_path: pathlib.Path,
+) -> None:
+    schemas = _schemas(tmp_path)
+    assert schemas["TerpPermission"]["enum"], "no permission names reached the contract"
+    assert schemas["TerpRole"]["enum"] == ["admin", "editor", "viewer"]
+
+
+def test_the_vocabulary_is_an_enum_so_a_generator_makes_a_union(
+    tmp_path: pathlib.Path,
+) -> None:
+    """`openapi-typescript` turns an enum of strings into a string-literal union, which
+    is the whole point — a `type: string` with a description would generate `string`
+    and narrow nothing."""
+    for name in ("TerpPermission", "TerpRole"):
+        schema = _schemas(tmp_path)[name]
+        assert schema["type"] == "string"
+        assert all(isinstance(value, str) for value in schema["enum"])
+        assert schema["enum"] == sorted(schema["enum"]), "a stable order diffs cleanly"
+
+
+def test_an_app_terp_did_not_compose_gets_no_vocabulary() -> None:
+    """There is no access model to read, and inventing an empty one would be worse than
+    omitting it: a client would narrow to `never`."""
+    from fastapi import FastAPI
+
+    from terp.cli.openapi import _vocabulary_schemas
+
+    assert _vocabulary_schemas(FastAPI()) == {}
+
+
+def test_an_empty_vocabulary_is_omitted_rather_than_emitted_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`enum: []` is a schema nothing satisfies, and a generator turns it into `never` —
+    every client touching the type would stop compiling. An absent schema degrades to
+    the plain `string` a client has today, which is the right way round, and is what a
+    freshly scaffolded app (no permissions declared yet) gets."""
+    from types import SimpleNamespace
+
+    import terp.cli.access as access_module
+    from terp.cli import openapi as openapi_module
+
+    monkeypatch.setattr(
+        access_module, "build_access_model", lambda plane, specs: {"permissions": [], "roles": []}
+    )
+    app = SimpleNamespace(
+        state=SimpleNamespace(terp_module_specs=[], terp_control_plane=object())
+    )
+    assert openapi_module._vocabulary_schemas(app) == {}
+
+
+def test_a_module_that_declared_the_name_keeps_it(tmp_path: pathlib.Path) -> None:
+    """Added, not merged over: a module owning a schema called `TerpRole` would have its
+    client's types broken to supply a vocabulary it never asked for."""
+    components = {"TerpRole": {"type": "integer"}}
+    for name, schema in _schemas(tmp_path).items():
+        if name in {"TerpPermission", "TerpRole"}:
+            components.setdefault(name, schema)
+    assert components["TerpRole"] == {"type": "integer"}
+    assert components["TerpPermission"]["type"] == "string"

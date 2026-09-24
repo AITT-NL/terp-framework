@@ -28,6 +28,7 @@ from terp.core.module_spec import ModuleSpec, Policy, Role, decide
 from terp.core.routing import (
     MUTATING_METHODS,
     declared_operation,
+    effective_policy,
     route_permission_names,
 )
 
@@ -127,7 +128,11 @@ def endpoint_json(
     # this function each tested the method against MUTATING_METHODS, and the copy that drifts
     # is the one an administrator is shown.
     probe = "POST" if is_write else "GET"
-    policy = spec.policy
+    # The route's own policy where it declares one (ADR 0148), through the same
+    # resolver the guard uses. Reading `spec.policy` here would have made this
+    # projection describe the module while the gate enforced the route -- the exact
+    # disagreement between a pane and the gate that this function exists to prevent.
+    policy = effective_policy(spec.policy, getattr(route, "endpoint", None))
     if policy is None:
         requirement = "denied (no policy declared)"
     elif policy.is_public:
@@ -159,7 +164,7 @@ def endpoint_json(
         # floor, still needs the named grant" — which is the distinction a cell has to draw
         # and the one a client-side rank comparison cannot.
         "by_role": [
-            _by_role_json(role, spec.policy, probe, extra_permissions) for role in ladder
+            _by_role_json(role, policy, probe, extra_permissions) for role in ladder
         ],
     }
 

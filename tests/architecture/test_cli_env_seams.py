@@ -547,6 +547,156 @@ def test_the_limits_are_the_ones_the_deploy_side_enforces(tmp_path: pathlib.Path
     ) == []
 
 
+def _one(prop: dict) -> str:
+    return json.dumps({"type": "object", "properties": {"MY_VAR": prop}})
+
+
+def _named(name: str, prop: dict) -> str:
+    return json.dumps({"type": "object", "properties": {name: prop}})
+
+
+def test_the_mis_keyed_secret_is_refused_and_told_the_field_it_meant(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The central thesis, inverted, in one typo.
+
+    An author writes ``"secret": true`` -- the plausible spelling, since the deploy
+    side's own UI calls the concept "secret" and its authoring API takes ``secret=True``
+    -- instead of ``"format": "secret"``. The deploy side keeps its own field list and
+    DROPS the rest, so the key leaves nothing behind to disagree with: the variable is
+    stored as an ordinary shared value in plain records rather than sealed, the manifest
+    looks deliberate, and every check stays green.
+
+    So insecurity here is not an explicit, greppable, budgeted opt-out. It is a typo,
+    and it is invisible -- in the one file that is the seam to the pipeline holding real
+    credentials, written once per app and rarely re-read.
+    """
+    root = _schema(
+        tmp_path, _named("SOME_API_CLIENT_SECRET", {"type": "string", "secret": True})
+    )
+    defects = _defects(root)
+    assert len(defects) == 1, defects
+    assert 'write "format": "secret"' in defects[0]
+    assert "DROPPED" in defects[0]
+
+
+def test_the_correct_spelling_passes(tmp_path: pathlib.Path) -> None:
+    root = _schema(
+        tmp_path,
+        _named("SOME_API_CLIENT_SECRET", {"type": "string", "format": "secret"}),
+    )
+    assert _defects(root) == []
+
+
+def test_any_unrecognised_field_is_refused_rather_than_silently_dropped(
+    tmp_path: pathlib.Path,
+) -> None:
+    """``secret`` is the one that costs a credential; every other misspelling costs the
+    author the same debugging trip, so the whole vocabulary is closed."""
+    root = _schema(tmp_path, _one({"type": "string", "resolved_by": "container"}))
+    defects = _defects(root)
+    assert len(defects) == 1, defects
+    assert "MY_VAR.resolved_by" in defects[0] and "resolvedBy" in defects[0]
+
+
+def test_a_json_schema_annotation_key_is_not_a_misspelling(
+    tmp_path: pathlib.Path,
+) -> None:
+    """``$``-prefixed keys are JSON Schema's own annotation convention and carry no
+    behaviour -- the manifests this repository ships use ``$comment`` for exactly
+    that, so refusing them would refuse the documented shape."""
+    assert _defects(_schema(tmp_path, _one({"type": "string", "$comment": "why"}))) == []
+
+
+def test_a_format_outside_the_vocabulary_is_refused(tmp_path: pathlib.Path) -> None:
+    """The near miss is the whole point: ``"secrt"`` is not a smaller version of
+    ``"secret"``, it is no sealing at all, and an open vocabulary cannot say so."""
+    root = _schema(tmp_path, _named("SOME_API_TOKEN", {"format": "secrt"}))
+    defects = _defects(root)
+    assert len(defects) == 1, defects
+    assert "SOME_API_TOKEN.format" in defects[0] and "secrt" in defects[0]
+
+
+def test_a_malformed_format_is_one_offence_not_two(tmp_path: pathlib.Path) -> None:
+    """Same shape as ``resolvedBy``: the vocabulary is judged only once the value
+    cleared the string/length check."""
+    root = _schema(tmp_path, _one({"format": "f" * 501}))
+    assert len(_defects(root)) == 1
+    assert "must be a string of at most 500" in _defects(root)[0]
+
+
+def test_a_credential_shaped_name_must_say_whether_it_holds_one(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The mis-key's quiet sibling: a declaration that simply never mentions sealing.
+
+    It is indistinguishable in the file from one that considered it, which is the
+    property that makes it worth a finding rather than a lint.
+    """
+    for name in (
+        "SOME_API_TOKEN",
+        "SOME_API_PASSWORD",
+        "SOME_CLIENT_SECRET",
+        "SOME_API_KEY",
+        "SOME_SIGNING_PASSPHRASE",
+        "TOKEN",
+    ):
+        defects = _defects(_schema(tmp_path, _named(name, {"type": "string"})))
+        assert len(defects) == 1, (name, defects)
+        assert f"{name}.format" in defects[0]
+        assert '"secret"' in defects[0] and '"plain"' in defects[0]
+
+
+def test_a_plural_credential_name_is_the_same_word(tmp_path: pathlib.Path) -> None:
+    """The first version of the word list held `CREDENTIALS` and no other plural, so
+    `API_KEYS`, `CLIENT_SECRETS`, `VENDOR_TOKENS` and `DB_PASSWORDS` walked straight
+    past the check -- the exact declaration it exists for, defeated by one letter."""
+    for name in ("API_KEYS", "CLIENT_SECRETS", "VENDOR_TOKENS", "DB_PASSWORDS", "TOKENS"):
+        defects = _defects(_schema(tmp_path, _named(name, {"type": "string"})))
+        assert len(defects) == 1, (name, defects)
+        assert f"{name}.format" in defects[0]
+
+    # Sealed, it passes -- the plural is the same word in both directions.
+    root = _schema(tmp_path, _named("API_KEYS", {"type": "string", "format": "secret"}))
+    assert _defects(root) == []
+
+
+def test_stripping_an_s_does_not_invent_a_credential(tmp_path: pathlib.Path) -> None:
+    """`ADDRESS` ends in S and `ADDRES` is not a credential word — the plural rule must
+    not turn every trailing S into a match."""
+    for name in ("SOME_ADDRESS", "SOME_STATUS", "SOME_HEADERS"):
+        assert _defects(_schema(tmp_path, _named(name, {"type": "string"}))) == [], name
+
+
+def test_declaring_it_plain_is_the_opt_out(tmp_path: pathlib.Path) -> None:
+    """A public key is a credential-shaped name that holds no credential. The opt-out
+    is one word, in the file, in the diff and greppable -- which is the platform's own
+    standard for insecurity, applied to the manifest that decides it."""
+    root = _schema(
+        tmp_path, _named("PARTNER_PUBLIC_KEY", {"type": "string", "format": "plain"})
+    )
+    assert _defects(root) == []
+
+
+def test_an_ordinary_name_is_not_asked_about_sealing(tmp_path: pathlib.Path) -> None:
+    root = _schema(
+        tmp_path,
+        _named("SOME_API_BASE_URL", {"type": "string", "resolvedBy": "container"}),
+    )
+    assert _defects(root) == []
+
+
+def test_the_mis_key_is_not_also_charged_for_the_missing_seal(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Both findings would name the identical fix, and saying it twice buries the one
+    line the author has to change."""
+    root = _schema(
+        tmp_path, _named("SOME_API_TOKEN", {"type": "string", "secret": True})
+    )
+    assert len(_defects(root)) == 1
+
+
 def test_a_malformed_resolved_by_is_one_offence_not_two(tmp_path: pathlib.Path) -> None:
     """The vocabulary is only judged once the value cleared the shape check.
 
@@ -879,7 +1029,7 @@ def test_a_variable_scoped_to_a_service_that_forwards_its_file_passes(
     """The point of the field: the worker gets the credential, the api never sees it."""
     root = _app(
         tmp_path,
-        declared={"SYNC_PASSWORD": {"type": "string", "services": ["worker"]}},
+        declared={"SYNC_PASSWORD": {"type": "string", "format": "secret", "services": ["worker"]}},
         composes={"docker-compose.yml": _SCOPED_COMPOSE},
     )
     exit_code, output = run_env_seams_check(root)
@@ -898,7 +1048,8 @@ def test_a_scoped_declaration_at_the_limits_is_a_usable_manifest(
                 "type": "object",
                 "properties": {
                     "SYNC_PASSWORD": {
-                        "services": [f"worker-{n}" for n in range(MAX_SERVICES)]
+                        "format": "secret",
+                        "services": [f"worker-{n}" for n in range(MAX_SERVICES)],
                     },
                     "OTHER": {"services": ["a" * 63, "sync_worker.1"]},
                 },
@@ -1000,7 +1151,7 @@ def test_a_service_that_does_not_forward_the_scoped_file_is_refused(
     the fix, not an optional extra."""
     root = _app(
         tmp_path,
-        declared={"SYNC_PASSWORD": {"type": "string", "services": ["worker"]}},
+        declared={"SYNC_PASSWORD": {"type": "string", "format": "secret", "services": ["worker"]}},
         composes={"docker-compose.yml": _UNFORWARDED_COMPOSE},
     )
     findings = env_seam_findings(root)
@@ -1021,7 +1172,7 @@ def test_one_scope_offence_per_variable_not_one_per_service(
 ) -> None:
     root = _app(
         tmp_path,
-        declared={"SYNC_PASSWORD": {"services": ["worker", "seed"]}},
+        declared={"SYNC_PASSWORD": {"format": "secret", "services": ["worker", "seed"]}},
         composes={
             "docker-compose.yml": _UNFORWARDED_COMPOSE + "  seed:\n    <<: *backend\n"
         },
@@ -1039,7 +1190,7 @@ def test_a_service_no_profile_defines_is_refused(rendered_by_the_deploy_side: No
     the source, because the manifest is where the name is corrected."""
     root = _app(
         tmp_path,
-        declared={"SYNC_PASSWORD": {"services": ["wroker"]}},
+        declared={"SYNC_PASSWORD": {"format": "secret", "services": ["wroker"]}},
         composes={"docker-compose.yml": _SCOPED_COMPOSE},
     )
     findings = env_seam_findings(root)
@@ -1063,7 +1214,7 @@ def test_a_service_only_the_workbench_profile_defines_passes(
     the app straight back to the hand-made env file this field replaces."""
     root = _app(
         tmp_path,
-        declared={"SYNC_PASSWORD": {"services": ["worker"]}},
+        declared={"SYNC_PASSWORD": {"format": "secret", "services": ["worker"]}},
         composes={
             "docker-compose.yml": _SCOPED_COMPOSE,
             "docker-compose.prod.yml": (
@@ -1083,7 +1234,7 @@ def test_an_environment_block_on_a_scoped_service_is_now_reported(
     judged against the file it actually arrives through."""
     root = _app(
         tmp_path,
-        declared={"SYNC_PASSWORD": {"services": ["worker"]}},
+        declared={"SYNC_PASSWORD": {"format": "secret", "services": ["worker"]}},
         composes={
             "docker-compose.yml": (
                 "services:\n"
@@ -1130,13 +1281,15 @@ def test_a_scope_verdict_needs_a_profile_to_judge_it_against(
     would report every scoped variable as unknown on the strength of a YAML error
     somewhere else."""
     root = _app(
-        tmp_path, declared={"SYNC_PASSWORD": {"services": ["worker"]}}, composes={}
+        tmp_path,
+        declared={"SYNC_PASSWORD": {"format": "secret", "services": ["worker"]}},
+        composes={},
     )
     assert env_seam_findings(root) == []
 
     unreadable = _app(
         tmp_path,
-        declared={"SYNC_PASSWORD": {"services": ["worker"]}},
+        declared={"SYNC_PASSWORD": {"format": "secret", "services": ["worker"]}},
         composes={"docker-compose.yml": "services: [ unbalanced\n"},
     )
     assert env_seam_findings(unreadable) == []
@@ -1151,7 +1304,7 @@ def test_a_scope_verdict_needs_a_profile_to_judge_it_against(
 # and silently missing the value in every managed environment. These pin the refusal that
 # keeps that window shut, and that lifting it is one flag.
 # --------------------------------------------------------------------------- #
-_SCOPED = {"SYNC_PASSWORD": {"type": "string", "services": ["worker"]}}
+_SCOPED = {"SYNC_PASSWORD": {"type": "string", "format": "secret", "services": ["worker"]}}
 
 
 def test_the_scope_field_is_refused_until_the_deploy_side_can_render_it(
@@ -1186,7 +1339,7 @@ def test_the_refusal_names_every_scoped_declaration_not_a_count(
         tmp_path,
         declared={
             "SYNC_PASSWORD": {"type": "string", "services": ["worker"]},
-            "VENDOR_TOKEN": {"type": "string", "services": ["worker"]},
+            "VENDOR_TOKEN": {"type": "string", "format": "secret", "services": ["worker"]},
             "SHARED_URL": {"type": "string"},
         },
         composes={"docker-compose.yml": _SCOPED_COMPOSE},

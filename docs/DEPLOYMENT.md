@@ -139,6 +139,19 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
 - **Backups:** the state lives in the `db-data` volume (and your file-storage backend if
   the `files` capability is on) — snapshot it with your regular Postgres tooling
   (`pg_dump` via `docker compose exec db`).
+
+  **Dump the whole database, not a table list.** A Terp schema is not one migration
+  history: every table-owning package keeps its own, behind its own
+  `alembic_version_<label>` table, and the boot guard refuses to start when any package's
+  schema is behind. A restore that drops one of those bookkeeping tables succeeds
+  silently — every real table and every row arrives — and then the app fails to start
+  with a message about pending migrations, which reads as a deploy problem rather than as
+  a bad backup. If you do filter what you dump, `alembic_version_*` is not optional.
+
+  **Rehearse the restore.** Restore into a clean database and start the app against it;
+  a backup nobody has restored is a hypothesis. The platform's own PostgreSQL lane runs
+  exactly that drill on every push (`tests/architecture/test_migrations_conformance.py`),
+  so the shape is there to copy.
 - **Secrets:** environment only; nothing falls back to a dev default in the prod
   profile. Sealed config values (ADR 0055) decrypt with `SECRET_KEY` — rotating it
   invalidates outstanding JWTs and sealed values, so plan rotations.

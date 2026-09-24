@@ -909,6 +909,12 @@ export interface components {
             name: string | null;
         };
         /**
+         * TerpRole
+         * @description Every role name this app's modules declare, for the same reason.
+         * @enum {string}
+         */
+        TerpRole: "admin" | "editor" | "viewer";
+        /**
          * UserAdminUpdate
          * @description Admin edits a user's email / role rank (OCC ``version`` required).
          *

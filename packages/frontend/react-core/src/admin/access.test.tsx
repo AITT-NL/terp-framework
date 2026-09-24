@@ -155,6 +155,11 @@ function initialDirect(): Map<string, number> {
 }
 
 /** One held row, with the shape the provenance endpoint reports. */
+//: The module `accessModel()` declares as "not assignable, rows still stored" — the shape a
+//: module has after a release stops accepting per-module roles. Named once so the fixture and
+//: the stub that builds an orphan out of it cannot drift apart.
+const LEGACY_MODULE = "legacy";
+
 function heldRow(module: string, rank: number, via: { id: string; kind: string; name: string | null }) {
   const role = RUNG_NAMES[rank] ?? null;
   return {
@@ -206,7 +211,8 @@ interface ReadGate {
   /** When set, the next held read answers with a failure instead of the rows. */
   fail: boolean;
   waiting: Array<() => void>;
-  release: () => void;
+  /** Resume every read parked on the gate, waiting first for one to be parked. */
+  release: () => Promise<void>;
 }
 
 function makeReadGate(hold: boolean): ReadGate {
@@ -214,7 +220,21 @@ function makeReadGate(hold: boolean): ReadGate {
     hold,
     fail: false,
     waiting: [],
-    release: () => {
+    release: async () => {
+      // WAIT FOR THE READ TO BE PARKED, DO NOT ASSUME IT ALREADY IS. This used to splice
+      // whatever happened to be waiting at that instant, and the tests reach this line after
+      // waiting on a heading — which the panel renders without the provenance read having
+      // left the gate yet. When it had not, the release resumed nothing and the read that
+      // arrived a moment later parked on a gate nobody would open again: the panel then sat
+      // in its pre-read state until the matcher timed out, four seconds later, on a state
+      // that could no longer arrive. Nothing in the test decided which of those two landed
+      // first, so it held on an idle machine and lost on a loaded one — roughly half the
+      // time in a full-suite run here, and never once when the file ran alone, which is
+      // exactly the shape that gets diagnosed as "CI being flaky".
+      if (!gate.hold) {
+        return;
+      }
+      await waitFor(() => expect(gate.waiting.length).toBeGreaterThan(0));
       const pending = gate.waiting.splice(0, gate.waiting.length);
       for (const resume of pending) resume();
     },
@@ -222,7 +242,12 @@ function makeReadGate(hold: boolean): ReadGate {
   return gate;
 }
 
-function stubAccessFetch(written: Written[], direct: Map<string, number>, gate: ReadGate) {
+function stubAccessFetch(
+  written: Written[],
+  direct: Map<string, number>,
+  gate: ReadGate,
+  { noAssignable = false, keepOrphan = false } = {},
+) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const request = input as Request;
     const url = new URL(request.url);
@@ -240,7 +265,20 @@ function stubAccessFetch(written: Written[], direct: Map<string, number>, gate: 
       });
     }
     if (path.endsWith("/api/v1/access/model")) {
-      return jsonResponse(accessModel());
+      const model = accessModel();
+      // The shape of an application that never opted in: every module declares the default,
+      // which is what a `ModuleSpec` with no `access=` produces.
+      return jsonResponse(
+        noAssignable
+          ? {
+              ...model,
+              modules: model.modules.map((row) => ({
+                ...row,
+                access: { ...row.access, assignable: false },
+              })),
+            }
+          : model,
+      );
     }
     if (path.includes("/module-roles/")) {
       const module = path.split("/").pop() ?? "";
@@ -271,7 +309,25 @@ function stubAccessFetch(written: Written[], direct: Map<string, number>, gate: 
           500,
         );
       }
-      return jsonResponse(subjectAccess(path.split("/").pop() ?? SUBJECT, direct));
+      const subject = subjectAccess(path.split("/").pop() ?? SUBJECT, direct);
+      // `assignable` is a property of the CURRENT release; a held row is a fact about an
+      // earlier one. So "no module accepts a rung today" and "a rung is still stored" are
+      // not contradictory — they are exactly the state `legacy` in `accessModel()` is
+      // declared to describe, and the only state in which the panel's `orphaned` term does
+      // any work. `keepOrphan` is what lets a test stand in it: without it the stub ruled
+      // the state out by construction and the ADR 0121 exception had no reachable case.
+      if (noAssignable) {
+        const orphan = heldRow(LEGACY_MODULE, direct.get(LEGACY_MODULE) ?? 20, {
+          id: path.split("/").pop() ?? SUBJECT,
+          kind: "self",
+          name: null,
+        });
+        return jsonResponse({
+          ...subject,
+          module_roles: keepOrphan ? [orphan] : [],
+        });
+      }
+      return jsonResponse(subject);
     }
     if (path.endsWith(`/api/v1/users/${SUBJECT}`)) {
       return jsonResponse({
@@ -311,7 +367,10 @@ function LogInOnMount() {
   return null;
 }
 
-function renderAt(initialPath: string, { gateReads = false } = {}) {
+function renderAt(
+  initialPath: string,
+  { gateReads = false, noAssignable = false, keepOrphan = false } = {},
+) {
   const written: Written[] = [];
   const gate = makeReadGate(gateReads);
   const manifests: ModuleManifest[] = [
@@ -327,7 +386,7 @@ function renderAt(initialPath: string, { gateReads = false } = {}) {
     title: "Terp",
     history: createMemoryHistory({ initialEntries: [initialPath] }),
   });
-  stubAccessFetch(written, direct, gate);
+  stubAccessFetch(written, direct, gate, { noAssignable, keepOrphan });
   render(
     <TerpProvider baseUrl="https://api.test">
       <ToastProvider>
@@ -559,7 +618,7 @@ describe("the assignment panel", () => {
     await waitFor(() => expect(screen.getByText("Access per module")).toBeInTheDocument());
     expect(screen.queryByRole("radiogroup", { name: "Notes" })).not.toBeInTheDocument();
 
-    gate.release();
+    await gate.release();
     await waitFor(() =>
       expect(screen.getByRole("radiogroup", { name: "Notes" })).toBeInTheDocument(),
     );
@@ -583,7 +642,7 @@ describe("the assignment panel", () => {
     expect(written).toHaveLength(1);
 
     // Once the re-read lands the strip is a control again, and it shows what the server says.
-    gate.release();
+    await gate.release();
     await waitFor(() =>
       expect(tile("Notes", "viewer")).toHaveAttribute("aria-checked", "true"),
     );
@@ -606,7 +665,7 @@ describe("the assignment panel", () => {
     await waitFor(() => expect(screen.getByText("Access per module")).toBeInTheDocument());
 
     gate.fail = true;
-    gate.release();
+    await gate.release();
 
     // Asserted through the alert role rather than by text alone: a hidden node satisfies a
     // text query, so "shown" and "present in the DOM" are two different claims and only the
@@ -617,6 +676,30 @@ describe("the assignment panel", () => {
     // No strips at all, so there is nothing to click and nothing to misread.
     expect(screen.queryByRole("radiogroup", { name: "Notes" })).not.toBeInTheDocument();
     expect(written).toEqual([]);
+  });
+
+  it("settles when the gate is released before the read reaches it", async () => {
+    // Pins the gate's own contract, because the two tests above depend on it and neither
+    // states it. They release after waiting on a heading the panel renders without the
+    // provenance read having left for the gate yet — so "released" and "parked" have no
+    // ordering between them, and the losing order is the one nobody wrote a test for.
+    //
+    // Releasing first is that order, forced. A release that only resumes what happens to be
+    // parked at that instant resumes nothing here, and the read that arrives afterwards
+    // waits on a gate nobody opens again: the panel holds its pre-read state until the
+    // matcher gives up four seconds later, reported as an element that never appeared rather
+    // than as the deadlock it is. That is the shape the same two tests hit intermittently on
+    // a loaded machine, which is why this one forces it instead of hoping to catch it.
+    const { gate } = renderAt(`/admin/users/${SUBJECT}`, { gateReads: true });
+    const released = gate.release();
+    await waitFor(() => expect(screen.getByText("Access per module")).toBeInTheDocument());
+    await released;
+
+    await waitFor(() =>
+      expect(screen.getByRole("radiogroup", { name: "Notes" })).not.toHaveAttribute(
+        "aria-disabled",
+      ),
+    );
   });
 
   it("shows a rung held in a module that no longer accepts one, and lets it be cleared", async () => {
@@ -651,5 +734,56 @@ describe("the assignment panel", () => {
     await waitFor(() => expect(written).toHaveLength(1));
     expect(written[0].method).toBe("DELETE");
     expect(written[0].path).toBe(`/api/v1/access/subjects/${SUBJECT}/module-roles/legacy`);
+  });
+
+  it("draws no section at all when the application declares no assignable module", async () => {
+    // The notice this used to render explains a `ModuleSpec` to somebody looking at a person,
+    // and no action available on the screen can ever resolve it — a heading, a description and
+    // a dead end, on every user and every group, forever. It is the panel's own rule applied
+    // to itself: a module that refuses is not listed, so a surface with no modules is not drawn.
+    renderAt(`/admin/users/${SUBJECT}`, { noAssignable: true });
+
+    // Anchored on the page actually arriving, so the absence below is a decision and not a
+    // test that outran the render. By role, not by text: the email is the page's heading
+    // *and* a row in its detail list, so a bare text query matches twice.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "jane.doe@example.com" }),
+      ).toBeInTheDocument(),
+    );
+
+    // The page arriving is not the panel settling, and the difference is a whole round trip:
+    // `UserDetail` renders its heading as soon as `/users/{id}` returns, while the panel hides
+    // itself only once `/access/subjects/{id}` comes back and `settled` leaves its -1. Until
+    // then it is still drawing the section behind a `LoadingState`, so asserting right after
+    // the heading caught the panel mid-read rather than catching it deciding. The anchor above
+    // stays, because on its own this `waitFor` would pass at render zero with nothing on screen
+    // yet -- the absence has to be reached *after* the page is there, not instead of it.
+    await waitFor(() =>
+      expect(screen.queryByText("Access per module")).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/no module in this application accepts a role of its own/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the section when nothing is assignable but a stale rung is still held", async () => {
+    // The exception that stops the rule above from being `assignable.length === 0`: this panel
+    // is the only place an orphaned row can be cleared, so hiding on the count of assignable
+    // modules alone would strand exactly the rows ADR 0121 insists are reported.
+    //
+    // It has to be driven with `noAssignable`, or it asserts nothing. Against the default
+    // fixture three modules ARE assignable, so `nothingToOffer` is already false on the
+    // `assignable.length === 0` term and the `orphaned.length === 0` term this test exists
+    // for never decides anything — drop that term from the condition and the test stays
+    // green. Checked the other way too: with the term removed, this now fails.
+    renderAt(`/admin/users/${SUBJECT}`, { noAssignable: true, keepOrphan: true });
+
+    // Awaited on the ORPHAN, not on the heading: with nothing assignable there is no strip
+    // to wait for, and the heading is drawn by the loading state too — so anchoring on it
+    // would assert against a spinner one round trip before the subject read lands.
+    expect(await screen.findByText(/no longer accepts a role of its own/)).toBeInTheDocument();
+    expect(screen.getByText("Access per module")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(1);
   });
 });

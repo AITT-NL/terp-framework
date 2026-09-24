@@ -9,12 +9,15 @@ exercised by test_cli_scaffold.py against every architecture rule.
 
 from __future__ import annotations
 
+import ast
 import json
 import pathlib
 import re
 
 _TEMPLATE = pathlib.Path(__file__).resolve().parents[2] / "template"
 _PROJECT = _TEMPLATE / "project"
+
+from terp.core import RateLimit
 _CODEGEN = (
     pathlib.Path(__file__).resolve().parents[2]
     / "packages/frontend/contract/src/routes-codegen.js"
@@ -1147,4 +1150,251 @@ def test_the_workspace_and_the_template_pin_one_typescript() -> None:
         "the workspace and the generated app must install one TypeScript, because "
         "`terp routes` is written against the compiler API and a major bump breaks it: "
         f"{json.dumps(ranges, indent=2, sort_keys=True)}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# a default that is right for production is not automatically right for the dev
+# stack the template also ships (ADR 0143)
+# --------------------------------------------------------------------------- #
+def _control_plane_security_kwarg(name: str) -> ast.expr:
+    """The `SecurityConfig(...)` keyword *name* as declared by the template, as an AST."""
+    import ast as _ast
+
+    source = (_PROJECT / "control_plane" / "__init__.py").read_text(encoding="utf-8")
+    found = [
+        keyword.value
+        for node in _ast.walk(_ast.parse(source))
+        if isinstance(node, _ast.Call)
+        for keyword in node.keywords
+        if keyword.arg == name
+    ]
+    assert len(found) == 1, f"expected one {name} declaration, found {len(found)}"
+    return found[0]
+
+
+def test_template_trusts_a_proxy_hop_only_where_a_proxy_is_the_only_way_in() -> None:
+    """`trusted_proxy_hops` follows the stack, because the two stacks differ.
+
+    Production publishes only `web`; `api` has no port, so nginx is the only way in and
+    one hop must be trusted or every caller collapses onto the proxy's address. The DEV
+    compose publishes `api` directly on `${API_PORT}` *as well as* running `web`, so a
+    request can arrive having passed no proxy at all — and a trusted hop there lets that
+    caller write their own `X-Forwarded-For`. That is not only an escape from their own
+    rate-limit bucket: it attributes their requests to somebody else's address, which
+    poisons the login lockout and the OIDC callback throttle with it.
+
+    This shipped as a flat `trusted_proxy_hops=1` whose comment reasoned only about
+    `docker-compose.prod.yml` and offered "set it to 0 if you remove `web` and expose the
+    API directly" as the escape — a condition that does not describe the dev stack, where
+    `web` is present AND the API is exposed directly. Asserted on the shape rather than by
+    substring: the same conditional spelling appears elsewhere in this file, so a
+    substring assertion here is satisfied by the wrong line (that mistake was made once
+    already, in a consumer, and found by mutating the source and watching the test pass).
+    """
+    import ast as _ast
+
+    hops = _control_plane_security_kwarg("trusted_proxy_hops")
+    assert isinstance(hops, _ast.IfExp), (
+        "trusted_proxy_hops must follow the environment; a flat number trusts a hop in "
+        "the dev stack, which publishes the API directly alongside the proxy"
+    )
+    assert "is_production" in _ast.unparse(hops.test)
+    assert _ast.unparse(hops.body) == "1", "production is behind exactly one proxy"
+    assert _ast.unparse(hops.orelse) == "0", (
+        "everywhere else must take the platform default of 0 — an undeclared forwarding "
+        "header is attacker-supplied"
+    )
+
+    # The premise the production side rests on: `api` really does publish no port there.
+    prod = (_PROJECT / "docker-compose.prod.yml.jinja").read_text(encoding="utf-8")
+    api_block = prod.split("\n  api:", 1)[1].split("\n  web:", 1)[0]
+    assert "ports:" not in api_block, (
+        "docker-compose.prod.yml now publishes the API directly, so nginx is no longer "
+        "the only way in and trusted_proxy_hops=1 is no longer safe there"
+    )
+    # ...and the premise the dev side rests on.
+    dev = (_PROJECT / "docker-compose.yml.jinja").read_text(encoding="utf-8")
+    dev_api = dev.split("\n  api:", 1)[1].split("\n  web:", 1)[0]
+    assert "ports:" in dev_api, (
+        "the dev stack no longer publishes the API directly; if that is deliberate, the "
+        "hop count can be simplified — but check the reasoning above first"
+    )
+
+
+def test_template_gives_the_credential_family_a_bucket_its_own_suite_can_finish_in() -> None:
+    """The shipped conformance helper signs in for real, once per spec.
+
+    `@terpjs/conformance`'s `login()` drives the real login screen, so a growing suite
+    means a growing number of real `POST /auth/login` calls from one CI address — against
+    `RateLimit.credentials()`, thirty a minute, in its own bucket (ADR 0138/0140). Thirty
+    is the right production number and is entirely about cost: both credential routes run
+    a memory-hard Argon2 on the miss path, making them the cheapest place on the surface
+    to spend CPU. It is the wrong number for the suite this template ships the harness for.
+
+    The app's general `rate_limit` cannot absorb it — an override-matched path is counted
+    in that override's own bucket (ADR 0115), which is the whole point of the design. So
+    the credential family needs its own non-production number, and production must declare
+    none so it keeps tracking whatever the platform sets.
+
+    This is the consumer-visible half of audit finding H3, whose recommendation was
+    literally "ship `rate_limit_overrides` defaults for the auth mount — the mechanism
+    exists and nothing currently uses it". It went unnoticed because this repository's own
+    example app ships ONE auth spec: too small a suite to trip its own limit, where a real
+    consumer's is not.
+    """
+    import ast as _ast
+
+    overrides = _control_plane_security_kwarg("rate_limit_overrides")
+    assert isinstance(overrides, _ast.IfExp), (
+        "rate_limit_overrides must be conditional; an unconditional value hands the "
+        "development credential limit to production"
+    )
+    assert "is_production" in _ast.unparse(overrides.test)
+    assert isinstance(overrides.body, _ast.Tuple) and not overrides.body.elts, (
+        "production must declare NO override, so the auth mount keeps the platform's "
+        "RateLimit.credentials() instead of a number pinned in a generated app"
+    )
+    rendered = _ast.unparse(overrides.orelse)
+    for route in ("/api/v1/auth/login", "/api/v1/auth/token"):
+        assert route in rendered, f"the override must name {route} exactly"
+    assert "'/api/v1/auth'" not in rendered and '"/api/v1/auth"' not in rendered, (
+        "keyed per route, not on the mount: a mount key would also cover /refresh, which "
+        "ADR 0140 exempts on purpose — it rotates a cookie for the price of a query and "
+        "TerpProvider posts to it on every mount, so its volume tracks page loads"
+    )
+    assert "NON_PRODUCTION_CREDENTIAL_RATE_LIMIT" in rendered
+
+    source = (_PROJECT / "control_plane" / "__init__.py").read_text(encoding="utf-8")
+    limit = [
+        node
+        for node in _ast.walk(_ast.parse(source))
+        if isinstance(node, _ast.Assign)
+        and any(
+            isinstance(t, _ast.Name) and t.id == "NON_PRODUCTION_CREDENTIAL_RATE_LIMIT"
+            for t in node.targets
+        )
+    ]
+    assert len(limit) == 1
+    requests = [
+        keyword.value
+        for keyword in limit[0].value.keywords  # type: ignore[union-attr]
+        if keyword.arg == "requests"
+    ]
+    assert requests and _ast.literal_eval(requests[0]) > RateLimit.credentials().requests, (
+        "the non-production credential limit must be looser than the platform's, or it "
+        "buys the generated app nothing"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The workflow every generated app inherits                                     #
+# --------------------------------------------------------------------------- #
+#
+# This file is the single artifact that reaches every consumer, so a weakness in it
+# scales in the wrong direction: the more apps, the more copies, each already checked
+# in and rarely re-read again. The framework's own CI verifies its gitleaks download
+# against a pinned SHA256 and SHA-pins every action; the template shipped neither, so
+# the mandate this platform sells was inverted in the one place it travels furthest —
+# the unsafe path was the default, it was not greppable, and it carried no budget entry.
+
+_FRAMEWORK_CI = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
+_TEMPLATE_CI = _PROJECT / ".github/workflows/ci.yml.jinja"
+
+#: `uses: owner/repo@<40 hex>` — a tag is a pointer its owner can move, and moving it
+#: changes what runs inside a client's CI with the client's repository checked out.
+_PINNED_USES = re.compile(r"uses:\s*\S+@[0-9a-f]{40}\b")
+_ANY_USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(\S+)", re.M)
+
+
+def _gitleaks_literals(text: str) -> tuple[str | None, str | None]:
+    version = re.search(r'GITLEAKS_VERSION:\s*"([^"]+)"', text)
+    digest = re.search(r'GITLEAKS_SHA256:\s*"([0-9a-f]{64})"', text)
+    return (version.group(1) if version else None, digest.group(1) if digest else None)
+
+
+def test_the_generated_workflow_pins_every_action_by_digest() -> None:
+    floating = [
+        f"{number}: {match.group(1)}"
+        for number, line in enumerate(_TEMPLATE_CI.read_text(encoding="utf-8").splitlines(), 1)
+        if (match := _ANY_USES.match(line)) and not _PINNED_USES.search(line)
+    ]
+    assert floating == [], (
+        "the workflow every generated app inherits references these actions by a movable "
+        f"tag: {floating} — pin as `owner/repo@<sha> # vX.Y.Z`. This is the one artifact "
+        "that scales with the number of clients, so it gets the posture this repository "
+        "applies to itself, not a weaker one"
+    )
+
+
+def test_the_generated_app_ships_an_updater_for_those_pins() -> None:
+    """Pinning without an updater trades a live supply-chain risk for a stale one, and
+    a generated app is long-lived by definition — nobody hand-bumps a digest they have
+    never looked at."""
+    config = _PROJECT / ".github/dependabot.yml"
+    assert config.is_file(), (
+        "the template pins every action by digest and ships nothing to move those pins "
+        "forward — every generated app would freeze its actions at the day it was rendered"
+    )
+    text = config.read_text(encoding="utf-8")
+    for ecosystem in ("github-actions", "pip", "npm", "docker"):
+        assert f"package-ecosystem: {ecosystem}" in text, (
+            f"a generated app ships a {ecosystem} surface that nothing updates"
+        )
+
+
+def test_the_generated_workflow_verifies_the_binary_it_downloads() -> None:
+    """It fetches a binary over the network and runs it against a full-depth checkout.
+    An unverified fetch is the supply-chain hole the tool it installs exists to find,
+    one layer down."""
+    text = _TEMPLATE_CI.read_text(encoding="utf-8")
+    assert "GITLEAKS_SHA256" in text and "sha256sum -c -" in text, (
+        "the generated workflow downloads gitleaks and runs it without checking what "
+        "arrived — verify it against a pinned SHA256 first, as .github/workflows/ci.yml "
+        "does in this repository"
+    )
+
+
+def test_the_two_gitleaks_pins_never_drift_apart() -> None:
+    """Two copies of a version-plus-digest pair, in two files, bumped by hand. The
+    failure mode is not that the template's is wrong — it is that it is a year old,
+    silently, while this repository's moved on."""
+    framework = _gitleaks_literals(_FRAMEWORK_CI.read_text(encoding="utf-8"))
+    template = _gitleaks_literals(_TEMPLATE_CI.read_text(encoding="utf-8"))
+    assert all(framework), f".github/workflows/ci.yml no longer pins gitleaks: {framework}"
+    assert framework == template, (
+        f"this repository pins gitleaks {framework} and the template ships {template} — "
+        "bump both together, or the workflow every client runs verifies a different "
+        "binary from the one this repository proved"
+    )
+
+
+def test_the_generated_workflow_declares_read_only_permissions() -> None:
+    """Without the block a job inherits the repository default, which on many
+    repositories is write: a compromised dependency in any step could then push."""
+    text = _TEMPLATE_CI.read_text(encoding="utf-8")
+    assert re.search(r"^permissions:\n\s+contents: read", text, re.M), (
+        "the generated workflow inherits whatever the client's repository defaults to — "
+        "declare `permissions: contents: read` at the top; nothing in it writes"
+    )
+
+
+def test_the_generated_workflow_leaves_no_credential_in_the_checkout() -> None:
+    checkouts = _TEMPLATE_CI.read_text(encoding="utf-8").count("uses: actions/checkout@")
+    persisted = _TEMPLATE_CI.read_text(encoding="utf-8").count("persist-credentials: false")
+    assert checkouts and persisted == checkouts, (
+        f"{checkouts} checkout(s) and {persisted} `persist-credentials: false` — a "
+        "persisted token stays readable in .git/config by every later step, including "
+        "anything a dependency brought along, and nothing here pushes"
+    )
+
+
+def test_the_acceptance_lane_audits_the_rendered_workflow() -> None:
+    """The template's own posture is only as good as what actually renders. Checking
+    the .jinja source cannot see what copier produces from it."""
+    text = _FRAMEWORK_CI.read_text(encoding="utf-8")
+    assert "zizmor /tmp/acceptance-app/.github/workflows" in text, (
+        "template-acceptance renders the project and never audits the workflow it "
+        "rendered — add the zizmor step, so the artifact a client receives meets the "
+        "same bar as the one this repository runs"
     )

@@ -17,6 +17,7 @@ members = [
     "packages/backend/capabilities/files",
     "packages/backend/capabilities/groups",
     "packages/backend/capabilities/leases",
+    "packages/backend/capabilities/mail",
     "packages/backend/capabilities/mfa",
     "packages/backend/capabilities/users",
     "packages/backend/capabilities/outbox",
@@ -48,6 +49,7 @@ terp-cap-groups = { workspace = true }
 terp-cap-identity = { workspace = true }
 terp-cap-jobs-celery = { workspace = true }
 terp-cap-leases = { workspace = true }
+terp-cap-mail = { workspace = true }
 terp-cap-mfa = { workspace = true }
 terp-cap-oidc = { workspace = true }
 terp-cap-outbox = { workspace = true }
@@ -68,10 +70,10 @@ dev = [
     "httpx>=0.28.1",
     "pytest-cov>=7.1.0",
     # `terp dev` launches uvicorn; the standard extra supplies WebSocket + reload support.
-    "uvicorn[standard]>=0.52.4",
+    "uvicorn[standard]>=0.53.0",
     # The PostgreSQL conformance lane (ADR 0069): tests skip without a server, so the
     # driver is harmless locally and required in CI.
-    "psycopg[binary]>=3.3.5",
+    "psycopg[binary]>=3.3.6",
     # Parses the Compose workbench file in test_compose_workbench.py (structure guard).
     "pyyaml>=6.0.3",
     # Exercises the terp-core[secrets] sealing cipher (terp.core.secrets, design §5.4).
@@ -79,12 +81,12 @@ dev = [
     # The Terp Standard (ADR 0082): the certification tests locate the
     # catalog/corpus through terp_spec.spec_dir(), never a repo path. Pinned to
     # one exact release (ADR 0086) so the Python and npm pins can be compared.
-    "terp-spec==0.35.0",
+    "terp-spec==0.36.0",
 ]
 # CI-only generic backstops (NOT part of the `pytest --cov=terp` gate; they
 # complement terp-arch, never replace it). Installed in CI; optional locally.
 lint = [
-    "ruff>=0.16.7",
+    "ruff>=0.16.8",
     "pip-audit>=2.10.1",
     "deptry>=0.25.1",
     "import-linter>=2.15",

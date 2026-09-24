@@ -1,0 +1,33 @@
+# Review routing for the surfaces the design document says are protected
+# (AGENTIC_PLATFORM_DESIGN.md §10 claim 3 and §12.4: "CODEOWNERS protects
+# core/capabilities/CI"). Until this file existed those were claims with
+# nothing behind them; tests/architecture/test_codeowners.py now fails the
+# build if a protected path loses its owner.
+#
+# Routing is the cheapest structural mitigation available while the platform
+# is held by very few people: it does not add a reviewer, it guarantees the
+# right one is asked. Every path below is a surface whose change is felt by
+# every consumer at once — the layer-0 kernel, the harness that judges their
+# code, the contract the frontend generates from, and the workflows that
+# publish 24 distributions.
+#
+# Order matters: the last matching pattern wins, so the catch-all is first.
+
+*                                   @vlreinier
+
+# The layer-0 kernel: imports nothing above itself, and everything imports it.
+/packages/backend/core/             @vlreinier
+
+# The harness that decides whether a consumer's code passes the gate.
+/packages/backend/arch/             @vlreinier
+
+# Opt-in capabilities — each one is a published distribution.
+/packages/backend/capabilities/     @vlreinier
+
+# The stack-neutral frontend contract the generators and themes read.
+/packages/frontend/contract/        @vlreinier
+
+# CI, release, and the agent instructions every agent session is held to.
+/.github/                           @vlreinier
+/AGENTS.md                          @vlreinier
+/CLAUDE.md                          @vlreinier

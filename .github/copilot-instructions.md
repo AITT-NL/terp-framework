@@ -89,4 +89,6 @@ catalog + violation corpus (the Terp Standard, ADRs 0080/0081) lives in
 with a catalog entry there, and corpus cases shrink its `corpus/PENDING.json`.
 The spec is consumed as a package (`terp-spec` / `@terpjs/spec`, published from
 the spec repo per ADR 0086 and pinned here), never a repo-relative path (ADR 0082).
-Run the gate with `uv run pytest`.
+Run the gate with `uv run coverage run -m pytest` followed by `uv run coverage
+report` — both, since the 100% bar is a separate control and a plain `pytest`
+run passes without it. Never `pytest --cov` (see `pyproject.toml` for why).

@@ -22,6 +22,10 @@ retrieves **file objects** through a maintained, secure-by-default surface, with
   file through its **own**, already-authorized row, fail-closed on any undeclared
   reference (:class:`UndeclaredFileReferenceError`; build-time twin: the
   ``no_raw_file_references`` rule).
+* :func:`register_file_scanner` is the malware-scan seam: the deployment supplies the
+  engine, the capability owns the ``scan_state`` on the row and refuses to serve bytes
+  it rejected. Wiring nothing changes nothing — a file cannot be ``clean`` without
+  something having looked at it, so there is no safe default to impose.
 * The discovered, admin-only router at ``/api/v1/files`` uploads, downloads, lists
   (``Page[T]``), renames, and deletes; ``OwnedMixin`` makes edit / delete owner-gated
   centrally in ``BaseService`` with zero module code.
@@ -55,6 +59,18 @@ from terp.capabilities.files.router import (
     reset_upload_limit,
     router,
 )
+from terp.capabilities.files.scanning import (
+    SCAN_CLEAN,
+    SCAN_NOT_SCANNED,
+    SCAN_REJECTED,
+    SCAN_STATES,
+    FileQuarantinedError,
+    FileScanner,
+    ScanSubject,
+    active_file_scanner,
+    register_file_scanner,
+    reset_file_scanner,
+)
 from terp.capabilities.files.schemas import FileCreate, FileRead, FileUpdate
 from terp.capabilities.files.service import (
     ContentTypeMismatchError,
@@ -80,6 +96,10 @@ from terp.capabilities.files.storage import (
 __all__ = [
     "ContentTypeMismatchError",
     "DEFAULT_STORAGE_PROFILE",
+    "SCAN_CLEAN",
+    "SCAN_NOT_SCANNED",
+    "SCAN_REJECTED",
+    "SCAN_STATES",
     "FILES_DELETE",
     "FILES_DOWNLOAD",
     "FILES_GET",
@@ -89,26 +109,32 @@ __all__ = [
     "FILES_UPLOAD",
     "File",
     "FileCreate",
+    "FileQuarantinedError",
     "FileRead",
     "FileRef",
+    "FileScanner",
     "FileService",
     "FileStorageError",
     "FileUpdate",
     "LocalFilesystemStorage",
     "MAX_UPLOAD_BYTES",
+    "ScanSubject",
     "StorageBackend",
     "UndeclaredFileReferenceError",
     "UnknownStorageProfileError",
     "UnsupportedContentTypeError",
     "active_allowed_content_types",
+    "active_file_scanner",
     "active_storage_backend",
     "active_upload_limit",
     "configure_allowed_content_types",
     "configure_upload_limit",
     "is_file_reference",
     "module",
+    "register_file_scanner",
     "register_storage_backend",
     "reset_allowed_content_types",
+    "reset_file_scanner",
     "reset_storage_backend",
     "reset_upload_limit",
     "resolve_storage_backend",

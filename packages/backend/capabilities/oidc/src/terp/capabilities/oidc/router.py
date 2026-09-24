@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-import httpx  # arch-allow-no-raw-outbound-http: imported for the http_factory type only — this module issues no request; the protocol client in client.py owns every call. review-by: 2026-12-31
 from fastapi import APIRouter, Request, Response
 from sqlmodel import Session
 
@@ -40,8 +39,10 @@ from terp.core import (
     client_ip,
     is_sealed_config,
     operation,
+    route_policy,
 )
 
+from terp.capabilities.egress import Observer, Resolver, Sender
 from terp.capabilities.auth import (
     AccessToken,
     LoginTenantResolver,
@@ -90,7 +91,9 @@ def build_oidc_router(
     throttle: LoginThrottle | None = None,
     state_store: OIDCStateStore | None = None,
     secret_resolver: SecretResolver | None = None,
-    http_factory: Callable[[], httpx.Client] | None = None,
+    sender: Sender | None = None,
+    resolve: Resolver | None = None,
+    observer: Observer | None = None,
 ) -> APIRouter:
     """Build the per-provider ``/authorize`` + ``/callback`` router (fail-fast).
 
@@ -112,7 +115,7 @@ def build_oidc_router(
         registry[config.name] = config
 
     clients = {
-        name: OIDCClient(config, http_factory=http_factory)
+        name: OIDCClient(config, sender=sender, resolve=resolve, observer=observer)
         for name, config in registry.items()
     }
     store = state_store if state_store is not None else InMemoryStateStore()
@@ -147,6 +150,11 @@ def build_oidc_router(
     router = APIRouter(tags=["auth"])
 
     @router.get("/{provider}/authorize", response_model=AuthorizationRequest)
+    @route_policy(
+        Policy.public_write(
+            reason="an SSO flow starts before the caller has any session to gate on"
+        )
+    )
     @operation(OIDC_AUTHORIZE)
     def authorize(provider: str) -> AuthorizationRequest:
         client = _client(provider)
@@ -161,6 +169,12 @@ def build_oidc_router(
         )
 
     @router.post("/{provider}/callback", response_model=AccessToken)
+    @route_policy(
+        Policy.public_write(
+            reason="the provider redirects an unauthenticated browser here; the code "
+            "and the single-use state are the credentials"
+        )
+    )
     @operation(OIDC_CALLBACK)
     def callback(
         provider: str,
@@ -209,7 +223,9 @@ def build_oidc_module(
     throttle: LoginThrottle | None = None,
     state_store: OIDCStateStore | None = None,
     secret_resolver: SecretResolver | None = None,
-    http_factory: Callable[[], httpx.Client] | None = None,
+    sender: Sender | None = None,
+    resolve: Resolver | None = None,
+    observer: Observer | None = None,
 ) -> ModuleSpec:
     """Build the SSO ``ModuleSpec`` (public authorize + callback endpoints)."""
     return ModuleSpec(
@@ -223,7 +239,9 @@ def build_oidc_module(
             throttle=throttle,
             state_store=state_store,
             secret_resolver=secret_resolver,
-            http_factory=http_factory,
+            sender=sender,
+            resolve=resolve,
+            observer=observer,
         ),
         policy=Policy.public_write(
             reason="SSO login endpoints must be reachable without a token"

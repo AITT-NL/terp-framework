@@ -47,6 +47,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import textwrap
 import tomllib
 from dataclasses import dataclass
 
@@ -191,6 +192,79 @@ class VerifyCheck:
     # | "dependency-hygiene" | "workbench" | "deploy-safety"
     # | "production-readiness"
     runner: str = "subprocess"
+
+
+@dataclass(frozen=True)
+class VerifyNonGoal:
+    """One thing this gate deliberately does NOT check, and why.
+
+    A consumer reasons from what the gate checks to what the gate COVERS. Every
+    omission then reads as either "already handled elsewhere" or "an oversight", and
+    nothing in the tool distinguishes the two. The manifest had a slot for what runs
+    and no slot for what deliberately does not, so a decision already taken --
+    recorded in an ADR nobody runs -- was indistinguishable from a gap.
+
+    That inference has a measured cost. An agent that reaches for the obvious
+    whole-tree formatter rewrites files the current change never touched, and the diff
+    reaching review is part change and part churn. For a platform whose consumers are
+    largely agent-built, an unreviewable diff is a review-integrity problem rather than
+    a cosmetic one.
+
+    So this is the same standard the platform sells, applied to the gate's own
+    boundary: insecurity -- or here, an absence -- requires an explicit, greppable
+    statement rather than silence. *delegated_to* names what does cover it when
+    something does; *instead* names the command to reach for when nothing does.
+    """
+
+    id: str
+    reason: str
+    delegated_to: str = ""
+    instead: str = ""
+
+
+#: What `terp verify` does not answer for, stated rather than left to be inferred.
+#:
+#: Seeded from ADR 0085's delegation (the generic security classes go to ruff-bandit,
+#: "delegated, not duplicated") and from the formatting decision below, which this list
+#: is what forced: writing the entry is what turned "nobody wired the formatter" into a
+#: position someone can disagree with.
+NON_GOALS: tuple[VerifyNonGoal, ...] = (
+    VerifyNonGoal(
+        id="formatting",
+        reason=(
+            "Formatting is deliberately ungated. `ruff format .` is the right formatter "
+            "with the wrong blast radius: it rewrites files the current change never "
+            "touched, so the diff reaching review is part change and part churn, and "
+            "the author's only recourse is to check out the unrelated files one by one"
+        ),
+        instead=(
+            "terp fmt  (defaults to --changed: the files git reports as modified, "
+            "staged or untracked -- the set you are responsible for; `terp fmt --check` "
+            "reports without rewriting, and `--all` is the deliberate whole-tree pass)"
+        ),
+    ),
+    VerifyNonGoal(
+        id="generic-appsec-classes",
+        reason=(
+            "Command injection, path traversal, unsafe deserialization, weak randomness "
+            "and secrets-in-logs are NOT terp-arch rules. They are delegated, not "
+            "duplicated (ADR 0085) -- a second implementation of a solved analysis is a "
+            "second thing to keep correct"
+        ),
+        delegated_to="ruff (bandit `S` rules), run by the appsec-baseline check",
+    ),
+    VerifyNonGoal(
+        id="test-efficacy",
+        reason=(
+            "`no_empty_tests` and `modules_ship_tests` check that tests EXIST and are "
+            "not empty. Nothing here checks that a test would fail if the code were "
+            "wrong, so a suite can be green, fully populated, pass every gate, and "
+            "still not discriminate -- list filters and boundary conditions are the "
+            "usual blind spot"
+        ),
+        instead="no tooling ships for this yet; assert the exclusion case by hand",
+    ),
+)
 
 
 # Runs first in every profile, because it decides whether the rest of the run
@@ -556,10 +630,33 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
 #: the pinned spec's schema by the framework gate. ``a11y`` and
 #: ``test-adequacy`` are declared but not realised by this toolchain yet: they
 #: are emitted ``not-run`` (a lane is never dropped and never counted as passed
-#: without evidence). ``test-adequacy`` asks whether the suite could have
-#: failed, which no check in the release profile answers — coverage reports
-#: which lines ran, not whether anything would notice them changing — so it
-#: composes nothing rather than borrowing evidence that does not bear on it.
+#: without evidence).
+#:
+#: Each composes nothing for a stated reason, and both reasons are the same
+#: shape — nothing in the release profile bears on the question the lane asks,
+#: so composing it from what is there would be borrowing evidence rather than
+#: having it.
+#:
+#: ``test-adequacy`` asks whether the suite could have failed. Coverage reports
+#: which lines ran, not whether anything would notice them changing, so it
+#: cannot answer that; what would is a mutation run, which is minutes of CPU
+#: per change rather than seconds and is a decision about the merge bar rather
+#: than a missing wire.
+#:
+#: ``a11y`` asks whether the rendered UI is usable by someone who is not using a
+#: mouse and a pair of eyes. That is a question about pixels and a live
+#: accessibility tree, and every check in the release profile reads source or
+#: builds artifacts: ``frontend-boundaries`` holds the component surface, which
+#: constrains what is composed and says nothing about what a screen reader
+#: receives, and ``frontend-build`` proves the bundle compiles. The evidence
+#: the lane would need is an axe (or equivalent) pass over a running app, so
+#: the natural home is the ``conformance`` check — the one place a browser is
+#: already driving the built frontend — and wiring it is a product decision
+#: with a real question underneath it: WHOSE screens are the subject. The
+#: framework renders none of its own; a generated app's are the app's, and a
+#: lane that failed the platform's release over an app's markup would be
+#: measuring the wrong thing. Until that is answered, ``not-run`` is the honest
+#: verdict, and it is not the same as forgotten.
 ASSURANCE_LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("terp-standard", "required", ("architecture", "frontend-boundaries")),
     ("appsec-baseline", "required", ("appsec-baseline",)),
@@ -769,11 +866,18 @@ def verify_manifest(
     *root* includes the app's own ``[[tool.terp.verify.checks]]``, so a driving
     tool reading the manifest sees the whole gate rather than the platform half
     of it. Omitting it yields the platform floor.
+
+    ``categories`` publishes the vocabulary this document was written with, so a
+    consumer can tell a category it has not seen before from a corrupt document.
+    Without it the two are indistinguishable, and the safe-looking reading — "I do
+    not know this word, so I do not trust this document" — throws the whole gate
+    away over one added word. ADR 0106 §5 states what a consumer owes in return.
     """
     checks = profile_checks(profile, root)
     return {
         "terp_verify_manifest": 1,
         "profile": profile,
+        "categories": sorted(CHECK_CATEGORIES),
         "checks": [
             {
                 "id": check.id,
@@ -783,6 +887,22 @@ def verify_manifest(
                 **({"requires": check.requires} if check.requires else {}),
             }
             for check in checks
+        ],
+        # The other half of the same claim. Without it a driving tool reads the check
+        # list as the coverage list, and every absence reads as an oversight or as
+        # "handled elsewhere" with nothing to say which.
+        "not_checked_here": [
+            {
+                "id": non_goal.id,
+                "reason": non_goal.reason,
+                **(
+                    {"delegated_to": non_goal.delegated_to}
+                    if non_goal.delegated_to
+                    else {}
+                ),
+                **({"instead": non_goal.instead} if non_goal.instead else {}),
+            }
+            for non_goal in NON_GOALS
         ],
     }
 
@@ -1368,9 +1488,12 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     plane declares — no environment, no database, no request. `create_app` raises
     `BootError` on each of them under `ENVIRONMENT == "production"`: an unsafe
     security config, a password policy with no strength floor, and background work
-    that names no actor to stamp its writes with (ADR 0125). Outside production the
-    same states log a warning and keep booting, on purpose, because a developer who
-    has not wired a system principal yet should not be blocked by one.
+    that names no actor to stamp its writes with (ADR 0125). Outside production all
+    three keep booting, on purpose, because a developer who has not wired a system
+    principal yet should not be blocked by one — though only the background-writes
+    one currently says so out loud (`_warn_unstamped_background_writes`); the other
+    two are evaluated nowhere but inside the production branch, which is a separate
+    and smaller gap than the one this lane closes.
 
     Nothing gated the gap between those two behaviours. An app could declare a job,
     never set `job_system_actor_id`, and take a green `--profile full` all the way to
@@ -1384,6 +1507,15 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     and can sit in every profile. The audit refusal is deliberately not among the
     three: it turns on `create_app(audit_sink=...)`, a runtime argument this check
     cannot see, and a check that pretended to cover it would be worse than the gap.
+
+    That carve-out is no longer the only one, and the set is no longer folklore. Two
+    capability constructors hold production-only refusals of the same class — the
+    federated-identity allowlist and an OIDC provider's plaintext URLs — and the app
+    builds those objects itself, so no `ControlPlane` field reaches them and this lane
+    cannot ask. `tests/architecture/test_production_refusals.py` is the record: every
+    `settings.is_production`-conditional raise under `packages/backend/` is either
+    reached from here or listed with the reason it is not, so the next one written
+    outside this lane cannot join the class silently.
 
     Skips with a note for a tree with no importable control plane — the platform's own
     checkout, and an app whose authority surface predates the module. A plane that
@@ -1442,9 +1574,9 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
         return 1, (
             "this app's control plane refuses a production boot:\n"
             + "".join(f"  {problem}\n" for problem in problems)
-            + "Each of these raises BootError under ENVIRONMENT=production and only "
-            "logs a warning outside it, so a green gate over this state is a gate "
-            "that agrees with a deployment that will not start.\n"
+            + "Each of these raises BootError under ENVIRONMENT=production and keeps "
+            "booting outside it, so a green gate over this state is a gate that "
+            "agrees with a deployment that will not start.\n"
             "  A job actor that is a deployment fact rather than a source constant is "
             "declared, not hard-coded: put JOB_SYSTEM_ACTOR_ID in "
             "environment.schema.json and create_app will resolve it (ADR 0129)."
@@ -1876,6 +2008,22 @@ def run_verify_command(
             for check in resolved:
                 requires = f"  [requires {check.requires}]" if check.requires else ""
                 print(f"  {check.id:<20} {check.command}{requires}")
+            print()
+            print("not checked here (deliberately):")
+            for non_goal in NON_GOALS:
+                print(f"  {non_goal.id}")
+                for line in textwrap.wrap(f"{non_goal.reason}.", width=76):
+                    print(f"    {line}")
+                for label, value in (
+                    ("covered by", non_goal.delegated_to),
+                    ("instead", non_goal.instead),
+                ):
+                    if not value:
+                        continue
+                    wrapped = textwrap.wrap(value, width=76 - 12)
+                    print(f"    {label + ':':<12}{wrapped[0]}")
+                    for line in wrapped[1:]:
+                        print(f"    {'':<12}{line}")
         return 0
 
     results: list[dict[str, object]] = []

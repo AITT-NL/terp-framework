@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 88" role="img" aria-labelledby="title">
+  <title id="title">Terp Framework</title>
+  <g transform="translate(4 12)">
+  <path d="M6 48 C8 32 17 22 32 22 C47 22 56 32 58 48 Z" fill="#22c55e"/>
+  <path d="M24 26 V15 L32 7 L40 15 V26 H35 V19 H29 V26 Z" fill="#f59e0b"/>
+  <path d="M5 55 Q11.75 51 18.5 55 T32 55 T45.5 55 T59 55"
+        fill="none" stroke="#4f8ef7" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <g font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+    <text x="82" y="53" fill="#f2f2f3" font-size="48" font-weight="700" letter-spacing="-2.88">terp</text>
+    <text x="83.28" y="74" fill="#35ce7d" font-size="10" font-weight="600" letter-spacing="2.3">FRAMEWORK</text>
+  </g>
+</svg>

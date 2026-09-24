@@ -951,6 +951,8 @@ export interface components {
             id: string;
             /** Owner Id */
             owner_id: string | null;
+            /** Scan State */
+            scan_state: string;
             /** Sha256 */
             sha256: string;
             /** Size */
@@ -1581,6 +1583,18 @@ export interface components {
              */
             version: number;
         };
+        /**
+         * TerpPermission
+         * @description Every permission name this app declares. Gate a client control on one of these rather than on a string literal, so a rename stops type-checking instead of silently over- or under-gating.
+         * @enum {string}
+         */
+        TerpPermission: "notes.delete";
+        /**
+         * TerpRole
+         * @description Every role name this app's modules declare, for the same reason.
+         * @enum {string}
+         */
+        TerpRole: "admin" | "editor" | "viewer";
         /** TicketRequest */
         TicketRequest: {
             /** Channel */

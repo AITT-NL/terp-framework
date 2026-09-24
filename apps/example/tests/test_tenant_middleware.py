@@ -39,6 +39,7 @@ from terp.core import (
     ModuleSpec,
     Page,
     Policy,
+    route_policy,
     Roles,
     SessionDep,
     create_app,
@@ -70,17 +71,20 @@ _router = APIRouter(tags=["docs"])
 
 
 @_router.get("/tenant", response_model=str)
+@route_policy(Policy.public(reason="a fixture that probes this route without a token"))
 async def read_bound_tenant() -> str:
     """Echo the tenant the middleware bound for this request (``"None"`` if unset)."""
     return str(current_tenant_id())
 
 
 @_router.post("/", response_model=str)
+@route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
 async def create_doc(data: _DocCreate, session: SessionDep) -> str:
     return docs.create(session, data).title
 
 
 @_router.get("/", response_model=Page[str])
+@route_policy(Policy.public(reason="a fixture that probes this route without a token"))
 async def list_docs(session: SessionDep) -> Page[str]:
     rows, total = docs.list(session, skip=0, limit=100)
     return Page[str](items=sorted(row.title for row in rows), total=total, skip=0, limit=100)

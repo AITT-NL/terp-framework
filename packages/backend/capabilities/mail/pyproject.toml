@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terp-cap-mail"
+version = "0.27.0"
+description = "Terp mail capability — outbound e-mail through one declared relay: TLS required, a fixed sender, bounded messages, delivered by the jobs seam so a send commits with the write that caused it."
+requires-python = ">=3.13"
+license = "Apache-2.0"
+dependencies = [
+    "terp-core==0.27.0",
+    # Nothing else, on purpose. The SMTP client is the standard library's `smtplib`,
+    # imported in exactly one module of this distribution -- which is the whole point of
+    # `no_raw_outbound_http` refusing it everywhere else.
+]
+
+# A LIBRARY capability (like terp-cap-egress): no table, no router, and NO `terp.capabilities`
+# auto-discovery entry point. Sending mail is not something an app should acquire by
+# installing a package; it declares a relay with `configure_mail(...)` and registers the
+# `MAIL_SEND` job in its control plane, and both are visible in the composition root.
+
+# PEP 420 namespace package: this distribution owns only `terp.capabilities.mail`.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src/terp/capabilities/mail"]
+
+# Where this package comes from. The shipped changelog (`terp guide changelog`)
+# ends at the installed version; the notes for a release you do not have yet
+# live at these URLs, which `pip show` and the index page both surface.
+[project.urls]
+Repository = "https://github.com/AITT-NL/terp-framework"
+Changelog = "https://github.com/AITT-NL/terp-framework/blob/main/CHANGELOG.md"

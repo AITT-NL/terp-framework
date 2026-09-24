@@ -14,7 +14,7 @@ from typing import Annotated
 from fastapi import Depends
 from sqlmodel import Session
 
-from terp.core._internal.engine import get_engine
+from terp.core._internal.engine import get_engine, maintenance_engine
 from terp.core._internal.session_guard import WriteGuardedSession
 
 
@@ -35,4 +35,10 @@ def get_session() -> Iterator[Session]:
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
-__all__ = ["SessionDep", "get_session"]
+# `maintenance_engine` is re-exported rather than reached for: this module is the
+# sanctioned seam onto the engine, and `terp.core._internal.engine` is the module its own
+# docstring says nothing else may import. A maintenance engine is not a session and never
+# serves a request -- `CREATE DATABASE` cannot run inside a transaction and is addressed
+# at the server rather than at the application's database -- but it is still an engine,
+# so it is handed out from the same place as the other one.
+__all__ = ["SessionDep", "get_session", "maintenance_engine"]

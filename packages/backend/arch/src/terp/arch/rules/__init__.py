@@ -1,3 +1,4 @@
+# arch-allow-no-oversized-python-files: the rule REGISTRY: one import and one table row per rule, plus the root-kind map. Splitting it hides which rules exist, which is the one thing this file is for
 """The Terp secure-by-default fitness rules (design Â§5.10), shipped as a dependency.
 
 Each rule is a pure function that scans a client app's source tree and returns a
@@ -34,6 +35,7 @@ import pathlib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
+from terp.arch._ast import scan_cache
 from terp.arch.rules._support import (
     ArchViolation,
     _apply_suppressions,
@@ -43,6 +45,7 @@ from terp.arch.rules.authz import (
     check_modules_declare_policy,
     check_mutations_require_write_role,
     check_no_adhoc_permission_literals,
+    check_permission_gated_reads_disclose,
     check_policy_refs_resolve,
     check_public_modules_are_read_only,
 )
@@ -222,6 +225,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_manual_version_assignment": "service",
     "update_schemas_inherit_base_update_schema": "module",
     "no_raw_file_references": "files",
+    "permission_gated_reads_disclose": "access",
     "references_declare_delete_behaviour": "references",
     "table_models_use_base_table": "module",
     "tables_have_migrations": "migrations",
@@ -392,6 +396,7 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "no_manual_version_assignment": APP_ROOT_ONLY,
     "update_schemas_inherit_base_update_schema": APP_ROOT_ONLY,
     "no_raw_file_references": APP_ROOT_ONLY,
+    "permission_gated_reads_disclose": APP_ROOT_ONLY,
     "references_declare_delete_behaviour": APP_ROOT_ONLY,
     "table_models_use_base_table": APP_ROOT_ONLY,
     "tables_have_migrations": APP_ROOT_ONLY,
@@ -508,6 +513,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_manual_version_assignment,
     check_update_schemas_inherit_base_update_schema,
     check_no_raw_file_references,
+    check_permission_gated_reads_disclose,
     check_table_models_use_base_table,
     check_tables_have_migrations,
     check_no_manual_table_schema,
@@ -560,13 +566,18 @@ def check_app(
         if not root.path.is_dir():
             raise NotADirectoryError(f"{root.kind.value} root not found: {root.path}")
     violations: list[ArchViolation] = []
-    for root in roots:
-        raw: list[ArchViolation] = []
-        for rule in _ALL_RULES:
-            if root.kind not in root_kinds_for(rule.__name__.removeprefix("check_")):
-                continue
-            raw.extend(rule(root.path, package=root.package))
-        violations.extend(_apply_suppressions(raw, _scan_allow_markers(root.path)))
+    # One parse of each file per run, instead of one per rule. Every rule walks the same
+    # tree and none of them mutate it, so the redundant work was the rule count -- 2,354
+    # `ast.parse` calls over a 32-file tree -- and the rule count only goes up. Scoped to
+    # this call so nothing is ever answered from a tree the filesystem has moved past.
+    with scan_cache():
+        for root in roots:
+            raw: list[ArchViolation] = []
+            for rule in _ALL_RULES:
+                if root.kind not in root_kinds_for(rule.__name__.removeprefix("check_")):
+                    continue
+                raw.extend(rule(root.path, package=root.package))
+            violations.extend(_apply_suppressions(raw, _scan_allow_markers(root.path)))
     if budget_path is not None:
         violations.extend(check_escape_hatch_budget(*roots, budget_path=budget_path, package=package))
     return sorted(violations, key=lambda violation: (violation.path, violation.line, violation.rule))
@@ -695,6 +706,7 @@ __all__ = [
     "check_no_dependency_overrides",
     "check_no_raw_app_routes",
     "check_no_raw_file_references",
+    "check_permission_gated_reads_disclose",
     "check_no_manual_scope_filtering",
     "check_no_raw_connection_access",
     "check_no_raw_outbound_http",

@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-mfa"
-version = "0.24.0"
+version = "0.27.0"
 description = "Terp MFA capability — a TOTP second factor with recovery codes, sealed at rest and recorded in the token that results."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.24.0",
+    "terp-core==0.27.0",
     # The enrolment secret is sealed at rest with the same Fernet-over-HKDF shape the
     # webhooks capability uses for its signing secret, under an MFA-specific label.
     "cryptography>=50",
