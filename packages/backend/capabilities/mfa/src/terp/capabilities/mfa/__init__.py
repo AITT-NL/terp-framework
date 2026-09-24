@@ -1,4 +1,4 @@
-"""terp.capabilities.mfa — a TOTP second factor, with recovery codes (ADR 0150).
+"""terp.capabilities.mfa — a TOTP second factor, with recovery codes (ADR 0151).
 
 Authentication in this platform was password-only, with OIDC as the single way to
 delegate a second factor to somebody else's identity provider. An application whose most

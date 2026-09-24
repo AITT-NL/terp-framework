@@ -1,4 +1,4 @@
-# 0150 — A second factor the platform owns, and a protocol it does not invent
+# 0151 — A second factor the platform owns, and a protocol it does not invent
 
 - **Status:** Accepted and implemented. `terp-cap-mfa` ships TOTP enrolment, verification
   and recovery codes; `build_login_router(second_factor=...)` consults it; the access

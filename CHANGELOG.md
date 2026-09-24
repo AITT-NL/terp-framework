@@ -27,7 +27,7 @@ decision, 0001 onwards.
 
 ### Added
 
-- **A second factor the platform owns (ADR 0150).** Authentication was password-only,
+- **A second factor the platform owns (ADR 0151).** Authentication was password-only,
   with OIDC as the single way to delegate a second factor to somebody else's identity
   provider — so an application whose most dangerous surface is reached by an ordinary
   administrator password had nothing to offer unless its customer already ran an IdP.

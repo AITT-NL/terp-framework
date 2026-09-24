@@ -1,4 +1,4 @@
-"""Gate for ``terp-cap-mfa`` (ADR 0150): TOTP, sealing, recovery codes, and the login seam.
+"""Gate for ``terp-cap-mfa`` (ADR 0151): TOTP, sealing, recovery codes, and the login seam.
 
 The TOTP section is held to **RFC 6238's own published test vectors** rather than to
 round-tripping our own implementation against itself. That distinction is the whole
