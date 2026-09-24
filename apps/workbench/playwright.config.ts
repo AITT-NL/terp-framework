@@ -26,8 +26,11 @@ export default defineConfig({
   // Baselines are split by platform on purpose. Font rasterisation and antialiasing differ
   // between Windows and Linux by far more than any tolerance that would still catch a real
   // change, so one shared set means whichever platform did not record it is permanently red.
-  // Each platform records and compares its own: win32 from a developer machine, linux from
-  // `mcr.microsoft.com/playwright:v1.62.0-noble`. Neither set is complete on its own terms --
+  // Each platform records and compares its own: win32 from a developer machine, linux from the
+  // Playwright image `.github/workflows/frontend.yml` names. The tag is NOT repeated here, and
+  // the README says why in full: this comment said `v1.62.0-noble` for the length of a release
+  // that recorded and compared in v1.63.0, which is the same drift the paragraph below warns
+  // about, in the file warning about it. Neither set is complete on its own terms --
   // `visual/PENDING-BASELINES.json` records the specimens one platform has and the other does
   // not, and `tests/architecture/test_visual_baselines.py` refuses a NEW divergence, because
   // an unrecorded baseline does not fail on the platform that lacks it, it silently records
