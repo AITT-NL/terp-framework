@@ -85,6 +85,15 @@ decision, 0001 onwards.
   the badges by 24px. Below the first cutover the trail now keeps the leaf and one ancestor,
   marks the elision, and drops the rest — which takes their separators with them.
 
+- **Toasts render in the platform's own typeface.** This package declares the font family
+  per root — on the app shell and on the login view — and never on `body`, so a box outside
+  both inherits the user agent's default. The toast viewport is exactly that box: its
+  provider wraps the router rather than living inside a page, and a context provider emits no
+  DOM, so the viewport is a sibling of the shell and not a descendant. Every confirmation and
+  every error the platform raised was set in a serif. The portalled popover panel already
+  carried the declaration for the same reason; the toast was the one surface that escaped the
+  shell without it.
+
 - **`terp guide no_raw_outbound_http` no longer says there is no outbound HTTP
   capability.** The remedy was written before `terp-cap-egress` existed and kept telling
   an agent that a live fetch had no sanctioned implementation; it now sends each outbound

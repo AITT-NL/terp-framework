@@ -4171,6 +4171,14 @@ button[data-terp="input"][data-placeholder="true"] {
   z-index: var(--z-index-toast);
   max-width: min(22.5rem, calc(100vw - 2 * var(--space-4)));
 }
+/* The font-family is declared here, and it is not decoration: this package sets the family
+   per ROOT — on appshell and on login-view — and never on body, so a box outside both
+   inherits the UA default and renders the platform's confirmations in a serif. The toast
+   viewport is exactly that box. ToastProvider wraps the router rather than living inside a
+   page, and a context provider emits no DOM, so the viewport is a SIBLING of appshell, not a
+   descendant; position: fixed has nothing to do with it, since inheritance follows the tree
+   and not the box. The portalled popover panel already carries this declaration for the same
+   reason and says so; this is the one surface that escaped the shell without it. */
 [data-terp="toast"] {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -4182,6 +4190,7 @@ button[data-terp="input"][data-placeholder="true"] {
   border-inline-start-width: 3px;
   background: var(--color-neutral-0);
   color: var(--color-neutral-900);
+  font-family: var(--font-family-sans);
   font-size: var(--font-size-sm);
   box-shadow: var(--shadow-md);
 }
