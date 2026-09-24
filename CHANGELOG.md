@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.27.0 — unreleased
+## 0.27.0 — 2026-09-24
 
 ### Security
 
@@ -61,18 +61,6 @@ decision, 0001 onwards.
   for subscriber deliveries, mail for e-mail — and names the one shape that still has no
   compliant path: a fetch from an arbitrary, user-supplied host.
 
-### Upgrade notes
-
-- **An application that imports `smtplib` fails the gate on this release**, wherever the
-  import lives. Move the send to `terp-cap-mail`: `uv add terp-cap-mail`, then follow
-  `terp guide mail`. A provider reachable only over its HTTP API keeps the same call
-  sites through `configure_mail(settings, transport=...)` with a transport built on
-  `terp.capabilities.egress`.
-
-## 0.26.0 — 2026-09-22
-
-### Fixed
-
 - **Container logs no longer grow without a bound, and the database is no longer polled
   every five seconds.** Docker's default logging driver is not the same everywhere, and
   where it is `db` — one SQLite database per container — nothing in the default
@@ -91,15 +79,19 @@ decision, 0001 onwards.
   log lines, to answer a question that stops changing within the first minute. It moves to
   `interval: 30s` with `start_period: 30s`, so the fast feedback lands where it is
   actually wanted — the stack coming up — instead of running at that rate forever.
-
 ### Upgrade notes
+
+- **An application that imports `smtplib` fails the gate on this release**, wherever the
+  import lives. Move the send to `terp-cap-mail`: `uv add terp-cap-mail`, then follow
+  `terp guide mail`. A provider reachable only over its HTTP API keeps the same call
+  sites through `configure_mail(settings, transport=...)` with a transport built on
+  `terp.capabilities.egress`.
 
 - The fix is in the template, so a newly generated project has it. An existing project
   keeps the compose files it was generated with: copy the `x-logging` anchor and the
   `logging: *container-logging` line on each service into `docker-compose.yml` and
   `docker-compose.prod.yml`, and widen the `db` healthcheck the same way. Nothing breaks
   if you leave it — the caps are the point, not a compatibility change.
-
 ## 0.25.0 — 2026-09-19
 
 ### Added

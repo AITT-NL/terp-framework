@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-mail"
-version = "0.26.0"
+version = "0.27.0"
 description = "Terp mail capability — outbound e-mail through one declared relay: TLS required, a fixed sender, bounded messages, delivered by the jobs seam so a send commits with the write that caused it."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.26.0",
+    "terp-core==0.27.0",
     # Nothing else, on purpose. The SMTP client is the standard library's `smtplib`,
     # imported in exactly one module of this distribution -- which is the whole point of
     # `no_raw_outbound_http` refusing it everywhere else.
