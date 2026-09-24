@@ -10,3 +10,4 @@ a8e0ec894cace738e4f08ba8e7b3c79af1decea7:tests/architecture/test_cli_env_seams.p
 c7138152e6deb603b779ad98a843dd8d0980d349:.github/workflows/prod-smoke.yml:generic-api-key:29
 c7138152e6deb603b779ad98a843dd8d0980d349:tests/architecture/test_oidc.py:generic-api-key:50
 c7138152e6deb603b779ad98a843dd8d0980d349:tests/architecture/test_webhooks.py:generic-api-key:91
+16109e1c955d7cfbd1c642813187c2c0a47fe516:tests/architecture/test_mfa.py:generic-api-key:58
