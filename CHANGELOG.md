@@ -10,7 +10,20 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.28.0 — unreleased
+## 0.27.0 — 2026-09-24
+
+### Security
+
+- **`no_raw_outbound_http` refuses `smtplib`.** The rule refused every route to the
+  network an HTTP call takes and let the standard library's mail client through, so the
+  first thing an agent writes when asked to send a mail passed the gate with every
+  decision the rule exists to take away from a call site still at the call site:
+  `smtplib` is unencrypted until `starttls()` is called, its default context verifies
+  neither the certificate nor the name even then, `login()` sends the password in the
+  clear to any server that advertises AUTH, and there is no timeout. The refusal carries
+  its own remedy — the mail capability below — rather than the HTTP one, since
+  `EgressClient` cannot speak SMTP. It was not added before because a refusal with no
+  compliant path is a hole code goes around (ADR 0096); the path exists now (ADR 0150).
 
 ### Added
 
@@ -60,23 +73,6 @@ decision, 0001 onwards.
   WebAuthn and step-up re-authentication are not here; `amr` is the half of step-up that
   had to exist first.
 
-## 0.27.0 — 2026-09-24
-
-### Security
-
-- **`no_raw_outbound_http` refuses `smtplib`.** The rule refused every route to the
-  network an HTTP call takes and let the standard library's mail client through, so the
-  first thing an agent writes when asked to send a mail passed the gate with every
-  decision the rule exists to take away from a call site still at the call site:
-  `smtplib` is unencrypted until `starttls()` is called, its default context verifies
-  neither the certificate nor the name even then, `login()` sends the password in the
-  clear to any server that advertises AUTH, and there is no timeout. The refusal carries
-  its own remedy — the mail capability below — rather than the HTTP one, since
-  `EgressClient` cannot speak SMTP. It was not added before because a refusal with no
-  compliant path is a hole code goes around (ADR 0096); the path exists now (ADR 0150).
-
-### Added
-
 - **Sending e-mail: `terp-cap-mail` (ADR 0150).** A library capability: the application
   declares one relay in its composition root —
   `configure_mail(mail_settings_from_environment(os.environ))`, read from the fixed
@@ -103,6 +99,46 @@ decision, 0001 onwards.
   `terp guide mail`.
 
 ### Fixed
+
+- **The page band no longer sends a page's actions to a second line while the first one is
+  empty.** A page carrying badges or a lead line moved its action cluster onto the meta row
+  at every width, on the reasoning that the row was already being spent and that the trail
+  would collect the whole first row in exchange. It never collected: the rule handing the
+  trail that row was a child selector against `page-heading`, which is `display: contents`,
+  so it matched nothing and the trail truncated exactly as early as before. Measured on a
+  1280px viewport, an ordinary detail page — two crumbs, one badge, one button — put the
+  button on line two with 1028px of free room beside the trail, and did the same at 1440.
+
+  The cluster now keeps its place beside the trail at every width above the first cutover,
+  with the meta group on the row beneath it, so where a page's actions live no longer
+  depends on whether it happens to carry a badge. Below the cutover the band becomes a
+  single column and the cluster takes a row of its own, because that is the width at which
+  it genuinely cannot share a line with the title.
+
+- **The band no longer sits its content on its own border.** `grid-auto-rows: 1fr` sized
+  both lines to the taller one, so the taller line's item filled its track exactly; with the
+  chrome row spending no block padding — it cannot, and still match the app header's height —
+  the second row landed flush against the band's bottom edge. Measured 9px above the content
+  and 0px below it on every two-row page. Rows are now sized to their content, and the block
+  padding a one-row band cannot afford is spent on the bands that are already more than one
+  row: 4px and 4px. A one-row band is unchanged, to the pixel, including one carrying the
+  largest control this package ships.
+
+- **A deep trail degrades by dropping ancestors, not by dissolving.** Every crumb carries
+  `min-width: 0` and an ellipsis while the separators are `flex: 0 0 auto`, so a trail with
+  no room left kept its chevrons and lost its labels. Measured at 360px on a six-crumb page:
+  six labels under 8px, no page title on screen at all, and the action cluster overlapping
+  the badges by 24px. Below the first cutover the trail now keeps the leaf and one ancestor,
+  marks the elision, and drops the rest — which takes their separators with them.
+
+- **Toasts render in the platform's own typeface.** This package declares the font family
+  per root — on the app shell and on the login view — and never on `body`, so a box outside
+  both inherits the user agent's default. The toast viewport is exactly that box: its
+  provider wraps the router rather than living inside a page, and a context provider emits no
+  DOM, so the viewport is a sibling of the shell and not a descendant. Every confirmation and
+  every error the platform raised was set in a serif. The portalled popover panel already
+  carried the declaration for the same reason; the toast was the one surface that escaped the
+  shell without it.
 
 - **`terp guide no_raw_outbound_http` no longer says there is no outbound HTTP
   capability.** The remedy was written before `terp-cap-egress` existed and kept telling

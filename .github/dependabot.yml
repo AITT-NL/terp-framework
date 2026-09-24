@@ -21,6 +21,21 @@ updates:
     groups:
       frontend-deps:
         patterns: ["*"]
+    ignore:
+      # TypeScript 7 is the native port, and two things have to land before this stack can
+      # take it. Its main entry exports `version` and `versionMajorMinor` and nothing else --
+      # the compiler API moved behind `typescript/unstable/*`, which `contract`'s
+      # routes-codegen reads (createSourceFile, ScriptTarget, forEachChild and the is* guards)
+      # and which is labelled unstable by its own export map. And every published
+      # typescript-eslint, canary included, declares `typescript: ">=4.8.4 <6.1.0"`, so the
+      # install of @terpjs/eslint-boundaries fails outright rather than degrading -- taking
+      # the boundary linter every generated project ships with it.
+      #
+      # Grouped bumps are all-or-nothing, so without this line one unadoptable major holds
+      # five routine ones hostage every week. The signal to remove it is a typescript-eslint
+      # release whose peer range admits 7, not a TypeScript release.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directories:
       - /template/project
