@@ -18,6 +18,7 @@ members = [
     "packages/backend/capabilities/groups",
     "packages/backend/capabilities/leases",
     "packages/backend/capabilities/mail",
+    "packages/backend/capabilities/mfa",
     "packages/backend/capabilities/users",
     "packages/backend/capabilities/outbox",
     "packages/backend/capabilities/jobs_celery",
@@ -49,6 +50,7 @@ terp-cap-identity = { workspace = true }
 terp-cap-jobs-celery = { workspace = true }
 terp-cap-leases = { workspace = true }
 terp-cap-mail = { workspace = true }
+terp-cap-mfa = { workspace = true }
 terp-cap-oidc = { workspace = true }
 terp-cap-outbox = { workspace = true }
 terp-cap-redis = { workspace = true }

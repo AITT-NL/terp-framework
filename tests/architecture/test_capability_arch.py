@@ -48,6 +48,7 @@ _BUDGETED_CAPS = (
     "jobs_celery",
     "leases",
     "mail",
+    "mfa",
     "webhooks",
     "files",
     "scheduler_apscheduler",

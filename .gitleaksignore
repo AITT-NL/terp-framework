@@ -26,3 +26,4 @@ c7138152e6deb603b779ad98a843dd8d0980d349:tests/architecture/test_webhooks.py:gen
 05879f3052cbf38099c3e60c68e4c25d6fcd68d9:tests/architecture/test_arch_harness.py:generic-api-key:3036
 05879f3052cbf38099c3e60c68e4c25d6fcd68d9:tests/architecture/test_arch_harness.py:generic-api-key:3041
 05879f3052cbf38099c3e60c68e4c25d6fcd68d9:tests/architecture/test_arch_harness.py:generic-api-key:3058
+16109e1c955d7cfbd1c642813187c2c0a47fe516:tests/architecture/test_mfa.py:generic-api-key:58

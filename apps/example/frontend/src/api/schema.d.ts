@@ -1196,6 +1196,8 @@ export interface components {
         LoginRequest: {
             /** Email */
             email: string;
+            /** Mfa Code */
+            mfa_code?: string | null;
             /** Password */
             password: string;
         };

@@ -53,7 +53,7 @@ from terp.migrations.cli import migrate_main
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 APP_ROOT = _REPO_ROOT / "apps" / "example" / "app"
 
-_EXPECTED_LABELS = ["access", "audit", "files", "groups", "identity", "leases", "outbox", "sync", "webhooks", "journals", "notes", "projects", "tasks"]
+_EXPECTED_LABELS = ["access", "audit", "files", "groups", "identity", "leases", "mfa", "outbox", "sync", "webhooks", "journals", "notes", "projects", "tasks"]
 _DOMAIN_TABLES = {
     "access_grant",
     "audit_event",

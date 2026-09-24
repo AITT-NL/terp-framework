@@ -58,6 +58,7 @@ from terp.capabilities.auth.schemas import (
     CurrentUser,
     LoginRequest,
 )
+from terp.capabilities.auth.second_factor import MfaRequiredError, SecondFactor
 from terp.capabilities.auth.throttle import (
     AccountLockedError,
     LoginThrottle,
@@ -90,6 +91,8 @@ __all__ = [
     "LoginRequest",
     "LoginTenantResolver",
     "LoginThrottle",
+    "MfaRequiredError",
+    "SecondFactor",
     "PrincipalResolver",
     "RefreshIssuer",
     "RefreshRotation",

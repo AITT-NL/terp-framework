@@ -59,6 +59,7 @@ from terp.capabilities.auth.schemas import (
     CurrentUser,
     LoginRequest,
 )
+from terp.capabilities.auth.second_factor import MfaRequiredError, SecondFactor
 from terp.capabilities.auth.throttle import LoginThrottle
 from terp.capabilities.auth.tokens import SubjectKind, create_access_token
 
@@ -99,6 +100,7 @@ def build_login_router(
     principal_resolver: PrincipalResolver | None = None,
     authenticate_client: ClientAuthenticator | None = None,
     service_token_version_resolver: ServiceTokenVersionResolver | None = None,
+    second_factor: SecondFactor | None = None,
     require_refresh: bool = False,
 ) -> APIRouter:
     """Build a ``/login`` (+ optional ``/logout`` / ``/refresh`` / ``/token``) router.
@@ -170,7 +172,9 @@ def build_login_router(
             "token would be minted at a stale token epoch (ADR 0088)."
         )
 
-    def _mint_access_token(session: Session, principal: Principal) -> str:
+    def _mint_access_token(
+        session: Session, principal: Principal, *, amr: tuple[str, ...] = ()
+    ) -> str:
         tenant = tenant_resolver(session, principal) if tenant_resolver is not None else None
         kind = SubjectKind(principal.kind)
         resolver = (
@@ -185,6 +189,7 @@ def build_login_router(
             tenant=tenant,
             token_version=token_version,
             kind=kind,
+            amr=amr,
         )
 
     @router.post("/login", response_model=AccessToken)
@@ -204,8 +209,20 @@ def build_login_router(
         if principal is None:
             active_throttle.record_failure(credentials.email, source=source)
             raise AuthenticationError()
+        # Checked AFTER the password and BEFORE success is recorded: a wrong code is
+        # a failed attempt, and recording success first would clear the throttle for
+        # a caller who has not finished authenticating.
+        methods: tuple[str, ...] = ("pwd",)
+        if second_factor is not None and second_factor.is_enrolled(session, principal.id):
+            if not credentials.mfa_code:
+                active_throttle.record_failure(credentials.email, source=source)
+                raise MfaRequiredError()
+            if not second_factor.verify(session, principal.id, credentials.mfa_code):
+                active_throttle.record_failure(credentials.email, source=source)
+                raise AuthenticationError()
+            methods = ("pwd", "otp")
         active_throttle.record_success(credentials.email, source=source)
-        token = _mint_access_token(session, principal)
+        token = _mint_access_token(session, principal, amr=methods)
         if refresh_issuer is not None:
             # Open a fresh refresh-token family and set its httpOnly cookie beside the
             # bearer, so the session survives a reload and can outlive the access TTL.
@@ -322,6 +339,7 @@ def build_login_module(
     principal_resolver: PrincipalResolver | None = None,
     authenticate_client: ClientAuthenticator | None = None,
     service_token_version_resolver: ServiceTokenVersionResolver | None = None,
+    second_factor: SecondFactor | None = None,
     require_refresh: bool = False,
 ) -> ModuleSpec:
     """Build the auth ``ModuleSpec`` (public login + optional logout / refresh / token).
@@ -356,6 +374,7 @@ def build_login_module(
             principal_resolver=principal_resolver,
             authenticate_client=authenticate_client,
             service_token_version_resolver=service_token_version_resolver,
+            second_factor=second_factor,
             require_refresh=require_refresh,
         ),
         policy=Policy.public_write(
