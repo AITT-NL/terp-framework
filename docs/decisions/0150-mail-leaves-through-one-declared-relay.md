@@ -80,8 +80,11 @@ configures mail the same way and a deployment tool can name them without reading
   delivers nothing and logs every message it did not deliver — its subject and recipient
   count, never the address or the body, since development databases are often copies.
 
-Both refusals are decided by `production_problems()`-shaped predicates that do not depend
-on the environment they run in (ADR 0128).
+The unencrypted-relay refusal is a `production_problems()` predicate that does not depend
+on the environment it runs in (ADR 0128), so it can be asked off the production host. The
+no-relay refusal cannot be: it *is* the environment. It is moved earlier instead — the
+guide has the application declare `MAIL_FROM` and `SMTP_HOST` as required, so a
+deployment that honours the manifest refuses before the boot.
 
 ### The message is data, validated when it is asked for
 
@@ -89,8 +92,11 @@ on the environment they run in (ADR 0128).
 `Reply-To`. The classic failures of mail built from data are header failures, and each is
 refused at construction, where the refusal reaches the code that made the mistake:
 
-- a CR, LF or other control character in the subject, or anywhere in an address — the
-  header injection that turns a notification into a bulk mail;
+- a CR, LF, line separator or other control character in the subject, the sender's name
+  or anywhere in an address — the header injection that turns a notification into a bulk
+  mail. The line separators matter: the email package ends a header line at U+0085,
+  U+2028 and U+2029 as well, so a check for CR and LF alone accepts a subject the message
+  builder then refuses, and that mail waits in the queue until it dead-letters;
 - a second address smuggled into one (`a@example.com, b@example.com`), an IP-literal
   domain that skips the recipient's own mail routing, a domain with no dot;
 - more than `MAX_RECIPIENTS` recipients. A message to many visible people hands each of

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from email.errors import HeaderParseError
@@ -74,6 +75,19 @@ _DEFAULT_PORT: dict[MailSecurity, int] = {
 }
 
 
+def breaks_a_header(value: str) -> bool:
+    """Whether *value* holds a character that ends a header line, or any other control.
+
+    Not only CR and LF. The email package validates and folds a header with
+    ``str.splitlines``, which also breaks at the C1 control U+0085 and the Unicode line
+    and paragraph separators U+2028 and U+2029, so a value checked for CR and LF alone
+    passes validation and is refused when the message is built — a queued mail that can
+    never be sent. The categories below are exactly the ones those breaks fall in (Cc,
+    Zl, Zp), and Cc takes the remaining controls with it.
+    """
+    return any(unicodedata.category(ch) in ("Cc", "Zl", "Zp") for ch in value)
+
+
 def parse_address(value: str) -> Address:
     """Parse one addr-spec (``someone@example.com``) strictly, or raise ``ValueError``.
 
@@ -102,7 +116,7 @@ def parse_sender(value: str) -> Address:
     if named is None:
         return parse_address(value.strip())
     name = named.group("name").strip().strip('"').strip()
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
+    if breaks_a_header(name):
         raise ValueError(f"not a sender: {value!r}")
     spec = parse_address(named.group("address").strip())
     return Address(display_name=name, username=spec.username, domain=spec.domain)
@@ -231,6 +245,7 @@ def mail_settings_from_environment(
 
 __all__ = [
     "MailSecurity",
+    "breaks_a_header",
     "MailSettings",
     "mail_settings_from_environment",
     "parse_address",

@@ -22,14 +22,14 @@ from email.headerregistry import Address
 from email.message import EmailMessage
 from email.policy import SMTP
 from email.utils import format_datetime
-from typing import Final
+from typing import Annotated, Final
 
-from pydantic import field_validator
+from pydantic import StringConstraints, field_validator
 from sqlmodel import Field
 
 from terp.core import BaseSchema
 
-from terp.capabilities.mail.settings import parse_address
+from terp.capabilities.mail.settings import breaks_a_header, parse_address
 
 #: At most this many recipients per message. A message to many visible recipients hands
 #: every one of them everybody else's address, and it is the shape relays score as bulk
@@ -46,10 +46,6 @@ MAX_SUBJECT_LENGTH: Final[int] = 250
 MAX_TEXT_LENGTH: Final[int] = 100_000
 
 
-def _has_control_characters(value: str) -> bool:
-    return any(ord(ch) < 32 or ord(ch) == 127 for ch in value)
-
-
 class MailMessage(BaseSchema):
     """One message: who it is for, what it says, and where a reply should go.
 
@@ -57,11 +53,17 @@ class MailMessage(BaseSchema):
     declared in :class:`~terp.capabilities.mail.MailSettings`. ``reply_to`` is where a
     person's answer lands — the case a per-message sender is usually wanted for, without
     letting a feature send mail that claims to come from someone else.
+
+    ``text`` is kept exactly as written. The platform trims every other input string,
+    and here that would take the indentation off a first line and the blank lines off
+    the end of a signature — a change to what the author wrote, made in silence.
     """
 
     to: list[str] = Field(min_length=1, max_length=MAX_RECIPIENTS)
     subject: str = Field(min_length=1, max_length=MAX_SUBJECT_LENGTH)
-    text: str = Field(min_length=1, max_length=MAX_TEXT_LENGTH)
+    text: Annotated[str, StringConstraints(strip_whitespace=False)] = Field(
+        min_length=1, max_length=MAX_TEXT_LENGTH
+    )
     reply_to: str | None = Field(default=None, max_length=254)
 
     @field_validator("to")
@@ -81,16 +83,18 @@ class MailMessage(BaseSchema):
     @field_validator("subject")
     @classmethod
     def _subject_is_one_line(cls, value: str) -> str:
-        if _has_control_characters(value):
+        if breaks_a_header(value):
             raise ValueError(
-                "the subject is one line of text: a line break or other control "
-                "character in a header starts a header of its own"
+                "the subject is one line of text: a line break, a line separator or "
+                "another control character in a header starts a header of its own"
             )
         return value
 
     @field_validator("text")
     @classmethod
-    def _text_holds_no_nul(cls, value: str) -> str:
+    def _text_says_something(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("the text is empty")
         # The message is stored as a job payload before it is sent, and PostgreSQL's
         # JSON types cannot hold a NUL character: accepting one here would turn a
         # validated send into a database error inside the business write.

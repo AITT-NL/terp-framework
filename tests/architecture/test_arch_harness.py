@@ -326,7 +326,7 @@ def test_no_raw_outbound_http(tmp_path: pathlib.Path) -> None:
 
     # The standard library's mail client is the same egress by another protocol, and is
     # sent to the capability that exists for it rather than to the HTTP one.
-    for stmt in ("import smtplib", "from smtplib import SMTP_SSL"):
+    for stmt in ("import smtplib", "import smtplib as mailer", "from smtplib import SMTP_SSL"):
         _write(app, "modules/notes/service.py", f"{stmt}\n")
         (violation,) = check_no_raw_outbound_http(app)
         assert violation.rule == "no_raw_outbound_http", stmt

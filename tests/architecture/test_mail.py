@@ -149,7 +149,11 @@ def test_a_sender_is_a_bare_address_or_a_named_one() -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["Orders\r\nBcc: x@example.test <noreply@example.test>", "Orders <not-an-address>"],
+    [
+        "Orders\r\nBcc: x@example.test <noreply@example.test>",
+        "Orders Bcc: x@example.test <noreply@example.test>",
+        "Orders <not-an-address>",
+    ],
 )
 def test_a_sender_that_would_split_a_header_is_refused(value: str) -> None:
     with pytest.raises(ValueError):
@@ -282,8 +286,14 @@ def test_a_half_configured_environment_is_refused_at_boot(
         {"to": ["a@example.test, b@example.test"]},
         {"subject": "Shipped\r\nBcc: everyone@example.test"},
         {"subject": "Shipped\tnow"},
+        # The email package ends a header line at these too: accepted here, each one
+        # would build into nothing and wait in the queue until it dead-lettered.
+        {"subject": "Shipped Bcc: everyone@example.test"},
+        {"subject": "Shipped now"},
+        {"subject": "Shipped\u0085now"},
         {"subject": ""},
         {"text": ""},
+        {"text": " \n\t "},
         {"text": "a NUL \x00 would fail inside the business write"},
         {"reply_to": "sales@example.test\r\nBcc: everyone@example.test"},
     ],
@@ -293,6 +303,24 @@ def test_a_message_that_would_misbehave_is_refused_when_it_is_asked_for(
 ) -> None:
     with pytest.raises(ValidationError):
         _message(**overrides)
+
+
+def test_every_character_a_header_line_ends_at_is_refused_in_the_subject() -> None:
+    """Measured against the thing that decides, not against a list someone typed."""
+    breaks = [chr(code) for code in range(0x110000) if len(f"a{chr(code)}b".splitlines()) > 1]
+    assert breaks  # the probe itself must find something
+    for ch in breaks:
+        with pytest.raises(ValidationError):
+            _message(subject=f"Shipped{ch}now")
+
+
+def test_the_text_is_sent_exactly_as_written() -> None:
+    text = "    Order 1042\n\nKind regards,\nThe team\n\n"
+    message = _message(text=text)
+    assert message.text == text
+    # ... and survives the job payload's round trip through the outbox's JSON.
+    payload = MailJobPayload(**message.model_dump(), message_id="<x@example.test>")
+    assert MailJobPayload.model_validate(payload.model_dump(mode="json")).text == text
 
 
 def test_a_message_at_the_recipient_bound_is_accepted() -> None:
