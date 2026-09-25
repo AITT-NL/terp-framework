@@ -12,8 +12,9 @@ decision, 0001 onwards.
 
 ## 0.28.0 — unreleased
 
-Friction reported from building FAST-SYNC on Terp: a card where the affordance was repeated
-more often than the values it applied to.
+Friction reported from building FAST-SYNC on Terp: a record card whose labels and values
+did not read as pairs, and where the affordance was repeated more often than the values it
+applied to.
 
 ### Added
 
@@ -52,6 +53,43 @@ more often than the values it applied to.
 
   No `prefers-reduced-motion` clause was needed — that block already sets `transition: none`
   on every `[data-terp]` element, and the slot is one.
+
+### Fixed
+
+- **An aligned `DetailList` puts a label and its value on one baseline.** `layout="aligned"`
+  makes each row a `display: contents` box so the `<dt>` and the `<dd>` become grid items of
+  the list itself — which is what shares the label column across rows, and also what leaves
+  the two boxes under grid's default `stretch`. Both then start at the row's top and each
+  text sits at the top of its own line box; the boxes are not the same height, because the
+  term is a type step smaller than the value. So the label rode above the value it labels,
+  measured at 4px on every row of a two-column card and unchanged by anything the caller
+  could pass. The shared label column was the one axis the layout aligned, and the pair's
+  own reading line was the one it did not.
+
+  The list now declares `align-items: baseline`, in both of the shapes whose rows are grid
+  items: the closed column counts in the wide-viewport block, and `columns="auto"`, which is
+  a contents box at every width and would otherwise have been the single configuration where
+  the label still rode high. Baseline rather than centre, and the difference appears on a
+  value that wraps: a centred label drifts to the middle of a block it is not describing,
+  while a baseline holds it on the line the value starts on. `inline` and `stacked` are
+  untouched — neither makes a pair into grid items, so neither had the defect.
+
+- **An aligned or stacked value no longer renders a step larger than the record beside it.**
+  Muting the term moved one half of the pair to `--font-size-xs` and left the other at the
+  inherited `--font-size-base`: 12px against 16px, two steps apart, far enough that a card of
+  labelled values reads as two kinds of text rather than as a label and the thing it labels.
+  Reported from the other end, as the value being too big for its label.
+
+  The value takes `--font-size-sm`, which is not a fresh judgement about this component but
+  the step every other dense record surface in the sheet already renders — a `DataView`
+  header cell is `xs` and its body cell is `sm`, which is this same pair in a table, and
+  `card-description`, `input` and `field-label-text` are all `sm`. An aligned detail list
+  beside a table on one page was the outlier. `styles.test.ts` now asserts the two steps
+  *against DataView's own*, so the two surfaces cannot drift apart silently.
+
+  The rule sets the `<dd>`, so a value that declares its own size keeps it: a `<Text>` inside
+  a value still renders at the step that `Text` asked for. A caller who wants the pair's step
+  passes `size="sm"` or hands the value as a string.
 
 ## 0.27.0 — 2026-09-24
 
