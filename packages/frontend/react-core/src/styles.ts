@@ -637,6 +637,21 @@ textarea[data-terp="input"] {
   [data-terp="detail-list"][data-layout="aligned"] {
     grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
     column-gap: var(--space-3);
+    /* The pair's alignment, and it belongs to the shared column rather than to the grid. A
+       dt and a dd are separate grid items here -- that is what display: contents below does
+       -- so under the default stretch each box starts at the row's top and each text sits at
+       the top of its own line box. The two line boxes are not the same height, because the
+       term is a type step smaller than the value, so the label rides ABOVE the value it
+       labels: measured at 4px on every row of a two-column card, which is precisely the
+       misalignment a shared label column exists to remove.
+
+       baseline rather than center, and the difference shows on the second line rather than
+       the first: a value that wraps would pull a centred label to the middle of a block it
+       is not describing, while a baseline holds the label on the line the value STARTS on.
+       That is also why it is align-items on the container rather than align-self on the dt --
+       a grid baseline group spans the row, so at two pairs per row all four items share one
+       line, which one item aligning itself cannot produce. */
+    align-items: baseline;
   }
   [data-terp="detail-list"][data-layout="aligned"][data-columns="2"] {
     grid-template-columns: repeat(2, minmax(0, max-content) minmax(0, 1fr));
@@ -876,6 +891,12 @@ textarea[data-terp="input"] {
     minmax(min(9rem, 30%), max-content) minmax(min(13rem, 60%), 1fr)
   );
   column-gap: var(--space-3);
+  /* The baseline the wide block's aligned rule takes, declared again HERE and therefore at
+     every width. An auto list keeps its shared column below the cutover -- the contents rule
+     two blocks down says so -- so it is the one aligned list whose pairs are grid items in a
+     phone's width, and it would be the one place the label went back to riding above its
+     value. */
+  align-items: baseline;
 }
 /* The shared column for an auto list, at EVERY width, which the aligned rule in the wide block
    only gives above the cutover. Without it an auto list below the cutover would place each pair
@@ -905,6 +926,29 @@ textarea[data-terp="input"] {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-normal);
   color: var(--color-fg-muted);
+}
+/* And the value comes down to meet it. Muting the term above moved one half of the pair and
+   left the other at the inherited base, which is 12px against 16px -- two steps apart, far
+   enough that a reader sees two kinds of text rather than a label and the thing it labels.
+   Reported as the value being too big for its label, which is the same observation from the
+   other end.
+
+   sm is not a fresh judgement about this component. It is what every other dense record
+   surface in this sheet already renders: a DataView header cell is xs and its body cell is
+   sm, which IS this pair in a table, and card-description, input and field-label-text are all
+   sm. An aligned detail list beside a table on the same page was the one surface reading a
+   step larger than the record it describes.
+
+   inline is excluded for the reason the muting rule above gives. There the value is the second
+   half of a sentence whose first half is the term, so stepping one half down would break the
+   line rather than group it.
+
+   It sets the dd, so a value that declares its own size keeps it -- a Text inside a value
+   still renders at the step that Text asked for. That is the correct outcome for a caller who
+   said a size and the thing to know about a caller who did not. */
+[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-value"],
+[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-value"] {
+  font-size: var(--font-size-sm);
 }
 /* The gap prop, and this block must stay AFTER the layout rules above. Both
    [data-terp="detail-list"][data-gap="3"] and [data-terp="detail-list"][data-layout="aligned"]

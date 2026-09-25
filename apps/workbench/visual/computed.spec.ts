@@ -998,6 +998,56 @@ test("a full row spans the list while its neighbours keep the shared column", as
   }
 });
 
+test("an aligned pair sits on one baseline, at either column count", async ({ page }) => {
+  // The property a re-recorded baseline cannot STATE. A 4px shift between a label and its
+  // value is visible in a picture and invisible in a review of one: nothing about the new
+  // screenshot says whether the offset it holds was intended, so the sheet could go back to
+  // grid's default `stretch` and the only evidence would be a moved PNG that somebody has to
+  // notice is wrong.
+  //
+  // The defect it pins: an aligned row is a `display: contents` box, so the dt and the dd are
+  // separate grid items. Stretched, both boxes start at the row's top and each text sits at
+  // the top of its own line box -- and the term's line box is shorter, because the term is a
+  // type step smaller. So the label rendered ABOVE the value it labels, on every row.
+  //
+  // Measured with a probe rather than with the boxes, and the distinction is the test: under
+  // `align-items: baseline` the two BOXES no longer share a top (the browser pushes the
+  // smaller one down, which is the mechanism), so comparing rects would assert the mechanism
+  // and not the outcome. A zero-height inline-block with `vertical-align: baseline` sits with
+  // its bottom edge exactly on the line's baseline, which is the thing a reader sees.
+  for (const only of ["detail-list-aligned", "detail-list-two-column"]) {
+    await page.goto(`/?theme=light&only=${only}`);
+    await page.locator('[data-terp="detail-list"]').first().waitFor({ state: "visible" });
+    const rows = await page.evaluate(() => {
+      const baselineOf = (el: Element) => {
+        const probe = document.createElement("span");
+        probe.style.cssText =
+          "display:inline-block;width:0;height:0;vertical-align:baseline";
+        el.insertBefore(probe, el.firstChild);
+        const bottom = probe.getBoundingClientRect().bottom;
+        probe.remove();
+        return Math.round(bottom);
+      };
+      return [...document.querySelectorAll('[data-terp="detail-list-row"]')].map((row) => ({
+        label: row.querySelector('[data-terp="detail-list-term"]')!.textContent,
+        term: baselineOf(row.querySelector('[data-terp="detail-list-term"]')!),
+        value: baselineOf(row.querySelector('[data-terp="detail-list-value"]')!),
+      }));
+    });
+
+    expect(rows.length, `${only} should render pairs`).toBeGreaterThan(1);
+    for (const row of rows) {
+      expect(row.term, `${only}: "${row.label}" and its value share a baseline`).toBe(row.value);
+    }
+    // And the pair is a pair rather than one line: two rows on one baseline would satisfy
+    // every assertion above and mean the list had collapsed.
+    expect(
+      new Set(rows.map((row) => row.term)).size,
+      `${only}: rows keep their own lines`,
+    ).toBeGreaterThan(1);
+  }
+});
+
 test("a group puts every list's values on one line, and a plain stack does not", async ({
   page,
 }) => {
