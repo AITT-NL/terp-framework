@@ -13,9 +13,47 @@ decision, 0001 onwards.
 ## 0.28.0 — unreleased
 
 Friction reported from building FAST-SYNC on Terp: a record card whose labels and values
-did not read as pairs, and a row of form fields with no correct alignment.
+Friction reported from building FAST-SYNC on Terp: a record card whose labels and values
+did not read as pairs, a row of form fields with no correct alignment, and an affordance
+repeated more often than the values it applied to.
 
 ### Added
+
+- **`QuietActions` — a value with an action attached, where the action is quiet until someone
+  reaches for it.** A revision card carries five copyable digests, so it carried five copy
+  buttons: five controls competing with five twelve-character chips that are themselves the
+  thing a reader came to look at, and below the viewport cutover each button took a line of
+  its own. The same shape turns up wherever a list row owns an action — a remove, an open, a
+  pin — and an app cannot express it itself, because module code may write neither CSS nor
+  `style` (ADR 0059) and a theme file carries tokens rather than component rules.
+
+  **The space is reserved, not collapsed.** The action fades rather than appearing, so nothing
+  on the row moves when a pointer arrives: a value that reflows under the cursor is a value
+  you cannot click, and a row of them makes a card twitch as the mouse crosses it.
+
+  Three things make it safe rather than merely quiet, and each closes a way this pattern is
+  usually got wrong:
+
+  - **It only hides where hovering is possible at all.** On a touch screen there is no hover
+    to reveal anything, so an unconditional rule leaves the action permanently invisible and
+    permanently tappable — a control that is operable and unfindable, which is worse than a
+    busy row. The resting state sits behind `@media (hover: hover)`, which is the first
+    hover-capability query in this sheet; it is a correctness gate rather than a refinement,
+    and both halves are pinned so neither can be dropped without the other being noticed.
+  - **It reveals on focus as well as hover**, through `:focus-within` on the row. Opacity does
+    not remove an element from the tab order — which is correct, the action must stay
+    reachable — so without this a keyboard user would be sent to a control they cannot see.
+  - **It is in the accessibility tree at every moment.** Opacity is not `visibility` and not
+    `display`, so the action is announced, named and operable throughout; what changes is only
+    whether a sighted pointer user has to look at it.
+
+  The actions are a **slot**, the same one `Card` publishes, rather than a convention about
+  which children count as actions: "every `Button` inside" would be a rule a reader has to
+  know before they can predict what a row does, and it would capture a button that happened to
+  be part of the value.
+
+  No `prefers-reduced-motion` clause was needed — that block already sets `transition: none`
+  on every `[data-terp]` element, and the slot is one.
 
 - **`FieldRow` — several `Field`s side by side, with their labels, their controls and their
   messages each on a shared line.** A field is as tall as its label, its control *and*

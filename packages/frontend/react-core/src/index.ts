@@ -176,7 +176,9 @@ export type {
   LinkProps,
 } from "./typography";
 export { Field, FieldRow } from "./Field";
+export { QuietActions } from "./QuietActions";
 export type { FieldProps, FieldRowProps } from "./Field";
+export type { QuietActionsProps } from "./QuietActions";
 export { Stack, Grid, Divider, DetailList, DetailListGroup } from "./layout";
 export type {
   StackProps,

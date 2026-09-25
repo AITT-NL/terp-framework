@@ -4051,6 +4051,57 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="field-row"][data-gap="4"] { column-gap: var(--space-4); }
 [data-terp="field-row"][data-gap="6"] { column-gap: var(--space-6); }
 [data-terp="field-row"][data-gap="8"] { column-gap: var(--space-8); }
+/* Quiet actions ------------------------------------------------------------ */
+/* A value and the action attached to it, where the action is quiet until someone reaches for
+   it. The row itself is unconditional -- inline-flex so it sits inside a sentence or a table
+   cell rather than claiming a block, and baseline-aligned so a chip and its button sit on the
+   value's own reading line. Only the FADE is conditional, and the whole of the condition is
+   in the query below. */
+[data-terp="quiet-actions"] {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+[data-terp="quiet-actions"][data-gap="0"] { gap: var(--space-0); }
+[data-terp="quiet-actions"][data-gap="1"] { gap: var(--space-1); }
+[data-terp="quiet-actions"][data-gap="2"] { gap: var(--space-2); }
+[data-terp="quiet-actions"][data-gap="3"] { gap: var(--space-3); }
+[data-terp="quiet-actions"][data-gap="4"] { gap: var(--space-4); }
+[data-terp="quiet-actions"][data-gap="6"] { gap: var(--space-6); }
+[data-terp="quiet-actions"][data-gap="8"] { gap: var(--space-8); }
+/* The slot holds the actions together and keeps them on the value's line. It exists at every
+   width and in every pointer mode, because it is what reserves the space: the fade changes
+   opacity and never layout, so nothing on the row moves when a pointer arrives. A value that
+   reflows under the cursor is a value you cannot click. */
+[data-terp="quiet-actions-slot"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  transition: opacity var(--motion-duration-fast) var(--motion-easing-standard);
+}
+/* THE ONLY hover-capability query in this sheet, and it is a correctness gate rather than a
+   refinement. On a touch screen there is no hover to reveal anything, so an unconditional
+   rule would leave the action permanently invisible and permanently tappable -- a control
+   that is operable and unfindable, which is worse than a busy row. Where hovering exists the
+   action fades in on hover of the ROW, so reaching for the value reveals its action, and on
+   :focus-within, because opacity does not remove an element from the tab order and a keyboard
+   user must never be sent to a control they cannot see.
+
+   Introducing a media feature the sheet has not used before is a mechanism change; it is
+   justified here because the alternative is not a worse-looking row but an unusable one, and
+   styles.test.ts pins both halves so neither can be dropped without the other being noticed.
+
+   No prefers-reduced-motion clause is needed: that block already sets transition: none on
+   every [data-terp] element, and this slot is one. */
+@media (hover: hover) {
+  [data-terp="quiet-actions"] [data-terp="quiet-actions-slot"] {
+    opacity: 0;
+  }
+  [data-terp="quiet-actions"]:hover [data-terp="quiet-actions-slot"],
+  [data-terp="quiet-actions"]:focus-within [data-terp="quiet-actions-slot"] {
+    opacity: 1;
+  }
+}
 
 /* Tooltips ----------------------------------------------------------------- */
 /* No display declaration here on purpose: the panel is hidden with the hidden

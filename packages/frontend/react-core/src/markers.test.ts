@@ -216,6 +216,8 @@ const MARKERS = [
   "profile-card",
   "profile-email",
   "profile-role",
+  "quiet-actions",
+  "quiet-actions-slot",
   "radio",
   "radio-group",
   "radio-group-legend",

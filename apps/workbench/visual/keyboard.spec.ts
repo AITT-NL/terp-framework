@@ -195,6 +195,48 @@ for (const { name, width, height } of [
   });
 }
 
+test("a quiet action is visible by the time a keyboard reaches it", async ({ page }) => {
+  // This lane's own criterion, met exactly: a keystroke's effect is the contract, and the
+  // effect here is whether the control the Tab landed on can be SEEN. It is not an
+  // appearance case that belongs in a baseline -- a screenshot is taken with no pointer and
+  // no focus, so it can only ever picture the resting state, which is the half that is
+  // supposed to be invisible.
+  //
+  // The defect it closes is the standard way this pattern is got wrong. Opacity does not
+  // remove an element from the tab order, and that is correct -- the action must stay
+  // reachable -- but it means a row that reveals on :hover alone sends a keyboard user to a
+  // control they cannot see, with the focus ring painted at opacity 0. Nothing else in the
+  // suite would notice: the CSS-text assertion in QuietActions.test.tsx proves the RULE is
+  // written, and only a browser resolves whether it applies.
+  await page.goto("/?theme=light&only=quiet-actions");
+  const action = page.getByRole("button", { name: /^Copy / }).first();
+  await action.waitFor({ state: "attached" });
+
+  // At rest it is transparent. Read before focusing, so the assertion after it witnesses a
+  // CHANGE rather than a value that was always 1 -- without this the test would pass just as
+  // happily against a row that never hid anything.
+  const opacityOf = () =>
+    action.evaluate((el) => getComputedStyle(el.closest('[data-terp="quiet-actions-slot"]')!).opacity);
+  expect(
+    await opacityOf(),
+    "the resting state is quiet, or this test is witnessing nothing",
+  ).toBe("0");
+
+  await action.focus();
+  await expect(action).toBeFocused();
+  // Polled rather than read once, and the first draft of this line is the reason: the reveal
+  // is a 150ms transition, so a single read lands mid-fade and reports something like 0.11 --
+  // a failure that says "the reveal does not work" about a reveal that is visibly working.
+  // The contract is where the fade ENDS, so the assertion has to be the one that retries.
+  await expect
+    .poll(opacityOf, { message: "and focus reveals it" })
+    .toBe("1");
+
+  // And it was operable all along, which is the part opacity must never change: the button
+  // is in the accessibility tree, named, and reachable, at both moments.
+  await expect(action).toBeEnabled();
+});
+
 test("the skip link is the first tab stop, and Enter moves focus into main", async ({ page }) => {
   // Two claims, because the first one alone is the version that looks right and does nothing.
   //
