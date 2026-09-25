@@ -13,7 +13,6 @@ decision, 0001 onwards.
 ## 0.28.0 — unreleased
 
 Friction reported from building FAST-SYNC on Terp: a record card whose labels and values
-Friction reported from building FAST-SYNC on Terp: a record card whose labels and values
 did not read as pairs, a row of form fields with no correct alignment, and an affordance
 repeated more often than the values it applied to.
 
