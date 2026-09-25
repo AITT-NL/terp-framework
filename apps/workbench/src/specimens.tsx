@@ -26,6 +26,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  QuietActions,
   Grid,
   Heading,
   NavLinkContext,
@@ -1311,6 +1312,33 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             <Field label="Contact email" error="Enter an address with an @ in it.">
               <Input defaultValue="not-an-email" />
             </Field>
+          </Stack>
+        ),
+      },
+      {
+        // At rest, which is the state the component exists for: five copyable digests and no
+        // five copy buttons competing with them. The baseline can only ever picture this
+        // half -- Playwright takes a screenshot with no pointer over the page, and the
+        // revealed state belongs to the keyboard lane, where :focus-within is reachable.
+        id: "quiet-actions",
+        title: "QuietActions — an action that waits to be reached for",
+        node: (
+          <Stack gap={2}>
+            {["9f2c1b7ae4d0", "3f4a5b6c7d8e", "b0c1d2e3f4a5"].map((digest) => (
+              <QuietActions
+                key={digest}
+                actions={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Copy ${digest}`}
+                    icon={<Icon name="clipboard" size="1em" />}
+                  />
+                }
+              >
+                <Code>{digest}</Code>
+              </QuietActions>
+            ))}
           </Stack>
         ),
       },
