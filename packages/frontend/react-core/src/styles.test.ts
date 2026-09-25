@@ -981,6 +981,108 @@ describe("cascade structure", () => {
     expect(base.slice(termAt, base.indexOf("}", termAt))).not.toContain("color:");
   });
 
+  it("puts an aligned pair on one baseline, in every shape that shares a column", () => {
+    // Reported as the label's text not lining up with the value beside it, and it is a
+    // consequence of the shared column rather than an oversight in it. An aligned row is a
+    // display: contents box, so the dt and the dd are separate grid items -- and grid's
+    // default is stretch, which starts both boxes at the row's top and leaves each text at
+    // the top of its own line box. The two line boxes are not the same height, because the
+    // term is a type step smaller, so the label rides ABOVE the value it labels: measured at
+    // 4px on every row. The one axis a shared label column was not sharing.
+    //
+    // Asserted as an INVARIANT over the contents rules rather than as two literal selectors,
+    // and that is the whole value of the test. A row becomes a grid item in two places -- the
+    // closed counts in the wide block, and columns="auto" in the base, which has no cutover --
+    // and a third would be added the same way. Naming the two would pass a sheet that grew a
+    // third and left its labels riding high in exactly one configuration; this cannot.
+    const base = layerBody("terp.base");
+    const rules = [...base.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+      selector: match[1]!.trim().replace(/\s+/g, " "),
+      body: match[2]!,
+    }));
+    const row = ' [data-terp="detail-list-row"]';
+    const contents = rules.filter(
+      (rule) => rule.selector.includes(row) && rule.body.includes("display: contents"),
+    );
+    expect(
+      contents.length,
+      "the shared column exists where a row is a contents box; find those rules",
+    ).toBe(2);
+    for (const rule of contents) {
+      // The list the rule belongs to, which is the grid whose items those dt and dd become,
+      // and therefore the only box an align-items can be declared on.
+      const list = rule.selector.slice(0, rule.selector.indexOf(row));
+      const owner = rules.filter((candidate) => candidate.selector === list);
+      expect(owner.length, `${list} should have a rule of its own`).toBeGreaterThan(0);
+      expect(
+        owner.some((candidate) => candidate.body.includes("align-items: baseline")),
+        `${list} makes its rows contents boxes, so it owes its pairs a baseline`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps a DetailList pair one type step apart, on the table's own two steps", () => {
+    // The other half of the same report: the value read too big for its label. Muting the term
+    // moved one half of the pair to xs and left the other at the inherited base -- 12px against
+    // 16px, two steps, far enough apart that a reader sees two kinds of text rather than a
+    // label and the thing it labels.
+    //
+    // The steps are asserted against DataView's, not against literals, because that is the
+    // actual claim: a header cell and a body cell ARE this pair in a table, so a detail list
+    // beside a table on the same page must not render a step larger than the record it
+    // describes. Written as a comparison, the two surfaces cannot drift apart silently -- and
+    // a literal pair of tokens here would have let either side move alone.
+    const base = layerBody("terp.base");
+    const sizeOf = (selector: string) => {
+      const at = base.indexOf(selector);
+      expect(at, `${selector} should exist`).toBeGreaterThan(-1);
+      return /font-size:\s*([^;]+);/.exec(base.slice(at, base.indexOf("}", at)))?.[1]?.trim();
+    };
+    const headerStep = sizeOf('[data-terp="dataview-table"] > thead > tr > th {');
+    const cellStep = sizeOf('[data-terp="dataview-row"] > td {');
+    expect(headerStep, "a table labels its columns at one step").toBeTruthy();
+    expect(cellStep, "and holds the values at another").toBeTruthy();
+    expect(headerStep, "and the two are not the same step, or there is no pair").not.toBe(
+      cellStep,
+    );
+
+    // One rule per half, over both non-inline layouts and neither sentence. inline is excluded
+    // for the reason the muting rule above is: there the value is the second half of a sentence
+    // whose first half is the term, so stepping one half down breaks the line rather than
+    // grouping it.
+    //
+    // Found by parsing rather than by index, and the difference is not cosmetic: the term
+    // selector opens TWO rules in this sheet -- this one and the display: block rule above it
+    // -- so an indexOf lands on whichever comes first and reads a body with no font-size in it
+    // at all, which is an undefined that compares unequal to everything and passes nothing.
+    const rules = [...base.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+      selectors: match[1]!.split(",").map((part) => part.trim().replace(/\s+/g, " ")),
+      body: match[2]!,
+    }));
+    const half = (marker: string) =>
+      rules.filter(
+        (rule) =>
+          rule.selectors.some((selector) => selector.includes(marker)) &&
+          rule.body.includes("font-size"),
+      );
+
+    const value = half('[data-terp="detail-list-value"]');
+    expect(value, "one shared rule sizes the value, not one per layout").toHaveLength(1);
+    expect(value[0]!.selectors).toEqual([
+      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-value"]',
+      '[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-value"]',
+    ]);
+    expect(value[0]!.body, "the value takes the table body cell's step").toContain(cellStep!);
+
+    const term = half('[data-terp="detail-list-term"]');
+    expect(term, "and one sizes the label").toHaveLength(1);
+    expect(term[0]!.selectors).toEqual([
+      '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"]',
+      '[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"]',
+    ]);
+    expect(term[0]!.body, "at the table header cell's step").toContain(headerStep!);
+  });
+
   it("gives body copy an emphasis step without re-weighting the copy that asks for none", () => {
     const base = layerBody("terp.base");
     // Both steps read the published weight tokens rather than a literal.
