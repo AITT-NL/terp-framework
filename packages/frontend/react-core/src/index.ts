@@ -175,8 +175,8 @@ export type {
   CodeProps,
   LinkProps,
 } from "./typography";
-export { Field } from "./Field";
-export type { FieldProps } from "./Field";
+export { Field, FieldRow } from "./Field";
+export type { FieldProps, FieldRowProps } from "./Field";
 export { Stack, Grid, Divider, DetailList, DetailListGroup } from "./layout";
 export type {
   StackProps,

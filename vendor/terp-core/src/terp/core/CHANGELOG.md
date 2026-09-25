@@ -10,6 +10,64 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.28.0 — unreleased
+
+Friction reported from building FAST-SYNC on Terp: a row of form fields had no correct
+alignment, and both of the wrong ones were reachable by writing the obvious thing.
+
+### Added
+
+- **`FieldRow` — several `Field`s side by side, with their labels, their controls and their
+  messages each on a shared line.** A field is as tall as its label, its control *and*
+  whatever it has to say, so in a flex row neither alignment is right:
+
+  - `align="end"` lines up the bottoms, which is the **messages**. A field that grows a hint
+    lifts its own control above its neighbours', and a bare action button beside it sinks to
+    the depth of the longest error on the row. Measured at 44px on a three-field row the
+    moment one hint appeared — and it was five rows across four screens in the reporting app,
+    so this is not an authoring slip anyone was going to stop making.
+  - `align="start"` lines up the tops, which fixes the fields and breaks the button: with no
+    label of its own it rides up level with the labels instead of the controls.
+
+  Neither is a bug in `Stack`. A flex row aligns one **edge** of a box, and the thing that has
+  to line up here is a band in the middle of it — which needs the boxes to share tracks rather
+  than edges. So the row owns three rows and each field becomes a subgrid of them: the same
+  instrument `DetailListGroup` already uses to share one label column across several lists,
+  for the same reason. The alternative is every box measuring itself.
+
+  Anything that is **not** a field lands on the control line — a remove button, an add button,
+  a unit select beside an amount. It is a placement rather than a wrapper, so the child stays
+  whatever it was, with its own element and its own accessible name.
+
+  Below the framework's viewport cutover the row becomes one column at full width. Three
+  controls and an action do not fit a phone at any gap, and that is also the width at which
+  the alignment problem stops existing, so nothing is lost by dropping the shared tracks
+  with it.
+
+  Two mechanics are worth knowing because both were measured rather than reasoned:
+  `display: contents` on the `<label>` is what lifts the label text and the control out of it
+  so they can sit on separate lines — it changes the box tree, not the DOM, so the label still
+  names the control — and the **row gap lives on the row, never on a field**. A subgrid takes
+  its parent's gutters unless it declares its own, so a field that declared one spaced its own
+  three lines while the row's other tracks kept the parent's, and a bare button then sat 2px
+  above every control. That reads as a button which is *almost* aligned, which is harder to
+  see than one that obviously is not.
+
+### Changed
+
+- **A `Field`'s hint and error render inside one `field-messages` box.** Two loose spans would
+  take two of a `FieldRow`'s three lines, so a field carrying both would push its own messages
+  line down and every other field's control with it. In one envelope they occupy the third
+  line together and stack inside it, which is the arrangement they already had — a field
+  outside a row is unchanged to the pixel.
+
+  **The box is emitted only when there is something to say.** Emitted unconditionally it would
+  add a grid row and a gap to every field carrying neither a hint nor an error, which is most
+  of them, and the change would have arrived as a few pixels of drift on screens nobody
+  touched. With the guard, such a field renders exactly the DOM it rendered before. The
+  `aria-describedby` composition, the `aria-invalid` and the error's `role="alert"` all move
+  unchanged, and `Field.test.tsx` asserts each of them across the move.
+
 ## 0.27.0 — 2026-09-24
 
 ### Security

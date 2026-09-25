@@ -26,6 +26,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  FieldRow,
   Grid,
   Heading,
   NavLinkContext,
@@ -1312,6 +1313,99 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               <Input defaultValue="not-an-email" />
             </Field>
           </Stack>
+        ),
+      },
+      {
+        // The whole of FieldRow in one picture, and it needs the UNEVEN row to say anything:
+        // the third field carries a hint and the fourth child is an action with no label of
+        // its own, which are the two things a flex row cannot align at once. Read the three
+        // bands -- every label on one line, every control on the next, the hint hanging
+        // below its own field and moving nothing.
+        id: "field-row",
+        title: "FieldRow — controls on one line, messages below",
+        node: (
+          <FieldRow>
+            <Field label="Field">
+              <Input defaultValue="relatie_id" />
+            </Field>
+            <Field label="How the field is handled">
+              <Select
+                defaultValue="excluded"
+                options={[
+                  { value: "excluded", label: "Deliberately left out" },
+                  { value: "used", label: "Marked as used" },
+                ]}
+              />
+            </Field>
+            <Field
+              label="Reason code"
+              hint="Required for a field left out: without one, nothing records why it is missing."
+            >
+              <Select
+                defaultValue="not_relevant"
+                options={[{ value: "not_relevant", label: "Not relevant (not_relevant)" }]}
+              />
+            </Field>
+            <Button variant="ghost" aria-label="Remove this row">
+              <Icon name="trash" size="1em" />
+            </Button>
+          </FieldRow>
+        ),
+      },
+      {
+        // A field carrying BOTH messages, which is the case that decides whether they share
+        // one line or take two. Two loose spans would occupy two of the row's three tracks
+        // and push every other field's control down with them; in one envelope they stack
+        // inside the third and the button beside them stays level with the controls.
+        id: "field-row-messages",
+        title: "FieldRow — a field with a hint and an error",
+        node: (
+          <FieldRow>
+            <Field
+              label="Value"
+              hint="Quote text; leave numbers bare."
+              error="Required."
+            >
+              <Input defaultValue="" />
+            </Field>
+            <Field label="Operator">
+              <Select
+                defaultValue="eq"
+                options={[{ value: "eq", label: "equals" }]}
+              />
+            </Field>
+            <Button variant="secondary" icon={<Icon name="trash" size="1em" />}>
+              Remove
+            </Button>
+          </FieldRow>
+        ),
+      },
+      {
+        // The other half of the cutover. Three controls and an action do not fit a phone at
+        // any gap, so below the breakpoint the row is one column at full width -- which is
+        // also where the alignment problem stops existing, so nothing is lost by dropping
+        // the shared tracks with it.
+        id: "field-row-narrow",
+        title: "FieldRow — one column below the breakpoint",
+        viewport: { width: 430, height: 700 },
+        node: (
+          <FieldRow>
+            <Field label="Field">
+              <Input defaultValue="relatie_id" />
+            </Field>
+            <Field
+              label="Reason code"
+              hint="Required for a field left out."
+            >
+              <Select
+                defaultValue="not_relevant"
+                options={[{ value: "not_relevant", label: "Not relevant (not_relevant)" }]}
+              />
+            </Field>
+            <Button variant="secondary" icon={<Icon name="trash" size="1em" />}>
+              Remove
+            </Button>
+          </FieldRow>
         ),
       },
       {

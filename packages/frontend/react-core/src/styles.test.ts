@@ -52,6 +52,40 @@ function layerBody(name: string): string {
  * passes just as happily when a rule has landed in the wrong half, which is the one mistake
  * this pair of blocks can make.
  */
+/**
+ * A layer body with every `@media` block removed -- the rules that apply at EVERY width.
+ *
+ * The complement of {@link mediaBodies}, and it exists for the mistake that helper cannot
+ * catch: a plain `indexOf` over the layer finds whichever copy of a selector comes first in
+ * the SOURCE, and this sheet declares its one wide-viewport block roughly three thousand
+ * lines above the base rules it overrides. So a component with a rule in both halves -- which
+ * is every responsive one -- has its base rule silently shadowed by its wide one in any
+ * assertion written that way, and the test then reads the wrong body and passes or fails for
+ * the wrong reason.
+ */
+function baseOnly(body: string): string {
+  let out = "";
+  for (let i = 0; i < body.length; i += 1) {
+    if (!body.startsWith("@media", i)) {
+      out += body[i];
+      continue;
+    }
+    const first = body.indexOf("{", i);
+    let depth = 0;
+    for (let j = first; j < body.length; j += 1) {
+      if (body[j] === "{") depth += 1;
+      else if (body[j] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          i = j;
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
 function mediaBodies(body: string, query: string): string {
   const opener = `@media ${query} {`;
   const found: string[] = [];
@@ -979,6 +1013,85 @@ describe("cascade structure", () => {
     const termAt = base.indexOf('[data-terp="detail-list-term"] {');
     expect(termAt, "the base term rule should exist").toBeGreaterThan(-1);
     expect(base.slice(termAt, base.indexOf("}", termAt))).not.toContain("color:");
+  });
+
+  it("gives a field row three shared lines, and the narrow shape none of them", () => {
+    // The whole of FieldRow is that a field's three parts land on the ROW's tracks rather
+    // than on its own, so these four declarations are one mechanism and a missing one
+    // breaks it silently -- a field that is not a subgrid simply measures itself again and
+    // the row looks like an ordinary Stack.
+    //
+    // The pairing that is easiest to get wrong is the last one: display: contents on the
+    // label is what lifts the label TEXT and the control out of the <label> box so they can
+    // sit on separate lines. Without it a field spans three tracks and puts everything on
+    // the first.
+    const wide = mediaBodies(layerBody("terp.base"), WIDE_VIEWPORT_QUERY);
+    const subgrid = /\[data-terp="field-row"\] > \[data-terp="field"\] \{([^}]*)\}/.exec(wide);
+    expect(subgrid, "each field subgrids the row").not.toBeNull();
+    expect(subgrid![1]).toContain("grid-template-rows: subgrid");
+    expect(subgrid![1], "and spans every line, or it subgrids one of them").toContain(
+      "grid-row: 1 / -1",
+    );
+    expect(wide, "the row owns three lines for them to share").toContain(
+      "grid-template-rows: auto auto auto",
+    );
+    expect(
+      wide.replace(/\s+/g, " "),
+      "the label generates no box, or the text and the control share one line",
+    ).toContain(
+      '[data-terp="field-row"] > [data-terp="field"] > [data-terp="field-label"] { display: contents; }',
+    );
+    expect(
+      wide.replace(/\s+/g, " "),
+      "and a child that is not a field lands on the control line",
+    ).toContain('[data-terp="field-row"] > :not([data-terp="field"]) { grid-row: 2; }');
+
+    // The narrow shape is the BASE rule, mobile-first: one column, no subgrid, nothing to
+    // align. Declared this way round because three controls and an action do not fit a
+    // phone at any gap -- so the base must not carry the wide block's tracks, or a phone
+    // gets them with no query to take them away again.
+    const base = baseOnly(layerBody("terp.base"));
+    const rowAt = base.indexOf('[data-terp="field-row"] {');
+    expect(rowAt, "the row should have a base rule").toBeGreaterThan(-1);
+    const narrow = base.slice(rowAt, base.indexOf("}", rowAt));
+    expect(narrow, "the narrow shape lays out no columns").not.toContain("grid-auto-flow");
+    expect(narrow, "and shares no lines").not.toContain("subgrid");
+  });
+
+  it("keeps a field row's row-gap on the row and off its fields", () => {
+    // A subgrid takes its parent's gutters unless it declares its own. A field that
+    // declared one would space its OWN three lines while the row's other tracks kept the
+    // parent's -- so a bare button, which is not a subgrid, sat 2px above every control on
+    // the row. Measured; it reads as a button that is almost aligned, which is harder to
+    // see than one that obviously is not.
+    //
+    // The gap prop is column-only for the matching reason: the row gap IS each field's
+    // internal label-to-control measure, shared by every field on the row, so a caller
+    // moving it from outside would be reaching into all of them at once.
+    const full = layerBody("terp.base");
+    const base = baseOnly(full);
+    const rowAt = base.indexOf('[data-terp="field-row"] {');
+    expect(rowAt, "the row should have a base rule").toBeGreaterThan(-1);
+    expect(base.slice(rowAt, base.indexOf("}", rowAt))).toContain("row-gap:");
+
+    const wide = mediaBodies(full, WIDE_VIEWPORT_QUERY);
+    const subgrid = /\[data-terp="field-row"\] > \[data-terp="field"\] \{([^}]*)\}/.exec(wide);
+    expect(
+      subgrid![1],
+      "a field must inherit the row's gutters, not declare its own",
+    ).not.toContain("row-gap");
+
+    for (const token of [0, 1, 2, 3, 4, 6, 8]) {
+      const rule = `[data-terp="field-row"][data-gap="${token}"]`;
+      const at = base.indexOf(rule);
+      expect(at, `field-row has no rule for gap ${token}`).toBeGreaterThan(-1);
+      const body = base.slice(at, base.indexOf("}", at));
+      expect(body, `gap ${token} sets the column gap`).toContain("column-gap:");
+      expect(body, `gap ${token} must not touch the shared row gap`).not.toContain("row-gap:");
+      expect(at, `gap ${token} must be declared after the base rule it overrides`).toBeGreaterThan(
+        rowAt,
+      );
+    }
   });
 
   it("gives body copy an emphasis step without re-weighting the copy that asks for none", () => {

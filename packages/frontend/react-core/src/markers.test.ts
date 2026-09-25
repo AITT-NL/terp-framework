@@ -161,6 +161,8 @@ const MARKERS = [
   "field-hint",
   "field-label",
   "field-label-text",
+  "field-messages",
+  "field-row",
   "grid",
   "heading",
   "hubcard",
