@@ -1,6 +1,7 @@
 import { cloneElement, isValidElement, useId } from "react";
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
+import type { SpaceToken } from "./layout";
 import { injectTerpStyles } from "./styles";
 import { mergeDescribedBy, useControlMessages } from "./ui/controlMessages";
 import { useUiText } from "./uiText";
@@ -90,3 +91,71 @@ export function Field({ label, children, error, hint }: FieldProps) {
     </div>
   );
 }
+
+export interface FieldRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "style"> {
+  /**
+   * Distance between the columns, as a step on the token spacing scale (default `2`).
+   *
+   * The COLUMN gap only. The row gap is the field's own label-to-control distance and is
+   * not a caller's to move: it is shared by every field in the row, so changing it from
+   * the outside would be changing the internal measure of each one.
+   */
+  gap?: SpaceToken;
+  /** The fields, and the actions that belong beside them. */
+  children: ReactNode;
+}
+
+/**
+ * Several {@link Field}s side by side, with their labels, their controls and their
+ * messages each on a shared line.
+ *
+ * It exists because a row of fields had no correct alignment, and both wrong ones were
+ * reachable by an ordinary `Stack`. A field is as tall as its label, its control AND
+ * whatever it has to say, so in a flex row:
+ *
+ * - `align="end"` lines up the BOTTOMS, which is the messages. A field that grows a hint
+ *   lifts its own control above its neighbours', and a bare action button beside it sinks
+ *   to the depth of the longest error on the row. Measured at 44px on a three-field row
+ *   the moment one hint appeared.
+ * - `align="start"` lines up the TOPS, which fixes the fields and breaks the button: with
+ *   no label of its own it rides up level with the labels instead of the controls.
+ *
+ * Neither is a bug in `Stack`. A flex row can align one edge of a box, and the thing that
+ * has to line up here is a band in the MIDDLE of it, which needs the boxes to share tracks
+ * rather than edges. So the row owns three rows and each field becomes a subgrid of them --
+ * the same instrument {@link DetailListGroup} uses to share one label column across several
+ * lists, for the same reason: the alternative is each box measuring itself.
+ *
+ * Anything that is not a field lands on the control line. That covers the case the row was
+ * written for -- a remove button, an add button, a unit select beside an amount -- and it
+ * is a placement rather than a wrapper, so the child stays whatever it was.
+ *
+ * ```tsx
+ * <FieldRow>
+ *   <Field label={field}><Combobox … /></Field>
+ *   <Field label={handling}><Select … /></Field>
+ *   <Field label={reason} hint={whyItIsRequired}><Select … /></Field>
+ *   <Button variant="ghost" icon={<Icon name="trash" />} aria-label={remove} />
+ * </FieldRow>
+ * ```
+ *
+ * **Below the framework's viewport cutover it becomes one column**, each field full width.
+ * Three controls and an action do not fit a phone at any gap, and a row that kept its
+ * tracks there would either scroll sideways or squeeze every control to unusable. One
+ * column is also where the alignment problem stops existing, so nothing is lost by
+ * dropping the subgrid with it.
+ */
+export function FieldRow({ gap, children, ...rest }: FieldRowProps) {
+  return (
+    <div
+      {...rest}
+      data-terp="field-row"
+      // The gap roll-call's idiom: an unset gap stamps nothing and leaves the base rule
+      // standing, rather than restating the default in the DOM.
+      data-gap={gap === undefined ? undefined : String(gap)}
+    >
+      {children}
+    </div>
+  );
+}
+

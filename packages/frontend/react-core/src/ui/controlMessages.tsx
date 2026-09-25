@@ -47,20 +47,33 @@ export function useControlMessages(
   return {
     hasError,
     describedBy,
-    messages: (
-      <>
-        {hint !== undefined && (
-          <span id={hintId} data-terp="field-hint">
-            {resolve(hint)}
-          </span>
-        )}
-        {hasError && (
-          <span id={errorId} role="alert" data-terp="field-error">
-            {error}
-          </span>
-        )}
-      </>
-    ),
+    // One box around both, and it is rendered ONLY when there is something to say.
+    // That condition is the whole of why this is safe: an envelope emitted
+    // unconditionally would add a grid row and a gap to every field in every app that
+    // carries neither a hint nor an error, which is most of them, and the change would
+    // arrive as a few pixels of drift on screens nobody touched. With the guard, a field
+    // with no messages renders exactly the DOM it rendered before.
+    //
+    // What the box buys is FieldRow. There, a field spans three shared lines -- label,
+    // control, messages -- and two loose spans would take two of them, so a field with
+    // both a hint and an error would push its own messages line down and every other
+    // field's with it. As one box they occupy the third line together and stack inside
+    // it, which is also the arrangement they already had.
+    messages:
+      hint === undefined && !hasError ? null : (
+        <div data-terp="field-messages">
+          {hint !== undefined && (
+            <span id={hintId} data-terp="field-hint">
+              {resolve(hint)}
+            </span>
+          )}
+          {hasError && (
+            <span id={errorId} role="alert" data-terp="field-error">
+              {error}
+            </span>
+          )}
+        </div>
+      ),
   };
 }
 

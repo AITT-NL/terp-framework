@@ -695,6 +695,38 @@ textarea[data-terp="input"] {
     > [data-terp="detail-list"][data-layout="aligned"]:not([data-columns]) {
     grid-template-columns: subgrid;
   }
+  /* FieldRow's wide half: the three shared lines, and the columns that hold them.
+     align-items: start so a field shorter than its neighbour does not stretch, and
+     justify-content: start so the row is as wide as its fields rather than as wide as the
+     page. */
+  [data-terp="field-row"] {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, auto);
+    grid-template-rows: auto auto auto;
+    align-items: start;
+    justify-content: start;
+  }
+  /* Each field spans all three and subgrids them, which is what puts every label on one
+     line and every control on the next whatever any one field has to say. */
+  [data-terp="field-row"] > [data-terp="field"] {
+    display: grid;
+    grid-template-rows: subgrid;
+    grid-row: 1 / -1;
+  }
+  /* The label element generates no box, so the label TEXT and the control become items of
+     the field and can land on separate shared lines. It stays a <label> wrapping its
+     control in the DOM, which is what names the control -- display: contents changes the
+     box tree, and the accessible name is computed from the DOM. Field additionally points
+     aria-labelledby at the text, so the name is exact either way. */
+  [data-terp="field-row"] > [data-terp="field"] > [data-terp="field-label"] {
+    display: contents;
+  }
+  /* Anything that is not a field -- a remove button, an add button -- lands on the control
+     line rather than at the top of the row, which is where a box with no label of its own
+     would otherwise sit. */
+  [data-terp="field-row"] > :not([data-terp="field"]) {
+    grid-row: 2;
+  }
 }
 
 /* Grids -------------------------------------------------------------------- */
@@ -3964,6 +3996,16 @@ button[data-terp="input"][data-placeholder="true"] {
   gap: var(--space-1);
   justify-items: start;
 }
+/* The hint and the error as one box. It is emitted only when there is something to say, so
+   a field with neither renders no envelope and no row -- see useControlMessages. The grid
+   restates the gap the field used to put between two loose spans, so a field outside a row
+   is unchanged to the pixel; justify-items keeps each message as wide as its own text
+   rather than as wide as the field, which is what a stretched grid item would do. */
+[data-terp="field-messages"] {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
 [data-terp="field-hint"] {
   color: var(--color-fg-subtle);
   font-size: var(--font-size-xs);
@@ -3975,6 +4017,40 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 
 
+/* Field rows --------------------------------------------------------------- */
+/* Three shared lines -- label, control, messages -- and each field a subgrid of them.
+
+   THE BASE RULE IS THE NARROW SHAPE, mobile-first like SplitPage's panes and DetailList's
+   columns: one column, each field full width, no subgrid and no alignment problem to solve.
+   Everything below is the wide block's job. Declared this way round because three controls
+   and an action do not fit a phone at any gap, so the row a caller writes is the one that
+   has to give way, not the viewport.
+
+   justify-content: start so the tracks take their content's width and the row does not
+   stretch four controls across a 1600px page. grid-auto-columns keeps each track floored at
+   zero -- an auto track floors at min-content, which a long option label would push past its
+   container, the same failure DetailList's minmax(0, 1fr) exists to stop.
+
+   ROW-GAP LIVES ON THE PARENT AND NOT ON THE SUBGRID. A subgrid takes its parent's gutters
+   unless it declares its own, and a field that declared one would space its own three lines
+   while the row's other tracks kept the parent's -- so a bare button, which is not a subgrid,
+   sat 2px above every control on the row. Measured; it reads as a button that is almost
+   aligned, which is worse than one that is obviously not. */
+[data-terp="field-row"] {
+  display: grid;
+  row-gap: var(--space-1);
+  column-gap: var(--space-2);
+}
+/* The gap prop, column only. Declared after the base rule for the reason DetailList's own
+   roll-call is: both weigh the same, so source order is the only thing deciding, and
+   backwards the prop silently does nothing. */
+[data-terp="field-row"][data-gap="0"] { column-gap: var(--space-0); }
+[data-terp="field-row"][data-gap="1"] { column-gap: var(--space-1); }
+[data-terp="field-row"][data-gap="2"] { column-gap: var(--space-2); }
+[data-terp="field-row"][data-gap="3"] { column-gap: var(--space-3); }
+[data-terp="field-row"][data-gap="4"] { column-gap: var(--space-4); }
+[data-terp="field-row"][data-gap="6"] { column-gap: var(--space-6); }
+[data-terp="field-row"][data-gap="8"] { column-gap: var(--space-8); }
 /* Quiet actions ------------------------------------------------------------ */
 /* A value and the action attached to it, where the action is quiet until someone reaches for
    it. The row itself is unconditional -- inline-flex so it sits inside a sentence or a table

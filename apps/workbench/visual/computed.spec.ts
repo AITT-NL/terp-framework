@@ -878,6 +878,79 @@ async function detailLists(page: import("@playwright/test").Page) {
   });
 }
 
+test("a field row puts every control on one line, hint or no hint", async ({ page }) => {
+  // The defect this closes, and the reason it needs measuring rather than picturing: a field
+  // is as tall as its label, its control AND whatever it has to say, so a flex row can line
+  // up one EDGE of it and never the band in the middle. `align="end"` lined up the bottoms,
+  // which is the messages -- so the one field carrying a hint lifted its own control above
+  // its neighbours', and a bare action button sank to the depth of the longest error on the
+  // row. Measured at 44px on the three-field row this specimen is drawn from.
+  //
+  // Asserted as equality across the row rather than against pixel values, because the
+  // numbers are whatever the type scale says this week and the CONTRACT is that they agree.
+  // Both specimens are walked: one with a hint on the last field, one with a field carrying
+  // a hint AND an error, which is the case that decides whether the messages share a line.
+  for (const only of ["field-row", "field-row-messages"]) {
+    await page.goto(`/?theme=light&only=${only}`);
+    await page.locator('[data-terp="field-row"]').waitFor({ state: "visible" });
+    const row = await page.evaluate(() => {
+      const top = (el: Element) => Math.round(el.getBoundingClientRect().top);
+      const root = document.querySelector('[data-terp="field-row"]')!;
+      return {
+        labels: [...root.querySelectorAll('[data-terp="field-label-text"]')].map(top),
+        controls: [...root.querySelectorAll('[data-terp="input"]')].map(top),
+        button: top(root.querySelector('[data-terp="button"]')!),
+        messages: [...root.querySelectorAll('[data-terp="field-messages"]')].map(top),
+        hasHintAndError:
+          root.querySelector('[data-terp="field-messages"] [data-terp="field-hint"]') !== null &&
+          root.querySelector('[data-terp="field-messages"] [data-terp="field-error"]') !== null,
+      };
+    });
+
+    expect(row.controls.length, `${only}: more than one control, or there is no row`).toBeGreaterThan(1);
+    expect(
+      new Set(row.labels).size,
+      `${only}: every label starts on one line`,
+    ).toBe(1);
+    expect(
+      new Set(row.controls).size,
+      `${only}: every control starts on one line`,
+    ).toBe(1);
+    // The half a `align="start"` row would still fail: an action with no label of its own
+    // must sit on the CONTROL line, not up level with the labels.
+    expect(row.button, `${only}: the action sits on the control line`).toBe(row.controls[0]);
+    // And the messages hang BELOW the controls rather than displacing them, which is the
+    // direction that makes the row stable as a hint appears and disappears.
+    expect(row.messages.length, `${only}: something has something to say`).toBeGreaterThan(0);
+    for (const message of row.messages) {
+      expect(message, `${only}: messages hang below the controls`).toBeGreaterThan(
+        row.controls[0]!,
+      );
+    }
+  }
+});
+
+test("a field row's messages share one line when a field has two of them", async ({ page }) => {
+  // The envelope, measured. A hint and an error as two loose spans would take two of the
+  // row's three tracks -- so a field with both would push its own messages line down and
+  // every other field's control with it. In one box they stack inside the third line, and
+  // the proof is that the box starts where a single-message box would.
+  await page.goto("/?theme=light&only=field-row-messages");
+  await page.locator('[data-terp="field-messages"]').first().waitFor({ state: "visible" });
+  const seen = await page.evaluate(() => {
+    const box = document.querySelector('[data-terp="field-messages"]')!;
+    const rect = box.getBoundingClientRect();
+    const spans = [...box.children].map((el) => Math.round(el.getBoundingClientRect().top));
+    return { count: box.children.length, top: Math.round(rect.top), spans };
+  });
+  expect(seen.count, "one envelope holds both messages").toBe(2);
+  expect(
+    seen.spans[1]!,
+    "and they stack inside it rather than overlapping",
+  ).toBeGreaterThan(seen.spans[0]!);
+  expect(seen.spans[0]!, "the first message opens the envelope").toBe(seen.top);
+});
+
 test("a full row spans the list while its neighbours keep the shared column", async ({ page }) => {
   // The two halves of `full`, and the second is the one a baseline cannot state: a
   // display: contents box generates no box, so `grid-column` on it is DROPPED — the row would
