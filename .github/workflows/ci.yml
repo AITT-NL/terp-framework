@@ -387,3 +387,82 @@ jobs:
           npm run typecheck
           npm run build
 
+      # The generated workbench publishes its host ports through REQUIRED variables
+      # (ADR 0134), and the generated CI's conformance job had never assigned them, so
+      # `docker compose up` refused before anything ran. Nothing here started that stack,
+      # so nothing noticed. `config` resolves every interpolation without starting a
+      # container: the unassigned refusal proves the ports are still required, and the
+      # clean resolution after `terp ports assign` proves the assignment is exactly what
+      # this variant's compose file needs.
+      - name: Assign the generated workbench's host ports, and prove compose accepts them
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: |
+          set -eux
+          # Expected to refuse, naming `terp ports assign`: nothing is assigned yet.
+          if docker compose config -q; then
+            echo "compose accepted a checkout with no host ports assigned; they are required" >&2
+            exit 1
+          fi
+          uv run terp ports assign
+          docker compose config -q
+
+      # The generated app's own conformance job, end to end, on one variant. It had never
+      # passed on a fresh app: besides the ports, its suite drove a port the workbench no
+      # longer publishes, and its helpers looked for English names on an interface the
+      # template starts in Dutch. The framework's conformance lane runs the example app
+      # (English, with in-range port defaults), which is why none of it showed.
+      #
+      # The job runs as the generated workflow runs it, Docker workbench included. No
+      # package index has the code under test, so the staged wheels and tarballs go where
+      # the template's Dockerfiles look for pre-release builds, `.terp-dist/`, and the
+      # frontend is re-pointed at those copies: its `file:` references have to resolve
+      # inside the build context, and /tmp/terp-npm is outside it.
+      - name: Stage the packages under test where the generated images read them (default-blank)  # zizmor: ignore[adhoc-packages]
+        if: matrix.variant == 'default-blank'
+        working-directory: /tmp/acceptance-app
+        run: |
+          set -eux
+          mkdir -p .terp-dist/wheels .terp-dist/npm
+          cp /tmp/terp-wheels/*.whl .terp-dist/wheels/
+          cp /tmp/terp-npm/*.tgz .terp-dist/npm/
+          # zizmor: ignore[adhoc-packages] this repository's own `npm pack` output, as in
+          # the frontend build above, standing in for the registry.
+          (cd frontend && npm install ../.terp-dist/npm/*.tgz)
+          (cd conformance && npm install ../.terp-dist/npm/terpjs-conformance-*.tgz && npm install)
+
+      # The rest of the generated job's steps, on the ports assigned above: Playwright, the
+      # workbench, the seed, and the check -- which is given no address and reads it from
+      # the assignment in .env, as it does in the generated CI.
+      - name: Run the generated app's conformance job (default-blank)
+        if: matrix.variant == 'default-blank'
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: |
+          set -eux
+          (cd conformance && npx playwright install --with-deps chromium)
+          docker compose up -d --wait api web
+          docker compose run --rm seed
+          uv run terp verify --profile release --only conformance
+
+      # `--wait` reports only "container X is unhealthy" -- never why.
+      - name: Why the generated workbench or its suite failed
+        if: failure() && matrix.variant == 'default-blank'
+        working-directory: /tmp/acceptance-app
+        run: docker compose logs --no-color --tail=120 || true
+
+      - name: Upload the generated app's Playwright report on failure
+        if: failure() && matrix.variant == 'default-blank'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-playwright-report
+          path: /tmp/acceptance-app/conformance/playwright-report/
+          retention-days: 7
+
+      - name: Stop the generated workbench
+        if: always() && matrix.variant == 'default-blank'
+        working-directory: /tmp/acceptance-app
+        run: docker compose down -v || true
+
