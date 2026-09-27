@@ -1358,30 +1358,37 @@ describe("cascade structure", () => {
     expect(full).toContain("text-overflow: ellipsis");
   });
 
-  it("gives the breadcrumb trail one line box, leaf included", () => {
+  it("gives the breadcrumb trail one line box, and the leaf the step its own size needs", () => {
     // The trail is a row of items that get CENTRED, so two line heights in it are two
     // baselines. The leaf declared 1.3 while its ancestors inherited `normal`: measured at
     // font-size-sm, a 19.00px ancestor line box against an 18.19px leaf, which left the
     // page's own title 0.59px above the crumb it hangs off with the chevron centred on a
-    // third line. One declaration on the trail, inherited by every crumb and by the h1, is
-    // what makes the row share a baseline.
+    // third line. One declaration on the trail, inherited by every crumb, is what makes the
+    // ancestors share a baseline.
     //
     // The published step rather than a bare literal, and that is the second half of the fix
     // rather than house style: `normal` is the FONT's metric, so the mismatch was as big as
     // the app's typeface said it was, and an app on a webfont with taller natural leading got
     // a worse one than the system stack this was measured in.
+    //
+    // The LEAF is now the exception, and deliberately: at xl against sm ancestors it cannot
+    // share their baseline whatever it declares, and the li centres it instead. That frees the
+    // value to do the one job only it can do here — hold the band's floor, where snug would
+    // cost 3.6px on every page carrying a lead line (see the rule, where the measurement is).
+    // So this holds it at the published tight step rather than at "absent": absent means
+    // inheriting the trail's snug, which is the version that grows the band.
     const base = layerBody("terp.base");
     const trail = base.slice(base.indexOf('[data-terp="breadcrumbs"] {'));
     expect(
       trail.slice(0, trail.indexOf("}")),
-      "the trail declares the line box every crumb shares",
+      "the trail declares the line box every ancestor crumb shares",
     ).toContain("line-height: var(--font-line-height-snug)");
     const leafAt = base.indexOf('[data-terp="page-title"] {');
     expect(leafAt, "the trail's leaf should have a rule").toBeGreaterThan(-1);
     expect(
       base.slice(leafAt, base.indexOf("}", leafAt)),
-      "the leaf takes the trail's line box; a second value here is the misalignment",
-    ).not.toContain("line-height");
+      "the leaf declares the tight step; inheriting snug is what overruns the band's floor",
+    ).toContain("line-height: var(--font-line-height-tight)");
   });
 
   it("spans a full row across every track, and makes it a box that can", () => {
@@ -1537,14 +1544,16 @@ describe("cascade structure", () => {
     // one published scale rather than four sizes that happen to differ.
     const base = layerBody("terp.base");
     for (const [selector, step] of [
-      // page-title left the TOP step when the header became a band, but it still has a step
-      // and this is it: sm, the trail's own size, because the title IS the trail's leaf and a
-      // 24px leaf on 14px ancestors reads as small-small-BIG rather than as one trail. Pinned
-      // rather than dropped — removing it from this loop, which is what the band change first
-      // did, left the one marker whose size the change was about free to drift.
-      ['[data-terp="page-title"]', "sm"],
-      // The top step keeps two readers, which is what stops the token going unread;
-      // tokens.guard.test.ts holds that end.
+      // page-title is back on the top step, which is where this loop found it before the band
+      // change demoted it to sm. At sm it tied with card-title, so the page's own name measured
+      // exactly as much as the name of a section on it — the flat scale this test exists to
+      // stop, one row further up than the version it was written for. Pinned rather than
+      // dropped, for the reason the band change proved: removing this marker from the loop left
+      // the one size the change was about free to drift.
+      ['[data-terp="page-title"]', "xl"],
+      // The top step's OTHER reader. It stopped being the thing that keeps the token read when
+      // page-title came back to it, and is kept for the reason it was added: a standalone
+      // heading asking for the masthead step should get the same size the masthead renders.
       ['[data-terp="heading"][data-size="xl"]', "xl"],
       ['[data-terp="card-title"]', "lg"],
       ['[data-terp="card-description"]', "sm"],
