@@ -121,6 +121,14 @@
       "layer": "semantic"
     },
     {
+      "$comment": "Subtle ink on the CANVAS, which is the half that was missing. Only the surface pairing was declared, and the two are not the same measurement once the canvas is tinted away from the surface: in light this reads 5.29:1 where the surface reads 6.13, and at the previous #64748b it was 4.20 against a canvas the surface pairing still passed at 4.76. Every consumer that sits on the page rather than in a card — the DataView toolbar's result count, a section's lead line — failed axe while the declared pairing stayed green, which is exactly the coverage claim this file exists to make honest.",
+      "id": "subtle-on-canvas",
+      "label": "subtle text on the canvas",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
       "id": "accent-on-surface",
       "label": "accent text on a surface",
       "fg": "--color-fg-accent",
@@ -153,6 +161,14 @@
       "label": "sidebar muted text",
       "fg": "--color-sidebar-muted",
       "bg": "--color-sidebar-bg",
+      "layer": "semantic"
+    },
+    {
+      "$comment": "The nav link's two raised states, which are one pairing: hover has painted sidebar-fg on sidebar-accent since the sidebar family was wired, and the active route joined it when its brand fill moved to neutral. It went undeclared through both, and the gap had teeth — the version of the active rule that kept accent ink on the same wash measured 4.07:1 in dark and 4.36 in twilight, and only the axe lane caught it, per specimen, at the end of a 26-minute run. Declared here it is arithmetic over five themes instead.",
+      "id": "sidebar-text-on-accent",
+      "label": "sidebar text on the hovered or active nav item",
+      "fg": "--color-sidebar-fg",
+      "bg": "--color-sidebar-accent",
       "layer": "semantic"
     },
     {
