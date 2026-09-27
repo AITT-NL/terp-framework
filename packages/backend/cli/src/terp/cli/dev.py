@@ -50,9 +50,10 @@ SHUTDOWN_TIMEOUT_SECONDS = 3
 #: Not 8000 and 5173. Those are where a developer's OTHER applications live, so
 #: defaulting there means the framework's own dev loop is the thing that collides
 #: with the rest of the machine -- and it collided with the workbench too, which
-#: has always allocated its per-project ports out of this range. The compose
-#: files carry the same two numbers as their ``${WEB_PORT:-...}`` fallbacks, so
-#: the two ways to run an app agree on where to answer.
+#: has always allocated its per-project ports out of this range. The example
+#: app's compose file carries the same two numbers as its ``${WEB_PORT:-...}``
+#: fallbacks. The template's has no fallback at all: it requires a pair claimed
+#: by ``terp ports assign``, so two checkouts cannot land on one port.
 #:
 #: The container-internal ports are deliberately NOT these: inside the Compose
 #: network 8000 and 5173 cannot collide with anything, and moving them would
