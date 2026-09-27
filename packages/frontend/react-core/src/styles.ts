@@ -1111,44 +1111,52 @@ textarea[data-terp="input"] {
 }
 
 /* Cards -------------------------------------------------------------------- */
-/* The surface model, and this is the rule that states it: an in-flow block declares a
-   FRAME and no fill. Border, radius and padding are the whole of a card's chrome, and
-   what shows through it is the canvas the page already paints.
+/* The surface model, and this is the rule that states it: an in-flow block is an OBJECT —
+   a fill, a frame, a radius and a padding — sitting on a canvas that is tinted away from
+   it. Two tokens, two jobs: --color-bg-surface is what an object is made of and
+   --color-bg-canvas is what the page is made of, and the whole legibility of a screen
+   rests on the gap between them.
 
-   It used to paint --color-neutral-0 over a --color-neutral-50 canvas — a second colour
-   saying what the border already says, and it cost twice. A card dropped onto anything
-   that is itself a surface repainted it rather than sitting on it, which is the
-   frame-inside-a-frame the plain variant exists to escape; and an app that themed the
-   canvas found that its cards did not follow, because the fill named the OTHER end of
-   the ramp. Both go away with the declaration: the plain variant is now the base rule
-   minus a border and a padding, and a themed canvas reaches every block on the page.
+   It was frame-only for one release — border and radius with the canvas showing through —
+   and that is what this reverses. The argument then was sound about the DEFECT and wrong
+   about the fix: cards were painting --color-neutral-0, the far end of the primitive ramp,
+   so an app that themed its canvas got cards that did not follow, and a card dropped on
+   something already a surface repainted it. Naming the SEMANTIC surface answers the first
+   (a theme moves both ends together, which is what the bg family is for) and
+   variant="plain" already answered the second.
+
+   What frame-only cost was the thing a screen is judged on. With canvas and surface a
+   rounding error apart there is no object anywhere on the page: measured on the light
+   theme, a table, a hub card and the page behind them all rendered #f8fafc inside a
+   #e2e8f0 hairline, which reads as a wireframe of an app rather than an app. Tinting the
+   canvas alone does not fix it either — it just moves every object onto grey, and a data
+   table with a grey ground reads as disabled. Both halves have to move, and they are one
+   decision, so they are in one commit.
 
    Six rules follow the same line, and they are the framework's other in-flow blocks:
    hubcard-body, profile-card, resource-list-row, empty-state, dataview-card and the full
-   DataView's table frame — whose header cells carried the same fill, invisibly, since a
-   filled frame sat directly behind them. Three kinds of element deliberately do NOT. An
-   overlay has to be opaque over whatever it covers (dialog, popover-panel, toast, the
-   combobox list, and appshell-header, which the page scrolls under); a control needs a
-   surface of its own to read as a control against the page (input, select, the secondary
-   button); and login-card is the one object on an otherwise empty canvas, where the fill
-   IS the object.
+   DataView's table frame. Three kinds of element already did and keep doing so for reasons
+   of their own: an overlay has to be opaque over whatever it covers (dialog,
+   popover-panel, toast, the combobox list, and appshell-header, which the page scrolls
+   under); a control needs a surface of its own to read as a control (input, select, the
+   secondary button); and login-card is the one object on an otherwise empty canvas.
 
-   The washes moved with it, because a wash that painted --color-neutral-50 was painting
-   the canvas and on a card with no fill it painted nothing: the table's hover and
-   selection, the expanded row's panel, a code block, a neutral alert and a disabled
-   control each step one place along the ramp to --color-neutral-100 — which is already
-   this sheet's hover wash for every control — or to the --color-interactive-* token that
-   names the state. One step along the ramp rather than a value per rule, because the dark
-   themes invert it: the same step is darker than the canvas in light and lighter in dark,
-   midnight and twilight, which is the direction a recess and a wash want in each.
-   --color-bg-inset cannot do that job — in those three themes it is declared AS the
-   canvas value, so an inset named from it would be the one thing that disappears. */
+   The washes stay one step along the ramp — --color-neutral-100, or the
+   --color-interactive-* token that names the state — rather than returning to
+   --color-neutral-50. That step is now the canvas's neighbour rather than the canvas
+   itself, so a hover on a card is a step DOWN from the object and a hover on the page is a
+   step down from the page, in light; the dark themes invert both, which is the direction a
+   recess wants in each. --color-bg-inset cannot do that job — in three themes it is
+   declared AS the canvas value, so an inset named from it would be the one thing that
+   disappears. */
 [data-terp="card"] {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: var(--space-4);
   min-width: 0;
 }
@@ -1195,20 +1203,24 @@ textarea[data-terp="input"] {
   flex: 1 1 0;
   min-width: 0;
 }
-/* Chrome off, heading kept. Two declarations removed rather than a second component
+/* Chrome off, heading kept. Three declarations removed rather than a second component
    with six markers of its own describing the same DOM: a titled region inside something
-   that is already a surface wants no second border, and the commonest instance is a
+   that is already a surface wants no second frame, and the commonest instance is a
    section whose body is a DataView — boxed, the table gets a border inside a border and
    loses the full width its own scroll container gives it.
 
-   Two, and it was three: background: none went with the base rule's fill. Un-declaring
-   what nothing declares is the shape ADR 0094 exists to avoid, and here it would also
-   have been the only line in the sheet still implying a card has a colour of its own.
+   background: none is back, and it is the un-declaration the base rule's note warns
+   about, kept deliberately: this variant's whole meaning is "the surface you are already
+   on", so the one thing it must not do is paint a second one. A plain card nested in a
+   card would otherwise be a lighter rectangle inside a lighter rectangle in every dark
+   theme, where surface and raised differ.
 
    padding: 0 rather than dropping the declaration, because the base rule sets it and an
    absent value inherits nothing useful. */
 [data-terp="card"][data-variant="plain"] {
+  background: none;
   border-color: transparent;
+  box-shadow: none;
   padding: 0;
 }
 
@@ -2241,18 +2253,35 @@ textarea[data-terp="input"] {
    2em } ON the element, and a declaration on the element beats an inherited value however
    specific the ancestor rule is: without this the leaf renders at twice the trail.
 
-   Semibold at the trail's own size, which is the whole "the trail is the title" idea in one
-   declaration — heavier than its ancestors, not larger.
+   xl, not the trail's own sm. "Heavier than its ancestors, not larger" was the rule while the
+   band was 3rem and the leaf had no room to be anything else, and it cost the page its name:
+   at sm/semibold the title measured the same as a table header, less than the action button
+   beside it, and exactly as much as the card titles of the sections under it — so on a hub
+   every HubCard outranked the page it was on. A screen whose largest type belongs to its
+   content is a screen with no masthead, and that reads as unfinished before any one component
+   does. The scale is 24 / 18 / 16 / 14 again: page title, card title, body, description.
 
-   And no line-height of its own, which is the other half of that idea: it takes the trail's
-   (see breadcrumbs, where the value and the defect are recorded). A second value here — 1.3
-   against the ancestors' inherited normal — is what left the leaf's glyphs sitting 0.59px
-   above the crumb they hang off, in the same font at the same size. */
+   The one-row band still holds its floor, which is the promise this row makes and the number
+   to re-measure if either half moves. --shell-header-height is 3.5rem now, and xl at the TIGHT
+   step is 28.8px, so the title's line box sits inside 56px with room to spare: measured, a hub's
+   band and the app header above it are both 56.0. At the trail's snug step it would be 32.4 and
+   still fit, but the band that carries meta — which has broken the floor by design, and does not
+   make the claim — would take the extra 3.6px on every page with a lead line, so the tight step
+   is what keeps the two bands one apart rather than two.
+
+   That is also the answer to the line height the trail's own rule argues for. Sharing it keeps
+   the leaf's glyphs on the ancestors' baseline, which mattered when leaf and ancestors were the
+   same size; at 24 against 14 they cannot share a baseline anyway and the li centres them, so
+   the value is free to do the job only it can do here.
+
+   Tracking is the scale's tight step, which only starts earning its keep at this size: -0.02em
+   is 0.48px here and nothing at all at 14px, which is why the trail below does not take it. */
 [data-terp="page-title"] {
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xl);
+  line-height: var(--font-line-height-tight);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0;
+  letter-spacing: var(--font-letter-spacing-tight);
   color: var(--color-neutral-900);
 }
 /* Status pills next to the title. A row of its own so a page passing several keeps them
@@ -2550,6 +2579,7 @@ textarea[data-terp="input"] {
   gap: var(--space-4);
   padding: var(--space-4);
   max-width: 32rem;
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
 }
@@ -2692,8 +2722,10 @@ textarea[data-terp="input"] {
   height: 100%;
   min-height: 10rem;
   padding: var(--space-4);
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   color: var(--color-neutral-900);
   box-sizing: border-box;
   transition: border-color var(--motion-duration-fast) var(--motion-easing-standard);
@@ -2814,6 +2846,7 @@ textarea[data-terp="input"] {
 [data-terp="dataview"][data-variant="full"] > [data-terp="dataview-scroll"],
 [data-terp="dataview"][data-variant="full"] > [data-terp="dataview-error"],
 [data-terp="dataview"][data-variant="full"] > [data-terp="dataview-skeleton"] {
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
 }
@@ -3094,18 +3127,45 @@ input[data-terp="input"][type="password"]::-ms-reveal {
 /* The header cell's inline axis follows density; its block axis does not,
    because --space-2 is already worth what --density-compact-cell-pad-y is. The
    0.04em tracking stays a literal: the contract's letter-spacing scale offers
-   tight / base / wide, and wide is 0.08em, which would double it. */
+   tight / base / wide, and wide is 0.08em, which would double it.
+
+   The fill is the canvas step, so the header row reads as a recess in the table's own
+   surface rather than as a first row that happens to be shouting. It is the same step the
+   washes take, and it inverts with them: darker than the surface in light, lighter in the
+   three dark themes. Without it the only thing separating nine uppercase labels from the
+   data under them is a hairline, and at xs that is not enough to stop the eye reading the
+   header as a row.
+
+   The ink moved one step WITH the fill, and that is the fill's cost rather than a separate
+   opinion. --color-fg-subtle measured 4.76:1 on the surface it used to sit on, which is inside
+   AA by six hundredths; against the recess it is 4.20 and axe failed every DataView specimen in
+   light. A wash that dims its own label is not free, and the step that pays for it is
+   --color-fg-muted: 6.69 light, and 8.14 at its worst across the other four. */
 [data-terp="dataview-table"] > thead > tr > th {
   position: relative;
   padding: var(--space-2) var(--density-cell-pad-x);
   text-align: left;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-fg-subtle);
+  color: var(--color-fg-muted);
+  background: var(--color-neutral-50);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   border-bottom: 1px solid var(--color-neutral-200);
   white-space: nowrap;
+}
+/* The header row's outer corners, which the fill above made visible. The full variant's frame
+   carries the radius and deliberately no overflow: hidden — clipping it would trap the
+   horizontal scroll container and any overlay a cell renders (see the frame's own rule) — so a
+   filled th paints a square corner over the curve, and the grey then pokes outside the border
+   at both top corners. Rounding the two end cells to the same step is the fix that leaves the
+   scroller alone. Keyed on the FULL variant: the embedded one has no frame, and a rounded
+   header cell there would be a curve against nothing. */
+[data-terp="dataview"][data-variant="full"] [data-terp="dataview-table"] > thead > tr > th:first-child {
+  border-start-start-radius: var(--radius-lg);
+}
+[data-terp="dataview"][data-variant="full"] [data-terp="dataview-table"] > thead > tr > th:last-child {
+  border-start-end-radius: var(--radius-lg);
 }
 /* A column's declared track. A MINIMUM rather than a width, because a specified width is only a
    preference under table-layout: auto and the algorithm shrinks it to fit — which is why the pixel
@@ -3286,6 +3346,7 @@ th[data-terp="dataview-actions-cell"] > span {
   display: grid;
   gap: var(--space-2);
   padding: var(--density-cell-pad-y) var(--density-cell-pad-x);
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -3605,6 +3666,7 @@ th[data-terp="dataview-actions-cell"] > span {
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3);
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-md);
 }
@@ -3612,8 +3674,9 @@ th[data-terp="dataview-actions-cell"] > span {
 /* Empty / error / loading states ------------------------------------------- */
 /* Same centred block, opposite messages: empty is a dashed outline on the page
    surface because nothing is wrong, error is a filled danger wash because
-   something is. Which is now literal — the outline is all of it, and the surface
-   underneath is whatever the block was dropped on. */
+   something is. The fill is the surface token rather than the danger one — an
+   empty collection is still the page's object, so it sits on the canvas as an
+   object does. */
 [data-terp="empty-state"] {
   display: grid;
   justify-items: center;
@@ -3621,6 +3684,7 @@ th[data-terp="dataview-actions-cell"] > span {
   padding: var(--space-8) var(--space-6);
   text-align: center;
   color: var(--color-neutral-600);
+  background: var(--color-bg-surface);
   border: 1px dashed var(--color-neutral-300);
   border-radius: var(--radius-lg);
 }
@@ -4801,10 +4865,33 @@ button[data-terp="input"][data-placeholder="true"] {
   background: var(--color-sidebar-accent);
   color: var(--color-sidebar-fg);
 }
+/* The active route, and the brand is in the RAIL rather than in the fill or the ink. It used
+   to be both: --color-brand-primary-soft behind --color-fg-accent. In the three dark themes
+   that soft is a real navy against a near-black sidebar, so the one selected item outweighed
+   the page beside it — measured on midnight, the pill carried more contrast against its own
+   surface than any heading on the screen.
+
+   Moving the fill to neutral is what forced the ink to follow, and the numbers are why rather
+   than a preference: accent ink on the neutral pill measures 4.07:1 in dark and 4.36 in
+   twilight, both under AA, and axe failed every shell specimen in exactly those two themes and
+   no others. --color-sidebar-fg is the pairing the hover rule above already proves, at 9.45 in
+   its worst theme. So the accent survives as the one thing that needs no contrast bar at all.
+
+   Sharing the hover's fill is deliberate and not a collision: hovering the item you are
+   already on should change nothing, and the four signals that separate active from hover are
+   the rail, the weight, and the resting ink the hover is lifting FROM.
+
+   The rail is an inset shadow rather than a border or a pseudo-element: a border would move the
+   label by its own width on selection, and a ::before would need the link to be positioned —
+   the link is the app router's element and the shell owns only where it sits. An inset shadow
+   paints inside the existing box and follows the radius, so nothing reflows and nothing has to
+   be positioned. It is also what survives the icon rail, where the label is visually hidden and
+   a neutral fill alone would say no more than hover does. */
 [data-terp="appshell-nav"] a[aria-current="page"] {
-  background: var(--color-brand-primary-soft);
-  color: var(--color-fg-accent);
+  background: var(--color-sidebar-accent);
+  color: var(--color-sidebar-fg);
   font-weight: var(--font-weight-semibold);
+  box-shadow: inset var(--border-width-base) 0 0 var(--color-brand-primary);
 }
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav"] {
   overflow-x: hidden;
