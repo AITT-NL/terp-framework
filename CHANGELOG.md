@@ -105,6 +105,19 @@ repeated more often than the values it applied to.
   `aria-describedby` composition, the `aria-invalid` and the error's `role="alert"` all move
   unchanged, and `Field.test.tsx` asserts each of them across the move.
 
+- **A UiText descriptor built from a function's parameters is refused (ADR 0157).**
+  `terp/locale-catalogs-complete` inventories descriptors where they are written, and a
+  helper such as `const msg = (id, message) => ({ id, message })` hid every call through
+  it: the copy sat in a call's arguments, which the rule never read, so a target locale could
+  miss the entry and the gate stayed green. The rule had allowed exactly this shape on
+  purpose, as a possible business record. It now refuses an object whose `id` and `message`
+  are both parameters of the enclosing function, and the message names both ways out: write
+  the descriptor where the text is used, or build a record from the record
+  (`record.id`, `record.text`), which stays allowed. So do a key into data
+  (`ids.map((id) => ({ id, message: labels[id] }))`) and a helper that takes one
+  descriptor object, whose call site is still inventoried. An app with a positional factory
+  fails lint on upgrade.
+
 ### Fixed
 
 - **An aligned `DetailList` puts a label and its value on one baseline.** `layout="aligned"`
@@ -141,6 +154,14 @@ repeated more often than the values it applied to.
   The rule sets the `<dd>`, so a value that declares its own size keeps it: a `<Text>` inside
   a value still renders at the step that `Text` asked for. A caller who wants the pair's step
   passes `size="sm"` or hands the value as a string.
+
+- **`columns="auto"` is no longer reported as untranslated copy.** DataView's own string
+  keys (`columns`, `loading`, `pageOf` and the rest) were in `terp/no-untranslated-ui`'s list
+  of JSX text attributes, so `<Grid columns="auto">`, `<DetailList columns="auto">` and
+  `<img loading="lazy">` all read as copy, and an app could get past them only with an escape
+  marker. Those names are text only as keys of a DataView `strings` object, which the rule
+  still checks, so they leave the attribute list. `searchPlaceholder` and `actions`, which are
+  real text props elsewhere, stay.
 
 ## 0.27.0 — 2026-09-24
 

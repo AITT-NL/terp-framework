@@ -170,11 +170,57 @@ describe("locale catalog completeness", () => {
   });
 
   it("does not mistake dynamic business records for UiText descriptors", async () => {
+    // A record keeps its id/message shape when it is built from the record: from a member
+    // of it, or from a destructured object. Neither is the caller's literal under another
+    // name, so neither hides copy from the catalog.
+    for (const record of [
+      "export const toRecord = (record) => ({ id: record.id, message: record.text });",
+      "export const toRecords = (rows) => rows.map(({ id, message }) => ({ id, message }));",
+      "export const fromApi = async (fetchOne) => { const { id, message } = await fetchOne(); return { id, message }; };",
+      // One parameter is a key into data, not a descriptor's worth of caller literals.
+      "export const labelled = (ids, labels) => ids.map((id) => ({ id, message: labels[id] }));",
+      "export const lookedUp = (id, labels) => { const message = labels[id]; return { id, message }; };",
+    ]) {
+      const messages = await lintWithCatalog(
+        { sourceLocale: "en", locales: { en: {}, nl: {} } },
+        record,
+      );
+      expect(messages, record).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["an arrow factory", "export const msg = (id, message) => ({ id, message });"],
+    ["typed parameters", "export const msg = (id: string, message: string) => ({ id, message });"],
+    ["a declared function", "export function msg(id, message) { return { id: id, message: message }; }"],
+    ["a function expression", "export const msg = function (id, message) { return { message, id }; };"],
+    ["a defaulted parameter", 'export const msg = (id, message = "") => ({ id, message } as const);'],
+  ])("refuses a descriptor factory written as %s", async (_label, factory) => {
     const messages = await lintWithCatalog(
       { sourceLocale: "en", locales: { en: {}, nl: {} } },
-      "export const apiRecord = (id, message) => ({ id, message });",
+      `${factory}\nexport const W = () => <Page title={msg("widgets.title", "Widgets")} />;`,
     );
-    expect(messages).toEqual([]);
+    const findings = messages.filter(
+      (message) => message.ruleId === "terp/locale-catalogs-complete",
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain("built from a function's parameters");
+    expect(findings[0].message).toContain("record.id");
+  });
+
+  it("keeps a helper that takes one descriptor checkable at its call site", async () => {
+    const messages = await lintWithCatalog(
+      { sourceLocale: "en", locales: { en: {}, nl: {} } },
+      [
+        "const withTitle = (descriptor) => ({ title: descriptor });",
+        'export const props = withTitle({ id: "widgets.title", message: "Widgets" });',
+      ].join("\n"),
+    );
+    // Not refused as a factory, and the literal at the call site is still inventoried:
+    // the Dutch entry is missing, and that is what gets reported.
+    expect(messages.map((message) => message.message)).toEqual([
+      'Translation "widgets.title" is incomplete in frontend/i18n.json (nl: missing).',
+    ]);
   });
 
   it("honours the catalog-derived governed marker for an intentional exception", async () => {
@@ -210,6 +256,29 @@ describe("untranslated UI coverage", () => {
   ])("refuses literal UI copy in %s", async (jsx) => {
     const messages = await lintWithCatalog(declaration, `export const W = () => ${jsx};`);
     expect(messages.map((message) => message.ruleId)).toContain("terp/no-untranslated-ui");
+  });
+
+  it.each([
+    ['<Grid columns="auto" />', "a layout keyword on Grid"],
+    ['<DetailList columns="auto" />', "a layout keyword on DetailList"],
+    ['<DataView columns={[]} loading="eager" empty="none" selected="first" />', "non-text props"],
+    ['<img loading="lazy" alt={{ id: "w.logo", message: "Logo" }} />', "an image's loading hint"],
+  ])("does not read %s as copy (%s)", async (jsx) => {
+    const messages = await lintWithCatalog(
+      { sourceLocale: "en", locales: { en: {}, nl: { messages: { "w.logo": "Beeldmerk" } } } },
+      `export const W = () => ${jsx};`,
+    );
+    expect(messages.filter((message) => message.ruleId === "terp/no-untranslated-ui"))
+      .toEqual([]);
+  });
+
+  it("still reads DataView's own keys as copy inside its strings object", async () => {
+    const messages = await lintWithCatalog(
+      declaration,
+      'export const W = () => <DataView strings={{ columns: "Kolommen", pageOf: "Pagina {page}" }} />;',
+    );
+    expect(messages.filter((message) => message.ruleId === "terp/no-untranslated-ui"))
+      .toHaveLength(2);
   });
 
   it("covers UiText-bearing data properties beyond the original short list", async () => {
