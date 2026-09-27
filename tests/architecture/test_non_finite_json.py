@@ -16,6 +16,7 @@ import json
 import math
 from typing import Any
 
+import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from pydantic import Field
@@ -231,7 +232,18 @@ def test_only_the_three_constants_are_reported() -> None:
     assert _non_finite_constant(b"\xff\xfe\x00") is None  # undecodable: likewise
 
 
-def test_a_body_nested_past_the_recursion_limit_is_left_to_fastapi() -> None:
-    depth = 100_000
-    body = b"[" * depth + b"NaN" + b"]" * depth
-    assert _non_finite_constant(body) is None
+def test_a_body_nested_past_the_recursion_limit_is_left_to_fastapi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A decoder that gives up on depth is FastAPI's to answer, not this middleware's.
+
+    How deep that is depends on the platform's stack — a nesting that overflows on one
+    runner parses on another — so the decoder is made to give up rather than a depth
+    being guessed at.
+    """
+
+    def too_deep(*_args: object, **_kwargs: object) -> object:
+        raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+
+    monkeypatch.setattr(json, "loads", too_deep)
+    assert _non_finite_constant(b"[[[NaN]]]") is None
