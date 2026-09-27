@@ -190,7 +190,7 @@ class VerifyCheck:
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
     # | "dependency-hygiene" | "workbench" | "deploy-safety"
-    # | "production-readiness"
+    # | "production-readiness" | "conformance"
     runner: str = "subprocess"
 
 
@@ -550,15 +550,23 @@ _AUTHZ_SURFACE = VerifyCheck(
     runner="authz-surface",
 )
 
+# The suite drives a stack that is already running, so the one thing it cannot work out for
+# itself is WHERE. That address is this checkout's assigned web port (`terp ports assign`),
+# and nothing handed it over: the template's suite fell back to a literal the workbench had
+# stopped publishing, so the check drove an empty port -- or whatever else on the machine
+# happened to answer there. The runner reads the assignment the way compose does and gives
+# the suite its address; see `conformance_address`.
 _CONFORMANCE = VerifyCheck(
     id="conformance",
     category="conformance",
     command="npm --prefix conformance test",
     scope=("app/**", "frontend/**", "conformance/**"),
     requires=(
-        "the Docker workbench running (docker compose up -d --wait api web "
-        "&& docker compose run --rm seed)"
+        "the Docker workbench running on this checkout's assigned ports (terp ports "
+        "assign, then docker compose up -d --wait api web && docker compose run --rm "
+        "seed), or TERP_E2E_BASE_URL naming a stack started some other way"
     ),
+    runner="conformance",
 )
 
 #: The profiles, cheapest first; each is a superset of the previous.
@@ -1064,7 +1072,9 @@ def _node_modules_problem(root: pathlib.Path, workspace: str) -> str | None:
     )
 
 
-def _run_subprocess(check: VerifyCheck, root: pathlib.Path) -> tuple[int, str]:
+def _run_subprocess(
+    check: VerifyCheck, root: pathlib.Path, *, env: dict[str, str] | None = None
+) -> tuple[int, str]:
     """Run one manifest command as a fixed argv, with no shell.
 
     No shell syntax is interpreted: a redirection, a pipe or a glob arrives as a
@@ -1072,6 +1082,9 @@ def _run_subprocess(check: VerifyCheck, root: pathlib.Path) -> tuple[int, str]:
     refused when it is read (:func:`_shell_separators_in`), because that one is
     always a mistake; the rest fail visibly at run time, on the command's own
     output, which is the right place for them.
+
+    *env* is layered over the inherited environment, never in place of it: the
+    command still needs PATH, the virtualenv and the proxy settings it was given.
     """
     argv = shlex.split(check.command)
     if argv and argv[0] == "npm":
@@ -1088,6 +1101,7 @@ def _run_subprocess(check: VerifyCheck, root: pathlib.Path) -> tuple[int, str]:
             encoding="utf-8",
             errors="replace",
             check=False,
+            env=None if env is None else {**os.environ, **env},
         )
     except FileNotFoundError:
         return 127, f"{argv[0]}: executable not found on PATH"
@@ -1919,6 +1933,89 @@ def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     return completed.returncode, output
 
 
+#: Where a conformance suite reads the address of the stack it drives. The template's
+#: ``conformance/playwright.config.ts`` refuses to start without it, so this runner and
+#: that file are the two halves of one seam and have to agree on the name.
+CONFORMANCE_BASE_URL_ENV = "TERP_E2E_BASE_URL"
+
+
+def conformance_address(root: pathlib.Path) -> tuple[str | None, str]:
+    """The address the conformance suite should drive, and where it came from.
+
+    ``(url, source)``, or ``(None, why there is none)``. Consulted in the order compose
+    itself resolves the web port, so the suite drives the port the stack actually
+    publishes rather than a guess about it:
+
+    1. ``TERP_E2E_BASE_URL``, when the caller already knows: a stack started some
+       other way, a remote environment, a driving tool with its own answer;
+    2. the app's web-port variable (``WEB_PORT`` unless ``workbench.json`` renames
+       it) in the process environment, which compose prefers over ``.env``;
+    3. the same variable in ``.env``, where ``terp ports assign`` publishes it.
+
+    There is no fourth step, and that is the point. A fallback port is exactly the
+    default ADR 0134 took out of the compose file: with no assignment this checkout's
+    stack cannot be up, so a literal would reach another checkout's stack, or another
+    application's, and report on that. ``localhost`` rather than ``127.0.0.1`` because
+    a Vite dev server may bind only the IPv6 loopback.
+    """
+    explicit = os.environ.get(CONFORMANCE_BASE_URL_ENV, "").strip()
+    if explicit:
+        return explicit, f"{CONFORMANCE_BASE_URL_ENV} as given"
+    from terp.cli import ports
+
+    seams = ports.read_seams(root)
+    if seams.problems:
+        return None, (
+            "workbench.json cannot be read, so which variable carries this app's web "
+            "port is unknown: " + " ".join(seams.problems)
+        )
+    if seams.unmanaged:
+        return None, (
+            f"workbench.json declares this app unmanaged ({seams.reason}), so where "
+            "its frontend answers is the app's own to say"
+        )
+    name = seams.web
+    value = os.environ.get(name, "").strip()
+    if value:
+        if not value.isdigit():
+            return None, f"{name} is set to {value!r} in the environment, which is not a port"
+        return f"http://localhost:{int(value)}", f"{name} from the environment"
+    published = ports.published(root, (name,)).get(name)
+    if published is not None:
+        return f"http://localhost:{published}", f"{name} from .env"
+    return None, (
+        f"this checkout has no web port assigned ({name} is set neither in the "
+        "environment nor in .env)"
+    )
+
+
+def _run_conformance(root: pathlib.Path) -> tuple[int, str]:
+    """Run the conformance suite against the stack this checkout actually publishes.
+
+    Red before the suite starts when there is no address to give it: every symptom of
+    a suite pointed at nothing is a timeout on some locator, which names neither the
+    cause nor the fix. The address the suite was handed is the first line of the
+    output otherwise, so a red run against the wrong stack says which stack it was.
+    """
+    from terp.cli.dev import DEFAULT_WEB_PORT
+
+    url, source = conformance_address(root)
+    if url is None:
+        return 1, (
+            f"conformance has no stack to drive: {source}.\n"
+            "  Start this checkout's workbench first: `terp ports assign`, then "
+            "`docker compose up -d --wait api web` and `docker compose run --rm seed` "
+            "(`terp docker dev` assigns and starts in one command); the address is "
+            "read from the assignment.\n"
+            f"  Or name a stack you started another way: {CONFORMANCE_BASE_URL_ENV}="
+            f"http://localhost:{DEFAULT_WEB_PORT} for `terp dev` on its default port."
+        )
+    exit_code, output = _run_subprocess(
+        _CONFORMANCE, root, env={CONFORMANCE_BASE_URL_ENV: url}
+    )
+    return exit_code, f"conformance: driving {url} ({source})\n{output}"
+
+
 def assurance_document(results: list[dict[str, object]]) -> dict[str, object]:
     """The release-assurance claim (``assurance-profile.schema.json``) from a
     release-profile run's per-check *results*.
@@ -2071,6 +2168,8 @@ def run_verify_command(
             exit_code, output = _run_production_readiness(project_root)
         elif check.runner == "authz-surface":
             exit_code, output = _run_authz_surface(project_root)
+        elif check.runner == "conformance":
+            exit_code, output = _run_conformance(project_root)
         else:
             exit_code, output = _run_subprocess(check, project_root)
             reports = _reports_in(output)

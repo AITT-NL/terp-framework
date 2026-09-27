@@ -130,6 +130,14 @@ jobs:
       - name: Install Playwright (Chromium + OS deps)
         run: npx playwright install --with-deps chromium
         working-directory: conformance
+      # The workbench publishes its host ports through REQUIRED variables, so compose refuses
+      # a checkout nobody has assigned a pair to rather than parking it on a default another
+      # checkout may hold (ADR 0134). A fresh runner has no .env -- it is gitignored, and a
+      # machine's ports never belong in history -- so the pair is claimed here, the same way
+      # every other starter claims one. It lands in .env, which is where compose reads it and
+      # where the conformance check reads the address it drives.
+      - name: Assign the workbench's host ports
+        run: uv run terp ports assign
       # `seed` is a one-shot: `--wait` treats any container that exits — even with 0 — as a
       # failure (docker/compose#10596), so it runs after the long-lived services are healthy.
       - name: Start the workbench

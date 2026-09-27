@@ -299,11 +299,17 @@ def test_no_conventional_host_port_is_published_anywhere() -> None:
 #: Files that DIAL a published host port: the CI workflows that drive a running stack,
 #: and the e2e configs whose default base URL is what a developer gets when they run the
 #: suite by hand. Neither publishes a port, so the check above cannot see them.
+#:
+#: The template's two were missing, and that is how its suite kept dialling 5173 after
+#: every other consumer had moved: the generated app's CI workflow and the suite config it
+#: runs are the copies that reach every app, and they were the copies nobody read.
 _DIALLING_FILES = (
     *sorted((_REPO_ROOT / ".github" / "workflows").glob("*.yml")),
     _REPO_ROOT / "apps" / "example" / "frontend" / "playwright.config.ts",
     _REPO_ROOT / "packages" / "frontend" / "conformance" / "playwright.config.ts",
     _REPO_ROOT / "apps" / "workbench" / "playwright.config.ts",
+    _REPO_ROOT / "template" / "project" / ".github" / "workflows" / "ci.yml.jinja",
+    _REPO_ROOT / "template" / "project" / "conformance" / "playwright.config.ts",
 )
 
 #: A ``localhost`` HTTP URL with a port, which is the shape a consumer takes.
