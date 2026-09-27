@@ -80,7 +80,7 @@
       "name": "--color-brand-primary-soft",
       "category": "color",
       "values": {
-        "light": "#eff6ff",
+        "light": "#e4edfd",
         "dark": "#15304e",
         "midnight": "#0c2d6b",
         "twilight": "#2b2350",
@@ -104,7 +104,7 @@
       "name": "--color-neutral-50",
       "category": "color",
       "values": {
-        "light": "#f8fafc",
+        "light": "#eef1f6",
         "dark": "#0f172a",
         "midnight": "#010409",
         "twilight": "#1a1622",
@@ -116,7 +116,7 @@
       "name": "--color-neutral-100",
       "category": "color",
       "values": {
-        "light": "#f1f5f9",
+        "light": "#e5eaf2",
         "dark": "#263449",
         "midnight": "#161b22",
         "twilight": "#2d2740",
@@ -128,7 +128,7 @@
       "name": "--color-neutral-200",
       "category": "color",
       "values": {
-        "light": "#e2e8f0",
+        "light": "#d8dfea",
         "dark": "#334155",
         "midnight": "#21262d",
         "twilight": "#3a3350",
@@ -140,7 +140,7 @@
       "name": "--color-neutral-300",
       "category": "color",
       "values": {
-        "light": "#cbd5e1",
+        "light": "#bcc6d6",
         "dark": "#475569",
         "midnight": "#30363d",
         "twilight": "#4d4468",
@@ -152,7 +152,7 @@
       "name": "--color-neutral-400",
       "category": "color",
       "values": {
-        "light": "#94a3b8",
+        "light": "#8d99ad",
         "dark": "#64748b",
         "midnight": "#484f58",
         "twilight": "#6b5f8a",
@@ -332,7 +332,7 @@
       "name": "--color-bg-canvas",
       "category": "color",
       "values": {
-        "light": "#f8fafc",
+        "light": "#eef1f6",
         "dark": "#0f172a",
         "midnight": "#010409",
         "twilight": "#1a1622",
@@ -368,7 +368,7 @@
       "name": "--color-bg-inset",
       "category": "color",
       "values": {
-        "light": "#f1f5f9",
+        "light": "#e5eaf2",
         "dark": "#0f172a",
         "midnight": "#010409",
         "twilight": "#1a1622",
@@ -404,7 +404,7 @@
       "name": "--color-fg-subtle",
       "category": "color",
       "values": {
-        "light": "#64748b",
+        "light": "#56647a",
         "dark": "#94a3b8",
         "midnight": "#8b949e",
         "twilight": "#a294bd",
@@ -428,7 +428,7 @@
       "name": "--color-border-default",
       "category": "color",
       "values": {
-        "light": "#e2e8f0",
+        "light": "#d8dfea",
         "dark": "#334155",
         "midnight": "#30363d",
         "twilight": "#3a3350",
@@ -440,7 +440,7 @@
       "name": "--color-border-strong",
       "category": "color",
       "values": {
-        "light": "#cbd5e1",
+        "light": "#bcc6d6",
         "dark": "#475569",
         "midnight": "#484f58",
         "twilight": "#4d4468",
@@ -452,7 +452,7 @@
       "name": "--color-border-subtle",
       "category": "color",
       "values": {
-        "light": "#f1f5f9",
+        "light": "#e5eaf2",
         "dark": "#263449",
         "midnight": "#21262d",
         "twilight": "#2d2740",
@@ -464,7 +464,7 @@
       "name": "--color-interactive-hover",
       "category": "color",
       "values": {
-        "light": "#f1f5f9",
+        "light": "#e5eaf2",
         "dark": "#263449",
         "midnight": "#161b22",
         "twilight": "#2d2740",
@@ -476,7 +476,7 @@
       "name": "--color-interactive-active",
       "category": "color",
       "values": {
-        "light": "#e2e8f0",
+        "light": "#d8dfea",
         "dark": "#334155",
         "midnight": "#21262d",
         "twilight": "#3a3350",
@@ -488,7 +488,7 @@
       "name": "--color-interactive-selected",
       "category": "color",
       "values": {
-        "light": "#eff6ff",
+        "light": "#e4edfd",
         "dark": "#15304e",
         "midnight": "#0c2d6b",
         "twilight": "#2b2350",
@@ -500,7 +500,7 @@
       "name": "--color-sidebar-bg",
       "category": "color",
       "values": {
-        "light": "#f8fafc",
+        "light": "#ffffff",
         "dark": "#1e293b",
         "midnight": "#0d1117",
         "twilight": "#241f31",
@@ -536,7 +536,7 @@
       "name": "--color-sidebar-accent",
       "category": "color",
       "values": {
-        "light": "#f1f5f9",
+        "light": "#eef1f6",
         "dark": "#334155",
         "midnight": "#21262d",
         "twilight": "#3a3350",
@@ -548,7 +548,7 @@
       "name": "--color-sidebar-border",
       "category": "color",
       "values": {
-        "light": "#e2e8f0",
+        "light": "#d8dfea",
         "dark": "#334155",
         "midnight": "#21262d",
         "twilight": "#3a3350",
@@ -964,7 +964,7 @@
       "name": "--shell-header-height",
       "category": "shell",
       "values": {
-        "light": "3rem"
+        "light": "3.5rem"
       },
       "themeable": false
     },
@@ -1371,6 +1371,14 @@
       "layer": "semantic"
     },
     {
+      "$comment": "Subtle ink on the CANVAS, which is the half that was missing. Only the surface pairing was declared, and the two are not the same measurement once the canvas is tinted away from the surface: in light this reads 5.29:1 where the surface reads 6.13, and at the previous #64748b it was 4.20 against a canvas the surface pairing still passed at 4.76. Every consumer that sits on the page rather than in a card — the DataView toolbar's result count, a section's lead line — failed axe while the declared pairing stayed green, which is exactly the coverage claim this file exists to make honest.",
+      "id": "subtle-on-canvas",
+      "label": "subtle text on the canvas",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
       "id": "accent-on-surface",
       "label": "accent text on a surface",
       "fg": "--color-fg-accent",
@@ -1403,6 +1411,14 @@
       "label": "sidebar muted text",
       "fg": "--color-sidebar-muted",
       "bg": "--color-sidebar-bg",
+      "layer": "semantic"
+    },
+    {
+      "$comment": "The nav link's two raised states, which are one pairing: hover has painted sidebar-fg on sidebar-accent since the sidebar family was wired, and the active route joined it when its brand fill moved to neutral. It went undeclared through both, and the gap had teeth — the version of the active rule that kept accent ink on the same wash measured 4.07:1 in dark and 4.36 in twilight, and only the axe lane caught it, per specimen, at the end of a 26-minute run. Declared here it is arithmetic over five themes instead.",
+      "id": "sidebar-text-on-accent",
+      "label": "sidebar text on the hovered or active nav item",
+      "fg": "--color-sidebar-fg",
+      "bg": "--color-sidebar-accent",
       "layer": "semantic"
     },
     {
