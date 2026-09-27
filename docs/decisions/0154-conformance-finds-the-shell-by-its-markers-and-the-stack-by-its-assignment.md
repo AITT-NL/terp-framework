@@ -122,9 +122,10 @@ its wording.
 
 - An app's own specs are untouched. One that already uses English names on an English interface
   keeps passing; `login()` and `logout()` now also work on an app in any other language.
-- An app that replaces the built-in sign-in screen (`renderTerpApp({ login })`) must render the
-  same four markers for `login()` to find its controls, or sign in from its specs its own way.
-  Before this, it had to render the same English names instead.
+- An app that replaces the built-in sign-in screen (`renderTerpApp({ login })`) must render
+  `login-title`, `login-email`, `login-password` and `login-submit` for `login()` to find its
+  controls, or sign in from its specs its own way. Before this, it had to render the same
+  English names instead.
 - `npm test` in a generated app's `conformance/` no longer runs with nothing set; it says to run
   it through `terp verify` or to set `TERP_E2E_BASE_URL`.
 - react-core renders four wrapper elements it did not render before. They carry no box and no

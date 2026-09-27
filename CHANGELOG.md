@@ -177,8 +177,8 @@ repeated more often than the values it applied to.
   its own screens by their English names on an English interface keeps passing, and `login()`
   and `logout()` now also work on an interface in any other language. The one case that
   changes: an app that replaces the built-in sign-in screen (`renderTerpApp({ login })`) has to
-  render the same four markers for `login()` to find its controls — where before it had to
-  render the same English names.
+  render `login-title`, `login-email`, `login-password` and `login-submit` for `login()` to find
+  its controls — where before it had to render the same English names.
 
 ### Fixed
 
@@ -265,6 +265,14 @@ repeated more often than the values it applied to.
   `.github/workflows/frontend.yml` pins. An app carrying its own visual baselines against
   react-core components will need the same.
 
+- **A replaced sign-in screen renders the markers `login()` finds, and the template's
+  conformance suite takes its address from the gate.** An app that supplies its own sign-in
+  screen (`renderTerpApp({ login })`) renders `login-title`, `login-email`, `login-password` and
+  `login-submit` for `login()` to find its controls, where it used to have to render the English
+  names (see *Changed*). And `conformance/playwright.config.ts` has no default address any more:
+  `copier update` brings the new config together with the CI step that assigns the workbench's
+  ports, and a suite run by hand goes through `uv run terp verify --profile release --only
+  conformance` or sets `TERP_E2E_BASE_URL`.
 
 ## 0.27.0 — 2026-09-24
 
