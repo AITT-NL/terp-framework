@@ -172,6 +172,16 @@ repeated more often than the values it applied to.
   escapes a `ConfirmDialog` flow, and runs the app's own `npm test` against the packed
   tarballs — until now no step in this repository ran a generated app's frontend unit tests.
 
+- **A freshly generated app's CI is green before its first test exists.** The template
+  declares `vitest run` as the frontend `test` script and ships no test file of its own; the
+  first one arrives with the first `terp new module`. vitest answers an empty suite with
+  exit code 1, and `terp verify --profile full` passed that straight through. So a new
+  project's own CI failed at `frontend-tests` before anyone wrote a line, under a README
+  that calls a fresh checkout gate-green, and next to a docstring that already called the
+  state "mid-adoption, not broken". The check now reports it as a note naming
+  `terp new module`, with vitest's own words kept so a mistyped test glob stays visible.
+  A failing suite is still red.
+
 ## 0.27.0 — 2026-09-24
 
 ### Security
