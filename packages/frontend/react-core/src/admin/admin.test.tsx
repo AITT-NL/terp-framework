@@ -9,6 +9,7 @@ import type { ComponentType } from "react";
 import { withAdminArea } from "../bootstrap";
 import type { AdminAreaSections } from "../bootstrap";
 import { formatDateTime } from "../format";
+import { LOCALE_EN, LOCALE_NL, LocaleProvider } from "../locale";
 import { buildAppRouter } from "../router";
 import { Page } from "../Page";
 import { TerpProvider, useAuth } from "../TerpProvider";
@@ -399,6 +400,7 @@ function renderAdminApp(
   initialPath: string,
   roleRank = 30,
   adminArea: boolean | AdminAreaSections = true,
+  dutch = false,
 ) {
   const manifests: ModuleManifest[] = [
     { name: "notes", routes: [{ path: "/", view: "NotesList" }], nav: [] },
@@ -427,13 +429,22 @@ function renderAdminApp(
       });
     });
   }
-  render(
+  const app = (
     <TerpProvider baseUrl="https://api.test">
       <ToastProvider>
         <LogInOnMount />
         <RouterProvider router={router} />
       </ToastProvider>
-    </TerpProvider>,
+    </TerpProvider>
+  );
+  render(
+    dutch ? (
+      <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }} defaultLocale="nl">
+        {app}
+      </LocaleProvider>
+    ) : (
+      app
+    ),
   );
   return { fetchMock, router };
 }
@@ -861,6 +872,22 @@ describe("the packaged admin area", () => {
       expect(heading.tagName).toBe("H2");
       expect(heading.getAttribute("style")).toBeNull();
     }
+  });
+
+  it("speaks the app's language on the audit screen, its table and expanded row included", async () => {
+    // The framework's own screen, under the framework's own Dutch catalog. Its title was Dutch
+    // and everything its DataView drew was not — the result count, the row controls — because
+    // DataView's strings were a table the locale could not reach; and the expanded row carried
+    // one label written straight into the screen. Asserted here rather than on a bare DataView
+    // because this is where an app's user actually met the two languages side by side.
+    renderAdminApp("/admin/audit", 30, true, true);
+    await screen.findByRole("heading", { level: 1, name: "Auditlog" });
+    expect(await screen.findByText("1–1 van 1 resultaten")).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rij uitklappen" }));
+    expect(await screen.findByText("Verzoek")).toBeInTheDocument();
+    expect(screen.queryByText("Request")).toBeNull();
+    expect(screen.queryByText(/results/)).toBeNull();
   });
 
   it("keeps the audit payload's scroll container reachable by keyboard", async () => {

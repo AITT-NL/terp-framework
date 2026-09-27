@@ -281,6 +281,8 @@ export interface TerpStrings {
   whenColumn: string;
   /** Audit admin: expanded row's payload heading. */
   details: string;
+  /** Audit admin: expanded row's label for the request that caused the event. */
+  requestLabel: string;
   /** Generic success toast after a saved mutation. */
   saved: string;
   /** Generic failure toast when a request did not go through. */
@@ -369,6 +371,25 @@ export interface TerpStrings {
   dataViewErrorTitle: string;
   /** DataView: a column's resize handle; prefixed to the column's name. */
   dataViewResizeColumn: string;
+  // The wording for the platform's own `AppError` codes, which `useErrorMessage` shows in place
+  // of the backend's `detail`. An app's `errorMessages` map still wins for any code it names,
+  // including these; a code neither side words falls back to the `detail`.
+  /** Error code `bad_request`. */
+  errorCodeBadRequest: string;
+  /** Error code `validation_failed`. */
+  errorCodeValidationFailed: string;
+  /** Error code `invalid_token`. */
+  errorCodeInvalidToken: string;
+  /** Error code `authentication_required`. */
+  errorCodeAuthenticationRequired: string;
+  /** Error code `permission_denied`. */
+  errorCodePermissionDenied: string;
+  /** Error code `not_found`. */
+  errorCodeNotFound: string;
+  /** Error code `conflict`. */
+  errorCodeConflict: string;
+  /** Error code `stale_data`. */
+  errorCodeStaleData: string;
 }
 
 export const DEFAULT_STRINGS: TerpStrings = {
@@ -505,6 +526,7 @@ export const DEFAULT_STRINGS: TerpStrings = {
   targetColumn: "Target",
   whenColumn: "When",
   details: "Details",
+  requestLabel: "Request",
   saved: "Saved",
   requestFailed: "The request failed. Try again.",
   dataViewSearchPlaceholder: "Search…",
@@ -538,6 +560,14 @@ export const DEFAULT_STRINGS: TerpStrings = {
   dataViewRefreshing: "Refreshing…",
   dataViewErrorTitle: "Could not load data.",
   dataViewResizeColumn: "Resize column",
+  errorCodeBadRequest: "The request could not be processed.",
+  errorCodeValidationFailed: "Some fields are invalid. Check the form and try again.",
+  errorCodeInvalidToken: "Your session is invalid. Sign in again.",
+  errorCodeAuthenticationRequired: "Sign in to continue.",
+  errorCodePermissionDenied: "You do not have permission to do this.",
+  errorCodeNotFound: "This item could not be found.",
+  errorCodeConflict: "This conflicts with the current state. Refresh and try again.",
+  errorCodeStaleData: "This item was changed by someone else. Refresh and try again.",
 };
 
 interface UiTextContextValue {

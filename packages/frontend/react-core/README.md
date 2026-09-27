@@ -201,7 +201,7 @@ marker, counted by the escape-hatch budget.
 | `LoadingState`, `InlineSpinner` | Full loading block (announces itself) / compact inline glyph. |
 | `EmptyState` | The standard "nothing here yet" block, with an `action` slot for the next step. |
 | `ErrorState`, `describeError` | Human-readable failure block for a caught error. |
-| `ErrorMessagesProvider`, `useErrorMessage`, `DEFAULT_ERROR_MESSAGES` | Map stable backend error codes to copy; falls back to the envelope `detail`. |
+| `ErrorMessagesProvider`, `useErrorMessage` | Map stable backend error codes to copy; falls back to the envelope `detail`. The platform's own codes are worded by the active locale (`errorCode*` in `TerpStrings`), and an app's map wins over them. |
 | `ToastProvider`, `useToast` | Transient success/error feedback (no toast library). |
 | `ConfirmDialog` | Accessible confirmation modal (native `<dialog>`); use before any destructive action. A modal is for a confirmation or an explicit post-action moment — an edit form or a detail view belongs in a routed page, or in an expanded row beside the thing it edits (ADR 0096 §4). |
 

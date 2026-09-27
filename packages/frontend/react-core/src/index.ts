@@ -108,7 +108,7 @@ export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 export { ErrorState, describeError } from "./ErrorState";
 export type { ErrorStateProps } from "./ErrorState";
-export { ErrorMessagesProvider, useErrorMessage, DEFAULT_ERROR_MESSAGES } from "./errorMessages";
+export { ErrorMessagesProvider, useErrorMessage } from "./errorMessages";
 export type { ErrorMessages, ErrorMessagesProviderProps } from "./errorMessages";
 export { ConfirmDialog } from "./ConfirmDialog";
 export { Disclosure } from "./Disclosure";

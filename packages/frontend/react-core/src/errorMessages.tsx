@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 
-import { useUiText } from "./uiText";
-import type { UiText } from "./uiText";
+import { useStrings, useUiText } from "./uiText";
+import type { TerpStrings, UiText } from "./uiText";
 
 /**
  * Client-owned messages for the platform's stable error codes.
@@ -19,22 +19,29 @@ import type { UiText } from "./uiText";
 export type ErrorMessages = Record<string, UiText>;
 
 /**
- * English defaults for the core `AppError` taxonomy. Apps override or extend
- * per code via {@link ErrorMessagesProvider} — including codes their own
- * backend modules add.
+ * The wording for the core `AppError` taxonomy, read from the active locale.
+ *
+ * These were an exported map of English strings, the context's default value, so a plain
+ * string resolved as-is and a `permission_denied` read "You do not have permission to do this."
+ * under every locale — while the Dutch catalog was reported complete, because the check walks
+ * `TerpStrings` and these were not in it. They are `errorCode*` keys of that table now, so a
+ * locale catalog translates them and a non-English one that leaves one out is refused.
  */
-export const DEFAULT_ERROR_MESSAGES: ErrorMessages = {
-  bad_request: "The request could not be processed.",
-  validation_failed: "Some fields are invalid. Check the form and try again.",
-  invalid_token: "Your session is invalid. Sign in again.",
-  authentication_required: "Sign in to continue.",
-  permission_denied: "You do not have permission to do this.",
-  not_found: "This item could not be found.",
-  conflict: "This conflicts with the current state. Refresh and try again.",
-  stale_data: "This item was changed by someone else. Refresh and try again.",
-};
+function builtInErrorMessages(strings: TerpStrings): ErrorMessages {
+  return {
+    bad_request: strings.errorCodeBadRequest,
+    validation_failed: strings.errorCodeValidationFailed,
+    invalid_token: strings.errorCodeInvalidToken,
+    authentication_required: strings.errorCodeAuthenticationRequired,
+    permission_denied: strings.errorCodePermissionDenied,
+    not_found: strings.errorCodeNotFound,
+    conflict: strings.errorCodeConflict,
+    stale_data: strings.errorCodeStaleData,
+  };
+}
 
-const ErrorMessagesContext = createContext<ErrorMessages>(DEFAULT_ERROR_MESSAGES);
+/** The app's own map only; the built-in wording is read from the locale at every use. */
+const ErrorMessagesContext = createContext<ErrorMessages>({});
 
 export interface ErrorMessagesProviderProps {
   /** Per-code overrides and additions, merged over any outer provider's map. */
@@ -60,8 +67,14 @@ export function ErrorMessagesProvider({ messages, children }: ErrorMessagesProvi
  * property, as carried by `ApiError` thrown from `unwrap`.
  */
 export function useErrorMessage(): (error: unknown) => string | null {
-  const messages = useContext(ErrorMessagesContext);
+  const appMessages = useContext(ErrorMessagesContext);
+  const strings = useStrings();
   const resolve = useUiText();
+  // The app's map over the built-in wording, so an app still overrides a platform code.
+  const messages = useMemo(
+    () => ({ ...builtInErrorMessages(strings), ...appMessages }),
+    [strings, appMessages],
+  );
   return useCallback(
     (error: unknown) => {
       if (error === null || typeof error !== "object") {

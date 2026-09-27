@@ -173,20 +173,33 @@ repeated more often than the values it applied to.
   `UiText`. That is the shape the DataView defaults had, and the reason the scan passed over
   them. ADR 0153.
 
+- **The platform's own error codes, and the audit screen's request label, follow the locale
+  too.** Looking for the same shape turned up two more. The wording for `permission_denied`,
+  `stale_data` and the rest of the core `AppError` codes was `DEFAULT_ERROR_MESSAGES`, an
+  English map that seeded its context, and a plain string resolves as-is, so a Dutch app told
+  its users "You do not have permission to do this." It is `errorCode*` keys of `TerpStrings`
+  now (`errorCodeStaleData`), translated by `LOCALE_NL`; an app's own `errorMessages` map still
+  wins for any code it names, so an app that mapped a platform code only to see it in its own
+  language can drop that entry. The audit screen's expanded row labelled the request id with a
+  literal written into the screen, and reads `requestLabel` now.
+
 ### Upgrade notes
 
-- **A non-English catalog of an app's own must now translate the `dataView*` keys.**
-  `defineAppLocales` and `LocaleProvider` refuse a declared non-English locale whose framework
-  strings leave a key out, and name the missing ones (ADR 0105), so a catalog that was
-  complete against the previous table is refused on this release. That is intended: the
-  alternative is every DataView in the app back in English under a locale that claims to be
-  complete. An app on the built-in `LOCALE_NL` needs no change. The English to translate from
-  is `DEFAULT_STRINGS.dataView*`.
+- **A non-English catalog of an app's own must now translate the new framework keys:**
+  `dataView*`, `errorCode*` and `requestLabel`. `defineAppLocales` and `LocaleProvider` refuse
+  a declared non-English locale whose framework strings leave a key out, and name the missing
+  ones (ADR 0105), so a catalog that was complete against the previous table is refused on
+  this release. That is intended: the alternative is every DataView and every platform error
+  in the app back in English under a locale that claims to be complete. An app on the
+  built-in `LOCALE_NL` needs no change. The English to translate from is the same keys of
+  `DEFAULT_STRINGS`.
 
-- **`DEFAULT_DATA_VIEW_STRINGS` is removed.** Nothing read it but the provider it fed, and a
-  public English-only default set is the defect waiting to be reused: anything built on it as
-  a fallback renders English in every locale. Read `DEFAULT_STRINGS` for the English, and pass
-  the keys one view should say differently through that DataView's `strings` prop.
+- **`DEFAULT_DATA_VIEW_STRINGS` and `DEFAULT_ERROR_MESSAGES` are removed.** Nothing in the
+  tree read either except to seed its own context, and a public English-only default set is
+  the defect waiting to be reused: anything built on it as a fallback renders English in every
+  locale. Read `DEFAULT_STRINGS` for the English; pass the keys one view should say
+  differently through that DataView's `strings` prop, and the codes an app words differently
+  through `renderTerpApp`'s `errorMessages`.
 
 - An existing project keeps the `index.html` it was generated with. Set its `<html lang>` to
   the first locale in `frontend/i18n.json`: the provider corrects the attribute at mount either

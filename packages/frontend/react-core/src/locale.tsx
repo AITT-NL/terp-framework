@@ -156,9 +156,10 @@ export const LOCALE_EN: LocaleCatalog = { label: "English" };
 /**
  * The built-in Dutch catalog: a translation of every `TerpStrings` key, so
  * `locales: { en: LOCALE_EN, nl: LOCALE_NL }` translates every string react-core
- * reads from that table — the shell, the packaged admin screens and every
- * `DataView`'s toolbar and footer — with no catalog work in the app (a
- * completeness test pins it to the `TerpStrings` key set).
+ * reads from that table — the shell, the packaged admin screens, every
+ * `DataView`'s toolbar and footer, and the wording for the platform's own error
+ * codes — with no catalog work in the app (a completeness test pins it to the
+ * `TerpStrings` key set).
  */
 export const LOCALE_NL: LocaleCatalog = {
   label: "Nederlands",
@@ -296,6 +297,7 @@ export const LOCALE_NL: LocaleCatalog = {
     targetColumn: "Doel",
     whenColumn: "Wanneer",
     details: "Details",
+    requestLabel: "Verzoek",
     saved: "Opgeslagen",
     requestFailed: "Het verzoek is mislukt. Probeer opnieuw.",
     dataViewSearchPlaceholder: "Zoeken…",
@@ -329,6 +331,17 @@ export const LOCALE_NL: LocaleCatalog = {
     dataViewRefreshing: "Bijwerken…",
     dataViewErrorTitle: "De gegevens konden niet worden geladen.",
     dataViewResizeColumn: "Kolombreedte aanpassen",
+    errorCodeBadRequest: "Het verzoek kon niet worden verwerkt.",
+    errorCodeValidationFailed:
+      "Sommige velden zijn ongeldig. Controleer het formulier en probeer het opnieuw.",
+    errorCodeInvalidToken: "Je sessie is ongeldig. Log opnieuw in.",
+    errorCodeAuthenticationRequired: "Log in om verder te gaan.",
+    errorCodePermissionDenied: "Je hebt geen toestemming om dit te doen.",
+    errorCodeNotFound: "Dit item kon niet worden gevonden.",
+    errorCodeConflict:
+      "Dit botst met de huidige stand van zaken. Vernieuw de pagina en probeer het opnieuw.",
+    errorCodeStaleData:
+      "Iemand anders heeft dit item intussen gewijzigd. Vernieuw de pagina en probeer het opnieuw.",
   },
 };
 
