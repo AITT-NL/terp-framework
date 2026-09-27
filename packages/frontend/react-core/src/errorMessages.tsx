@@ -51,8 +51,9 @@ export interface ErrorMessagesProviderProps {
 
 /**
  * Override or extend the code→message map for a subtree. Wrap the app once to
- * localise the built-in codes and register module-specific ones; nests, so a
- * module can add its own codes without touching the app shell.
+ * register module-specific codes, or to reword a built-in one — its translated
+ * wording already comes from the active locale; nests, so a module can add its
+ * own codes without touching the app shell.
  */
 export function ErrorMessagesProvider({ messages, children }: ErrorMessagesProviderProps) {
   const parent = useContext(ErrorMessagesContext);
