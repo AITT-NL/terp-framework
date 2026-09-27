@@ -32,7 +32,7 @@ export type {
   DataViewSearchScope,
   DataViewStrings,
 } from "./types";
-export { DEFAULT_DATA_VIEW_STRINGS, emptyDataViewState } from "./types";
+export { emptyDataViewState } from "./types";
 
 export { InMemoryDataViewRepository } from "./repositories/InMemoryDataViewRepository";
 export type { InMemoryDataViewRepositoryOptions } from "./repositories/InMemoryDataViewRepository";

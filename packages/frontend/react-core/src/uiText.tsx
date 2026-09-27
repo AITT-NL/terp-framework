@@ -303,6 +303,72 @@ export interface TerpStrings {
   selectDate: string;
   /** DateRangePicker: trigger text before a range is chosen. */
   selectDateRange: string;
+  // DataView. Framework copy like everything above, so a locale catalog translates it and the
+  // completeness check requires it; `DataView`'s per-instance `strings` prop still wins. Kept
+  // apart from the similar keys above (`loading`, `errorTitle`, `moreActions`,
+  // `clearSelection`) on purpose: the English differs, and a translation may too.
+  /** DataView: the search box's placeholder and accessible name. */
+  dataViewSearchPlaceholder: string;
+  /** DataView: clears the search box. */
+  dataViewClearSearch: string;
+  /** DataView: the toolbar action that resets the caller's filters. */
+  dataViewClearFilters: string;
+  /** DataView: the column-settings menu trigger. */
+  dataViewViewOptions: string;
+  /** DataView: heading of the column list inside the column-settings menu. */
+  dataViewColumns: string;
+  /** DataView: moves a column earlier; prefixed to the column's name. */
+  dataViewMoveUp: string;
+  /** DataView: moves a column later; prefixed to the column's name. */
+  dataViewMoveDown: string;
+  /** DataView: switches to the table layout. */
+  dataViewTableView: string;
+  /** DataView: switches to the card layout. */
+  dataViewCardView: string;
+  /** DataView: the page-size selector. */
+  dataViewPageSize: string;
+  /** DataView: the footer's result range; `{from}`, `{to}` and `{total}` are replaced. */
+  dataViewResultsRange: string;
+  /** DataView: the footer's page position; `{page}` and `{pages}` are replaced. */
+  dataViewPageOf: string;
+  /** DataView: pagination, to the first page. */
+  dataViewFirstPage: string;
+  /** DataView: pagination, one page back. */
+  dataViewPreviousPage: string;
+  /** DataView: pagination, one page forward. */
+  dataViewNextPage: string;
+  /** DataView: pagination, to the last page. */
+  dataViewLastPage: string;
+  /** DataView: the header checkbox that selects every row on the page. */
+  dataViewSelectAllPage: string;
+  /** DataView: a row's selection checkbox. */
+  dataViewSelectRow: string;
+  /** DataView: the selection count; `{count}` is replaced. */
+  dataViewSelected: string;
+  /** DataView: widens the selection to every result; `{total}` is replaced. */
+  dataViewSelectAllResults: string;
+  /** DataView: clears the row selection. */
+  dataViewClearSelection: string;
+  /** DataView: the row-action and batch-action overflow trigger. */
+  dataViewMoreActions: string;
+  /** DataView: the actions column header. */
+  dataViewActions: string;
+  /** DataView: a row's open button; `{label}` is replaced by the record's name. */
+  dataViewOpenRow: string;
+  /** DataView: opens a row's detail panel. */
+  dataViewExpandRow: string;
+  /** DataView: closes a row's detail panel. */
+  dataViewCollapseRow: string;
+  /** DataView: the empty state when the caller passes no `emptyMessage`. */
+  dataViewEmpty: string;
+  /** DataView: the first load's placeholder. */
+  dataViewLoading: string;
+  /** DataView: shown while a refetch replaces rows already on screen. */
+  dataViewRefreshing: string;
+  /** DataView: the error state's title. */
+  dataViewErrorTitle: string;
+  /** DataView: a column's resize handle; prefixed to the column's name. */
+  dataViewResizeColumn: string;
 }
 
 export const DEFAULT_STRINGS: TerpStrings = {
@@ -441,6 +507,37 @@ export const DEFAULT_STRINGS: TerpStrings = {
   details: "Details",
   saved: "Saved",
   requestFailed: "The request failed. Try again.",
+  dataViewSearchPlaceholder: "Search…",
+  dataViewClearSearch: "Clear search",
+  dataViewClearFilters: "Clear filters",
+  dataViewViewOptions: "View options",
+  dataViewColumns: "Columns",
+  dataViewMoveUp: "Move up",
+  dataViewMoveDown: "Move down",
+  dataViewTableView: "Table view",
+  dataViewCardView: "Card view",
+  dataViewPageSize: "Rows per page",
+  dataViewResultsRange: "{from}–{to} of {total} results",
+  dataViewPageOf: "Page {page} of {pages}",
+  dataViewFirstPage: "First page",
+  dataViewPreviousPage: "Previous page",
+  dataViewNextPage: "Next page",
+  dataViewLastPage: "Last page",
+  dataViewSelectAllPage: "Select all rows on this page",
+  dataViewSelectRow: "Select row",
+  dataViewSelected: "{count} selected",
+  dataViewSelectAllResults: "Select all {total} results",
+  dataViewClearSelection: "Clear selection",
+  dataViewMoreActions: "More actions",
+  dataViewActions: "Actions",
+  dataViewOpenRow: "Open details: {label}",
+  dataViewExpandRow: "Expand row",
+  dataViewCollapseRow: "Collapse row",
+  dataViewEmpty: "Nothing to show.",
+  dataViewLoading: "Loading…",
+  dataViewRefreshing: "Refreshing…",
+  dataViewErrorTitle: "Could not load data.",
+  dataViewResizeColumn: "Resize column",
 };
 
 interface UiTextContextValue {

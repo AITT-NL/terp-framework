@@ -142,6 +142,56 @@ repeated more often than the values it applied to.
   a value still renders at the step that `Text` asked for. A caller who wants the pair's step
   passes `size="sm"` or hands the value as a string.
 
+- **A DataView speaks the app's language, and so does the document.** DataView's strings were
+  a table of their own — English defaults that only a per-instance `strings` prop could change
+  — so a locale catalog had no typed place to translate them, and the check that refuses a
+  half-translated shell walked a table they were not in. Under `LOCALE_NL` every DataView said
+  "Search…", "Rows per page" and "1–20 of 45 results", the framework's own users, groups and
+  audit screens included, while the catalog was reported complete. They are now `TerpStrings`
+  keys under a `dataView` prefix (`dataViewSearchPlaceholder`, `dataViewResultsRange`, …),
+  `LOCALE_NL` translates them, and the `strings` prop still wins over the locale for the keys
+  it names. The prefix is kept even where a key looks like one the table already had:
+  `dataViewLoading` is "Loading…" where `loading` is "Loading...", and a translation may differ
+  too.
+
+  A DataView part rendered outside a `DataView` — a `DataViewPagination` under a hand-built
+  table — was further behind still. With no provider above it, it read the context's default,
+  which was the English set and a resolver that ignored the locale. The context now carries
+  only an instance's overrides, so every part reads the active locale wherever it sits.
+
+  `LocaleProvider` now also keeps `<html lang>` on the active locale, from mount and across
+  every switch. Nothing set it before, and the template's `index.html` declared `en` while its
+  `i18n.json` opens in `nl`, so a generated app presented a Dutch interface that a screen
+  reader was told was English, and pronounced it as English throughout (WCAG 3.1.1). The
+  template's document now declares `nl`, the example's keeps `en`, and
+  `tests/architecture/test_template.py` holds each to the first locale its `i18n.json`
+  declares. The write is an effect, so server rendering, which has no `document`, never
+  reaches it.
+
+  The source scan that guards against untranslatable literals now reads a table entry
+  (`key: "Literal"`) as well as a default (`key = "Literal"`) for a key its file declares as
+  `UiText`. That is the shape the DataView defaults had, and the reason the scan passed over
+  them. ADR 0153.
+
+### Upgrade notes
+
+- **A non-English catalog of an app's own must now translate the `dataView*` keys.**
+  `defineAppLocales` and `LocaleProvider` refuse a declared non-English locale whose framework
+  strings leave a key out, and name the missing ones (ADR 0105), so a catalog that was
+  complete against the previous table is refused on this release. That is intended: the
+  alternative is every DataView in the app back in English under a locale that claims to be
+  complete. An app on the built-in `LOCALE_NL` needs no change. The English to translate from
+  is `DEFAULT_STRINGS.dataView*`.
+
+- **`DEFAULT_DATA_VIEW_STRINGS` is removed.** Nothing read it but the provider it fed, and a
+  public English-only default set is the defect waiting to be reused: anything built on it as
+  a fallback renders English in every locale. Read `DEFAULT_STRINGS` for the English, and pass
+  the keys one view should say differently through that DataView's `strings` prop.
+
+- An existing project keeps the `index.html` it was generated with. Set its `<html lang>` to
+  the first locale in `frontend/i18n.json`: the provider corrects the attribute at mount either
+  way, but the static value is what a reader meets before the bundle runs.
+
 ## 0.27.0 — 2026-09-24
 
 ### Security
