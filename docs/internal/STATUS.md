@@ -803,23 +803,31 @@ against `main` on 2026-09-27. Each item is its own branch and pull request; this
 The two open design questions are proposals (ADR status *Proposed*) awaiting a decision, not
 fixes.
 
-- [ ] The 0.28.0 release notes named the application a batch came from. Rewritten to the
-      friction; the copy shipped inside `terp-core` and its vendored mirror follow.
-- [ ] A non-finite number (`NaN`, `Infinity`) in a request body is a 500, not a 422 — and a
-      plain `float` field accepts `Infinity` outright.
-- [ ] `terp dev` crashes on a cp1252 console before anything boots, and its reloader watches
-      the whole project, dependency trees included.
-- [ ] `terp inspect capabilities` describes identity without the service accounts it provides.
-- [ ] DataView's strings sit outside `TerpStrings`, so `LOCALE_NL` never reaches them, and
-      `<html lang>` never follows the active locale.
-- [ ] A new project's first `terp migrate make` fails the template's own deptry check.
-- [ ] The translation lint refuses `columns="auto"` as copy, and never sees a descriptor built
-      by a helper function. The helper half needs the terp-spec rule text changed first.
-- [ ] The template's conformance job cannot start on a fresh app (unassigned ports, a stale
-      base URL) and its helpers only work with an English interface; template acceptance
-      never starts the generated stack, which is how both got through.
-- [ ] The template's test setup lacks the `<dialog>` polyfill react-core keeps for itself.
-- [ ] Proposed, awaiting a decision: chart and meter components; data-driven navigation.
+- [ ] #117 — The 0.28.0 release notes named the application a batch came from. Rewritten to
+      the friction; the copy shipped inside `terp-core` and its vendored mirror follow.
+- [ ] #118 — A non-finite number (`NaN`, `Infinity`) in a JSON body is a 500, not a 422, and a
+      plain `float` field accepted `Infinity` outright (ADR 0152). **Recorded, not fixed:** a
+      `float` query or path parameter still accepts `inf`/`nan`; ADR 0152 says why.
+- [ ] #123 — `terp dev` dies on a cp1252 pipe before anything boots, and on Windows uvicorn's
+      reloader never restarts when `terp dev` is started from a tool rather than a console, so
+      the old code keeps answering. `terp dev` now owns the restart (ADR 0156).
+- [ ] #121 — `terp inspect capabilities` described identity without the service accounts it
+      provides; installed capabilities now name the command that lists what the app holds.
+- [ ] #119 — DataView's strings sat outside `TerpStrings`, so `LOCALE_NL` never reached them,
+      and `<html lang>` never followed the active locale (ADR 0153). The platform's own error
+      wording had the same defect and is fixed with it.
+- [ ] #120 — A new project failed its own deptry check: the template's code, every scaffolded
+      module and every generated revision import the platform's stack undeclared.
+- [ ] #124 + terp-spec#36 — The translation lint read `columns="auto"` as copy, and never saw a
+      descriptor built by a helper function (ADR 0157, which reverses a deliberate allowance).
+      Merge the spec PR first.
+- [ ] #126 — The template's conformance job could not start on a fresh app
+      (unassigned ports, a stale base URL) and its helpers only worked with an English
+      interface; template acceptance never started the generated stack (ADR 0154).
+- [ ] #122 — The template's test setup lacked the `<dialog>` polyfill react-core kept for itself
+      (ADR 0155), and a fresh app's CI was red at `frontend-tests` before its first test.
+- [ ] #125 — Proposed, awaiting a decision: meters and charts (ADR 0158); data-driven
+      navigation (ADR 0159).
 
 ## Active execution track
 
