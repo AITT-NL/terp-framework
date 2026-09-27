@@ -92,6 +92,50 @@ repeated more often than the values it applied to.
 
 ### Changed
 
+- **An in-flow block is an object again: a fill, on a canvas tinted away from it.** The
+  surface model went frame-only last release — border and radius with the canvas showing
+  through — and the reasoning was right about the defect and wrong about the fix. Cards were
+  painting `--color-neutral-0`, the far end of the primitive ramp, so an app that themed its
+  canvas got cards that did not follow. Naming the **semantic** `--color-bg-surface` answers
+  that (a theme moves both ends together, which is what the `bg` family is for) while
+  `variant="plain"` already answered the other half, a card dropped on something that is
+  already a surface.
+
+  What frame-only cost is the thing a screen is judged on. With canvas and surface a rounding
+  error apart there is no object anywhere on the page: measured on the light theme, a table, a
+  hub card and the page behind them all rendered `#f8fafc` inside an `#e2e8f0` hairline, which
+  reads as a wireframe of an app rather than an app. Tinting the canvas alone does not fix it
+  either — that just moves every object onto grey, and a data table with a grey ground reads
+  as disabled. Both halves are one decision, so they move together: the canvas is `#eef1f6`
+  and `card`, `hubcard-body`, `profile-card`, `resource-list-row`, `empty-state`,
+  `dataview-card` and the full DataView's frame are surfaces on it.
+
+- **The page's own name is the largest type on the page.** `page-title` renders at
+  `--font-size-xl` where the band change had left it at `sm` — the same size as a table header,
+  smaller than the button beside it, and exactly the size of the card titles of the sections
+  under it, so on a hub every `HubCard` outranked the page it was on. The scale is 24 / 18 / 16
+  / 14 again: page title, card title, body, description. The one-row band still holds its floor
+  (`--shell-header-height`, now `3.5rem`) because the title takes the tight line-height step:
+  measured, a hub's band and the app header above it are both 56.0px.
+
+- **The active nav item wears the brand on its edge instead of behind its label.** It was a
+  `--color-brand-primary-soft` fill under `--color-fg-accent` ink; in the three dark themes
+  that soft is a real navy against a near-black sidebar, so the one selected item outweighed
+  the page beside it. The fill is neutral now, the label is `--color-sidebar-fg`, and the brand
+  survives as a 2px rail on the leading edge — an inset shadow, so nothing reflows on selection
+  and the marker survives the collapsed icon rail, where the label is visually hidden.
+
+- **A DataView's header row is a recess rather than a first row that happens to be shouting.**
+  It takes the canvas step, inverting with the theme, and its two end cells round to the
+  frame's radius so the fill does not square off corners the border curves. Its ink moved one
+  step with it, to `--color-fg-muted` — a wash that dims its own label is not free, and at
+  `--color-fg-subtle` the header measured 4.20:1 against it.
+
+- **`--color-fg-subtle` is `#56647a` in the light theme.** At `#64748b` it cleared AA on a
+  white surface by six hundredths (4.76:1) and failed against the tinted canvas at 4.20 — so
+  every consumer that sits on the page rather than in a card went under: a DataView's result
+  count, a section's lead line. It is 5.30 on the canvas and 6.00 on a surface now.
+
 - **A `Field`'s hint and error render inside one `field-messages` box.** Two loose spans would
   take two of a `FieldRow`'s three lines, so a field carrying both would push its own messages
   line down and every other field's control with it. In one envelope they occupy the third
@@ -204,6 +248,26 @@ repeated more often than the values it applied to.
 - An existing project keeps the `index.html` it was generated with. Set its `<html lang>` to
   the first locale in `frontend/i18n.json`: the provider corrects the attribute at mount either
   way, but the static value is what a reader meets before the bundle runs.
+
+- **Every screen looks different, and no app has to do anything to get it.** The surface model
+  and the light theme's canvas both moved (see *Changed*), so an app that writes no CSS of its
+  own — which is every app, since module code may write neither `style` nor `className` — picks
+  the whole thing up on upgrade. There is no flag and no opt-out, deliberately: two defaults
+  would mean two sets of baselines and two answers to "what does a Terp app look like".
+
+  The one thing to check is a **`theme.css` that redefined `--color-bg-canvas` or
+  `--color-neutral-50` to sit close to `--color-bg-surface`.** That was reasonable while blocks
+  painted no fill and is now the one way to land back in the flat state: the objects will paint,
+  and they will paint the same colour as the page. Move the two apart, or drop the override and
+  take the framework's.
+
+  An app that themed `--color-brand-primary-soft` for its sidebar should know that the active
+  nav item no longer reads it — the fill is `--color-sidebar-accent` and the brand is the rail
+  — so that override now only reaches the other consumers of the wash.
+
+- **171 win32 and 185 linux workbench baselines were re-recorded**, in the browser build
+  `.github/workflows/frontend.yml` pins. An app carrying its own visual baselines against
+  react-core components will need the same.
 
 ## 0.27.0 — 2026-09-24
 
