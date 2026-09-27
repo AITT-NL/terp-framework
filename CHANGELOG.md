@@ -105,6 +105,37 @@ repeated more often than the values it applied to.
   `aria-describedby` composition, the `aria-invalid` and the error's `role="alert"` all move
   unchanged, and `Field.test.tsx` asserts each of them across the move.
 
+- **`@terpjs/conformance` finds the sign-in screen and the shell by marker, in any language.**
+  `login()` waited for a heading named "Sign in", filled fields labelled "Email" and "Password"
+  and clicked a "Sign in" button, and `logout()` clicked a menu item named "Sign out". Those are
+  English sentences, and the project template starts an app in Dutch, so a freshly generated
+  app failed its own conformance suite on the login screen before it had any code of its own.
+  Every element the helpers touch is now located by a `data-terp` marker from react-core's
+  pinned inventory, as the account menu's trigger already was (ADR 0154).
+
+  Four markers are new: `login-email`, `login-password` and `login-submit` around the sign-in
+  form's controls, and `user-menu-sign-out` around the sign-out item. They are wrappers rather
+  than attributes on the controls, because each control's own marker is its styling and an
+  element carries one; they are `display: contents`, so they generate no box, and measured in
+  Chromium every box on the login card and in the account menu is where it was.
+
+  **The accessibility guarantee stays, without the language.** A name-based locator failed on
+  an unlabelled field for free, and a marker alone would not. So each element a helper touches
+  is asserted visible, exposing its role, and carrying a non-empty accessible name — an empty
+  label now fails `login()` with `Received string: ""`, in any locale.
+
+  `loginHeading(page)` and `primaryNavigation(page)` are new exports, so an app's own specs can
+  assert the signed-out and signed-in states without restating a marker, and
+  `submitLogin(page, credentials)` fills and submits the form without judging the outcome, for a
+  spec about a sign-in that must be refused. The template's `auth.spec.ts` uses them.
+
+  **For an app that already has specs of its own, nothing needs to change.** A spec that finds
+  its own screens by their English names on an English interface keeps passing, and `login()`
+  and `logout()` now also work on an interface in any other language. The one case that
+  changes: an app that replaces the built-in sign-in screen (`renderTerpApp({ login })`) has to
+  render the same four markers for `login()` to find its controls — where before it had to
+  render the same English names.
+
 ### Fixed
 
 - **An aligned `DetailList` puts a label and its value on one baseline.** `layout="aligned"`
@@ -141,6 +172,32 @@ repeated more often than the values it applied to.
   The rule sets the `<dd>`, so a value that declares its own size keeps it: a `<Text>` inside
   a value still renders at the step that `Text` asked for. A caller who wants the pair's step
   passes `size="sm"` or hands the value as a string.
+
+- **A freshly generated app's conformance job can pass.** The template's CI job brings up the
+  Docker workbench and runs the app's Playwright suite, and on a fresh app it could not have
+  passed, for three reasons that were each enough. It never assigned the workbench's host ports,
+  which the compose file requires (ADR 0134), so `docker compose up` stopped at `required
+  variable WEB_PORT is missing a value`. The suite's config fell back to `localhost:5173`, the
+  container's port rather than the host's, and nothing set the real address — so a running
+  stack was never the one it drove, and on a developer's machine it drove whatever else happened
+  to listen there. And its helpers looked for English names on a Dutch interface (see Changed).
+
+  The job now runs `terp ports assign` before it starts the workbench. `terp verify --only
+  conformance` hands the suite its address, read the way compose reads the port it publishes:
+  `TERP_E2E_BASE_URL` if set, otherwise the app's web-port variable from the environment, then
+  from `.env`. With no answer it refuses before the suite starts and names both fixes, rather
+  than falling back to a port that may be another checkout's. The template's
+  `conformance/playwright.config.ts` has no default address any more: run by hand, it asks for
+  `TERP_E2E_BASE_URL` or for the suite to be run through `terp verify`.
+
+  Nothing here could have seen it: `template-acceptance` never started the generated stack, and
+  the framework's own conformance lane runs the example app, whose ports have defaults and whose
+  interface is English. `template-acceptance` now proves that every variant's compose file
+  refuses an unassigned checkout and resolves once ports are assigned, and runs the generated
+  app's own conformance job end to end on one variant, Docker workbench included, with the
+  packages under test staged in `.terp-dist/` where the template's Dockerfiles already look for
+  pre-release builds. The template's CI workflow and suite config also joined the files that
+  may not dial a port outside the Terp range, which would have caught the stale one.
 
 ## 0.27.0 — 2026-09-24
 
