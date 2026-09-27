@@ -103,15 +103,18 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   // still catches the sixteenth. `--color-sidebar-` stays above because it makes a narrower
   // claim worth keeping: that family is read in full.
   //
-  // None of these fifteen is a defect on its own. They are a published vocabulary that shipped
-  // ahead of its consumers — four surface tokens, three borders, one interactive state, a
+  // None of these fourteen is a defect on its own. They are a published vocabulary that shipped
+  // ahead of its consumers — three surface tokens, three borders, one interactive state, a
   // five-step chart ramp and two neutrals — and the point of booking them is that the list can
-  // only shrink from here, so wiring one is visible and adding a sixteenth has to argue.
+  // only shrink from here, so wiring one is visible and adding a fifteenth has to argue.
+  //
+  // --color-bg-surface came off it when the surface model went back to filling its in-flow
+  // blocks: card, hubcard-body, profile-card, resource-list-row, empty-state, dataview-card and
+  // the full DataView's frame all name it now. That is the shrink this list was booked for.
   "--color-": [
     "--color-bg-canvas",
     "--color-bg-inset",
     "--color-bg-raised",
-    "--color-bg-surface",
     "--color-border-default",
     "--color-border-strong",
     "--color-border-subtle",
@@ -145,7 +148,10 @@ const BARE_TYPE_LITERALS: Record<string, Record<string, number>> = {
   // naming a token would pin it to whatever that header uses TODAY. The UA stylesheet resets
   // letter-spacing on form controls, so inheritance has to be asked for explicitly — the
   // header and its button were rendering two different treatments side by side until it was.
-  "letter-spacing": { "0": 4, "0.04em": 1, "0.06em": 1, inherit: 1 },
+  //
+  // One `0` retired when page-title took --font-letter-spacing-tight: the leaf is set at lg now,
+  // and the tight step is worth a third of a pixel there where at sm it was worth nothing.
+  "letter-spacing": { "0": 3, "0.04em": 1, "0.06em": 1, inherit: 1 },
 };
 
 describe("design tokens", () => {
