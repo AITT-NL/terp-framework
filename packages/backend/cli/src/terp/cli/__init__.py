@@ -16,7 +16,7 @@ from terp.core import ControlPlane, CorsPolicy, ModuleSpec
 if TYPE_CHECKING:  # terp-arch stays off the common `terp guide` / `terp inspect` path
     from terp.arch import ScanRoot
 
-from terp.cli._output import emit
+from terp.cli._output import emit, use_utf8_output
 from terp.cli.access import (
     build_access_graph_for_app,
     render_access,
@@ -3932,6 +3932,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Console entry point."""
+    use_utf8_output()
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command == "inspect" and args.inspect_command == "control-plane":

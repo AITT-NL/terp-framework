@@ -142,6 +142,16 @@ repeated more often than the values it applied to.
   a value still renders at the step that `Text` asked for. A caller who wants the pair's step
   passes `size="sm"` or hands the value as a string.
 
+- **`terp` no longer dies on a Windows pipe because of a character cp1252 lacks.** On
+  Windows a pipe or a file takes the ANSI code page, and a pipe is exactly how an agent, an
+  editor task or a workbench reads the CLI. cp1252 has no `→`, so the line `terp dev`
+  prints before starting the servers ended the command with `UnicodeEncodeError` before
+  anything booted, and text the CLI does not author — a module's label, a finding quoting
+  a source line — could do the same to any command. The entry point now switches standard
+  output and error to UTF-8 wherever they are not already. A console and every Linux or
+  macOS terminal are untouched. An undecodable file name prints as an escape instead of
+  ending the command.
+
 ## 0.27.0 — 2026-09-24
 
 ### Security
