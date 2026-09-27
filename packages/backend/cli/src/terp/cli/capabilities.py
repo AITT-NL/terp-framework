@@ -44,6 +44,17 @@ class Capability:
     guide: str | None = None
     """``terp guide`` topic covering it, when one exists."""
 
+    inventory: str | None = None
+    """The command that lists what this app holds of it, when the CLI has one.
+
+    The registry is built from packages, so it can say an app *has* a capability and
+    nothing about what the app has *done* with it. That gap misled a reader into
+    concluding an app had no machine credentials because the identity line said only
+    "user store": the service accounts it had issued were one command away, and nothing
+    on this screen named the command. Rendered for installed capabilities only — an
+    unadopted one has nothing to list.
+    """
+
     @property
     def distribution(self) -> str:
         """The PyPI distribution name."""
@@ -62,6 +73,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         kind="routed",
         wiring="create_app(..., discover_capabilities=True)",
         guide="access",
+        inventory="terp grant list <subject>",
     ),
     Capability(
         name="audit",
@@ -106,9 +118,11 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     Capability(
         name="identity",
-        summary="Persisted user store backing authentication.",
+        summary="Persisted user store backing authentication, and the service accounts an integration signs in with.",
         kind="library",
         wiring="create_app(..., discover_capabilities=True)",
+        guide="package-boundaries",
+        inventory="terp service-account list",
     ),
     Capability(
         name="jobs_celery",
@@ -130,6 +144,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         kind="library",
         wiring="create_app(..., lease_store=DatabaseLeaseStore()) + specs=[leases.module]",
         guide="leases",
+        inventory="terp leases list",
     ),
     Capability(
         name="mail",
@@ -385,6 +400,7 @@ def render_capabilities(*, fmt: str = "text", root: str | pathlib.Path = ".") ->
                         "kind": cap.kind,
                         "wiring": cap.wiring,
                         "guide": cap.guide,
+                        "inventory": cap.inventory,
                         "installed": version is not None,
                         "version": version,
                         "seams": list(seams.get(cap.name, ())),
@@ -424,6 +440,8 @@ def render_capabilities(*, fmt: str = "text", root: str | pathlib.Path = ".") ->
     for cap, version in installed:
         lines.append(f"  {cap.distribution:<32} {version:<10} {cap.kind}")
         lines.append(f"      {cap.summary}")
+        if cap.inventory is not None:
+            lines.append(f"      what this app has: uv run {cap.inventory}")
         missing = unwired.get(cap.name, ())
         if missing:
             lines.append(f"      not used here: {', '.join(missing)}")

@@ -142,6 +142,21 @@ repeated more often than the values it applied to.
   a value still renders at the step that `Text` asked for. A caller who wants the pair's step
   passes `size="sm"` or hands the value as a string.
 
+- **`terp inspect capabilities` names the command that lists what an installed capability
+  holds.** The registry is built from packages, so it could say an app *has* identity and
+  nothing about what the app had done with it. The identity line read "Persisted user store
+  backing authentication", which led a reader to conclude an app had no machine credentials
+  and pick the wrong way forward. The service accounts the app had issued were one command
+  away, and nothing on the screen named that command.
+
+  A capability can now declare an `inventory` command. For installed capabilities the text
+  report prints it as `what this app has: uv run terp service-account list` (identity),
+  `terp leases list` (leases) or `terp grant list <subject>` (access), and the JSON manifest
+  carries it as `inventory`. The identity summary now names service accounts, and the entry
+  points to `terp guide package-boundaries`, where their lifecycle is written down. A test
+  parses every inventory command with the real CLI parser, so a renamed command cannot leave
+  a dead instruction behind.
+
 ## 0.27.0 — 2026-09-24
 
 ### Security
