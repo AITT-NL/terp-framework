@@ -420,7 +420,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 
 ## Open work — queued, in order
 
-Three threads are in flight. Detail lives in the linked plan and ADRs; this is the
+The threads in flight follow. Detail lives in the linked plan and ADRs; this is the
 index, so nothing is tracked only in a commit message.
 
 All six phases are implemented; phase 6's terp-spec dependency pin bump awaits an
@@ -797,6 +797,29 @@ permission the control plane never declared, which makes ADR 0089's "can only ev
 permissions this app really enforces" stronger than the code guarantees; and nothing in
 the repository declared a named `Permission` at all before this thread, so the
 fine-grained half of the authorization model had no consumer.
+
+**A friction batch from app building** — reported from building apps on Terp and triaged
+against `main` on 2026-09-27. Each item is its own branch and pull request; this is the index.
+The two open design questions are proposals (ADR status *Proposed*) awaiting a decision, not
+fixes.
+
+- [ ] The 0.28.0 release notes named the application a batch came from. Rewritten to the
+      friction; the copy shipped inside `terp-core` and its vendored mirror follow.
+- [ ] A non-finite number (`NaN`, `Infinity`) in a request body is a 500, not a 422 — and a
+      plain `float` field accepts `Infinity` outright.
+- [ ] `terp dev` crashes on a cp1252 console before anything boots, and its reloader watches
+      the whole project, dependency trees included.
+- [ ] `terp inspect capabilities` describes identity without the service accounts it provides.
+- [ ] DataView's strings sit outside `TerpStrings`, so `LOCALE_NL` never reaches them, and
+      `<html lang>` never follows the active locale.
+- [ ] A new project's first `terp migrate make` fails the template's own deptry check.
+- [ ] The translation lint refuses `columns="auto"` as copy, and never sees a descriptor built
+      by a helper function. The helper half needs the terp-spec rule text changed first.
+- [ ] The template's conformance job cannot start on a fresh app (unassigned ports, a stale
+      base URL) and its helpers only work with an English interface; template acceptance
+      never starts the generated stack, which is how both got through.
+- [ ] The template's test setup lacks the `<dialog>` polyfill react-core keeps for itself.
+- [ ] Proposed, awaiting a decision: chart and meter components; data-driven navigation.
 
 ## Active execution track
 
