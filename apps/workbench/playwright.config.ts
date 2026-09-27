@@ -13,7 +13,11 @@ import { defineConfig, devices } from "@playwright/test";
 // "disabled"` — which Playwright applies for `toHaveScreenshot` by default and is set
 // explicitly here so it survives someone reading only this file.
 
-const PORT = 5175;
+// The port the workbench serves on. Overridable because 5175 is not ours alone: a stale
+// Docker Desktop port forward or a WSL relay can hold it long after the container that asked
+// for it is gone, and then `reuseExistingServer` hands every lane a URL that answers nothing.
+// The default is the recorded one, so CI and the README are unaffected.
+const PORT = Number(process.env.WORKBENCH_PORT ?? 5175);
 
 export default defineConfig({
   testDir: "./visual",
@@ -74,7 +78,7 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: "npm run dev",
+    command: `npm run dev -- --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
