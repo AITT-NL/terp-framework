@@ -1,6 +1,7 @@
 """``terp dev`` — run the backend and frontend dev servers together (with the codegen preflight).
 
-The full-stack dev loop of design §7: one command boots the API (uvicorn ``--reload``) and the
+The full-stack dev loop of design §7: one command boots the API (uvicorn, restarted by this command
+when a Python source of the app changes) and the
 frontend dev server side by side, after refreshing both derived frontend artifacts — the OpenAPI
 document the typed client is generated from, and the route types extracted from the module
 manifests (ADR 0092) — so a route or endpoint added a minute ago is current before the servers
@@ -22,10 +23,16 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from terp.cli._output import emit
 from terp.cli.openapi import export_openapi
 from terp.cli.routes import run_routes_command
 
-_POLL_SECONDS = 0.2
+#: Seconds between two looks at the servers and at the backend's sources. The source scan runs on
+#: every look, so this is also how long an edit can wait before the backend restarts.
+_POLL_SECONDS = 0.5
+
+#: Seconds allowed past the backend's own graceful-shutdown bound before a process is killed.
+_STOP_MARGIN_SECONDS = 5
 
 #: Seconds uvicorn waits for in-flight work before cancelling it, at shutdown.
 #:
@@ -65,6 +72,9 @@ class DevCommand:
     #: A tuple of pairs rather than a dict so the dataclass stays frozen and
     #: comparable, which is what lets a test assert the whole command.
     env: tuple[tuple[str, str], ...] = ()
+    #: Paths whose Python sources restart this process when one changes. Empty for a process
+    #: that reloads itself: Vite has its own hot module replacement.
+    watch: tuple[pathlib.Path, ...] = ()
 
 
 def dev_plan(
@@ -76,12 +86,22 @@ def dev_plan(
     port: int = DEFAULT_API_PORT,
     web_port: int = DEFAULT_WEB_PORT,
     shutdown_timeout: int = SHUTDOWN_TIMEOUT_SECONDS,
+    watch: Sequence[pathlib.Path] = (),
 ) -> tuple[DevCommand, DevCommand]:
     """Pure: the ``(backend, frontend)`` commands ``terp dev`` runs.
 
-    Backend = ``uvicorn <app_ref> --reload`` from the project root; frontend = ``npm run dev``
-    from ``<root>/<frontend_dir>`` (the copier template + example layout). The frontend command
+    Backend = ``uvicorn <app_ref>`` from the project root, restarted by the supervisor when a
+    Python source under *watch* changes; frontend = ``npm run dev`` from
+    ``<root>/<frontend_dir>`` (the copier template + example layout). The frontend command
     is returned unconditionally; the executor runs it only when its directory exists.
+
+    **Not ``--reload``.** uvicorn's reloader restarts its worker on Windows by sending it a
+    console Ctrl+C and then waiting for it to exit, with no bound. Started from anything that
+    is not an interactive console — an agent's shell tool, an editor task, a workbench — that
+    signal never stopped the worker: the reloader logged "Reloading..." and waited forever,
+    and the old code went on answering every request. Reproduced on every edit, and the flags
+    that would give the worker a console of its own did not change it. So this command owns
+    the restart instead (ADR 0156), and stops the process by a means that needs no console.
 
     The backend argv carries an explicit ``--timeout-graceful-shutdown``: an app serving a
     realtime channel has tasks that never end on their own, and uvicorn's own default is to
@@ -110,7 +130,6 @@ def dev_plan(
             "-m",
             "uvicorn",
             app_ref,
-            "--reload",
             "--host",
             host,
             "--port",
@@ -119,6 +138,7 @@ def dev_plan(
             str(shutdown_timeout),
         ),
         cwd=root_path,
+        watch=tuple(watch),
     )
     frontend = DevCommand(
         label="frontend",
@@ -134,7 +154,51 @@ def dev_plan(
 
 
 Spawn = Callable[[DevCommand], "subprocess.Popen[bytes]"]
-Supervise = Callable[[Sequence["subprocess.Popen[bytes]"]], None]
+#: Runs the planned commands until the session ends: ``(commands, spawn, stop_wait)``.
+Supervise = Callable[[Sequence[DevCommand], Spawn, float], None]
+Stop = Callable[["subprocess.Popen[bytes]", float], None]
+Snapshot = Callable[[Sequence[pathlib.Path]], dict[str, int]]
+
+
+def reload_paths(app_ref: str, root: str | pathlib.Path = ".") -> tuple[pathlib.Path, ...]:
+    """The paths whose Python sources restart the backend.
+
+    The app's own package — the first segment of *app_ref*, as a directory, or as a module
+    file for a single-file app — and every package ``[tool.terp.arch] app_packages`` declares
+    as more of the application (ADR 0141). That is one declaration of what the app is, so the
+    scope the gate scans is the scope a save restarts.
+
+    Not the project root, which is what ``uvicorn --reload`` watched: that tree holds the
+    frontend's ``node_modules`` and the virtualenv, neither of them the API's source. Not a
+    declared companion either: ``create_app`` does not mount one, so the API never runs it.
+    """
+    from terp.arch import RootKind, declared_roots
+
+    root_path = pathlib.Path(root).resolve()
+    own = root_path / app_ref.split(":", 1)[0].split(".", 1)[0]
+    paths = [own if own.is_dir() else own.with_suffix(".py")]
+    paths += [scan.path for scan in declared_roots(root_path) if scan.kind is RootKind.APP]
+    return tuple(paths)
+
+
+def _python_sources(paths: Sequence[pathlib.Path]) -> dict[str, int]:
+    """Every Python source under *paths*, with its modification time.
+
+    Two of these compared tell a new file, a deleted one and an edited one apart from no
+    change at all, and each of the three means the running backend no longer matches its
+    source. A stat walk rather than an OS watcher: the paths are the app's own packages, and
+    a walk has no dependency and no platform-specific behaviour to get wrong.
+    """
+    found: dict[str, int] = {}
+    for path in paths:
+        for source in path.rglob("*.py") if path.is_dir() else (path,):
+            try:
+                found[str(source)] = source.stat().st_mtime_ns
+            except FileNotFoundError:
+                # Absent: a single-file app not written yet, or a file deleted between being
+                # listed and being read. Either way the next look sees the settled state.
+                continue
+    return found
 
 
 def _spawn(command: DevCommand) -> subprocess.Popen[bytes]:
@@ -156,17 +220,84 @@ def _spawn(command: DevCommand) -> subprocess.Popen[bytes]:
     )
 
 
-def _supervise(
-    processes: Sequence[subprocess.Popen[bytes]],
+def _stop(
+    process: subprocess.Popen[bytes],
+    wait_seconds: float,
     *,
+    platform: str = sys.platform,
+    run: Callable[..., object] = subprocess.run,
+) -> None:
+    """Stop one dev process and everything it started, and wait until it has.
+
+    On Windows ``npm`` resolves to ``npm.cmd``, so the frontend process ``terp dev`` starts is
+    ``cmd.exe`` and Vite runs in a node process beneath it. Terminating ``cmd.exe`` leaves that
+    node process running and holding the port (measured), so the next ``terp dev`` cannot
+    bind it. ``taskkill /T /F`` ends the whole tree and needs no console, which is the property
+    uvicorn's own restart lacked. It is not graceful: on a development machine a restart that
+    happens is worth more than a lifespan hook's clean exit. Elsewhere SIGTERM reaches the
+    process that holds the port, and uvicorn shuts down within its own graceful bound.
+
+    A process still running after *wait_seconds* is killed outright.
+    """
+    if process.poll() is not None:
+        return
+    if platform == "win32":
+        system_root = pathlib.Path(os.environ.get("SystemRoot", "C:\\Windows"))
+        taskkill = system_root / "System32" / "taskkill.exe"
+        run([str(taskkill), "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
+    else:
+        process.terminate()
+    try:
+        process.wait(timeout=wait_seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _supervise(
+    commands: Sequence[DevCommand],
+    spawn: Spawn,
+    stop_wait: float,
+    *,
+    stop: Stop = _stop,
+    snapshot: Snapshot = _python_sources,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
-    """Block until one process exits, then terminate the rest (a crash or Ctrl+C stops both)."""
-    while all(process.poll() is None for process in processes):
-        sleep(_POLL_SECONDS)
-    for process in processes:
-        if process.poll() is None:
-            process.terminate()
+    """Run *commands* until one that does not restart itself exits, or until Ctrl+C.
+
+    A command with ``watch`` paths is restarted when a Python source under them changes. When
+    it exits on its own it is waited for, not given up on: a save that leaves a module half
+    written makes uvicorn fail to import, and the next save should bring it back, which is
+    what ``--reload`` did. Any other command exiting ends the session. Ctrl+C ends it too, as
+    the ordinary way to stop, and every process is stopped on the way out however the session
+    ends.
+    """
+    running = {command: spawn(command) for command in commands}
+    seen = {command: snapshot(command.watch) for command in commands if command.watch}
+    waiting: set[DevCommand] = set()
+    try:
+        while True:
+            sleep(_POLL_SECONDS)
+            for command, process in list(running.items()):
+                if not command.watch:
+                    if process.poll() is not None:
+                        return
+                    continue
+                current = snapshot(command.watch)
+                if current != seen[command]:
+                    seen[command] = current
+                    waiting.discard(command)
+                    emit(f"terp dev — a source changed; restarting the {command.label}")
+                    stop(process, stop_wait)
+                    running[command] = spawn(command)
+                elif process.poll() is not None and command not in waiting:
+                    waiting.add(command)
+                    emit(f"terp dev — the {command.label} exited; it restarts at the next save")
+    except KeyboardInterrupt:
+        return
+    finally:
+        for process in running.values():
+            stop(process, stop_wait)
 
 
 def run_dev_command(
@@ -191,8 +322,10 @@ def run_dev_command(
     start: the live app's OpenAPI document (the typed client's codegen source) and — when the repo
     has a frontend — the route types extracted from the module manifests (ADR 0092), so a route
     added a minute ago is navigable and checked. Pass ``preflight=False`` to skip both.
-    uvicorn (``--reload``) and the frontend dev server then run side by side until one exits or is
-    interrupted, when the other is stopped too. A repo without ``<frontend_dir>/`` runs backend-only.
+    uvicorn and the frontend dev server then run side by side: the backend is restarted when a
+    Python source of the app changes (:func:`reload_paths`), and the session ends when the
+    frontend exits or on Ctrl+C, stopping both. A repo without ``<frontend_dir>/`` runs
+    backend-only.
 
     *export* / *regenerate_routes* / *spawn* / *supervise* are injected so the orchestration is
     testable without launching real servers. Returns a one-line summary of what was stopped.
@@ -206,10 +339,11 @@ def run_dev_command(
         port=port,
         web_port=web_port,
         shutdown_timeout=shutdown_timeout,
+        watch=reload_paths(app_ref, root_path),
     )
     if preflight:
         destination = export(app_ref, out=root_path / openapi_out, app_root=root_path)
-        print(f"terp dev — OpenAPI preflight wrote {destination}")
+        emit(f"terp dev — OpenAPI preflight wrote {destination}")
         # Offered, not imposed: an app that has not adopted route types (no `routes`
         # script) is skipped with the hint, so upgrading the framework never breaks
         # `terp dev`. A wired app's generator failure IS surfaced — it is the author's
@@ -217,16 +351,19 @@ def run_dev_command(
         summary = regenerate_routes(
             root=root_path, frontend_dir=frontend_dir, optional=True
         )
-        print(f"terp dev — routes preflight: {summary}")
+        emit(f"terp dev — routes preflight: {summary}")
 
     commands = [backend]
     if frontend.cwd.is_dir():
         commands.append(frontend)
     for command in commands:
-        print(f"  {command.label:8} → {' '.join(command.argv)}  (cwd {command.cwd})")
+        emit(f"  {command.label:8} → {' '.join(command.argv)}  (cwd {command.cwd})")
 
-    processes = [spawn(command) for command in commands]
-    supervise(processes)
+    emit(
+        "terp dev — the backend restarts when a Python source changes under "
+        + ", ".join(str(path) for path in backend.watch)
+    )
+    supervise(commands, spawn, shutdown_timeout + _STOP_MARGIN_SECONDS)
     ran = " + ".join(command.label for command in commands)
     return f"terp dev stopped ({ran})"
 
@@ -236,5 +373,6 @@ __all__ = [
     "DEFAULT_WEB_PORT",
     "DevCommand",
     "dev_plan",
+    "reload_paths",
     "run_dev_command",
 ]

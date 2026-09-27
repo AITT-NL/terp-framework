@@ -168,7 +168,7 @@ def test_dev_preflight_regenerates_the_route_types_beside_the_openapi_document(
         export=lambda *args, **kwargs: tmp_path / "openapi.json",
         regenerate_routes=lambda **kwargs: regenerated.append(kwargs) or "wrote it",
         spawn=lambda command: _DoneProc(),
-        supervise=lambda processes: None,
+        supervise=lambda commands, spawn, stop_wait: None,
     )
 
     assert regenerated == [
@@ -186,7 +186,7 @@ def test_dev_preflight_offers_route_types_optionally_so_a_backend_only_repo_is_f
         root=tmp_path,
         export=lambda *args, **kwargs: tmp_path / "openapi.json",
         spawn=lambda command: _DoneProc(),
-        supervise=lambda processes: None,
+        supervise=lambda commands, spawn, stop_wait: None,
     )
 
 
@@ -201,7 +201,7 @@ def test_no_preflight_skips_the_route_types_too(tmp_path: pathlib.Path) -> None:
         export=lambda *args, **kwargs: tmp_path / "openapi.json",
         regenerate_routes=lambda **kwargs: regenerated.append(kwargs) or "unreachable",
         spawn=lambda command: _DoneProc(),
-        supervise=lambda processes: None,
+        supervise=lambda commands, spawn, stop_wait: None,
     )
 
     assert regenerated == []

@@ -25,8 +25,14 @@ __all__ = ["emit", "use_utf8_output"]
 
 
 def emit(text: object = "") -> None:
-    """Write one line of command output to stdout."""
-    print(text)
+    """Write one line of command output to stdout, flushed.
+
+    Flushed because a pipe is block-buffered: a one-shot command loses nothing by it, but
+    ``terp dev`` runs until it is stopped, and a line saying it restarted the backend is only
+    worth reading while that is true. Unflushed, it sat in the buffer until the process ended,
+    and a stopped process's buffer is simply lost.
+    """
+    print(text, flush=True)
 
 
 def use_utf8_output() -> None:

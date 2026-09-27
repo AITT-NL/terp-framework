@@ -85,3 +85,24 @@ def test_the_entry_point_switches_before_it_prints() -> None:
     )
     assert "—".encode() in result.stdout
     assert b"\x97" not in result.stdout
+
+
+def test_emit_flushes_each_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``terp dev`` runs until stopped; a line held in a pipe's buffer is read too late or never."""
+
+    class Recording(io.StringIO):
+        flushes = 0
+
+        def flush(self) -> None:
+            Recording.flushes += 1
+            super().flush()
+
+    stream = Recording()
+    monkeypatch.setattr(sys, "stdout", stream)
+
+    from terp.cli._output import emit
+
+    emit("terp dev — restarting the backend")
+
+    assert stream.getvalue() == "terp dev — restarting the backend\n"
+    assert Recording.flushes >= 1

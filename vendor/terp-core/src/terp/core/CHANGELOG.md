@@ -152,6 +152,25 @@ repeated more often than the values it applied to.
   macOS terminal are untouched. An undecodable file name prints as an escape instead of
   ending the command.
 
+- **`terp dev` restarts the backend on Windows, however it was started (ADR 0156).** It ran
+  uvicorn with `--reload`, whose reloader restarts its worker on Windows by sending a console
+  Ctrl+C and then waiting, without a time limit, for the worker to exit. Started from
+  anything that is not an interactive console (an agent's shell tool, an editor task, a
+  workbench), that signal never stopped the worker. The reloader logged "Reloading..." and
+  nothing after it, and the old code went on answering, edit after edit. `terp dev` now runs
+  plain uvicorn and restarts it itself.
+  - **What restarts it:** a change to a Python source of the app package or of any
+    `[tool.terp.arch] app_packages` package — the same declaration the gate scans, and never
+    `node_modules` or the virtualenv.
+  - **How it stops:** on Windows, the process tree is ended with `taskkill /T`, which needs no
+    console. The same stop fixes the frontend: `npm` runs through `cmd.exe` there, so a plain
+    terminate used to leave Vite holding the web port.
+  - **A backend that fails to import** after a half-written save waits for the next save
+    instead of ending the session.
+  - **Ctrl+C** stops everything cleanly.
+  - **`terp dev`'s own lines** are flushed as they are written, instead of sitting in a
+    pipe's buffer until the process ends.
+
 ## 0.27.0 — 2026-09-24
 
 ### Security
