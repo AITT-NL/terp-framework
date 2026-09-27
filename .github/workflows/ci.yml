@@ -343,6 +343,10 @@ jobs:
           # Autogenerate only diffs meaningfully from head; bring the file up first.
           uv run terp migrate upgrade
           uv run terp migrate make records -m "create records table"
+          # deptry, the check `terp verify --profile full` blocks on, over everything the
+          # platform has now written into the project: the template's own code, a
+          # scaffolded module and a generated revision.
+          uv run deptry .
           uv run pytest
           # With the budget, which is the form the generated app itself uses. The bare
           # `terp check` fails closed the moment the app holds any `# arch-allow-*`
