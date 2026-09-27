@@ -387,3 +387,77 @@ jobs:
           npm run typecheck
           npm run build
 
+      # A generated app must be able to unit-test the one dialog it is allowed to render.
+      # jsdom has no `showModal()`, ConfirmDialog calls it, and the template's
+      # vitest.setup.ts is what installs the polyfill from `@terpjs/react-core/testing` --
+      # so this is the only place that proves the template's setup, the package's subpath
+      # export and the published tarball agree. The template ships no screen that asks for
+      # a confirmation, so there is no shipped test to run instead: this drops a probe into
+      # the rendered app and runs the app's own `npm test`, the command its `terp verify`
+      # runs. Escape is included on purpose; it is the path a polyfill that only toggled
+      # `open` got wrong.
+      - name: Unit-test a ConfirmDialog flow in the generated frontend
+        working-directory: /tmp/acceptance-app/frontend
+        run: |
+          set -eux
+          cat > src/confirm-dialog.acceptance.test.tsx <<'PROBE'
+          import { fireEvent, render, screen } from "@testing-library/react";
+          import { useState } from "react";
+          import { describe, expect, it, vi } from "vitest";
+
+          import { Button, ConfirmDialog } from "@terpjs/react-core";
+
+          function DeleteRecord({ onDelete }: { onDelete: () => void }) {
+            const [open, setOpen] = useState(false);
+            return (
+              <>
+                <Button onClick={() => setOpen(true)}>Delete record</Button>
+                <ConfirmDialog
+                  open={open}
+                  onOpenChange={setOpen}
+                  onConfirm={() => {
+                    onDelete();
+                    setOpen(false);
+                  }}
+                  title="Delete this record?"
+                  destructive
+                />
+              </>
+            );
+          }
+
+          function openDialog() {
+            fireEvent.click(screen.getByRole("button", { name: "Delete record" }));
+            return screen.getByRole("dialog", { name: "Delete this record?" });
+          }
+
+          describe("a ConfirmDialog in a generated app's unit tests", () => {
+            it("confirms", () => {
+              const onDelete = vi.fn();
+              render(<DeleteRecord onDelete={onDelete} />);
+              openDialog();
+              fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+              expect(onDelete).toHaveBeenCalledTimes(1);
+              expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+            });
+
+            it("cancels with its button", () => {
+              const onDelete = vi.fn();
+              render(<DeleteRecord onDelete={onDelete} />);
+              openDialog();
+              fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+              expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+              expect(onDelete).not.toHaveBeenCalled();
+            });
+
+            it("cancels with Escape", () => {
+              const onDelete = vi.fn();
+              render(<DeleteRecord onDelete={onDelete} />);
+              fireEvent.keyDown(openDialog(), { key: "Escape" });
+              expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+              expect(onDelete).not.toHaveBeenCalled();
+            });
+          });
+          PROBE
+          npm test
+

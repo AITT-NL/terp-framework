@@ -142,6 +142,36 @@ repeated more often than the values it applied to.
   a value still renders at the step that `Text` asked for. A caller who wants the pair's step
   passes `size="sm"` or hands the value as a string.
 
+- **A generated app can unit-test a `ConfirmDialog`.** jsdom implements `<dialog>` but not
+  `showModal()` or `close()`, and `ConfirmDialog` — the one dialog an app may render, since the
+  boundary refuses a raw `<dialog>` — calls both. react-core polyfilled them in its own test
+  setup and the setup file the template ships did not, so the first app test that opened a
+  confirmation threw `showModal is not a function` from inside react-core.
+
+  The polyfill now ships once, from the package: `installDialogPolyfill()` at a new
+  `@terpjs/react-core/testing` subpath, which react-core's own setup and the template's
+  `frontend/vitest.setup.ts` both call (ADR 0155). A subpath rather than the root, so a test
+  helper cannot reach production code by extending an existing import and does not join the
+  component catalog. The boundary's deep-import rule refuses package internals, not a declared
+  export, and needed no change. The module imports nothing from the package, and
+  `markers.test.ts` now holds every code entry but the root to that: the stylesheet reaches the
+  page as a side effect of the component modules, so a second entry that reached one could
+  render it unstyled. An app rendered earlier receives the call with `copier update`; one whose
+  setup file has diverged adds the two lines react-core's README shows.
+
+  It also does more than the copy it replaces, which only toggled `open`. Escape now fires a
+  cancelable `cancel` at the topmost open modal and closes it unless that event is cancelled —
+  the event `ConfirmDialog` handles Escape through — so an app test that presses Escape sees
+  the dialog close, and a test of a pending dialog sees it stay. An Escape that a control
+  inside the dialog already took (a `Combobox` closing its option list) is left alone, and a
+  modal removed from the document is skipped, each as measured in Chromium. Focus movement and
+  the inert page behind a modal are not reproduced, and the function says so: those stay with
+  the Playwright suite.
+
+  `template-acceptance` drops a probe into every rendered variant that confirms, cancels and
+  escapes a `ConfirmDialog` flow, and runs the app's own `npm test` against the packed
+  tarballs — until now no step in this repository ran a generated app's frontend unit tests.
+
 ## 0.27.0 — 2026-09-24
 
 ### Security

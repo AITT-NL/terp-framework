@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
+import { installDialogPolyfill } from "@terpjs/react-core/testing";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
@@ -10,6 +11,17 @@ import { afterEach } from "vitest";
 afterEach(() => {
   cleanup();
 });
+
+// jsdom has no `showModal()` / `close()`, and ConfirmDialog -- the one dialog an app may
+// render -- calls both, so without this every test that opens one throws "showModal is not
+// a function". The polyfill ships with react-core, beside the component it serves, so what
+// ConfirmDialog needs from the platform arrives with the package rather than being copied
+// here. It also makes Escape ask the dialog to close, as a browser does; what it does not
+// reproduce (focus, the inert page behind the modal) is listed on the function itself.
+//
+// `@terpjs/react-core/testing` is a subpath the package declares for test setup -- not a
+// deep import into its internals, and not something a screen imports.
+installDialogPolyfill();
 
 // WAIT ON THE THING THAT GATES THE CLICK, NOT ON THE PAGE.
 //
