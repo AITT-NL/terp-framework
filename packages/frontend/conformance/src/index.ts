@@ -1,4 +1,4 @@
-import { expect, type APIResponse, type Page } from "@playwright/test";
+import { expect, type APIResponse, type Locator, type Page } from "@playwright/test";
 
 /**
  * The administrator the base-profile flows sign in as. The default matches the bundled example
@@ -144,31 +144,100 @@ export function assertNotThrottled(response: APIResponse): APIResponse {
 }
 
 /**
+ * Where the base-profile screens are found: the `data-terp` markers `@terpjs/react-core` pins
+ * in its marker inventory (`markers.test.ts`), whose renames are release notes. Never an
+ * accessible name, for two reasons.
+ *
+ * A name is in the app's language, and the project template starts an app in Dutch. A helper
+ * looking for "Sign in" was therefore a helper for English apps: every other app failed its
+ * own conformance suite on the login screen before it had written a line of its own. A marker
+ * is the same string in every locale.
+ *
+ * And a name is not always fixed even in one language. The account menu's trigger takes its
+ * name from the signed-in user's own email and role when the sidebar is expanded, because an
+ * `aria-label` REPLACES subtree text in the accessible name and would leave a voice-control
+ * user with nothing to say that matches what they see (WCAG 2.5.3, Label in Name); only the
+ * collapsed icon rail carries a label. So its name varies with the shell state AND the user.
+ *
+ * Locating by marker alone would drop the one thing a name-based locator proved for free:
+ * that the control HAS a name. `getByLabel("Email")` could not find an unlabelled field, so
+ * the suite failed on exactly the defect a screen-reader user would hit. `expectNamed` puts
+ * that back without choosing a language: every control a helper touches must be visible,
+ * expose the role a user perceives, and carry a non-empty accessible name. An unlabelled field
+ * still fails here, in any locale.
+ */
+const LOGIN_HEADING = '[data-terp="login-title"]';
+const LOGIN_EMAIL = '[data-terp="login-email"] [data-terp="input"]';
+const LOGIN_PASSWORD = '[data-terp="login-password"] [data-terp="input"]';
+const LOGIN_SUBMIT = '[data-terp="login-submit"] [data-terp="button"]';
+const USER_MENU_TRIGGER = '[data-terp="user-menu"] [data-terp="menu-trigger"]';
+const SIGN_OUT = '[data-terp="user-menu-sign-out"] [data-terp="menu-item"]';
+const PRIMARY_NAVIGATION = '[data-terp="appshell-nav"]';
+
+type Role = Parameters<Page["getByRole"]>[0];
+
+/** Visible, exposing *role*, and named — in whatever language the app speaks. */
+async function expectNamed(locator: Locator, role: Role): Promise<void> {
+  await expect(locator).toBeVisible();
+  await expect(locator).toHaveRole(role);
+  await expect(locator).toHaveAccessibleName(/\S/);
+}
+
+/**
+ * The sign-in screen's heading: on screen exactly while nobody is signed in. A spec asserts
+ * against this rather than against a heading's text, which is the app's to translate.
+ */
+export function loginHeading(page: Page): Locator {
+  return page.locator(LOGIN_HEADING);
+}
+
+/**
+ * The app shell's primary navigation: rendered once, in the sidebar or the header, and only
+ * behind a session. A spec asserts against this rather than against the landmark's name.
+ */
+export function primaryNavigation(page: Page): Locator {
+  return page.locator(PRIMARY_NAVIGATION);
+}
+
+/**
+ * Load the app, then fill and submit the sign-in form — holding every control to a name — and
+ * judge nothing about the outcome. {@link login} is this plus "the shell replaced the sign-in
+ * screen"; a spec about a sign-in that must be REFUSED (bad credentials, a deactivated account)
+ * calls this and asserts its own outcome.
+ */
+export async function submitLogin(
+  page: Page,
+  credentials: { email: string; password: string },
+): Promise<void> {
+  watchForThrottling(page);
+  await orThrottle(page, async () => {
+    await page.goto("/");
+    await expectNamed(page.locator(LOGIN_HEADING), "heading");
+    const email = page.locator(LOGIN_EMAIL);
+    await expectNamed(email, "textbox");
+    await email.fill(credentials.email);
+    const password = page.locator(LOGIN_PASSWORD);
+    await expectNamed(password, "textbox");
+    await password.fill(credentials.password);
+    const submit = page.locator(LOGIN_SUBMIT);
+    await expectNamed(submit, "button");
+    await submit.click();
+  });
+}
+
+/**
  * Sign in through the real login screen. App-agnostic: the login screen and session are
- * base-profile (identical in every Terp app), so this is the reusable entry point any app's
- * conformance suite composes. Success is the sign-in screen being replaced by the app shell;
- * callers assert their own landing content afterwards.
+ * base-profile (identical in every Terp app, in every locale it ships), so this is the reusable
+ * entry point any app's conformance suite composes. Success is the sign-in screen being
+ * replaced by the app shell; callers assert their own landing content afterwards.
  */
 export async function login(
   page: Page,
   credentials: { email: string; password: string } = ADMIN,
 ): Promise<void> {
-  watchForThrottling(page);
-  await orThrottle(page, async () => {
-    await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
-  });
-  // By LABEL, not by placeholder. The login fields were placeholder-only until the labels
-  // landed, and a placeholder was the only handle they had — which is the same defect from
-  // the other side: a name that vanishes the moment a user types is not a name. Selecting
-  // the way a user perceives the field is also what keeps this suite honest about
-  // accessibility, since a field with no accessible name now fails here rather than being
-  // reachable by a workaround.
-  await page.getByLabel("Email", { exact: true }).fill(credentials.email);
-  await page.getByLabel("Password", { exact: true }).fill(credentials.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await submitLogin(page, credentials);
   await orThrottle(page, () =>
-    expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0, {
+    expect(page.locator(LOGIN_HEADING)).toHaveCount(0, {
       timeout: 15_000,
     }),
   );
@@ -179,22 +248,16 @@ export async function login(
  * user menu (avatar at the bottom of every Terp app's sidebar) opens Settings and Sign out;
  * sign-out revokes the token server-side (ADR 0031), so this is reusable across apps. Success
  * is the app shell being replaced by the sign-in screen.
- *
- * The trigger is located by its marker rather than by an accessible name, and that is a fix
- * rather than a shortcut. The name is deliberately not fixed: expanded, the button renders the
- * user's own email and role as visible text and takes its name from them, because an
- * `aria-label` REPLACES subtree text in the accessible name and would leave a voice-control
- * user with nothing to say that matches what they see (WCAG 2.5.3, Label in Name). Only the
- * collapsed icon rail carries a label, where the avatar is aria-hidden and the button would
- * otherwise have no name at all. So the name varies with the shell state AND with the signed-in
- * user, which makes it the wrong axis for an app-agnostic helper; `data-terp` is the stable one,
- * being a pinned inventory whose renames are release notes.
  */
 export async function logout(page: Page): Promise<void> {
   watchForThrottling(page);
   await orThrottle(page, async () => {
-    await page.locator('[data-terp="user-menu"] [data-terp="menu-trigger"]').click();
-    await page.getByRole("menuitem", { name: "Sign out" }).click();
-    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+    const trigger = page.locator(USER_MENU_TRIGGER);
+    await expectNamed(trigger, "button");
+    await trigger.click();
+    const signOut = page.locator(SIGN_OUT);
+    await expectNamed(signOut, "menuitem");
+    await signOut.click();
+    await expectNamed(page.locator(LOGIN_HEADING), "heading");
   });
 }

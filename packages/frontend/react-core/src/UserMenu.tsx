@@ -94,7 +94,15 @@ export function UserMenu({ collapsed = false, onSettings, defaultOpen }: UserMen
               }}
             />
           )}
-          <MenuItem label={strings.signOut} icon={<Icon name="logout" />} onSelect={() => void auth.logout()} />
+          {/* A named part, for the one caller that has to find sign-out without reading it:
+              `@terpjs/conformance`'s logout helper, which runs in whatever language the app
+              ships, so the item's accessible name cannot be its handle. `menu-item` stays on
+              the button because that is its styling, and one element carries one marker.
+              The part is display: contents, so the menu's grid still spaces the item and its
+              roving focus still finds it among the menuitems. */}
+          <div data-terp="user-menu-sign-out">
+            <MenuItem label={strings.signOut} icon={<Icon name="logout" />} onSelect={() => void auth.logout()} />
+          </div>
         </>
       )}
     </Menu>

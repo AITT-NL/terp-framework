@@ -160,6 +160,29 @@ describe("UserMenu", () => {
     expect(trigger?.tagName).toBe("BUTTON");
   });
 
+  it("names the sign-out item for a caller that cannot read it", async () => {
+    // The second half of the same contract. `logout()` used to click the menuitem named
+    // "Sign out", which is a sentence in one language: an app that boots in any other locale
+    // failed its own conformance suite before it had any code of its own. The helper finds the
+    // item by marker path now, so what is pinned here is that the path lands on sign-out and on
+    // nothing else — with Settings present, so a part wrapped around the wrong item, or around
+    // both, fails rather than passing by being the only candidate.
+    stubAuthFetch();
+    render(
+      <TerpProvider baseUrl="https://api.test">
+        <LogInOnMount />
+        <UserMenu onSettings={() => undefined} />
+      </TerpProvider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /jane\.doe@example\.com/ }));
+    // The panel is portalled to document.body, so the path is resolved from the document.
+    const named = document.querySelectorAll(
+      '[data-terp="user-menu-sign-out"] [data-terp="menu-item"]',
+    );
+    expect(named).toHaveLength(1);
+    expect(named[0]).toBe(screen.getByRole("menuitem", { name: "Sign out" }));
+  });
+
   it("signs out via the menu (revokes the token server-side)", async () => {
     const fetchMock = stubAuthFetch();
     render(

@@ -2514,6 +2514,14 @@ textarea[data-terp="input"] {
   display: grid;
   gap: var(--space-3);
 }
+/* The form's named parts, found by whoever cannot read the labels -- the conformance
+   helpers drive this screen in every locale an app ships. No box, so each field and the
+   button stay grid items of login-form and its gap falls between them as it always has. */
+[data-terp="login-email"],
+[data-terp="login-password"],
+[data-terp="login-submit"] {
+  display: contents;
+}
 [data-terp="login-separator"] {
   display: flex;
   align-items: center;
@@ -4287,6 +4295,12 @@ button[data-terp="input"][data-placeholder="true"] {
   border-block-end: 1px solid var(--color-neutral-200);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
+}
+/* A name and nothing else: sign-out is found by it, and styled as the menu-item it wraps.
+   No box, so the item stays a grid item of the menu and the menu's gap still spaces it --
+   the markdown wrapper's reasoning, and the same one-declaration rule. */
+[data-terp="user-menu-sign-out"] {
+  display: contents;
 }
 
 /* Page actions ------------------------------------------------------------- */

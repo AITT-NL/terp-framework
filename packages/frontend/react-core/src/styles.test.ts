@@ -2035,6 +2035,26 @@ describe("cascade structure", () => {
     expect(rule![2]!.trim()).toBe("display: contents;");
   });
 
+  it("keeps the parts the conformance helpers find by name boxless", () => {
+    // Four wrappers exist only so a locale-agnostic caller can find the login controls and
+    // sign-out by marker. They must not become layout: login-form and the menu are grids that
+    // space their children with `gap`, and a boxed wrapper would make itself the grid item
+    // instead of the field or the item it names. So each rule is display: contents and nothing
+    // else — a second declaration would be silently dropped on a contents box anyway.
+    const base = layerBody("terp.base");
+    for (const marker of ["login-email", "login-password", "login-submit", "user-menu-sign-out"]) {
+      const selector = `[data-terp="${marker}"]`;
+      const rule = [...base.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((match) =>
+        match[1]!
+          .split(",")
+          .map((part) => part.trim())
+          .includes(selector),
+      );
+      expect(rule, `no rule names ${selector} in terp.base`).toBeDefined();
+      expect(rule![2]!.trim(), `${selector} must stay a boxless name`).toBe("display: contents;");
+    }
+  });
+
   it("pins the values of five declarations no lane can reach", () => {
     // Presence is not enough for these five, and that is the distinction the roll-calls above
     // already draw for Button sizes and gap steps: a rule can be present and WRONG, and nothing
@@ -2230,6 +2250,10 @@ describe("cascade structure", () => {
       "login-separator",
       "login-separator-rule",
       "login-error",
+      "login-email",
+      "login-password",
+      "login-submit",
+      "user-menu-sign-out",
       "admin-form",
       "admin-section-title",
       "grid",

@@ -87,3 +87,36 @@ describe("LoginView accessible names", () => {
     expect(password).toHaveAttribute("autocomplete", "current-password");
   });
 });
+
+describe("LoginView named parts", () => {
+  it("names each credential and the submit button for a caller that cannot read the labels", async () => {
+    // `@terpjs/conformance` signs in to every Terp app through this screen, and it used to find
+    // the controls by their English names — so an app that boots in any other locale failed its
+    // own conformance suite before it had written a line. It finds them by marker path now,
+    // which makes each path a cross-package contract: it has to land on exactly the control the
+    // helper means to fill. The dev fill button is rendered so a submit part wrapped around the
+    // wrong button, or around both, fails rather than passing by being the only candidate.
+    stubFetch();
+    const { container } = render(
+      <TerpProvider baseUrl="https://api.test">
+        <LoginView devCredentials={{ email: "admin@example.test", password: "pw" }} />
+      </TerpProvider>,
+    );
+    await screen.findByRole("heading", { name: "Sign in" });
+
+    const only = (selector: string) => {
+      const found = container.querySelectorAll(selector);
+      expect(found, selector).toHaveLength(1);
+      return found[0];
+    };
+    expect(only('[data-terp="login-email"] [data-terp="input"]')).toBe(
+      screen.getByLabelText("Email"),
+    );
+    expect(only('[data-terp="login-password"] [data-terp="input"]')).toBe(
+      screen.getByLabelText("Password"),
+    );
+    expect(only('[data-terp="login-submit"] [data-terp="button"]')).toBe(
+      screen.getByRole("button", { name: "Sign in" }),
+    );
+  });
+});
