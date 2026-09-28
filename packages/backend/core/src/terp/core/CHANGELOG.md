@@ -10,15 +10,19 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.28.0 — unreleased
+## 0.28.0 — 2026-09-28
 
-Friction reported from building a record-heavy app on Terp: a record card whose labels and values
-did not read as pairs, a row of form fields with no correct alignment, and an affordance
-repeated more often than the values it applied to.
-
-did not read as pairs, a row of form fields with no correct alignment, an affordance
-repeated more often than the values it applied to, and a bounded quantity with no way to be
-drawn as one.
+Friction reported from building a record-heavy app on Terp. On screen: a record card whose
+labels and values did not read as pairs, a row of form fields with no correct alignment, an
+affordance repeated more often than the values it applied to, a bounded quantity with no way
+to be drawn as one, and a DataView and a set of error messages that stayed in English under
+another locale. At the edges: a JSON body that could raise a 500, a migration history that
+could read as empty, a CLI that on Windows died on a character its pipe could not encode, and
+a `terp dev` that on Windows never reloaded and anywhere bound a fixed pair of ports another
+application could already hold. And in a freshly generated app, a
+dependency check, a dialog test and a conformance job that could not pass. Beside the fixes,
+the surface model is redrawn: every screen looks different, and no app has to change anything
+to get it.
 
 ### Added
 
