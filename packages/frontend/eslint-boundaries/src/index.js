@@ -952,6 +952,90 @@ const layoutContract = {
   },
 };
 
+/**
+ * react-core's identity markers: `data-terp` and every `data-terp-*` attribute (ADR 0160).
+ *
+ * react-core's components stamp `data-terp` on the elements they render, and two controls
+ * trust the stamp: the stylesheet selects on it (`[data-terp="card"]`, ADR 0094), and the
+ * runtime half of the layout contract identifies a slot's children by it (ADR 0079). So
+ * `data-terp="card"` written by an app borrows Card's styling without composing Card, which
+ * gets around the `style` / `className` refusal (ADR 0059), and it passes the runtime slot
+ * check as a component it is not. The rest of the namespace (`data-terp-preview-pick`) is
+ * react-core's too.
+ *
+ * Case-insensitive because the DOM lowercases an attribute name written on an HTML element:
+ * measured in Chromium, `setAttribute("DATA-TERP", "card")` leaves `data-terp="card"`, which
+ * `[data-terp="card"]` matches.
+ */
+const FRAMEWORK_MARKER_RE = /^data-terp(?:-|$)/i;
+/** The same namespace as `dataset` keys: `dataset.terp`, `dataset.terpPreviewPick`. */
+const FRAMEWORK_DATASET_KEY_RE = /^terp(?:[A-Z]|$)/;
+/** DOM methods that write an attribute, mapped to the argument that names it. */
+const ATTRIBUTE_WRITERS = new Map([
+  ["setAttribute", 0],
+  ["toggleAttribute", 0],
+  ["setAttributeNS", 1],
+]);
+
+const frameworkMarkerMessage = (name) =>
+  `${name} is one of react-core's markers, and react-core trusts them: its stylesheet selects ` +
+  "on them and the runtime layout contract identifies a slot's children by them, so a marker " +
+  "written in app code borrows a component's styling and passes that check without the " +
+  "component. Compose the react-core component that renders it (Card, Stack, ...) instead. " +
+  "A framework screen the app replaces, such as renderTerpApp({ login }), is the app's own " +
+  'screen: test it by the roles and accessible names it renders (getByRole("button", ' +
+  "{ name: ... })), not by the framework's markers.";
+
+/** The static key of an object-literal property, including a literal computed key. */
+function staticPropertyKey(node) {
+  return node.computed ? staticString(node.key) : propertyName(node);
+}
+
+/** The key assigned through `element.dataset.<key>` or `element.dataset["<key>"]`, or null. */
+function datasetKey(node) {
+  if (node.type !== "MemberExpression" || memberName(node.object) !== "dataset") return null;
+  return node.computed ? staticString(node.property) : node.property.name;
+}
+
+/**
+ * App code never writes react-core's identity markers — in JSX, as the key of a props object
+ * (an inline spread, a hoisted object, a createElement bag), through a DOM attribute writer, or
+ * through `dataset`. Reading one is not a write and is left alone; so is every other data
+ * attribute (`data-testid`), which an app writes for itself.
+ */
+const noFrameworkMarkers = {
+  meta: {
+    type: "problem",
+    docs: { description: "Disallow writing react-core's data-terp identity markers in app code." },
+    schema: [],
+  },
+  create(context) {
+    const report = (node, name) => context.report({ node, message: frameworkMarkerMessage(name) });
+    return {
+      JSXAttribute(node) {
+        const name = jsxName(node.name);
+        if (name !== null && FRAMEWORK_MARKER_RE.test(name)) report(node, name);
+      },
+      Property(node) {
+        // A destructuring pattern reads the key; only an object literal writes it.
+        if (node.parent?.type !== "ObjectExpression") return;
+        const name = staticPropertyKey(node);
+        if (name !== null && FRAMEWORK_MARKER_RE.test(name)) report(node.key, name);
+      },
+      CallExpression(node) {
+        const index = ATTRIBUTE_WRITERS.get(memberName(node.callee));
+        if (index === undefined) return;
+        const name = staticString(node.arguments[index]);
+        if (name !== null && FRAMEWORK_MARKER_RE.test(name)) report(node, name);
+      },
+      AssignmentExpression(node) {
+        const key = datasetKey(node.left);
+        if (key !== null && FRAMEWORK_DATASET_KEY_RE.test(key)) report(node.left, `dataset.${key}`);
+      },
+    };
+  },
+};
+
 const terpPlugin = {
   rules: {
     "locale-catalogs-complete": localeCatalogsComplete,
@@ -959,6 +1043,7 @@ const terpPlugin = {
     "no-cross-module-imports": noCrossModuleImports,
     "no-dom-html-injection": noDomHtmlInjection,
     "no-eval": noEval,
+    "no-framework-markers": noFrameworkMarkers,
     "no-untranslated-ui": noUntranslatedUi,
     "no-unsafe-href": noUnsafeHref,
     "no-unsafe-target-blank": noUnsafeTargetBlank,
@@ -1359,6 +1444,9 @@ export function terpBoundaries() {
       plugins: { terp: terpPlugin },
       rules: {
         "terp/locale-catalogs-complete": "error",
+        // Across src, not only modules: a replaced framework screen (a custom sign-in passed
+        // to renderTerpApp) can live beside the bootstrap, outside any module.
+        "terp/no-framework-markers": "error",
         "terp/no-untranslated-ui": "error",
       },
     },

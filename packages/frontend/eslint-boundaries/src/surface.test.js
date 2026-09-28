@@ -171,6 +171,7 @@ const VIOLATION_SNIPPETS = {
   "frontend/no-cross-module-imports": 'import { x } from "../other/thing";',
   "frontend/no-dom-html-injection": "export const W = (el, html) => { el.innerHTML = html; };",
   "frontend/no-eval": "export const run = (code) => eval(code);",
+  "frontend/no-framework-markers": 'export const W = () => <div data-terp="card" />;',
   "frontend/no-unsafe-href":
     'export const W = ({label}) => <a href="javascript:alert(1)">{label}</a>;',
   "frontend/no-unsafe-target-blank":

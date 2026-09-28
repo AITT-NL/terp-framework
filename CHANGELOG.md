@@ -162,6 +162,20 @@ repeated more often than the values it applied to.
   descriptor object, whose call site is still inventoried. An app with a positional factory
   fails lint on upgrade.
 
+- **App code no longer writes react-core's `data-terp` markers (ADR 0160).** Two controls trust
+  them: the stylesheet selects on them (`[data-terp="card"]`), and the runtime layout contract
+  identifies a slot's children by them. So `<div data-terp="card">` was styled as a Card without
+  being one, a way around the `style` / `className` refusal that no attribute refusal saw, and it
+  passed the runtime slot check as a Card. Nothing refused it. `terp/no-framework-markers` now
+  does, across all of app `src/**`: `data-terp` and every `data-terp-*` name as a JSX attribute,
+  as the key of a props object (an inline spread, a hoisted object, a `createElement` bag), as a
+  literal name passed to `setAttribute`, `setAttributeNS` or `toggleAttribute`, and as a
+  `dataset.terp…` assignment. Other data attributes (`data-testid`) and reading a marker stay
+  allowed. The message names the fix: compose the component, and test a framework screen the app
+  has replaced, such as its own sign-in, by the roles and accessible names it renders rather than
+  by the markers the framework's screen carries. An app that writes a marker fails lint on
+  upgrade; the governed opt-out is `// terp-allow-no-framework-markers: <reason>`.
+
 ### Fixed
 
 - **An aligned `DetailList` puts a label and its value on one baseline.** `layout="aligned"`

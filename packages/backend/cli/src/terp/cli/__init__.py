@@ -1759,6 +1759,10 @@ Frontend module screens (@terpjs/react-core)
     style={} / className / module stylesheets  ->  layout via Stack/DetailList; design tokens
     <a href="/...">                            ->  the router's Link (role-aware, no reload)
     deep imports (@terpjs/*/src, @terpjs/*/dist)   ->  import from the package root only
+    data-terp / data-terp-* anywhere in src    ->  compose the component that renders it
+  The data-terp markers are react-core's own: its stylesheet and the runtime layout check
+  trust them. A framework screen you replace (renderTerpApp({ login })) is yours, so its
+  tests find it by role and accessible name, not by the framework screen's markers.
 - Frontend security defaults (each its own lint rule, same error-only footing):
   dangerouslySetInnerHTML and DOM HTML-injection sinks (innerHTML/outerHTML/
   insertAdjacentHTML/document.write) are refused — render text, or Markdown from
