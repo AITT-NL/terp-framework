@@ -16,6 +16,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 
 from terp.core import get_settings
+from terp.core.migrations import MigrationDiscoveryError
 from terp.migrations.errors import MigrationError, PendingMigrationsError
 from terp.migrations.guard import assert_migrations_current
 from terp.migrations.orchestrate import (
@@ -239,7 +240,21 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def migrate_main(argv: Sequence[str] | None = None) -> None:
-    """Entry point for ``terp migrate`` / the ``terp-migrate`` console script."""
+    """Entry point for ``terp migrate`` / the ``terp-migrate`` console script.
+
+    A declared history that cannot be resolved or read is the operator's to fix, and
+    its message says how — a mistyped entry point, two packages claiming one label, a
+    revision past the Windows path limit. It is printed as the answer and exits 2,
+    like every other refusal here, rather than arriving at the bottom of a traceback.
+    """
+    try:
+        _migrate(argv)
+    except MigrationDiscoveryError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2) from exc
+
+
+def _migrate(argv: Sequence[str] | None) -> None:
     args = _build_parser().parse_args(argv)
     database_url = args.database_url or get_settings().DATABASE_URL
     command = args.migrate_command or "check"
