@@ -10,6 +10,28 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.29.0 — unreleased
+
+Friction reported from building apps on Terp 0.28.0: a request body that could still carry
+an infinite number past the control built to refuse one.
+
+### Fixed
+
+- **A number too large for a double is refused like `Infinity` (ADR 0152, amended).** 0.28.0
+  refused a JSON body that spelled `NaN`, `Infinity` or `-Infinity`, and its notes said such
+  a value was no longer accepted anywhere. That was not true: `1e400` is a legal JSON number,
+  and Python's decoder reads it as infinity without spelling a constant, so the middleware
+  never saw it. A plain `float` field accepted it, an untyped mapping carried it to the
+  service, and a constrained field refused it with a 500, because the validation error quoted
+  the infinity back and could not be encoded.
+
+  The same strict parse now also checks every number with a fraction or an exponent, which is
+  every number that can overflow, and answers one that decodes to infinity with the same typed
+  422, `non_finite_number`. The detail names the literal (its first 24 characters) and says it
+  is too large to represent. Integer literals need no check: they decode exactly, and pydantic
+  refuses one too large for a `float` field with an ordinary 422. A `float` query or path
+  parameter still accepts `inf`, `nan` and `1e400`, as ADR 0152 records.
+
 ## 0.28.0 — 2026-09-28
 
 Friction reported from building a record-heavy app on Terp. On screen: a record card whose

@@ -2,7 +2,9 @@
 
 - **Status:** Accepted and implemented. `NonFiniteJsonMiddleware` is installed by
   `create_app` as the innermost layer of the security stack. Held by
-  `tests/architecture/test_non_finite_json.py`.
+  `tests/architecture/test_non_finite_json.py`. Amended 2026-09-28: the decision as first
+  implemented refused the three constants only, and a number too large for a double still
+  got in (see the amendment).
 - **Date:** 2026-09-27
 - **Relates:** [ADR 0067](0067-per-module-request-size-allowances.md) (the size cap that
   bounds what this layer reads),
@@ -83,3 +85,44 @@ fragment.
   `allow_inf_nan=False` on each such parameter (FastAPI's `Query(allow_inf_nan=False)`),
   and there is no single place the framework can set that for parameters an app declares.
   That is a separate decision, and it is not taken here.
+
+## Amendment (2026-09-28): a number too large for a double is the same value
+
+The title of this ADR was not true when it was written. The middleware refused a body that
+*spelled* a non-finite number, and that is only one of the two ways a body carries one. The
+other is a legal JSON number too large for a double: `1e400` matches RFC 8259's number
+grammar, and Python's decoder reads it as `inf` without `parse_constant` ever being called.
+Reproduced against the same composed app the Context section used:
+
+- `{"amount": 1e400}` sent to a plain `float` field was **accepted**, and so was
+  `{"limit": 1e400}` sent to `Field(gt=0)`, since infinity is greater than zero.
+- `{"limit": -1e400}` sent to that field was refused and answered with a **500** — the
+  unencodable quote-back this ADR was written to close.
+- `{"details": {"x": 1e400}}` reached the handler untouched.
+
+So the first bullet of the Consequences was also wrong in its promise: a client that sends
+`1e400` is not relying on an extension, it is sending standard JSON, and it got past the
+control.
+
+**The fix is the same control, looking at the other hook.** The strict parse now passes
+`parse_float` as well as `parse_constant`. The decoder calls it with the source text of
+every number that has a fraction or an exponent, which is every number that can overflow:
+an integer literal decodes to an exact `int`, and pydantic refuses one too large for a
+`float` field (quoting an `int`, which encodes) rather than rounding it to infinity. A
+literal whose float value is infinite is answered with the same typed 422,
+`non_finite_number`, whose detail names the literal — its first 24 characters, because the
+size cap bounds a literal only at the size of the whole body — and says the number is too
+large to represent.
+
+**Considered and not taken: making the validation error encodable instead.** The request
+that surfaced this proposed fixing the 422 renderer so that any quoted input encodes,
+whatever produced it, instead of refusing inputs one kind at a time. That removes the 500
+and nothing else: the plain `float` field and the untyped mapping still accept the value,
+which is the harm this ADR exists to prevent. The objection that refusing inputs kind by
+kind is incomplete does not hold here either, because the hook is not a kind — it is the
+single place the decoder turns a literal into a float, so no number reaches a field without
+passing it. And once the body is closed, no input can reach the renderer non-finite, so a
+guard there would be a branch no test could reach.
+
+Still not covered, as before: a `float` query or path parameter accepts `inf`, `nan` and
+`1e400` alike, for the reason the Consequences give.

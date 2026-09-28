@@ -1,11 +1,13 @@
-"""A JSON body that spells NaN or Infinity is refused at the boundary (ADR 0152).
+"""A JSON body carrying a non-finite number is refused at the boundary (ADR 0152).
 
-JSON has no non-finite numbers, and Python's decoder accepts them anyway. Before this
-control a ``NaN`` sent to a constrained field was a 500 (the validation error quoted the
-value back and could not be encoded), an ``Infinity`` sent to a plain ``float`` field was
-*accepted*, and one nested in a ``dict[str, Any]`` reached the service untouched. The
-full-stack tests below drive ``create_app`` so they fail if the middleware is not
-installed; the unit tests pin the edges of what the middleware reads and what it leaves
+JSON has no non-finite numbers, and Python's decoder produces them anyway: from the
+constants ``NaN`` / ``Infinity`` / ``-Infinity``, which it accepts though JSON does not
+have them, and from a legal literal too large for a double, ``1e400``, which it reads as
+infinity. Before this control a non-finite value sent to a constrained field was a 500 (the
+validation error quoted the value back and could not be encoded), one sent to a plain
+``float`` field was *accepted*, and one nested in a ``dict[str, Any]`` reached the service
+untouched. The full-stack tests below drive ``create_app`` so they fail if the middleware is
+not installed; the unit tests pin the edges of what the middleware reads and what it leaves
 alone.
 """
 
@@ -26,7 +28,7 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
 from terp.core import BaseSchema, ControlPlane, ModuleSpec, Policy, create_app, route_policy
-from terp.core._internal.middleware import NonFiniteJsonMiddleware, _non_finite_constant
+from terp.core._internal.middleware import NonFiniteJsonMiddleware, _non_finite_number
 
 _URL = "/api/v1/measure/"
 _JSON = {"content-type": "application/json"}
@@ -89,6 +91,55 @@ def test_negative_infinity_nested_in_an_untyped_mapping_is_refused() -> None:
         _URL, content=b'{"amount": 1, "details": {"floor": -Infinity}}', headers=_JSON
     )
     _assert_refused(response, "-Infinity")
+
+
+# --------------------------------------------------------------------------- #
+# Through the composed app: the same value, written as a number too large
+# --------------------------------------------------------------------------- #
+def test_an_overflowing_literal_in_a_plain_float_field_is_refused_not_accepted() -> None:
+    """``1e400`` is a legal JSON number the decoder reads as infinity — no constant at all."""
+    response = _client().post(_URL, content=b'{"amount": 1e400}', headers=_JSON)
+    _assert_refused(response, "1e400")
+
+
+def test_an_overflowing_literal_in_a_constrained_field_is_a_422_not_a_500() -> None:
+    """``gt=0`` refuses ``-inf`` and quotes it back, which is the renderer's 500."""
+    response = _client().post(
+        _URL, content=b'{"amount": 1, "limit": -1e400}', headers=_JSON
+    )
+    _assert_refused(response, "-1e400")
+
+
+def test_an_overflowing_literal_nested_in_an_untyped_mapping_is_refused() -> None:
+    response = _client().post(
+        _URL, content=b'{"amount": 1, "details": {"ceiling": 1.5E+999}}', headers=_JSON
+    )
+    _assert_refused(response, "1.5E+999")
+
+
+def test_a_long_overflowing_literal_is_not_quoted_back_whole() -> None:
+    """The body cap bounds a literal only at the size of the body; the detail stays short."""
+    literal = "9" * 400 + ".0"
+    response = _client().post(
+        _URL, content=f'{{"amount": {literal}}}'.encode(), headers=_JSON
+    )
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert f"contains {'9' * 24}…, a number too large to represent." in detail
+    assert literal not in detail
+
+
+def test_a_huge_integer_is_left_to_the_field_and_is_a_422() -> None:
+    """An integer literal decodes exactly, so it cannot overflow in the decoder.
+
+    pydantic refuses one too large for a ``float`` field and quotes the ``int`` back, which
+    encodes — the reason the middleware need not look at integers at all.
+    """
+    response = _client().post(
+        _URL, content=('{"amount": 1' + "0" * 400 + "}").encode(), headers=_JSON
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"][0]["type"] == "float_type"
 
 
 def test_a_finite_body_still_reaches_the_handler() -> None:
@@ -224,12 +275,14 @@ def test_a_non_http_scope_passes_straight_through() -> None:
     assert seen == ["lifespan"]
 
 
-def test_only_the_three_constants_are_reported() -> None:
-    assert _non_finite_constant(b"[1, NaN]") == "NaN"
-    assert _non_finite_constant(b'{"a": -Infinity}') == "-Infinity"
-    assert _non_finite_constant(json.dumps({"a": 1e308}).encode()) is None
-    assert _non_finite_constant(b"") is None  # malformed: FastAPI's to answer
-    assert _non_finite_constant(b"\xff\xfe\x00") is None  # undecodable: likewise
+def test_only_non_finite_numbers_are_reported() -> None:
+    assert _non_finite_number(b"[1, NaN]") == "NaN, which is not a JSON number"
+    assert _non_finite_number(b'{"a": -Infinity}') == "-Infinity, which is not a JSON number"
+    assert _non_finite_number(b"[2.5, 1e400]") == "1e400, a number too large to represent"
+    assert _non_finite_number(json.dumps({"a": 1.7976931348623157e308}).encode()) is None
+    assert _non_finite_number(b"[1e-400]") is None  # underflows to 0.0, which is finite
+    assert _non_finite_number(b"") is None  # malformed: FastAPI's to answer
+    assert _non_finite_number(b"\xff\xfe\x00") is None  # undecodable: likewise
 
 
 def test_a_body_nested_past_the_recursion_limit_is_left_to_fastapi(
@@ -246,4 +299,4 @@ def test_a_body_nested_past_the_recursion_limit_is_left_to_fastapi(
         raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
 
     monkeypatch.setattr(json, "loads", too_deep)
-    assert _non_finite_constant(b"[[[NaN]]]") is None
+    assert _non_finite_number(b"[[[NaN]]]") is None

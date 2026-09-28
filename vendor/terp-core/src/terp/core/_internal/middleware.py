@@ -17,6 +17,7 @@ import hashlib
 import ipaddress
 import json
 import logging
+import math
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
@@ -414,12 +415,15 @@ class RequestSizeLimitMiddleware:
 
 
 class NonFiniteJsonMiddleware:
-    """Refuse a JSON request body that spells ``NaN``, ``Infinity`` or ``-Infinity``.
+    """Refuse a JSON request body carrying a number that does not decode to a finite float.
 
-    JSON has no such numbers (RFC 8259 §6), but Python's decoder accepts all three, and so
-    does everything above it: FastAPI hands the float to pydantic, a plain ``float`` field
-    takes it, and a ``dict[str, Any]`` field carries it into the service untouched. Three
-    things then go wrong:
+    There are two ways a body gets one. It can spell ``NaN``, ``Infinity`` or
+    ``-Infinity``, which JSON does not have (RFC 8259 §6) and Python's decoder accepts
+    anyway. Or it can write a legal JSON number too large for a double — ``1e400`` — which
+    the decoder reads as infinity without a constant ever appearing. Either way everything
+    above the decoder takes the value: FastAPI hands the float to pydantic, a plain
+    ``float`` field takes it, and a ``dict[str, Any]`` field carries it into the service
+    untouched. Three things then go wrong:
 
     - A value that got in defeats the comparisons business logic is written with. Under
       IEEE 754 ``NaN > limit`` and ``NaN <= limit`` are both false, so a check that refuses
@@ -431,11 +435,13 @@ class NonFiniteJsonMiddleware:
       a 422 saying what was wrong.
 
     One refusal at the boundary closes all three for every field type, because it happens
-    before anything is decoded for the route. The body is parsed strictly, and one that uses
-    any of those constants is answered with a typed 422 naming it. That is one parse per JSON
-    body more than FastAPI's own; the size limiter outside this middleware already bounds the
-    body, and the parse needs no prefilter to get wrong — a byte scan for ``NaN`` misses a
-    UTF-16 body, which the decoder accepts all the same.
+    before anything is decoded for the route. The body is parsed strictly, and one that
+    carries a non-finite number in either form is answered with a typed 422 saying which.
+    The overflow is caught where the decoder turns each literal into a float, so no literal
+    can reach a field without passing the check. That is one parse per JSON body more than
+    FastAPI's own; the size limiter outside this middleware already bounds the body, and the
+    parse needs no prefilter to get wrong — a byte scan for ``NaN`` misses a UTF-16 body,
+    which the decoder accepts all the same.
 
     Nothing else about the body is judged here. Malformed JSON is FastAPI's to report, in the
     shape it already reports it; a body that is not declared as JSON is not read at all; and
@@ -459,13 +465,13 @@ class NonFiniteJsonMiddleware:
                 break
             body.extend(message.get("body", b"") or b"")
             complete = not message.get("more_body", False)
-        constant = _non_finite_constant(bytes(body)) if complete else None
-        if constant is not None:
+        found = _non_finite_number(bytes(body)) if complete else None
+        if found is not None:
             await _send_json_error(
                 send,
                 422,
                 "non_finite_number",
-                f"The request body contains {constant}, which is not a JSON number. "
+                f"The request body contains {found}. "
                 "Send a finite number, or null where there is no value.",
             )
             return
@@ -488,23 +494,54 @@ def _declares_json(scope: Scope) -> bool:
 
 
 class _NonFiniteNumber(Exception):
-    """Raised from the strict parse at the first constant JSON does not have."""
+    """Raised from the strict parse at the first number that is not finite.
+
+    Its message is the phrase the refusal's detail completes "The request body contains"
+    with, so each of the two hooks says in its own words what it found.
+    """
+
+
+#: How much of an overflowing literal the refusal quotes back. The body cap bounds a
+#: literal only at the size of the whole body, and a detail that echoes a megabyte of
+#: digits helps nobody — the leading characters are what identify the value.
+_QUOTED_LITERAL_MAX = 24
 
 
 def _refuse_constant(constant: str) -> NoReturn:
-    raise _NonFiniteNumber(constant)
+    raise _NonFiniteNumber(f"{constant}, which is not a JSON number")
 
 
-def _non_finite_constant(body: bytes) -> str | None:
-    """The first non-finite constant *body* spells, or ``None``.
+def _refuse_overflow(literal: str) -> float:
+    """Decode *literal* as the decoder would, refusing one too large for a double.
+
+    ``parse_float`` receives every number with a fraction or an exponent, as its source
+    text, and nothing else can overflow: an integer literal decodes to an exact ``int``,
+    which pydantic refuses for a ``float`` field rather than rounding it to infinity. So a
+    number the decoder would have turned into ``inf`` or ``-inf`` passes through here or
+    nowhere.
+    """
+    value = float(literal)
+    if math.isinf(value):
+        shown = (
+            literal
+            if len(literal) <= _QUOTED_LITERAL_MAX
+            else f"{literal[:_QUOTED_LITERAL_MAX]}…"
+        )
+        raise _NonFiniteNumber(f"{shown}, a number too large to represent")
+    return value
+
+
+def _non_finite_number(body: bytes) -> str | None:
+    """What *body* carries that is not a finite number, or ``None``.
 
     ``parse_constant`` is the decoder's hook for exactly ``NaN``, ``Infinity`` and
-    ``-Infinity``, and nothing else reaches it. A body that fails to parse for any other
-    reason — malformed, undecodable, nested past the recursion limit — is not this
-    middleware's to answer, so it reports nothing and FastAPI answers as it always has.
+    ``-Infinity``, and ``parse_float`` sees every other number that could overflow. A body
+    that fails to parse for any other reason — malformed, undecodable, nested past the
+    recursion limit — is not this middleware's to answer, so it reports nothing and
+    FastAPI answers as it always has.
     """
     try:
-        json.loads(body, parse_constant=_refuse_constant)
+        json.loads(body, parse_constant=_refuse_constant, parse_float=_refuse_overflow)
     except _NonFiniteNumber as refused:
         return str(refused)
     except (ValueError, RecursionError):

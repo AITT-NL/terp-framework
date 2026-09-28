@@ -832,6 +832,30 @@ All of it shipped in 0.28.0, on terp-spec 0.38.0, which carries the catalog half
 - [x] #125 — Decided: a `Meter` ships and charts wait for evidence under a fixed contract
       (ADR 0158); navigation stays declared, records are reached from an overview (ADR 0159).
 
+**A second friction batch from app building** — six findings reported against 0.28.0, each
+reproduced against that release on 2026-09-28 before any of it was changed. One branch,
+`fix/app-friction-0.28`, one commit per item; this is the index.
+
+- [x] A number literal too large for a double (`1e400`) decodes as infinity without ever
+      spelling `Infinity`, so ADR 0152's middleware never saw it: a plain `float` field
+      accepted it and a constrained one answered 500. ADR 0152's "no longer accepted
+      anywhere" was false. The same strict parse now refuses it through `parse_float`;
+      ADR 0152 is amended, including why the error renderer was not the place to fix it.
+- [ ] An authenticated module that only reads has no declared form. `Policy.public` already
+      refuses a write route at boot; nothing does for an authenticated module, so an app holds
+      the line with a hand-written test — and one that scans `router.routes` misses a route on
+      an included sub-router.
+- [ ] Module code has no supported way to ask who is calling beyond the principal's id and
+      role, so an app builds a second `IdentityService` inside a module to read the email.
+- [ ] Tests that sign tokens must hard-code a signing key, because the 10-byte development
+      default trips pyjwt's key-length warning — and the literal then trips the secret scan.
+      The framework's own example app carries one.
+- [ ] Count-bearing interface strings have no plural form in any locale: "1–1 of 1 results",
+      "1–1 van 1 resultaten", and `action(s)` / `actie(s)` where the wording was dodged.
+- [ ] Starlette's test client deprecates `httpx` for `httpx2`, and the template's own test
+      dependencies install `httpx`, so every generated app's suite warns — and will fail to
+      import once the fallback is removed.
+
 ## Active execution track
 
 Authoritative design refinement:
