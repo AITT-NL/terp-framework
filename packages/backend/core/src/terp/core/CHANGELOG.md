@@ -22,7 +22,9 @@ drawn as one.
 - **`Meter` — one bounded value, a quota used or a score against its range, as a bar with the
   value printed beside it** (ADR 0158, which also decides that no chart is built yet). An app
   could not draw one within the pattern: a bar whose length is a value needs CSS or `style`,
-  and module code may write neither (ADR 0059).
+  and module code may write neither (ADR 0059). A raw `<meter>` in an app module is now refused by
+  `frontend/token-styled-elements`, which names `Meter`; the Standard gains the element in
+  0.38.0, and the framework refuses it ahead of that, as the Standard's floor allows.
 
   **The bar is the native `<meter>`, styled from the sheet.** The element carries its own
   semantics and the browser draws the proportion from its attributes, so nothing renders an

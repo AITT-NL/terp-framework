@@ -145,9 +145,13 @@ tones against the `--color-bg-inset` track, held to 3:1 in every theme by the co
 The brand fill was the other candidate. It measures 1.98 to 2.66 against that track in the
 three dark themes, because it is a surface for light text, not a mark on the app's own ground.
 
-### What is left open
+### A raw `<meter>` is refused
 
-A raw `<meter>` in an app module is still legal, because the Standard's refused-element list
-(`restricted-surface.json` in terp-spec) does not name it. With a token-styled `Meter`
-shipped, a raw one is the second way, on the same footing as a raw `<button>` beside `Button`.
-Refusing it is a change to the Standard, so it follows there rather than in this repository.
+With a token-styled `Meter` shipped, a raw `<meter>` in an app module is the second way, on the
+same footing as a raw `<button>` beside `Button`, so `frontend/token-styled-elements` refuses it
+and names `Meter`. The framework refuses it now; the Standard's refused-element list
+(`restricted-surface.json`) gains it in 0.38.0. Refusing it here first is conformant, because
+the Standard states the floor and not the ceiling. The framework's parity test used to require
+its element map to equal the Standard's list exactly, which made that impossible; it now
+requires every Standard element to be mapped, and names each element the framework refuses
+ahead of the Standard in a list that empties itself on adoption.

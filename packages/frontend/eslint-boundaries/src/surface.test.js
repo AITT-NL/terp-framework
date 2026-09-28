@@ -37,10 +37,37 @@ async function lintModuleSource(source) {
   return result.messages.map((message) => catalogRuleId(message));
 }
 
-describe("structural parity: BOUNDARY_SPEC realises exactly the declared surface", () => {
-  it("restricted elements match", () => {
-    expect(Object.keys(BOUNDARY_SPEC.restrictedElements).sort()).toEqual(
-      [...SURFACE.restrictedElements].sort(),
+/**
+ * Elements this checker refuses before the pinned Standard lists them.
+ *
+ * The Standard states the floor, not the ceiling ("widening a detector past the contract
+ * is always allowed"), so refusing more is conformant. It is still a deliberate list: an
+ * element here must be one the pinned spec does not name yet, so it empties itself when a
+ * spec release adopts the element, and a typo in the map cannot pass as an extra refusal.
+ *
+ * `meter`: react-core ships `Meter` (ADR 0158), and a raw <meter> beside it is a second way
+ * to draw the same thing with none of its theming or naming. The Standard gains it in 0.38.0.
+ */
+const AHEAD_OF_SPEC = ["meter"];
+
+describe("structural parity: BOUNDARY_SPEC realises the declared surface", () => {
+  it("every element the Standard restricts is restricted here", () => {
+    const mapped = Object.keys(BOUNDARY_SPEC.restrictedElements);
+    expect(SURFACE.restrictedElements.filter((element) => !mapped.includes(element))).toEqual([]);
+  });
+
+  it("anything restricted beyond the Standard is named, and only until it is adopted", () => {
+    const beyond = Object.keys(BOUNDARY_SPEC.restrictedElements)
+      .filter((element) => !SURFACE.restrictedElements.includes(element))
+      .sort();
+    expect(beyond).toEqual(
+      AHEAD_OF_SPEC.filter((element) => !SURFACE.restrictedElements.includes(element)).sort(),
+    );
+  });
+
+  it("a raw <meter> is refused and names Meter", async () => {
+    expect(await lintModuleSource("export const W = () => <meter value={0.5} />;\n")).toContain(
+      "frontend/token-styled-elements",
     );
   });
 
