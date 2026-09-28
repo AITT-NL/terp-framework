@@ -434,6 +434,12 @@ Authorization (Policy)
   or boot fails closed. Grant via the access capability; the caller must clear the
   min_role floor AND hold the grant.
 - Route-level extra check: dependencies=[Depends(require_permission(APPROVE))].
+- A module that only READS says so, and the boot holds every route to it:
+      ModuleSpec(name="reports", router=router, policy=Policy.default(), read_only=True)
+  A route that answers POST / PUT / PATCH / DELETE, or a WebSocket, then refuses the
+  boot, on an included sub-router too, unless it is declared @read_only (it computes an
+  answer and persists nothing). Undeclared, the module is read-only only until someone
+  adds a write route. It is not a Policy: route_policy(...) cannot reopen it.
 - Authority is always a typed object (Role / Permission), never a bare string — pass the
   declared constant, not its name. no_adhoc_permission_literals refuses the literal.
 - Choosing between a role and a permission, and the grant lifecycle: `terp guide permissions`.
@@ -748,6 +754,7 @@ Rows that cannot change, and rows that cannot go (append_only)
 - The neighbouring guarantees, so you pick the right one:
       append_only          the ROW cannot change after insert
       @read_only           the ROUTE writes nothing, though its verb is unsafe
+      ModuleSpec(read_only=True)  no ROUTE in the module writes (see: policy)
       SoftDeleteMixin      the row survives its own delete (see: soft-delete)
       OnDelete.RESTRICT    another row cannot be deleted while this one points at it
       BaseUpdateSchema     a concurrent writer cannot lose your edit (OCC, 409)

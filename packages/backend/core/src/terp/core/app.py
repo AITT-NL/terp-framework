@@ -1175,6 +1175,42 @@ def validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
             )
 
 
+def _validate_read_only_modules(specs: Sequence[ModuleSpec]) -> None:
+    """Refuse a route that could write in a module declared ``read_only`` (ADR 0161).
+
+    A route boots in such a module only if the read-only binder will mark every request
+    it serves: an HTTP route none of whose methods is in ``MUTATING_METHODS``, or any
+    route declared ``@read_only``. A WebSocket has no method after the upgrade and is a
+    write to the guard, so it needs the declaration too. A per-route ``route_policy``
+    changes nothing here — it says who may call, and this is about what the route does.
+    """
+    for spec in specs:
+        if not spec.read_only or spec.router is None:
+            continue
+        for route in iter_declaring_routes(spec.router.routes):
+            endpoint = getattr(route, "endpoint", None)
+            if is_read_only(endpoint):
+                continue
+            if isinstance(route, APIWebSocketRoute):
+                serves = "a WebSocket"
+            else:
+                methods = {method.upper() for method in getattr(route, "methods", ())}
+                mutating = sorted(MUTATING_METHODS & methods)
+                if not mutating:
+                    continue
+                serves = "/".join(mutating)
+            # The handler's name as well as the path, because a route on an included
+            # sub-router reports its path relative to that router, not to the mount.
+            raise BootError(
+                f"module {spec.name!r} is declared read_only and route "
+                f"{getattr(route, 'path', '?')!r} ({getattr(endpoint, '__name__', '?')}) "
+                f"serves {serves}, which can write; a "
+                "read-only module persists nothing through its routes. Move the route to a "
+                "module that writes, or, if it computes an answer and persists nothing, "
+                "declare it @read_only below its route decorator (terp guide policy)"
+            )
+
+
 def validate_background_jobs_preserve_ownership(specs: Sequence[ModuleSpec]) -> None:
     """Refuse a module job that can mutate an unowned CRUD model.
 
@@ -2111,6 +2147,7 @@ def create_app(
     # stable spelling and takes the underscore the others had to give up.
     _validate_public_routes_are_declared(collected)
     validate_public_modules_read_only(collected)
+    _validate_read_only_modules(collected)
     validate_declared_operations(collected, resolved_plane.operations)
     _apply_declared_operations(collected)
     _validate_route_permissions_are_declared(collected, resolved_plane)

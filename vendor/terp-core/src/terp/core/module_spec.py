@@ -379,6 +379,18 @@ class ModuleSpec:
     one-way (a cycle refuses the boot), and it grants the dependency's ``models``,
     ``schemas``, ``service`` and ``events`` only, never its router or its
     internals. Recipe: ``terp guide dependencies``.
+
+    ``read_only`` says the module's routes persist nothing, and the boot holds every
+    one of them to it (ADR 0161). A module that only serves reads — records another
+    process writes, a view over another module's data — was otherwise read-only only
+    because no write route had been added yet, which is a guarantee made of missing
+    code. Declared, a route that could write is refused where the app is composed:
+    one that answers a mutating method, or a WebSocket, unless it is declared
+    :func:`~terp.core.routing.read_only`. Every route that boots is then one the
+    runtime binder marks read-only, so a write through the chokepoint fails closed
+    as it does in a ``GET``. It is not part of :class:`Policy`, deliberately: a policy
+    says who may call, a per-route ``route_policy`` replaces it outright, and neither
+    may reopen what the module said it never does.
     """
 
     name: str
@@ -392,6 +404,7 @@ class ModuleSpec:
     access: ModuleAccess | None = None
     policy: Policy | None = None
     tenant_scoped: bool = False
+    read_only: bool = False
     max_request_bytes: int | None = None
     #: Declared as a mapping and normalised to a tuple of pairs, for the reason
     #: ``SecurityConfig.rate_limit_overrides`` is: every other field on this frozen

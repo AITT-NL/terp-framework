@@ -841,10 +841,11 @@ reproduced against that release on 2026-09-28 before any of it was changed. One 
       accepted it and a constrained one answered 500. ADR 0152's "no longer accepted
       anywhere" was false. The same strict parse now refuses it through `parse_float`;
       ADR 0152 is amended, including why the error renderer was not the place to fix it.
-- [ ] An authenticated module that only reads has no declared form. `Policy.public` already
+- [x] An authenticated module that only reads has no declared form. `Policy.public` already
       refuses a write route at boot; nothing does for an authenticated module, so an app holds
       the line with a hand-written test — and one that scans `router.routes` misses a route on
-      an included sub-router.
+      an included sub-router. `ModuleSpec(read_only=True)` now refuses the boot on any route
+      that could write (ADR 0161); boot-only by decision, no catalog rule.
 - [ ] Module code has no supported way to ask who is calling beyond the principal's id and
       role, so an app builds a second `IdentityService` inside a module to read the email.
 - [ ] Tests that sign tokens must hard-code a signing key, because the 10-byte development

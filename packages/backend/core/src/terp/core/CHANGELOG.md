@@ -15,6 +15,23 @@ decision, 0001 onwards.
 Friction reported from building apps on Terp 0.28.0: a request body that could still carry
 an infinite number past the control built to refuse one.
 
+### Added
+
+- **A module that only reads says so, and the boot holds it (ADR 0161).**
+  `ModuleSpec(read_only=True)` declares that none of the module's routes writes. An
+  authenticated module could not say that before: `Policy.public` refuses a write route, but
+  nothing did for a module behind a login, so its read-only-ness lasted until someone added a
+  `POST`. The substitute an app reaches for, a test that walks `router.routes` and fails on any
+  method but `GET`, misses a route on an included sub-router, which FastAPI keeps nested
+  rather than flattened.
+
+  Declared, `create_app` refuses a route that answers `POST`, `PUT`, `PATCH` or `DELETE`
+  (including one of several methods) or a WebSocket, on any router the module includes, unless
+  it is declared `@read_only`. The refusal names the route's path and its handler. Every route
+  that boots is one the runtime binder already marks read-only, so a write that reaches the
+  chokepoint anyway fails closed. The declaration sits on `ModuleSpec`, not on `Policy`, so a
+  per-route `route_policy(...)` cannot reopen it. Recipe: `terp guide policy`.
+
 ### Fixed
 
 - **A number too large for a double is refused like `Infinity` (ADR 0152, amended).** 0.28.0
