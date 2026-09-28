@@ -5,7 +5,7 @@
       "base_query_not_overridden": 1,
       "mutations_emit_audit": 7,
       "no_adhoc_background_runtime": 4,
-      "no_adhoc_middleware": 11,
+      "no_adhoc_middleware": 5,
       "no_app_instantiation": 1,
       "no_dependency_overrides": 3,
       "no_exception_text_in_responses": 3,
