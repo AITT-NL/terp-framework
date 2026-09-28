@@ -226,22 +226,27 @@ repeated more often than the values it applied to.
   stack was never the one it drove, and on a developer's machine it drove whatever else happened
   to listen there. And its helpers looked for English names on a Dutch interface (see Changed).
 
-  The job now runs `terp ports assign` before it starts the workbench. `terp verify --only
-  conformance` hands the suite its address, read the way compose reads the port it publishes:
-  `TERP_E2E_BASE_URL` if set, otherwise the app's web-port variable from the environment, then
-  from `.env`. With no answer it refuses before the suite starts and names both fixes, rather
-  than falling back to a port that may be another checkout's. The template's
-  `conformance/playwright.config.ts` has no default address any more: run by hand, it asks for
-  `TERP_E2E_BASE_URL` or for the suite to be run through `terp verify`.
+  The job now runs `terp ports assign` before it starts the workbench, and when it fails it
+  prints the containers' logs before it removes them, because `--wait` reports only that a
+  container is unhealthy, never why. `terp verify --only conformance` hands the suite its
+  address, read the way compose reads the port it publishes: `TERP_E2E_BASE_URL` if set,
+  otherwise the app's web-port variable from the environment, then from `.env`. With no answer
+  it refuses before the suite starts and names both fixes, rather than falling back to a port
+  that may be another checkout's. The template's `conformance/playwright.config.ts` has no
+  default address any more: run by hand, it asks for `TERP_E2E_BASE_URL` or for the suite to be
+  run through `terp verify`.
 
   Nothing here could have seen it: `template-acceptance` never started the generated stack, and
   the framework's own conformance lane runs the example app, whose ports have defaults and whose
   interface is English. `template-acceptance` now proves that every variant's compose file
-  refuses an unassigned checkout and resolves once ports are assigned, and runs the generated
-  app's own conformance job end to end on one variant, Docker workbench included, with the
-  packages under test staged in `.terp-dist/` where the template's Dockerfiles already look for
-  pre-release builds. The template's CI workflow and suite config also joined the files that
-  may not dial a port outside the Terp range, which would have caught the stale one.
+  refuses an unassigned checkout and resolves once ports are assigned, and on one variant runs
+  the generated app's conformance job end to end, Docker workbench included. It runs the job
+  from the rendered workflow, through `tools/run_workflow_job.py`, rather than a copy of its
+  steps, so the job it proves is the job the app ships, and the runner refuses the workflow
+  forms it does not implement rather than skipping them. The packages under test are staged in `.terp-dist/`,
+  where the template's Dockerfiles already look for pre-release builds. The template's CI
+  workflow and suite config also joined the files that may not dial a port outside the Terp
+  range, which would have caught the stale one.
 
 ### Upgrade notes
 
@@ -270,9 +275,9 @@ repeated more often than the values it applied to.
   screen (`renderTerpApp({ login })`) renders `login-title`, `login-email`, `login-password` and
   `login-submit` for `login()` to find its controls, where it used to have to render the English
   names (see *Changed*). And `conformance/playwright.config.ts` has no default address any more:
-  `copier update` brings the new config together with the CI step that assigns the workbench's
-  ports, and a suite run by hand goes through `uv run terp verify --profile release --only
-  conformance` or sets `TERP_E2E_BASE_URL`.
+  `copier update` brings the new config together with the CI steps that assign the workbench's
+  ports and print its logs on a failure, and a suite run by hand goes through `uv run terp
+  verify --profile release --only conformance` or sets `TERP_E2E_BASE_URL`.
 
 ## 0.27.0 — 2026-09-24
 

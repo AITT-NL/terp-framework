@@ -414,10 +414,10 @@ jobs:
       # template starts in Dutch. The framework's conformance lane runs the example app
       # (English, with in-range port defaults), which is why none of it showed.
       #
-      # The job runs as the generated workflow runs it, Docker workbench included. No
-      # package index has the code under test, so the staged wheels and tarballs go where
-      # the template's Dockerfiles look for pre-release builds, `.terp-dist/`, and the
-      # frontend is re-pointed at those copies: its `file:` references have to resolve
+      # This is the one thing an app's CI gets from the package index instead: the code
+      # under test is on no index, so the staged wheels and tarballs go where the template's
+      # Dockerfiles look for pre-release builds, `.terp-dist/`, and the frontend and the
+      # suite are re-pointed at those copies. Their `file:` references have to resolve
       # inside the build context, and /tmp/terp-npm is outside it.
       - name: Stage the packages under test where the generated images read them (default-blank)  # zizmor: ignore[adhoc-packages]
         if: matrix.variant == 'default-blank'
@@ -430,28 +430,31 @@ jobs:
           # zizmor: ignore[adhoc-packages] this repository's own `npm pack` output, as in
           # the frontend build above, standing in for the registry.
           (cd frontend && npm install ../.terp-dist/npm/*.tgz)
-          (cd conformance && npm install ../.terp-dist/npm/terpjs-conformance-*.tgz && npm install)
+          (cd conformance && npm install ../.terp-dist/npm/terpjs-conformance-*.tgz)
 
-      # The rest of the generated job's steps, on the ports assigned above: Playwright, the
-      # workbench, the seed, and the check -- which is given no address and reads it from
-      # the assignment in .env, as it does in the generated CI.
-      - name: Run the generated app's conformance job (default-blank)
+      # Then the job itself, read from the rendered workflow rather than restated here. A
+      # restated copy is a second definition of the job: change the template's, and the
+      # copy goes on proving the steps it was copied from. tools/run_workflow_job.py runs
+      # the job's `run:` steps as Actions would, including its failure and cleanup steps,
+      # and refuses any form it does not implement, so a template change it cannot follow
+      # fails here rather than being skipped. The job's `uses:` steps are this job's own:
+      # the checkout, uv and node above, and the report upload below.
+      #
+      # The runner starts from this repository's locked interpreter directly, not through
+      # `uv run`, which would put .venv first on PATH for every step it runs: a bare `terp`
+      # in the generated job would then be this checkout's, passing here and failing in the
+      # app.
+      - name: Run the generated app's conformance job from its own workflow (default-blank)
         if: matrix.variant == 'default-blank'
-        working-directory: /tmp/acceptance-app
         env:
           UV_FIND_LINKS: /tmp/terp-wheels
         run: |
           set -eux
-          (cd conformance && npx playwright install --with-deps chromium)
-          docker compose up -d --wait api web
-          docker compose run --rm seed
-          uv run terp verify --profile release --only conformance
-
-      # `--wait` reports only "container X is unhealthy" -- never why.
-      - name: Why the generated workbench or its suite failed
-        if: failure() && matrix.variant == 'default-blank'
-        working-directory: /tmp/acceptance-app
-        run: docker compose logs --no-color --tail=120 || true
+          uv sync --frozen --inexact
+          .venv/bin/python tools/run_workflow_job.py \
+            /tmp/acceptance-app/.github/workflows/ci.yml conformance \
+            --provided actions/checkout --provided astral-sh/setup-uv \
+            --provided actions/setup-node --provided actions/upload-artifact
 
       - name: Upload the generated app's Playwright report on failure
         if: failure() && matrix.variant == 'default-blank'
@@ -460,9 +463,4 @@ jobs:
           name: acceptance-playwright-report
           path: /tmp/acceptance-app/conformance/playwright-report/
           retention-days: 7
-
-      - name: Stop the generated workbench
-        if: always() && matrix.variant == 'default-blank'
-        working-directory: /tmp/acceptance-app
-        run: docker compose down -v || true
 

@@ -7,8 +7,10 @@
   workbench's ports. Held by `tests/architecture/test_conformance_markers.py`,
   `tests/architecture/test_template_conformance_job.py`,
   `tests/architecture/test_verify_conformance_address.py`,
-  `tests/architecture/test_dev_host_ports.py`, the react-core marker, style and component tests,
-  and the end-to-end run in `template-acceptance`.
+  `tests/architecture/test_dev_host_ports.py`, `tests/architecture/test_run_workflow_job.py`,
+  the react-core marker, style and component tests, and the end-to-end run in
+  `template-acceptance`, which runs the generated job from its own workflow through
+  `tools/run_workflow_job.py`.
 - **Date:** 2026-09-27
 - **Relates:** [ADR 0134](0134-the-lifecycle-has-one-driver-and-a-workbench-is-not-it.md)
   (host ports are an assignment, and a start without one refuses),
@@ -110,13 +112,30 @@ gate that knows. The template's CI job runs `terp ports assign` before it starts
 
 `template-acceptance` proves, for every variant, that the generated compose file refuses an
 unassigned checkout and resolves once `terp ports assign` has run. For one variant it then runs
-the generated app's own conformance job end to end, Docker workbench included: the staged
+the generated app's own conformance job end to end, Docker workbench included.
+
+It runs that job from the rendered workflow, not from a copy of its steps. A copy is a second
+definition of the job: change the template's, and the copy goes on proving the steps it was
+taken from. `tools/run_workflow_job.py` reads the job and runs its `run:` steps as an Actions
+runner does: in order, in their `working-directory`, under the job's and then the step's
+`env`, stopping at the first failure and naming it, while the `failure()` diagnosis and the
+`always()` teardown still run. Before running anything, it refuses the workflow forms it does
+not implement (another `if:`, another shell, a `${{ }}` expression, a key it has no meaning for,
+an action the caller has not said it provides), so a template change it cannot follow fails
+acceptance rather than being skipped by it. The job's `uses:` steps are acceptance's own: its checkout, uv and node, and its report
+upload. Because the runner runs the teardown before any later acceptance step could read the
+containers' logs, the template's job reads them itself on a failure, which serves every
+generated app as well.
+
+What acceptance adds is only what an app's CI gets from the package index instead: the staged
 wheels and tarballs go into `.terp-dist/`, where the template's Dockerfiles already look for
-pre-release builds, and the job's steps run as the generated workflow runs them, through
-`terp verify` with no address given. Statically, the template's conformance job must assign
-before it starts the workbench, the template's suite config and CI workflow are among the files
-that may not dial a port outside the Terp range, and no base-profile flow may locate anything by
-its wording.
+pre-release builds. The check itself runs through `terp verify` with no address given.
+
+Statically, the template's conformance job must assign before it starts the workbench and must
+stay within what the runner implements, planned with exactly the actions acceptance provides;
+acceptance may not start the workbench or run the suite itself; the template's suite config and
+CI workflow are among the files that may not dial a port outside the Terp range; and no
+base-profile flow may locate anything by its wording.
 
 ## Consequences
 
@@ -126,6 +145,10 @@ its wording.
   `login-title`, `login-email`, `login-password` and `login-submit` for `login()` to find its
   controls, or sign in from its specs its own way. Before this, it had to render the same
   English names instead.
+- A change to the template's conformance job is proved by acceptance exactly as written. A form
+  the runner does not implement fails acceptance, and `test_template_conformance_job.py` says so
+  in seconds; supporting it is a change to the runner and its tests, never a step restated in
+  acceptance.
 - `npm test` in a generated app's `conformance/` no longer runs with nothing set; it says to run
   it through `terp verify` or to set `TERP_E2E_BASE_URL`.
 - react-core renders four wrapper elements it did not render before. They carry no box and no
@@ -145,6 +168,17 @@ sign-out, puts two kinds of handle side by side, and neither kind is pinned anyw
 
 **Put the new markers on the controls.** An element has one `data-terp`. Replacing `input`,
 `button` or `menu-item` with a part name would unstyle the control.
+
+**Keep acceptance's copy of the job's steps, and guard it.** A test that compared the copy
+with the template's job would have to understand both well enough to call them equivalent,
+which is a runner with extra steps; without one, the copy proves only itself. Before the runner
+nothing compared the two: the one static guard held the template job's port-assignment order.
+
+**Run the job with a general local Actions runner.** Such runners exist, and they implement far
+more than this job uses: they run actions and evaluate expressions, and each would be one more
+dependency to pin and trust in the lane that proves the template. The job uses a handful of
+forms; a small runner that implements those and refuses the rest is the smaller thing to trust,
+and its refusals name exactly what a template change asked of it.
 
 **Run the template's non-Docker loop in `template-acceptance`.** `terp dev` against a SQLite
 file drives the same suite through the same check, without an image build. It was the first

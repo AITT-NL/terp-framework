@@ -145,6 +145,12 @@ jobs:
           docker compose up -d --wait api web
           docker compose run --rm seed
       - run: uv run terp verify --profile release --only conformance
+      # `--wait` reports only "container X is unhealthy", never why, and a failed suite says
+      # what the browser saw rather than what the API did. The containers' logs say both, and
+      # the last step removes the containers, so they are read here or not at all.
+      - name: Why the workbench or the suite failed
+        if: failure()
+        run: docker compose logs --no-color --tail=120
       - name: Upload the Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
